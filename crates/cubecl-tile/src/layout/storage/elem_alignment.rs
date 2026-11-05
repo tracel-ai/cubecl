@@ -1,6 +1,7 @@
 //! A buffer layout's alignment in elements, along its innermost dim.
 
-use crate::{Axis, Geometry, layout::StoragePartitioning};
+use super::geometry::stride_order;
+use crate::{Axis, Geometry, gcd, layout::StoragePartitioning};
 use cubecl::prelude::TensorBinding;
 
 /// The alignment of a buffer's layout, counted in elements along its innermost dim: the number
@@ -17,27 +18,29 @@ use cubecl::prelude::TensorBinding;
 /// to its offset in elements ([`at_start`](Self::at_start)), the buffer's own start being the
 /// runtime's to align.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ElemAlignment {
-    divides: usize,
-    /// Whether `divides` is the one width that reads the buffer rather than a bound every width
-    /// divides: a storage-tiled buffer stores its read as a piece, which a reader takes whole.
-    exact: bool,
+pub struct ElemAlignment(Widths);
+
+/// The widths that read a buffer's elements and no others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Widths {
+    /// Every width dividing this one.
+    Dividing(usize),
+    /// This width alone: a storage-tiled buffer stores its read as a piece, which a reader takes
+    /// whole.
+    Exactly(usize),
 }
 
 impl ElemAlignment {
     /// A layout aligned to one element, read one element at a time: a strided or broadcast view,
     /// whose innermost dim strides past one.
-    pub const ONE: Self = Self {
-        divides: 1,
-        exact: false,
-    };
+    pub const ONE: Self = Self(Widths::Dividing(1));
 
     /// The alignment of a buffer of `shape` at `strides`, its dims taken in the order the buffer
     /// steps them, whatever order the view names them in.
     pub fn in_stride_order(shape: &[usize], strides: &[usize]) -> Self {
         let mut dims: Vec<(usize, usize)> =
             shape.iter().copied().zip(strides.iter().copied()).collect();
-        dims.sort_by_key(|&(_, stride)| core::cmp::Reverse(stride));
+        dims.sort_by_key(|&dim| stride_order(dim));
         let (shape, strides): (Vec<usize>, Vec<usize>) = dims.into_iter().unzip();
         Self::new(&shape, &strides)
     }
@@ -49,17 +52,23 @@ impl ElemAlignment {
     }
 
     /// The alignment of a buffer of `shape` at `strides`, innermost last.
+    ///
+    /// A dim of one element steps nowhere, so its stride reads no address and aligns nothing:
+    /// a view `[1, k]` swapped out of a column `[k, 1]` keeps the column's stride of one on its
+    /// single row, and is as aligned as the dense row it is.
     pub fn new(shape: &[usize], strides: &[usize]) -> Self {
+        let (shape, strides): (Vec<usize>, Vec<usize>) = shape
+            .iter()
+            .zip(strides)
+            .filter(|&(&extent, _)| extent != 1)
+            .unzip();
         let divides = match (shape.split_last(), strides.split_last()) {
             (Some((&extent, _)), Some((&1, coarser))) => {
                 coarser.iter().fold(extent, |acc, &stride| gcd(acc, stride))
             }
             _ => 1,
         };
-        Self {
-            divides,
-            exact: false,
-        }
+        Self(Widths::Dividing(divides))
     }
 
     /// The alignment a view starting `start_bytes` into its buffer gives lines of `element_bytes`
@@ -72,33 +81,27 @@ impl ElemAlignment {
             true => (start_bytes / element_bytes) as usize,
             false => 1,
         };
-        Self {
-            divides,
-            exact: false,
-        }
+        Self(Widths::Dividing(divides))
     }
 
     /// The alignment of a buffer stored in pieces `read` elements wide, which a reader takes whole:
     /// a storage-tiled one's.
     pub const fn stored_piece(read: usize) -> Self {
-        Self {
-            divides: read,
-            exact: true,
-        }
+        Self(Widths::Exactly(read))
     }
 
     /// Whether the buffer is read in the pieces it is stored in, a storage-tiled one's, rather than
     /// along rows.
     pub fn is_stored_piece(self) -> bool {
-        self.exact
+        matches!(self.0, Widths::Exactly(_))
     }
 
     /// Whether a line `width` wide reads this buffer's elements and no others.
     pub fn admits(self, width: usize) -> bool {
-        match self.exact {
+        match self.0 {
             _ if width == 1 => true,
-            true => width == self.divides,
-            false => self.divides.is_multiple_of(width),
+            Widths::Exactly(read) => width == read,
+            Widths::Dividing(divides) => divides.is_multiple_of(width),
         }
     }
 }
@@ -123,15 +126,31 @@ impl From<&TensorBinding> for ElemAlignment {
     }
 }
 
-fn gcd(a: usize, b: usize) -> usize {
-    match b {
-        0 => a,
-        _ => gcd(b, a % b),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    /// A row viewed out of a column keeps the column's stride on its single row, which steps
+    /// nowhere: it is as aligned as the dense row it is.
+    #[test]
+    fn a_dim_of_one_element_aligns_nothing() {
+        let k = 8;
+        let row = ElemAlignment::new(&[1, k], &[1, 1]);
+        assert_eq!(row, ElemAlignment::dense_rows(k));
+        assert!(ElemAlignment::in_stride_order(&[1, k], &[1, 1]).admits(k));
+    }
+
+    /// A column bound in buffer order runs its lines along the dim it steps, not along its dim of
+    /// one element, which ties its stride: `[k, 1]` at strides `[1, 1]` is a dense run of `k`.
+    #[test]
+    fn a_dim_of_one_element_is_never_innermost_in_stride_order() {
+        let k = 4;
+        assert_eq!(
+            ElemAlignment::in_stride_order(&[k, 1], &[1, 1]),
+            ElemAlignment::dense_rows(k)
+        );
+        let (_, axes) = Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Axis(2), Axis(1)]);
+        assert_eq!(axes, [Axis(1), Axis(2)]);
+    }
+
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.
     #[test]
     fn a_view_is_aligned_in_the_order_its_buffer_steps() {

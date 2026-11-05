@@ -21,3 +21,5 @@ mod gpu_engine_instance;
 mod io_accelerator;
 
 pub use card_counters::CardCounters;
+#[cfg(io_accelerator)]
+pub use io_accelerator::gpu_core_count;

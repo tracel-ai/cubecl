@@ -20,7 +20,9 @@ use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
     StreamMemoryReport,
 };
-use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
+use crate::server::{
+    BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
+};
 use crate::storage::ManagedResource;
 use crate::stream::ResolvedStreams;
 use crate::stream::TouchedPage;
@@ -542,9 +544,34 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// The fault the barrier reveals, when the stream itself failed.
     pub fn sync(&mut self) -> DynFut<Result<(), ServerError>> {
+        // The memory of other devices this stream binds stays pinned on its
+        // owner until a flush releases it, so a sync, after which nothing here
+        // may be running, releases it rather than leave it pinned while the
+        // stream idles.
+        let stream = self.streams.current();
+        if !stream.capturing().is_recording() && stream.drop_queue().holds_peers() {
+            let signal = stream.signal();
+            stream.drop_queue().drain(|| D::Stream::fence(signal));
+        }
         let fence = D::Stream::fence(self.streams.current().signal());
 
         Box::pin(async move { fence.wait() })
+    }
+
+    /// Keep `peers`, memory of other devices the kernel just enqueued binds,
+    /// allocated and in place there until the current stream is past that
+    /// kernel. Their owners order nothing against this stream, so this is what
+    /// tells them the memory is still in use. While the stream records a
+    /// graph, the graph holds them instead, for as long as it can be replayed.
+    pub fn hold_peers(&mut self, peers: impl IntoIterator<Item = PeerBinding>) {
+        let stream = self.streams.current();
+        let recording = stream.capturing().is_recording();
+        for peer in peers {
+            match recording {
+                true => stream.capturing().retain_peer(peer.into_binding()),
+                false => stream.drop_queue().hold_peer(peer.into_binding()),
+            }
+        }
     }
 
     /// Enqueue an already-compiled kernel on the current stream.

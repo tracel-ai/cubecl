@@ -75,9 +75,25 @@ impl Memory {
             comptime!(matches!(total_c, Some(t) if units > 0 && (t as usize).div_ceil(units) <= 8));
         let d = self.lines_storage_mut::<I2, WP2>();
         if comptime!(sw == w) {
-            let s = if comptime!(steps.is_empty()) {
+            // A partition no compaction stands in for, several of whose axes share one of its
+            // physical axes, is a source of fewer physical axes than the stage's logical ones:
+            // the stage's coordinates name its axes, not the source's physical ones.
+            let through_projection = comptime!(
+                compaction.is_none()
+                    && !src.projection.is_direct()
+                    && !src.projection.is_rational()
+                    && src_rank != plen
+            );
+            let s = if comptime!(steps.is_empty() && !through_projection) {
                 Masked::new(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked)),
+                    check,
+                )
+            } else if comptime!(through_projection) {
+                // Read at the stage's logical coordinates through the source's own projection.
+                Masked::new(
+                    src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
+                        .view(src.axis_projection(comptime!(space.clone()))),
                     check,
                 )
             } else {

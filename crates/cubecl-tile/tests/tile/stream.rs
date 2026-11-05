@@ -1,4 +1,5 @@
-//! Distributing a level's work as one index, which is stream-K.
+//! Distributing a level's work as one index: the hypercube scope taking every step of the
+//! contraction as dependent work.
 //!
 //! Distributing each axis on its own gives a cube the product of its per-axis runs, which is a box
 //! of the grid. A share of the work is not a box: it is a range of the index the axes make
@@ -43,8 +44,8 @@ const REGIONS: usize = (ROWS / TILE_ROWS) * (COLS / TILE_COLS);
 /// branch: the runs abut, cover the grid once, and differ in length by at most one.
 #[cube(launch)]
 fn copy_run(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] cubes: usize,
@@ -67,8 +68,8 @@ fn copy_run(
 /// regions rather than the same ones in another order.
 #[cube(launch)]
 fn copy_one_run(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     #[comptime] start: usize,
     #[comptime] steps: usize,
     space: Partitioning,
@@ -78,7 +79,7 @@ fn copy_one_run(
     let dst = dst.tile(&space);
     let walk = dst.over(&level);
 
-    // Stated at launch but taken as runtime values: a window whose bounds fold to constants
+    // Stated at launch but taken as runtime values: a window whose bounds evaluate to constants
     // would prove the decode only for the case the compiler could have unrolled.
     for region in walk.range(comptime!(start).runtime(), comptime!(steps).runtime()) {
         dst.at(&region).copy_from(&src.at(&region));
@@ -128,15 +129,19 @@ impl Harness {
     }
 
     /// `src` and `dst` as the launch arguments, served at the harness's element.
-    fn tile_args(&self, src: &TensorHandle, dst: &TensorHandle) -> (TileArgLaunch, TileArgLaunch) {
+    fn tile_tensors(
+        &self,
+        src: &TensorHandle,
+        dst: &TensorHandle,
+    ) -> (TileTensorLaunch, TileTensorLaunch) {
         (
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 src.clone().binding().into_tensor_arg(),
                 self.dtype,
                 1,
                 TileSpec::direct(&[ROW, COL]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 dst.clone().binding().into_tensor_arg(),
                 self.dtype,
                 1,
@@ -153,7 +158,7 @@ fn runs_cover_the_grid(cubes: usize) {
     let h = Harness::new();
     let (src, want) = h.source();
     let dst = h.destination();
-    let (src_arg, dst_arg) = h.tile_args(&src, &dst);
+    let (src_arg, dst_arg) = h.tile_tensors(&src, &dst);
 
     copy_run::launch(
         &h.client,
@@ -198,7 +203,7 @@ fn a_run_starting_late_copies_the_regions_it_was_given() {
     let h = Harness::new();
     let (src, want) = h.source();
     let dst = h.destination();
-    let (src_arg, dst_arg) = h.tile_args(&src, &dst);
+    let (src_arg, dst_arg) = h.tile_tensors(&src, &dst);
 
     // Regions 3 and 4 of the row-major walk: the second half of row band 1, and the first half of
     // row band 2. A rectangle cannot name that pair either.
@@ -238,7 +243,7 @@ fn a_run_starting_late_copies_the_regions_it_was_given() {
 //
 // The assignment above, over a matmul. `K` is not cut at cube scope and no axis is: the line runs
 // over the output's tiles and each tile's `K` blocks together, and a cube takes a run of it. A run
-// spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink folds.
+// spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink sums.
 
 const MM: Axis = Axis(2);
 const NN: Axis = Axis(3);
@@ -256,15 +261,15 @@ fn contract(acc: &Tile, a: &Tile, b: &Tile, region: &Region) {
 }
 
 /// The streamed contraction: each cube takes its run of the joint index over the output's tiles
-/// and their contraction, opens a register accumulator per output region it touches, folds that
+/// and their contraction, opens a register accumulator per output region it touches, sums that
 /// region's part of the run, and drains once through the atomic sink.
 ///
 /// `inner` is the level the run is counted in; `leaf` a level below it, where the run's step is
 /// itself walked (a unit's run of `K`), or none where the step is the contraction's own.
 #[cube(launch)]
 fn stream_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] outer: Level,
@@ -309,8 +314,8 @@ fn stream_matmul<E: Numeric>(
 /// what any walk does.
 #[cube(launch)]
 fn stream_matmul_staged_rhs<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] outer: Level,
@@ -349,6 +354,44 @@ fn stream_matmul_staged_rhs<E: Numeric>(
     }
 }
 
+/// [`stream_matmul`] over the first `prefix` steps of every tile's contraction alone, the runs
+/// sharing that prefix ([`Walk::portion_of`]): the steps past it are no run's.
+#[cube(launch)]
+fn stream_matmul_prefix<E: Numeric>(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    out: &AccumulateArg<'_, E>,
+    space: Partitioning,
+    prefix: usize,
+    #[comptime] outer: Level,
+    #[comptime] inner: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let c = out.tile(&space);
+    let portion = space.over(&outer).portion_of(prefix);
+    for i in 0..portion.touched() {
+        let region = portion.region(i);
+        let (from, steps) = portion.steps(i);
+        let c_region = c.at(&region);
+        let a_region = a.at(&region);
+        let b_region = b.at(&region);
+        let acc = c_region.accumulator::<E>(
+            &a_region,
+            &b_region,
+            comptime!(Instruction::Registers {
+                config: REGISTER_BLOCK
+            }),
+            Semiring::SUM_PROD,
+        );
+        for cell in region.over(&inner).range(from, steps) {
+            contract(&acc, &a_region, &b_region, &cell);
+        }
+        acc.drained_into(&c_region);
+    }
+}
+
 /// The tile the contraction accumulates in, and the block it walks `K` in.
 const TILE_M: usize = 4;
 const TILE_N: usize = 4;
@@ -362,8 +405,8 @@ enum RhsStage {
     Smem,
 }
 
-/// `a · b` with the work shared between `runs` cubes, folded atomically into a zeroed output.
-fn run_stream_k(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> HostData {
+/// `a · b` with the work shared between `runs` cubes, added atomically into a zeroed output.
+fn run_shared_index(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> HostData {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
 
@@ -401,13 +444,13 @@ fn run_stream_k(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> Hos
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[MM, KK]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -428,13 +471,13 @@ fn run_stream_k(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> Hos
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[MM, KK]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -455,14 +498,85 @@ fn run_stream_k(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> Hos
     HostData::from_tensor_handle(&client, out, HostDataType::F32)
 }
 
+/// `a · b` over the first `prefix` blocks of `K` alone, shared between `runs` cubes, added
+/// atomically into a zeroed output.
+fn run_shared_prefix(m: usize, n: usize, k: usize, runs: usize, prefix: usize) -> HostData {
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+
+    let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..k * n).map(|i| (i % 5) as f32 - 2.0).collect();
+    let (a_handle, _) = TestInput::builder(client.clone(), shape![m, k])
+        .dtype(dtype)
+        .custom(a)
+        .generate_with_f32_host_data();
+    let (b_handle, _) = TestInput::builder(client.clone(), shape![k, n])
+        .dtype(dtype)
+        .custom(b)
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![m, n])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+
+    // The cubes take whole output tiles and share the line of them, each tile `k / BLOCK_K` steps.
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(MM, m), (NN, n), (KK, k)]),
+            Levels::leaf(&[(MM, TILE_M), (NN, TILE_N), (KK, BLOCK_K)])
+                .walk(&[(MM, 1), (NN, 1), (KK, k / BLOCK_K)])
+                .cubes(&[MM, NN])
+                .shared_by(runs)
+                .build(),
+        ),
+        Form::Static,
+    );
+
+    stream_matmul_prefix::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            a_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[MM, KK]),
+        ),
+        TileTensorLaunch::new(
+            b_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[KK, NN]),
+        ),
+        AccumulateArgLaunch::new(
+            out.clone().binding().into_tensor_arg(),
+            1,
+            TileSpec::direct(&[MM, NN]),
+        ),
+        launcher.partitioning_arg(),
+        prefix,
+        launcher.partitioning().level(0),
+        launcher.partitioning().level(1),
+        dtype,
+    );
+
+    HostData::from_tensor_handle(&client, out, HostDataType::F32)
+}
+
 /// The same contraction on the host, from the same seeds.
 fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
+    reference_over(m, n, k, k)
+}
+
+/// [`reference`] summed over the first `contracted` of `K` alone.
+fn reference_over(m: usize, n: usize, k: usize, contracted: usize) -> Vec<f32> {
     let a = |i: usize, p: usize| ((i * k + p) % 7) as f32 - 3.0;
     let b = |p: usize, j: usize| ((p * n + j) % 5) as f32 - 2.0;
     let mut out = vec![0.0; m * n];
     for i in 0..m {
         for j in 0..n {
-            out[i * n + j] = (0..k).map(|p| a(i, p) * b(p, j)).sum();
+            out[i * n + j] = (0..contracted).map(|p| a(i, p) * b(p, j)).sum();
         }
     }
     out
@@ -470,10 +584,10 @@ fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
 
 /// Every run count computes the same contraction. The interesting ones are those that do not
 /// divide the line: their runs start and end inside a tile's contraction, which is what makes
-/// this stream-K rather than a split of `K`.
-fn stream_k_agrees_with_the_whole(cubes: usize) {
+/// this one shared index rather than a split of `K`.
+fn shared_index_agrees_with_the_whole(cubes: usize) {
     let (m, n, k) = (8usize, 8usize, 16usize);
-    let got = run_stream_k(m, n, k, cubes, RhsStage::InPlace);
+    let got = run_shared_index(m, n, k, cubes, RhsStage::InPlace);
     let want = reference(m, n, k);
     for i in 0..m {
         for j in 0..n {
@@ -487,54 +601,83 @@ fn stream_k_agrees_with_the_whole(cubes: usize) {
     }
 }
 
-/// The control: one run is the whole line, so nothing is partial and nothing is folded across
+/// The control: one run is the whole line, so nothing is partial and nothing is summed across
 /// cubes. A stream that only works when it is split is not working.
 #[test]
 fn a_stream_of_one_run_is_the_whole_contraction() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
-    stream_k_agrees_with_the_whole(1);
+    shared_index_agrees_with_the_whole(1);
 }
 
 /// Runs that end on a tile boundary: the same work a split of `K` would do, reached by distributing
 /// a line rather than by cutting an axis.
 #[test]
 fn runs_that_end_on_a_tile_do_the_split_a_cut_would() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
     // 4 tiles of 4 K blocks: 16 steps of line over 4 and 8 runs.
-    stream_k_agrees_with_the_whole(4);
-    stream_k_agrees_with_the_whole(8);
+    shared_index_agrees_with_the_whole(4);
+    shared_index_agrees_with_the_whole(8);
 }
 
 /// Runs that do not: 16 steps over 3, 5 and 7 leaves every run straddling a tile boundary, so a
-/// cube seeds a fresh accumulator part way through a tile's contraction and folds a slice that no
+/// cube seeds a fresh accumulator part way through a tile's contraction and sums a slice that no
 /// cut of `K` could hand it.
 #[test]
 fn runs_that_straddle_a_tile_boundary_still_sum_to_the_whole() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
-    stream_k_agrees_with_the_whole(3);
-    stream_k_agrees_with_the_whole(5);
-    stream_k_agrees_with_the_whole(7);
+    shared_index_agrees_with_the_whole(3);
+    shared_index_agrees_with_the_whole(5);
+    shared_index_agrees_with_the_whole(7);
     // More runs than the line has steps, so some cubes get nothing at all.
-    stream_k_agrees_with_the_whole(24);
+    shared_index_agrees_with_the_whole(24);
 }
 
-/// The drain folds, so a device without a float atomic add cannot run any of this.
-fn folds_atomically() -> bool {
+/// Runs sharing a prefix of every tile's steps, which the launch states: the steps past it are no
+/// run's, so the runs split the prefix evenly and every tile sums its prefix alone, whether a run
+/// starts and ends inside a tile or holds several, and where some runs hold nothing.
+#[test]
+fn runs_share_the_prefix_of_every_tile_the_launch_states() {
+    if !adds_atomically() {
+        return;
+    }
+    // 4 tiles of 6 K blocks, of which the first 4, then 1, are shared.
+    let (m, n, k) = (8usize, 8usize, 24usize);
+    for prefix in [4usize, 1] {
+        let want = reference_over(m, n, k, prefix * BLOCK_K);
+        for runs in [1usize, 3, 5, 24] {
+            let got = run_shared_prefix(m, n, k, runs, prefix);
+            for i in 0..m {
+                for j in 0..n {
+                    let have = got.get_f32(&[i, j]);
+                    let want = want[i * n + j];
+                    assert!(
+                        (have - want).abs() < 1e-3,
+                        "{runs} runs over a prefix of {prefix}: at ({i}, {j}): got {have}, want \
+                         {want}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// The drain adds atomically, so a device without a float atomic add cannot run any of this.
+fn adds_atomically() -> bool {
     let client = cubecl::test_device().client();
-    let folds = client
+    let adds = client
         .properties()
         .atomic_type_usage(Type::atomic(ElemType::Float(FloatKind::F32)))
         .contains(AtomicUsage::Add);
-    if !folds {
+    if !adds {
         ValidationResult::Skipped("device has no f32 atomic add".to_string()).enforce();
     }
-    folds
+    adds
 }
 
 /// An operand staged under the distribution. A share is walked region by region, and each region
@@ -542,7 +685,7 @@ fn folds_atomically() -> bool {
 /// walk does: nothing about staging changes because the regions arrived as a share.
 #[test]
 fn an_operand_stages_under_a_share_as_it_does_under_a_walk() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
     let (m, n, k) = (8usize, 8usize, 16usize);
@@ -550,7 +693,7 @@ fn an_operand_stages_under_a_share_as_it_does_under_a_walk() {
     // Shares that straddle a tile boundary, so the staged operand is read from part way through
     // a tile's contraction as well as from its start.
     for runs in [1usize, 3, 5] {
-        let got = run_stream_k(m, n, k, runs, RhsStage::Smem);
+        let got = run_shared_index(m, n, k, runs, RhsStage::Smem);
         for i in 0..m {
             for j in 0..n {
                 let have = got.get_f32(&[i, j]);
@@ -570,7 +713,7 @@ fn an_operand_stages_under_a_share_as_it_does_under_a_walk() {
 #[test]
 fn cubes_take_shares_while_the_units_cut_k_between_them() {
     let client = cubecl::test_device().client();
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
     let dtype = f32::elem_type_native();
@@ -615,13 +758,13 @@ fn cubes_take_shares_while_the_units_cut_k_between_them() {
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[MM, KK]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -665,10 +808,10 @@ fn cubes_take_shares_while_the_units_cut_k_between_them() {
 /// then hands it on, cast to the output's element `O`.
 #[cube(launch)]
 fn merged_stream_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    slots: &TileArg<'_>,
-    out: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    slots: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     arrivals: &[Atomic<u32>],
     space: Partitioning,
     #[comptime] steps: Level,
@@ -780,7 +923,7 @@ fn run_merged_stream<O: Float + CubeElement>(
     let spec =
         |axes: &[Axis]| TileSpec::direct(axes).boundary(BoundaryPolicy::Every(Boundary::Zero));
     let arg = |handle: &TensorHandle, axes: &[Axis]| {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             handle.clone().binding().into_tensor_arg(),
             handle.dtype,
             1,

@@ -6,8 +6,8 @@ use cubecl_ir::{
     interfaces::{
         ReturnLike,
         control_flow::{
-            CallOpInterface, CallableOpInterface, RegionBranchOpInterface,
-            RegionBranchTerminatorOpInterface, RegionPredecessor, RegionSuccessor,
+            CallableOpInterface, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
+            RegionPredecessor, RegionSuccessor,
         },
     },
     prelude::*,
@@ -135,6 +135,10 @@ impl<T: LatticeValue> AnalysisState for SparseLattice<T> {
 
 pub trait SparseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
+
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
@@ -302,7 +306,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
         for region in op.regions(ctx) {
             for block in region.deref(ctx).iter(ctx) {
                 solver
-                    .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into())
+                    .get_or_create::<Executable>(block.into())
                     .deref()
                     .block_content_subscribe::<Self>();
                 self.visit_block(solver, ctx, block);
@@ -328,7 +332,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
         // If the containing block is not executable, bail out.
         if let Some(block) = op.deref(ctx).get_parent_block()
             && !solver
-                .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into())
+                .get_or_create::<Executable>(block.into())
                 .deref()
                 .is_live()
         {
@@ -383,7 +387,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
 
         let block_start = ProgramPoint::at_block_start(ctx, block);
         if !solver
-            .get_or_create::<Executable>(block_start.into())
+            .get_or_create::<Executable>(block.into())
             .deref()
             .is_live()
         {
@@ -643,6 +647,11 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
 }
 
 impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForward<T> {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        self.inner.on_load(solver);
+    }
+
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
         T::verify(solver, ctx, root)
     }
@@ -674,6 +683,10 @@ impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForw
 
 pub trait SparseBackwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
+
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
@@ -856,8 +869,7 @@ impl<T: SparseBackwardDataflowAnalysis> SparseBackward<T> {
 
         for region in op.deref(ctx).regions() {
             for block in region.deref(ctx).iter(ctx) {
-                let executable = solver
-                    .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into());
+                let executable = solver.get_or_create::<Executable>(block.into());
                 executable.deref().block_content_subscribe::<Self>();
 
                 // Initialize ops in reverse order, so we can do as much initial
@@ -880,7 +892,7 @@ impl<T: SparseBackwardDataflowAnalysis> SparseBackward<T> {
         // If the containing block is not executable, bail out.
         if let Some(block) = op.deref(ctx).get_parent_block()
             && !solver
-                .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into())
+                .get_or_create::<Executable>(block.into())
                 .deref()
                 .is_live()
         {
@@ -937,7 +949,7 @@ impl<T: SparseBackwardDataflowAnalysis> SparseBackward<T> {
             // If the call invokes an external function (or a function treated as
             // external due to config), defer to the corresponding extension hook.
             // By default, it just does `visitCallOperand` for all operands.
-            let arg_operands = operand_range_to_uses(ctx, op, call.args_range(ctx));
+            let arg_operands = operand_range_to_uses(ctx, op, call.arg_range(ctx));
             let region = callable.callable_region(ctx);
             if region.is_none_or(|region| region.is_empty(ctx))
                 || !solver.config().is_interprocedural

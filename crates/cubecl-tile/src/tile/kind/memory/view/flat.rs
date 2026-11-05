@@ -56,8 +56,8 @@ impl Tile {
     /// A packed store is refused.
     pub fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
         let g = self.mem("flat");
-        if comptime!(g.store.packing != Packing::Plain) {
-            panic!("Tile::flat: a packed tile only unpacks under Tile::copy_from")
+        if comptime!(!g.store.packing.as_stored()) {
+            panic!("Tile::flat: a packed tile unpacks under Tile::copy_from or Tile::decoded")
         }
         g.flat::<T, W>()
     }

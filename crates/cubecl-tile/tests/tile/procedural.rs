@@ -6,15 +6,14 @@ use cubecl::{prelude::*, std::tensor::TensorHandle, zspace::shape};
 use cubecl_common::ComptimeFloat;
 use cubecl_tile::procedural::AffineCoordinate;
 use cubecl_tile::procedural::Constant;
+use cubecl_tile::procedural::MemoryValues;
 use cubecl_tile::procedural::Phase;
 use cubecl_tile::procedural::Procedural;
-use cubecl_tile::procedural::Product;
 use cubecl_tile::procedural::Recipe;
 use cubecl_tile::procedural::RecipeCoords;
 use cubecl_tile::procedural::RecipeExpand;
 use cubecl_tile::procedural::Sum;
 use cubecl_tile::procedural::affine_along;
-use cubecl_tile::procedural::product_of;
 use cubecl_tile::procedural::sum_of;
 use cubecl_tile::*;
 
@@ -48,7 +47,7 @@ impl<T: Float> Recipe<T> for AxisValue {
 #[cube]
 fn materialize(
     source: &Tile,
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: &Partitioning,
     #[comptime] level: Level,
 ) {
@@ -60,14 +59,14 @@ fn materialize(
 }
 
 /// Forces a scalar value into a runtime GPU variable by adding a runtime zero,
-/// preventing the expander from folding it away at compile time.
+/// preventing the expander from evaluating it away at compile time.
 #[cube]
 fn runtime_scalar<E: Numeric>(value: E) -> E {
     value + E::cast_from(0u32.runtime())
 }
 
 /// `x = offset + coordinate[COL]`, built so the recipe carries genuinely runtime scalars across
-/// the staging walk rather than folding to comptime.
+/// the staging walk rather than evaluating at comptime.
 #[cube]
 fn along_col<E: Float>(#[comptime] offset: ComptimeFloat<f32>) -> AffineCoordinate<E> {
     affine_along(
@@ -77,18 +76,18 @@ fn along_col<E: Float>(#[comptime] offset: ComptimeFloat<f32>) -> AffineCoordina
     )
 }
 
-/// The product recipe evaluated where it is read: every region of the walk copies its window of
+/// The sum recipe `row + col` evaluated where it is read: every region of the walk copies its window of
 /// the source straight into the output.
 #[cube(launch)]
-fn product_kernel_in_place<E: Float>(
-    output: &TileArg<'_>,
+fn sum_kernel_in_place<E: Float>(
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = Procedural::new::<E, Product<AffineCoordinate<E>, AffineCoordinate<E>>>(
+    let source = Procedural::new::<E, Sum<AffineCoordinate<E>, AffineCoordinate<E>>>(
         comptime!(space.space().clone()),
-        product_of(
+        sum_of(
             affine_along(ROW, E::from_int(0), E::from_int(1)),
             affine_along(COL, E::from_int(0), E::from_int(1)),
         ),
@@ -100,15 +99,15 @@ fn product_kernel_in_place<E: Float>(
 /// The same recipe materialized into shared memory first: one slot fills each region's
 /// window cooperatively, and the output copies the stage. The grid must be the same either way.
 #[cube(launch)]
-fn product_kernel_staged<E: Float>(
-    output: &TileArg<'_>,
+fn sum_kernel_staged<E: Float>(
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = Procedural::new::<E, Product<AffineCoordinate<E>, AffineCoordinate<E>>>(
+    let source = Procedural::new::<E, Sum<AffineCoordinate<E>, AffineCoordinate<E>>>(
         comptime!(space.space().clone()),
-        product_of(
+        sum_of(
             affine_along(ROW, E::from_int(0), E::from_int(1)),
             affine_along(COL, E::from_int(0), E::from_int(1)),
         ),
@@ -150,12 +149,12 @@ fn affine_plus_phase<E: Float>(
     .tile::<E>()
 }
 
-/// `launch_ratio` decides whether the fraction is spelled in constants, which fold at expand time,
+/// `launch_ratio` decides whether the fraction is spelled in constants, which evaluate at expand time,
 /// or in values the kernel only receives at launch. Both go through the same `Phase`, and the grid
 /// must come out the same.
 #[cube(launch)]
 fn phase_kernel<E: Float>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] launch_ratio: bool,
@@ -176,7 +175,7 @@ fn phase_kernel<E: Float>(
 
 #[cube(launch)]
 fn rebase_kernel<E: Float>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -194,7 +193,7 @@ fn rebase_kernel<E: Float>(
 
 #[cube(launch)]
 fn constant_kernel<E: Float>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -211,7 +210,7 @@ fn constant_kernel<E: Float>(
 
 #[cube(launch)]
 fn affine_kernel<E: Float>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] offset: ComptimeFloat<f32>,
@@ -229,7 +228,7 @@ fn affine_kernel<E: Float>(
 /// nothing about a procedural source requires floats.
 #[cube(launch)]
 fn integer_kernel<E: Int>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -247,7 +246,7 @@ fn integer_kernel<E: Int>(
 /// A direct procedural read must use the masked view path on trailing partial tiles.
 #[cube(launch)]
 fn direct_copy_kernel<E: Float>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -265,7 +264,7 @@ fn direct_copy_kernel<E: Float>(
 /// Descend once before a direct read: the procedural bound remains in the parent coordinates.
 #[cube(launch)]
 fn divided_direct_copy_kernel<E: Float>(
-    output: &TileArg<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -288,6 +287,35 @@ fn divided_direct_copy_kernel<E: Float>(
     let output = output.tile(&space);
     let mut output = output.at(&region);
     output.copy_from(&source);
+}
+
+/// `row` plus the value `values` holds at each cell: a memory tile's values summed into another
+/// recipe. `values` spans the rows only where its spec says so; the cut at each region places it.
+#[cube(launch)]
+fn memory_values_kernel<E: Float>(
+    values: &TileTensor<'_>,
+    output: &TileTensor<'_>,
+    space: Partitioning,
+    #[comptime] level: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let values = values.tile(&space);
+    let output = output.tile(&space);
+    for region in output.over(&level) {
+        let source = Procedural::new::<E, Sum<AxisValue, MemoryValues>>(
+            comptime!(space.space().clone()),
+            sum_of(
+                AxisValue {
+                    axis: ROW,
+                    scale: 1.0,
+                },
+                values.at(&region).values(),
+            ),
+        )
+        .tile::<E>();
+        let mut output_region = output.at(&region);
+        output_region.copy_from(&source.at(&region));
+    }
 }
 
 struct Harness {
@@ -329,7 +357,7 @@ impl Harness {
 /// The output launch argument, served at the output's element.
 macro_rules! output_arg {
     ($output:expr) => {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             $output.clone().binding().into_tensor_arg(),
             $output.dtype,
             1,
@@ -361,7 +389,7 @@ fn offset(value: f32) -> ComptimeFloat<f32> {
 fn user_recipe_evaluates_in_place() {
     let h = Harness::new();
     let output = h.output();
-    product_kernel_in_place::launch(
+    sum_kernel_in_place::launch(
         &h.client,
         h.launcher.cube_count(),
         h.launcher.cube_dim(),
@@ -370,14 +398,14 @@ fn user_recipe_evaluates_in_place() {
         h.launcher.partitioning().level(0),
         h.dtype,
     );
-    assert_grid(&h.read(output), |row, col| (row * col) as f32);
+    assert_grid(&h.read(output), |row, col| (row + col) as f32);
 }
 
 #[test]
 fn user_recipe_materializes_through_a_staged_walk() {
     let h = Harness::new();
     let output = h.output();
-    product_kernel_staged::launch(
+    sum_kernel_staged::launch(
         &h.client,
         h.launcher.cube_count(),
         h.launcher.cube_dim(),
@@ -386,7 +414,7 @@ fn user_recipe_materializes_through_a_staged_walk() {
         h.launcher.partitioning().level(0),
         h.dtype,
     );
-    assert_grid(&h.read(output), |row, col| (row * col) as f32);
+    assert_grid(&h.read(output), |row, col| (row + col) as f32);
 }
 
 #[test]
@@ -405,7 +433,7 @@ fn selecting_a_region_rebases_the_recipe_origin() {
     assert_grid(&h.read(output), |row, _| 2.0 * row as f32);
 }
 
-/// Walk the affine-plus-phase recipe with the fraction folded or passed at launch; the grid is the
+/// Walk the affine-plus-phase recipe with the fraction constant or passed at launch; the grid is the
 /// same either way.
 fn check_phase(launch_ratio: bool) {
     let h = Harness::new();
@@ -564,4 +592,62 @@ fn divided_direct_copy_preserves_the_parent_bound() {
         &HostData::from_tensor_handle(&client, output, HostDataType::F32),
         |row, col| if row < 2 && col < 4 { 1.0 } else { 0.0 },
     );
+}
+
+/// A memory tile's values are a recipe: summed with another, each cell reads the value the tile
+/// holds there.
+#[test]
+fn memory_values_read_each_cell() {
+    let h = Harness::new();
+    let held: Vec<f32> = (0..ROWS * COLS).map(|i| (i * 3 % 7) as f32).collect();
+    let values = TestInput::builder(h.client.clone(), shape![ROWS, COLS])
+        .custom(held.clone())
+        .generate_without_host_data();
+    let output = h.output();
+    memory_values_kernel::launch(
+        &h.client,
+        h.launcher.cube_count(),
+        h.launcher.cube_dim(),
+        TileTensorLaunch::new(
+            values.clone().binding().into_tensor_arg(),
+            values.dtype,
+            1,
+            TileSpec::direct(&[ROW, COL]),
+        ),
+        output_arg!(output),
+        h.launcher.partitioning_arg(),
+        h.launcher.partitioning().level(0),
+        h.dtype,
+    );
+    assert_grid(&h.read(output), |row, col| {
+        row as f32 + held[row * COLS + col]
+    });
+}
+
+/// A memory tile that leaves out an axis broadcasts over it: values over the columns alone serve
+/// every row.
+#[test]
+fn memory_values_broadcast_over_an_axis_they_leave_out() {
+    let h = Harness::new();
+    let held: Vec<f32> = (0..COLS).map(|col| (col * 5 % 4) as f32).collect();
+    let values = TestInput::builder(h.client.clone(), shape![COLS])
+        .custom(held.clone())
+        .generate_without_host_data();
+    let output = h.output();
+    memory_values_kernel::launch(
+        &h.client,
+        h.launcher.cube_count(),
+        h.launcher.cube_dim(),
+        TileTensorLaunch::new(
+            values.clone().binding().into_tensor_arg(),
+            values.dtype,
+            1,
+            TileSpec::direct(&[COL]),
+        ),
+        output_arg!(output),
+        h.launcher.partitioning_arg(),
+        h.launcher.partitioning().level(0),
+        h.dtype,
+    );
+    assert_grid(&h.read(output), |row, col| row as f32 + held[col]);
 }

@@ -2,7 +2,7 @@ use cubecl_ir::{dialect::BlockPtrExt, prelude::*};
 use pliron::{
     attribute::{AttrObj, attr_cast},
     builtin::attr_interfaces::MaterializableAttr,
-    irbuild::match_rewrite::apply_match_rewrite,
+    irbuild::match_rewrite::{RewriterOrder, apply_match_rewrite},
     linked_list::ContainsLinkedList,
     opts::constants::ConstFoldInterface,
     region::Region,
@@ -11,7 +11,6 @@ use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
     DataflowSolver, SmallPtrVec, SolverConfig,
-    dead_code::DeadCodeAnalysis,
     sccp::{ConstantLattice, SparseConstantPropagationAnalysis},
 };
 
@@ -106,7 +105,6 @@ fn rewrite(
 
 pub fn sccp(root_op: Ptr<Operation>, ctx: &mut Context) -> Result<IRStatus> {
     let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
     solver.load(SparseConstantPropagationAnalysis::default());
     solver.initialize_and_run(ctx, root_op)?;
     rewrite(&solver, ctx, &root_op.regions(ctx))
@@ -124,7 +122,12 @@ impl Pass for SCCPPass {
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
         res.ir_changed |= sccp(op, ctx)?;
-        res.ir_changed |= apply_match_rewrite(ctx, &mut Canonicalize, Default::default(), op)?;
+        res.ir_changed |= apply_match_rewrite(
+            ctx,
+            &mut KeepLocation(&mut Canonicalize),
+            RewriterOrder::default(),
+            op,
+        )?;
         Ok(res)
     }
 }

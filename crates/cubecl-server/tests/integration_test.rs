@@ -9,7 +9,8 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::server::{
-    CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation, ServerError,
+    CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation,
+    ServerError,
 };
 use cubecl_server::{
     local_tuner,
@@ -28,6 +29,27 @@ fn created_resource_is_the_same_when_read() {
     let obtained_resource = client.read_one(resource_description).unwrap().to_vec();
 
     assert_eq!(resource, obtained_resource)
+}
+
+/// A copying backend releases the source at materialization without changing the snapshot.
+#[test_log::test]
+fn lazy_read_releases_a_copied_source() {
+    let client = test_client(&DummyDevice);
+    let source = client.create_from_slice(&[1, 2, 3, 4]);
+    let bytes = client.read_lazy(CopyDescriptor::new(
+        source.clone(),
+        [4].into(),
+        [1].into(),
+        1,
+    ));
+    assert!(!source.can_mut());
+    assert_eq!(&*bytes, &[1, 2, 3, 4]);
+    assert!(!bytes.may_alias_mutable_storage());
+    assert!(source.can_mut(), "a completed copy must release the source");
+
+    client.write(&source, Bytes::from_bytes_vec(vec![9; 4]));
+    cubecl_environment::future::block_on(client.sync()).unwrap();
+    assert_eq!(&*bytes, &[1, 2, 3, 4]);
 }
 
 #[test_log::test]
@@ -481,6 +503,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     let observer = std::sync::Arc::new(WantsTiming::default());
     let watching = LaunchObservation::new(observer.clone());
     REFUSE_PROFILES.store(true, core::sync::atomic::Ordering::Relaxed);
+    let refusing = ClearsRefusedProfiles;
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -497,7 +520,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     );
     let obtained_resource = client.read_one(out).unwrap().to_vec();
 
-    REFUSE_PROFILES.store(false, core::sync::atomic::Ordering::Relaxed);
+    drop(refusing);
     drop(watching);
 
     assert_eq!(
@@ -1502,7 +1525,8 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
 /// handed the reference inputs, not the generated ones the candidates run on.
 ///
 /// Counted against the candidates' own launches, so the assertion holds under either
-/// scheduler: the adaptive one warms each candidate up once, the fixed-count pass three times.
+/// scheduler: the adaptive one runs each candidate once to compile it with the round and warms it
+/// up once, the fixed-count pass warms it up three times.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
@@ -1515,7 +1539,7 @@ fn autotune_evicts_before_every_measured_sample() {
 
     let candidates = 2;
     let warmups = if CubeClRuntimeConfig::get().autotune.bench.adaptive {
-        1
+        2
     } else {
         3
     };
@@ -1553,7 +1577,8 @@ fn autotune_evicts_before_every_measured_sample() {
     // The winner ran on the reference inputs once the tune was over.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 
-    // The launches that were not measured samples: the warm-ups, and the winner's real run.
+    // The launches that were not measured samples: the compile runs and warm-ups, and the winner's
+    // real run.
     let unmeasured = candidates * warmups + 1;
     let calls = calls.load(Ordering::Relaxed);
     let evictions = evictions.load(Ordering::Relaxed);
@@ -2669,7 +2694,9 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let client = test_client(&DummyDevice);
+    // A runtime of its own: the snapshot and the report are read a while apart, and the whole
+    // device's memory moves under a test running beside this one on a shared runtime.
+    let client = Client::load::<DummyServer<Isolated>>(DeviceId::new(0, 0));
     let _held = client.create_from_slice(&[1, 2, 3]);
     client.record_memory("model loaded");
     let database = Database::open_active().unwrap();
@@ -2735,8 +2762,6 @@ fn a_launch_is_collected_while_a_collection_is_open() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
-    use std::sync::atomic::Ordering;
-
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_round_that_measures_nothing_never_falls_back_on_a_rejection");
     #[cfg(persistence)]
@@ -2757,8 +2782,10 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
         dummy::addition_set_rejected_then_unmeasured(client, shapes, uid.clone())
     });
 
+    // Its rejected candidate refuses profiles from then on.
+    let refusing = ClearsRefusedProfiles;
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
-    REFUSE_PROFILES.store(false, Ordering::Relaxed);
+    drop(refusing);
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }

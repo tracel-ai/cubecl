@@ -18,7 +18,7 @@ impl Tile {
     /// `W` is the line width (`self.store.vector_size`).
     pub fn view<T: Numeric, W: Size>(&self) -> View<'_, Vector<T, W>, CoordsDyn> {
         let g = self.mem("view");
-        if comptime!(g.store.packing != Packing::Plain) {
+        if comptime!(!g.store.packing.as_stored()) {
             panic!(
                 "Tile::view: a packed tile only serves values its read unpacks (Tile::copy_from, \
                  Tile::matrix_packed)"
@@ -27,10 +27,18 @@ impl Tile {
         g.window_view::<T, W>(comptime!(Guard::Checked))
     }
 
-    /// Scalars of this stage one unit holds in registers across a contraction.
-    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
-    pub(crate) fn fetched_scalars(&self) -> comptime_type!(usize) {
-        self.mem("fetched_scalars").fetched_scalars()
+    /// Scalars of this stage one unit holds in registers across a contraction; none for a tile
+    /// that is not a memory window or whose share is unknown.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn fetched_scalars(&self) -> comptime_type!(Option<usize>) {
+        match &self.kind {
+            TileKind::Memory(m) => m.fetched_scalars(),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(None),
+        }
     }
 
     /// Free the shared memory this stage is held in; a stage of a call has none.
@@ -100,7 +108,7 @@ impl Memory {
     /// the values a reader asks for, which a matrix fragment can load where words it cannot.
     pub(crate) fn stage_element(&self) -> comptime_type!(StageElement) {
         comptime!(match self.store.packing {
-            Packing::Plain => StageElement::Served,
+            Packing::Plain | Packing::Words { .. } => StageElement::Served,
             Packing::Packed { field } if field.per_word() == 1 => StageElement::Decoded,
             Packing::Packed { .. } => StageElement::Stored,
         })
@@ -115,7 +123,7 @@ impl Memory {
     pub(crate) fn size_bytes<T: Numeric>(&self) -> u32 {
         let wp = comptime!(self.store.packing.physical(self.store.vector_size) as u32);
         match comptime!(self.store.packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 self.store.buffer::<T>().len() as u32 * T::size().comptime() as u32 * wp
             }
             Packing::Packed { field: _ } => {
@@ -183,7 +191,7 @@ impl Memory {
     }
 
     /// The backing as a [`View`] addressed by `layout`: the read path.
-    fn read_view<T: Numeric, W: Size>(
+    pub(crate) fn read_view<T: Numeric, W: Size>(
         &self,
         layout: BufferLayout,
     ) -> View<'_, Vector<T, W>, CoordsDyn> {
@@ -357,7 +365,7 @@ impl Memory {
                 .assert_rows_are_runs("Memory::window_slice")
         );
         // A raw window would hand a packed store's words over as served values.
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!(
                 "Memory::window_slice: a packed store has no raw element window; a fragment \
                  load reads it through Tile::matrix_packed"
@@ -383,13 +391,34 @@ impl Memory {
             .times(comptime!(self.store.vector_size as u32).runtime())
     }
 
+    /// Whether each row of this window is one run of cells, the next row a fixed stride on: a
+    /// direct, untiled store, its rows unswizzled and never paged, read with no overhang to mask,
+    /// and every axis of `space` but the last two a single cell. The second-to-last axis then
+    /// steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through a
+    /// row's cells, so a cell lies its row times the stride plus its column past the first.
+    pub(crate) fn rows_step_by_stride(&self, #[comptime] space: Space) -> comptime_type!(bool) {
+        comptime!({
+            let rank = space.rank();
+            self.access.storage == WindowStorage::Stored(Storage::Strided)
+                && self.projection.is_direct()
+                && !self.layout.projection.is_tiled()
+                && self.layout.paging.is_none()
+                && self.layout.rows.rows_are_runs()
+                && !self.access.overhang.masks()
+                && self.store.packing == Packing::Plain
+                && rank >= 2
+                && (0..rank - 2)
+                    .all(|p| !space.is_dynamic(space.axis_at(p)) && space.extent_at(p) == 1)
+        })
+    }
+
     /// Re-view this buffer through `layout` as a [`Masked`] carrying its own mask flag.
     pub(crate) fn masked<T: Numeric, W: Size, C: Coordinates, L: TileLayout<C>>(
         &self,
         layout: L,
         #[comptime] guard: Guard,
     ) -> Masked<'_, Vector<T, W>, C> {
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!(
                 "Tile::matrix: a packed tile only serves values its read unpacks \
                  (Tile::matrix_packed)"
@@ -403,7 +432,7 @@ impl Memory {
 
     /// The mask flag for a write view; refuses a [`Boundary::Clamp`] operand, whose writes alias.
     fn write_check(&self) -> comptime_type!(bool) {
-        // Whole-operand on purpose: one clamped axis already folds two cells onto one.
+        // Whole-operand on purpose: one clamped axis already lands two cells on one.
         comptime!(assert!(
             !self.window.boundaries.contains(&Some(Boundary::Clamp))
                 || !self.access.overhang.masks(),
@@ -417,7 +446,7 @@ impl Memory {
         &mut self,
         layout: L,
     ) -> MaskedMut<'_, Vector<T, W>, C> {
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::matrix_mut: writing a packed tile requires repacking")
         }
         let check = self.write_check();
@@ -462,7 +491,7 @@ impl Memory {
     ) -> Masked<'_, Vector<T, W>, C> {
         let packing = self.packing();
         match comptime!(packing) {
-            Packing::Plain => self.masked::<T, W, C, L>(layout, guard),
+            Packing::Plain | Packing::Words { .. } => self.masked::<T, W, C, L>(layout, guard),
             Packing::Packed { field } => {
                 let words = self
                     .window_view_storage::<u32, WP>(comptime!(Guard::Checked))
@@ -486,7 +515,7 @@ impl Memory {
         let physical = comptime!(packing.physical(self.store.vector_size));
         // `size!` binds inside each arm: hoisted, a packed read lands on the wrong field.
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let size!(WP) = physical;
                 self.unpacked::<T, WP, W, C, L>(layout, guard)
             }
@@ -514,7 +543,25 @@ impl Memory {
         )
     }
 
-    /// The identity step over this window's physical box, for callers that fold the map themselves.
+    /// The mutable twin of [`nd_words`](Memory::nd_words): a packed store's raw words, each written
+    /// whole by a writer that packed every field of it.
+    pub(crate) fn nd_words_mut<WP: Size>(
+        &mut self,
+        layout: ProjectionInKernel,
+    ) -> MaskedMut<'_, Vector<u32, WP>, CoordsDyn> {
+        comptime!(assert!(
+            matches!(self.store.packing, Packing::Packed { .. }),
+            "Memory::nd_words_mut: only a packed store holds words"
+        ));
+        let check = self.write_check();
+        MaskedMut::new(
+            self.window_view_mut::<u32, WP>(comptime!(Guard::Checked))
+                .view_mut(layout),
+            check,
+        )
+    }
+
+    /// The identity step over this window's physical box, for callers that evaluate the map themselves.
     /// It masks against the physical box only: the caller owes in-range logical coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
         let rank = comptime!(self.projection.physical_rank());
@@ -577,7 +624,7 @@ impl Memory {
 
     /// The mutable twin of [`flat`](Memory::flat).
     pub(crate) fn flat_mut<T: Numeric, W: Size>(&mut self) -> FlatViewMut<'_, Vector<T, W>> {
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::flat_mut: writing a packed tile requires repacking")
         }
         let extent = self.window.extent.clone();
@@ -733,7 +780,7 @@ impl Memory {
                 overhang: self.access.overhang,
                 write: self.access.write,
                 fill: self.access.fill,
-                storage: storage_below(self.access.storage, step.depth, &step.level, &space),
+                storage: self.access.storage.below(step.depth, &step.level, &space),
                 delivery: self.access.delivery,
             }),
             comptime!(UnitShare::new(&step.level, &space).under(self.unit_share)),
@@ -1049,38 +1096,6 @@ impl Memory {
             comptime!(self.unit_share),
             comptime!(self.split_share),
         )
-    }
-}
-
-/// The storage tiling one level down: through the storage tile's own level, inside one tile.
-fn storage_below(
-    storage: WindowStorage,
-    depth: usize,
-    level: &Level,
-    space: &Space,
-) -> WindowStorage {
-    match storage {
-        WindowStorage::Contiguous
-        | WindowStorage::Stored(Storage::Strided | Storage::Tiled(None)) => storage,
-        WindowStorage::Stored(Storage::Tiled(Some(tiled_at))) => {
-            assert!(
-                depth <= tiled_at,
-                "Memory::at: this window is above its storage tile, the tile of level \
-                 {tiled_at}, yet the descent is at depth {depth}; the storage tile's level was \
-                 skipped past"
-            );
-            if depth < tiled_at {
-                return storage;
-            }
-            for axis in space.axes() {
-                assert!(
-                    matches!(level.extent_in(space, axis), Extent::Static(_)),
-                    "Memory::at: level {tiled_at} hands {axis:?} down dynamic, so its tile is \
-                     no storage tile"
-                );
-            }
-            WindowStorage::Contiguous
-        }
     }
 }
 

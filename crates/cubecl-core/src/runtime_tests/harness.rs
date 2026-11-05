@@ -21,6 +21,11 @@ fn multiply_add(a: i32, b: i32, c: i32) -> i32 {
 }
 
 #[cube(harness(always))]
+fn offset(base: usize, delta: isize) -> i32 {
+    i32::cast_from(base) + i32::cast_from(delta)
+}
+
+#[cube(harness(always))]
 fn scale<F: Float>(x: F, #[comptime] factor: u32) -> F {
     x * F::cast_from(factor)
 }
@@ -126,6 +131,11 @@ fn sum(xs: &[u32]) -> u32 {
 }
 
 #[cube(harness(always))]
+fn pick(xs: &[u32], i: usize) -> u32 {
+    xs[i]
+}
+
+#[cube(harness(always))]
 fn dot<F: Float>(lhs: &[F], rhs: &[F]) -> F {
     let mut total = F::new(0.0);
     for i in 0..lhs.len() {
@@ -226,6 +236,13 @@ fn swap_firsts(lhs: &mut [u32], rhs: &mut [u32]) {
 pub fn test_harness_scalar<R: Runtime>() {
     assert_eq!(double::harness::<R>(1), 2);
     assert_eq!(multiply_add::harness::<R>(-3, 4, 5), -7);
+}
+
+/// A `usize` or `isize` goes up at the kernel's address width, whatever the
+/// host's is.
+pub fn test_harness_address_scalar<R: Runtime>() {
+    assert_eq!(offset::harness::<R>(3, -5), -2);
+    assert_eq!(pick::harness::<R>(&[4, 5, 6], 2), 6);
 }
 
 /// A function in a block isn't reachable by path from its own module, so the
@@ -358,6 +375,11 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_scalar() {
                 cubecl_core::runtime_tests::harness::test_harness_scalar::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_address_scalar() {
+                cubecl_core::runtime_tests::harness::test_harness_address_scalar::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]

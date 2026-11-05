@@ -10,6 +10,9 @@ pub struct RegisterBlock {
     pub split_edge: bool,
     /// Whether to walk K as (line, component) rather than as a flat scalar walk.
     pub component_fanout: bool,
+    /// Whether a block contracting an rhs lined along `K` keeps one partial a lane, summed once at
+    /// the drain, rather than summing each run into a one-wide cell every step.
+    pub partials: bool,
 }
 
 impl RegisterBlock {
@@ -19,6 +22,7 @@ impl RegisterBlock {
             budget,
             split_edge: false,
             component_fanout: false,
+            partials: false,
         }
     }
 
@@ -34,6 +38,17 @@ impl RegisterBlock {
     pub const fn component_fanout(self) -> Self {
         Self {
             component_fanout: true,
+            ..self
+        }
+    }
+
+    /// Hold a run along `K` as one partial a lane: each step of the contraction is one
+    /// multiply-add a cell, `vector_size` values wide, and the lanes are summed once, at the drain,
+    /// rather than every step. Only for a block the drain is the one reader of: a lane holds part
+    /// of a cell, so its cells are not whole values until then.
+    pub const fn partials(self) -> Self {
+        Self {
+            partials: true,
             ..self
         }
     }

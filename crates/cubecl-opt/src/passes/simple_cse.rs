@@ -160,9 +160,8 @@ fn cse_op(
     let regions = op.deref(ctx).regions().collect::<Vec<_>>();
     for region in regions {
         if region.deref(ctx).iter(ctx).count() > 1 {
-            let loc = op.deref(ctx).loc();
             verify_err!(
-                loc,
+                op.deref(ctx).loc(),
                 SimpleCSEError::MultiBlockRegion(op.disp(ctx).to_string())
             )?;
         }

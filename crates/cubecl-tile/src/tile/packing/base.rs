@@ -4,7 +4,7 @@ use cubecl::client::Client;
 use cubecl::e2m1x2;
 use cubecl::ir::features::TypeUsage;
 use cubecl::ir::types::Fp8Format;
-use cubecl::ir::{ElemType, FloatKind};
+use cubecl::ir::{ElemType, FloatKind, IntKind};
 use cubecl::post_processing::fp4::E2M1_F16_LIFT;
 use cubecl::post_processing::minifloat::fp8_f16_lift;
 use cubecl::prelude::Scalar;
@@ -21,6 +21,14 @@ pub(crate) enum Packing {
         /// The slot one value occupies.
         field: Field,
     },
+    /// Stored `u32` words of `field`-wide values, served as stored like [`Plain`](Self::Plain):
+    /// a reader takes a word whole, its fields in place, as a block-scaled instruction takes a
+    /// register of its scales. The field says what the word holds, which a word read whole would
+    /// otherwise not.
+    Words {
+        /// The slot one value of a word occupies.
+        field: Field,
+    },
 }
 
 /// The slot one packed value occupies.
@@ -30,7 +38,7 @@ pub enum Field {
     Fp8(Fp8Format),
     Float(FloatKind),
     /// An index `bits` wide into a table, its codebook
-    /// ([`TileArgLaunch::codebook`](crate::TileArgLaunch::codebook)), read as raw bits.
+    /// ([`TileTensorLaunch::codebook`](crate::TileTensorLaunch::codebook)), read as raw bits.
     Index {
         bits: usize,
     },
@@ -40,7 +48,7 @@ pub enum Field {
     ConvertedE2M1,
     /// A float code (`e2m1`, `e4m3` or `e5m2`) on a device that emulates converting it: a word is
     /// decoded as `f16` pairs from its bits, lifted to its values, or, where `lifted` is false,
-    /// each placed [`lift`](Field::lift) short of its value for a reader whose factor carries the
+    /// each placed `lift` short of its value for a reader whose factor carries the
     /// lift (a tile read placed). What [`read_on`](Field::read_on) makes of `Quant(value)` there,
     /// lifted.
     Placed {
@@ -84,6 +92,20 @@ impl Field {
     /// Values one `u32` holds.
     pub fn per_word(self) -> usize {
         u32::BITS as usize / self.size_bits()
+    }
+
+    /// Whether the slot holds an `e2m1` code, however the device reads it
+    /// ([`read_on`](Field::read_on)): what a reader that takes the codes' values whole asks.
+    pub(crate) fn holds_e2m1(self) -> bool {
+        matches!(
+            self,
+            Field::Quant(QuantValue::E2M1)
+                | Field::ConvertedE2M1
+                | Field::Placed {
+                    value: QuantValue::E2M1,
+                    ..
+                }
+        )
     }
 }
 
@@ -159,6 +181,48 @@ impl Field {
         }
     }
 
+    /// The number format a value of this field is written in: what an encoding copy rounds it to
+    /// ([`Tile::quantize_from`](crate::Tile::quantize_from)). A float code reads back from its
+    /// bits or through the device's conversion, but is written the same way either way.
+    ///
+    /// # Panics
+    ///
+    /// For a field no value is quantized to: an index, a whole float, an 8-bit scale code.
+    pub(crate) fn quantized_value(self) -> QuantValue {
+        match self {
+            Field::Quant(value) | Field::Placed { value, .. } => value,
+            Field::ConvertedE2M1 => QuantValue::E2M1,
+            other => panic!("Field: a value is quantized to a number format, not to {other:?}"),
+        }
+    }
+
+    /// The number format a code of this field is written in, however the device reads it: `None`
+    /// for a field that holds no code (an index, a whole float, an 8-bit scale).
+    pub(crate) fn code(self) -> Option<QuantValue> {
+        match self {
+            Field::Quant(value) | Field::Placed { value, .. } => Some(value),
+            Field::ConvertedE2M1 => Some(QuantValue::E2M1),
+            Field::Fp8(_) | Field::Float(_) | Field::Index { .. } => None,
+        }
+    }
+
+    /// The scale dtype a scale of this field is stored as: the inverse of
+    /// [`of_scale`](Field::of_scale).
+    ///
+    /// # Panics
+    ///
+    /// For a field no scale is stored as.
+    pub(crate) fn scale_dtype(self) -> ScaleDtype {
+        match self {
+            Field::Fp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
+            Field::Fp8(Fp8Format::UE8M0) => ScaleDtype::UE8M0,
+            Field::Float(FloatKind::F32) => ScaleDtype::F32,
+            Field::Float(FloatKind::F16) => ScaleDtype::F16,
+            Field::Float(FloatKind::BF16) => ScaleDtype::BF16,
+            other => panic!("Field: a scale is stored as a float, not as {other:?}"),
+        }
+    }
+
     /// The bits a whole float occupies.
     pub(crate) fn float_bits(kind: FloatKind) -> usize {
         match kind {
@@ -225,13 +289,49 @@ pub(crate) enum FieldDecode {
 }
 
 impl Packing {
+    /// The number format a value stored this way, as `element`, is written in: what an encoding
+    /// copy rounds it to ([`Tile::quantize_from`](crate::Tile::quantize_from)). A packed field's
+    /// ([`Field::quantized_value`]), or a plain `i8`'s, `e4m3`'s or `e5m2`'s.
+    ///
+    /// # Panics
+    ///
+    /// For a store no value is quantized to.
+    pub(crate) fn quantized_value(self, element: ElemType) -> QuantValue {
+        match (self, element) {
+            (Packing::Packed { field }, _) => field.quantized_value(),
+            (Packing::Plain, ElemType::Int(IntKind::I8)) => QuantValue::Q8S,
+            (Packing::Plain, ElemType::Float(FloatKind::E4M3)) => QuantValue::E4M3,
+            (Packing::Plain, ElemType::Float(FloatKind::E5M2)) => QuantValue::E5M2,
+            (Packing::Plain, other) => {
+                panic!("Packing: no value is quantized to a plain {other:?}")
+            }
+            (Packing::Words { field }, _) => {
+                panic!("Packing: words of {field:?} are read whole, never encoded into")
+            }
+        }
+    }
+
+    /// The dtype a scale stored this way, as `element`, is rounded to: a packed field's
+    /// ([`Field::scale_dtype`]), or a plain float's.
+    ///
+    /// # Panics
+    ///
+    /// For a store no scale is held in.
+    pub(crate) fn scale_dtype(self, element: ElemType) -> ScaleDtype {
+        match (self, element) {
+            (Packing::Packed { field } | Packing::Words { field }, _) => field.scale_dtype(),
+            (Packing::Plain, ElemType::Float(kind)) => Field::of_float(kind).scale_dtype(),
+            (Packing::Plain, other) => panic!("Packing: a scale is a float, not {other:?}"),
+        }
+    }
+
     /// This packing read placed ([`Field::placed`]).
     pub(crate) fn placed(self) -> Packing {
         match self {
             Packing::Packed { field } => Packing::Packed {
                 field: field.placed(),
             },
-            Packing::Plain => Packing::Plain,
+            Packing::Plain | Packing::Words { .. } => self,
         }
     }
 
@@ -239,7 +339,7 @@ impl Packing {
     pub(crate) fn lift(self) -> f64 {
         match self {
             Packing::Packed { field } => field.lift(),
-            Packing::Plain => 1.0,
+            Packing::Plain | Packing::Words { .. } => 1.0,
         }
     }
 
@@ -249,8 +349,14 @@ impl Packing {
             Packing::Packed { field } => Packing::Packed {
                 field: field.read_on(client),
             },
-            Packing::Plain => Packing::Plain,
+            Packing::Plain | Packing::Words { .. } => self,
         }
+    }
+
+    /// Whether the values are served as they are stored, one a stored element: plain, or words
+    /// read whole.
+    pub(crate) fn as_stored(self) -> bool {
+        matches!(self, Packing::Plain | Packing::Words { .. })
     }
 }
 
@@ -258,7 +364,7 @@ impl Packing {
     /// Values per stored element: one, unless a `u32` holds several fields.
     fn factor(&self) -> usize {
         match self {
-            Packing::Plain => 1,
+            Packing::Plain | Packing::Words { .. } => 1,
             Packing::Packed { field } => field.per_word(),
         }
     }
@@ -365,6 +471,27 @@ mod tests {
         );
         assert_eq!(Field::ConvertedE2M1.decode(), FieldDecode::Converted);
         assert_eq!(Field::ConvertedE2M1.per_word(), 8);
+    }
+
+    /// An `e2m1` code is one however a device reads it: converted, placed, or from its bits.
+    #[test]
+    fn every_read_of_an_e2m1_code_holds_e2m1() {
+        let placed = |value, lifted| Field::Placed { value, lifted };
+        for field in [
+            Field::from(QuantValue::E2M1),
+            Field::ConvertedE2M1,
+            placed(QuantValue::E2M1, true),
+            placed(QuantValue::E2M1, false),
+        ] {
+            assert!(field.holds_e2m1(), "{field:?}");
+        }
+        for field in [
+            Field::from(QuantValue::E4M3),
+            placed(QuantValue::E4M3, true),
+            Field::from(Fp8Format::E4M3),
+        ] {
+            assert!(!field.holds_e2m1(), "{field:?}");
+        }
     }
 
     /// A float code placed is the field it was, decoded from its bits, and read placed it is

@@ -1,10 +1,10 @@
-//! The register nest behind [`Tile::reduce_axis`](crate::Tile::reduce_axis): fold an input's
+//! The register nest behind [`Tile::reduce_axis`](crate::Tile::reduce_axis): reduce an input's
 //! contracted axes into one accumulator cell at a time, under a [`Monoid`].
 
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::ops::matmul::leaf::memory::resolve_nd_coords;
+use crate::ops::contraction::{AccCoords, resolve_nd_coords};
 use crate::*;
 
 #[cube]
@@ -14,10 +14,10 @@ pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
     #[comptime] acc_space: Space,
     #[comptime] monoid: Monoid,
 ) {
-    // Drain the block the way it was built to fold; the partials fit no other operator.
+    // Drain the block the way it was built to reduce; the partials fit no other operator.
     comptime!(assert!(
         acc.accumulation.monoid() == monoid,
-        "reduce: this accumulator folds under {:?} (stated at `Tile::accumulate`) but is being \
+        "reduce: this accumulator sums under {:?} (stated at `Tile::accumulate`) but is being \
          reduced under {monoid:?}",
         acc.accumulation.monoid()
     ));
@@ -57,9 +57,9 @@ fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
 
         let curr_val: Acc = element::<Acc, In, V>(
             &in_view,
-            comptime!(in_space.clone()),
-            comptime!(acc_space.clone()),
-            comptime!(layout.clone()),
+            &in_space,
+            &acc_space,
+            &layout,
             &acc_coords,
             vw,
             seed,
@@ -119,9 +119,9 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
             let seed = seed_vec.extract(comptime!(component_idx));
             let curr_val: Acc = element::<Acc, In, V>(
                 &in_view,
-                comptime!(in_space.clone()),
-                comptime!(acc_space.clone()),
-                comptime!(layout.clone()),
+                &in_space,
+                &acc_space,
+                &layout,
                 &acc_coords,
                 vw,
                 seed,
@@ -135,13 +135,13 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
     }
 }
 
-/// Fold `in_view` across the contracted axes into `seed` for the cell at `acc_coords`.
+/// Reduce `in_view` across the contracted axes into `seed` for the cell at `acc_coords`.
 #[cube]
 fn element<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
-    #[comptime] in_space: Space,
-    #[comptime] acc_space: Space,
-    #[comptime] layout: ReduceLayout,
+    #[comptime] in_space: &Space,
+    #[comptime] acc_space: &Space,
+    #[comptime] layout: &ReduceLayout,
     acc_coords: &Coords<u32>,
     #[comptime] vw: usize,
     seed: Acc,
@@ -151,9 +151,9 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
     if comptime!(contracted_per_step > 1) {
         element_lines::<Acc, In, V>(
             in_view,
-            comptime!(in_space.clone()),
-            comptime!(acc_space.clone()),
-            comptime!(layout.clone()),
+            in_space,
+            acc_space,
+            layout,
             acc_coords,
             contracted_per_step,
             seed,
@@ -161,26 +161,19 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
         )
     } else {
         element_scalars::<Acc, In, V>(
-            in_view,
-            comptime!(in_space.clone()),
-            comptime!(acc_space.clone()),
-            comptime!(layout.clone()),
-            acc_coords,
-            vw,
-            seed,
-            monoid,
+            in_view, in_space, acc_space, layout, acc_coords, vw, seed, monoid,
         )
     }
 }
 
-/// [`element`]'s line path: one read serves `contracted_per_step` folds.
+/// [`element`]'s line path: one read serves `contracted_per_step` values.
 #[cube]
 #[allow(clippy::too_many_arguments)]
 fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
-    #[comptime] in_space: Space,
-    #[comptime] acc_space: Space,
-    #[comptime] layout: ReduceLayout,
+    #[comptime] in_space: &Space,
+    #[comptime] acc_space: &Space,
+    #[comptime] layout: &ReduceLayout,
     acc_coords: &Coords<u32>,
     #[comptime] contracted_per_step: usize,
     seed: Acc,
@@ -192,26 +185,16 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             .unravel((p * comptime!(contracted_per_step)).cast::<u32>());
 
         let in_coords = resolve_nd_coords(
-            comptime!(in_space.clone()),
-            comptime!(acc_space.clone()),
-            comptime!(layout.reduce_axes.clone()),
+            in_space,
+            acc_space,
+            &layout.reduce_axes,
             acc_coords,
             &reduce_coords,
             contracted_per_step,
-            true,
+            AccCoords::Cells,
         );
 
-        let in_vec = match comptime!(monoid) {
-            Monoid::Sum => in_view.read(in_coords),
-            Monoid::Prod | Monoid::Max | Monoid::Min => {
-                let valid = in_view.is_in_bounds(in_coords.clone());
-                select(
-                    valid,
-                    in_view.read(in_coords),
-                    Vector::<In, V>::cast_from(Monoid::identity::<In>(monoid)),
-                )
-            }
-        };
+        let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
         acc_vec = monoid.combine::<Vector<Acc, V>>(acc_vec, Vector::<Acc, V>::cast_from(in_vec));
     }
     monoid.combine::<Acc>(
@@ -220,14 +203,35 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
     )
 }
 
+/// `in_view` at `in_coords`, reading `monoid`'s identity out of bounds. A masked read returns
+/// zero there, Sum's identity; other monoids need theirs read in.
+#[cube]
+fn read_or_identity<In: Numeric, V: Size>(
+    in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
+    in_coords: CoordsDyn,
+    #[comptime] monoid: Monoid,
+) -> Vector<In, V> {
+    match comptime!(monoid) {
+        Monoid::Sum => in_view.read(in_coords),
+        Monoid::Prod | Monoid::Max | Monoid::Min => {
+            let valid = in_view.is_in_bounds(in_coords.clone());
+            select(
+                valid,
+                in_view.read(in_coords),
+                Vector::<In, V>::cast_from(Monoid::identity::<In>(monoid)),
+            )
+        }
+    }
+}
+
 /// [`element`]'s scalar path: one extract per contracted element.
 #[cube]
 #[allow(clippy::too_many_arguments)]
 fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
-    #[comptime] in_space: Space,
-    #[comptime] acc_space: Space,
-    #[comptime] layout: ReduceLayout,
+    #[comptime] in_space: &Space,
+    #[comptime] acc_space: &Space,
+    #[comptime] layout: &ReduceLayout,
     acc_coords: &Coords<u32>,
     #[comptime] vw: usize,
     seed: Acc,
@@ -240,34 +244,23 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             Coords::constant(comptime!(layout.reduce_extents.clone())).unravel(p.cast::<u32>());
 
         let in_coords = resolve_nd_coords(
-            comptime!(in_space.clone()),
-            comptime!(acc_space.clone()),
-            comptime!(layout.reduce_axes.clone()),
+            in_space,
+            acc_space,
+            &layout.reduce_axes,
             acc_coords,
             &reduce_coords,
             vw,
-            true,
+            AccCoords::Cells,
         );
 
-        // Memory reads return Sum's identity out of bounds; other monoids need it read in.
-        let in_vec = match comptime!(monoid) {
-            Monoid::Sum => in_view.read(in_coords),
-            Monoid::Prod | Monoid::Max | Monoid::Min => {
-                let valid = in_view.is_in_bounds(in_coords.clone());
-                select(
-                    valid,
-                    in_view.read(in_coords),
-                    Vector::<In, V>::cast_from(Monoid::identity::<In>(monoid)),
-                )
-            }
-        };
+        let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
         let in_val = if comptime!(vw <= 1) {
             in_vec.extract(0usize)
         } else {
             let in_component = resolve_reduce_component(
-                comptime!(in_space.clone()),
-                comptime!(acc_space.clone()),
-                comptime!(layout.reduce_axes.clone()),
+                in_space,
+                acc_space,
+                &layout.reduce_axes,
                 acc_coords,
                 &reduce_coords,
                 vw,
@@ -280,6 +273,83 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
     }
 
     curr_val
+}
+
+/// Every cell of a tile over `acc_space`, in order: the dot product of `lhs`'s and `rhs`'s runs
+/// across the axes they span beyond it ([`Tile::dot`](crate::Tile::dot)).
+///
+/// Where the run spans the factors' innermost axis, as a row of the output does along its value
+/// dim, each line read is summed whole, its components in turn; otherwise each cell reads one
+/// component of each line it meets.
+#[cube]
+pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
+    lhs: &Tile,
+    rhs: &Tile,
+    #[comptime] acc_space: Space,
+) -> Array<E> {
+    let in_space = comptime!(lhs.place.space.clone());
+    let vw = lhs.vector_size();
+    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
+    let total_acc = comptime!(layout.total_acc);
+    let lhs_view = lhs.nd_packed::<Lhs, V>(comptime!(Guard::Checked));
+    let rhs_view = rhs.nd_packed::<Rhs, V>(comptime!(Guard::Checked));
+    let whole_lines = comptime!(layout.sums_whole_lines(&in_space, vw));
+    let mut cells = Array::<E>::new(total_acc);
+    #[unroll]
+    for a in 0..total_acc {
+        let acc_coords =
+            Coords::constant(comptime!(layout.acc_extents.clone())).unravel(comptime!(a as u32));
+        let mut sum = E::from_int(0);
+        if comptime!(whole_lines) {
+            // The innermost run counted in lines: its coordinate is already the line's.
+            let line_extents = comptime!(layout.line_extents(vw));
+            for p in 0..comptime!(layout.kc / vw) {
+                let reduce_coords =
+                    Coords::constant(comptime!(line_extents.clone())).unravel(p.cast::<u32>());
+                let coords = resolve_nd_coords(
+                    &in_space,
+                    &acc_space,
+                    &layout.reduce_axes,
+                    &acc_coords,
+                    &reduce_coords,
+                    1usize,
+                    AccCoords::Cells,
+                );
+                let (left, right) = (lhs_view.read(coords.clone()), rhs_view.read(coords));
+                #[unroll]
+                for c in 0..vw {
+                    sum += E::cast_from(left.extract(c)) * E::cast_from(right.extract(c));
+                }
+            }
+        } else {
+            for p in 0..comptime!(layout.kc) {
+                let reduce_coords = Coords::constant(comptime!(layout.reduce_extents.clone()))
+                    .unravel(p.cast::<u32>());
+                let coords = resolve_nd_coords(
+                    &in_space,
+                    &acc_space,
+                    &layout.reduce_axes,
+                    &acc_coords,
+                    &reduce_coords,
+                    vw,
+                    AccCoords::Cells,
+                );
+                let component = resolve_reduce_component(
+                    &in_space,
+                    &acc_space,
+                    &layout.reduce_axes,
+                    &acc_coords,
+                    &reduce_coords,
+                    vw,
+                );
+                let left = E::cast_from(lhs_view.read(coords.clone()).extract_dynamic(component));
+                let right = E::cast_from(rhs_view.read(coords).extract_dynamic(component));
+                sum += left * right;
+            }
+        }
+        cells[a] = sum;
+    }
+    cells
 }
 
 /// Comptime bookkeeping: the axes of `in_space` contracted against `acc_space`, and extents.
@@ -312,14 +382,37 @@ impl ReduceLayout {
             total_acc,
         }
     }
+
+    /// Whether the run spans `in_space`'s innermost axis, in whole lines of `width`: the last
+    /// axis it contracts is the input's innermost, and its extent a multiple of the width.
+    fn sums_whole_lines(&self, in_space: &Space, width: usize) -> bool {
+        let innermost = in_space.axis_at(in_space.rank() - 1);
+        width > 1
+            && self.reduce_axes.last() == Some(&innermost)
+            && self
+                .reduce_extents
+                .last()
+                .is_some_and(|extent| extent % width == 0)
+    }
+
+    /// The run's extents with its innermost one counted in lines of `width`.
+    fn line_extents(&self, width: usize) -> Vec<usize> {
+        let mut extents = self.reduce_extents.clone();
+        if let Some(last) = extents.last_mut() {
+            *last /= width;
+        }
+        extents
+    }
 }
 
 /// The line component for the input's innermost axis, contracted or surviving.
 #[cube]
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Axis]` from a `&Vec`.
+#[allow(clippy::ptr_arg)]
 fn resolve_reduce_component(
-    #[comptime] in_space: Space,
-    #[comptime] acc_space: Space,
-    #[comptime] reduce_axes: Vec<Axis>,
+    #[comptime] in_space: &Space,
+    #[comptime] acc_space: &Space,
+    #[comptime] reduce_axes: &Vec<Axis>,
     acc_coords: &Coords<u32>,
     reduce_coords: &Coords<u32>,
     #[comptime] width: usize,

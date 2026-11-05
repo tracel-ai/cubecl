@@ -1,4 +1,5 @@
-//! The device context: its loaded kernels, and its open profiles.
+//! The device context: its loaded kernels, its open profiles, and the streams collectives and
+//! transfers between devices run on.
 //!
 //! Compilation is memoized here rather than per stream, because a module is
 //! loaded into the context and every stream sharing it can launch from the
@@ -9,18 +10,29 @@
 use super::storage::gpu::GpuResource;
 use crate::compiler::{HipBackend, HipCompilationOptions};
 use crate::compute::artifact::HipArtifactCompiler;
-use crate::compute::events::EventProfiler;
+use crate::compute::events::{EventProfiler, Hip};
 use crate::compute::modules::{HipCompiledKernel, HipModules};
 use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_hip_sys::hipStream_t;
+use cubecl_server::command::CONNECT_ELEMENT_SIZE;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
+use cubecl_server::device_events::EventApi;
 use cubecl_server::kernel::CubeKernel;
 use cubecl_server::logging::ServerLogger;
 
 #[derive(Debug)]
-pub(crate) struct HipContext {
+pub struct HipContext {
+    /// The stream collectives run on. Kept on the context so a relocation, which reaches the
+    /// context and not the server, can wait on it.
+    pub comm_stream: hipStream_t,
+    /// The stream transfers between devices run on, apart from the collectives', so neither
+    /// queues behind the other.
+    pub transfer_stream: hipStream_t,
+    /// See [`CollectiveServer::connect_element`](cubecl_server::command::CollectiveServer::connect_element).
+    pub connect_element: GpuResource,
     /// The modules loaded on the device, and how to load another.
     kernels: KernelLoader<HipModules>,
     pub profiler: EventProfiler,
@@ -46,6 +58,11 @@ impl HipContext {
     ) -> Self {
         let compiler = HipArtifactCompiler::new(properties, compilation_options);
         Self {
+            comm_stream: Hip::stream_create_non_blocking()
+                .expect("Can create the communication stream."),
+            transfer_stream: Hip::stream_create_non_blocking()
+                .expect("Can create the transfer stream."),
+            connect_element: connect_element().expect("Can allocate the connect element."),
             kernels: KernelLoader::new(HipModules::new(compiler, fingerprint, backend)),
             profiler: EventProfiler::default(),
         }
@@ -128,4 +145,18 @@ impl HipContext {
             }
         }
     }
+}
+
+/// Allocated on the device that is current, which is this context's.
+fn connect_element() -> Result<GpuResource, cubecl_server::driver::DriverError> {
+    let mut ptr = core::ptr::null_mut();
+    // SAFETY: `ptr` is a valid out-pointer. The element is only ever reduced into itself, and
+    // nothing reads what that leaves in it.
+    let status = unsafe { cubecl_hip_sys::hipMalloc(&mut ptr, CONNECT_ELEMENT_SIZE as usize) };
+    checked("hipMalloc", status)?;
+    Ok(GpuResource::new(
+        ptr,
+        core::ptr::null_mut(),
+        CONNECT_ELEMENT_SIZE,
+    ))
 }

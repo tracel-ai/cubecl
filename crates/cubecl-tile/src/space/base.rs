@@ -139,6 +139,17 @@ impl Space {
     pub fn subspace(&self, axes: &[Axis]) -> Space {
         Space::from_shape(self.shape.subspace(axes))
     }
+
+    /// This box listed in `held`'s order where `held` spans the same axes, as it is otherwise:
+    /// the box a plane-resident accumulator writes through, its fragments' rows along its own
+    /// leading axes whatever order the memory it drains into lists them in.
+    pub(crate) fn in_order_of(&self, held: &Space) -> Space {
+        let same_axes = held.rank() == self.rank() && held.axes().all(|axis| self.contains(axis));
+        match same_axes {
+            true => self.subspace(&held.axes().collect::<Vec<_>>()),
+            false => self.clone(),
+        }
+    }
 }
 
 #[cube]
@@ -170,12 +181,6 @@ impl Space {
             .iter()
             .map(|&(a, n)| (a, Extent::Static(n)))
             .collect();
-        Space::from_extents(&extents)
-    }
-
-    /// Every axis dynamic, extents resolved in-kernel from the tensors.
-    pub fn dynamic(axes: &[Axis]) -> Self {
-        let extents: Vec<_> = axes.iter().map(|&a| (a, Extent::Dynamic)).collect();
         Space::from_extents(&extents)
     }
 
@@ -247,7 +252,7 @@ impl Space {
             for axis in part.axes() {
                 let extent = part.extent_raw(axis);
                 match entries.iter_mut().find(|(a, _)| *a == axis) {
-                    Some(slot) => slot.1 = merge_level(slot.1, extent),
+                    Some(slot) => slot.1 = slot.1.broadcast(extent),
                     None => entries.push((axis, extent)),
                 }
             }
@@ -297,7 +302,7 @@ impl Space {
     }
 
     /// The axes in this space but not in `output`: those contracted.
-    pub fn difference(&self, output: &Space) -> SmallVec<[Axis; Space::MAX_RANK]> {
+    pub(crate) fn difference(&self, output: &Space) -> SmallVec<[Axis; Space::MAX_RANK]> {
         self.axes().filter(|&axis| !output.contains(axis)).collect()
     }
 
@@ -308,8 +313,8 @@ impl Space {
             Extent::Static(extent) => extent.is_multiple_of(width),
             Extent::Dynamic => true,
         };
-        let folds = width > 1 && contracted.last() == Some(&lined) && whole_lines;
-        if folds { width } else { 1 }
+        let sums_lines = width > 1 && contracted.last() == Some(&lined) && whole_lines;
+        if sums_lines { width } else { 1 }
     }
 
     /// The axes `operands` jointly contract against `output`.
@@ -353,7 +358,7 @@ impl Space {
 
     /// How many slices along `axis` the space holds: one for every index of its other axes. The
     /// extent of `axis` itself may be one a walk has yet to cut, which only the launch knows.
-    pub fn slices_along(&self, axis: Axis) -> usize {
+    pub(crate) fn slices_along(&self, axis: Axis) -> usize {
         self.axes()
             .filter(|&other| other != axis)
             .map(|other| self.extent(other))
@@ -363,11 +368,7 @@ impl Space {
     /// The widest run along `axis` that divides both `widest` and this space's extent there: the
     /// widest line a buffer read in boxes of this space can hold without a box starting mid-line.
     pub(crate) fn whole_run(&self, axis: Axis, widest: usize) -> usize {
-        let (mut run, mut rest) = (widest, self.extent(axis));
-        while rest != 0 {
-            (run, rest) = (rest, run % rest);
-        }
-        run
+        gcd(widest, self.extent(axis))
     }
 }
 
@@ -379,17 +380,6 @@ impl Space {
             Extent::Static(n) => comptime!(n).runtime(),
             Extent::Dynamic => *self.sizes.index(i),
         }
-    }
-}
-
-/// Broadcast rule for one axis when [`merge`](Space::merge)ing spaces.
-fn merge_level(a: Extent, b: Extent) -> Extent {
-    match (a, b) {
-        (Extent::Static(1), b) => b,
-        (a, Extent::Static(1)) => a,
-        (Extent::Dynamic, _) | (_, Extent::Dynamic) => Extent::Dynamic,
-        (Extent::Static(a), Extent::Static(b)) if a == b => Extent::Static(a),
-        _ => panic!("Space::merge: axis appears with conflicting extents"),
     }
 }
 

@@ -56,7 +56,7 @@ pub(crate) struct Memory {
 }
 
 /// How a contraction into a memory window runs: the register block a unit's share is tiled into,
-/// and the semiring it folds under.
+/// and the semiring it sums under.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct Contraction {
     pub(crate) block: RegisterBlock,
@@ -458,6 +458,35 @@ pub(crate) enum WindowStorage {
     Stored(Storage),
     /// Storage-tiled and inside one storage tile: one contiguous run from its origin.
     Contiguous,
+}
+
+impl WindowStorage {
+    /// The storage tiling one level down: through the storage tile's own level, inside one tile.
+    pub(crate) fn below(self, depth: usize, level: &Level, space: &Space) -> WindowStorage {
+        match self {
+            WindowStorage::Contiguous
+            | WindowStorage::Stored(Storage::Strided | Storage::Tiled(None)) => self,
+            WindowStorage::Stored(Storage::Tiled(Some(tiled_at))) => {
+                assert!(
+                    depth <= tiled_at,
+                    "Memory::at: this window is above its storage tile, the tile of level \
+                     {tiled_at}, yet the descent is at depth {depth}; the storage tile's level was \
+                     skipped past"
+                );
+                if depth < tiled_at {
+                    return self;
+                }
+                for axis in space.axes() {
+                    assert!(
+                        matches!(level.extent_in(space, axis), Extent::Static(_)),
+                        "Memory::at: level {tiled_at} hands {axis:?} down dynamic, so its tile is \
+                         no storage tile"
+                    );
+                }
+                WindowStorage::Contiguous
+            }
+        }
+    }
 }
 
 #[cfg(test)]

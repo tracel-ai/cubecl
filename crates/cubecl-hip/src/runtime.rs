@@ -1,12 +1,13 @@
 use crate::{
     compiler::{HipBackend, HipCompilationOptions},
-    compute::{HipServer, context::HipContext},
+    compute::{HipServer, communication, context::HipContext},
     device::AmdDevice,
 };
 use core::ffi::c_int;
 
 use cubecl_common::{
     device::{Device, DeviceService},
+    device_handle::DeviceHandle,
     profile::TimingMethod,
 };
 #[cfg(windows)]
@@ -176,6 +177,17 @@ impl DeviceService for HipServer {
             },
         );
         register_supported_types(&mut device_props);
+        // No AMD part converts fp4 itself; cubecl-llvm decodes it in software. Emulated, a packed
+        // reader decodes the word's bits as `f16` pairs rather than code by code.
+        #[cfg(not(feature = "cpp"))]
+        {
+            use cubecl_core::ir::{ElemType, FloatKind, features::TypeUsage};
+            device_props.register_type_usage(
+                ElemType::Float(FloatKind::E2M1x2),
+                TypeUsage::Conversion | TypeUsage::Buffer,
+            );
+            device_props.register_emulated_conversion(ElemType::Float(FloatKind::E2M1x2));
+        }
 
         // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
@@ -218,7 +230,7 @@ impl DeviceService for HipServer {
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let (utilities, captures) = ServerUtilities::init(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
@@ -226,9 +238,14 @@ impl DeviceService for HipServer {
             logger,
             policy,
         );
+        // Loading RCCL takes most of a second, and a lone device has no peer to use it with.
+        if HipRuntime::enumerate_devices(0).len() > 1 {
+            utilities.device_transport =
+                communication::transport(utilities.properties.features.types.elem.keys().copied());
+        }
         let options = RuntimeOptions::default();
 
-        HipServer::new(
+        let server = HipServer::new(
             hip_ctx,
             mem_properties,
             options.memory_config,
@@ -236,7 +253,12 @@ impl DeviceService for HipServer {
             probe.integrated,
             utilities,
             captures,
-        )
+        );
+        // HIP frees its runtime in its library's exit teardown, while other threads may still
+        // call into it through this server. Asked once HIP is loaded and the device set up, so
+        // the close runs ahead of that teardown.
+        DeviceHandle::<HipServer>::close_at_exit(device_id);
+        server
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

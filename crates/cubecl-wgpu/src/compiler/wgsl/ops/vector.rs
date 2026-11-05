@@ -11,7 +11,6 @@ use crate::compiler::wgsl::{
 wasm_inventory_root!(CompositeConstructOp);
 
 wgsl_op_with_out!(CompositeConstructOp; |op, ctx| {
-    assert!(op.result_type(ctx).is_vector(ctx));
     let ty = op.result_type(ctx).to_wgsl(ctx);
     let mut values = op.values(ctx).into_iter().map(|val| val.name(ctx));
     format!("{ty}({})", values.join(", "))

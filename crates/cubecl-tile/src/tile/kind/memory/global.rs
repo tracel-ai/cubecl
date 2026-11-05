@@ -25,9 +25,9 @@ pub struct GlobalOperand {
     pub write: Write,
     /// One per [`Scale::Dynamic`](crate::Scale) term and one per
     /// [`Divisor::Dynamic`](crate::Divisor) axis, by physical axis, divisor last.
-    pub coefficients: Coords<u32>,
+    pub(crate) coefficients: Coords<u32>,
     /// One signed value per [`Offset::Dynamic`](crate::Offset) axis.
-    pub offsets: Coords<i32>,
+    pub(crate) offsets: Coords<i32>,
     /// The table a pool of pages is read as sequences through, where the spec states
     /// [`paging`](TileSpec::paging).
     pub(crate) paging: ComptimeOption<PageTable>,
@@ -53,8 +53,7 @@ impl GlobalOperand {
 
     /// [`tensor`](GlobalOperand::tensor) over a pool of pages, read as the sequences `table` names
     /// ([`Paging`]): the spec states which axes the table resolves, the tensor is the pool as it
-    /// lies, and the operand's extent along the two axes is the table's. A pool is never packed,
-    /// so `T` is `E`'s scalar.
+    /// lies, and the operand's extent along the two axes is the table's.
     pub fn paged<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         table: &Tensor<u32>,
@@ -89,7 +88,7 @@ impl GlobalOperand {
 
     /// [`tensor`](GlobalOperand::tensor) for a gather with a runtime affine map.
     /// `coefficients` and `offsets` follow the field order; only their lengths are checked.
-    pub fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
+    pub(crate) fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
         #[comptime] spec: TileSpec,
@@ -119,12 +118,14 @@ impl GlobalOperand {
         let rank = comptime!(spec.projection.physical_rank());
         // Held at what the binding holds: `T`, or the `u32` words a packed one packs it in.
         let backing = match comptime!(spec.packing) {
-            Packing::Plain => Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
-                tensor
-                    .as_slice()
-                    .downcast_unchecked::<T>()
-                    .as_boxed_unchecked()
-            })),
+            Packing::Plain | Packing::Words { .. } => {
+                Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
+                    tensor
+                        .as_slice()
+                        .downcast_unchecked::<T>()
+                        .as_boxed_unchecked()
+                }))
+            }
             Packing::Packed { .. } => Backing::new_Buffer(Raw::<Slice>::of::<u32>(unsafe {
                 tensor
                     .as_slice()
@@ -163,7 +164,7 @@ impl GlobalOperand {
         #[comptime] write: Write,
     ) -> GlobalOperand {
         comptime!(assert!(
-            spec.packing == Packing::Plain,
+            spec.packing.as_stored(),
             "GlobalOperand::sink: a sink is written at the width it states, so its spec may not \
              state a packing ({:?}) on top of it",
             spec.packing
@@ -190,7 +191,7 @@ impl GlobalOperand {
         #[comptime] spec: TileSpec,
     ) -> GlobalOperand {
         comptime!(assert!(
-            spec.packing == Packing::Plain,
+            spec.packing.as_stored(),
             "GlobalOperand::source: a source is read at the width it states, so its spec may not \
              state a packing ({:?}) on top of it",
             spec.packing
@@ -298,7 +299,7 @@ impl Memory {
             physical_strides.push(geometry.strides.at(i) * part / comptime!(vector_size as u32));
         }
         let gmem_projection = comptime!(projection.positional());
-        // Folded from the physical shape, so tiled (padded) operands get the logical extent.
+        // The product of the physical shape, so tiled (padded) operands get the logical extent.
         let bound = logical_extent(comptime!(gmem_projection.clone()), &physical_shape);
         let (origin, extent, map) = top_window(
             comptime!(space.clone()),
@@ -367,13 +368,7 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     }
     projection.validate_composition(|axis| space.extent(axis));
     if let Some(paging) = &spec.paging {
-        let checked = paging.validate(
-            projection,
-            &spec.stored_tiles,
-            spec.packing,
-            spec.delivery,
-            vector_size,
-        );
+        let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery);
         if let Err(refusal) = checked {
             panic!("GlobalOperand: {refusal}");
         }

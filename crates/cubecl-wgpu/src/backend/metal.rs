@@ -1,20 +1,7 @@
 use crate::compute::pipelines::MetadataLayout;
-use cubecl_core::{
-    WgpuCompilationOptions,
-    ir::{AddressType, UIntKind},
-    prelude::Visibility,
-};
-use cubecl_cpp::{
-    metal::{
-        arch::MetalArchitecture, mma::supported_mma_combinations_metal,
-        supported_cmma_combinations_metal,
-    },
-    shared::{MslComputeKernel, register_mma_features, register_wmma_features},
-};
-use cubecl_ir::{
-    DeviceProperties, Type,
-    features::{AtomicUsage, Plane, TypeUsage},
-};
+use cubecl_core::{WgpuCompilationOptions, prelude::Visibility};
+use cubecl_cpp::shared::MslComputeKernel;
+use cubecl_ir::DeviceProperties;
 use wgpu::{
     DeviceDescriptor, Features, Limits,
     hal::{self, Adapter, metal},
@@ -118,7 +105,6 @@ pub fn register_metal_features(
         }
     "#;
 
-    let features = adapter.features();
     unsafe {
         use objc2::rc::autoreleasepool;
         use objc2_foundation::NSString;
@@ -167,7 +153,7 @@ pub fn register_metal_features(
         match support {
             MslSupport::Supported => {
                 comp_options.supports_msl_compiler = true;
-                register_features(&adapter, props, features, comp_options);
+                cubecl_cpp::metal::register_metal_features(props);
                 true
             }
             MslSupport::FamilyTooOld => {
@@ -221,86 +207,6 @@ pub fn register_metal_features(
     _: &mut WgpuCompilationOptions,
 ) -> bool {
     false
-}
-
-fn register_features(
-    _adapter: &metal::Adapter,
-    props: &mut DeviceProperties,
-    _features: Features,
-    _comp_options: &mut WgpuCompilationOptions,
-) {
-    register_types(props);
-    register_cmma(props);
-    props.features.alignment = true;
-    // This backend emits MSL, so the same `threadgroup_barrier(mem_flags::mem_device)` the
-    // native Metal runtime gets.
-    props.features.device_memory_scope = true;
-    props.features.plane.insert(Plane::Ops);
-    props.features.plane.insert(Plane::Sync);
-}
-
-fn register_types(props: &mut DeviceProperties) {
-    use cubecl_core::ir::{ElemType, FloatKind, IntKind};
-
-    props.register_address_type(AddressType::U32);
-    props.register_address_type(AddressType::U64);
-
-    let types = [
-        ElemType::Index,
-        ElemType::UInt(UIntKind::U8),
-        ElemType::UInt(UIntKind::U16),
-        ElemType::UInt(UIntKind::U32),
-        ElemType::UInt(UIntKind::U64),
-        ElemType::Int(IntKind::I8),
-        ElemType::Int(IntKind::I16),
-        ElemType::Int(IntKind::I32),
-        ElemType::Int(IntKind::I64),
-        ElemType::Float(FloatKind::F16),
-        ElemType::Float(FloatKind::BF16),
-        ElemType::Float(FloatKind::F32),
-        ElemType::Bool,
-    ];
-
-    for ty in types {
-        props.register_type_usage(ty, TypeUsage::all());
-    }
-
-    // MSL has no fp8 or fp4 type: the emitter stores these as `uint8_t` and converts in software,
-    // which is enough to hold them in buffers and cast them, not to compute in them.
-    for ty in [
-        FloatKind::E4M3,
-        FloatKind::E5M2,
-        FloatKind::UE8M0,
-        FloatKind::E2M1x2,
-    ] {
-        props.register_type_usage(
-            ElemType::Float(ty),
-            TypeUsage::Conversion | TypeUsage::Buffer,
-        );
-        props.register_emulated_conversion(ElemType::Float(ty));
-    }
-
-    // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64
-    // is left out: registering it made add, load and store return wrong values.
-    for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
-        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
-        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
-    }
-    // MSL's float atomics take `device` pointers only: the compiler rejects one in
-    // `threadgroup` memory, so shared memory gets none.
-    props.register_atomic_type_usage(
-        Type::atomic(ElemType::Float(FloatKind::F32)),
-        AtomicUsage::Add | AtomicUsage::LoadStore,
-    );
-}
-
-/// The `simdgroup_matrix` as a cooperative matrix, and as a manual MMA over each lane's
-/// registers.
-fn register_cmma(props: &mut DeviceProperties) {
-    let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
-    register_wmma_features(combinations, props);
-    let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
-    register_mma_features(combinations, props);
 }
 
 #[cfg(all(test, target_vendor = "apple"))]

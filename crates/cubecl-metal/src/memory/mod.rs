@@ -1,3 +1,3 @@
 pub mod storage;
 
-pub use storage::{MetalBufferHandle, MetalStorage};
+pub use storage::{MetalResource, MetalStorage};

@@ -13,6 +13,7 @@ use cubecl::{
 };
 use cubecl_tile::kind::Boundary;
 use cubecl_tile::launch::{BoundaryPolicy, Delivery};
+use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
 
 use super::references;
@@ -40,9 +41,9 @@ fn has_copy_engine(client: &Client) -> bool {
 /// the one contracted: the pipelined schedule, its slots published through the barrier.
 #[cube(launch)]
 fn ring_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
@@ -70,8 +71,8 @@ fn ring_matmul(
 /// and the wait a kernel without a pipeline runs.
 #[cube(launch)]
 fn staged_copy(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -92,8 +93,8 @@ fn staged_copy(
 /// of it unpacks.
 #[cube(launch)]
 fn staged_packed_copy(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -221,8 +222,8 @@ fn staged_copy_with(
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
-        TileArgLaunch::new(src.binding().into_tensor_arg(), dtype, 1, src_spec),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(src.binding().into_tensor_arg(), dtype, 1, src_spec),
+        TileTensorLaunch::new(
             dst.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -310,13 +311,13 @@ fn staged_packed_copy_with(
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field).delivery(delivery),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -348,4 +349,91 @@ fn an_async_copy_stages_packed_words() {
         let got = staged_packed_copy_with(&values, rows, cols, tile_rows, delivery);
         assert_eq!(got, want, "{delivery:?}");
     }
+}
+
+/// [`staged_packed_copy`] of words whose rows are stated as two axes, a block and the row inside
+/// it, in `axes`' order: the fill reads the source at the stage's coordinates through the
+/// source's projection, which puts both axes on its one physical axis of rows.
+fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
+    const ROW_BLOCKS: Axis = Axis(5);
+    let (rows, cols, tile_rows) = (8, 16, 4);
+    let field = QuantValue::Q8S;
+    let values: Vec<i32> = (0..rows * cols).map(|i| (i % 128) as i32).collect();
+    let words: Vec<u32> = values
+        .chunks(4)
+        .map(|word| {
+            word.iter()
+                .enumerate()
+                .fold(0u32, |acc, (j, &v)| acc | ((v as u32 & 0xff) << (j * 8)))
+        })
+        .collect();
+    let client = cubecl::test_device().client();
+    let input = TensorHandle::new_contiguous(
+        vec![rows, cols],
+        client.create(Bytes::from_elems(words)),
+        u32::elem_type_native(),
+    );
+    let dtype = f32::elem_type_native();
+    let output = TestInput::builder(client.clone(), shape![rows, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let extent = |axis: Axis, rows: usize| match axis {
+        ROW_BLOCKS => 1,
+        M => rows,
+        _ => cols,
+    };
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&axes.map(|axis| (axis, extent(axis, rows)))),
+            Levels::leaf(&axes.map(|axis| (axis, extent(axis, tile_rows))))
+                .walk_every(&axes)
+                .build(),
+        ),
+        Form::Static,
+    );
+    let words_over = Projection::new(
+        &axes,
+        &[
+            PhysicalAxisMap::disjoint(&[(ROW_BLOCKS, rows), (M, 1)]),
+            PhysicalAxisMap::of(N),
+        ],
+    );
+    let values_over = Projection::new(&axes, &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(N)]);
+    staged_packed_copy::launch(
+        &client,
+        CubeCount::new_single(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            input.binding().into_tensor_arg(),
+            u32::elem_type_native(),
+            1,
+            TileSpec::new(words_over).packed(field),
+        ),
+        TileTensorLaunch::new(
+            output.clone().binding().into_tensor_arg(),
+            dtype,
+            4,
+            TileSpec::new(values_over),
+        ),
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+    );
+    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    let got: Vec<f32> = (0..rows * cols)
+        .map(|i| got.get_f32(&[i / cols, i % cols]))
+        .collect();
+    let want: Vec<f32> = values.iter().map(|&v| v as f32).collect();
+    assert_eq!(got, want, "rows split as {axes:?}");
+}
+
+/// **A packed stage of rows stated as two axes holds each row where its source does.** The fill
+/// reads the source through its projection, so a block of rows stated before the row inside it
+/// lands as one stated after.
+#[test]
+fn a_packed_stage_of_rows_stated_as_two_axes_holds_each_row() {
+    const ROW_BLOCKS: Axis = Axis(5);
+    staged_packed_copy_of_split_rows([ROW_BLOCKS, M, N]);
+    staged_packed_copy_of_split_rows([M, ROW_BLOCKS, N]);
 }

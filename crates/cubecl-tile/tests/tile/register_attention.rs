@@ -353,7 +353,7 @@ fn row_across(
     #[comptime] monoid: Monoid,
 ) -> f32 {
     // Whether a lane bit moves the row is read at lane 0, where both positions are constants the
-    // compiler folds: a bit that moves it costs nothing, its shuffle unused.
+    // compiler evaluates: a bit that moves it costs nothing, its shuffle unused.
     let (row, _) = def.position_of_nth(0u32, nth as u32, MatrixIdent::Accumulator);
     let mut acc = value;
     #[unroll]

@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 use cubecl::unexpanded;
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::algebra::{Integer, IntegerExpand, fold_add, fold_mul};
+use crate::algebra::{Integer, IntegerExpand, simplified_add, simplified_mul};
 
 /// An immutable coordinate/extent list whose expand's `IntoMut` is the identity.
 /// Copying into mutable slots (as `Sequence` does) would erase constness.
@@ -42,11 +42,11 @@ impl<C: Int> Coords<C> {
     pub(crate) fn to_dyn(&self) -> CoordsDyn {
         unexpanded!()
     }
-    /// Product of the elements at comptime `picks` (empty picks fold to `1`).
+    /// Product of the elements at comptime `picks` (empty picks give `1`).
     pub(crate) fn product(&self, _picks: Vec<usize>) -> C {
         unexpanded!()
     }
-    /// Sum of the elements at comptime `picks` (empty picks fold to `0`).
+    /// Sum of the elements at comptime `picks` (empty picks give `0`).
     pub(crate) fn sum(&self, _picks: Vec<usize>) -> C {
         unexpanded!()
     }
@@ -82,19 +82,19 @@ impl Coords<u32> {
         out
     }
 
-    /// The digits of a flat row-major index `i` over these extents.
-    /// The leading entry skips the modulo so the divide folds for constant extents.
+    /// The coordinates of a flat row-major index `i` over these extents.
+    /// The leading entry skips the modulo so the divide stays constant for constant extents.
     pub(crate) fn unravel(&self, i: u32) -> Coords<u32> {
         let n = self.len();
         let mut out = Coords::<u32>::new();
 
         #[unroll]
         for p in 0..n {
-            let digit = i.divided_by(self.product(comptime!(((p + 1)..n).collect::<Vec<_>>())));
+            let quot = i.divided_by(self.product(comptime!(((p + 1)..n).collect::<Vec<_>>())));
             if comptime!(p == 0) {
-                out.push(digit);
+                out.push(quot);
             } else {
-                out.push(digit.remainder(self.at(p)));
+                out.push(quot.remainder(self.at(p)));
             }
         }
 
@@ -173,6 +173,13 @@ impl<C: Int> AsMutExpand for CoordsExpand<C> {
 }
 
 impl<C: Int> CoordsExpand<C> {
+    /// The entries known only at runtime, in order.
+    pub(crate) fn runtime_mut(&mut self) -> impl Iterator<Item = &mut NativeExpand<C>> {
+        self.values
+            .iter_mut()
+            .filter(|v| matches!(v.expand, ExpandValue::Value(_)))
+    }
+
     pub fn __expand_assign_method(&mut self, _scope: &Scope, other: Self) {
         self.values = other.values;
     }
@@ -201,7 +208,7 @@ impl<C: Int> CoordsExpand<C> {
         let mut acc: NativeExpand<C> =
             ExpandValue::constant(1u64.into(), C::elem_type(scope)).into();
         for i in picks {
-            acc = fold_mul(scope, acc, self.values[i]);
+            acc = simplified_mul(scope, acc, self.values[i]);
         }
         acc
     }
@@ -209,7 +216,7 @@ impl<C: Int> CoordsExpand<C> {
         let mut acc: NativeExpand<C> =
             ExpandValue::constant(0u64.into(), C::elem_type(scope)).into();
         for i in picks {
-            acc = fold_add(scope, acc, self.values[i]);
+            acc = simplified_add(scope, acc, self.values[i]);
         }
         acc
     }

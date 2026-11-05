@@ -5,7 +5,7 @@
 //! operands and not in the accumulator. Depthwise, each channel has its own filter and its own
 //! output channel, so one axis `C` appears in *all three* operands. That is the whole difference.
 //!
-//! `C` is then a batch axis (an axis the walk splits and the leaf never folds), and the
+//! `C` is then a batch axis (an axis the walk splits and the leaf never contracts), and the
 //! contraction is over the window taps `RH`/`RW` alone.
 //!
 //! Stating it that way is what keeps this a space-and-projection change rather than a new kernel:
@@ -45,9 +45,9 @@ const RW: Axis = Axis(4);
 /// makes it a batch axis rather than a contracted one; the leaf reads that off the spaces.
 #[cube(launch)]
 fn depthwise_kernel(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    weight: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
 ) {
     let input = input.tile(&space);
@@ -215,9 +215,9 @@ impl Depthwise {
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
-            TileArgLaunch::new(w_handle.binding().into_tensor_arg(), f32_ty, 1, w_spec),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
+            TileTensorLaunch::new(w_handle.binding().into_tensor_arg(), f32_ty, 1, w_spec),
+            TileTensorLaunch::new(
                 out_handle.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,

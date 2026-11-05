@@ -29,7 +29,7 @@ cubecl-ir = { workspace = true }
 cubecl-monitoring = { workspace = true, features = [
     "io-accelerator",
 ] }
-cubecl-server = { workspace = true }
+cubecl-server = { workspace = true, features = ["storage-bytes"] }
 cubecl-cpp = { workspace = true, default-features = true, features = ["metal"] }
 
 # Utilities

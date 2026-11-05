@@ -117,6 +117,18 @@ impl Tile {
         g.nd_words::<WP>(layout, guard)
     }
 
+    /// The mutable twin of [`nd_words`](Tile::nd_words); refused where a write would alias.
+    pub(crate) fn nd_words_mut<WP: Size>(&mut self) -> MaskedMut<'_, Vector<u32, WP>, CoordsDyn> {
+        let space = comptime!(self.place.space.clone());
+        let g = self.mem_mut("nd_words_mut");
+        comptime!(assert!(
+            g.projection.composition() != Composition::Overlapping,
+            "Tile::nd_words_mut: an overlapping operand aliases under a write"
+        ));
+        let layout = g.axis_projection(space);
+        g.nd_words_mut::<WP>(layout)
+    }
+
     /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] axis.
     pub(crate) fn guard_provable(&self) -> comptime_type!(bool) {
         match &self.kind {
@@ -151,7 +163,7 @@ fn procedural_nd<T: Numeric, W: Size>(
     )
 }
 
-/// A gathered operand split into the map folded once per run and the physical view it addresses.
+/// A gathered operand split into the map evaluated once per run and the physical view it addresses.
 #[derive(CubeType)]
 pub(crate) struct Gathered<'a, T: Numeric, W: Size> {
     pub map: ProjectionInKernel,
@@ -179,7 +191,7 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(g) => Gathered::new(
                 g.axis_projection(comptime!(space.clone())),
-                // A folded caller derived its coordinates itself, so both guards stay on.
+                // A caller that evaluated the map derived its coordinates itself, so both guards stay on.
                 g.packed::<T, W, CoordsDyn, CompactionStep>(
                     g.physical_box(),
                     comptime!(Guard::Checked),

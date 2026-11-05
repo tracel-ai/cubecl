@@ -1,4 +1,4 @@
-//! A TMA tensor map as an operand's values ([`TileArgLaunch::tensor_map`]) and its in-kernel
+//! A TMA tensor map as an operand's values ([`TileTensorLaunch::tensor_map`]) and its in-kernel
 //! layouts.
 
 use cubecl::prelude::*;
@@ -19,24 +19,10 @@ pub struct TmaBox {
     pub transposed: bool,
 }
 
-/// What the TMA family launches from: the tensor map, the axes it spans, and its box.
-pub struct TmaOperand {
-    pub map: TensorMapArg<Tiled>,
-    pub axes: Vec<Axis>,
-    pub shape: TmaBox,
-}
-
-impl TmaOperand {
-    /// The tensor map as an operand's values, served at the element it moves, under no scales.
-    pub fn arg(self) -> TileArgLaunch {
-        TileArgLaunch::tensor_map(self.map, &self.axes, self.shape)
-    }
-}
-
-impl TileArgLaunch {
-    /// A TMA tensor map as a tile argument over `axes`: two, or three with `shape.batch` set.
+impl TileTensorLaunch {
+    /// A TMA tensor map as a tile tensor over `axes`: two, or three with `shape.batch` set.
     pub fn tensor_map(tensor_map: TensorMapArg<Tiled>, axes: &[Axis], shape: TmaBox) -> Self {
-        let layout = Self::dyn_layout(axes, shape, 1);
+        let layout = Self::dyn_layout(axes, shape);
         Self::of_tensor_map(
             tensor_map,
             VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaDynLayout>>(layout),
@@ -44,81 +30,156 @@ impl TileArgLaunch {
         )
     }
 
-    /// [`tensor_map`](Self::tensor_map) over a packed operand: the descriptor moves the words its
-    /// values are stored in, `field.per_word()` values a cell along its innermost dimension,
-    /// which the layout divides the values' coordinate along it by. `shape` counts values.
-    pub fn tensor_map_packed(
-        tensor_map: TensorMapArg<Tiled>,
-        axes: &[Axis],
-        shape: TmaBox,
-        field: Field,
-    ) -> Self {
-        let layout = Self::dyn_layout(axes, shape, field.per_word() as u32);
-        Self::of_tensor_map(
-            tensor_map,
-            VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaDynLayout>>(layout),
-            TileSpec::direct(axes).packed(field),
-        )
-    }
-
-    /// The layout of a descriptor over `axes` moving cells of `per_cell` values along its
-    /// innermost dimension.
-    fn dyn_layout(axes: &[Axis], shape: TmaBox, per_cell: u32) -> TmaDynLayoutLaunch {
+    /// The layout of a descriptor over `axes`.
+    fn dyn_layout(axes: &[Axis], shape: TmaBox) -> TmaDynLayoutLaunch {
         let batched = match (axes.len(), shape.batch) {
             (2, None) => false,
             (3, Some(_)) => true,
             (r, batch) => panic!(
-                "TileArgLaunch::tensor_map: the descriptor is (batch, row, col); {r} axes with \
+                "TileTensorLaunch::tensor_map: the descriptor is (batch, row, col); {r} axes with \
                  batch {batch:?} is not a matrix nor a batched one"
             ),
         };
         let dims = (shape.batch.unwrap_or(1), shape.rows, shape.cols);
-        TmaDynLayoutLaunch::new(dims, batched, shape.transposed, per_cell)
+        TmaDynLayoutLaunch::new(dims, batched, shape.transposed)
     }
+}
 
-    /// A storage-tiled operand's tensor map over two `axes`, landing as `tiles.landing` says.
-    pub fn tensor_map_stored(
+impl TileTensorLaunch {
+    /// A TMA tensor map as a tile tensor over `axes`, `extents` along each, whose descriptor
+    /// dims are not the tile's own axes: each descriptor coordinate is read off a position over
+    /// `axes` as `coordinates` says, as a block-split operand lands in a descriptor over the
+    /// matrix it splits (its `KB` and `KI` one column).
+    ///
+    /// # Panics
+    ///
+    /// Where `extents` does not give one extent an axis, or a term reads past `axes`.
+    pub fn tensor_map_folded(
         tensor_map: TensorMapArg<Tiled>,
         axes: &[Axis],
-        tiles: TmaTiles,
+        extents: &[u32],
+        coordinates: TmaCoordinates,
     ) -> Self {
+        assert_eq!(
+            extents.len(),
+            axes.len(),
+            "TileTensorLaunch::tensor_map_folded: one extent an axis, {axes:?} against {extents:?}"
+        );
+        assert!(
+            coordinates
+                .dims
+                .iter()
+                .flatten()
+                .all(|term| term.position < axes.len()),
+            "TileTensorLaunch::tensor_map_folded: a term reads a position past {axes:?}"
+        );
+        let mut shape = SequenceArg::new();
+        for &extent in extents {
+            shape.push(extent);
+        }
+        let layout = TmaFoldedLayoutLaunch::new(shape, coordinates);
         Self::of_tensor_map(
             tensor_map,
-            Self::stored_layout(axes, tiles, 1),
+            VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaFoldedLayout>>(layout),
             TileSpec::direct(axes),
         )
     }
+}
 
-    /// [`tensor_map_stored`](Self::tensor_map_stored) over a packed operand: its words hold
-    /// `field`, `field.per_word()` values a word along `cols`. `tiles` counts values.
-    pub fn tensor_map_stored_packed(
-        tensor_map: TensorMapArg<Tiled>,
-        axes: &[Axis],
-        tiles: TmaTiles,
-        field: Field,
-    ) -> Self {
-        Self::of_tensor_map(
-            tensor_map,
-            Self::stored_layout(axes, tiles, field.per_word() as u32),
-            TileSpec::direct(axes).packed(field),
-        )
+/// One term of a descriptor coordinate: the position along the tile's `position`-th axis, times
+/// `scale`, modulo `modulus` where it is not zero, over `divisor`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct TmaTerm {
+    pub position: usize,
+    pub scale: u32,
+    pub modulus: u32,
+    pub divisor: u32,
+}
+
+impl TmaTerm {
+    /// The position along the `position`-th axis as it is.
+    pub fn axis(position: usize) -> Self {
+        Self {
+            position,
+            scale: 1,
+            modulus: 0,
+            divisor: 1,
+        }
     }
 
-    /// The layout of a storage-tiled descriptor over `axes` moving `per_cell` values a cell along
-    /// `cols`.
-    fn stored_layout(
-        axes: &[Axis],
-        tiles: TmaTiles,
-        per_cell: u32,
-    ) -> VirtualViewLayoutLaunch<CoordsDyn, Sequence<i32>, TensorMapArg<Tiled>> {
-        assert_eq!(
-            axes.len(),
-            2,
-            "TileArgLaunch::tensor_map_stored: a storage-tiled descriptor is a matrix; batch it by \
-             launching per batch"
-        );
-        let layout = TmaStoredLayoutLaunch::new(tiles.dims, tiles.tile, per_cell, tiles.landing);
-        VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaStoredLayout>>(layout)
+    /// This term times `scale`.
+    pub fn times(self, scale: u32) -> Self {
+        Self { scale, ..self }
+    }
+
+    /// This term over `divisor`: a position the box's origin only ever takes at multiples of it.
+    pub fn over(self, divisor: u32) -> Self {
+        Self { divisor, ..self }
+    }
+
+    /// This term modulo `modulus`, before its divisor: the place of a box inside a stored tile a
+    /// box covers part of.
+    pub fn modulo(self, modulus: u32) -> Self {
+        Self { modulus, ..self }
+    }
+}
+
+/// How a tile's position lands in a descriptor: one sum of [`TmaTerm`]s a descriptor dim,
+/// outermost first, the order the descriptor states its dims in.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct TmaCoordinates {
+    pub dims: Vec<Vec<TmaTerm>>,
+}
+
+/// In-kernel tensor-map layout landing a tile's position, over its own axes, in a descriptor whose
+/// dims sum them ([`TmaCoordinates`]).
+#[derive(CubeType, CubeLaunch, Clone)]
+pub(crate) struct TmaFoldedLayout {
+    /// The extent of each of the tile's axes.
+    shape: CoordsDyn,
+    #[cube(comptime)]
+    coordinates: TmaCoordinates,
+}
+
+#[cube]
+impl Layout for TmaFoldedLayout {
+    type Coordinates = CoordsDyn;
+    type SourceCoordinates = CoordsDyn;
+
+    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+        let coordinates = comptime!(self.coordinates.clone());
+        let mut src = CoordsDyn::new();
+        #[unroll]
+        for d in 0..comptime!(coordinates.dims.len()) {
+            let terms = comptime!(coordinates.dims[d].clone());
+            let mut coordinate = 0u32;
+            // Indexed: an unrolled loop walks a comptime list by its positions.
+            #[allow(clippy::needless_range_loop)]
+            #[unroll]
+            for t in 0..comptime!(terms.len()) {
+                let term = comptime!(terms[t]);
+                let mut value = pos[comptime!(term.position)] * comptime!(term.scale);
+                if comptime!(term.modulus != 0) {
+                    value %= comptime!(term.modulus);
+                }
+                coordinate += value / comptime!(term.divisor);
+            }
+            src.push(coordinate);
+        }
+        src
+    }
+
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+        // TMA loads are clamped by the descriptor; no in-kernel bounds check.
+        (self.to_source_pos(pos), true)
+    }
+
+    fn shape(&self) -> Self::Coordinates {
+        self.shape.clone()
+    }
+
+    fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
+        true
     }
 }
 
@@ -137,74 +198,6 @@ pub enum TmaLanding {
     Rows,
 }
 
-/// What a storage-tiled descriptor moves: the operand's logical `(rows, cols)`, its storage tile
-/// `(rows, cols)`, and where a box lands.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct TmaTiles {
-    pub dims: (u32, u32),
-    pub tile: (u32, u32),
-    pub landing: TmaLanding,
-}
-
-/// In-kernel tensor-map layout splitting a logical `(row, col)` into storage-tile coordinates.
-#[derive(CubeType, CubeLaunch, Clone)]
-pub(crate) struct TmaStoredLayout {
-    /// Logical `(rows, cols)` of the operand.
-    dims: (u32, u32),
-    /// The storage tile `(rows, cols)`.
-    tile: (u32, u32),
-    /// Values one cell of the descriptor holds along `cols`: one, or a packed field's per word.
-    per_cell: u32,
-    /// The order the descriptor states the tiles in.
-    #[cube(comptime)]
-    landing: TmaLanding,
-}
-
-#[cube]
-impl Layout for TmaStoredLayout {
-    type Coordinates = CoordsDyn;
-    type SourceCoordinates = CoordsDyn;
-
-    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
-        let (tile_rows, tile_cols) = self.tile;
-        let mut src = CoordsDyn::new();
-        // A box origin is tile-aligned along the rows, so the in-tile offset there is zero; along
-        // the columns a box landing rows may start partway into a tile's run, in cells.
-        match comptime!(self.landing) {
-            TmaLanding::Tiles => {
-                src.push(pos[0] / tile_rows);
-                src.push(pos[1] / tile_cols);
-                src.push(0u32);
-                src.push(0u32);
-            }
-            TmaLanding::Rows => {
-                src.push(pos[0] / tile_rows);
-                src.push(0u32);
-                src.push(pos[1] / tile_cols);
-                src.push(pos[1] % tile_cols / self.per_cell);
-            }
-        }
-        src
-    }
-
-    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
-        // TMA loads are clamped by the descriptor; no in-kernel bounds check.
-        (self.to_source_pos(pos), true)
-    }
-
-    fn shape(&self) -> Self::Coordinates {
-        let (rows, cols) = self.dims;
-        let mut s = CoordsDyn::new();
-        s.push(rows);
-        s.push(cols);
-        s
-    }
-
-    fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
-        true
-    }
-}
-
 /// In-kernel tensor-map layout aligning logical [`CoordsDyn`] to the descriptor's
 /// `(batch, row, col)`.
 #[derive(CubeType, CubeLaunch, Clone)]
@@ -215,10 +208,6 @@ pub(crate) struct TmaDynLayout {
     batched: bool,
     #[cube(comptime)]
     transposed: bool,
-    /// Values one cell of the descriptor's innermost dimension holds: one, or a packed field's
-    /// values to a word.
-    #[cube(comptime)]
-    per_cell: u32,
 }
 
 #[cube]
@@ -236,15 +225,13 @@ impl Layout for TmaDynLayout {
             src.push(0u32);
         }
         let (r, c) = comptime!(if self.batched { (1, 2) } else { (0, 1) });
-        // TMA discards the last stride, so a col-major descriptor is transposed; swap back. The
-        // innermost dimension counts cells, each `per_cell` values.
-        let per_cell = comptime!(self.per_cell);
+        // TMA discards the last stride, so a col-major descriptor is transposed; swap back.
         if comptime!(self.transposed) {
             src.push(pos[c]);
-            src.push(pos[r] / per_cell);
+            src.push(pos[r]);
         } else {
             src.push(pos[r]);
-            src.push(pos[c] / per_cell);
+            src.push(pos[c]);
         }
         src
     }

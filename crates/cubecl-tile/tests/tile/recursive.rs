@@ -4,7 +4,7 @@
 use crate::support::{HostData, HostDataType, TestInput, TileInput, assert_equals_approx};
 use cubecl::std::tensor::layout::CoordsDyn;
 use cubecl::{prelude::*, zspace::shape};
-use cubecl_tile::{Axis, Partitioning, Space, TileArg};
+use cubecl_tile::{Axis, Partitioning, Space, TileTensor};
 
 use super::references;
 use crate::tile::uncut;
@@ -58,8 +58,8 @@ fn recursive_two_level_tiled_view() {
 /// Copy every logical element of `input` into `output` through their views.
 #[cube(launch)]
 fn copy_logical<E: Numeric>(
-    input: &TileArg<'_>,
-    output: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {

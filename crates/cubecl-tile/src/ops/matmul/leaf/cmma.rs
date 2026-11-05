@@ -69,14 +69,6 @@ impl Tile {
     }
 }
 
-/// How a rhs window is read: col-major when its trailing axis is `contracted`, else row-major.
-pub(crate) fn rhs_layout(rhs: &Space, contracted: Axis) -> MatrixLayout {
-    match rhs.axis_at(rhs.rank() - 1) == contracted {
-        true => MatrixLayout::ColMajor,
-        false => MatrixLayout::RowMajor,
-    }
-}
-
 /// How one factor of a tensor-core contraction is read into its fragment.
 #[derive(Clone)]
 pub(crate) struct FragmentRead {
@@ -84,7 +76,7 @@ pub(crate) struct FragmentRead {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    /// The rhs window's layout; the lhs is always row-major.
+    /// The window's layout, read off its trailing axis.
     pub layout: MatrixLayout,
     /// What this factor's scales are checked against.
     pub side: Side,
@@ -99,11 +91,12 @@ impl FragmentRead {
         let n = acc_axes.cols(out);
         // A split contraction is one `k` edge.
         let k = own.contracted_extent(out);
-        // The lhs is row-major; the rhs col-major where its trailing axis is contracted.
-        let layout = match side {
-            Side::Lhs => MatrixLayout::RowMajor,
-            Side::Rhs if out.contains(own.axis_at(own.rank() - 1)) => MatrixLayout::RowMajor,
-            Side::Rhs => MatrixLayout::ColMajor,
+        // Whether the window's trailing axis is one of the output's, its rows for the lhs and
+        // its columns for the rhs, or the contracted one: a window is read as it is laid out.
+        let trailing_kept = out.contains(own.axis_at(own.rank() - 1));
+        let layout = match (side, trailing_kept) {
+            (Side::Lhs, false) | (Side::Rhs, true) => MatrixLayout::RowMajor,
+            (Side::Lhs, true) | (Side::Rhs, false) => MatrixLayout::ColMajor,
         };
         FragmentRead {
             m,
@@ -125,7 +118,7 @@ impl Tile {
         let scaled = self.quantized();
         let packing = self.packing();
         let shared = self.is_shared();
-        if comptime!(scaled || packing != Packing::Plain || !shared) {
+        if comptime!(scaled || !packing.as_stored() || !shared) {
             let landing = self.landed::<E>(comptime!(read.side), comptime!(read.out.clone()));
             landing.load_into(frag, comptime!(read.out.clone()));
             // The landing is this region's until every unit's load has read it.
@@ -167,7 +160,7 @@ impl Tile {
     ) -> Tile {
         let scaled = self.quantized();
         let packing = self.packing();
-        if comptime!(instruction == Instruction::Cmma && (scaled || packing != Packing::Plain)) {
+        if comptime!(instruction == Instruction::Cmma && (scaled || !packing.as_stored())) {
             self.landed::<S>(side, out)
         } else {
             self.clone()

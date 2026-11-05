@@ -27,6 +27,10 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+/// The source directory of the kernel debug data.
+#[cfg(feature = "std")]
+pub mod debug_source;
+
 /// Various identifier types used in `CubeCL`.
 pub mod id;
 

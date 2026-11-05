@@ -110,7 +110,7 @@ fn binding(client: &Client, shape: &[usize]) -> TensorBinding {
     }
 }
 
-/// A cpu_gemm-shaped scheme: two batch axes riding one-per-cube on Z, 16×32 cube tiles on
+/// A CPU-matmul-shaped scheme: two batch axes riding one-per-cube on Z, 16×32 cube tiles on
 /// X/Y, 8×32 plane leaves with `leaf_k = 4`. Two planes a cube, so the cube fits a device
 /// whose cube holds as few units as a small CPU runner's cores.
 fn batched_space(b0: usize, b1: usize, m: usize, n: usize, k: usize) -> (Space, Vec<Level>) {
@@ -164,6 +164,37 @@ fn arg_derives_check_from_subspace_overhang() {
         .unwrap();
     assert!(!forced.spec.is_checked());
     assert!(forced.spec.boundaries.is_empty());
+}
+
+/// Under [`BoundaryPolicy::AnyExtent`] an operand checks the axes some extent could overhang,
+/// so a launch whose extents divide every tile binds the checks one whose extents do not binds:
+/// both compile one kernel. The default checks only what this launch's extents overhang.
+#[test]
+fn any_extent_checks_what_some_extent_could_overhang() {
+    let client = cubecl::test_device().client();
+    // K alone is dynamic in the kernel and its leaf cuts it in 4: 16 divides, 18 does not. M is
+    // static and divides, so it is in bounds whatever K is.
+    let bound = |k: usize, policy: Option<BoundaryPolicy>| {
+        let (space, levels) = batched_space(1, 1, 64, 64, k);
+        let launch = implied(
+            &client,
+            Partitioning::new(space, levels),
+            Form::DynamicAlong(&[K]),
+        );
+        let arg = launch
+            .arg(binding(&client, &[64, k]), f32::elem_type_native())
+            .axes(&[M, K]);
+        let arg = match policy {
+            Some(policy) => arg.boundary(policy),
+            None => arg,
+        };
+        arg.build().unwrap().spec.boundaries.to_vec()
+    };
+    let any_extent = Some(BoundaryPolicy::AnyExtent(Boundary::Zero));
+    assert_eq!(bound(16, any_extent), bound(18, any_extent));
+    assert_eq!(bound(16, any_extent), [None, Some(Boundary::Zero)]);
+    assert!(bound(16, None).is_empty());
+    assert_eq!(bound(18, None), [None, Some(Boundary::Zero)]);
 }
 
 /// A storage-tiled operand is addressed by fewer coordinates than its buffer has dims, and the
@@ -505,7 +536,7 @@ fn spec_returns_the_geometry_it_settled_on() {
     );
 }
 
-/// A leading broadcast dim is refused, not silently folded away. `geometry` labels the operand's
+/// A leading broadcast dim is refused, not silently dropped. `geometry` labels the operand's
 /// own axes and no batches are stated, so a dim past them has no axis to belong to and the
 /// derivation that *would* drop it never runs; the rank fails at launch, not as a misplaced store.
 #[test]
@@ -1006,28 +1037,50 @@ fn vector_size_falls_back_to_scalar() {
     );
 }
 
+/// An overhanging innermost axis is checked a line at a time against a bound counted in lines,
+/// so a width dividing its extent is admitted: k = 18 overhangs its leaf, and its 2-wide lines lie
+/// wholly before the edge or wholly past it.
 #[test]
-fn arg_checked_and_vectorized_is_refused() {
+fn arg_checked_and_vectorized_at_a_width_dividing_the_extent_is_admitted() {
     let client = cubecl::test_device().client();
-    // k = 18 overhangs its leaf, so the derived check is true: vectorizing must refuse.
-    //
-    // Two wide, not four: an axis overhanging a leaf of 4 has an extent 4 does not divide, so a
-    // 4-wide line would be refused by `Geometry::serves_lines` first and this would stop probing
-    // the bounds question. 18 is a whole number of 2-wide lines and still overhangs.
     let launch = {
         let (space, levels) = batched_space(1, 1, 64, 64, 18);
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
-    let refused = launch
+    let admitted = launch
         .arg(binding(&client, &[64, 18]), f32::elem_type_native())
         .axes(&[M, K])
         .vectorize(2)
         .build()
         .err();
-    assert!(
-        matches!(refused, Some(Refusal::UncheckableVectorEdge)),
-        "{refused:?}"
-    );
+    assert!(admitted.is_none(), "{admitted:?}");
+}
+
+/// A clamp moves each element to the edge, and `AnyExtent` serves extents the width need not
+/// divide: either refuses the same overhanging lines a zeroing mask admits.
+#[test]
+fn arg_vectorized_over_a_clamp_or_any_extent_is_refused() {
+    let client = cubecl::test_device().client();
+    let launch = {
+        let (space, levels) = batched_space(1, 1, 64, 64, 18);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+    for policy in [
+        BoundaryPolicy::Every(Boundary::Clamp),
+        BoundaryPolicy::AnyExtent(Boundary::Zero),
+    ] {
+        let refused = launch
+            .arg(binding(&client, &[64, 18]), f32::elem_type_native())
+            .axes(&[M, K])
+            .boundary(policy)
+            .vectorize(2)
+            .build()
+            .err();
+        assert!(
+            matches!(refused, Some(Refusal::UncheckableVectorEdge)),
+            "{policy:?}: {refused:?}"
+        );
+    }
 }
 
 /// A contiguous dim the launch counts in blocks and a position inside one is in bounds as a single

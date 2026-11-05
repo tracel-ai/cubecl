@@ -2,10 +2,10 @@
 
 use cubecl::prelude::*;
 
-use super::monoid::{Carrier, Monoid};
 use crate::comptime_only;
+use crate::{Carrier, Monoid};
 
-/// A product monoid and the accumulation monoid its products fold into.
+/// A product monoid and the accumulation monoid its products sum into.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Semiring {
     add: Monoid,
@@ -29,12 +29,12 @@ impl Semiring {
         mul: Monoid::Sum,
     };
 
-    /// The monoid products accumulate into, and every drain folds partials under.
+    /// The monoid products accumulate into, and every drain sums partials under.
     pub const fn add(self) -> Monoid {
         self.add
     }
 
-    /// The product a pair of operands forms before it is folded in.
+    /// The product a pair of operands forms before it is summed in.
     pub const fn mul(self) -> Monoid {
         self.mul
     }
@@ -43,14 +43,16 @@ impl Semiring {
 #[cube]
 impl Semiring {
     /// One accumulation step, `acc + (lhs * rhs)`, in `fma`'s argument order.
-    /// [`SUM_PROD`](Semiring::SUM_PROD) must stay a single `fma`.
+    /// [`SUM_PROD`](Semiring::SUM_PROD) over floats must stay a single `fma`. An `fma` is a float
+    /// instruction, so integers take the product and the sum apart, which is exact.
     fn step_of<T: Carrier + CubePrimitive>(
         lhs: T,
         rhs: T,
         acc: T,
         #[comptime] semiring: Semiring,
     ) -> T {
-        if comptime!(semiring == Semiring::SUM_PROD) {
+        let element = elem_type_of::<T>();
+        if comptime!(semiring == Semiring::SUM_PROD && element.is_float()) {
             fma(lhs, rhs, acc)
         } else {
             let product = semiring.mul().combine::<T>(lhs, rhs);

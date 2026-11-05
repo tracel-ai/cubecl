@@ -33,7 +33,7 @@ impl<T: Float> Recipe<T> for Phase<T> {
             .plus(self.numerator_offset);
         let (_, residue) = floor_div_rem(numerator, self.divisor.cast::<i32>());
         let residue = T::cast_from(residue);
-        // A folded divisor becomes a reciprocal literal to multiply by.
+        // A constant divisor becomes a reciprocal literal to multiply by.
         let fraction = if comptime!(divisor.is_some()) {
             residue * T::new(comptime!(1.0 / divisor.unwrap() as f64))
         } else {

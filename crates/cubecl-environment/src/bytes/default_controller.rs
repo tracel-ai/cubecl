@@ -301,6 +301,10 @@ impl<P: Provider> AllocationController for Controller<P> {
         P::PROPERTY
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        false
+    }
+
     // SAFETY: Per type invariants, only memory from the global allocator is detachable.
     fn try_detach(&mut self) -> Option<NonNull<u8>> {
         if !P::DETACHABLE {

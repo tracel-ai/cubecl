@@ -35,8 +35,8 @@ const BLOCK: [usize; 3] = [2, 2, 4];
 /// `c += a · b`, every unit of the launch its block.
 #[cube(launch)]
 fn launch_unit_matmul<O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     c: &O::Arg<f32>,
     space: Partitioning,
 ) {
@@ -187,13 +187,13 @@ fn run(problem: Problem, cube: UnitCube, reversed: &[Axis], form: Form<'_>) -> O
         .axes(&[B, M, N])
         .build()
         .unwrap();
-    let a_arg = TileArgLaunch::new(
+    let a_arg = TileTensorLaunch::new(
         a_handle.binding().into_tensor_arg(),
         dtype,
         1,
         TileSpec::direct(&[M, K]).boundary(policy),
     );
-    let b_arg = TileArgLaunch::new(
+    let b_arg = TileTensorLaunch::new(
         b_handle.binding().into_tensor_arg(),
         dtype,
         1,
@@ -278,7 +278,6 @@ fn the_launch_holds_every_unit() {
     assert_eq!(partitioning.cube_dim(32), CubeDim::new_2d(2, 3));
     assert_eq!(partitioning.planes_per_cube(), 3);
     assert_eq!(partitioning.units(), 1);
-    assert_eq!(partitioning.unit_cube(), Some(CUBES[2]));
 }
 
 /// Every unit the launch spawns walks exactly one tile, a unit past the last tile one past the

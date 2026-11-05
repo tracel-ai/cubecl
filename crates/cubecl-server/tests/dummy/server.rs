@@ -38,6 +38,16 @@ use std::sync::Arc;
 pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
+/// Clears [`REFUSE_PROFILES`] when dropped, so a test that panics while profiles are refused
+/// leaves the next tests a server that profiles.
+pub struct ClearsRefusedProfiles;
+
+impl Drop for ClearsRefusedProfiles {
+    fn drop(&mut self) {
+        REFUSE_PROFILES.store(false, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Makes the server behave as a lost device while set: syncs report the poisoning and nothing
 /// can be profiled. Process-wide, so tests that flip it run `serial`.
 pub static POISONED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
@@ -84,6 +94,13 @@ impl Marker for () {}
 pub enum Other {}
 
 impl Marker for Other {}
+
+/// A marker for a dummy runtime one test has to itself: tests run in parallel, and a device-wide
+/// reading on a runtime they share counts the buffers of whichever test runs beside it.
+#[derive(Debug)]
+pub enum Isolated {}
+
+impl Marker for Isolated {}
 
 /// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
 /// the checks that refuse it on the caller. Nothing behind it moves data.
@@ -292,6 +309,7 @@ impl<M: Marker> Server for DummyServer<M> {
             .map(|res| match res {
                 KernelResource::Buffer(binding) => binding,
                 KernelResource::TensorMap(tensor_map) => tensor_map.binding,
+                KernelResource::Peer(_) => unreachable!("the dummy server shares no memory"),
             })
             .map(|b| {
                 self.memory_management

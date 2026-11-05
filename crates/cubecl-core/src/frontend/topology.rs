@@ -5,7 +5,7 @@ use cubecl_ir::{
     Scope, dialect::general::ReadBuiltinOp, pliron::builtin::op_interfaces::OneResultInterface,
 };
 
-use crate::prelude::CubePrimitive;
+use crate::prelude::ConstantTyped;
 
 use super::NativeExpand;
 

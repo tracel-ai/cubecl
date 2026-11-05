@@ -51,8 +51,8 @@ impl Memory {
         #[comptime] space: Space,
     ) {
         comptime!(assert!(
-            src.store.packing == Packing::Plain
-                && self.store.packing == Packing::Plain
+            src.store.packing.as_stored()
+                && self.store.packing.as_stored()
                 && src.store.vector_size == self.store.vector_size
                 && src.projection.is_direct()
                 && self.projection.is_direct(),

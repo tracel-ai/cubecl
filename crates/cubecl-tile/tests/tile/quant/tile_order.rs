@@ -31,11 +31,11 @@ const TILE: usize = 16;
 /// packed `f32` one word a load, into a register block that lives across the walk over `K` and
 /// drains once.
 #[cube(launch)]
-fn tile_order_gemv<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+fn tile_order_one_row_product<E: Numeric>(
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -135,29 +135,29 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
     let s_spec = TileSpec::direct(&[N, KB]).packed(Field::of_scale(ScaleDtype::F32));
     // A load: two words along `K` by two columns, four words.
     let load_words = 2 * BLOCK / PER_WORD;
-    tile_order_gemv::launch(
+    tile_order_one_row_product::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             BLOCK,
             TileSpec::direct(&[M, KB, KI]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             load_words,
             w_spec,
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             s_spec,
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,

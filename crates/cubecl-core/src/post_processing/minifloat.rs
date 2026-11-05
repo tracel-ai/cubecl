@@ -97,6 +97,8 @@ pub fn fp8_bits_to_f32<N: Size>(
 /// Whether a `format` code lands on an `f16` by moving its bits ([`fp8_words_to_f16_placed`]): a
 /// signed code whose exponent and mantissa fit an `f16`'s. `e4m3` and `e5m2` do; `ue8m0`, eight
 /// exponent bits and no sign, does not.
+///
+/// [`fp8_words_to_f16_placed`]: fn@fp8_words_to_f16_placed
 pub const fn fp8_places_on_f16(format: Fp8Format) -> bool {
     matches!(format, Fp8Format::E4M3 | Fp8Format::E5M2)
 }
@@ -108,6 +110,8 @@ pub const fn fp8_places_on_f16(format: Fp8Format) -> bool {
 /// # Panics
 ///
 /// For a format that does not place on an `f16` ([`fp8_places_on_f16`]).
+///
+/// [`fp8_words_to_f16_placed`]: fn@fp8_words_to_f16_placed
 pub fn fp8_f16_lift(format: Fp8Format) -> f64 {
     assert!(
         fp8_places_on_f16(format),
@@ -119,8 +123,10 @@ pub fn fp8_f16_lift(format: Fp8Format) -> f64 {
 /// The four `format` codes of each word of `words`, lowest byte first, decoded to `f16`.
 ///
 /// One multiply for every lane lifts the placed values
-/// ([`fp8_words_to_f16_placed`](fn@fp8_words_to_f16_placed)) to their values, exactly, the
+/// ([`fp8_words_to_f16_placed`]) to their values, exactly, the
 /// factor being a power of two.
+///
+/// [`fp8_words_to_f16_placed`]: fn@fp8_words_to_f16_placed
 #[cube]
 pub fn fp8_words_to_f16<W: Size, V: Size>(
     words: Vector<u32, W>,

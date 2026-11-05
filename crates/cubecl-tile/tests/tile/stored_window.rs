@@ -28,8 +28,8 @@ const PLANE_COLUMNS: usize = 2 * TILE_COLUMNS;
 /// cube's and its plane's.
 #[cube(launch)]
 fn copy_per_unit<E: Numeric>(
-    input: &TileArg<'_>,
-    output: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] rank: usize,
     #[define(E)] _dtype: ElemType,

@@ -20,12 +20,14 @@ pub struct TileSpec {
     pub storage: Storage,
     /// How the buffer is stored: its stated storage tiles, finest first, as its
     /// [`StoragePartitioning`](crate::StoragePartitioning) reads back. Empty for a plain buffer.
-    /// What a load of it covers is the kernel's to pick ([`VectorTile::new`](crate::VectorTile::new)).
+    /// What a load of it covers is the kernel's to pick
+    /// ([`VectorTile::new`](crate::VectorTile::new)).
     pub stored_tiles: Vec<(Axis, usize)>,
     /// Who moves this operand into a stage ([`delivery`](Self::delivery)).
     pub delivery: Delivery,
     /// The axes a page table resolves where the buffer is a pool of pages read as sequences
-    /// ([`Arg::paged`](crate::launch::Arg::paged)); `None` for a buffer read where it lies.
+    /// ([`TileTensorLaunch::indexed`](crate::TileTensorLaunch::indexed)); `None` for a buffer read
+    /// where it lies.
     pub paging: Option<Paging>,
 }
 
@@ -75,13 +77,25 @@ impl TileSpec {
         let coord_rank = self.projection.coordinate_rank();
         match policy {
             BoundaryPolicy::Unchecked => self.boundaries(&vec![None; coord_rank]),
-            BoundaryPolicy::Every(boundary) => self.boundaries(&vec![Some(boundary); coord_rank]),
+            // A spec has no launch to say which axes some extent could overhang: every one.
+            BoundaryPolicy::Every(boundary) | BoundaryPolicy::AnyExtent(boundary) => {
+                self.boundaries(&vec![Some(boundary); coord_rank])
+            }
         }
     }
 
     /// This spec with its binding holding `u32` words of `field`-wide values.
     pub fn packed(mut self, field: impl Into<Field>) -> Self {
         self.packing = Packing::Packed {
+            field: field.into(),
+        };
+        self
+    }
+
+    /// This spec with its binding holding `u32` words of `field`-wide values, each word read
+    /// whole: block scales as a block-scaled instruction takes them.
+    pub fn words(mut self, field: impl Into<Field>) -> Self {
+        self.packing = Packing::Words {
             field: field.into(),
         };
         self

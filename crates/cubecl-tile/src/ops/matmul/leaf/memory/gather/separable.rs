@@ -397,7 +397,7 @@ fn factor_walk<EL: Numeric>(
     }
 }
 
-/// Fold one tap's per-factor weights from their maximal cache levels.
+/// Multiply one tap's per-factor weights from their maximal cache levels.
 #[cube]
 #[allow(clippy::too_many_arguments)]
 fn tap_weight<EL: Numeric>(

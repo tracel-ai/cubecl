@@ -8,8 +8,8 @@ use crate::{
     server::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
-        ServerError, ServerStorage, ServerUtilities,
+        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
+        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -26,7 +26,7 @@ mod lazy;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
-    device_handle::{CallResultExt, DeviceHandle},
+    device_handle::{CallError, CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
@@ -46,6 +46,15 @@ fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
         .iter()
         .enumerate()
         .find_map(|(i, id)| device_ids[..i].contains(id).then_some(*id))
+}
+
+/// Flushes the device's queue when dropped.
+struct FlushOnDrop<'a>(&'a DeviceHandle<dyn Server>);
+
+impl Drop for FlushOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.flush_queue();
+    }
 }
 
 /// The `Client` is the entry point to require tasks from the `Server`.
@@ -151,7 +160,7 @@ impl Graph {
         self.inner
             .device
             .submit_blocking(move |server| server.replay(id, stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 }
 
@@ -189,6 +198,16 @@ pub struct ProfileWindow {
     pub stream_id: StreamId,
     /// The server's token for the window.
     pub token: ProfilingToken,
+}
+
+/// Where a [`Client::profile`] window opens on its stream.
+#[derive(Debug, Clone, Copy)]
+enum WindowOpens {
+    /// Where the stream is: everything the closure enqueues is in the window.
+    Now,
+    /// At the next kernel launched, for a window around one launch: the host
+    /// preparing that launch stays out of it. See [`Server::start_profile_at_launch`].
+    AtLaunch,
 }
 
 /// The state a `DeviceHandle` reaches, seen as the server it is. A client
@@ -287,6 +306,45 @@ impl Client {
         TypeId::of::<S>() == self.service_id().service
     }
 
+    /// A `Peer` argument as bound here: an ordinary buffer on its own device,
+    /// a peer binding on another.
+    ///
+    /// # Panics
+    ///
+    /// On memory of another runtime, or of a device this one cannot address.
+    #[track_caller]
+    fn bind_peer(&self, peer: PeerBinding) -> KernelResource {
+        let own = self.service_id();
+        let service = peer.binding().service;
+        if service == own {
+            return KernelResource::Buffer(peer.into_binding());
+        }
+        assert!(
+            service.service == own.service,
+            "a peer buffer of {service} was launched on {own}, of another runtime"
+        );
+        assert!(
+            self.reaches_peer(service.device),
+            "{own} cannot address the memory of {:?}: check `can_access_peer` before \
+             launching with a buffer of another device",
+            service.device
+        );
+        KernelResource::Peer(peer)
+    }
+
+    /// Whether kernels here can address the memory of `device`, cached per pair.
+    fn reaches_peer(&self, device: DeviceId) -> bool {
+        if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
+            return *reaches;
+        }
+        let reaches = self
+            .device
+            .submit_blocking(move |server| server.can_access_peer(device))
+            .unwrap_or(false);
+        self.utilities.peer_access.write().insert(device, reaches);
+        reaches
+    }
+
     /// Whether `binding` addresses this client's device. Memory coordinates
     /// mean nothing on another device, so a foreign binding is refused here,
     /// before anything is submitted, rather than read there.
@@ -331,7 +389,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -426,25 +484,24 @@ impl Client {
             .remove(0)
     }
 
-    /// Reads the device resource described by `descriptor` lazily.
+    /// Reads the buffer `source` describes lazily.
     ///
     /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
-    /// serialization), keeping the source allocation alive until then. This lets a large number of
-    /// device tensors be serialized without materializing them all in host memory at once: drain
-    /// the [`Bytes`] sequentially rather than holding them all alive.
+    /// serialization). This lets a large number of device tensors be serialized without
+    /// materializing them all in host memory at once: drain the [`Bytes`] sequentially rather than
+    /// holding them all alive.
     ///
-    /// The data reflects the device state at first access, so the buffer must not be mutated
-    /// between this call and the first read.
+    /// Until that first access the [`Bytes`] hold `source`'s handle, so [`Handle::can_mut`] is
+    /// false for it and a caller that honours it does not write the buffer in place: the data
+    /// read is the data as it was at this call.
+    /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
     #[cfg(not(target_family = "wasm"))]
-    pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
-        self.expect_local(&descriptor.handle);
-        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
-        // SAFETY: the controller materializes exactly `len` bytes on first access.
-        unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) }
+    pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
+        self.expect_local(&source.handle.clone().binding());
+        lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
     }
 
-    /// Reads the device resource described by `descriptor` lazily, async variant.
+    /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
     /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
@@ -457,28 +514,25 @@ impl Client {
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
-        descriptor: CopyDescriptor,
+        source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        if let Err(err) = self.local(&descriptor.handle) {
+        let binding = source.handle.clone().binding();
+        if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
-        let binding = descriptor.handle.clone();
         let stream_id = self.stream_id();
         let checked = self
             .device
             .submit_blocking(move |server| server.check(vec![binding], stream_id))
-            .unwrap_or_resume();
+            .closed_as_error();
         if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
-        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
-        // SAFETY: the controller materializes exactly `len` bytes on first access.
-        let bytes = unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) };
-        core::future::ready(Ok(bytes))
+        let controller = lazy::LazyDeviceController::new(self.clone(), source);
+        core::future::ready(Ok(controller.into_bytes()))
     }
 
-    /// Reads the device resource described by `descriptor` lazily, async variant.
+    /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On `wasm` the deferred copy cannot run inside the synchronous access path, so awaiting
     /// performs the read eagerly and yields a materialized [`Bytes`]. Awaiting one tensor at a
@@ -486,9 +540,9 @@ impl Client {
     #[cfg(target_family = "wasm")]
     pub fn read_lazy_async(
         &self,
-        descriptor: CopyDescriptor,
+        source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        self.read_one_tensor_async(descriptor)
+        self.read_one_tensor_async(source.binding())
     }
 
     /// Given a resource handle, returns the storage resource.
@@ -514,7 +568,7 @@ impl Client {
                     .expect("is_service passed, so this is the server's type");
                 server.get_resource(binding, stream_id)
             })
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     fn do_create_from_slices(
@@ -903,7 +957,7 @@ impl Client {
         let stagings = self
             .device
             .submit_blocking(move |server| server.staging(&sizes, stream_id))
-            .unwrap_or_resume();
+            .closed_as_error();
 
         let stagings = match stagings {
             Ok(val) => val,
@@ -917,6 +971,51 @@ impl Client {
                 b.copy_into(&mut staging);
                 core::mem::swap(b, &mut staging);
             });
+    }
+
+    /// Whether kernels launched through this client can load, store and run
+    /// atomics on memory `peer` [shared](Self::share_with_peers).
+    pub fn can_access_peer(&self, peer: &Self) -> bool {
+        let peer_device = peer.device.device_id();
+        if peer.service_id().service != self.service_id().service
+            || peer_device == self.device.device_id()
+        {
+            return false;
+        }
+        self.reaches_peer(peer_device)
+    }
+
+    /// `handle`, shared with the other devices of this runtime, which bind it
+    /// through a `Peer` kernel parameter. The memory stays in place while the
+    /// returned handle lives.
+    ///
+    /// Nothing orders a peer's accesses against this device's work: sync the
+    /// writing device first, or hand off inside the kernels with system-scope
+    /// atomics.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
+    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
+    /// failure the buffer carries.
+    pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
+        let mut handle = handle.clone();
+        let binding = handle.clone().binding();
+        self.local(&binding)?;
+        // Peer bindings add their own offsets to the allocation's address.
+        let whole = BufferBinding {
+            offset_start: None,
+            offset_end: None,
+            peer: None,
+            ..binding
+        };
+        let pin = whole.memory.clone();
+        let address = self
+            .device
+            .submit_blocking(move |server| server.peer_address(whole))
+            .closed_as_error()?;
+        handle.peer = Some(PeerMemory::new(pin, address, self.device.clone()));
+        Ok(handle)
     }
 
     /// Transfer data from one client to another.
@@ -1256,7 +1355,7 @@ impl Client {
         &self,
         kernel: Box<dyn CubeKernel>,
         count: CubeCount,
-        bindings: KernelArguments,
+        mut bindings: KernelArguments,
         stream_id: StreamId,
     ) {
         // No work, and some drivers reject a zero grid dim.
@@ -1268,11 +1367,28 @@ impl Client {
         if let CubeCount::Dynamic(binding) = &count {
             self.expect_local(binding);
         }
+        // A kernel with a `Peer` parameter may wait on another device, so it is
+        // flushed now: a host blocked on that device would never flush it.
+        let _reach_device_now = bindings
+            .peers()
+            .next()
+            .is_some()
+            .then(|| FlushOnDrop(&self.device));
+        if bindings.peers().next().is_some() {
+            let resources = core::mem::take(&mut bindings.resources);
+            bindings.resources = resources
+                .into_iter()
+                .map(|resource| match resource {
+                    KernelResource::Peer(peer) => self.bind_peer(peer),
+                    resource => resource,
+                })
+                .collect();
+        }
+        // Another device's memory binds only through a `Peer` parameter.
         for resource in &bindings.resources {
-            self.expect_local(match resource {
-                KernelResource::Buffer(binding) => binding,
-                KernelResource::TensorMap(map) => &map.binding,
-            });
+            if let Some(binding) = resource.local_binding() {
+                self.expect_local(binding);
+            }
         }
 
         crate::launched::note(|| kernel.id());
@@ -1340,7 +1456,8 @@ impl Client {
                 ))));
                 let to_launch = slot.clone();
                 let issued_profiled = issued.clone();
-                let profiled = self.profile(
+                let profiled = self.profile_opened(
+                    WindowOpens::AtLaunch,
                     move || {
                         let (kernel, count, bindings) = to_launch
                             .lock()
@@ -1475,7 +1592,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.check(bindings, stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Flush all outstanding commands.
@@ -1484,7 +1601,7 @@ impl Client {
 
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Compile every kernel queued for compilation (see
@@ -1504,7 +1621,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_prepare(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Begin recording launches on this client's stream into a graph rather
@@ -1526,7 +1643,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.begin_capture(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Whether this client's stream is capturing a graph: from
@@ -1553,7 +1670,7 @@ impl Client {
         let id = self
             .device
             .submit_blocking(move |server| server.end_capture(stream_id))
-            .unwrap_or_resume()?;
+            .closed_as_error()?;
 
         Ok(Graph {
             inner: Arc::new(GraphHandle {
@@ -1599,7 +1716,7 @@ impl Client {
         let fut = self
             .device
             .submit_blocking(move |server| server.sync(bindings, stream_id))
-            .unwrap_or_resume();
+            .closed_as_error();
 
         self.utilities.logger.profile_summary();
 
@@ -1732,7 +1849,7 @@ impl Client {
                     .into_iter()
                     .try_for_each(|id| server.memory_cleanup(id))
             })
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Open a profiling window at the current position of the calling stream.
@@ -1754,7 +1871,7 @@ impl Client {
         let token = self
             .device
             .submit_blocking(move |server| server.start_profile(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
             .map_err(|err| ProfileError::from(&err))?;
         Ok(ProfileWindow { stream_id, token })
     }
@@ -1764,7 +1881,7 @@ impl Client {
         let ProfileWindow { stream_id, token } = window;
         self.device
             .submit_blocking(move |server| server.end_profile(stream_id, token))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Drop `window` without measuring it, for a caller that will never reach
@@ -1786,6 +1903,17 @@ impl Client {
     #[track_caller]
     pub fn profile<O: Send + 'static>(
         &self,
+        func: impl FnOnce() -> O + Send,
+        func_name: &str,
+    ) -> Result<(O, ProfileDuration), ProfileError> {
+        self.profile_opened(WindowOpens::Now, func, func_name)
+    }
+
+    /// [`profile`](Self::profile), its window opened where `opens` says.
+    #[track_caller]
+    fn profile_opened<O: Send + 'static>(
+        &self,
+        opens: WindowOpens,
         func: impl FnOnce() -> O + Send,
         #[allow(unused)] func_name: &str,
     ) -> Result<(O, ProfileDuration), ProfileError> {
@@ -1825,21 +1953,23 @@ impl Client {
             .exclusive(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
-                let token =
-                    match device.submit_blocking(move |server| server.start_profile(stream_id)) {
-                        Ok(token) => match token {
-                            Ok(token) => token,
-                            Err(err) => return Err(err),
-                        },
-                        Err(err) => {
-                            return Err(ServerError::Generic {
-                                reason: alloc::format!(
-                                    "Can't start profiling because of a call error: {err:?}"
-                                ),
-                                backtrace: BackTrace::capture(),
-                            });
-                        }
-                    };
+                let token = match device.submit_blocking(move |server| match opens {
+                    WindowOpens::Now => server.start_profile(stream_id),
+                    WindowOpens::AtLaunch => server.start_profile_at_launch(stream_id),
+                }) {
+                    Ok(token) => match token {
+                        Ok(token) => token,
+                        Err(err) => return Err(err),
+                    },
+                    Err(err) => {
+                        return Err(ServerError::Generic {
+                            reason: alloc::format!(
+                                "Can't start profiling because of a call error: {err:?}"
+                            ),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                };
 
                 // We execute `func()` which will recursibly access the server.
                 let out = func();
@@ -1854,11 +1984,11 @@ impl Client {
                             Err(err) => Err(err),
                         }
                     })
-                    .unwrap_or_resume();
+                    .closed_as_error();
 
                 Ok(result)
             })
-            .unwrap_or_resume()
+            .closed_as_error()
             .map_err(|err| ProfileError::from(&err))?;
 
         #[cfg(feature = "profile-tracy")]
@@ -1917,7 +2047,7 @@ impl Client {
         let read = self
             .device
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id_src))
-            .unwrap_or_resume();
+            .closed_as_error();
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
 
@@ -1996,4 +2126,46 @@ impl Client {
 fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
     let base = type_name_format(name, TypeNameFormatLevel::Balanced);
     kernel_id.entrypoint_name(&base)
+}
+
+/// A blocking call whose answer is already a [`ServerError`] result reads a service that was
+/// closed as one more error rather than a panic: a client still issuing work as the process
+/// exits ([`DeviceHandle::close`]) is told the device is gone. Any other failure, a panic in the
+/// task or a runner that is gone, is re-raised, as [`CallResultExt::unwrap_or_resume`] does.
+trait ClosedAsError {
+    type Answer;
+
+    fn closed_as_error(self) -> Self::Answer;
+}
+
+/// The error a call on a closed service answers with.
+fn device_closed() -> ServerError {
+    ServerError::Generic {
+        reason: "the device was closed, as the process exits".into(),
+        backtrace: BackTrace::capture(),
+    }
+}
+
+impl<R, E: From<ServerError>> ClosedAsError for Result<Result<R, E>, CallError> {
+    type Answer = Result<R, E>;
+
+    fn closed_as_error(self) -> Self::Answer {
+        match self {
+            Ok(answer) => answer,
+            Err(error) if error.is_closed() => Err(device_closed().into()),
+            Err(error) => error.resume(),
+        }
+    }
+}
+
+impl<R: Send + 'static> ClosedAsError for Result<DynFut<Result<R, ServerError>>, CallError> {
+    type Answer = DynFut<Result<R, ServerError>>;
+
+    fn closed_as_error(self) -> Self::Answer {
+        match self {
+            Ok(answer) => answer,
+            Err(error) if error.is_closed() => Box::pin(core::future::ready(Err(device_closed()))),
+            Err(error) => error.resume(),
+        }
+    }
 }

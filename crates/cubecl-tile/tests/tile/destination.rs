@@ -174,7 +174,7 @@ const WIDTH: usize = 2;
 /// width of two both values of a line would be one, and a store a line off would go unseen.
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
-    input: &TileArg<'_>,
+    input: &TileTensor<'_>,
     out: &O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -295,12 +295,12 @@ const N: Axis = Axis(3);
 const K: Axis = Axis(4);
 const BLOCK: RegisterBlock = RegisterBlock::new(16);
 
-/// The promoted matmul over any destination: `K` folds in registers and the drain is the only
+/// The promoted matmul over any destination: `K` sums in registers and the drain is the only
 /// touch of the output, which is the shape of a kernel a fused epilogue is handed to.
 #[cube(launch)]
 fn contract<E: Numeric, EA: Numeric, O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     c: &O::Arg<E>,
     space: Partitioning,
     #[comptime] level: Level,
@@ -343,7 +343,7 @@ fn run_contract(sink: bool) -> HostData {
     let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
         .untiled()
         .arange();
-    // Poisoned, not zeroed: a drain that folded the destination in would show the poison.
+    // Poisoned, not zeroed: a drain that summed the destination in would show the poison.
     let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
         .untiled()
         .uniform(4242, 10., 100.);

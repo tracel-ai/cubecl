@@ -2,7 +2,7 @@
 
 use cubecl::prelude::*;
 
-use crate::ops::matmul::leaf::memory;
+use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
 /// The shape a plane-resident accumulator is opened at: `tiles` per plane, each `m × n`.
@@ -78,14 +78,9 @@ impl Scratch {
         }
     }
 
-    /// Whether a fragment goes through shared memory on its way out; forced when folding.
-    pub fn bounces(self) -> bool {
-        !matches!(self, Scratch::None)
-    }
-
-    /// This setting raised to what `folds` demands.
-    pub fn at_least_bouncing(self, folds: bool) -> Scratch {
-        match (folds, self) {
+    /// This setting raised to bouncing where `bouncing` demands it.
+    pub fn at_least_bouncing(self, bouncing: bool) -> Scratch {
+        match (bouncing, self) {
             (true, Scratch::None) => Scratch::OneTile,
             (_, scratch) => scratch,
         }
@@ -148,7 +143,7 @@ impl Tile {
                 }
                 let vector_size = self.vector_size();
                 accumulator_in::<EA>(
-                    self,
+                    comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
                     lhs,
                     instruction,
                     vector_size,
@@ -161,6 +156,7 @@ impl Tile {
 
     /// A register block over this tile's grid for a reduction over `input` under `monoid`, at
     /// the element `EA`, opened at its identity.
+    #[doc(hidden)] // Public for its regression test only.
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,
@@ -169,7 +165,7 @@ impl Tile {
     ) -> Tile {
         let vector_size = self.vector_size();
         accumulator_in::<EA>(
-            self,
+            comptime!(self.place.clone()),
             input,
             comptime!(Instruction::Registers { config }),
             vector_size,
@@ -192,7 +188,8 @@ impl Tile {
                     let cells = comptime!(m * n);
                     let tiles = comptime!(p.m_tiles * p.n_tiles);
                     let slots = comptime!(scratch.slots(tiles));
-                    // Indexed by hardware plane position, not level position: the launch decides the cube's shape.
+                    // Indexed by hardware plane position, not level position: the launch decides
+                    // the cube's shape.
                     let planes = comptime!(plane_windows(&self.place.space, &self.place.levels));
                     let plane = PLANE_POS.cast::<usize>() * comptime!(cells * slots);
                     let shared = Shared::<[Served]>::new_slice(comptime!(cells * slots * planes));
@@ -561,7 +558,7 @@ fn register_accumulator<EA: Numeric>(
     let rhs_load = rhs.vector_tile();
     let rw = comptime!(rhs_load.run_length());
     let aw = out.vector_size();
-    let fold = comptime!(memory::contracted_per_step(
+    let contracted_per_step = comptime!(memory::contracted_per_step(
         &lhs.place.space,
         &rhs.place.space,
         &out.place.space,
@@ -569,51 +566,75 @@ fn register_accumulator<EA: Numeric>(
         rw,
         aw
     ));
-    // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or fold.
+    // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or its
+    // partials sum.
     comptime!(assert!(
-        fold > 1 || rw == aw,
+        contracted_per_step > 1 || rw == aw,
         "Tile::accumulator: the block's lines are the rhs's ({rw} wide) and drain into \
          {aw}-wide cells; a stage served wider than its sink is the memory-backed leaf's \
          (Tile::accumulating)"
     ));
-    // A block contracting runs along the contraction sums each into its cell, one value wide.
-    let width = comptime!(if fold > 1 { 1 } else { rw });
+    // A block contracting runs along the contraction sums each into its cell, one value wide, or,
+    // asked for partials, keeps a run's products a lane each in a cell as wide as the run.
+    let width = comptime!(match (contracted_per_step > 1, config.partials) {
+        (true, true) => contracted_per_step,
+        (true, false) => 1,
+        (false, _) => rw,
+    });
     accumulator_in::<EA>(
-        out,
+        comptime!(out.place.clone()),
         lhs,
         comptime!(Instruction::Registers { config }),
         width,
-        fold,
+        contracted_per_step,
         comptime!(Accumulation::Contraction(semiring)),
     )
+}
+
+/// `place`, the output's, as an accumulator of `rows · cols` lays it: its rows along the free
+/// axes of the factor handed over first. The output's own order where its innermost axes are
+/// `cols`'s; else its two trailing groups exchanged, every axis above them where it was, so the
+/// first factor fills the instruction's `A` whichever of the product's operands it is.
+fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
+    let space = &place.space;
+    if Side::of(rows, space) == Side::Lhs {
+        return place.clone();
+    }
+    let axes = MatrixAxes::accumulator(space, cols);
+    let order: Vec<Axis> = (0..axes.row_split)
+        .chain(axes.col_split..space.rank())
+        .chain(axes.row_split..axes.col_split)
+        .map(|p| space.axis_at(p))
+        .collect();
+    Placement::new(space.subspace(&order), place.depth, place.levels.clone())
 }
 
 /// The plane-resident grid an accumulator gathers in, in `form`, at its identity.
 #[cube]
 fn accumulator_in<EA: Numeric>(
-    out: &Tile,
+    #[comptime] out: Placement,
     lhs: &Tile,
     #[comptime] form: Instruction,
     #[comptime] vector_size: usize,
-    #[comptime] fold: usize,
+    #[comptime] contracted_per_step: usize,
     #[comptime] accumulation: Accumulation,
 ) -> Tile {
     comptime!(assert!(
         matches!(form, Instruction::Registers { .. })
             || accumulation == Accumulation::Contraction(Semiring::SUM_PROD),
         "Tile::accumulator: a hardware instruction accumulates under the sum of products alone, \
-         not {accumulation:?}; contract in a register block to fold under another"
+         not {accumulation:?}; contract in a register block to sum under another"
     ));
     let mut acc = PlanePartition::mirror::<EA>(
-        comptime!(out.place.space.clone()),
-        comptime!(MatrixAxes::accumulator(&out.place.space, &lhs.place.space)),
+        comptime!(out.space.clone()),
+        comptime!(MatrixAxes::accumulator(&out.space, &lhs.place.space)),
         comptime!(form),
-        comptime!(GridShape::new(&out.place, &lhs.place.space)),
+        comptime!(GridShape::new(&out, &lhs.place.space)),
         vector_size,
-        fold,
+        contracted_per_step,
         accumulation,
-        comptime!(out.place.depth),
-        comptime!(out.place.levels.clone()),
+        comptime!(out.depth),
+        comptime!(out.levels.clone()),
     );
     acc.init_identity::<EA>(comptime!(accumulation.monoid()));
     acc
@@ -631,16 +652,33 @@ impl Tile {
         lhs: &Tile,
         #[comptime] instruction: Instruction,
     ) -> Tile {
+        Tile::placed_accumulator::<EA>(
+            comptime!(walk.level.child(&walk.space).subspace(&axes)),
+            comptime!(walk.depth()),
+            comptime!(walk.parent.path.root_levels()),
+            lhs,
+            instruction,
+        )
+    }
+
+    /// A plane-resident accumulator over `space`, placed at `depth` of `levels` as
+    /// [`with_levels`](Tile::with_levels) places a tile, summing `lhs` times a factor in
+    /// `instruction`, opened at zero: [`stage_accumulator`](Tile::stage_accumulator) on a grid the
+    /// caller states, for a product contracted on its own grid of fragments rather than its walk's,
+    /// and contracted again before anything drains it.
+    pub fn placed_accumulator<EA: Numeric>(
+        #[comptime] space: Space,
+        #[comptime] depth: usize,
+        #[comptime] levels: Vec<Level>,
+        lhs: &Tile,
+        #[comptime] instruction: Instruction,
+    ) -> Tile {
         comptime!(assert!(
             !matches!(instruction, Instruction::Registers { .. }),
-            "Tile::stage_accumulator: a register block's accumulator is a unit's, opened on the \
+            "Tile::placed_accumulator: a register block's accumulator is a unit's, opened on the \
              output it drains into"
         ));
-        let place = comptime!(Placement::new(
-            walk.level.child(&walk.space).subspace(&axes),
-            walk.depth(),
-            walk.parent.path.root_levels(),
-        ));
+        let place = comptime!(Placement::new(space, depth, levels));
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
             comptime!(place.space.clone()),
@@ -671,7 +709,7 @@ fn drain_below<A: Numeric, O: Numeric>(
         drain_leaf::<A, O>(acc, dest, pass);
     } else {
         let level = comptime!(levels[i].clone());
-        // A walked level's coordinates must fold to constants: its regions select fragments.
+        // A walked level's coordinates must be constants: its regions select fragments.
         if comptime!(level.coverage() == Coverage::Walk) {
             for region in dest.over(&level).unrolled() {
                 drain_below::<A, O>(

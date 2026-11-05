@@ -12,7 +12,7 @@ use cubecl::{prelude::*, unexpanded};
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub struct Region {
-    digits: Sequence<Coords<u32>>,
+    step_coords: Sequence<Coords<u32>>,
     /// The runtime sizes of the root's dynamic axes, positional.
     sizes: Sequence<usize>,
     #[cube(comptime)]
@@ -22,12 +22,12 @@ pub struct Region {
 #[cube]
 impl Region {
     pub(crate) fn new(
-        digits: Sequence<Coords<u32>>,
+        step_coords: Sequence<Coords<u32>>,
         sizes: Sequence<usize>,
         #[comptime] path: Path,
     ) -> Region {
         Region {
-            digits,
+            step_coords,
             sizes,
             path,
         }
@@ -118,10 +118,10 @@ impl Region {
             };
             coords.push(c);
         }
-        let mut digits = Sequence::<Coords<u32>>::new();
-        digits.push(coords);
+        let mut step_coords = Sequence::<Coords<u32>>::new();
+        step_coords.push(coords);
         Region::new(
-            digits,
+            step_coords,
             Sequence::new(),
             comptime!(Path::new(
                 depth,
@@ -134,7 +134,7 @@ impl Region {
     /// The `i`-th step of the path.
     pub(crate) fn step(&self, #[comptime] i: usize) -> Step {
         Step::new(
-            self.digits.index(i).clone(),
+            self.step_coords.index(i).clone(),
             comptime!(self.path.space_at(i)),
             comptime!(self.path.level(i).clone()),
             comptime!(self.path.depth() - self.path.len() + i),
@@ -168,15 +168,15 @@ impl Region {
 
     /// This path with one more level's coordinates below it.
     pub(crate) fn below(&self, coords: Coords<u32>, #[comptime] level: Level) -> Region {
-        let n = comptime!(self.digits.len());
-        let mut digits = Sequence::<Coords<u32>>::new();
+        let n = comptime!(self.step_coords.len());
+        let mut step_coords = Sequence::<Coords<u32>>::new();
         #[unroll]
         for i in 0..n {
-            digits.push(self.digits.index(i).clone());
+            step_coords.push(self.step_coords.index(i).clone());
         }
-        digits.push(coords);
+        step_coords.push(coords);
         Region::new(
-            digits,
+            step_coords,
             self.sizes.clone(),
             comptime!(self.path.below(level)),
         )
@@ -261,11 +261,11 @@ impl Iterable for LeavesExpand {
     type Item = RegionExpand;
 
     fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_leaf(scope, self.region, body, false);
+        self.region.each_leaf(scope, body, false);
     }
 
     fn expand_unroll(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_leaf(scope, self.region, body, true);
+        self.region.each_leaf(scope, body, true);
     }
 }
 
@@ -292,54 +292,46 @@ impl Iterable for PlanesExpand {
     type Item = RegionExpand;
 
     fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_plane(scope, self.region, body, false);
+        self.region.each_plane(scope, body, false);
     }
 
     fn expand_unroll(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_plane(scope, self.region, body, true);
+        self.region.each_plane(scope, body, true);
     }
 }
 
-/// `body` over the planes below `region`. A plane's place is the same at every step of a walk, so
-/// each walk between is read at its first step.
-fn each_plane(
-    scope: &Scope,
-    region: RegionExpand,
-    body: &mut dyn FnMut(&Scope, RegionExpand),
-    unroll: bool,
-) {
-    match region.path.next().coverage() {
-        Coverage::Distribute(ComputeScope::Plane) => match unroll {
-            true => region.expand_unroll(scope, body),
-            false => region.expand(scope, body),
-        },
-        Coverage::Walk => {
-            let first = region
-                .__expand_walk_method(scope)
-                .__expand_region_method(scope, 0usize.into_expand(scope));
-            each_plane(scope, first, body, unroll)
+impl RegionExpand {
+    /// `body` over the planes below this region. A plane's place is the same at every step of a
+    /// walk, so each walk between is read at its first step.
+    fn each_plane(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand), unroll: bool) {
+        match self.path.next().coverage() {
+            Coverage::Distribute(ComputeScope::Plane) => match unroll {
+                true => self.expand_unroll(scope, body),
+                false => self.expand(scope, body),
+            },
+            Coverage::Walk => {
+                let first = self
+                    .__expand_walk_method(scope)
+                    .__expand_region_method(scope, 0usize.into_expand(scope));
+                first.each_plane(scope, body, unroll)
+            }
+            Coverage::Distribute(other) => panic!(
+                "Region::planes: a level dealt to each {other:?} lies below this region before any \
+                 plane level, so this region has no planes of its own"
+            ),
         }
-        Coverage::Distribute(other) => panic!(
-            "Region::planes: a level dealt to each {other:?} lies below this region before any \
-             plane level, so this region has no planes of its own"
-        ),
     }
-}
 
-/// `body` over every region at the bottom of `region`'s partitioning below it.
-fn each_leaf(
-    scope: &Scope,
-    region: RegionExpand,
-    body: &mut dyn FnMut(&Scope, RegionExpand),
-    unroll: bool,
-) {
-    if region.path.at_bottom() {
-        body(scope, region);
-        return;
-    }
-    let mut below = |scope: &Scope, child: RegionExpand| each_leaf(scope, child, body, unroll);
-    match unroll {
-        true => region.expand_unroll(scope, &mut below),
-        false => region.expand(scope, &mut below),
+    /// `body` over every region at the bottom of this region's partitioning below it.
+    fn each_leaf(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand), unroll: bool) {
+        if self.path.at_bottom() {
+            body(scope, self);
+            return;
+        }
+        let mut below = |scope: &Scope, child: RegionExpand| child.each_leaf(scope, body, unroll);
+        match unroll {
+            true => self.expand_unroll(scope, &mut below),
+            false => self.expand(scope, &mut below),
+        }
     }
 }

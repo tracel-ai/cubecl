@@ -1,5 +1,6 @@
-//! What one plane holds of a tile: the encodings ([`cmma`], [`mma`], [`registers`], [`lines`])
-//! and the grid of them a plane owns ([`base`]).
+//! What one plane holds of a tile: the encodings ([`cmma`], [`mma`], [`wgmma`], [`registers`],
+//! [`lines`]), the grid of them a plane owns ([`base`], [`matrix_grid`]), and the `ldmatrix`
+//! load ([`load_matrix`]).
 
 pub(crate) mod base;
 pub(crate) mod cmma;

@@ -457,26 +457,31 @@ impl TunePlan {
         }
     }
 
-    /// The whole plan as a recorded tune reports it: every tunable named by
-    /// `names`, in the order the plan releases them, with the batch each
-    /// comes in and its place in each of its groups. A tunable no batch
-    /// holds, its every priority negative, comes last.
-    #[cfg(persistence)]
-    pub(crate) fn account(&self, names: &[&str]) -> Vec<super::record::PlannedCandidate> {
+    /// Every one of `len` tunables in the order the plan releases them, with the
+    /// batch each comes in. A tunable no batch holds, its every priority
+    /// negative, comes last in declaration order, in no batch.
+    pub(crate) fn order(&self, len: usize) -> Vec<(usize, Option<usize>)> {
         let mut plan = self.clone();
         let batches = core::iter::from_fn(|| {
             Some(plan.next())
                 .filter(|batch| !batch.is_empty())
                 .map(|batch| batch.indices())
         });
-        let mut account: Vec<_> = batches
+        let mut order: Vec<_> = batches
             .enumerate()
             .flat_map(|(batch, indices)| indices.into_iter().map(move |index| (index, Some(batch))))
             .collect();
-        let excluded =
-            (0..names.len()).filter(|index| !account.iter().any(|(seen, _)| seen == index));
-        account.extend(excluded.map(|index| (index, None)).collect::<Vec<_>>());
-        account
+        let excluded = (0..len).filter(|index| !order.iter().any(|(seen, _)| seen == index));
+        order.extend(excluded.map(|index| (index, None)).collect::<Vec<_>>());
+        order
+    }
+
+    /// The whole plan as a recorded tune reports it: every tunable named by
+    /// `names`, in the [order](Self::order) the plan releases them, with the
+    /// batch each comes in and its place in each of its groups.
+    #[cfg(persistence)]
+    pub(crate) fn account(&self, names: &[&str]) -> Vec<super::record::PlannedCandidate> {
+        self.order(names.len())
             .into_iter()
             .map(|(index, batch)| super::record::PlannedCandidate {
                 name: names[index].to_string(),

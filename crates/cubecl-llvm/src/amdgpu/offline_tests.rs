@@ -1,8 +1,9 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    tally_kernel, tile_product_kernel,
+    Wait, bf16_math_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
 };
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, amd::GfxArch};
+use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 
 #[test]
@@ -70,6 +72,18 @@ fn a_local_array_under_a_constant_loop_is_registers() {
     );
 }
 
+/// Full debug data embeds the kernel source, with its MD5, in the DWARF 5 line table.
+#[test]
+fn full_debug_info_embeds_the_source_text() {
+    let asm = asm_of(nested_calls_with_source_kernel(), "gfx1201");
+    let file = asm
+        .lines()
+        .find(|line| line.contains(SOURCE_PATH) && line.contains(" source "))
+        .unwrap_or_else(|| panic!("no `.file` with a source text:\n{asm}"));
+    assert!(file.contains(" md5 0x"), "{file}");
+    assert!(file.contains("fn nested_calls_with_source"), "{file}");
+}
+
 /// CDNA2 and RDNA have no `bf16` arithmetic, so LLVM computes a `bf16` kernel in `f32` there.
 #[test]
 fn bf16_computes_in_f32_without_a_bf16_alu() {
@@ -85,13 +99,74 @@ fn bf16_computes_in_f32_without_a_bf16_alu() {
 fn half_precision_tiles_multiply_on_the_matrix_cores() {
     use half::{bf16, f16};
     for arch in ["gfx1151", "gfx1201"] {
-        let asm = asm_of(tile_product_kernel::<bf16, f32>((16, 16, 16)), arch);
+        let asm = asm_of(tile_product_kernel::<bf16, bf16, f32>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f32_16x16x16_bf16"), "{arch}:\n{asm}");
-        let asm = asm_of(tile_product_kernel::<bf16, bf16>((16, 16, 16)), arch);
+        let asm = asm_of(tile_product_kernel::<bf16, bf16, bf16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
-        let asm = asm_of(tile_product_kernel::<f16, f16>((16, 16, 16)), arch);
+        let asm = asm_of(tile_product_kernel::<f16, f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
     }
+}
+
+/// RDNA4 multiplies `e4m3` (`fp8`) and `e5m2` (`bf8`) operands into `f32`, each side its own
+/// format.
+#[test]
+fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
+    use cubecl_core::{e4m3, e5m2};
+    let asm = asm_of(
+        tile_product_kernel::<e4m3, e4m3, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_fp8_fp8"), "{asm}");
+    let asm = asm_of(
+        tile_product_kernel::<e4m3, e5m2, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_fp8_bf8"), "{asm}");
+    let asm = asm_of(
+        tile_product_kernel::<e5m2, e4m3, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_bf8_fp8"), "{asm}");
+    let asm = asm_of(
+        tile_product_kernel::<e5m2, e5m2, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_bf8_bf8"), "{asm}");
+}
+
+/// An 8-bit integer product tells the instruction which operand is signed through `neg_lo`, and
+/// an unsigned pair sets none.
+#[test]
+fn int8_tiles_carry_each_operands_sign() {
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(tile_product_kernel::<i8, u8, i32>((16, 16, 16)), arch);
+        assert!(asm.contains("v_wmma_i32_16x16x16_iu8"), "{arch}:\n{asm}");
+        assert!(asm.contains("neg_lo:[1,0,0]"), "{arch}: a signed:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<u8, u8, i32>((16, 16, 16)), arch);
+        assert!(asm.contains("v_wmma_i32_16x16x16_iu8"), "{arch}:\n{asm}");
+        assert!(!asm.contains("neg_lo"), "{arch}: both unsigned:\n{asm}");
+    }
+}
+
+/// A tile 32 deep is two 16-deep instructions: neither generation has a 32-deep form for these
+/// operands.
+#[test]
+fn a_tile_two_instructions_deep_issues_two() {
+    use cubecl_core::e4m3;
+    use half::f16;
+    let count = |asm: &str, op: &str| asm.matches(op).count();
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(tile_product_kernel::<f16, f16, f32>((16, 16, 32)), arch);
+        assert_eq!(count(&asm, "v_wmma_f32_16x16x16_f16"), 2, "{arch}:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), arch);
+        assert_eq!(count(&asm, "v_wmma_i32_16x16x16_iu8"), 2, "{arch}:\n{asm}");
+    }
+    let asm = asm_of(
+        tile_product_kernel::<e4m3, e4m3, f32>((16, 16, 32)),
+        "gfx1201",
+    );
+    assert_eq!(count(&asm, "v_wmma_f32_16x16x16_fp8_fp8"), 2, "{asm}");
 }
 
 /// A cube that waits on a counter reads what the cube before it wrote within the launch: the
@@ -126,6 +201,39 @@ fn a_dropped_atomic_add_keeps_the_promises() {
     assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
 }
 
+/// A `Peer` buffer may be written by another device while the kernel runs, so it is promised
+/// nothing, and an atomic on it synchronizes at system scope and is not promised device-local
+/// memory, which would make a float add one that is not atomic across the link. The kernel's
+/// own buffers keep their promises.
+#[test]
+fn a_peer_buffer_is_promised_nothing() {
+    let params = entry_params(peer_tally_kernel(), "gfx1151");
+    assert!(
+        !params[2].contains("noalias") && !params[2].contains("readonly"),
+        "a peer may write the tally:\n{params:#?}"
+    );
+    assert!(
+        params[0].contains("noalias") && params[0].contains("readonly"),
+        "the input:\n{params:#?}"
+    );
+    assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+    let module = module_of(peer_tally_kernel(), &GfxArch::parse("gfx1151"));
+    let add = module
+        .ir
+        .lines()
+        .find(|line| line.contains("atomicrmw add"))
+        .expect("the kernel counts into the tally");
+    assert!(
+        !add.contains("syncscope"),
+        "an atomic on a peer buffer synchronizes at system scope: {add}"
+    );
+    assert!(
+        !module.ir.contains("amdgpu.no.remote.memory"),
+        "an atomic of a peer kernel may touch remote memory:\n{}",
+        module.ir
+    );
+}
+
 #[test]
 fn a_kernel_without_atomics_keeps_its_promises() {
     let params = entry_params(scale_kernel(AddressType::U32), "gfx1151");
@@ -134,6 +242,24 @@ fn a_kernel_without_atomics_keeps_its_promises() {
         "the input:\n{params:#?}"
     );
     assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+}
+
+/// An `e2m1x2` cast compiles on a part with no fp4 conversion of its own, a Strix Halo's: the
+/// software codec, no fp4 conversion instruction.
+#[test]
+fn fp4_casts_compile_to_the_software_codec() {
+    let asm = asm_of(
+        crate::shared::offline_kernels::fp4_round_trip_kernel(),
+        "gfx1151",
+    );
+    let fp4_conversion = asm
+        .lines()
+        .any(|line| line.trim_start().starts_with("v_cvt") && line.contains("fp4"));
+    assert!(!fp4_conversion, "no fp4 conversion instruction:\n{asm}");
+    assert!(
+        asm.contains("v_lshr") || asm.contains("v_bfe"),
+        "the codes are shifted out:\n{asm}"
+    );
 }
 
 /// The assembly `kernel` compiles to for `arch`.

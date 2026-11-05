@@ -6,4 +6,4 @@ pub(crate) mod direct;
 pub(crate) mod gather;
 pub(crate) mod shape;
 
-pub(crate) use base::{contract, contracted_per_step, resolve_nd_coords};
+pub(crate) use base::{contract, contracted_per_step};
