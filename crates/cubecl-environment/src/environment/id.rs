@@ -130,12 +130,9 @@ mod storage {
         /// The environment is emptied entry by entry rather than deleted: the
         /// process keeps one connection per database for its whole life, so a
         /// file replaced under it would leave that connection writing into one
-        /// nothing reads. Everything that could refuse is checked first. The
-        /// entries are then copied in batches, each its own write, which keeps
-        /// the database's log under what the engine can index
-        /// ([`Database::replace_with`]): a storage failure partway leaves the
-        /// environment emptied or holding part of `origin`, which creating it
-        /// again completes.
+        /// nothing reads. Everything that could refuse is checked first, and
+        /// the replacement lands as a whole ([`Database::replace_with`]), so a
+        /// failure leaves the environment as it was.
         ///
         /// # Errors
         ///

@@ -46,15 +46,40 @@ const META_GET: &str = "SELECT v FROM meta WHERE k = ?1";
 const META_SET: &str = "INSERT INTO meta (k, v) VALUES (?1, ?2) \
                         ON CONFLICT(k) DO UPDATE SET v = excluded.v";
 
-const CREATE_ENTRIES: &str = "
-    CREATE TABLE IF NOT EXISTS entries (
-        namespace TEXT NOT NULL,
-        key BLOB NOT NULL,
-        value BLOB NOT NULL,
-        origin INTEGER NOT NULL,
-        PRIMARY KEY (namespace, key)
-    )
-";
+/// The columns of the entries table, which [`CREATE_ENTRIES`] and
+/// [`CREATE_INCOMING`] share.
+macro_rules! entries_columns {
+    () => {
+        "(
+            namespace TEXT NOT NULL,
+            key BLOB NOT NULL,
+            value BLOB NOT NULL,
+            origin INTEGER NOT NULL,
+            PRIMARY KEY (namespace, key)
+        )"
+    };
+}
+
+const CREATE_ENTRIES: &str = concat!("CREATE TABLE IF NOT EXISTS entries ", entries_columns!());
+
+/// The table a replacement fills before it takes the place of the entries
+/// ([`copy_in_batches`]).
+#[cfg(native_cache)]
+const CREATE_INCOMING: &str = concat!("CREATE TABLE entries_incoming ", entries_columns!());
+
+#[cfg(native_cache)]
+const DROP_INCOMING: &str = "DROP TABLE IF EXISTS entries_incoming";
+
+#[cfg(native_cache)]
+const INSERT_INCOMING: &str = "INSERT INTO entries_incoming (namespace, key, value, origin) \
+                               VALUES (?1, ?2, ?3, ?4)";
+
+/// Run in one write, so that the replacement lands as a whole.
+#[cfg(native_cache)]
+const SWAP_INCOMING: [&str; 2] = [
+    "DROP TABLE entries",
+    "ALTER TABLE entries_incoming RENAME TO entries",
+];
 
 const DROP_ENTRIES: &str = "DROP TABLE IF EXISTS entries";
 
@@ -368,15 +393,16 @@ impl Database {
     }
 
     /// Replaces every entry with those of `source`, stored as
-    /// [`Origin::Imported`], or with nothing without one.
+    /// [`Origin::Imported`], or with nothing without one, as a whole: a
+    /// failure leaves the entries as they were.
     ///
-    /// The entries are emptied in one write and copied in batches of at most
-    /// [`COPY_BATCH_BYTES`], each its own write: a whole environment in one
-    /// would write about two log frames a page, which for one of 512 MiB is
-    /// the 262,144 frames turso indexes between processes, past which every
-    /// read of the file fails. So a failure partway leaves this database
-    /// emptied, or holding part of `source`: what it holds is right, and
-    /// replacing it again completes it.
+    /// The entries of `source` are copied into a table beside the entries in
+    /// batches of at most [`COPY_BATCH_BYTES`], each its own write, and that
+    /// table then takes the entries' place in one small write. A whole
+    /// environment copied in one write would write about two log frames a
+    /// page, which for one of 512 MiB is the 262,144 frames turso indexes
+    /// between processes, past which every read of the file fails. The file
+    /// holds both until the swap, so it needs room for `source` twice over.
     ///
     /// # Errors
     ///
@@ -548,9 +574,14 @@ impl crate::bundle::Bundle for Database {
 #[cfg(native_cache)]
 const COPY_BATCH_BYTES: usize = 16 * 1024 * 1024;
 
-/// Empties the database behind `connection`, then copies every entry of
-/// `source` into it as [`Origin::Imported`], [`COPY_BATCH_BYTES`] at a time,
+/// Replaces the entries of the database behind `connection` with every
+/// entry of `source` as [`Origin::Imported`], or empties them without one,
 /// `room` giving the log room before each write.
+///
+/// The entries are copied into a table of their own, [`COPY_BATCH_BYTES`] at a
+/// time, which then takes the entries' place in one write
+/// ([`SWAP_INCOMING`]): until that write, the entries are as they were, and
+/// a failure before it drops the copy and leaves them so.
 #[cfg(native_cache)]
 fn copy_in_batches(
     connection: &sql::Connection,
@@ -558,23 +589,47 @@ fn copy_in_batches(
     room: &dyn Fn(&sql::Connection) -> Result<(), String>,
 ) -> Result<(), String> {
     room(connection)?;
-    connection.execute(CLEAR, &[]).map_err(error)?;
     let Some(source) = source else {
+        connection.execute(CLEAR, &[])?;
         return Ok(());
     };
+    // Left by a replacement that died before its swap.
+    connection.execute(DROP_INCOMING, &[])?;
+    connection.execute(CREATE_INCOMING, &[])?;
+    let copied = copy_into_incoming(connection, source, room).and_then(|()| {
+        room(connection)?;
+        let transaction = Transaction::new(connection, write_transaction())?;
+        for statement in SWAP_INCOMING {
+            transaction.execute(statement, &[])?;
+        }
+        Ok(transaction.commit()?)
+    });
+    if copied.is_err() {
+        let _ = connection.execute(DROP_INCOMING, &[]);
+    }
+    copied
+}
+
+/// Copies every entry of `source` into the table a replacement fills, one
+/// write per [`COPY_BATCH_BYTES`].
+#[cfg(native_cache)]
+fn copy_into_incoming(
+    connection: &sql::Connection,
+    source: &sql::Connection,
+    room: &dyn Fn(&sql::Connection) -> Result<(), String>,
+) -> Result<(), String> {
     let mut batch: Option<(Transaction<'_>, usize)> = None;
     source.query(ENTRIES, &[], &mut |row| {
         if batch.is_none() {
             room(connection)?;
-            let transaction = Transaction::new(connection, write_transaction()).map_err(error)?;
-            batch = Some((transaction, 0));
+            batch = Some((Transaction::new(connection, write_transaction())?, 0));
         }
         let Some((transaction, bytes)) = batch.as_mut() else {
             return Ok(());
         };
-        let namespace = row.text(0).map_err(error)?;
-        let key = row.blob(1).map_err(error)?;
-        let value = row.blob(2).map_err(error)?;
+        let namespace = row.text(0)?;
+        let key = row.blob(1)?;
+        let value = row.blob(2)?;
         *bytes += namespace.len() + key.len() + value.len();
         let params = [
             (&namespace).into(),
@@ -582,17 +637,17 @@ fn copy_in_batches(
             (&value).into(),
             origin_code(Origin::Imported).into(),
         ];
-        transaction.execute(REPLACE, &params).map_err(error)?;
+        transaction.execute(INSERT_INCOMING, &params)?;
         if *bytes >= COPY_BATCH_BYTES
             && let Some((transaction, _)) = batch.take()
         {
-            transaction.commit().map_err(error)?;
+            transaction.commit()?;
         }
         Ok::<_, String>(())
     })?;
     // A batch that failed partway is rolled back as it drops.
     match batch {
-        Some((transaction, _)) => transaction.commit().map_err(error),
+        Some((transaction, _)) => Ok(transaction.commit()?),
         None => Ok(()),
     }
 }
