@@ -33,7 +33,7 @@ const E2M1_SCALE_BLOCK: usize = 16;
 /// load a step at a time; `None` where it can: a fragment deeper than its instruction over a plain
 /// window, each step read as a fragment of its own at its offset along `k`, whatever layout the
 /// target's registers take; or deeper than a 16-bit `m16n8k16` instruction, on a target that lays
-/// its registers out as [`LaneMap::M16N8K16`] reads them, over a `B` of `e2m1` codes along `k`
+/// its registers out as [`LaneMap::NVIDIA_M16N8K16`] reads them, over a `B` of `e2m1` codes along `k`
 /// under one level of words of block scales, a whole number of words deep so every window starts
 /// on a word.
 #[cube]
@@ -59,7 +59,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
         Some("the fragment is one instruction deep, which loads as one")
     } else if packing.as_stored() && levels == 0 {
         None
-    } else if bytes != 2 || map != Some(LaneMap::M16N8K16) {
+    } else if bytes != 2 || map != Some(LaneMap::NVIDIA_M16N8K16) {
         Some("a step's registers are read off the 16-bit m16n8k16 layout, which this is not")
     } else if !e2m1_weight || levels != 1 || word_field != Some(Field::Fp8(Fp8Format::E4M3)) {
         Some(

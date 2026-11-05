@@ -23,7 +23,7 @@
 
 use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
-    ir::types::Fp8Format,
+    ir::{TargetProperties, types::Fp8Format},
     prelude::*,
 };
 
@@ -42,8 +42,11 @@ pub(crate) const SCALE_READ: usize = 16;
 /// `(u / units_per_row) % rows_spanned` of an `A`, and `rows_spanned` further on where it holds a
 /// second, or along that column of a `B`. Units past `units_per_row × rows_spanned` hold what the
 /// first ones do.
+///
+/// Public so a host choosing the instruction a packed operand decodes into, before any kernel
+/// expands, reads the layout the lane runs load in (its `TryFrom<&TargetProperties>`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct LaneMap {
+pub struct LaneMap {
     /// The instruction's `m × n`.
     edges: (usize, usize),
     /// The depths along `k` it lays out so: a deeper one holds its `k` as the shallowest does.
@@ -62,7 +65,7 @@ impl LaneMap {
 
     /// NVIDIA's `m16n8k16`: unit `u` holds quad `u % 4` of `k`, an `A`'s rows `u / 4` and
     /// `u / 4 + 8`, a `B`'s column `u / 4`.
-    pub(crate) const M16N8K16: LaneMap = LaneMap {
+    pub const NVIDIA_M16N8K16: LaneMap = LaneMap {
         edges: (16, 8),
         depths: &[16],
         units_per_row: 4,
@@ -73,13 +76,29 @@ impl LaneMap {
     /// RDNA3's `16 × 16`, sixteen or thirty-two deep: unit `u` holds every value of `k` along row
     /// `u % 16` of an `A`, or that column of a `B`, in order, the plane's two halves holding the
     /// same.
-    pub(crate) const RDNA3_16X16: LaneMap = LaneMap {
+    pub const RDNA3_16X16: LaneMap = LaneMap {
         edges: (16, 16),
         depths: &[16, 32],
         units_per_row: 1,
         rows_spanned: 16,
         rows_per_a_unit: 1,
     };
+
+    /// The instruction's `m × n`.
+    pub fn edges(&self) -> (usize, usize) {
+        self.edges
+    }
+
+    /// The depths along `k` it lays out, shallowest first.
+    pub fn depths(&self) -> &'static [usize] {
+        self.depths
+    }
+
+    /// Units sharing one row of `A` or column of `B`, each holding its own part of `k`: a unit's
+    /// run of a window is the window over these.
+    pub fn units_per_row(&self) -> usize {
+        self.units_per_row
+    }
 
     /// Slots of one `depth`-deep instruction's `k` a unit holds.
     fn slots_per_unit(&self, depth: usize) -> usize {
@@ -89,6 +108,33 @@ impl LaneMap {
     /// Whether the plane's later units hold what its first ones do.
     fn duplicated(&self) -> bool {
         self.units_per_row * self.rows_spanned < Self::PLANE_UNITS
+    }
+}
+
+impl TryFrom<&TargetProperties> for LaneMap {
+    type Error = &'static str;
+
+    /// The lane map `target` lays its 16-bit instruction out in: a 32-unit plane of 32-bit
+    /// registers, `A` along its rows and `B` along its columns, every cell held once (NVIDIA's
+    /// `m16n8k16`) or by both halves of the plane (RDNA3's `16 × 16`). The duplication says which.
+    ///
+    /// # Errors
+    ///
+    /// A target laying its registers out otherwise, which lane runs do not read.
+    fn try_from(target: &TargetProperties) -> Result<Self, Self::Error> {
+        let mma = &target.mma;
+        let laid_out = mma.const_plane_size as usize == Self::PLANE_UNITS
+            && mma.register_size_bits == 32
+            && mma.register_layout_a == MatrixLayout::RowMajor
+            && mma.register_layout_b == MatrixLayout::ColMajor;
+        let refused = "the target lays out no 16-bit instruction lane runs read: NVIDIA's \
+                       m16n8k16 or RDNA3's 16x16";
+        match (mma.register_duplication_a, mma.register_duplication_b) {
+            _ if !laid_out => Err(refused),
+            (1, 1) => Ok(Self::NVIDIA_M16N8K16),
+            (2, 2) => Ok(Self::RDNA3_16X16),
+            _ => Err(refused),
+        }
     }
 }
 
@@ -105,17 +151,8 @@ impl LaneMap {
         #[comptime] depth: usize,
     ) -> comptime_type!(Option<LaneMap>) {
         intrinsic!(|scope| {
-            let mma = &scope.state().target_properties.mma;
-            let laid_out = mma.const_plane_size as usize == LaneMap::PLANE_UNITS
-                && mma.register_size_bits == 32
-                && mma.register_layout_a == MatrixLayout::RowMajor
-                && mma.register_layout_b == MatrixLayout::ColMajor;
-            let map = match (mma.register_duplication_a, mma.register_duplication_b) {
-                (1, 1) => LaneMap::M16N8K16,
-                (2, 2) => LaneMap::RDNA3_16X16,
-                _ => return None,
-            };
-            (laid_out && map.edges == (m, n) && map.depths.contains(&depth)).then_some(map)
+            let map = LaneMap::try_from(&scope.state().target_properties).ok()?;
+            (map.edges == (m, n) && map.depths.contains(&depth)).then_some(map)
         })
     }
 }
@@ -582,8 +619,8 @@ mod tests {
     #[test]
     fn each_register_takes_one_vector_of_the_run() {
         for (map, ident, registers_per_step, cells_per_register) in [
-            (LaneMap::M16N8K16, MatrixIdent::A, 4, 2),
-            (LaneMap::M16N8K16, MatrixIdent::B, 2, 2),
+            (LaneMap::NVIDIA_M16N8K16, MatrixIdent::A, 4, 2),
+            (LaneMap::NVIDIA_M16N8K16, MatrixIdent::B, 2, 2),
             (LaneMap::RDNA3_16X16, MatrixIdent::A, 2, 8),
             (LaneMap::RDNA3_16X16, MatrixIdent::B, 2, 8),
         ] {
@@ -602,7 +639,7 @@ mod tests {
                 "{map:?}, {ident:?}"
             );
         }
-        let a = two_steps(LaneMap::M16N8K16, MatrixIdent::A, 4, 2);
+        let a = two_steps(LaneMap::NVIDIA_M16N8K16, MatrixIdent::A, 4, 2);
         assert_eq!(
             (a.register(0, 0), a.register(0, 1), a.register(2, 0)),
             (0, 1, 2)
@@ -623,15 +660,18 @@ mod tests {
             ..two_steps(map, ident, 2, 2)
         };
         assert_eq!(
-            run(LaneMap::M16N8K16, MatrixIdent::A, 16).covered_rows(),
+            run(LaneMap::NVIDIA_M16N8K16, MatrixIdent::A, 16).covered_rows(),
             16
         );
-        assert_eq!(run(LaneMap::M16N8K16, MatrixIdent::B, 8).covered_rows(), 8);
+        assert_eq!(
+            run(LaneMap::NVIDIA_M16N8K16, MatrixIdent::B, 8).covered_rows(),
+            8
+        );
         assert_eq!(
             run(LaneMap::RDNA3_16X16, MatrixIdent::B, 16).covered_rows(),
             16
         );
         assert!(run(LaneMap::RDNA3_16X16, MatrixIdent::B, 8).short());
-        assert!(!run(LaneMap::M16N8K16, MatrixIdent::B, 8).short());
+        assert!(!run(LaneMap::NVIDIA_M16N8K16, MatrixIdent::B, 8).short());
     }
 }
