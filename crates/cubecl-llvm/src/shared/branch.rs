@@ -4,7 +4,7 @@ use crate::prelude::*;
 #[cfg(feature = "nvptx")]
 use crate::shared::loop_hints::LoopHint;
 #[cfg(feature = "nvptx")]
-use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp};
+use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp};
 use cubecl_core::ir::dialect::{
     BlockPtrExt,
     branch::{self, ConditionOp, IsExitTerminator},
@@ -13,7 +13,11 @@ use cubecl_core::ir::dialect::{
     math::IAddOp,
     scf::{ForOp, IfOp, SwitchOp, WhileOp},
 };
+#[cfg(feature = "nvptx")]
+use pliron::linked_list::ContainsLinkedList;
 use pliron::region::Region;
+#[cfg(feature = "nvptx")]
+use std::collections::HashSet;
 
 #[op_interface]
 pub trait LowerCpuCF {
@@ -328,7 +332,8 @@ fn split_join_block(
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoopShape {
-    /// A trip count known at compile time, and a body indexing a local array.
+    /// A trip count known at compile time, and a body indexing a local array at an index that
+    /// changes each turn.
     ConstantOverLocalArray,
     Other,
 }
@@ -337,12 +342,13 @@ pub(crate) enum LoopShape {
 impl LoopShape {
     /// What this loop's target should be asked for, or `None` to leave it to LLVM's cost model.
     ///
-    /// A loop of a constant trip count over a local array is worth unrolling completely on
-    /// NVPTX, as NVVM does: only then is every index a constant, and a local array indexed by
-    /// constants alone becomes registers instead of local memory. LLVM's NVPTX cost model stops
-    /// short of that for a loop of more than a handful of steps (a top-k accumulator's 64, say),
-    /// and the array it leaves in local memory costs several times the loop. AMDGPU's cost model
-    /// already raises its threshold for a loop that touches a private array, so it needs no hint.
+    /// A loop of a constant trip count that steps through a local array is worth unrolling
+    /// completely on NVPTX, as NVVM does: only then is every index a constant, and a local array
+    /// indexed by constants alone becomes registers instead of local memory. LLVM's NVPTX cost
+    /// model stops short of that for a loop of more than a handful of steps (a top-k accumulator's
+    /// 64, say), and the array it leaves in local memory costs several times the loop. AMDGPU's
+    /// cost model already raises its threshold for a loop that touches a private array, so it needs
+    /// no hint.
     fn hint(self, target: LlvmTarget) -> Option<LoopHint> {
         match self {
             LoopShape::ConstantOverLocalArray => match target {
@@ -368,7 +374,8 @@ impl LoopShape {
                 .defining_op()
                 .is_some_and(|def| Operation::get_op::<ConstantOp>(def, ctx).is_some())
         };
-        if constant(start) && constant(end) && constant(step) && indexes_local_array(ctx, op) {
+        if constant(start) && constant(end) && constant(step) && steps_through_local_array(ctx, op)
+        {
             LoopShape::ConstantOverLocalArray
         } else {
             LoopShape::Other
@@ -376,9 +383,10 @@ impl LoopShape {
     }
 }
 
-/// Whether the body of `op` indexes a local array, stopping at the first index that does.
+/// Whether the body of `lp` indexes a local array at an index that changes between its turns,
+/// stopping at the first that does.
 #[cfg(feature = "nvptx")]
-fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
+fn steps_through_local_array(ctx: &Context, lp: Ptr<Operation>) -> bool {
     use pliron::graph::walkers::{
         IRNode, WALKCONFIG_PREORDER_FORWARD,
         interruptible::{immutable::walk_op, walk_advance, walk_break},
@@ -386,21 +394,22 @@ fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
 
     walk_op(
         ctx,
-        &mut (),
+        &mut (lp, HashSet::new()),
         &WALKCONFIG_PREORDER_FORWARD,
-        op,
-        |ctx, _, node| {
+        lp,
+        |ctx, (lp, seen), node| {
             let IRNode::Operation(op) = node else {
                 return walk_advance();
             };
-            let local = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
+            let steps = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
                 index
                     .base(ctx)
                     .defining_op()
                     .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
                     .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local)
+                    && varies_per_turn(ctx, index.index(ctx), *lp, seen)
             });
-            if local {
+            if steps {
                 walk_break(())
             } else {
                 walk_advance()
@@ -408,6 +417,51 @@ fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
         },
     )
     .is_break()
+}
+
+/// Whether `value` can differ between the turns of the loop `lp`. A load ends the search: unrolling
+/// does not make what memory holds a constant. A value defined by a structured op inside `lp`
+/// depends on everything that op reads or yields.
+#[cfg(feature = "nvptx")]
+fn varies_per_turn(
+    ctx: &Context,
+    value: Value,
+    lp: Ptr<Operation>,
+    seen: &mut HashSet<Value>,
+) -> bool {
+    if !seen.insert(value) {
+        return false;
+    }
+    let source = match value.defining_op() {
+        Some(op) => op,
+        None => {
+            let owner = value
+                .defining_block()
+                .and_then(|block| block.deref(ctx).get_parent_op(ctx));
+            match owner {
+                Some(owner) if owner == lp => return true,
+                Some(owner) => owner,
+                None => return false,
+            }
+        }
+    };
+    if !lp.is_ancestor_of(ctx, source) {
+        return false;
+    }
+    if source.as_op::<LoadOp>(ctx).is_some() {
+        return false;
+    }
+    let yielded = source
+        .regions(ctx)
+        .into_iter()
+        .flat_map(|region| region.deref(ctx).iter(ctx).collect::<Vec<_>>())
+        .filter_map(|block| block.deref(ctx).get_terminator(ctx))
+        .flat_map(|terminator| terminator.operands(ctx));
+    source
+        .operands(ctx)
+        .into_iter()
+        .chain(yielded)
+        .any(|operand| varies_per_turn(ctx, operand, lp, seen))
 }
 
 fn branch_to_yielded(
