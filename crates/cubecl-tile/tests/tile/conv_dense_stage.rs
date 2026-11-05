@@ -30,6 +30,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
     #[comptime] steps: Level,
     #[comptime] storage: StageStorage,
     #[comptime] instruction: Instruction,
+    #[comptime] planes: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
@@ -50,7 +51,15 @@ fn conv_dense_stage_kernel<E: Numeric>(
         stages.pipelined(walk, |slot, region| {
             let mut acc_r = acc.at(region);
             slot.consume(|i, w| {
-                acc_r.mma(i, w);
+                // A stage taller than one block holds a block per plane, each contracting its own.
+                if comptime!(planes > 1) {
+                    for plane in region {
+                        let mut acc_p = acc_r.at(&plane);
+                        acc_p.mma(&i.at(&plane), &w.at(&plane));
+                    }
+                } else {
+                    acc_r.mma(i, w);
+                }
             });
         });
         acc.drained_into(&out);
@@ -70,6 +79,10 @@ struct Case {
     tap: isize,
     offset: isize,
     in_len: usize,
+    /// Taps a k step spans; the rest of the step is channels.
+    taps: usize,
+    /// Row blocks the plane level lays side by side, so the stage is that many blocks tall.
+    planes: usize,
 }
 
 /// The instruction's shape if the device offers it over `f16` summed in `f32`, else a skip.
@@ -118,22 +131,25 @@ impl Case {
             tap,
             offset,
             in_len,
+            taps,
+            planes,
         } = *self;
         let (co, rh) = (CO_EXTENT, RH_EXTENT);
-        // A k step is two taps by `k / 2` channels; the walk takes two steps along each.
-        let ci_step = k / 2;
+        // A k step is `taps` taps by `k / taps` channels; the walk takes two channel steps.
+        let ci_step = k / taps;
         let ci = 2 * ci_step;
         assert!(oh % m == 0 && co % n == 0);
 
         let launcher = implied(
             &client,
-            Partitioning::new(
-                Space::new(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)]),
-                Levels::leaf(&[(OH, m), (CO, n), (RH, 2), (CI, ci_step)])
-                    .walk_every(&[RH, CI])
-                    .cubes(&[OH, CO])
-                    .build(),
-            ),
+            Partitioning::new(Space::new(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)]), {
+                let levels = Levels::leaf(&[(OH, m), (CO, n), (RH, taps), (CI, ci_step)]);
+                let levels = match planes {
+                    1 => levels,
+                    _ => levels.planes(&[(OH, planes)]),
+                };
+                levels.walk_every(&[RH, CI]).cubes(&[OH, CO]).build()
+            }),
             Form::Static,
         );
         let storage = StageStorage::Tiled {
@@ -191,6 +207,7 @@ impl Case {
             launcher.partitioning().level(1),
             storage,
             instruction,
+            planes,
             f32_ty,
         );
 
@@ -221,6 +238,8 @@ const FORWARD: Case = Case {
     tap: 2,
     offset: -1,
     in_len: 99,
+    taps: 2,
+    planes: 1,
 };
 
 #[test]
@@ -246,4 +265,26 @@ fn conv_dense_stage_cmma_backward() {
         ..FORWARD
     }
     .check(Unit::Cmma);
+}
+
+/// A stage two row blocks tall is tiled, so a fragment's row stride is the block's `taps *
+/// channels`, not the channels a step holds.
+const TILED: Case = Case {
+    oh: 32,
+    stride: 1,
+    tap: 1,
+    offset: 0,
+    in_len: 35,
+    taps: 2,
+    planes: 2,
+};
+
+#[test]
+fn conv_dense_stage_cmma_tiled_stage_4_channels() {
+    Case { taps: 4, ..TILED }.check(Unit::Cmma);
+}
+
+#[test]
+fn conv_dense_stage_cmma_tiled_stage_8_channels() {
+    TILED.check(Unit::Cmma);
 }

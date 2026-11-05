@@ -374,17 +374,22 @@ impl Memory {
         self.window_start.cast::<usize>()
     }
 
-    /// Scalar stride between matrix rows, `row` the dim a row steps along (direct, untiled stores;
-    /// any other steps along its second-to-last dim).
+    /// Scalar stride between matrix rows, `row` the coordinate a direct window's rows step along:
+    /// its dim in an untiled store, its innermost carrier in a tiled one. A gathered window steps
+    /// along its second-to-last dim.
     pub(crate) fn row_stride_at(&self, #[comptime] row: usize) -> u32 {
         let rank = comptime!(self.layout.projection.physical_rank());
-        let row = comptime!(
-            if self.projection.is_direct() && !self.layout.projection.is_tiled() {
-                row
-            } else {
-                rank - 2
+        let row = comptime!({
+            let positional = &self.layout.projection;
+            match (self.projection.is_direct(), positional.is_tiled()) {
+                (true, true) => *positional
+                    .carriers(positional.logical_axes()[row])
+                    .last()
+                    .unwrap(),
+                (true, false) => row,
+                (false, _) => rank - 2,
             }
-        );
+        });
         self.layout
             .physical_strides
             .at(row)
