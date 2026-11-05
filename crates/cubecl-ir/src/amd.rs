@@ -137,12 +137,24 @@ impl GfxArch {
     }
 
     /// The wavefront width, or `None` for an architecture the table does not know.
+    ///
+    /// Experiment, not for merge: an RDNA part is compiled for wave64 where `CUBECL_HIP_WAVE64`
+    /// is set, which every consumer of this width follows (the codegen's target feature and plane
+    /// lowering, the device libraries, the width the runtime reports).
     pub fn plane_dim(&self) -> Option<u32> {
+        let rdna = self.family.plane_dim() == Some(32);
+        if rdna && std::env::var_os("CUBECL_HIP_WAVE64").is_some() {
+            return Some(64);
+        }
         self.family.plane_dim()
     }
 
     /// Which WMMA this device has, or `None` where it has none at all.
     pub fn wmma(&self) -> Option<AmdWmma> {
+        // Experiment, not for merge: wave64 (`CUBECL_HIP_WAVE64`) lowers no WMMA here.
+        if std::env::var_os("CUBECL_HIP_WAVE64").is_some() {
+            return None;
+        }
         self.family.wmma_generation()
     }
 

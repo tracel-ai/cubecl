@@ -90,9 +90,11 @@ impl DeviceService for HipServer {
         // The architecture table decides the plane size the compiler emits for, so a driver
         // reporting a different one, or a name the table has never seen, would mean every
         // kernel is generated for the wrong wavefront width.
-        assert_eq!(
-            Some(probe.warp_size),
-            gfx.plane_dim(),
+        // Experiment, not for merge: a part compiled for wave64 (`CUBECL_HIP_WAVE64`) reports
+        // the width its kernels run at rather than the driver's default.
+        let wave64 = std::env::var_os("CUBECL_HIP_WAVE64").is_some();
+        assert!(
+            wave64 || Some(probe.warp_size) == gfx.plane_dim(),
             "the driver reports a wavefront of {} for {:?} (reported as {:?}), but the \
              architecture table generates code for {:?}",
             probe.warp_size,
@@ -126,16 +128,36 @@ impl DeviceService for HipServer {
             MemoryDeviceProperties::new(max_memory as u64 / 4, probe.alignment as u64)
                 .with_max_memory(max_memory as u64);
 
-        let supported_wmma_combinations =
+        let mut supported_wmma_combinations =
             HipCmmaCompiler::RocWmma.supported_cmma_combinations(&arch);
-        let supported_mma_combinations = hip::supported_mma_combinations(&arch);
-        let supported_scaled_mma_combinations = hip::supported_scaled_mma_combinations(&arch);
+        let mut supported_mma_combinations = hip::supported_mma_combinations(&arch);
+        let mut supported_scaled_mma_combinations = hip::supported_scaled_mma_combinations(&arch);
+        // Experiment, not for merge: kernels compiled for wave64 (`CUBECL_HIP_WAVE64`) have no
+        // matrix instruction here, whose lowering is wave32's, so every routine on one declines.
+        if std::env::var_os("CUBECL_HIP_WAVE64").is_some() {
+            supported_wmma_combinations.clear();
+            supported_mma_combinations.clear();
+            supported_scaled_mma_combinations.clear();
+        }
 
+        // Experiment, not for merge: the width one load reads, overridden in bits by
+        // `CUBECL_HIP_LOAD_WIDTH` to race wider unit reads (several 128-bit loads issued
+        // together) against the hardware's widest single load.
+        let load_width = std::env::var("CUBECL_HIP_LOAD_WIDTH")
+            .ok()
+            .and_then(|bits| bits.parse().ok())
+            .unwrap_or(128);
+        // Experiment, not for merge: the width kernels compiled for wave64 run at
+        // (`CUBECL_HIP_WAVE64`), which the plane-shuffle routines size their planes by.
+        let plane_size = match std::env::var_os("CUBECL_HIP_WAVE64") {
+            Some(_) => 64,
+            None => probe.warp_size,
+        };
         let topology = HardwareProperties {
-            load_width: 128,
+            load_width,
             vector_register_count: None,
-            plane_size_min: probe.warp_size,
-            plane_size_max: probe.warp_size,
+            plane_size_min: plane_size,
+            plane_size_max: plane_size,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
             max_shared_memory_size: probe.max_shared_memory,
             max_cube_count: probe.max_cube_count,

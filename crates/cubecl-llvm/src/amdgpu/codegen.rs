@@ -46,6 +46,9 @@ const AMDGPU_KERNEL_CC: u32 = 91;
 /// Wave32 feature for RDNA devices.
 const WAVE32: &str = "+wavefrontsize32";
 
+/// Wave64 feature, for an RDNA device compiled for wave64 ([`GfxArch::plane_dim`]).
+const WAVE64: &str = "+wavefrontsize64";
+
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_AMDGPU: Once = Once::new();
@@ -60,10 +63,10 @@ fn init_amdgpu() {
 }
 
 fn features_for(arch: &GfxArch) -> &'static str {
-    if arch.plane_dim() == Some(32) {
-        WAVE32
-    } else {
-        ""
+    match (arch.family().plane_dim(), arch.plane_dim()) {
+        (Some(32), Some(32)) => WAVE32,
+        (Some(32), Some(64)) => WAVE64,
+        _ => "",
     }
 }
 
