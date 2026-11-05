@@ -211,7 +211,7 @@ impl Database {
         match Self::open() {
             Ok(database) => Some(database),
             Err(error) => {
-                log::warn!("Unable to open the Turso cache: {error}");
+                log::warn!("Unable to open the {} cache: {error}", sql::ENGINE);
                 None
             }
         }
@@ -1941,6 +1941,7 @@ mod tests {
     /// The frames the log of the database at `path` holds since it last
     /// restarted, as turso's index between processes counts them: the
     /// `max_frame` of its `-tshm` header, 0 before there is one.
+    #[cfg(turso_engine)]
     pub(super) fn indexed_frames(path: &std::path::Path) -> u64 {
         use std::io::{Read, Seek, SeekFrom};
 
@@ -1959,6 +1960,7 @@ mod tests {
     /// of what turso indexes, and a Flash-Next environment past all of it.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
+    #[cfg(turso_engine)]
     fn a_replacement_keeps_its_log_short_while_it_copies() {
         let dir = tempfile::tempdir().unwrap();
         let source = Database::open_at(&dir.path().join("saved.db"), Access::ReadWrite).unwrap();
@@ -1999,6 +2001,7 @@ mod tests {
     /// nothing.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
+    #[cfg(turso_engine)]
     fn a_held_read_keeps_a_long_log_from_growing() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("building.db");
@@ -2096,6 +2099,7 @@ mod tests {
 
     /// Where [`grow_a_log_until_killed`] writes, when a test runs it as a
     /// child process.
+    #[cfg(turso_engine)]
     const GROW_LOG_AT: &str = "CUBECL_TEST_GROW_LOG_AT";
 
     /// The child process of
@@ -2106,6 +2110,7 @@ mod tests {
     /// runs it.
     #[test]
     #[ignore = "a child process of a_log_a_killed_writer_left_past_the_index_reopens"]
+    #[cfg(turso_engine)]
     fn grow_a_log_until_killed() {
         let Some(location) = std::env::var_os(GROW_LOG_AT) else {
             return;
@@ -2156,7 +2161,7 @@ mod tests {
     /// folds the log in and reads within seconds.
     #[test_log::test]
     #[ignore = "writes past the frame index turso holds, about 2 GB over minutes"]
-    #[cfg(unix)]
+    #[cfg(all(unix, turso_engine))]
     fn a_log_a_killed_writer_left_past_the_index_reopens() {
         use std::io::BufRead;
 

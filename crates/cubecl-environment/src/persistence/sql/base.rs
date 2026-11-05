@@ -49,6 +49,10 @@ pub(crate) enum SqlError {
     /// Another connection held what the call needed past the busy timeout.
     Busy(String),
     /// A file opened for this process alone is open in another process.
+    #[cfg_attr(
+        sqlite_engine,
+        expect(dead_code, reason = "SQLite opens every file for any process")
+    )]
     HeldByAnotherProcess(String),
     /// The file is damaged.
     Corrupt(String),
