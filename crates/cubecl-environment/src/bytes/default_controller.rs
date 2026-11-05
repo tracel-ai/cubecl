@@ -24,6 +24,12 @@ pub(crate) trait Provider: BufferAllocator + Copy + 'static {
     const DETACHABLE: bool;
     /// The property that the controller reports.
     const PROPERTY: AllocationProperty;
+    /// Whether the memory may share storage with another owner that can write to it, for
+    /// example mapped device memory. See [`AllocationController::may_alias_mutable_storage`].
+    ///
+    /// Memory that may alias must not be [`DETACHABLE`](Self::DETACHABLE): a `Vec` takes
+    /// exclusive ownership of its memory.
+    const MAY_ALIAS_MUTABLE: bool = false;
 }
 
 /// The global allocator of the [alloc crate](alloc).
@@ -302,7 +308,13 @@ impl<P: Provider> AllocationController for Controller<P> {
     }
 
     fn may_alias_mutable_storage(&self) -> bool {
-        false
+        const {
+            assert!(
+                !(P::MAY_ALIAS_MUTABLE && P::DETACHABLE),
+                "memory that may alias mutable storage cannot become a Vec"
+            );
+        }
+        P::MAY_ALIAS_MUTABLE
     }
 
     // SAFETY: Per type invariants, only memory from the global allocator is detachable.
