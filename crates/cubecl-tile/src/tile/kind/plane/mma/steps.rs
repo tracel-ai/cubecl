@@ -18,7 +18,7 @@ use cubecl::{
     prelude::*,
 };
 
-use super::lane_runs::{E2M1_PER_WORD, LaneMap, instruction_depth, lane_map};
+use super::lane_runs::{E2M1_PER_WORD, LaneMap, instruction_depth};
 use crate::*;
 
 /// `e4m3` block scales one word of them holds.
@@ -26,7 +26,7 @@ const SCALES_PER_WORD: usize = 4;
 
 /// Values of `k` one `e4m3` scale of a word covers: the words this decodes are NVFP4's, four
 /// blocks of sixteen. Words of another field, or of another block, are refused
-/// ([`steps_refusal`]): a word read whole does not say its block.
+/// ([`steps_refusal()`]): a word read whole does not say its block.
 const E2M1_SCALE_BLOCK: usize = 16;
 
 /// Why `src`, a shared-memory window of an `m × n × k` fragment of `T` in role `ident`, cannot
@@ -45,8 +45,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
 ) -> comptime_type!(Option<&'static str>) {
     let (m, n, k) = comptime!(shape);
     let depth = instruction_depth::<T>(m, n, k);
-    let map = lane_map();
-    let laid_out = comptime!(map == Some(LaneMap::M16N8K16));
+    let map = LaneMap::new(m, n, depth);
     let bytes = T::size().comptime();
     let packing = src.packing();
     let levels = src.factor_levels();
@@ -60,7 +59,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
         Some("the fragment is one instruction deep, which loads as one")
     } else if packing.as_stored() && levels == 0 {
         None
-    } else if (m, n, depth) != (16, 8, 16) || bytes != 2 || !laid_out {
+    } else if bytes != 2 || map != Some(LaneMap::M16N8K16) {
         Some("a step's registers are read off the 16-bit m16n8k16 layout, which this is not")
     } else if !e2m1_weight || levels != 1 || word_field != Some(Field::Fp8(Fp8Format::E4M3)) {
         Some(
