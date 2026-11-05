@@ -11,6 +11,9 @@ const DS_BPERMUTE: &str = "llvm.amdgcn.ds.bpermute";
 
 const BALLOT: &str = "llvm.amdgcn.ballot";
 
+/// Reads one lane's value into every lane.
+const READLANE: &str = "llvm.amdgcn.readlane.i32";
+
 /// Swaps the two 32-lane halves of a wave64 (gfx11 and later).
 const PERMLANE64: &str = "llvm.amdgcn.permlane64.i32";
 
@@ -57,6 +60,14 @@ impl PlaneLowering for AmdGpuPlane {
         if !ctx.halved_wave() {
             return route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
                 call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, word])
+            });
+        }
+
+        // A known source lane is one read of that lane, whichever half it lies in.
+        if let Some(src) = constant_u32(ctx, src_lane) {
+            let lane = insert_i32_const(ctx, rw, src as i32);
+            return route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
+                call_intrinsic(ctx, rw, READLANE, i32_ty, vec![word, lane])
             });
         }
 
