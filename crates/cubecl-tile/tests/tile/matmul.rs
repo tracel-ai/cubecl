@@ -3609,13 +3609,25 @@ fn staged_matmul_on_a_stated_instruction<E: Numeric>(
 /// exactly in `f32`.
 #[test]
 fn mma_grid_loads_b_fragments_two_at_a_time() {
+    check_b_fragments_two_at_a_time(16);
+}
+
+/// The same at `16x8x8`, whose `B` fragment is one matrix, so a pair is an x2 load that the
+/// plane's last sixteen units still hand an address to.
+#[test]
+fn mma_grid_loads_b_fragments_of_one_matrix_two_at_a_time() {
+    check_b_fragments_two_at_a_time(8);
+}
+
+/// [`mma_grid_loads_b_fragments_two_at_a_time`] at an instruction `depth` deep along `K`.
+fn check_b_fragments_two_at_a_time(depth: usize) {
     let client = cubecl::test_device().client();
     let (f16_ty, f32_ty) = (f16::elem_type_native(), f32::elem_type_native());
     let supported = client.properties().features.matmul.mma.iter().any(|cfg| {
         cfg.a_type == f16_ty
             && cfg.b_type == f16_ty
             && cfg.cd_type == f32_ty
-            && (cfg.m, cfg.n, cfg.k) == (16, 8, 16)
+            && (cfg.m, cfg.n, cfg.k as usize) == (16, 8, depth)
     }) && client
         .properties()
         .features
@@ -3623,9 +3635,9 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
         .ldmatrix
         .contains(&f16_ty);
     if !supported {
-        ValidationResult::Skipped(
-            "device offers no 16x8x16 f16 manual mma read by ldmatrix".into(),
-        )
+        ValidationResult::Skipped(format!(
+            "device offers no 16x8x{depth} f16 manual mma read by ldmatrix"
+        ))
         .enforce();
         return;
     }
@@ -3635,9 +3647,9 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
         &client,
         Partitioning::new(
             Space::new(&[(M, m), (N, n), (K, k)]),
-            Levels::leaf(&[(M, 16), (N, 8), (K, 16)])
+            Levels::leaf(&[(M, 16), (N, 8), (K, depth)])
                 .walk(&[(M, m / 16), (N, n / 8)])
-                .walk(&[(K, k / 16)])
+                .walk(&[(K, k / depth)])
                 .build(),
         ),
         Form::Static,
