@@ -431,6 +431,7 @@ macro_rules! lane_arith {
 }
 
 lane_arith!(xor, bitwise, llvm::XorOp);
+lane_arith!(and, bitwise, llvm::AndOp);
 lane_arith!(lshr, bitwise, llvm::LShrOp);
 lane_arith!(shl, arith, llvm::ShlOp);
 lane_arith!(add, arith, llvm::AddOp);

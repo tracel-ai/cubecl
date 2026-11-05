@@ -292,6 +292,10 @@ impl PlironCompiler {
         ctx.set_grid_constants(false);
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
+        crate::amdgpu::plane::CtxHalvedWave::set_halved_wave(
+            &mut ctx,
+            arch.family().plane_dim() == Some(32) && plane_dim == 64,
+        );
         ctx.set_wmma(arch.wmma());
 
         let Lowered {

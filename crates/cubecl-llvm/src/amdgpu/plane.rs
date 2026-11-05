@@ -3,13 +3,33 @@
 use crate::{
     amdgpu::intrinsic::lane_id_ops,
     prelude::*,
-    shared::plane::{PlaneLowering, mask_ty, route_words, shl},
+    shared::plane::{PlaneLowering, and, icmp, mask_ty, route_words, select, shl, xor},
 };
 
 /// Lane routing uses byte addresses.
 const DS_BPERMUTE: &str = "llvm.amdgcn.ds.bpermute";
 
 const BALLOT: &str = "llvm.amdgcn.ballot";
+
+/// Swaps the two 32-lane halves of a wave64 (gfx11 and later).
+const PERMLANE64: &str = "llvm.amdgcn.permlane64.i32";
+
+/// Whether a wave64 here runs as two 32-lane halves that `ds_bpermute` does not cross: RDNA
+/// (gfx10 and later) compiled for wave64. A lane reading the other half then reads the halves
+/// swapped by `permlane64`, as ACO does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HalvedWave(pub bool);
+
+impl CtxHalvedWave for Context {}
+
+pub trait CtxHalvedWave: ContextExt {
+    fn halved_wave(&self) -> bool {
+        self.aux_ty::<HalvedWave>().0
+    }
+    fn set_halved_wave(&mut self, halved: bool) {
+        self.set_aux_ty(HalvedWave(halved));
+    }
+}
 
 pub struct AmdGpuPlane;
 
@@ -34,8 +54,24 @@ impl PlaneLowering for AmdGpuPlane {
         let two = insert_i32_const(ctx, rw, 2);
         let addr = shl(ctx, rw, src_lane, two);
 
+        if !ctx.halved_wave() {
+            return route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
+                call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, word])
+            });
+        }
+
+        // The source lies in the other half where its lane differs from this one in bit 5.
+        let lane = self.lane_id(ctx, rw);
+        let differs = xor(ctx, rw, lane, src_lane);
+        let half = insert_i32_const(ctx, rw, 32);
+        let half_bit = and(ctx, rw, differs, half);
+        let zero = insert_i32_const(ctx, rw, 0);
+        let crosses = icmp(ctx, rw, ICmpPredicateAttr::NE, half_bit, zero);
         route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
-            call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, word])
+            let same = call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, word]);
+            let swapped = call_intrinsic(ctx, rw, PERMLANE64, i32_ty, vec![word]);
+            let other = call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, swapped]);
+            select(ctx, rw, crosses, other, same)
         })
     }
 
