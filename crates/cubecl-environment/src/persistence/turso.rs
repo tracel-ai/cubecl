@@ -153,6 +153,9 @@ pub struct Database {
     /// system has.
     #[cfg_attr(browser_cache, expect(dead_code, reason = "native only"))]
     access: Access,
+    /// The bytes one frame of the file's log takes: a page and its header.
+    #[cfg_attr(browser_cache, expect(dead_code, reason = "native only"))]
+    frame_bytes: u64,
 }
 
 impl core::fmt::Debug for Database {
@@ -170,11 +173,13 @@ impl Database {
         let location = location()?;
         let database = database()?;
         let connection = connect(&database).map_err(error)?;
+        let frame_bytes = frame_bytes(&connection).map_err(error)?;
 
         Ok(Self {
             connection: Mutex::new(connection),
             location,
             access: Access::ReadWrite,
+            frame_bytes,
         })
     }
 
@@ -224,11 +229,13 @@ impl Database {
             (location, Arc::new(database))
         };
         let connection = connect(&database).map_err(error)?;
+        let frame_bytes = frame_bytes(&connection).map_err(error)?;
 
         Ok(Self {
             connection: Mutex::new(connection),
             location,
             access,
+            frame_bytes,
         })
     }
 
@@ -247,13 +254,44 @@ impl Database {
         namespace: &str,
         operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
     ) -> Result<T, String> {
-        operation(&mut self.connection.lock()).map_err(|err| {
-            log::warn!(
-                "Unable to {name} {}: {err}",
-                describe(&self.location, namespace)
-            );
-            err.to_string()
-        })
+        operation(&mut self.connection.lock()).map_err(|err| self.failed(name, namespace, err))
+    }
+
+    /// [`run`](Self::run) for a write: the log is first given room for it
+    /// ([`make_log_room`]), and a log that can't be given room refuses it.
+    fn write<T>(
+        &self,
+        name: &str,
+        namespace: &str,
+        operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
+    ) -> Result<T, String> {
+        let mut connection = self.connection.lock();
+        self.make_log_room(&connection)
+            .map_err(|reason| self.failed(name, namespace, reason))?;
+        operation(&mut connection).map_err(|err| self.failed(name, namespace, err))
+    }
+
+    /// `reason` logged as the failure to `name` `namespace`, and reported.
+    fn failed(&self, name: &str, namespace: &str, reason: impl ToString) -> String {
+        let reason = reason.to_string();
+        log::warn!(
+            "Unable to {name} {}: {reason}",
+            describe(&self.location, namespace)
+        );
+        reason
+    }
+
+    /// [`make_log_room`] for this database's log.
+    fn make_log_room(&self, connection: &turso::Connection) -> Result<(), String> {
+        #[cfg(native_cache)]
+        {
+            make_log_room(connection, &self.location, self.frame_bytes)
+        }
+        #[cfg(not(native_cache))]
+        {
+            let _ = connection;
+            Ok(())
+        }
     }
 
     /// The value stored under `key` in `namespace`.
@@ -272,7 +310,7 @@ impl Database {
     /// Stores `value` under `key`. See [`Storage`] for the rules; in short, a
     /// local value replaces an imported one and nothing else overwrites.
     pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
-        self.run("write", namespace, |connection| {
+        self.write("write", namespace, |connection| {
             insert_on(connection, namespace, key, value, origin)
         })
         .unwrap_or_else(Insertion::Failed)
@@ -280,7 +318,7 @@ impl Database {
 
     /// Stores `value` under `key`, overwriting whatever is there.
     pub fn replace(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
-        self.run("replace", namespace, |connection| {
+        self.write("replace", namespace, |connection| {
             let params = (namespace, key.to_vec(), value.to_vec(), origin_code(origin));
             drive(connection.execute(REPLACE, params))?;
             Ok(Insertion::Stored)
@@ -298,13 +336,13 @@ impl Database {
         origin: Origin,
     ) -> InsertSummary {
         let mut connection = self.connection.lock();
-        let transaction = match drive(connection.transaction_with_behavior(write_transaction())) {
+        let began = self.make_log_room(&connection).and_then(|()| {
+            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)
+        });
+        let transaction = match began {
             Ok(transaction) => transaction,
             Err(err) => {
-                log::warn!(
-                    "Unable to batch write {}: {err}",
-                    describe(&self.location, namespace)
-                );
+                self.failed("batch write", namespace, err);
                 return InsertSummary {
                     failed: entries.count(),
                     ..InsertSummary::default()
@@ -348,8 +386,10 @@ impl Database {
     pub fn replace_with(&self, source: Option<&Database>) -> Result<(), String> {
         let mut connection = self.connection.lock();
         let source = source.map(|source| source.connection.lock());
-        copy_in_batches(&mut connection, source.as_deref())
-            .map_err(error)
+        let room = |connection: &turso::Connection| {
+            make_log_room(connection, &self.location, self.frame_bytes)
+        };
+        copy_in_batches(&mut connection, source.as_deref(), &room)
             .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))?;
         restart_log(&connection, &self.location);
         Ok(())
@@ -363,7 +403,7 @@ impl Database {
     /// Deletes every entry of `namespace`. Logs a failed delete rather than
     /// reporting it; see the [`Storage`] contract.
     pub fn purge(&self, namespace: &str) {
-        let _ = self.run("purge", namespace, |connection| {
+        let _ = self.write("purge", namespace, |connection| {
             drive(connection.execute(PURGE, (namespace,))).map(|_| ())
         });
     }
@@ -371,7 +411,7 @@ impl Database {
     /// Deletes the entry of `namespace` under `key`, with the same failure
     /// contract as [`purge`](Self::purge).
     pub fn purge_key(&self, namespace: &str, key: &[u8]) {
-        let _ = self.run("purge a key from", namespace, |connection| {
+        let _ = self.write("purge a key from", namespace, |connection| {
             drive(connection.execute(PURGE_KEY, (namespace, key.to_vec()))).map(|_| ())
         });
     }
@@ -379,7 +419,7 @@ impl Database {
     /// Deletes every entry of each namespace in `namespaces`, compared as bytes, with the same
     /// failure contract as [`purge`](Self::purge).
     pub fn purge_range(&self, namespaces: Range<&str>) {
-        let _ = self.run(
+        let _ = self.write(
             "purge the namespaces from",
             namespaces.start,
             |connection| {
@@ -447,6 +487,7 @@ impl Database {
             connection,
             location,
             access,
+            ..
         } = self;
         if access == Access::ReadOnly {
             return Err(format!("{location} was opened read-only"));
@@ -506,20 +547,25 @@ impl crate::bundle::Bundle for Database {
 const COPY_BATCH_BYTES: usize = 16 * 1024 * 1024;
 
 /// Empties the database behind `connection`, then copies every entry of
-/// `source` into it as [`Origin::Imported`], [`COPY_BATCH_BYTES`] at a time.
+/// `source` into it as [`Origin::Imported`], [`COPY_BATCH_BYTES`] at a time,
+/// `room` giving the log room before each write.
 #[cfg(native_cache)]
 fn copy_in_batches(
     connection: &mut turso::Connection,
     source: Option<&turso::Connection>,
-) -> Result<(), turso::Error> {
-    drive(connection.execute(CLEAR, ()))?;
+    room: &dyn Fn(&turso::Connection) -> Result<(), String>,
+) -> Result<(), String> {
+    room(connection)?;
+    drive(connection.execute(CLEAR, ())).map_err(error)?;
     let Some(source) = source else {
         return Ok(());
     };
-    let mut rows = drive(source.query(ENTRIES, ()))?;
-    let mut next = drive(rows.next())?;
+    let mut rows = drive(source.query(ENTRIES, ())).map_err(error)?;
+    let mut next = drive(rows.next()).map_err(error)?;
     while next.is_some() {
-        let transaction = drive(connection.transaction_with_behavior(write_transaction()))?;
+        room(connection)?;
+        let transaction =
+            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)?;
         let copied = (|| {
             let mut bytes = 0;
             while let Some(row) = next.take() {
@@ -537,10 +583,10 @@ fn copy_in_batches(
             Ok(())
         })();
         match copied {
-            Ok(()) => drive(transaction.commit())?,
+            Ok(()) => drive(transaction.commit()).map_err(error)?,
             Err(err) => {
                 let _ = drive(transaction.rollback());
-                return Err(err);
+                return Err(error(err));
             }
         }
     }
@@ -1100,6 +1146,92 @@ fn restart_log(connection: &turso::Connection, location: &str) {
         Ok(false) => log::debug!("cubecl cache: the log of {location} is in use; not restarted"),
         Err(err) => log::warn!("cubecl cache: unable to restart the log of {location}: {err}"),
     }
+}
+
+/// The frames a log may hold since it last restarted before a write restarts
+/// it first: a fifth of the 262,144 frames turso indexes between processes,
+/// so that a write bounded as a replacement's batches are
+/// ([`COPY_BATCH_BYTES`]) or an import's never brings the log near it.
+#[cfg(native_cache)]
+const LOG_RESTART_FRAMES: u64 = 50_000;
+
+/// How long a write waits for the reads that keep a long log from
+/// restarting before it is refused. A read is a lookup or a scan, which ends
+/// in milliseconds.
+#[cfg(native_cache)]
+const LOG_RESTART_WAIT: core::time::Duration = core::time::Duration::from_secs(5);
+
+/// Gives the log of the database behind `connection`, at `location`, room for
+/// a write: when it holds [`LOG_RESTART_FRAMES`] or more since it last
+/// restarted, restarts it ([`checkpoint`]), waiting up to
+/// [`LOG_RESTART_WAIT`] for the reads that hold it.
+///
+/// The frames are counted from the size of the log file, whose frames are
+/// `frame_bytes` each behind a 32-byte header, at no cost to a write: the file
+/// only shrinks when the log restarts, so it counts at least what the log
+/// holds.
+///
+/// # Errors
+///
+/// When the log can't be restarted in time, naming what holds it: writing on
+/// would carry it toward what turso can index, past which every read of the
+/// file fails.
+#[cfg(native_cache)]
+fn make_log_room(
+    connection: &turso::Connection,
+    location: &str,
+    frame_bytes: u64,
+) -> Result<(), String> {
+    let frames = log_frames(location, frame_bytes);
+    if frames < LOG_RESTART_FRAMES {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let held = loop {
+        let held = match checkpoint(connection) {
+            Ok(true) => return Ok(()),
+            Ok(false) | Err(turso::Error::Busy(_) | turso::Error::BusySnapshot(_)) => None,
+            Err(err) => Some(err.to_string()),
+        };
+        if started.elapsed() >= LOG_RESTART_WAIT {
+            break held;
+        }
+        std::thread::sleep(core::time::Duration::from_millis(50));
+    };
+    let cause = held.unwrap_or_else(|| {
+        "a read held open on it, by another connection of this process or by another process, \
+         keeps it from restarting"
+            .to_string()
+    });
+    Err(format!(
+        "the log of {location} holds {frames} frames since it last restarted, and it could not \
+         be restarted within {LOG_RESTART_WAIT:?}: {cause}. The write was refused, since \
+         writing on would carry the log toward the 262,144 frames the engine indexes between \
+         processes, past which every read of the file fails. It succeeds once that read ends; \
+         with no process using the file, moving its directory aside starts it afresh"
+    ))
+}
+
+/// The frames the log of the database at `location` holds since it last
+/// restarted, or more, counted from the size of its file.
+#[cfg(native_cache)]
+fn log_frames(location: &str, frame_bytes: u64) -> u64 {
+    let bytes = std::fs::metadata(format!("{location}-wal")).map_or(0, |metadata| metadata.len());
+    bytes.saturating_sub(32) / frame_bytes
+}
+
+/// The bytes one frame of the log takes: a page of the database behind
+/// `connection` and the frame's 24-byte header.
+fn frame_bytes(connection: &turso::Connection) -> Result<u64, turso::Error> {
+    // The closure's error type is the SDK's, as in `checkpoint`: a row that
+    // doesn't decode leaves the default page size.
+    let mut page_size = 4096;
+    drive(connection.pragma_query("page_size", |row| {
+        page_size = row.get::<i64>(0).unwrap_or(page_size);
+        Ok(())
+    }))?;
+    Ok(page_size as u64 + 24)
 }
 
 /// The two header bytes that say which journal mode wrote the file, and the
@@ -1684,5 +1816,51 @@ mod tests {
             "the log held {most} frames at once"
         );
         assert_eq!(target.summary()[0].entries, 256 * 16);
+    }
+
+    /// A long log that a read held open keeps from restarting refuses a
+    /// write, saying what holds it, rather than growing on toward what turso
+    /// indexes; once the read ends, the write restarts the log and lands.
+    ///
+    /// The read is begun on frames not yet folded into the file: a write of
+    /// 1 MiB, short of the 1,000 frames after which turso folds a commit in.
+    /// A read begun once every frame is folded in reads the file, and holds
+    /// nothing.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_held_read_keeps_a_long_log_from_growing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("building.db");
+        let writer = Database::open_at(&path, Access::ReadWrite).unwrap();
+        fill(&writer, "kernels", 1);
+
+        let reader = Database::open_at(&path, Access::ReadWrite).unwrap();
+        reader.with_connection(|connection| {
+            drive(connection.execute("BEGIN", ())).unwrap();
+            let mut rows = drive(connection.query("SELECT count(*) FROM entries", ())).unwrap();
+            drive(rows.next()).unwrap();
+        });
+        // 128 MiB more: about 65,000 frames, more than a write may start on.
+        fill(&writer, "programs", 128);
+        assert!(log_frames(&path) >= LOG_RESTART_FRAMES);
+
+        let started = std::time::Instant::now();
+        let refused = writer.insert("kernels", b"late", b"1", Origin::Local);
+        let waited = started.elapsed();
+        match refused {
+            Insertion::Failed(reason) => {
+                assert!(reason.contains("a read held open on it"), "{reason}");
+                assert!(reason.contains("building.db"), "{reason}");
+            }
+            other => panic!("the write landed while the read held the log: {other:?}"),
+        }
+        assert!(waited >= LOG_RESTART_WAIT, "refused after {waited:?}");
+
+        reader.with_connection(|connection| drive(connection.execute("COMMIT", ())).unwrap());
+        assert_eq!(
+            writer.insert("kernels", b"late", b"1", Origin::Local),
+            Insertion::Stored
+        );
+        assert!(log_frames(&path) < 1_000, "{} frames", log_frames(&path));
     }
 }
