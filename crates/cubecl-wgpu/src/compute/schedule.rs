@@ -5,6 +5,7 @@ use crate::{
     timings::{TimestampQuerySetBudget, TimestampSampling},
 };
 use alloc::sync::Arc;
+use core::sync::atomic::AtomicUsize;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
 use cubecl_core::server::{BufferBinding, DeviceCaptures, ServerError};
 use cubecl_core::{CubeCount, MemoryConfiguration, server::MetadataBindingInfo, zspace::SmallVec};
@@ -98,6 +99,8 @@ pub struct WgpuStreamFactory {
     captures: DeviceCaptures,
     /// Whether the device is poisoned, shared by every stream the factory creates.
     poison: PoisonWatch,
+    /// The queue's writes waiting on a submit, shared by every stream the factory creates.
+    pending_write_count: Arc<AtomicUsize>,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -120,6 +123,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.use_vulkan_compiler,
             &self.captures,
             self.poison.clone(),
+            self.pending_write_count.clone(),
         ))
     }
 }
@@ -162,6 +166,7 @@ impl ScheduledWgpuBackend {
                 use_vulkan_compiler,
                 captures,
                 poison,
+                pending_write_count: Arc::new(AtomicUsize::new(0)),
             },
         }
     }

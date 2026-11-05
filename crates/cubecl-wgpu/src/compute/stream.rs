@@ -12,6 +12,7 @@ use crate::{
     schedule::{Addresses, ScheduleTask},
 };
 use core::iter;
+use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(renderdoc)]
 use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
@@ -98,7 +99,9 @@ pub struct WgpuStream {
     /// Number of consecutive `write_buffer` calls without a `queue.submit()`.
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
-    pending_write_count: usize,
+    ///
+    /// Shared by every stream on the device, as they share the queue these writes wait on.
+    pending_write_count: Arc<AtomicUsize>,
     /// Cross-stream input bindings for tasks recorded but not yet submitted.
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
@@ -188,6 +191,7 @@ impl WgpuStream {
         use_vulkan_compiler: bool,
         captures: &DeviceCaptures,
         poison: PoisonWatch,
+        pending_write_count: Arc<AtomicUsize>,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
@@ -234,7 +238,7 @@ impl WgpuStream {
             tasks_max,
             poll,
             submission_load: SubmissionLoad::default(),
-            pending_write_count: 0,
+            pending_write_count,
             shared_bindings: SharedMemoryBindings::default(),
             // Tighter entry cap than the default policy: the uniforms pool is
             // bucketed exclusive pages with a 32 KiB minimum, so every cached
@@ -751,6 +755,11 @@ impl WgpuStream {
             return false;
         }
 
+        // A queued write lands at the next submit, so it would overwrite a copy made now.
+        if self.pending_write_count.load(Ordering::Relaxed) > 0 {
+            return false;
+        }
+
         // A pooled range may have belonged to a tensor whose kernels are still running, so
         // the copy needs an idle queue. Never drain one to get it: the stall costs a
         // pipelined loop the CPU/GPU overlap it lives on, and it buys nothing on a bulk
@@ -815,7 +824,7 @@ impl WgpuStream {
             buffer.slice(0..data.len()).copy_from_slice(data);
         }
 
-        self.pending_write_count += 1;
+        let pending_write_count = self.pending_write_count.fetch_add(1, Ordering::Relaxed) + 1;
 
         // Prevent wgpu staging buffer pool exhaustion during bulk writes (e.g. model
         // loading with hundreds of tensors). queue.write_buffer() is async — wgpu
@@ -826,7 +835,7 @@ impl WgpuStream {
         // See: https://github.com/tracel-ai/cubecl/issues/1120
         const MAX_PENDING_WRITES: usize = 64;
 
-        if self.pending_write_count >= MAX_PENDING_WRITES {
+        if pending_write_count >= MAX_PENDING_WRITES {
             // Submit a fresh, empty command buffer to flush all pending write_buffer work.
             // wgpu flushes its internal staging-buffer copies on any queue.submit(),
             // so we don't need to touch the main compute encoder here.
@@ -847,7 +856,7 @@ impl WgpuStream {
                 log::warn!("wgpu: write flush poll failed ({e})");
             }
 
-            self.pending_write_count = 0;
+            self.pending_write_count.store(0, Ordering::Relaxed);
         }
     }
 
@@ -933,7 +942,7 @@ impl WgpuStream {
         });
 
         self.tasks_count = 0;
-        self.pending_write_count = 0;
+        self.pending_write_count.store(0, Ordering::Relaxed);
     }
 
     /// Drain the driver's validation canary into the log.
