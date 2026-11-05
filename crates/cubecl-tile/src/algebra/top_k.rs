@@ -78,22 +78,70 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
                 index,
                 monoid,
             );
+            let lanes = N::value();
             if any_lane::<N>(enters) {
-                let mut value = value;
-                let mut index = index;
-                #[unroll(unrolled)]
-                for j in 0..k {
-                    let kept_value = self.values[j];
-                    let kept_index = self.indices[j];
-                    let takes =
-                        takes_the_slot::<E, N>(kept_value, kept_index, value, index, monoid);
-                    self.values[j] = select_many(takes, value, kept_value);
-                    self.indices[j] = select_many(takes, index, kept_index);
-                    value = select_many(takes, kept_value, value);
-                    index = select_many(takes, kept_index, index);
+                if comptime!(unrolled || lanes > 1) {
+                    self.walk(value, index, monoid, unrolled);
+                } else {
+                    self.shift_in(value, index, monoid);
                 }
             }
         }
+    }
+
+    /// `value`, read at `index` and no NaN, walked down this list: each slot keeps the better
+    /// of what it holds and what comes down, and passes the other on.
+    fn walk(
+        &mut self,
+        value: Vector<E, N>,
+        index: Vector<u32, N>,
+        #[comptime] monoid: Monoid,
+        #[comptime] unrolled: bool,
+    ) {
+        let k = K::value();
+        let mut value = value;
+        let mut index = index;
+        #[unroll(unrolled)]
+        for j in 0..k {
+            let kept_value = self.values[j];
+            let kept_index = self.indices[j];
+            let takes = takes_the_slot::<E, N>(kept_value, kept_index, value, index, monoid);
+            self.values[j] = select_many(takes, value, kept_value);
+            self.indices[j] = select_many(takes, index, kept_index);
+            value = select_many(takes, kept_value, value);
+            index = select_many(takes, kept_index, index);
+        }
+    }
+
+    /// `value`, read at `index` and no NaN, entering this one-lane list past its last slot: the
+    /// slots it beats move down one, from the end up, and it takes the last of them. A value
+    /// that enters a long list lands near its end, so this touches a few slots where a walk
+    /// touches every one, and a list too long to unroll lives in memory, where each touch costs.
+    fn shift_in(&mut self, value: Vector<E, N>, index: Vector<u32, N>, #[comptime] monoid: Monoid) {
+        let k = K::value();
+        let mut slot = comptime!(k - 1).runtime();
+        loop {
+            if slot == 0 {
+                break;
+            }
+            let above = slot - 1;
+            let takes = takes_the_slot::<E, N>(
+                self.values[above],
+                self.indices[above],
+                value,
+                index,
+                monoid,
+            );
+            if any_lane::<N>(takes) {
+                self.values[slot] = self.values[above];
+                self.indices[slot] = self.indices[above];
+                slot = above;
+            } else {
+                break;
+            }
+        }
+        self.values[slot] = value;
+        self.indices[slot] = index;
     }
 
     /// `value`, read at `index`, kept in this list if it is among the `K` best, every step
