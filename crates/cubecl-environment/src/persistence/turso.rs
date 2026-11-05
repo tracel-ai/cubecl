@@ -867,6 +867,7 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
         return open_writable(location, false).await;
     }
 
+    recover_long_log(location).await;
     match open_writable(location, true).await {
         // Writable for this process alone is still a cache that outlives the
         // run. Passed up, the refusal lands in the read-only fallback instead:
@@ -878,6 +879,123 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
         }
         opened => opened,
     }
+}
+
+/// What [`recover_long_log`] found and did.
+#[cfg(native_cache)]
+#[derive(Debug, PartialEq, Eq)]
+enum LogRecovery {
+    /// The log is short, or there is none.
+    NotNeeded,
+    /// Another process has the file open, and its log is that process's to
+    /// restart.
+    HeldElsewhere,
+    /// The log was folded into the file and restarted.
+    Restarted,
+    /// The log could not be folded in: the file and its log were moved
+    /// aside, so the database opens empty, and is filled again from the
+    /// saved environment.
+    SetAside,
+}
+
+/// Recovers a long log left by a process that is gone: one past
+/// [`LOG_RESTART_FRAMES`], which a writer that died before restarting it
+/// leaves, or one past the 262,144 frames turso indexes between processes,
+/// on which every read fails as `database is locked` until the log restarts.
+///
+/// The file is opened for this process alone, which turso refuses while
+/// another process has it open, and which needs no index between processes:
+/// the log is then folded in and truncated, and the index file beside it
+/// (`-tshm`) removed, so the next open builds it again from an empty log.
+/// A log that can't be folded in has the file set aside instead.
+#[cfg(native_cache)]
+async fn recover_long_log(location: &str) -> LogRecovery {
+    let Some(page_size) = page_size_on_disk(location) else {
+        return LogRecovery::NotNeeded;
+    };
+    let frames = log_frames(location, page_size + 24);
+    if frames < LOG_RESTART_FRAMES {
+        return LogRecovery::NotNeeded;
+    }
+
+    let restarted = match open_writable(location, false).await {
+        Ok(database) => connect(&database).and_then(|connection| checkpoint(&connection)),
+        Err(err) if held_by_another_process(&err) => {
+            log::debug!(
+                "cubecl cache: the log of {location} holds {frames} frames, and another process \
+                 has the file open ({err}); leaving the log to it"
+            );
+            return LogRecovery::HeldElsewhere;
+        }
+        Err(err) => Err(err),
+    };
+    match restarted {
+        Ok(true) => {
+            // The process-local open just dropped never used the index; with
+            // the log empty, nothing in the index is still needed.
+            let _ = std::fs::remove_file(format!("{location}-tshm"));
+            log::info!(
+                "cubecl cache: restarted the log of {location}, which a process that is gone \
+                 left holding {frames} frames"
+            );
+            LogRecovery::Restarted
+        }
+        outcome => {
+            let reason = match outcome {
+                Err(err) => err.to_string(),
+                _ => "the checkpoint did not complete".to_string(),
+            };
+            set_aside(location, frames, &reason);
+            LogRecovery::SetAside
+        }
+    }
+}
+
+/// Whether `err` is the engine refusing to open a file for this process alone
+/// because another process has it open.
+///
+/// The engine reports it as a locking error, which reaches the SDK as a plain
+/// [`turso::Error::Error`] like most of its errors: the wording is what sets
+/// it apart, as for [`multiprocess_wal_unsupported`].
+#[cfg(native_cache)]
+fn held_by_another_process(err: &turso::Error) -> bool {
+    matches!(err, turso::Error::Error(message)
+        if message.contains("in another process") || message.contains("locked by another process"))
+}
+
+/// Moves the database at `location` and the files beside it to
+/// `<location>.stale-<seconds>`, saying so.
+#[cfg(native_cache)]
+fn set_aside(location: &str, frames: u64, reason: &str) {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let aside = format!("{location}.stale-{stamp}");
+    for suffix in ["", "-wal", "-tshm"] {
+        let _ = std::fs::rename(format!("{location}{suffix}"), format!("{aside}{suffix}"));
+    }
+    log::warn!(
+        "cubecl cache: the log of {location} held {frames} frames and could not be folded into \
+         the file ({reason}); moved it to {aside}, and starting the database afresh"
+    );
+}
+
+/// The page size the database file at `location` declares in its header, or
+/// `None` when there is no such file yet.
+#[cfg(native_cache)]
+fn page_size_on_disk(location: &str) -> Option<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut header = [0u8; 2];
+    let mut file = std::fs::File::open(location).ok()?;
+    file.seek(SeekFrom::Start(16)).ok()?;
+    file.read_exact(&mut header).ok()?;
+    // Stored big-endian, 1 standing for 65,536, which does not fit.
+    Some(match u16::from_be_bytes(header) {
+        1 => 65_536,
+        0 => 4096,
+        size => size as u64,
+    })
 }
 
 /// Opens `location` writable, its WAL shared between processes when
@@ -1727,13 +1845,10 @@ mod tests {
         );
     }
 
-    /// The frames the log of the database at `path` holds since it last
-    /// restarted, or more: the log file is never shorter than what it holds.
+    /// [`log_frames`](super::log_frames) of the database at `path`, at the
+    /// default page size every test database has.
     pub(super) fn log_frames(path: &std::path::Path) -> u64 {
-        let mut wal = std::ffi::OsString::from(path);
-        wal.push("-wal");
-        let bytes = std::fs::metadata(&wal).map_or(0, |metadata| metadata.len());
-        bytes.saturating_sub(32) / (4096 + 24)
+        super::log_frames(path.to_str().unwrap(), 4096 + 24)
     }
 
     /// `database` filled with `megabytes` of 64 KiB values in `namespace`.
@@ -1860,6 +1975,103 @@ mod tests {
         assert_eq!(
             writer.insert("kernels", b"late", b"1", Origin::Local),
             Insertion::Stored
+        );
+        assert!(log_frames(&path) < 1_000, "{} frames", log_frames(&path));
+    }
+
+    /// Where [`grow_a_log_until_killed`] writes, when a test runs it as a
+    /// child process.
+    const GROW_LOG_AT: &str = "CUBECL_TEST_GROW_LOG_AT";
+
+    /// The child process of
+    /// [`a_log_a_killed_writer_left_past_the_index_reopens`]: holds a read on
+    /// frames not folded in yet, so the log can neither restart nor be folded
+    /// in, and commits 32 MiB at a time until it is killed, printing the
+    /// frames the log holds after each commit. Does nothing unless the test
+    /// runs it.
+    #[test]
+    #[ignore = "a child process of a_log_a_killed_writer_left_past_the_index_reopens"]
+    fn grow_a_log_until_killed() {
+        let Some(location) = std::env::var_os(GROW_LOG_AT) else {
+            return;
+        };
+        let location = location.into_string().unwrap();
+        let database = block_on(open_writable(&location, true)).unwrap();
+        migrate(&database).unwrap();
+        let mut writer = connect(&database).unwrap();
+        let reader = connect(&database).unwrap();
+        let value = vec![7u8; 64 * 1024];
+        drive(writer.execute(INSERT, ("seen", vec![0u8], value.clone(), 0))).unwrap();
+        drive(reader.execute("BEGIN", ())).unwrap();
+        let mut rows = drive(reader.query("SELECT count(*) FROM entries", ())).unwrap();
+        drive(rows.next()).unwrap();
+
+        let page = frame_bytes(&writer).unwrap();
+        // Once the log is past the index every statement fails as busy: the
+        // writer keeps trying, so that only the kill ends it.
+        for batch in 0u32.. {
+            let committed = (|| {
+                let transaction = drive(writer.transaction_with_behavior(write_transaction()))?;
+                for index in 0..512u32 {
+                    let key = [batch.to_le_bytes(), index.to_le_bytes()].concat();
+                    drive(transaction.execute(INSERT, ("kernels", key, value.clone(), 0)))?;
+                }
+                drive(transaction.commit())
+            })();
+            std::println!(
+                "frames {} {committed:?}",
+                super::log_frames(&location, page)
+            );
+        }
+    }
+
+    /// A writer killed with its log past the 262,144 frames turso indexes
+    /// between processes, which a long read kept from restarting, leaves a
+    /// file every read of which fails as `database is locked`: the next open
+    /// folds the log in and reads within seconds.
+    #[test_log::test]
+    #[ignore = "writes past the frame index turso holds, about 2 GB over minutes"]
+    #[cfg(unix)]
+    fn a_log_a_killed_writer_left_past_the_index_reopens() {
+        use std::io::BufRead;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("building.db");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "persistence::turso::tests::grow_a_log_until_killed",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(GROW_LOG_AT, &path)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        for line in lines {
+            let line = line.unwrap();
+            let frames: Option<u64> = line
+                .strip_prefix("frames ")
+                .and_then(|rest| rest.split(' ').next()?.parse().ok());
+            // Past the index, a write fails, so the log stops just beyond it.
+            if frames.is_some_and(|frames| frames > 262_144) {
+                break;
+            }
+        }
+        // SIGKILL: no unwinding, no close, no checkpoint.
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(log_frames(&path) > 262_144, "{} frames", log_frames(&path));
+
+        let started = std::time::Instant::now();
+        let database = Database::open_at(&path, Access::ReadWrite).unwrap();
+        assert!(database.get("seen", &[0u8]).is_some(), "the file reads");
+        assert!(
+            started.elapsed() < core::time::Duration::from_secs(120),
+            "read after {:?}",
+            started.elapsed()
         );
         assert!(log_frames(&path) < 1_000, "{} frames", log_frames(&path));
     }
