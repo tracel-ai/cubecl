@@ -184,12 +184,27 @@ such as model weights.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
 
+**Tracing** (`tracing`): what each allocation remembers of the code that asked for it. With
+anything but `disabled`, every pool in a memory report (`Client::memory_report`) lists the
+allocations alive in it (`MemoryPoolReport::allocations`): each one's id, size, padding and
+origin. An origin lives exactly as long as its allocation, so a freed one is never listed.
+
+- `disabled` (default): nothing is remembered and the reports list no allocations.
+- `labels`: the labels the allocating thread had entered, its name, and the allocation's place in
+  the order allocations were made. Code labels what it allocates with
+  `cubecl_common::allocation_label::AllocationLabel::enter("weights")`; the guard pops the label
+  when it drops, and labels nest.
+- `backtraces`: the labels and the call stack, captured unresolved and resolved only when a
+  report lists the allocation. Capturing costs microseconds per allocation, so it is for a
+  diagnosis. Build with line tables (`debug = "line-tables-only"`) for file and line numbers.
+
 **Example:**
 
 ```toml
 [memory]
 logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
+tracing = "labels"
 ```
 
 The memory pools have no entry in the config file.
@@ -238,6 +253,7 @@ CubeCL supports several environment variables to override configuration at runti
   - `"off"`/`"0"`
   - `"basic"`/`"1"`
   - `"full"`/`"2"`: also each compiled kernel's IR and source.
+- `CUBECL_MEMORY_TRACING`: Sets `memory.tracing` (`disabled`, `labels` or `backtraces`).
 
 **Example (Linux/macOS):**
 
