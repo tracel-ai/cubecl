@@ -93,7 +93,7 @@ impl Descent {
         #[comptime] instruction: Instruction,
     ) {
         let out = comptime!(acc.place.space.clone());
-        let lhs = lhs.landed_for::<Lhs>(comptime!(Side::Lhs), comptime!(out.clone()), instruction);
+        let lhs = lhs.landed_for::<Lhs>(comptime!(Side::Lhs), out.clone(), instruction);
         let rhs = rhs.landed_for::<Rhs>(comptime!(Side::Rhs), out, instruction);
         let operands = comptime!(Space::merge(&[
             &acc.place.space,

@@ -79,8 +79,7 @@ where
                 #[unroll]
                 for bit in 0..comptime!(usize::BITS - unit_bits.leading_zeros()) {
                     if comptime!(unit_bits & (1 << bit) != 0) {
-                        total = monoid
-                            .combine::<T>(total, plane_shuffle_xor(total, comptime!(1u32 << bit)));
+                        total = monoid.combine::<T>(total, plane_shuffle_xor(total, 1u32 << bit));
                     }
                 }
                 total

@@ -32,7 +32,7 @@ impl Tile {
         let space = comptime!(self.place.space.clone());
         let sharing = comptime!(cube.path.planes_along(|axis| !space.contains(axis)));
         let writers = comptime!(sharing.iter().map(|&(_, count)| count).product::<usize>());
-        let merged = if comptime!(writers == 1) {
+        let merged = if writers == 1 {
             ComptimeOption::new_None()
         } else {
             ComptimeOption::new_Some(self.smem_cyclic_accumulation::<A>(writers))

@@ -136,7 +136,7 @@ impl<E: Float> OnlineSoftmax<E> {
                 .product::<usize>()
         );
         let mut factor = Array::<E>::new(self.slices);
-        if comptime!(planes == 1) {
+        if planes == 1 {
             factor = self.recip_l();
         } else {
             let correction = self.merge_planes(plane.coord(axis), planes);

@@ -31,7 +31,7 @@ impl Tile {
         let define!(Lhs) = lhs.read_element();
         let define!(Rhs) = rhs.read_element();
         let space = comptime!(self.place.space.clone());
-        let cells = comptime!(space.cells());
+        let cells = space.cells();
         let size!(V) = width;
         let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, space);
         self.set_cells(&values, cells);

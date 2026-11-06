@@ -30,17 +30,17 @@ impl Tile {
         let b_reader = b.nd_split::<B, F>();
 
         let a_step_at = comptime!(a.place.space.position(split.axis));
-        let extents = Coords::constant(comptime!(split.groups.clone()));
-        let total = comptime!(split.groups.iter().product::<usize>());
+        let extents = Coords::constant(split.groups.clone());
+        let total = split.groups.iter().product::<usize>();
 
         let mut dst = self.nd_mut::<D, W>();
         let workers = CUBE_DIM as usize;
         let mut i = UNIT_POS as usize;
         while i < total {
-            let group = group_line(&extents.unravel(i.cast::<u32>()), comptime!(split.clone()));
+            let group = group_line(&extents.unravel(i.cast::<u32>()), split.clone());
             let (a_base, b_base) = bases(
                 &group,
-                comptime!(space.clone()),
+                space.clone(),
                 comptime!(a.place.space.clone()),
                 comptime!(b.place.space.clone()),
                 width,
@@ -53,20 +53,18 @@ impl Tile {
                 .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
             // `a`'s address moves with the step: its map is evaluated once here, each step an addition.
             let moving = comptime!(vec![split.axis]);
-            let a_anchor = a_reader
-                .map
-                .anchor(a_base.clone(), comptime!(moving.clone()));
+            let a_anchor = a_reader.map.anchor(a_base.clone(), moving.clone());
 
             #[unroll]
-            for f in 0..comptime!(split.per_read) {
+            for f in 0..split.per_read {
                 let value = a_reader.view.read(a_reader.map.advance(
                     &a_anchor,
                     stepped(&a_base, comptime!(a_step_at), f),
-                    comptime!(moving.clone()),
+                    moving.clone(),
                 ));
                 let left = Vector::<D, W>::cast_from(value);
                 let right = Vector::<D, W>::cast_from(scales.extract(f));
-                dst.write(stepped(&group, comptime!(split.at), f), left * right);
+                dst.write(stepped(&group, split.at, f), left * right);
             }
             i += workers;
         }
@@ -118,8 +116,8 @@ impl GroupWalk {
 fn group_line(at: &Coords<u32>, #[comptime] split: GroupWalk) -> CoordsDyn {
     let mut out = CoordsDyn::new();
     #[unroll]
-    for p in 0..comptime!(split.groups.len()) {
-        let coord = match comptime!(p == split.at) {
+    for p in 0..split.groups.len() {
+        let coord = match p == split.at {
             true => at.at(p).times(comptime!(split.per_read as u32)),
             false => at.at(p),
         };
@@ -140,7 +138,7 @@ fn bases(
 ) -> (CoordsDyn, CoordsDyn) {
     let mut cells = Coords::<u32>::new();
     #[unroll]
-    for p in 0..comptime!(dst.rank()) {
+    for p in 0..dst.rank() {
         cells.push(group[p].times(comptime!(match p == dst.rank() - 1 {
             true => width as u32,
             false => 1u32,
@@ -176,7 +174,7 @@ fn stepped(base: &CoordsDyn, #[comptime] at: usize, #[comptime] f: usize) -> Coo
     let mut out = CoordsDyn::new();
     #[unroll]
     for p in 0..comptime!(base.len()) {
-        let coord = match comptime!(p == at) {
+        let coord = match p == at {
             true => base[p] + comptime!(f as u32),
             false => base[p],
         };

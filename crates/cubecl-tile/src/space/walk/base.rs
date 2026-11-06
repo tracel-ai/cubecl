@@ -53,7 +53,7 @@ impl Walk {
     #[allow(clippy::needless_range_loop)]
     pub(crate) fn of(space: &Space, #[comptime] level: Level, parent: Region) -> Walk {
         let host = comptime!(space.clone());
-        let rank = comptime!(host.rank());
+        let rank = host.rank();
         // A swizzled cube level decodes its two in-plane axes jointly from the flat dispatch index.
         let in_plane = comptime!(
             level
@@ -77,7 +77,7 @@ impl Walk {
         }
 
         // A level distributed over a scope reaches the IR as one `tile.level` op.
-        let (counts, positions, scales) = match comptime!(level.coverage().scope()) {
+        let (counts, positions, scales) = match level.coverage().scope() {
             Some(_) => intrinsic!(|scope| LevelOp::trace(scope, |scope| {
                 Walk::__expand_tiles_of(
                     scope,
@@ -87,12 +87,7 @@ impl Walk {
                     &grid,
                 )
             })),
-            None => Walk::tiles_of(
-                comptime!(host.clone()),
-                comptime!(level.clone()),
-                comptime!(distributes.clone()),
-                &grid,
-            ),
+            None => Walk::tiles_of(host.clone(), level.clone(), distributes.clone(), &grid),
         };
 
         // Computed whole, not accumulated, so a static walk can unroll.
@@ -123,7 +118,7 @@ impl Walk {
         #[comptime] distributes: Vec<AxisDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        match comptime!(level.spans_launch()) {
+        match level.spans_launch() {
             true => Walk::spanning_launch(host, level, grid),
             false => Walk::dealt(host, level, distributes, grid),
         }
@@ -137,10 +132,10 @@ impl Walk {
         #[comptime] level: Level,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        let (positions, counts) = launch_tiles(comptime!(host.clone()), level, grid);
+        let (positions, counts) = launch_tiles(host.clone(), level, grid);
         let mut scales = Coords::<usize>::new();
         #[unroll]
-        for _ in 0..comptime!(host.rank()) {
+        for _ in 0..host.rank() {
             scales.push(1usize);
         }
         (counts, positions, scales)
@@ -155,7 +150,7 @@ impl Walk {
         #[comptime] distributes: Vec<AxisDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        let rank = comptime!(host.rank());
+        let rank = host.rank();
         // Computed whole, so a constant grid's decode stays constant too.
         let mut instances = Coords::<usize>::new();
         #[unroll]
@@ -172,11 +167,7 @@ impl Walk {
                 AxisDistribution::Walked => instances.push(1usize),
             }
         }
-        let swizzled = swizzled_positions(
-            comptime!(host.clone()),
-            comptime!(level.clone()),
-            &instances,
-        );
+        let swizzled = swizzled_positions(host.clone(), level.clone(), &instances);
 
         let mut counts = Coords::<usize>::new();
         let mut positions = Coords::<usize>::new();
@@ -250,7 +241,7 @@ impl Walk {
         #[unroll]
         for p in 0..rank {
             // Clamped: a data-derived coordinate may be out of range, and a panic here goes unseen.
-            if comptime!(p == at) {
+            if p == at {
                 // The axis's own tiles, not `counts`, which is this instance's share.
                 let last = comptime!(self.level.tiles(&self.space, axis) - 1).runtime();
                 counts.push(1usize);

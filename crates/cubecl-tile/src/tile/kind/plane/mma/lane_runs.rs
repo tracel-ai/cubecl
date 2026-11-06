@@ -379,13 +379,13 @@ impl LaneRun {
     /// the accumulator, which lies past the product's rows too ([`LaneRun::rows`]).
     fn window_row(#[comptime] run: LaneRun, #[comptime] held_row: usize) -> u32 {
         let row = UNIT_POS_PLANE / comptime!(run.map.units_per_row as u32);
-        let row = if comptime!(run.map.duplicated()) {
+        let row = if run.map.duplicated() {
             row % comptime!(run.map.rows_spanned as u32)
         } else {
             row
         };
         let at = row + comptime!((held_row * run.map.rows_spanned) as u32);
-        if comptime!(run.short()) {
+        if run.short() {
             at.min(comptime!(run.rows as u32 - 1))
         } else {
             at
@@ -431,11 +431,11 @@ fn load_plain_run<T: Numeric, N: Size>(
         run.len,
     ));
     let size!(W) = width;
-    let view = src.fragment_matrix_packed::<T, W>(comptime!(run.rows), comptime!(run.k));
+    let view = src.fragment_matrix_packed::<T, W>(run.rows, run.k);
     let lines = comptime!(run.len / width);
     let first = LaneRun::first(run);
     #[unroll]
-    for held_row in 0..comptime!(run.rows_per_unit()) {
+    for held_row in 0..run.rows_per_unit() {
         let at = LaneRun::window_row(run, held_row);
         let mut cells = Array::<Vector<T, W>>::new(lines);
         #[unroll]
@@ -443,15 +443,15 @@ fn load_plain_run<T: Numeric, N: Size>(
             cells[l] = view.read((at, first / comptime!(width as u32) + comptime!(l as u32)));
         }
         #[unroll]
-        for p in 0..comptime!(run.len / run.cells_per_register) {
-            let cell = comptime!(p * run.cells_per_register);
+        for p in 0..(run.len / run.cells_per_register) {
+            let cell = p * run.cells_per_register;
             let mut vector = Vector::<T, N>::empty();
             #[unroll]
-            for e in 0..comptime!(run.cells_per_register) {
-                let c = comptime!(cell + e);
+            for e in 0..run.cells_per_register {
+                let c = cell + e;
                 vector.insert(e, cells[comptime!(c / width)].extract(comptime!(c % width)));
             }
-            fragment[comptime!(run.register(cell, held_row))] = vector;
+            fragment[run.register(cell, held_row)] = vector;
         }
     }
 }
@@ -517,21 +517,18 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     });
     let first = LaneRun::first(run);
     #[unroll]
-    for held_row in 0..comptime!(run.rows_per_unit()) {
+    for held_row in 0..run.rows_per_unit() {
         let at = LaneRun::window_row(run, held_row);
         let mut scales = Array::<T>::new(comptime!(run.len / SCALE_READ));
         #[unroll]
         for b in 0..comptime!(run.len / SCALE_READ) {
             let col = first + comptime!((b * SCALE_READ) as u32);
             let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
-            scales[b] = T::cast_from(factor.at_coords(
-                &coords,
-                comptime!(space.clone()),
-                comptime!(Guard::Checked),
-            ));
+            scales[b] =
+                T::cast_from(factor.at_coords(&coords, space.clone(), comptime!(Guard::Checked)));
         }
         #[unroll]
-        for l in 0..comptime!(run.len / values) {
+        for l in 0..(run.len / values) {
             let col = first + comptime!((l * values) as u32);
             let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
             let line = words.read(load.index(&coords, &space));
@@ -548,14 +545,11 @@ fn load_e2m1_run<T: Numeric, N: Size>(
                 for p in 0..comptime!(E2M1_PER_WORD / run.cells_per_register) {
                     let mut vector = Vector::<T, N>::empty();
                     #[unroll]
-                    for e in 0..comptime!(run.cells_per_register) {
-                        vector.insert(
-                            e,
-                            decoded.extract(comptime!(p * run.cells_per_register + e)),
-                        );
+                    for e in 0..run.cells_per_register {
+                        vector.insert(e, decoded.extract(p * run.cells_per_register + e));
                     }
-                    let cell = comptime!(word + p * run.cells_per_register);
-                    fragment[comptime!(run.register(cell, held_row))] = vector;
+                    let cell = word + p * run.cells_per_register;
+                    fragment[run.register(cell, held_row)] = vector;
                 }
             }
         }

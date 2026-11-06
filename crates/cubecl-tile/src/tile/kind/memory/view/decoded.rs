@@ -91,7 +91,7 @@ fn read_plain_line<O: Float, W: Size>(
     #[comptime] guard: Guard,
 ) -> Vector<O, W> {
     let space = comptime!(window.place.space.clone());
-    let lines = comptime!(space.extent_at(space.rank() - 1)) / W::value();
+    let lines = space.extent_at(space.rank() - 1) / W::value();
     let values = window.flat::<O, W>();
     match comptime!(guard) {
         Guard::Checked => values.read(row * lines + line),
@@ -111,8 +111,8 @@ fn read_packed_line<O: Float, W: Size>(
     #[comptime] guard: Guard,
 ) -> Vector<O, W> {
     let space = comptime!(window.place.space.clone());
-    let rank = comptime!(space.rank());
-    let along = comptime!(space.axis_at(rank - 1));
+    let rank = space.rank();
+    let along = space.axis_at(rank - 1);
     let packing = window.packing();
     let field = comptime!(match packing {
         Packing::Packed { field } => field,
@@ -160,14 +160,14 @@ fn read_packed_line<O: Float, W: Size>(
         let mut at = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            if comptime!(p == rank - 1) {
+            if p == rank - 1 {
                 at.push(first.at(p) + comptime!((w * per_word) as u32));
             } else {
                 at.push(first.at(p));
             }
         }
         let mut word = words.read(load.index(&at, &space)).extract(0usize);
-        if comptime!(fields < per_word) {
+        if fields < per_word {
             word >>= shift;
         }
         let word = Vector::<u32, Const<1>>::new(word);
@@ -186,9 +186,7 @@ fn read_packed_line<O: Float, W: Size>(
         }
     }
     if comptime!(scaled) {
-        let scale = window
-            .factor
-            .at_coords(&first, comptime!(space.clone()), guard);
+        let scale = window.factor.at_coords(&first, space.clone(), guard);
         values *= Vector::<f32, W>::cast_from(scale);
     }
     Vector::<O, W>::cast_from(values)

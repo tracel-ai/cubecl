@@ -37,10 +37,10 @@ impl Stages<OperandPair> {
         ));
         let depth = comptime!(self.depth);
         let total = walk.total();
-        let laps = (total + comptime!(depth - 1)) / comptime!(depth);
+        let laps = (total + (depth - 1)) / comptime!(depth);
         // Each slot's last issued reads. A ring of one holds none: it waits for them at once.
         let mut issued = Sequence::<Pending<()>>::new();
-        if comptime!(depth > 1) {
+        if depth > 1 {
             #[unroll]
             for _ in 0..depth {
                 // A slot assigned again holds a variable, not the value itself.
@@ -58,11 +58,11 @@ impl Stages<OperandPair> {
                     let held = self.slots.index_mut(slot);
                     held.meeting.acquire_read();
                     let reads = stage.issue(&region, &held.data.lhs, &held.data.rhs);
-                    if comptime!(depth == 1) {
+                    if depth == 1 {
                         reads.wait();
                         held.meeting.release_read();
                     } else {
-                        let previous = comptime!((slot + depth - 1) % depth);
+                        let previous = (slot + depth - 1) % depth;
                         issued.index(previous).wait();
                         // The first stage has no slot before it to free.
                         if index > 0 {
@@ -75,8 +75,8 @@ impl Stages<OperandPair> {
         }
         // The last stage has no stage after it to free it: free it once its reads complete, as
         // `consume` frees every stage, so the ring is whole again for another walk.
-        if comptime!(depth > 1) {
-            let last = (total + comptime!(depth - 1)) % comptime!(depth);
+        if depth > 1 {
+            let last = (total + (depth - 1)) % comptime!(depth);
             #[unroll]
             for slot in 0..depth {
                 if total > 0 && slot == last {

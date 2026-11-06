@@ -49,7 +49,7 @@ impl MemoryValues {
     pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Sequence<u32>) -> T {
         let mut at = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(axes.len()) {
+        for p in 0..axes.len() {
             at.push(*coordinates.index(p));
         }
         self.read_at::<T>(axes, &at)

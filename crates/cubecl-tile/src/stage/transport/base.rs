@@ -164,9 +164,9 @@ impl Memory {
         match comptime!(transport) {
             TransportKind::Packed => {
                 let size!(WP) = comptime!(self.store.packing.physical(self.store.vector_size));
-                self.fill_straight::<u32, WP>(src, comptime!(space.clone()));
+                self.fill_straight::<u32, WP>(src, space.clone());
             }
-            TransportKind::Straight => self.fill_straight::<T, W>(src, comptime!(space.clone())),
+            TransportKind::Straight => self.fill_straight::<T, W>(src, space.clone()),
             TransportKind::Scanned(scan) => self.fill_scanned::<T, W>(src, comptime!(scan)),
         }
     }

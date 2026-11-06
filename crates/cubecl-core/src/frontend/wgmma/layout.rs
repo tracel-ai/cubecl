@@ -230,11 +230,9 @@ fn byte_offset(
     #[comptime] layout: WgmmaTileLayout,
     #[comptime] elem_size: usize,
 ) -> usize {
-    let panel_bytes = comptime![layout.panel_bytes()];
+    let panel_bytes = layout.panel_bytes();
     let along = along * elem_size;
-    (along / panel_bytes) * comptime![layout.panel_stride()]
-        + line * panel_bytes
-        + along % panel_bytes
+    (along / panel_bytes) * layout.panel_stride() + line * panel_bytes + along % panel_bytes
 }
 
 /// [`WgmmaTileLayout::offset`] in a kernel: the element at `bytes` once the swizzle permuted its
