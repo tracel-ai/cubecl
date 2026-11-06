@@ -8,7 +8,12 @@ use ::pliron::{
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     AddressSpace,
-    dialect::{base::OperationPtrExt, memory::DeclareVariableOp},
+    attributes::{ATTR_BUFFER_BINDING, ATTR_TENSOR_MAP_BINDING, BufferBindingAttr, FuncInterface},
+    dialect::{
+        base::OperationPtrExt,
+        memory::DeclareVariableOp,
+        tma::{TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp},
+    },
     interfaces::{
         TypedExt,
         aliasing::AliasingOp,
@@ -18,7 +23,7 @@ use cubecl_ir::{
     types::PointerType,
 };
 use derive_new::new;
-use pliron::{pass::Analysis, value::Value};
+use pliron::{builtin::ops::FuncOp, pass::Analysis, value::Value};
 
 use crate::{BufferVisibility, MemoryResource};
 
@@ -159,7 +164,7 @@ impl Analysis for GlobalVisibility {
     where
         Self: Sized,
     {
-        let visibility = {
+        let mut visibility: HashMap<usize, BufferVisibility> = {
             let resources = analyses.get_analysis::<Resources>(op, ctx)?;
             let mem_resources = resources.memory_resources.iter();
             let globals = mem_resources.filter_map(|res| match res.address_space {
@@ -168,6 +173,7 @@ impl Analysis for GlobalVisibility {
             });
             globals.collect()
         };
+        tensor_map_visibility(ctx, op, &mut visibility);
 
         let ptr_source = analyses.get_analysis::<PointerSource>(op, ctx)?;
 
@@ -218,6 +224,51 @@ impl Analysis for GlobalVisibility {
         );
         Ok(Self::new(state.visibility))
     }
+}
+
+/// Read the visibility of every tensor map argument from its uses, into `visibility` under its
+/// binding.
+///
+/// A tensor map is an argument of its own type, not a pointer, so [`Resources`] does not see it,
+/// and without an entry here its binding would be stamped nothing and read as both read and
+/// written. The global memory behind it is only reached through the TMA ops that take it: a load
+/// reads it, a store writes it. Any other use, which this analysis cannot follow, may do either,
+/// so it counts as both, failing wide. A map left with no use is dead.
+///
+/// The difference matters past the compiler: a launch that fails before it runs leaves the
+/// buffers it would have written carrying the failure, and a tensor map read as written there
+/// takes a kernel's *input* down with it, failing every later kernel that reads that tensor.
+fn tensor_map_visibility(
+    ctx: &Context,
+    root: Ptr<Operation>,
+    visibility: &mut HashMap<usize, BufferVisibility>,
+) {
+    visit_all_ops_of_type::<FuncOp, _>(ctx, visibility, root, |ctx, visibility, func| {
+        let entry = func.get_entry_block(ctx);
+        let num_args = entry.deref(ctx).get_num_arguments();
+        for arg_idx in 0..num_args {
+            if !func.has_arg_attr(ctx, arg_idx, &ATTR_TENSOR_MAP_BINDING) {
+                continue;
+            }
+            let Some(binding) = func
+                .get_arg_attr::<BufferBindingAttr>(ctx, arg_idx, &ATTR_BUFFER_BINDING)
+                .map(|binding| binding.buffer_pos)
+            else {
+                continue;
+            };
+            let entry_visibility = visibility.entry(binding).or_default();
+            let arg = entry.deref(ctx).get_argument(arg_idx);
+            for tensor_map_use in arg.uses(ctx) {
+                let user = tensor_map_use.user_op().dyn_op(ctx);
+                let loads = user.downcast_ref::<TmaLoadOp>().is_some()
+                    || user.downcast_ref::<TmaLoadIm2colOp>().is_some();
+                let stores = user.downcast_ref::<TmaStoreOp>().is_some();
+                // A use that is neither counts as both.
+                entry_visibility.readable |= loads || !stores;
+                entry_visibility.writable |= stores || !loads;
+            }
+        }
+    });
 }
 
 /// What an effect through a value can touch. Because this analysis feeds
