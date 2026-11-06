@@ -54,6 +54,8 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     /// it beats the last kept slot on no lane: over a long row, almost every value. Its walk
     /// unrolls within [`TOP_K_UNROLL_BUDGET`]. A value with a NaN, rare, walks in the full order,
     /// and that walk stays a loop: unrolled beside the first, it would double the walks' code.
+    /// For a list in registers, the loop turns the list instead of picking a slot at run time
+    /// ([`walk_turning`](Self::walk_turning)).
     pub fn insert(
         &mut self,
         value: Vector<E, N>,
@@ -69,7 +71,11 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
             nan = any_lane::<N>(nan_lanes::<E, N>(value));
         }
         if nan {
-            self.walk_in_full_order(value, index, monoid, false);
+            if comptime!(unrolled) {
+                self.walk_turning(value, index, monoid);
+            } else {
+                self.walk_in_full_order(value, index, monoid, false);
+            }
         } else {
             let enters = takes_the_slot::<E, N>(
                 self.values[k - 1],
@@ -114,6 +120,40 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
             value = passed_value;
             let passed_index = select_many(takes, kept_index, index);
             self.indices[j] = select_many(takes, index, kept_index);
+            index = passed_index;
+        }
+    }
+
+    /// `value`, read at `index`, walked down this list in the full order as
+    /// [`walk_in_full_order`](Self::walk_in_full_order) does, but as a loop that touches fixed
+    /// slots only: each step meets the first slot, then the list turns up one slot, and after
+    /// `K` steps every slot is back in place. For a list in registers, which a slot picked at run
+    /// time would move to memory for the whole kernel: the walk of a rare NaN read.
+    fn walk_turning(
+        &mut self,
+        value: Vector<E, N>,
+        index: Vector<u32, N>,
+        #[comptime] monoid: Monoid,
+    ) {
+        let k = K::value();
+        let mut value = value;
+        let mut index = index;
+        for _step in 0..k {
+            let kept = Indexed::<E, N> {
+                value: self.values[0],
+                index: self.indices[0],
+            };
+            let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
+            let passed_value = select_many(keep, value, kept.value);
+            let passed_index = select_many(keep, index, kept.index);
+            #[unroll]
+            for j in 0..comptime!(k - 1) {
+                self.values[j] = self.values[j + 1];
+                self.indices[j] = self.indices[j + 1];
+            }
+            self.values[k - 1] = select_many(keep, kept.value, value);
+            self.indices[k - 1] = select_many(keep, kept.index, index);
+            value = passed_value;
             index = passed_index;
         }
     }
