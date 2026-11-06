@@ -170,7 +170,12 @@ impl PhysicalAxisMap {
     pub fn affine(terms: &[(Axis, usize)]) -> Self {
         let terms: SmallVec<[(Axis, Scale); Space::MAX_RANK]> = terms
             .iter()
-            .map(|&(axis, scale)| (axis, Scale::Static(scale as isize)))
+            .map(|&(axis, scale)| {
+                (
+                    axis,
+                    Scale::Static(isize::try_from(scale).expect("a coefficient fits an isize")),
+                )
+            })
             .collect();
         Self::scaled(&terms)
     }
@@ -319,9 +324,9 @@ impl PhysicalAxisMap {
     pub(crate) fn static_offset_step(&self, term: usize) -> Option<usize> {
         match (self.divisor, self.terms[term].scale) {
             (Divisor::Static(d), Scale::Static(s))
-                if d > 1 && s.unsigned_abs().is_multiple_of(d) =>
+                if d > 1 && usize::try_from(s).is_ok_and(|s| s.is_multiple_of(d)) =>
             {
-                Some(s.unsigned_abs() / d)
+                usize::try_from(s).ok().map(|s| s / d)
             }
             _ => None,
         }

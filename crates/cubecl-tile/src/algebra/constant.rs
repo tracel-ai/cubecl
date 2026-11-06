@@ -114,7 +114,8 @@ pub(crate) fn simplified_mul<C: Int>(
     rhs: NativeExpand<C>,
 ) -> NativeExpand<C> {
     match (constant(&lhs), constant(&rhs)) {
-        // A wrapped (negative) coefficient is never folded: its product would not wrap.
+        // A wrapped (negative) coefficient is never folded: its product would not wrap. The same
+        // guard keeps positive products within `i32::MAX`, as `C` may be `i32`.
         (Some(a), Some(b)) if a.checked_mul(b).is_some_and(|p| p <= i32::MAX as u64) => {
             constant_like(scope, a * b, &lhs)
         }

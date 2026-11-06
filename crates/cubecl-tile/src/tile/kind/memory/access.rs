@@ -1130,6 +1130,7 @@ fn gathered_axis_descent(
         let edge = comptime!(cut.level.extent_in(&cut.space, term.axis).get());
         match comptime!(term.scale) {
             Scale::Static(s) => {
+                let step_sign = comptime!(s.signum());
                 let s = comptime!(s.unsigned_abs());
                 let step = comptime!(if lined {
                     assert!(
@@ -1145,13 +1146,8 @@ fn gathered_axis_descent(
                     edge * s
                 });
                 // A backward step wraps to its two's complement, so the sum subtracts it.
-                terms.push(if comptime!(term.scale.is_negative()) {
-                    cut.coord(term.axis)
-                        .cast::<u32>()
-                        .times(comptime!((step as u32).wrapping_neg()))
-                } else {
-                    cut.coord(term.axis).times(step).cast::<u32>()
-                });
+                let step = comptime!((step as isize * step_sign) as u32);
+                terms.push(cut.coord(term.axis).cast::<u32>().times(step));
                 spans.push(comptime!(((edge - 1) * s) as u32).runtime());
             }
             // No line division: `Projection::validate` keeps the innermost axis a static identity.

@@ -302,7 +302,7 @@ impl Projection {
         assert!(
             !self.has_negative_scale(),
             "{what}: a backward coefficient reaches below its window's physical box; stage the \
-             operand dense"
+             operand in a tiled stage (`StageStorage::Tiled`)"
         );
     }
 
@@ -831,6 +831,15 @@ mod tests {
             ],
         );
         assert!(dynamic_offset.may_underflow());
+
+        let backward = Projection::new(
+            &[A, R, B],
+            &[
+                PhysicalAxisMap::scaled(&[(A, Scale::Static(1)), (R, Scale::Static(-2))]),
+                PhysicalAxisMap::of(B),
+            ],
+        );
+        assert!(backward.may_underflow());
     }
 
     /// Physical axis major, term order within; offsets indexed apart from coefficients.
