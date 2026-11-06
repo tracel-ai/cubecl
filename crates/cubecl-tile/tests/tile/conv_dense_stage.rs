@@ -290,6 +290,6 @@ fn conv_dense_stage_cmma_tiled_stage_8_channels() {
 }
 
 #[test]
-fn conv_dense_stage_mma_tiled_stage_4_channels() {
+fn conv_dense_stage_mma_tiled_stage() {
     Case { taps: 4, ..TILED }.check(Unit::Mma);
 }

@@ -323,11 +323,10 @@ impl PhysicalAxisMap {
     /// Term `term`'s static step outside the rational floor, where `scale / divisor` is exact.
     pub(crate) fn static_offset_step(&self, term: usize) -> Option<usize> {
         match (self.divisor, self.terms[term].scale) {
-            (Divisor::Static(d), Scale::Static(s))
-                if d > 1 && usize::try_from(s).is_ok_and(|s| s.is_multiple_of(d)) =>
-            {
-                usize::try_from(s).ok().map(|s| s / d)
-            }
+            (Divisor::Static(d), Scale::Static(s)) if d > 1 => usize::try_from(s)
+                .ok()
+                .filter(|s| s.is_multiple_of(d))
+                .map(|s| s / d),
             _ => None,
         }
     }
