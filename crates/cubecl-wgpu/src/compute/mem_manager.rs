@@ -176,4 +176,15 @@ impl AuxiliaryMemory {
     pub(crate) fn release_uniforms(&mut self) {
         self.queued_uniforms.clear();
     }
+
+    /// The queued work was submitted: destroy what these memories freed (`WgpuStorage::destroy_retired`).
+    pub(crate) fn destroy_retired(&mut self) {
+        self.staging.storage().destroy_retired();
+        self.uniforms.storage().destroy_retired();
+    }
+
+    /// Whether these memories freed a buffer not destroyed yet.
+    pub(crate) fn has_retired(&mut self) -> bool {
+        self.staging.storage().has_retired() || self.uniforms.storage().has_retired()
+    }
 }
