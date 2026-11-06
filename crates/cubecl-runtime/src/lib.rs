@@ -63,7 +63,8 @@ pub mod storage;
 /// `CubeCL` config module.
 pub mod config;
 
-pub use cubecl_common::benchmark;
+/// Benchmarks: one device's, and one timed on several devices at once.
+pub mod benchmark;
 
 /// Logging utilities to be used by a compute server.
 pub mod logging;

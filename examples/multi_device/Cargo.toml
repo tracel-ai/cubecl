@@ -1,0 +1,17 @@
+[package]
+authors = []
+name = "multi_device"
+publish = false
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+# Only the runtimes with a transport between their devices run collectives.
+default = ["cuda"]
+cuda = ["cubecl/cuda"]
+hip = ["cubecl/hip"]
+
+[dependencies]
+cubecl = { workspace = true, default-features = true, features = ["stdlib"] }
+half = { workspace = true }
