@@ -4,6 +4,7 @@ mod copy;
 mod drain;
 mod level;
 mod mma;
+mod reduce;
 #[cfg(feature = "sequential-levels")]
 mod sequential;
 
@@ -11,6 +12,7 @@ pub use copy::CopyOp;
 pub use drain::DrainOp;
 pub use level::LevelOp;
 pub use mma::MmaOp;
+pub use reduce::ReduceOp;
 
 use cubecl::ir::{OpInserter, Scope};
 use cubecl_ir::{dialect::branch::YieldOp, prelude::*};
