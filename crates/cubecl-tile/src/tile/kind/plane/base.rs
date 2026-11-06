@@ -264,13 +264,18 @@ impl PlaneTile {
     }
 
     /// Fill this fragment from a memory `src`, a manual-mma one deeper than its instruction as
-    /// `load` says.
-    pub(crate) fn load_window<T: Numeric>(&mut self, src: &Tile, #[comptime] load: DeepLoad) {
+    /// `load` says. A cmma fragment steps its rows along `row`, a position in `src`'s space read
+    /// off the window of its whole grid: under a contraction of several axes, the fragment's own
+    /// window does not tell its rows from its columns.
+    pub(crate) fn load_window<T: Numeric>(
+        &mut self,
+        src: &Tile,
+        #[comptime] load: DeepLoad,
+        #[comptime] row: usize,
+    ) {
         match self {
             PlaneTile::Cmma(d) => match &src.kind {
-                TileKind::Memory(m) => {
-                    d.load_window::<T>(m, comptime!(MatrixAxes::edges(&src.place.space).row_split))
-                }
+                TileKind::Memory(m) => d.load_window::<T>(m, row),
                 TileKind::PlaneTile(_)
                 | TileKind::PlanePartition(_)
                 | TileKind::TmaGmem(_)
@@ -888,7 +893,11 @@ impl PlanePartition {
                             mi,
                             ni,
                         ));
-                        frag.load_window::<T>(&window, load);
+                        frag.load_window::<T>(
+                            &window,
+                            load,
+                            comptime!(edges.row_axis(&src.place.space)),
+                        );
                     }
                 }
             }
