@@ -7,8 +7,8 @@ license.workspace = true
 version.workspace = true
 
 [features]
-# Only the runtimes with a transport between their devices run collectives.
-default = ["cuda"]
+# No default runtime: in a workspace build it would turn on for every crate's tests.
+default = []
 cuda = ["cubecl/cuda"]
 hip = ["cubecl/hip"]
 
