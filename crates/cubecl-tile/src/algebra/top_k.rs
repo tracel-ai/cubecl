@@ -91,6 +91,9 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
 
     /// `value`, read at `index` and no NaN, walked down this list: each slot keeps the better
     /// of what it holds and what comes down, and passes the other on.
+    ///
+    /// What a slot passes on is picked before the slot is written. Metal on Apple GPUs keeps a
+    /// list walked the other way round out of registers, and a top-32 runs twice as long.
     fn walk(
         &mut self,
         value: Vector<E, N>,
@@ -106,10 +109,12 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
             let kept_value = self.values[j];
             let kept_index = self.indices[j];
             let takes = takes_the_slot::<E, N>(kept_value, kept_index, value, index, monoid);
+            let passed_value = select_many(takes, kept_value, value);
             self.values[j] = select_many(takes, value, kept_value);
+            value = passed_value;
+            let passed_index = select_many(takes, kept_index, index);
             self.indices[j] = select_many(takes, index, kept_index);
-            value = select_many(takes, kept_value, value);
-            index = select_many(takes, kept_index, index);
+            index = passed_index;
         }
     }
 
@@ -258,7 +263,8 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     }
 
     /// `value`, read at `index`, walked down this list in the full order: each slot keeps the
-    /// better of what it holds and what comes down, and passes the other on.
+    /// better of what it holds and what comes down, and passes the other on, picked before the
+    /// slot is written as in [`walk`](Self::walk).
     fn walk_in_full_order(
         &mut self,
         value: Vector<E, N>,
@@ -276,10 +282,12 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
                 index: self.indices[j],
             };
             let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
+            let passed_value = select_many(keep, value, kept.value);
             self.values[j] = select_many(keep, kept.value, value);
+            value = passed_value;
+            let passed_index = select_many(keep, index, kept.index);
             self.indices[j] = select_many(keep, kept.index, index);
-            value = select_many(keep, value, kept.value);
-            index = select_many(keep, index, kept.index);
+            index = passed_index;
         }
     }
 }
