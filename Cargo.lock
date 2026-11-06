@@ -3373,6 +3373,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "multi_device"
+version = "0.12.0-pre.2"
+dependencies = [
+ "cubecl",
+ "half",
+]
+
+[[package]]
 name = "mutants"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
