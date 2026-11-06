@@ -581,7 +581,7 @@ impl Tile {
         if comptime!(i + 1 == region.path.len()) {
             sub
         } else {
-            sub.at_from(region, comptime!(i + 1))
+            sub.at_from(region, i + 1)
         }
     }
 
@@ -685,7 +685,7 @@ impl Tile {
         let space = self.runtime_space();
         Walk::of(
             &space,
-            comptime!(level.clone()),
+            level.clone(),
             Region::rooted(
                 &space,
                 comptime!(self.place.levels.clone()),
@@ -771,7 +771,7 @@ impl Tile {
     pub fn stage(&self, #[comptime] level: Level, #[comptime] storage: StageStorage) -> Tile {
         let define!(Staged) = self.staged_element(comptime!(None));
         Memory::stage::<Staged>(
-            &self.shaped_for(comptime!(level.clone())),
+            &self.shaped_for(level.clone()),
             level,
             storage,
             comptime!(None),
@@ -1065,7 +1065,7 @@ impl Tile {
             // A stage answers against the window it was filled from.
             TileKind::Memory(data) => {
                 let projection = comptime!(data.projection.clone());
-                if comptime!(!projection.addresses(axis)) {
+                if !projection.addresses(axis) {
                     true.runtime()
                 } else {
                     #[comptime]
@@ -1073,12 +1073,12 @@ impl Tile {
                         ComptimeOption::Some(source) => source.axes_in_bounds(
                             &data.window.origin,
                             pos,
-                            comptime!(projection.carriers(axis).to_vec()),
+                            projection.carriers(axis).to_vec(),
                         ),
                         ComptimeOption::None => match comptime!(data.address) {
                             AddressSpace::Global => data
                                 .window
-                                .axes_in_bounds(pos, comptime!(projection.carriers(axis).to_vec())),
+                                .axes_in_bounds(pos, projection.carriers(axis).to_vec()),
                             AddressSpace::Shared => true.runtime(),
                         },
                     }
@@ -1144,12 +1144,12 @@ impl TileExpand {
 #[cube]
 pub(crate) fn witnessed_space(#[comptime] space: Space, a: &Tile, b: &Tile, c: &Tile) -> Space {
     let mut sizes = Sequence::<usize>::new();
-    if comptime!(!space.is_static()) {
+    if !space.is_static() {
         #[unroll]
-        for p in 0..comptime!(space.rank()) {
-            let axis = comptime!(space.axis_at(p));
+        for p in 0..space.rank() {
+            let axis = space.axis_at(p);
             // Evaluate `Static` axes here so one `Dynamic` axis doesn't require a bound for the rest.
-            let size = match comptime!(space.extent_raw(axis)) {
+            let size = match space.extent_raw(axis) {
                 Extent::Static(n) => comptime!(n).runtime(),
                 Extent::Dynamic => {
                     let by_a = a.witnesses(axis);
@@ -1674,8 +1674,8 @@ impl Tile {
         #[unroll]
         for p in 0..rank {
             let axis = comptime!(self.place.space.axis_at(p));
-            if comptime!(values.contains(axis)) {
-                own.push(coords.at(comptime!(values.position(axis))));
+            if values.contains(axis) {
+                own.push(coords.at(values.position(axis)));
             } else {
                 comptime!(assert!(
                     !projection.addresses(axis),
@@ -1695,16 +1695,16 @@ impl Tile {
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let load = self.vector_tile();
         let width = comptime!(load.values());
         let packing = self.packing();
         let mut position = 0u32.runtime();
         #[unroll]
         for p in 0..rank {
-            let axis = comptime!(space.axis_at(p));
+            let axis = space.axis_at(p);
             let extent = comptime!(load.extent_along(axis) as u32);
-            if comptime!(extent > 1) {
+            if extent > 1 {
                 let step = comptime!(load.step_along(axis) as u32);
                 position += coords.at(p).remainder(extent).times(step);
             }
@@ -1715,7 +1715,7 @@ impl Tile {
                 let line = self
                     .nd_packed::<Served, W>(guard)
                     .read(load.index(coords, &space));
-                let value = if comptime!(width > 1) {
+                let value = if width > 1 {
                     line.extract_dynamic(position.cast::<usize>())
                 } else {
                     line.extract(0usize)
@@ -1728,7 +1728,7 @@ impl Tile {
                 let words_wide = comptime!(packing.physical(width));
                 let size!(WP) = words_wide;
                 let words = self.nd_words::<WP>(guard).read(load.index(coords, &space));
-                let word = if comptime!(words_wide > 1) {
+                let word = if words_wide > 1 {
                     words.extract_dynamic((position / per_word).cast::<usize>())
                 } else {
                     words.extract(0usize)

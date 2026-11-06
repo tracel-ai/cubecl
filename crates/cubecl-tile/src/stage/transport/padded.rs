@@ -22,11 +22,10 @@ pub(crate) fn read_stage_line<I2: Numeric, WP2: Size, SW: Size>(
     pos: &CoordsDyn,
     #[comptime] padding: Option<Padding>,
 ) -> Vector<I2, WP2> {
-    if comptime!(padding.is_some()) {
-        widen_line::<I2, WP2, SW>(s, pos, comptime!(padding.unwrap()))
-    } else {
+    match padding {
+        Some(padding) => widen_line::<I2, WP2, SW>(s, pos, padding),
         // `SW` is `WP2` here; the cast is an identity.
-        Vector::<I2, WP2>::cast_from(s.read(pos.clone()))
+        None => Vector::<I2, WP2>::cast_from(s.read(pos.clone())),
     }
 }
 
@@ -38,8 +37,8 @@ fn widen_line<T: Numeric, W: Size, SW: Size>(
     pos: &CoordsDyn,
     #[comptime] padding: Padding,
 ) -> Vector<T, W> {
-    let width = comptime!(padding.width);
-    let rank = comptime!(padding.rank);
+    let width = padding.width;
+    let rank = padding.rank;
     comptime!(assert!(
         SW::try_value_const() == Some(1),
         "widen_line: a padded stage is filled from a scalar source, got a {:?}-wide one",
@@ -50,7 +49,7 @@ fn widen_line<T: Numeric, W: Size, SW: Size>(
         "widen_line: assembles {width} units into a {:?}-wide destination line",
         W::try_value_const()
     ));
-    let last = comptime!(rank - 1);
+    let last = rank - 1;
     let line = pos[last];
     let mut out = Vector::<T, W>::cast_from(T::from_int(0));
     let guarded = comptime!(match padding.extent {
@@ -84,7 +83,7 @@ fn source_component(pos: &CoordsDyn, #[comptime] rank: usize, cell: u32) -> Coor
     let mut out = CoordsDyn::new();
     #[unroll]
     for p in 0..rank {
-        if comptime!(p == rank - 1) {
+        if p == rank - 1 {
             out.push(cell);
         } else {
             out.push(pos[p]);
@@ -103,7 +102,7 @@ pub(crate) fn widened_shape(
     let mut out = Coords::<u32>::new();
     #[unroll]
     for p in 0..rank {
-        if comptime!(p == rank - 1) {
+        if p == rank - 1 {
             out.push(shape.at(p).times(comptime!(width as u32)));
         } else {
             out.push(shape.at(p));

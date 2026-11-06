@@ -104,7 +104,7 @@ impl BufferLayout {
         for p in 0..rank {
             let inner = comptime!((p + 1..rank).collect::<Vec<_>>());
             let quot = x.divided_by(extent.product(inner));
-            let coord = if comptime!(p == 0) {
+            let coord = if p == 0 {
                 quot
             } else {
                 quot.remainder(extent.at(p))
@@ -149,7 +149,7 @@ impl BufferLayout {
             let picks = comptime!((0..carriers.len()).collect::<Vec<_>>());
             let mut parts = Sequence::<u32>::new();
             #[unroll]
-            for k in 0..comptime!(carriers.len()) {
+            for k in 0..carriers.len() {
                 let pa = comptime!(carriers[k]);
                 // Each coordinate weighs the block it sits above, the same finer extents that
                 // stripped it.
@@ -157,7 +157,7 @@ impl BufferLayout {
                 parts.push(
                     physical
                         .at(pa)
-                        .times(self.physical_shape.product(comptime!(finer.to_vec()))),
+                        .times(self.physical_shape.product(finer.to_vec())),
                 );
             }
             out.push(parts.sum(picks));
@@ -246,7 +246,7 @@ impl BufferLayout {
                 let mut placed = Coords::<u32>::new();
                 #[unroll]
                 for pa in 0..physical.len() {
-                    if comptime!(pa >= first && pa < first + span) {
+                    if pa >= first && pa < first + span {
                         let inner = comptime!(
                             (pa + 1 - first..span)
                                 .map(|s| swizzle.span_lines(s))
@@ -270,13 +270,13 @@ impl BufferLayout {
         let picks = comptime!((0..map.terms().len()).collect::<Vec<_>>());
         let mut parts = Sequence::<u32>::new();
         #[unroll]
-        for t in 0..comptime!(map.terms().len()) {
+        for t in 0..map.terms().len() {
             let term = comptime!(map.terms()[t]);
             let p = comptime!(self.projection.position(term.axis));
             let (finer, modulo) = comptime!(self.projection.carried_by(pa, term.axis));
             // Strip the finer coordinates, then take this one; the outermost keeps the full
             // quotient.
-            let quot = pos[p].divided_by(self.physical_shape.product(comptime!(finer.to_vec())));
+            let quot = pos[p].divided_by(self.physical_shape.product(finer.to_vec()));
             let coord = match comptime!(modulo) {
                 Some(m) => quot.remainder(self.physical_shape.at(m)),
                 None => quot,

@@ -113,11 +113,11 @@ impl Tile {
         let fragment = match acc {
             PlaneTile::Cmma(_) => {
                 let read = comptime!(FragmentRead::new(side, &own, &out));
-                let fragment = self.cmma_fragment::<T>(ident, comptime!(read.clone()));
+                let fragment = self.cmma_fragment::<T>(ident, read.clone());
                 PlaneTile::new_Cmma(CmmaData {
                     fragment: unsafe { fragment.downcast_unchecked::<Held>() },
                     ident,
-                    layout: comptime!(read.layout),
+                    layout: read.layout,
                     shape: comptime!((read.m, read.n)),
                     scratch: ComptimeOption::new_None(),
                 })
@@ -301,7 +301,7 @@ impl PlaneTile {
                     comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
                 let lhs_along_m = read_col_major(lhs, lhs_window);
                 let rhs_along_k = read_col_major(rhs, rhs_window);
-                strided_2d(lhs, rhs, comptime!(out.clone()), lhs_along_m, rhs_along_k);
+                strided_2d(lhs, rhs, out.clone(), lhs_along_m, rhs_along_k);
                 d.mma::<E, EL, ER>(lhs, rhs, out)
             }
             PlaneTile::Mma(d) => {
@@ -329,29 +329,15 @@ impl PlaneTile {
                     false => d.k,
                 });
                 let form = comptime!(d.operands.block_scaled());
-                let block_scaled = comptime!(form.is_some());
+                let block_scaled = form.is_some();
                 // An operand already in fragments was held to the instruction as it loaded
                 // (`PlanePartition::operand`), and a fragment no longer states its storage.
                 let (lhs_in_memory, rhs_in_memory) = (lhs.is_memory(), rhs.is_memory());
                 if comptime!(block_scaled && lhs_in_memory) {
-                    assert_block_scaled::<EL>(
-                        lhs,
-                        comptime!(form.unwrap()),
-                        MatrixIdent::A,
-                        m,
-                        n,
-                        k,
-                    );
+                    assert_block_scaled::<EL>(lhs, form.unwrap(), MatrixIdent::A, m, n, k);
                 }
                 if comptime!(block_scaled && rhs_in_memory) {
-                    assert_block_scaled::<ER>(
-                        rhs,
-                        comptime!(form.unwrap()),
-                        MatrixIdent::B,
-                        m,
-                        n,
-                        k,
-                    );
+                    assert_block_scaled::<ER>(rhs, form.unwrap(), MatrixIdent::B, m, n, k);
                 }
                 let steps = lane_run_steps::<EL>(m, n, k);
                 if comptime!(!block_scaled && steps == 1) {
@@ -389,7 +375,7 @@ impl PlaneTile {
                             .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
                     );
                     // A register block reads its lhs along `k`.
-                    strided_2d(lhs, rhs, comptime!(out.clone()), false, rhs_along_k);
+                    strided_2d(lhs, rhs, out.clone(), false, rhs_along_k);
                     d.mma::<E, EL, ER>(lhs, rhs, out)
                 }
             },

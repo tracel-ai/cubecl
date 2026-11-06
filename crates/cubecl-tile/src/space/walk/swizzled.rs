@@ -14,12 +14,12 @@ pub(crate) fn swizzled_positions(
     instances: &Coords<usize>,
 ) -> Coords<usize> {
     let mut out = Coords::<usize>::new();
-    if comptime!(level.order().swizzles()) {
+    if level.order().swizzles() {
         let (x_at, y_at) = comptime!(in_plane_axes(&space, &level));
         let (count_x, count_y) = (instances.at(x_at), instances.at(y_at));
         let flat =
             CubeAxis::position(CubeAxis::X).plus(CubeAxis::position(CubeAxis::Y).times(count_x));
-        let (x, y) = cube_positions(flat, (count_x, count_y), comptime!(level.order()));
+        let (x, y) = cube_positions(flat, (count_x, count_y), level.order());
         out.push(x);
         out.push(y);
     } else {
