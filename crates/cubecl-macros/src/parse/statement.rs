@@ -141,8 +141,9 @@ pub fn parse_define_macro(local: &Local) -> Option<(Ident, DefineKind, Expr)> {
 pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression> {
     if mac.path.is_ident("comptime") {
         let tokens = &mac.tokens;
+        let warning = redundant_comptime_warning(&mac, context);
         Ok(Expression::Verbatim {
-            tokens: quote![{#tokens}],
+            tokens: quote![{#warning #tokens}],
         })
     } else if [
         "panic",
@@ -201,5 +202,94 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
             path: expand_name,
             args: mac.tokens,
         })
+    }
+}
+
+/// A warning on a `comptime!` the macro doesn't need, when the `warn-redundant-comptime` feature is
+/// on: its expression is already a comptime value, so the macro evaluates it on the host without
+/// the wrapper and the kernel is the same.
+///
+/// It is a deprecation warning, the only warning a proc macro can raise on stable, spanned on the
+/// `comptime!` so it points at the line to change.
+#[cfg(feature = "warn-redundant-comptime")]
+fn redundant_comptime_warning(mac: &Macro, context: &Context) -> proc_macro2::TokenStream {
+    let Ok(expr) = parse2::<Expr>(mac.tokens.clone()) else {
+        return quote![];
+    };
+    if !is_redundant_comptime(&expr, context) {
+        return quote![];
+    }
+    let span = mac.path.span();
+    quote::quote_spanned! {span=>
+        #[deprecated(
+            note = "this `comptime!` isn't needed: its value is already comptime, so the macro evaluates it on the host without it"
+        )]
+        #[allow(non_upper_case_globals)]
+        const redundant_comptime: bool = true;
+        let _ = redundant_comptime;
+    }
+}
+
+#[cfg(not(feature = "warn-redundant-comptime"))]
+fn redundant_comptime_warning(_mac: &Macro, _context: &Context) -> proc_macro2::TokenStream {
+    quote![]
+}
+
+/// Whether `comptime!(expr)` can go without changing the kernel. A lone literal or a lone comptime
+/// local can't: where the macro reads a value in runtime code (a match arm, a branch's value) it
+/// turns those into runtime variables, while it leaves a `comptime!` block and any other comptime
+/// expression (a field, a method call, an operator) a host value.
+#[cfg(feature = "warn-redundant-comptime")]
+fn is_redundant_comptime(expr: &Expr, context: &Context) -> bool {
+    match expr {
+        Expr::Paren(paren) => is_redundant_comptime(&paren.expr, context),
+        Expr::Group(group) => is_redundant_comptime(&group.expr, context),
+        Expr::Lit(_) | Expr::Path(_) => false,
+        expr => is_comptime_without_wrapper(expr, context),
+    }
+}
+
+/// Whether the macro would hold `expr` as a comptime value without `comptime!`: a comptime local, a
+/// field of one, a method call on one with comptime arguments, or an operator on comptime operands.
+#[cfg(feature = "warn-redundant-comptime")]
+fn is_comptime_without_wrapper(expr: &Expr, context: &Context) -> bool {
+    use syn::{BinOp, UnOp};
+
+    let operand =
+        |expr: &Expr| matches!(expr, Expr::Lit(_)) || is_comptime_without_wrapper(expr, context);
+    match expr {
+        Expr::Path(path) if path.qself.is_none() => path
+            .path
+            .get_ident()
+            .is_some_and(|name| context.is_const_variable(name)),
+        Expr::Field(field) => is_comptime_without_wrapper(&field.base, context),
+        Expr::Paren(paren) => is_comptime_without_wrapper(&paren.expr, context),
+        Expr::Group(group) => is_comptime_without_wrapper(&group.expr, context),
+        Expr::Reference(reference) => is_comptime_without_wrapper(&reference.expr, context),
+        Expr::MethodCall(call) => {
+            call.method != "runtime"
+                && is_comptime_without_wrapper(&call.receiver, context)
+                && call.args.iter().all(operand)
+        }
+        Expr::Unary(unary) => {
+            matches!(unary.op, UnOp::Neg(_) | UnOp::Not(_)) && operand(&unary.expr)
+        }
+        Expr::Binary(binary) => {
+            let assigns = matches!(
+                binary.op,
+                BinOp::AddAssign(_)
+                    | BinOp::SubAssign(_)
+                    | BinOp::MulAssign(_)
+                    | BinOp::DivAssign(_)
+                    | BinOp::RemAssign(_)
+                    | BinOp::BitXorAssign(_)
+                    | BinOp::BitAndAssign(_)
+                    | BinOp::BitOrAssign(_)
+                    | BinOp::ShlAssign(_)
+                    | BinOp::ShrAssign(_)
+            );
+            !assigns && operand(&binary.left) && operand(&binary.right)
+        }
+        _ => false,
     }
 }
