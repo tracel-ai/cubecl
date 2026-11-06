@@ -1,6 +1,6 @@
 use cubecl_ir::{
     CanMaterialize, HasSideEffects, NoSideEffects,
-    dialect::memory::AddressSpaceAttr,
+    dialect::memory::MemoryScopeAttr,
     interfaces::{
         Deterministic,
         side_effects::{MemoryEffect, MemoryEffectsOp},
@@ -951,10 +951,10 @@ fn pre_loop_speculation_depends_on_bound_uniformity() -> Result<()> {
 
 #[pliron_op(
     name = "pre.test_read",
-    format = "attr($read_address_space, $AddressSpaceAttr) `:` type($0)",
+    format = "attr($read_address_space, $MemoryScopeAttr) `:` type($0)",
     interfaces = [NOpdsInterface<0>, OneResultInterface, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (read_address_space: AddressSpaceAttr)
+    attributes = (read_address_space: MemoryScopeAttr)
 )]
 #[op_interfaces(Deterministic)]
 #[op_traits(CanMaterialize, NoSideEffects)]
@@ -964,16 +964,16 @@ pub struct PreTestRead;
 impl MemoryEffectsOp for PreTestRead {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_read_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::ReadAllInSpace(space)]
+        vec![MemoryEffect::Read(space.into())]
     }
 }
 
 #[pliron_op(
     name = "pre.test_write",
-    format = "attr($write_address_space, $AddressSpaceAttr)",
+    format = "attr($write_address_space, $MemoryScopeAttr)",
     interfaces = [NOpdsInterface<0>, NResultsInterface<0>, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (write_address_space: AddressSpaceAttr)
+    attributes = (write_address_space: MemoryScopeAttr)
 )]
 #[op_traits(HasSideEffects)]
 pub struct PreTestWrite;
@@ -982,7 +982,7 @@ pub struct PreTestWrite;
 impl MemoryEffectsOp for PreTestWrite {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_write_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::WriteAllInSpace(space)]
+        vec![MemoryEffect::Write(space.into())]
     }
 }
 

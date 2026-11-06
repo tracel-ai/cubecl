@@ -110,6 +110,8 @@ struct CubeOpField {
 pub struct ArgFlags {
     pub ptr_read: Flag,
     pub ptr_write: Flag,
+    pub make_available: Flag,
+    pub make_visible: Flag,
 
     pub optional: Flag,
     pub untyped: Flag,

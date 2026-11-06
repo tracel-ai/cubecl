@@ -13,6 +13,7 @@ use crate::{
         matrix::{WgmmaCommitGroupOp, WgmmaWaitGroupOp},
         tma::{CommitGroupOp, WaitGroupOp, WaitGroupReadOp},
     },
+    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp, MemoryLocation, MemoryScope},
     prelude::*,
     types::pending::{AsyncGroup, GroupTokenType, WaitUntil},
 };
@@ -74,4 +75,25 @@ pub struct ReadyOp {
 pub struct WaitOp {
     pub token: Value,
     pub until: WaitUntil,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for WaitOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let token_ty = self.token(ctx).get_type(ctx).deref(ctx);
+        let group = token_ty.downcast_ref::<GroupTokenType>().unwrap().0;
+        match (group, *self.until(ctx)) {
+            (AsyncGroup::Warpgroup, _) => vec![
+                MemoryEffect::Read((MemoryScope::Local | MemoryScope::Shared).into()),
+                MemoryEffect::MakeVisible(MemoryLocation::Scope(MemoryScope::Local.into())),
+            ],
+            (AsyncGroup::BulkCopy, WaitUntil::Released) => vec![MemoryEffect::Read(
+                MemoryLocation::Scope(MemoryScope::Shared.into()),
+            )],
+            (AsyncGroup::BulkCopy, WaitUntil::Complete) => vec![
+                MemoryEffect::Read(MemoryLocation::Scope(MemoryScope::Shared.into())),
+                MemoryEffect::MakeVisible(MemoryLocation::Scope(MemoryScope::Global.into())),
+            ],
+        }
+    }
 }

@@ -45,7 +45,7 @@ macro_rules! atomic_binop {
         #[result_ty(same_as = value)]
         #[op_traits(CanMaterialize, HasSideEffects)]
         pub struct $ty {
-            #[operand(ptr_read, ptr_write)]
+            #[operand(ptr_read, ptr_write, make_available, make_visible)]
             pub ptr: Value,
             pub value: Value,
         }
@@ -71,7 +71,7 @@ atomic_binop!("atomic.xor", AtomicXorOp);
 #[result_ty(from_inputs = ptr_value_ty)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct AtomicLoadOp {
-    #[operand(ptr_read)]
+    #[operand(ptr_read, make_visible)]
     pub ptr: Value,
 }
 
@@ -79,7 +79,7 @@ pub struct AtomicLoadOp {
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct AtomicStoreOp {
-    #[operand(ptr_write)]
+    #[operand(ptr_write, make_available)]
     pub ptr: Value,
     pub value: Value,
 }
@@ -88,7 +88,7 @@ pub struct AtomicStoreOp {
 #[result_ty(same_as = value)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct AtomicCompareExchangeWeakOp {
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_available, make_visible)]
     pub ptr: Value,
     pub cmp: Value,
     pub value: Value,

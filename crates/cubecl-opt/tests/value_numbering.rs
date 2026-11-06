@@ -1,6 +1,6 @@
 use cubecl_ir::{
     NoSideEffects,
-    dialect::memory::AddressSpaceAttr,
+    dialect::memory::MemoryScopeAttr,
     interfaces::{
         Deterministic,
         side_effects::{MemoryEffect, MemoryEffectsOp},
@@ -20,10 +20,10 @@ use pliron::{
 
 #[pliron_op(
     name = "value_numbering.memory_def",
-    format = "attr($def_address_space, $AddressSpaceAttr) `:` type($0)",
+    format = "attr($def_address_space, $MemoryScopeAttr) `:` type($0)",
     interfaces = [NOpdsInterface<0>, OneResultInterface, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (def_address_space: AddressSpaceAttr)
+    attributes = (def_address_space: MemoryScopeAttr)
 )]
 #[op_traits(NoSideEffects)] // Has side effects, but should trigger memory check instead
 pub struct MemoryDefInSpaceOp;
@@ -32,16 +32,16 @@ pub struct MemoryDefInSpaceOp;
 impl MemoryEffectsOp for MemoryDefInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_def_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::WriteAllInSpace(space)]
+        vec![MemoryEffect::Write(space.into())]
     }
 }
 
 #[pliron_op(
     name = "value_numbering.memory_use",
-    format = "attr($use_address_space, $AddressSpaceAttr) `:` type($0)",
+    format = "attr($use_address_space, $MemoryScopeAttr) `:` type($0)",
     interfaces = [NOpdsInterface<0>, OneResultInterface, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (use_address_space: AddressSpaceAttr)
+    attributes = (use_address_space: MemoryScopeAttr)
 )]
 #[op_interfaces(Deterministic)]
 #[op_traits(NoSideEffects)]
@@ -51,7 +51,7 @@ pub struct MemoryUseInSpaceOp;
 impl MemoryEffectsOp for MemoryUseInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_use_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::ReadAllInSpace(space)]
+        vec![MemoryEffect::Read(space.into())]
     }
 }
 

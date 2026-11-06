@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    AddressSpace,
-    interfaces::side_effects::{MemoryEffect, ModRefResult},
+    AddressSpace, EnumSet,
+    interfaces::side_effects::{Extent, MemoryEffect, MemoryLocation, MemoryScope, ModRefResult},
     prelude::Value,
     types::PointerType,
 };
@@ -13,7 +13,12 @@ use super::AliasResult;
 pub struct AddressSpaceAA;
 
 impl AliasAnalysis for AddressSpaceAA {
-    fn alias(&self, ctx: &Context, lhs: Value, rhs: Value) -> AliasResult {
+    fn alias(
+        &self,
+        ctx: &Context,
+        (lhs, _): (Value, Extent),
+        (rhs, _): (Value, Extent),
+    ) -> AliasResult {
         let Some(lhs_space) = ptr_address_space(ctx, lhs) else {
             return AliasResult::MayAlias;
         };
@@ -28,32 +33,59 @@ impl AliasAnalysis for AddressSpaceAA {
     }
 
     fn mod_ref(&self, ctx: &Context, location: &MemoryEffect, rhs: &MemoryEffect) -> ModRefResult {
-        let Some(location_space) = effect_address_space(ctx, location) else {
-            return ModRefResult::ModRef;
-        };
-        let Some(rhs_space) = effect_address_space(ctx, rhs) else {
-            return ModRefResult::ModRef;
-        };
+        if any_effect_scoped(&[location, rhs]) {
+            let Some(location_scope) = effect_memory_scope(ctx, location) else {
+                return ModRefResult::ModRef;
+            };
+            let Some(rhs_scope) = effect_memory_scope(ctx, rhs) else {
+                return ModRefResult::ModRef;
+            };
 
-        if location_space != rhs_space {
-            ModRefResult::NoModRef
+            if location_scope.is_disjoint(rhs_scope) {
+                ModRefResult::NoModRef
+            } else {
+                rhs.mod_ref_mask()
+            }
         } else {
-            rhs.mod_ref_mask()
+            let Some(location_space) = effect_address_space(ctx, location) else {
+                return ModRefResult::ModRef;
+            };
+            let Some(rhs_space) = effect_address_space(ctx, rhs) else {
+                return ModRefResult::ModRef;
+            };
+
+            if location_space != rhs_space {
+                ModRefResult::NoModRef
+            } else {
+                rhs.mod_ref_mask()
+            }
         }
     }
 }
 
+fn any_effect_scoped(effect: &[&MemoryEffect]) -> bool {
+    effect
+        .iter()
+        .any(|it| matches!(it.location(), MemoryLocation::Scope(_)))
+}
+
 fn effect_address_space(ctx: &Context, effect: &MemoryEffect) -> Option<AddressSpace> {
-    match effect {
-        MemoryEffect::Read(value) if let Some(space) = ptr_address_space(ctx, *value) => {
+    match effect.location() {
+        MemoryLocation::Pointer(value, _) if let Some(space) = ptr_address_space(ctx, value) => {
             Some(space)
         }
-        MemoryEffect::Write(value) if let Some(space) = ptr_address_space(ctx, *value) => {
-            Some(space)
+        MemoryLocation::Pointer(..) | MemoryLocation::Scope(_) | MemoryLocation::All => None,
+    }
+}
+
+fn effect_memory_scope(ctx: &Context, effect: &MemoryEffect) -> Option<EnumSet<MemoryScope>> {
+    match effect.location() {
+        MemoryLocation::Pointer(value, _) if let Some(space) = ptr_address_space(ctx, value) => {
+            Some(space.memory_scope().into())
         }
-        MemoryEffect::ReadAllInSpace(space) | MemoryEffect::WriteAllInSpace(space) => Some(*space),
-        MemoryEffect::Read(_) | MemoryEffect::Write(_) => None,
-        MemoryEffect::ReadAll | MemoryEffect::WriteAll | MemoryEffect::Opaque => None,
+        MemoryLocation::Pointer(..) => None,
+        MemoryLocation::Scope(scope) => Some(scope),
+        MemoryLocation::All => None,
     }
 }
 
