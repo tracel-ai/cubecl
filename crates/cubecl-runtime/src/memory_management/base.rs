@@ -153,6 +153,23 @@ pub struct MemoryPoolReport {
     pub largest_alloc: u64,
 }
 
+/// Who asked for an allocation, as a memory report states it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AllocationOriginReport {
+    /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
+    /// allocating thread had entered, outermost first.
+    pub labels: Vec<String>,
+    /// The allocating thread's name, when it has one.
+    pub thread: Option<String>,
+    /// The allocation's place in the order allocations were made while
+    /// tracing was on.
+    pub sequence: u64,
+    /// The call stack that asked for the memory, from the caller of the
+    /// runtime down, as `function [crate/src/file.rs:line:column]`; empty
+    /// unless tracing captures backtraces.
+    pub frames: Vec<String>,
+}
+
 /// Which memory a [`MemoryReport`] covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryScope {
