@@ -5,7 +5,8 @@ use std::vec::Vec;
 
 use crate::bytes::Bytes;
 use crate::future::block_on;
-use crate::persistence::turso::{self as database, connect};
+use crate::persistence::database::{self, connect};
+use crate::persistence::sql::{self, Behavior, Opening, Transaction};
 
 use super::flat;
 use super::{
@@ -172,30 +173,22 @@ fn export_sqlite(
     let location = location(out)?;
     // Compaction is behind a flag in the engine; the staged file is the one
     // place a database of ours is ever compacted.
-    let target = block_on(
-        turso::Builder::new_local(location)
-            .experimental_vacuum(true)
-            .build(),
-    )
-    .map_err(storage_error)?;
+    let target = block_on(sql::Database::open(location, Opening::Staging))?;
     // The bundle carries the environment's own schema and version, so
     // `environment::load` can mount it as it would any environment file.
-    database::migrate(&target).map_err(storage_error)?;
+    database::migrate(&target)?;
 
-    let mut connection = connect(&target).map_err(storage_error)?;
+    let connection = connect(&target)?;
     manifest.write(&connection)?;
 
     // One transaction for the whole copy: a row per statement would be a
     // WAL frame per row, and a partial bundle is not a bundle.
-    let transaction = block_on(
-        connection.transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate),
-    )
-    .map_err(storage_error)?;
+    let transaction = Transaction::new(&connection, Behavior::Immediate)?;
     let mut exported = 0;
     for source in sources {
         exported += read_entries(source, namespaces, &mut Sink::Sqlite(&transaction))?;
     }
-    block_on(transaction.commit()).map_err(storage_error)?;
+    transaction.commit()?;
 
     // Copied, then deleted: the exclusion stays one statement per prefix
     // beside the copy's own filter, and the staged file is compacted after,
@@ -204,11 +197,10 @@ fn export_sqlite(
     let delete = std::format!("DELETE FROM entries WHERE {NAMESPACE_PREFIX}");
     let mut removed = 0;
     for prefix in excluded.iter().filter(|prefix| !prefix.is_empty()) {
-        removed += block_on(connection.execute(&delete, (prefix.as_str(),)))
-            .map_err(storage_error)? as usize;
+        removed += connection.execute(&delete, &[prefix.into()])? as usize;
     }
     if removed > 0 {
-        block_on(connection.execute("VACUUM", ())).map_err(storage_error)?;
+        connection.execute("VACUUM", &[])?;
     }
     exported -= removed;
 
@@ -250,7 +242,7 @@ fn export_flat(
 enum Sink<'a> {
     /// Into a database being written. Counts the rows it accepted, so a key
     /// an earlier root already exported is not counted twice.
-    Sqlite(&'a turso::Connection),
+    Sqlite(&'a sql::Connection),
     /// Into the map the flat format is assembled from. First root wins on
     /// collision, matching the database's `ON CONFLICT DO NOTHING`.
     Flat(&'a mut flat::Entries),
@@ -265,9 +257,8 @@ impl Sink<'_> {
     ) -> Result<usize, BundleError> {
         match self {
             Sink::Sqlite(connection) => {
-                let inserted = block_on(connection.execute(INSERT, (namespace, key, value)))
-                    .map_err(storage_error)?;
-                Ok(inserted as usize)
+                let params = [(&namespace).into(), (&key).into(), (&value).into()];
+                Ok(connection.execute(INSERT, &params)? as usize)
             }
             Sink::Flat(entries) => match entries.entry((namespace, key)) {
                 Entry::Vacant(vacant) => {
@@ -292,36 +283,35 @@ fn read_entries(
     sink: &mut Sink<'_>,
 ) -> Result<usize, BundleError> {
     let location = location(source)?;
-    let database = block_on(turso::Builder::new_local(location).read_only(true).build())
-        .map_err(storage_error)?;
-    let connection = connect(&database).map_err(storage_error)?;
+    let database = block_on(sql::Database::open(location, Opening::ReadOnly))?;
+    let connection = connect(&database)?;
 
     match namespaces {
-        None => {
-            let rows = block_on(connection.query(SELECT, ())).map_err(storage_error)?;
-            collect(rows, sink)
-        }
+        None => collect(&connection, SELECT, &[], sink),
         Some(namespaces) => {
             let query = std::format!("{SELECT} WHERE {NAMESPACE_PREFIX}");
             let mut accepted = 0;
             for namespace in namespaces {
-                let rows = block_on(connection.query(&query, (namespace.as_str(),)))
-                    .map_err(storage_error)?;
-                accepted += collect(rows, sink)?;
+                accepted += collect(&connection, &query, &[namespace.into()], sink)?;
             }
             Ok(accepted)
         }
     }
 }
 
-fn collect(mut rows: turso::Rows, sink: &mut Sink<'_>) -> Result<usize, BundleError> {
+/// Pushes every row `query` returns on `connection` into `sink`, returning
+/// how many it accepted.
+fn collect(
+    connection: &sql::Connection,
+    query: &str,
+    params: &[sql::Param<'_>],
+    sink: &mut Sink<'_>,
+) -> Result<usize, BundleError> {
     let mut accepted = 0;
-    while let Some(row) = block_on(rows.next()).map_err(storage_error)? {
-        let namespace: String = row.get(0).map_err(storage_error)?;
-        let key: Vec<u8> = row.get(1).map_err(storage_error)?;
-        let value: Vec<u8> = row.get(2).map_err(storage_error)?;
-        accepted += sink.push(namespace, key, value)?;
-    }
+    connection.query(query, params, &mut |row| {
+        accepted += sink.push(row.text(0)?, row.blob(1)?, row.blob(2)?)?;
+        Ok::<_, BundleError>(())
+    })?;
     Ok(accepted)
 }
 
@@ -458,8 +448,4 @@ fn resolve_environments(configured: &[EnvironmentInfo]) -> Vec<EnvironmentInfo> 
     }
 
     environments
-}
-
-pub(super) fn storage_error(error: turso::Error) -> BundleError {
-    BundleError::Storage(error.to_string())
 }
