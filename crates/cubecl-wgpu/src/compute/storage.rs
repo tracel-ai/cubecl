@@ -178,22 +178,44 @@ impl ComputeStorage for WgpuStorage {
 }
 
 impl WgpuStorage {
-    #[cfg(feature = "spirv")]
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> Result<WgpuMemory, IoError> {
+        #[cfg(feature = "spirv")]
         if self.vk_storage {
             // wgpu currently doesn't expose this, even though it's used internally for acceleration
             // structures. While we could use the acceleration structure input flag, that would
             // then require ray tracing to be supported. So we need to allocate manually, then import
             // the native buffer into wgpu using `from_raw_managed`.
             // This actually skips some of the buffer batching stuff we don't really want in `gpu_allocator`.
-            crate::backend::vulkan::create_storage_buffer(&self.device, desc)
-        } else {
-            Ok(WgpuMemory::new(self.device.create_buffer(desc), None))
+            return crate::backend::vulkan::create_storage_buffer(&self.device, desc);
         }
+        create_wgpu_buffer(&self.device, desc).map(|buffer| WgpuMemory::new(buffer, None))
     }
+}
 
-    #[cfg(not(feature = "spirv"))]
-    fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> Result<WgpuMemory, IoError> {
-        Ok(WgpuMemory::new(self.device.create_buffer(desc), None))
+/// Creates a buffer, or returns [`IoError::OutOfMemory`] when the device has no room for it.
+///
+/// Native wgpu reports the failure synchronously, to the innermost scope of the calling thread
+/// that filters it, so this scope catches the failure of this buffer and of nothing else. The
+/// buffer it returns then is invalid and is dropped here. The browser reports the failure
+/// asynchronously, possibly after work using the buffer was submitted, so there it is left to the
+/// device's uncaptured-error handler, which poisons the device.
+fn create_wgpu_buffer(
+    device: &wgpu::Device,
+    desc: &wgpu::BufferDescriptor<'_>,
+) -> Result<wgpu::Buffer, IoError> {
+    #[cfg(target_family = "wasm")]
+    return Ok(device.create_buffer(desc));
+
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let buffer = device.create_buffer(desc);
+        match cubecl_environment::future::block_on(scope.pop()) {
+            Some(_) => Err(IoError::OutOfMemory {
+                size: desc.size,
+                backtrace: BackTrace::capture(),
+            }),
+            None => Ok(buffer),
+        }
     }
 }
