@@ -1,6 +1,7 @@
 //! The tile ops in the IR, each lowered by every backend's `LowerOpsPass`.
 
 mod copy;
+mod dequantize;
 mod drain;
 mod level;
 mod logsumexp;
@@ -10,6 +11,7 @@ mod reduce;
 mod sequential;
 
 pub use copy::CopyOp;
+pub use dequantize::DequantizeOp;
 pub use drain::DrainOp;
 pub use level::LevelOp;
 pub use logsumexp::LogsumexpOp;
