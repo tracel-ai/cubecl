@@ -74,8 +74,35 @@ fn across(
     write(unit, share.reduce::<Best>(own, monoid), values, indices);
 }
 
-/// The `K` best of `items` under `monoid`, padded with the identity.
-fn expected(items: &[f32], monoid: Monoid) -> Vec<(f32, u32)> {
+/// One lane, the best forty: past the unroll budget, where a value shifts into a list from the
+/// end and a plane's lists meet at a cursor.
+type Long = TopK<f32, Const<1>, Const<40>>;
+const LONG: usize = 40;
+
+/// Each unit inserts every `units`-th item, starting at its own, as a reduction reads a row;
+/// unit 0 writes its own list, then the plane's.
+#[cube(launch)]
+fn long_lists(input: &[f32], values: &mut [f32], indices: &mut [u32], #[comptime] monoid: Monoid) {
+    let unit = UNIT_POS as usize;
+    let units = CUBE_DIM as usize;
+    let mut own = Long::identity(monoid);
+    for step in 0..input.len() / units {
+        let i = unit + step * units;
+        own.insert(Vector::new(input[i]), Vector::new(i as u32), monoid);
+    }
+    let plane = UnitShare::Plane.reduce::<Long>(own, monoid);
+    if unit == 0 {
+        for j in 0..LONG {
+            values[j] = own.values[j].extract(0usize);
+            indices[j] = own.indices[j].extract(0usize);
+            values[LONG + j] = plane.values[j].extract(0usize);
+            indices[LONG + j] = plane.indices[j].extract(0usize);
+        }
+    }
+}
+
+/// The `k` best of `items` under `monoid`, padded with the identity.
+fn expected(items: &[f32], monoid: Monoid, k: usize) -> Vec<(f32, u32)> {
     let mut order: Vec<(f32, u32)> = items
         .iter()
         .enumerate()
@@ -97,8 +124,8 @@ fn expected(items: &[f32], monoid: Monoid) -> Vec<(f32, u32)> {
         Monoid::Max => f32::NEG_INFINITY,
         _ => f32::INFINITY,
     };
-    order.resize(K.max(order.len()), (none, u32::MAX));
-    order.truncate(K);
+    order.resize(k.max(order.len()), (none, u32::MAX));
+    order.truncate(k);
     order
 }
 
@@ -191,7 +218,7 @@ fn inserts_and_a_combine_keep_the_k_best() {
                 });
                 for (list, how) in ["inserted", "combined"].into_iter().enumerate() {
                     for (lane, items) in [&a, &b].into_iter().enumerate() {
-                        for (j, want) in expected(items, monoid).into_iter().enumerate() {
+                        for (j, want) in expected(items, monoid, K).into_iter().enumerate() {
                             let slot = (list * K + j) * 2 + lane;
                             check(
                                 (values[slot], indices[slot]),
@@ -236,7 +263,7 @@ fn a_plane_and_its_groups_keep_the_k_best() {
                 for unit in 0..units {
                     let first = unit / group * group;
                     for (lane, items) in [&a, &b].into_iter().enumerate() {
-                        let want = expected(&items[first..first + group], monoid);
+                        let want = expected(&items[first..first + group], monoid, K);
                         for (j, (value, index)) in want.into_iter().enumerate() {
                             let index = match index {
                                 u32::MAX => index,
@@ -252,6 +279,59 @@ fn a_plane_and_its_groups_keep_the_k_best() {
                             );
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// One-lane lists longer than the unroll budget keep the `k` best, as a unit's and as a plane's.
+#[test]
+fn long_lists_keep_the_k_best() {
+    let client = cubecl::test_device().client();
+    let units = client.properties().hardware.plane_size_max as usize;
+    let n = units * 48;
+    for monoid in [Monoid::Max, Monoid::Min] {
+        for (name, items) in cases(n) {
+            let input_handle = client.create_from_slice(f32::as_bytes(&items));
+            let values = client.empty(2 * LONG * 4);
+            let indices = client.empty(2 * LONG * 4);
+            unsafe {
+                long_lists::launch(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(units as u32),
+                    BufferArg::from_raw_parts(input_handle, n),
+                    BufferArg::from_raw_parts(values.clone(), 2 * LONG),
+                    BufferArg::from_raw_parts(indices.clone(), 2 * LONG),
+                    monoid,
+                )
+            };
+            let values = f32::from_bytes(&client.read_one(values).unwrap()).to_vec();
+            let indices = u32::from_bytes(&client.read_one(indices).unwrap()).to_vec();
+            // Unit 0 read items 0, units, 2 * units, ...: its list's indices are theirs.
+            let own: Vec<f32> = items.iter().step_by(units).copied().collect();
+            let own = expected(&own, monoid, LONG)
+                .into_iter()
+                .map(|(value, index)| match index {
+                    u32::MAX => (value, index),
+                    index => (value, index * units as u32),
+                });
+            let plane = expected(&items, monoid, LONG).into_iter();
+            for (list, (how, want)) in [
+                ("unit", own.collect::<Vec<_>>()),
+                ("plane", plane.collect()),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                for (j, want) in want.into_iter().enumerate() {
+                    let slot = list * LONG + j;
+                    check(
+                        (values[slot], indices[slot]),
+                        want,
+                        &format!("{monoid:?} {name} {how} slot {j}"),
+                    );
                 }
             }
         }
