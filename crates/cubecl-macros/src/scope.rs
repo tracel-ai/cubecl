@@ -71,6 +71,10 @@ pub struct Context {
     /// Flag that the function has an early return, used to avoid setting up return flags when
     /// they're not necessary
     pub has_early_return: bool,
+    /// Set while parsing a direct operand of `&&` or `||`: there a `comptime!` block makes the
+    /// operator short-circuit with a branch, while a bare comptime value lets it be a plain `and`,
+    /// so the wrapper changes the kernel and is never redundant.
+    pub in_short_circuit_operand: bool,
 }
 
 impl Context {
@@ -100,6 +104,7 @@ impl Context {
             debug_pos: None,
             debug_pos_count: 0,
             has_early_return: false,
+            in_short_circuit_operand: false,
         }
     }
 

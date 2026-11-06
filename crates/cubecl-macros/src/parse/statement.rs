@@ -216,7 +216,7 @@ fn redundant_comptime_warning(mac: &Macro, context: &Context) -> proc_macro2::To
     let Ok(expr) = parse2::<Expr>(mac.tokens.clone()) else {
         return quote![];
     };
-    if !is_redundant_comptime(&expr, context) {
+    if context.in_short_circuit_operand || !is_redundant_comptime(&expr, context) {
         return quote![];
     }
     let span = mac.path.span();
