@@ -100,7 +100,8 @@ pub struct WgpuStream {
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
     ///
-    /// Shared by every stream on the device, as they share the queue these writes wait on.
+    /// Shared by every stream where buffers are mapped, as [`Self::write_mapped`] has to see the
+    /// writes any of them queued. Elsewhere it is this stream's own.
     pending_write_count: Arc<AtomicUsize>,
     /// Cross-stream input bindings for tasks recorded but not yet submitted.
     /// Kept alive here until the next `flush` ties their release to the submission's completion.

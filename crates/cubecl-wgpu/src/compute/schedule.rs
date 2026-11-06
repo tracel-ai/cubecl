@@ -99,8 +99,9 @@ pub struct WgpuStreamFactory {
     captures: DeviceCaptures,
     /// Whether the device is poisoned, shared by every stream the factory creates.
     poison: PoisonWatch,
-    /// The queue's writes waiting on a submit, shared by every stream the factory creates.
-    pending_write_count: Arc<AtomicUsize>,
+    /// The queue's writes waiting on a submit, shared by every stream the factory creates where
+    /// buffers are mapped. Elsewhere each stream counts its own.
+    pending_write_count: Option<Arc<AtomicUsize>>,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -123,7 +124,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.use_vulkan_compiler,
             &self.captures,
             self.poison.clone(),
-            self.pending_write_count.clone(),
+            self.pending_write_count.clone().unwrap_or_default(),
         ))
     }
 }
@@ -151,6 +152,12 @@ impl ScheduledWgpuBackend {
 
         let poison = PoisonWatch::watch(&device);
 
+        // Only Vulkan's integrated GPUs map their buffers, and a mapped write has to see the writes
+        // every stream queued.
+        let pending_write_count = (use_vulkan_compiler
+            && device.adapter_info().device_type == wgpu::DeviceType::IntegratedGpu)
+            .then(Arc::default);
+
         Self {
             factory: WgpuStreamFactory {
                 device,
@@ -166,7 +173,7 @@ impl ScheduledWgpuBackend {
                 use_vulkan_compiler,
                 captures,
                 poison,
-                pending_write_count: Arc::new(AtomicUsize::new(0)),
+                pending_write_count,
             },
         }
     }
