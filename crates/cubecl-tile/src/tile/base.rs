@@ -6,6 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use cubecl::zspace::SmallVec;
 
+use crate::dialect::{CopyOp, DequantizeOp};
 use crate::stage::pipeline::payload::base::{StageOperand, StageSpec, stage_one};
 use crate::*;
 
@@ -874,7 +875,20 @@ impl Tile {
     /// A source whose scales a stage keeps beside it copies its values as they are stored, into a
     /// stage that keeps them too; the stage's fill brings the scales. Any other scaled source is
     /// written with its scales applied, which only [`dequantize_from`](Tile::dequantize_from) does.
+    ///
+    /// It reaches the IR as one `tile.copy` op.
     pub fn copy_from(&mut self, src: &Tile) {
+        intrinsic!(|scope| CopyOp::trace(scope, |scope| {
+            self.__expand_copy_as_stored_method(scope, src)
+        }))
+    }
+
+    /// [`copy_from`](Tile::copy_from)'s copy, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn copy_as_stored(&mut self, src: &Tile) {
         let decodes = src.decodes();
         comptime!(assert!(
             !decodes,
@@ -898,7 +912,20 @@ impl Tile {
     /// From memory, each load is decoded once, in the unit that reads it, its scales multiplied
     /// together in `f32` and the value rounded once. From an accumulator, it is the sum's drain,
     /// which multiplies the sum by the scale it carries; the sum is spent by its write.
+    ///
+    /// It reaches the IR as one `tile.dequantize` op.
     pub fn dequantize_from(&mut self, src: &Tile) {
+        intrinsic!(|scope| DequantizeOp::trace(scope, |scope| {
+            self.__expand_decode_from_method(scope, src)
+        }))
+    }
+
+    /// [`dequantize_from`](Tile::dequantize_from)'s decode, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn decode_from(&mut self, src: &Tile) {
         match &src.kind {
             TileKind::Memory(_) => {
                 let into_memory = self.is_memory();
