@@ -8,7 +8,7 @@ use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
-    controller::WgpuAllocController,
+    controller::PendingStaging,
     schedule::{Addresses, ScheduleTask},
 };
 use core::iter;
@@ -410,7 +410,7 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
-            staging_info.push(Some((staging, binding, size)));
+            staging_info.push(Some((PendingStaging::new(staging.buffer, binding), size)));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the
@@ -428,11 +428,11 @@ impl WgpuStream {
         }
 
         for entry in staging_info.iter() {
-            if let Some((staging, _binding, _size)) = entry {
+            if let Some((staging, _size)) = entry {
                 let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
                 self.poison.wake_on_loss(&sender);
                 staging
-                    .buffer
+                    .buffer()
                     .slice(..)
                     .map_async(wgpu::MapMode::Read, move |v| {
                         // This might fail if the channel is closed (eg. the future is dropped).
@@ -478,9 +478,8 @@ impl WgpuStream {
                 staging_info
                     .into_iter()
                     .map(|entry| {
-                        if let Some((staging, binding, size)) = entry {
-                            let controller =
-                                Box::new(WgpuAllocController::init(binding, staging.buffer));
+                        if let Some((staging, size)) = entry {
+                            let controller = Box::new(staging.into_controller());
                             // SAFETY: The binding has initialized memory for at least `size` bytes.
                             unsafe { Bytes::from_controller(controller, size) }
                         } else {
