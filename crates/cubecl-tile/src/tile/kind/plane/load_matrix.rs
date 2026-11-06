@@ -100,7 +100,8 @@ pub(crate) enum PairAxis {
 /// would take one of half as many. Unit `l` addresses row `l % 8` of matrix `l / 8`, the first
 /// fragment's matrices first, so the instruction hands `first` its registers and then `second`
 /// its own. Only fragments of at most two matrices pair, as a `B` of one depth is: four is the
-/// most one `ldmatrix` reads.
+/// most one `ldmatrix` reads. Units past the pair's matrices wrap onto them, as in
+/// [`load_ldmatrix`], since every unit hands the instruction an address it may read.
 #[cube]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn load_ldmatrix_pair<
@@ -152,7 +153,7 @@ pub(super) fn load_ldmatrix_pair<
     let instruction_transposes = comptime!(vector_layout != layout);
     let unit = UNIT_POS_PLANE;
     let row_in_matrix = unit % 8;
-    let matrix = unit / 8;
+    let matrix = unit / 8 % comptime!(2 * num_regs as u32);
     // The fragment the unit's matrix is of, and which of that fragment's matrices it is.
     let fragment = matrix / comptime!(num_regs as u32);
     let nth_matrix = matrix % comptime!(num_regs as u32);
