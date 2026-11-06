@@ -1,11 +1,15 @@
 //! CPU cube synchronization.
 
 use crate::{cpu::entrypoint::runtime_arg, prelude::*};
-use cubecl_core::ir::dialect::{
-    atomic::AtomicLoadOp,
-    memory::LoadOp,
-    plane::{AtomicUniformLoadOp, UniformLoadOp},
-    synchronization::{SyncOp, SyncScope, SyncScopeAttr},
+use cubecl_core::ir::{
+    CanMaterialize, HasSideEffects,
+    dialect::{
+        atomic::AtomicLoadOp,
+        memory::LoadOp,
+        plane::{AtomicUniformLoadOp, UniformLoadOp},
+        synchronization::{SyncOp, SyncScope, SyncScopeAttr},
+    },
+    interfaces::Synchronizes,
 };
 use pliron::dict_key;
 use pliron_llvm::function_call_utils::lookup_or_insert_function;
@@ -109,6 +113,27 @@ pub(crate) unsafe extern "C" fn cube_barrier(state: *const CubeBarrier, units: u
     state.wait(units);
 }
 
+/// Preserve the barrier through `CubeCL` optimization; external calls are emitted only
+/// during LLVM conversion. Capturing the state operand here also survives ABI rebuilding.
+#[cube_op(name = "cpu.cube_barrier")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct CubeBarrierOp {
+    pub state: Value,
+    pub units: IndexAttr,
+}
+
+#[op_interface_impl]
+impl Synchronizes for CubeBarrierOp {
+    fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Cube
+    }
+
+    fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Cube
+    }
+}
+
 pub fn lower_sync_cube(scope: &Scope, op: Ptr<Operation>) {
     let ctx = scope.ctx();
     let func = enclosing_func(ctx, op);
@@ -120,6 +145,25 @@ pub fn lower_sync_cube(scope: &Scope, op: Ptr<Operation>) {
 
     if units > 1 {
         let state = runtime_arg(ctx, func, &ATTR_SYNC_CUBE_STATE);
+        scope.register(&CubeBarrierOp::new(
+            scope.ctx_mut(),
+            state,
+            IndexAttr(units as usize),
+        ));
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for CubeBarrierOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let state = self.state(ctx);
+        let units = self.units(ctx).0;
+        let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let module = scope.state().module;
         let ctx = scope.ctx_mut();
         let ptr_ty = LlvmPointerType::get(ctx, 0).into();
@@ -133,18 +177,19 @@ pub fn lower_sync_cube(scope: &Scope, op: Ptr<Operation>) {
             void_ty,
             vec![ptr_ty, units_ty],
             false,
-        )
-        .expect("cube barrier must have a consistent signature");
+        )?;
         let units = i32_const_op(ctx, units as i32);
         scope.register(&units);
-        // The external call's unrestricted memory effects prevent accesses from being
-        // moved across the barrier by either the CubeCL or LLVM optimizers.
+        // CubeCL passes see Synchronizes above; the external call's unrestricted
+        // memory effects preserve the barrier through LLVM optimization.
         scope.register(&llvm::CallOp::new(
             ctx,
             CallOpCallable::Direct(barrier.get_symbol_name(ctx)),
             barrier.get_type(ctx),
             vec![state, units.get_result(ctx)],
         ));
+        rewriter.erase_operation(ctx, self.get_operation());
+        Ok(())
     }
 }
 

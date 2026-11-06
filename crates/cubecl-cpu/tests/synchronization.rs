@@ -93,3 +93,78 @@ fn barriers_without_shared_memory_publish_global_writes() {
         .collect();
     assert_eq!(u32::from_bytes(&bytes), expected);
 }
+
+#[derive(CubeType)]
+struct RowPartials {
+    shared: Shared<[f32]>,
+    own: Array<f32>,
+    row: usize,
+    unit: usize,
+}
+
+#[cube]
+impl RowPartials {
+    fn slot(&self, #[comptime] slice: usize, unit: usize) -> usize {
+        (slice * 2 + self.row) * 2 + unit
+    }
+
+    fn sum(&mut self, #[comptime] slice: usize) {
+        let mine = self.slot(slice, self.unit);
+        self.shared[mine] = self.own[0];
+        sync_cube();
+        self.own[0] = self.shared[self.slot(slice, 0usize)];
+        for other in 1..2usize {
+            self.own[0] += self.shared[self.slot(slice, other)];
+        }
+    }
+}
+
+#[cube(launch)]
+fn row_partial_sums(output: &mut [f32], rounds: u32) {
+    let unit = UNIT_POS_X as usize;
+    let row = UNIT_POS_Y as usize;
+    let mut partials = RowPartials {
+        shared: Shared::<[f32]>::new_slice(8usize),
+        own: Array::<f32>::new(1usize),
+        row,
+        unit,
+    };
+    for round in 0..rounds as usize {
+        #[unroll]
+        for slice in 0..2usize {
+            partials.own[0] = 0.0f32;
+            partials.own[0] += 0.5f32 * f32::cast_from(unit * 7 + row * 3 + round) + 1.0f32
+                - 0.75f32 * f32::cast_from(slice);
+            partials.sum(slice);
+            output[((round * 2 + row) * 2 + unit) * 2 + slice] = partials.own[0];
+        }
+    }
+}
+
+/// Repeated row sums reuse index expressions across a barrier. The optimizer must not
+/// replace an index with a definition after its use or reuse a pre-barrier shared load.
+#[test]
+fn row_reductions_keep_indices_and_shared_loads_on_the_correct_side_of_barriers() {
+    let client = CpuRuntime::client(&Default::default());
+    let rounds = 3usize;
+    let len = rounds * 2 * 2 * 2;
+    let output = client.empty(len * size_of::<f32>());
+    row_partial_sums::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_2d(2, 2),
+        unsafe { BufferArg::from_raw_parts(output.clone(), len) },
+        rounds as u32,
+    );
+    let bytes = client.read_one(output).unwrap();
+    let expected: Vec<_> = (0..rounds)
+        .flat_map(|round| {
+            (0..2).flat_map(move |row| {
+                (0..2).flat_map(move |_| {
+                    (0..2).map(move |slice| 5.5 + (3 * row + round) as f32 - 1.5 * slice as f32)
+                })
+            })
+        })
+        .collect();
+    assert_eq!(f32::from_bytes(&bytes), expected);
+}
