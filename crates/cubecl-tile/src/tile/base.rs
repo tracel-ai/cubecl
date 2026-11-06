@@ -324,6 +324,18 @@ impl Tile {
         }
     }
 
+    /// Whether this tile is zero everywhere ([`Procedural::zero`]): a bias an op may skip.
+    pub fn is_zero(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Procedural(recipe) => recipe.is_zero(),
+            TileKind::Memory(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile is a memory window.
     pub(crate) fn is_memory(&self) -> comptime_type!(bool) {
         match &self.kind {
