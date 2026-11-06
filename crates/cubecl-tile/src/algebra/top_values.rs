@@ -58,7 +58,7 @@ impl<E: Numeric, N: Size, K: Size> TopValues<E, N, K> {
     }
 
     /// `value` walked down this list: each slot keeps the better of what it holds and what comes
-    /// down, and passes the other on.
+    /// down, and passes the other on, picked before the slot is written as in `TopK`'s walk.
     fn walk(
         &mut self,
         value: Vector<E, N>,
@@ -71,8 +71,9 @@ impl<E: Numeric, N: Size, K: Size> TopValues<E, N, K> {
         for j in 0..k {
             let kept = self.values[j];
             let keep = stays_ahead::<E, N>(kept, value, monoid);
+            let passed = select_many(keep, value, kept);
             self.values[j] = select_many(keep, kept, value);
-            value = select_many(keep, value, kept);
+            value = passed;
         }
     }
 
