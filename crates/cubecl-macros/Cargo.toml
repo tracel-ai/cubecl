@@ -26,6 +26,9 @@ debug_symbols = []
 # Warns on each `comptime!` the macro doesn't need. Off by default; a repo's CI turns it on for its
 # own crates.
 warn-redundant-comptime = []
+# Warns on each lint a `#[cube]` function allows that the macro already allows on it. Off by
+# default; a repo's CI turns it on for its own crates.
+warn-redundant-allow = []
 default = []
 std = []
 
