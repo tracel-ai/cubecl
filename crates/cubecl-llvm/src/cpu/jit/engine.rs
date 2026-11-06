@@ -4,7 +4,7 @@ use super::{
     symbols::{JitSymbols, write_perf_map},
 };
 use crate::{
-    cpu::shared_memory::SharedMemories,
+    cpu::{shared_memory::SharedMemories, synchronization::CubeBarrier},
     prelude::{Context, ModuleOp},
     shared::{
         debug_info::{check_debug_info, convert_module},
@@ -24,7 +24,8 @@ use std::{
 
 /// Kernel ABI: buffer pointers, cube count x/y/z, unit position x/y/z,
 /// barrier state, metadata.
-type KernelFn = extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *mut u32, *mut u64);
+type KernelFn =
+    extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *const CubeBarrier, *mut u64);
 
 /// Resources and scheduling required for a launch.
 #[derive(Clone, Debug, Default)]
@@ -144,6 +145,7 @@ impl PlironEngine {
     }
 
     /// Load precompiled object bytes directly into the JIT linking layer.
+    /// The object must use the current [`CPU_KERNEL_ABI_VERSION`](crate::cpu::abi::CPU_KERNEL_ABI_VERSION).
     ///
     /// # Errors
     /// When the JIT cannot link the object, or the object does not define `entrypoint`.
@@ -210,7 +212,7 @@ impl PlironEngine {
         let b = data.builtins;
         let buffer_ptrs = data.shared.buffer_ptrs.as_ptr() as *mut *mut c_void;
         let metadata = data.shared.metadata.as_ptr() as *mut u64;
-        let sync_cube_state = data.shared.sync_cube_state.as_ptr() as *mut u32;
+        let sync_cube_state = &data.shared.sync_cube_state;
         (self.0.func)(
             buffer_ptrs,
             b[0],
