@@ -6,16 +6,17 @@ use crate::space::extent::Extent;
 use crate::{Axis, Space, algebra::gcd};
 
 /// How far one unit of a logical axis moves along one physical axis.
-/// A `Dynamic` coefficient declares `max`, the largest value the launch may pass.
+/// A `Static` coefficient is signed: a negative one steps the physical axis backward. A `Dynamic`
+/// coefficient declares `max`, the largest value the launch may pass, and is never negative.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Scale {
-    Static(usize),
+    Static(isize),
     Dynamic { max: usize },
 }
 
 impl Scale {
     /// The comptime coefficient; panics on `Dynamic`.
-    pub fn get(self) -> usize {
+    pub fn get(self) -> isize {
         match self {
             Scale::Static(n) => n,
             Scale::Dynamic { .. } => {
@@ -26,12 +27,16 @@ impl Scale {
         }
     }
 
-    /// The largest value this coefficient can take: itself, or the declared `max`.
+    /// The largest absolute value this coefficient can take: itself, or the declared `max`.
     pub fn bound(self) -> usize {
         match self {
-            Scale::Static(n) => n,
+            Scale::Static(n) => n.unsigned_abs(),
             Scale::Dynamic { max } => max,
         }
+    }
+
+    pub(crate) fn is_negative(self) -> bool {
+        matches!(self, Scale::Static(n) if n < 0)
     }
 
     pub fn is_dynamic(self) -> bool {
@@ -165,7 +170,12 @@ impl PhysicalAxisMap {
     pub fn affine(terms: &[(Axis, usize)]) -> Self {
         let terms: SmallVec<[(Axis, Scale); Space::MAX_RANK]> = terms
             .iter()
-            .map(|&(axis, scale)| (axis, Scale::Static(scale)))
+            .map(|&(axis, scale)| {
+                (
+                    axis,
+                    Scale::Static(isize::try_from(scale).expect("a coefficient fits an isize")),
+                )
+            })
             .collect();
         Self::scaled(&terms)
     }
@@ -223,6 +233,11 @@ impl PhysicalAxisMap {
             "PhysicalAxisMap::over: this map already divides by {:?}; state the whole divisor once",
             self.divisor
         );
+        assert!(
+            divisor.is_unit() || !self.has_negative_scale(),
+            "PhysicalAxisMap::over: a negative coefficient under a division floors the wrong way \
+             and is refused"
+        );
         self.divisor = divisor;
         self.composition = Composition::Overlapping;
         self.reduced()
@@ -234,7 +249,7 @@ impl PhysicalAxisMap {
             return self;
         };
         let common = self.terms.iter().try_fold(0, |g, t| match t.scale {
-            Scale::Static(s) => Some(gcd(g, s)),
+            Scale::Static(s) => Some(gcd(g, s.unsigned_abs())),
             Scale::Dynamic { .. } => None,
         });
         // `gcd(0, s)` seeds from the first coefficient; an all-`0` combination reports `0`.
@@ -242,7 +257,7 @@ impl PhysicalAxisMap {
             return self;
         }
         for term in self.terms.iter_mut() {
-            term.scale = Scale::Static(term.scale.get() / d);
+            term.scale = Scale::Static(term.scale.get() / d as isize);
         }
         self.offset = Offset::Static(o.div_euclid(d as isize));
         self.divisor = Divisor::Static(1);
@@ -289,7 +304,7 @@ impl PhysicalAxisMap {
     }
 
     /// Term `term`'s static additive step, `None` if dynamic; panics for one kept inside a floor.
-    pub(crate) fn additive_step(&self, term: usize) -> Option<usize> {
+    pub(crate) fn additive_step(&self, term: usize) -> Option<isize> {
         if self.is_rational() {
             return Some(self.static_offset_step(term).unwrap_or_else(|| {
                 panic!(
@@ -297,7 +312,7 @@ impl PhysicalAxisMap {
                      it is not an addition and the map has to be summed at every position",
                     self.terms()[term].axis
                 )
-            }));
+            }) as isize);
         }
         match self.terms()[term].scale {
             Scale::Static(s) => Some(s),
@@ -308,7 +323,10 @@ impl PhysicalAxisMap {
     /// Term `term`'s static step outside the rational floor, where `scale / divisor` is exact.
     pub(crate) fn static_offset_step(&self, term: usize) -> Option<usize> {
         match (self.divisor, self.terms[term].scale) {
-            (Divisor::Static(d), Scale::Static(s)) if d > 1 && s.is_multiple_of(d) => Some(s / d),
+            (Divisor::Static(d), Scale::Static(s)) if d > 1 => usize::try_from(s)
+                .ok()
+                .filter(|s| s.is_multiple_of(d))
+                .map(|s| s / d),
             _ => None,
         }
     }
@@ -339,6 +357,11 @@ impl PhysicalAxisMap {
         self.terms.iter().filter(|t| t.scale.is_dynamic()).count()
     }
 
+    /// Whether any of this axis's coefficients steps it backward.
+    pub(crate) fn has_negative_scale(&self) -> bool {
+        self.terms.iter().any(|t| t.scale.is_negative())
+    }
+
     /// Whether any of this axis's coefficients are [`Dynamic`](Scale::Dynamic).
     pub(crate) fn has_dynamic_scale(&self) -> bool {
         self.terms.iter().any(|t| t.scale.is_dynamic())
@@ -350,7 +373,7 @@ impl PhysicalAxisMap {
     }
 
     /// `axis`'s coefficient, `0` when it does not address this axis. Panics if it is dynamic.
-    pub fn scale(&self, axis: Axis) -> usize {
+    pub fn scale(&self, axis: Axis) -> isize {
         self.terms
             .iter()
             .find(|t| t.axis == axis)
@@ -387,7 +410,7 @@ impl PhysicalAxisMap {
             .terms
             .iter()
             .map(|term| match term.scale {
-                Scale::Static(scale) => Some((term.axis, scale)),
+                Scale::Static(scale) => usize::try_from(scale).ok().map(|s| (term.axis, s)),
                 Scale::Dynamic { .. } => None,
             })
             .collect::<Option<SmallVec<[(Axis, usize); Space::MAX_RANK]>>>()?;
@@ -473,6 +496,27 @@ mod tests {
         assert!(with_dynamic_offset.offset().is_dynamic());
         assert!(!with_dynamic_offset.has_dynamic_scale());
         assert_eq!(with_dynamic_offset.dynamic_scale_count(), 0);
+    }
+
+    /// `data = out + pad - tap * dilation`: the tap steps backward.
+    #[test]
+    fn a_backward_coefficient_stays_signed_and_never_flattens() {
+        let map =
+            PhysicalAxisMap::scaled(&[(A, Scale::Static(1)), (B, Scale::Static(-2))]).shifted(3);
+        assert_eq!(map.scale(B), -2);
+        assert_eq!(map.additive_step(1), Some(-2));
+        assert!(map.has_negative_scale());
+        assert!(!PhysicalAxisMap::scaled(&[(A, Scale::Static(-1))]).is_identity(A));
+
+        let space = Space::new(&[(A, 4), (B, 16)]);
+        let flat = PhysicalAxisMap::scaled(&[(A, Scale::Static(-16)), (B, Scale::Static(1))]);
+        assert_eq!(flat.flattened_axes(&space), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "negative coefficient under a division")]
+    fn a_backward_coefficient_under_a_division_is_refused() {
+        PhysicalAxisMap::scaled(&[(A, Scale::Static(-4))]).over(2);
     }
 
     /// The axes come back finest first, whatever order the terms are written in. A gap or

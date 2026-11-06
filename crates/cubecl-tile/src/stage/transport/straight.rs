@@ -24,11 +24,19 @@ impl Memory {
         let check = comptime!(src.access.overhang.masks());
         let sw = comptime!(src.store.vector_size);
         let w = comptime!(self.store.vector_size);
-        let compaction = comptime!(stage_compaction(
-            &src.projection,
-            &self.projection,
-            w,
-            &space
+        // A direct stage with no source window holds its logical box, whatever the source gathers.
+        let dense = comptime!(self.projection.is_direct() && self.source_window.is_none());
+        let compaction = comptime!(match dense {
+            true => None,
+            false => stage_compaction(&src.projection, &self.projection, w, &space),
+        });
+        comptime!(assert!(
+            !dense
+                || src.projection.is_direct()
+                || src.projection.composition() == Composition::Disjoint
+                || (sw == w && !src.projection.is_rational()),
+            "Memory::fill_straight: a dense stage reads its gathered source through the source's \
+             map, which a padded or rational fill does not"
         ));
         // Empty when the window has no holes to skip.
         let steps = comptime!(match &compaction {
@@ -82,7 +90,8 @@ impl Memory {
                 compaction.is_none()
                     && !src.projection.is_direct()
                     && !src.projection.is_rational()
-                    && src_rank != plen
+                    && (src_rank != plen
+                        || src.projection.composition() == Composition::Overlapping)
             );
             let s = if comptime!(steps.is_empty() && !through_projection) {
                 Masked::new(
