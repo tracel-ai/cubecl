@@ -115,6 +115,7 @@ impl ExclusiveMemoryPool {
             // This pool only allocates eagerly.
             pages_unmapped: 0,
             largest_alloc: self.largest_alloc,
+            allocations: super::live_allocations(self.pages.iter().map(|page| &page.slice)),
         }
     }
 

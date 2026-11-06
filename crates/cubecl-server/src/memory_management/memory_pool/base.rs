@@ -1,9 +1,13 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
+    memory_management::{
+        AllocationReport, Cleanup, ErrorGraph, MemoryLocation, MemoryTracing, MemoryUsage,
+        PageGuard, Taint, memory_tracing,
+    },
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
+use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
 /// Whether a fresh device page gets real backing at allocation time.
@@ -276,6 +280,17 @@ impl Slice {
         self.handle.is_free()
     }
 
+    /// The allocation this slice holds, as a pool's report lists it.
+    pub(crate) fn allocation_report(&self) -> AllocationReport {
+        let descriptor = self.handle.descriptor();
+        AllocationReport {
+            id: descriptor.id.value as u64,
+            size: self.storage.size(),
+            padding: self.padding,
+            origin: descriptor.origin().map(|origin| origin.report()),
+        }
+    }
+
     /// The total size of the slice including padding.
     pub(crate) fn effective_size(&self) -> u64 {
         self.storage.size() + self.padding
@@ -316,4 +331,20 @@ pub(crate) fn calculate_padding(size: u64, memory_alignment: u64) -> u64 {
     } else {
         0
     }
+}
+
+/// The allocations alive among `slices`, as a pool's report lists them: none
+/// while [memory tracing](MemoryTracing) is off, so a report stays as cheap as
+/// its counts.
+pub(crate) fn live_allocations<'a>(
+    slices: impl IntoIterator<Item = &'a Slice>,
+) -> Vec<AllocationReport> {
+    if memory_tracing() == MemoryTracing::Disabled {
+        return Vec::new();
+    }
+    slices
+        .into_iter()
+        .filter(|slice| !slice.is_free())
+        .map(Slice::allocation_report)
+        .collect()
 }

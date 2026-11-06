@@ -1384,4 +1384,58 @@ mod tests {
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
     }
+
+    /// While tracing is on, each pool's report lists the allocations alive
+    /// in it under the labels they were made with, and an allocation leaves
+    /// the report as soon as its last handle drops.
+    #[test_log::test]
+    fn a_traced_report_lists_who_holds_each_live_allocation() {
+        use crate::memory_management::{MemoryPoolReport, MemoryTracing, configure_tracing};
+        use cubecl_common::allocation_label::AllocationLabel;
+
+        let labels = |pools: &[MemoryPoolReport]| -> Vec<Vec<String>> {
+            pools
+                .iter()
+                .flat_map(|pool| &pool.allocations)
+                .filter_map(|allocation| allocation.origin.as_ref())
+                .map(|origin| origin.labels.clone())
+                .collect()
+        };
+        let failures = &mut ErrorGraph::default();
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::default(),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // Tracing is process-wide: on only while this test allocates and
+        // reads, so the other tests' reports stay as they were.
+        configure_tracing(MemoryTracing::Labels);
+        memory.mode(MemoryAllocationMode::Persistent);
+        let weights = {
+            let _model = AllocationLabel::enter("model");
+            let _weights = AllocationLabel::enter("weights");
+            memory.reserve(4096, PageUpdate::Allow, failures).unwrap()
+        };
+        memory.mode(MemoryAllocationMode::Auto);
+        let scratch = {
+            let _scratch = AllocationLabel::enter("scratch");
+            memory.reserve(1024, PageUpdate::Allow, failures).unwrap()
+        };
+        let report = memory.memory_report();
+        drop(scratch);
+        let after_drop = memory.memory_report();
+        configure_tracing(MemoryTracing::Disabled);
+
+        assert_eq!(
+            labels(core::slice::from_ref(&report.persistent)),
+            [["model", "weights"]]
+        );
+        assert_eq!(labels(&report.dynamic), [["scratch"]]);
+        assert!(labels(&after_drop.dynamic).is_empty());
+        assert_eq!(after_drop.persistent.allocations.len(), 1);
+        drop(weights);
+    }
 }

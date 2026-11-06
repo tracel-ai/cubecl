@@ -75,6 +75,7 @@ impl PersistentPool {
             pages_peak: self.pages_peak,
             pages_unmapped: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc: self.largest_alloc,
+            allocations: super::live_allocations(&self.slices),
         }
     }
 

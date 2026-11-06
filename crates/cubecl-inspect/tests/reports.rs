@@ -319,6 +319,7 @@ fn fixture(dir: &Path) -> PathBuf {
         pages_peak: 2,
         pages_unmapped: 0,
         largest_alloc: 800,
+        allocations: Vec::new(),
     };
     insert_record(
         &database,

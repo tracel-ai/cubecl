@@ -92,6 +92,9 @@ impl SlicedPool {
                 .filter(|(page, _)| !page.is_mapped())
                 .count() as u64,
             largest_alloc: self.largest_alloc,
+            allocations: super::live_allocations(
+                self.pages.iter().flat_map(|(page, _)| page.live()),
+            ),
         }
     }
 

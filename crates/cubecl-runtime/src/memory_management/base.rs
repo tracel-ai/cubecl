@@ -151,9 +151,28 @@ pub struct MemoryPoolReport {
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.
     pub largest_alloc: u64,
+    /// Every allocation alive in the pool, with who asked for it, while
+    /// [memory tracing](crate::config::memory::MemoryTracing) is on; empty
+    /// while it is off.
+    #[serde(default)]
+    pub allocations: Vec<AllocationReport>,
 }
 
-/// Who asked for an allocation, as a memory report states it.
+/// One allocation alive in a pool: the bytes it takes, and who asked for it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AllocationReport {
+    /// The memory's id, stable for as long as the allocation lives and never
+    /// given to another.
+    pub id: u64,
+    /// The bytes the allocation's slice holds.
+    pub size: u64,
+    /// The bytes after it the pool's alignment leaves unused.
+    pub padding: u64,
+    /// Who asked for it; `None` for memory minted before tracing was on.
+    pub origin: Option<AllocationOriginReport>,
+}
+
+/// Who asked for an allocation, as [`AllocationReport::origin`] states it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AllocationOriginReport {
     /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
@@ -303,6 +322,7 @@ mod tests {
             pages_peak: 1,
             pages_unmapped: 0,
             largest_alloc: bytes_in_use,
+            allocations: Vec::new(),
         }
     }
 
