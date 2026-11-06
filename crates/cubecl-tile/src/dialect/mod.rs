@@ -1,11 +1,13 @@
 //! The tile ops in the IR, each lowered by every backend's `LowerOpsPass`.
 
+mod copy;
 mod drain;
 mod level;
 mod mma;
 #[cfg(feature = "sequential-levels")]
 mod sequential;
 
+pub use copy::CopyOp;
 pub use drain::DrainOp;
 pub use level::LevelOp;
 pub use mma::MmaOp;

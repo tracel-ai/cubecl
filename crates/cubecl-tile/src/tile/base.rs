@@ -6,6 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use cubecl::zspace::SmallVec;
 
+use crate::dialect::CopyOp;
 use crate::stage::pipeline::payload::base::{StageOperand, StageSpec, stage_one};
 use crate::*;
 
@@ -874,7 +875,20 @@ impl Tile {
     /// A source whose scales a stage keeps beside it copies its values as they are stored, into a
     /// stage that keeps them too; the stage's fill brings the scales. Any other scaled source is
     /// written with its scales applied, which only [`dequantize_from`](Tile::dequantize_from) does.
+    ///
+    /// It reaches the IR as one `tile.copy` op.
     pub fn copy_from(&mut self, src: &Tile) {
+        intrinsic!(|scope| CopyOp::trace(scope, |scope| {
+            self.__expand_copy_as_stored_method(scope, src)
+        }))
+    }
+
+    /// [`copy_from`](Tile::copy_from)'s copy, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn copy_as_stored(&mut self, src: &Tile) {
         let decodes = src.decodes();
         comptime!(assert!(
             !decodes,
