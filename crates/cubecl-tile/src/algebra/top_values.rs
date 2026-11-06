@@ -40,20 +40,131 @@ impl<E: Numeric, N: Size, K: Size> TopValues<E, N, K> {
 
     /// `value` kept in this list if it is among the `K` best, in place. A value the last kept
     /// slot stays ahead of on every lane changes nothing and skips the walk: over a long row,
-    /// almost every value. The walk unrolls within [`TOP_K_UNROLL_BUDGET`].
+    /// almost every value. The walk unrolls within [`TOP_K_UNROLL_BUDGET`]; past it, a one-lane
+    /// list shifts the value in from the end instead, as [`TopK::insert`](crate::TopK::insert)
+    /// does.
     pub fn insert(&mut self, value: Vector<E, N>, #[comptime] monoid: Monoid) {
         ordered_only(monoid);
         let k = K::value();
+        let lanes = N::value();
         let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
         if !every_lane::<N>(stays_ahead::<E, N>(self.values[k - 1], value, monoid)) {
-            let mut value = value;
-            #[unroll(unrolled)]
-            for j in 0..k {
-                let kept = self.values[j];
-                let keep = stays_ahead::<E, N>(kept, value, monoid);
-                self.values[j] = select_many(keep, kept, value);
-                value = select_many(keep, value, kept);
+            if comptime!(unrolled || lanes > 1) {
+                self.walk(value, monoid, unrolled);
+            } else {
+                self.shift_in(value, monoid);
             }
+        }
+    }
+
+    /// `value` walked down this list: each slot keeps the better of what it holds and what comes
+    /// down, and passes the other on, picked before the slot is written as in `TopK`'s walk.
+    fn walk(
+        &mut self,
+        value: Vector<E, N>,
+        #[comptime] monoid: Monoid,
+        #[comptime] unrolled: bool,
+    ) {
+        let k = K::value();
+        let mut value = value;
+        #[unroll(unrolled)]
+        for j in 0..k {
+            let kept = self.values[j];
+            let keep = stays_ahead::<E, N>(kept, value, monoid);
+            let passed = select_many(keep, value, kept);
+            self.values[j] = select_many(keep, kept, value);
+            value = passed;
+        }
+    }
+
+    /// `value`, entering this one-lane list past its last slot: the slots it beats move down
+    /// one, from the end up, and it takes the last of them. A value that enters a long list
+    /// lands near its end, so this touches a few slots where a walk touches every one.
+    fn shift_in(&mut self, value: Vector<E, N>, #[comptime] monoid: Monoid) {
+        let k = K::value();
+        let mut slot = comptime!(k - 1).runtime();
+        loop {
+            if slot == 0 {
+                break;
+            }
+            let above = slot - 1;
+            if every_lane::<N>(stays_ahead::<E, N>(self.values[above], value, monoid)) {
+                break;
+            }
+            self.values[slot] = self.values[above];
+            slot = above;
+        }
+        self.values[slot] = value;
+    }
+
+    /// The `K` best of the plane's lists, in `K` rounds: the holders' heads meet, the winner
+    /// takes the round's slot, and the lowest unit that held it moves its list up one. For lists
+    /// in registers, unrolled: a move is a select per slot.
+    fn across_plane_by_shifts(value: Self, #[comptime] monoid: Monoid) -> Self {
+        let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let none = Vector::<E, N>::new(Monoid::identity::<E>(monoid));
+        let unit = Vector::<u32, N>::new(UNIT_POS_PLANE);
+        let mut held = Array::new(k);
+        #[unroll]
+        for j in 0..k {
+            held[j] = value.values[j];
+        }
+        let mut values = Array::new(k);
+        #[unroll(unrolled)]
+        for round in 0..k {
+            let head = held[0];
+            let best = Vector::<E, N>::across(head, UnitShare::Plane, monoid);
+            values[round] = best;
+            let holder = plane_min(select_many(
+                same_value::<E, N>(head, best),
+                unit,
+                Vector::new(u32::MAX),
+            ));
+            let taken = unit.equal(&holder);
+            #[unroll(unrolled)]
+            for j in 0..comptime!(k - 1) {
+                held[j] = select_many(taken, held[j + 1], held[j]);
+            }
+            held[k - 1] = select_many(taken, none, held[k - 1]);
+        }
+        TopValues::<E, N, K> {
+            values,
+            k: comptime!(PhantomData),
+        }
+    }
+
+    /// The `K` best of the plane's one-lane lists, in `K` rounds as
+    /// [`across_plane_by_shifts`](Self::across_plane_by_shifts) does, but each unit keeps its
+    /// head apart and the lowest unit that held the winner reads its next at a cursor: for lists
+    /// too long to unroll, which live in memory, where moving a whole list each round costs `K`
+    /// loads and stores.
+    fn across_plane_by_cursor(value: Self, #[comptime] monoid: Monoid) -> Self {
+        let k = K::value();
+        let unit = Vector::<u32, N>::new(UNIT_POS_PLANE);
+        let mut values = Array::new(k);
+        let none = Vector::<E, N>::new(Monoid::identity::<E>(monoid));
+        let mut head = value.values[0];
+        let mut cursor = comptime!(0usize).runtime();
+        for round in 0..k {
+            let best = Vector::<E, N>::across(head, UnitShare::Plane, monoid);
+            values[round] = best;
+            let holder = plane_min(select_many(
+                same_value::<E, N>(head, best),
+                unit,
+                Vector::new(u32::MAX),
+            ));
+            if every_lane::<N>(unit.equal(&holder)) {
+                cursor += 1;
+                head = none;
+                if cursor < k {
+                    head = value.values[cursor];
+                }
+            }
+        }
+        TopValues::<E, N, K> {
+            values,
+            k: comptime!(PhantomData),
         }
     }
 }
@@ -121,43 +232,20 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopValues<E, N, K> {
     }
 
     /// Across a plane, `K` rounds: the holders' heads meet, the winner takes the round's slot,
-    /// and the lowest unit that held it moves its list up one. Across groups, the lists are
-    /// swapped and combined, one unit bit at a time.
+    /// and the lowest unit that held it moves on to its next: by moving its list up one where
+    /// the list unrolls, by a cursor where a one-lane list is too long to. Across groups, the
+    /// lists are swapped and combined, one unit bit at a time.
     fn across(value: Self, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
         match comptime!(share) {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane => {
                 let k = K::value();
-                let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
-                let none = Vector::<E, N>::new(Monoid::identity::<E>(monoid));
-                let unit = Vector::<u32, N>::new(UNIT_POS_PLANE);
-                let mut held = Array::new(k);
-                #[unroll]
-                for j in 0..k {
-                    held[j] = value.values[j];
-                }
-                let mut values = Array::new(k);
-                #[unroll(unrolled)]
-                for round in 0..k {
-                    let head = held[0];
-                    let best = Vector::<E, N>::across(head, share, monoid);
-                    values[round] = best;
-                    let holder = plane_min(select_many(
-                        same_value::<E, N>(head, best),
-                        unit,
-                        Vector::new(u32::MAX),
-                    ));
-                    let taken = unit.equal(&holder);
-                    #[unroll(unrolled)]
-                    for j in 0..comptime!(k - 1) {
-                        held[j] = select_many(taken, held[j + 1], held[j]);
-                    }
-                    held[k - 1] = select_many(taken, none, held[k - 1]);
-                }
-                TopValues::<E, N, K> {
-                    values,
-                    k: comptime!(PhantomData),
+                let lanes = N::value();
+                if comptime!(k * k <= TOP_K_UNROLL_BUDGET || lanes > 1) {
+                    TopValues::<E, N, K>::across_plane_by_shifts(value, monoid)
+                } else {
+                    TopValues::<E, N, K>::across_plane_by_cursor(value, monoid)
                 }
             }
             UnitShare::Group { unit_bits } => {
