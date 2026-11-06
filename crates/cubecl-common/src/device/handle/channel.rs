@@ -453,7 +453,13 @@ impl ChannelDeviceState {
             device_client.flush();
         };
 
-        let service = recv.recv().unwrap();
+        // The initialization drops its callback unanswered only by panicking.
+        let service = recv.recv().map_err(|_| {
+            ServiceCreationError::new(std::format!(
+                "the initialization of the device service {} panicked; its panic is logged",
+                core::any::type_name::<S>()
+            ))
+        })?;
 
         let service = match service {
             Ok(service) => service,
@@ -761,6 +767,21 @@ mod task {
         assert!(core::mem::offset_of!(Task, data) == 0);
     };
 
+    /// Logs the panic of a task nobody waits on, then drops its payload.
+    ///
+    /// The payload is dropped under `catch_unwind` too: a payload whose `Drop` panics would
+    /// otherwise unwind out of the runner thread and end it, leaving every task queued behind
+    /// it, and every caller waiting on one, waiting forever. A payload that panics again as it
+    /// drops is leaked rather than dropped a second time.
+    fn discard_panic(payload: Box<dyn core::any::Any + Send>) {
+        let error = CallError::from_panic(payload);
+        log::warn!("{error:?}");
+        if let Err(again) = catch_unwind(AssertUnwindSafe(move || drop(error))) {
+            log::warn!("dropping the payload of a task's panic panicked too; leaking it");
+            core::mem::forget(again);
+        }
+    }
+
     impl Task {
         pub fn new(large_data_ptr: *mut u8) -> Self {
             Self {
@@ -788,7 +809,7 @@ mod task {
                     // SAFETY: Paired with the ptr::write to data above.
                     let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
                     if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("{:?}", CallError::from_panic(payload));
+                        discard_panic(payload);
                     }
                 };
             } else if fits_arena {
@@ -802,7 +823,7 @@ mod task {
                         std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
                     if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("{:?}", CallError::from_panic(payload));
+                        discard_panic(payload);
                     }
                 };
             } else {
@@ -815,6 +836,9 @@ mod task {
         }
 
         /// Runs the task.
+        ///
+        /// A panic in the task never unwinds out of this call: the runner thread outlives
+        /// every task it runs, so nothing queued behind a panic is left unanswered.
         ///
         /// The task must be initialized and run only once per initialization.
         /// Tasks must run, otherwise we will create memory leaks since we don't
@@ -2146,5 +2170,48 @@ mod tests {
 
         assert!(closed.is_err());
         assert!(handle.submit_blocking(|_| ()).is_ok());
+    }
+
+    /// A panic payload whose `Drop` panics with another such payload, `depth` deep.
+    struct PanicsAsItDrops(u32);
+
+    impl Drop for PanicsAsItDrops {
+        fn drop(&mut self) {
+            if self.0 > 0 {
+                std::panic::panic_any(PanicsAsItDrops(self.0 - 1));
+            }
+        }
+    }
+
+    /// Submits a task nobody waits on that panics with `payload`, then waits, bounded so a
+    /// runner that died fails the test instead of hanging it, for a call queued behind it.
+    fn call_after_a_panic_of(
+        payload: fn() -> PanicsAsItDrops,
+    ) -> Result<usize, std::string::String> {
+        let handle = mock_fixture();
+        handle.submit(move |_| std::panic::panic_any(payload()));
+        let caller = (*handle).clone();
+        let (answered, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = answered.send(caller.submit_blocking(|state| state.counter + 1));
+        });
+        match answer.recv_timeout(Duration::from_secs(30)) {
+            Ok(result) => result.map_err(|error| std::format!("{error:?}")),
+            Err(_) => Err("the call queued behind the panic was never answered".into()),
+        }
+    }
+
+    /// The runner outlives a task whose panic payload panics as the runner drops it, so the
+    /// call queued behind that task is answered.
+    #[test]
+    fn test_a_payload_that_panics_as_it_drops_leaves_the_runner_serving() {
+        assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(1)), Ok(1));
+    }
+
+    /// A payload that panics again as its own panic's payload drops is leaked, and the runner
+    /// still answers what is queued behind it.
+    #[test]
+    fn test_a_payload_that_keeps_panicking_as_it_drops_leaves_the_runner_serving() {
+        assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(3)), Ok(1));
     }
 }

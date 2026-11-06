@@ -158,8 +158,10 @@ impl Memory {
                     true => Delivery::TMA_STAGE_ALIGNMENT,
                     false => 0usize,
                 });
-                // A decoded stage is dense over the values' axes whatever the source's map.
-                if comptime!(projection.is_direct() || decodes) {
+                // A decoded stage is dense over the values' axes whatever the source's map, and
+                // so is a tiled one, which an instruction reads as one matrix.
+                let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));
+                if comptime!(projection.is_direct() || decodes || tiled) {
                     Memory::smem_owned::<S>(space, vector_size, storage, units, alignment, owner)
                 } else {
                     comptime!(owner.refuse_for_a_plane("gathered"));

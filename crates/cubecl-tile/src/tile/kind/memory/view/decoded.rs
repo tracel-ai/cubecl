@@ -38,7 +38,7 @@ impl<O: Float, W: Size> Decoded<O, W> {
         let provable = self.window.guard_provable();
         comptime!(assert!(
             provable,
-            "Decoded::read_unchecked: a clamped window's reads are clamped, never untested"
+            "Decoded::read_unchecked: a clamped or backward window's reads are checked, never untested"
         ));
         self.read_under(row, line, comptime!(Guard::Proved))
     }

@@ -21,6 +21,7 @@ impl Compaction {
         vector_size: usize,
         extent_of: impl Fn(Axis) -> usize,
     ) -> Compaction {
+        projection.refuse_backward("Compaction");
         let rank = projection.physical_rank();
         let mut steps = SmallVec::new();
         let mut extents = SmallVec::new();
@@ -51,7 +52,7 @@ impl Compaction {
                     .iter()
                     .filter(|t| extent_of(t.axis) > 1)
                     .try_fold(0, |g, t| match t.scale {
-                        Scale::Static(s) => Some(gcd(g, s)),
+                        Scale::Static(s) => Some(gcd(g, s.unsigned_abs())),
                         Scale::Dynamic { .. } => None,
                     })
                     .unwrap_or(1);
@@ -61,7 +62,9 @@ impl Compaction {
                     .iter()
                     .map(|t| {
                         let scale = match t.scale {
-                            Scale::Static(s) if extent_of(t.axis) > 1 => Scale::Static(s / step),
+                            Scale::Static(s) if extent_of(t.axis) > 1 => {
+                                Scale::Static(s / step as isize)
+                            }
                             Scale::Static(_) => Scale::Static(1),
                             dynamic => dynamic,
                         };
@@ -269,6 +272,19 @@ mod tests {
         assert_eq!(c.steps(), &[1, 1]);
         assert_eq!(c.extents(), &[17, 16]);
         assert_eq!(c.projection().offset(0), Offset::Static(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "backward coefficient")]
+    fn a_backward_coefficient_has_no_compaction() {
+        let p = Projection::new(
+            &[OH, RH, CI],
+            &[
+                PhysicalAxisMap::scaled(&[(OH, Scale::Static(1)), (RH, Scale::Static(-1))]),
+                PhysicalAxisMap::of(CI),
+            ],
+        );
+        Compaction::new(&p, 4, extents(8, 3, 16));
     }
 
     #[test]
