@@ -53,3 +53,24 @@ fn a_mac_gpu_reports_its_cores() {
         "{cores} is not a core count any GPU has"
     );
 }
+
+/// A card's description states the capacity a client on it reports, read without opening a
+/// device, so a listing can say what fits on a card before anything runs there.
+#[cfg(feature = "spirv")]
+#[test]
+fn a_vulkan_card_describes_the_capacity_its_client_reports() {
+    use cubecl_common::device::Device;
+    use cubecl_server::runtime::Runtime;
+    use cubecl_wgpu::{WgpuBackend, WgpuDevice, WgpuRuntime};
+
+    for id in <WgpuRuntime>::enumerate_all_devices() {
+        let device = WgpuDevice::from_id(id).on(WgpuBackend::Vulkan);
+        let described = <WgpuRuntime>::description(&device).and_then(|card| card.max_memory);
+        let reported = <WgpuRuntime>::client(&device)
+            .properties()
+            .memory
+            .max_memory();
+
+        assert_eq!(described, reported);
+    }
+}
