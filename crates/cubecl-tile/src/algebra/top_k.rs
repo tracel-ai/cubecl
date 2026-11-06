@@ -55,7 +55,8 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     /// unrolls within [`TOP_K_UNROLL_BUDGET`]. A value with a NaN, rare, walks in the full order,
     /// and that walk stays a loop: unrolled beside the first, it would double the walks' code.
     /// For a list in registers, the loop turns the list instead of picking a slot at run time
-    /// ([`walk_turning`](Self::walk_turning)).
+    /// ([`walk_turning`](Self::walk_turning)). Whether a value enters and whether it holds a NaN
+    /// are one test, so a value that does neither, almost every value, costs one branch.
     pub fn insert(
         &mut self,
         value: Vector<E, N>,
@@ -65,33 +66,49 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
         ordered_only(monoid);
         let k = K::value();
         let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let enters = takes_the_slot::<E, N>(
+            self.values[k - 1],
+            self.indices[k - 1],
+            value,
+            index,
+            monoid,
+        );
         let elem = elem_type_of::<E>();
-        let mut nan = false;
         if comptime!(elem.is_float()) {
-            nan = any_lane::<N>(nan_lanes::<E, N>(value));
-        }
-        if nan {
-            if comptime!(unrolled) {
-                self.walk_turning(value, index, monoid);
-            } else {
-                self.walk_in_full_order(value, index, monoid, false);
-            }
-        } else {
-            let enters = takes_the_slot::<E, N>(
-                self.values[k - 1],
-                self.indices[k - 1],
-                value,
-                index,
-                monoid,
-            );
-            let lanes = N::value();
-            if any_lane::<N>(enters) {
-                if comptime!(unrolled || lanes > 1) {
-                    self.walk(value, index, monoid, unrolled);
+            // A NaN lane compares false and never enters by the compares above: it is looked
+            // for in the same test, so a value that enters nowhere costs one branch.
+            let nan = nan_lanes::<E, N>(value);
+            if any_lane::<N>(select_many(nan, nan, enters)) {
+                if any_lane::<N>(nan) {
+                    if comptime!(unrolled) {
+                        self.walk_turning(value, index, monoid);
+                    } else {
+                        self.walk_in_full_order(value, index, monoid, false);
+                    }
                 } else {
-                    self.shift_in(value, index, monoid);
+                    self.walk_entering(value, index, monoid);
                 }
             }
+        } else if any_lane::<N>(enters) {
+            self.walk_entering(value, index, monoid);
+        }
+    }
+
+    /// `value`, read at `index` and no NaN, that enters this list on some lane: walked down an
+    /// unrolled or many-lane list, shifted in from the end of a long one-lane list.
+    fn walk_entering(
+        &mut self,
+        value: Vector<E, N>,
+        index: Vector<u32, N>,
+        #[comptime] monoid: Monoid,
+    ) {
+        let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let lanes = N::value();
+        if comptime!(unrolled || lanes > 1) {
+            self.walk(value, index, monoid, unrolled);
+        } else {
+            self.shift_in(value, index, monoid);
         }
     }
 
