@@ -122,7 +122,10 @@ fn ahead<E: Numeric, N: Size>(
 
 /// Where `lhs` and `rhs` tie by value: equal, or both NaN.
 #[cube]
-fn same_value<E: Numeric, N: Size>(lhs: Vector<E, N>, rhs: Vector<E, N>) -> Vector<bool, N> {
+pub(crate) fn same_value<E: Numeric, N: Size>(
+    lhs: Vector<E, N>,
+    rhs: Vector<E, N>,
+) -> Vector<bool, N> {
     let elem = elem_type_of::<E>();
     if comptime!(elem.is_float()) {
         lhs.equal(&rhs)
@@ -135,7 +138,7 @@ fn same_value<E: Numeric, N: Size>(lhs: Vector<E, N>, rhs: Vector<E, N>) -> Vect
 /// Where `value` is NaN. `cubecl`'s `is_nan` asks the type for a float element; this one takes any
 /// element and is called only once the element is known to be a float.
 #[cube]
-fn nan_lanes<E: Numeric, N: Size>(value: Vector<E, N>) -> Vector<bool, N> {
+pub(crate) fn nan_lanes<E: Numeric, N: Size>(value: Vector<E, N>) -> Vector<bool, N> {
     intrinsic!(|scope| {
         let value = value.read_value(scope);
         let op = IsNanOp::new(scope.ctx_mut(), value);

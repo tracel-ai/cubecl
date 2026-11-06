@@ -47,6 +47,7 @@ mod stream;
 mod tma_folded;
 mod tma_store;
 mod top_k;
+mod top_values;
 mod vector_tile;
 mod wgmma;
 

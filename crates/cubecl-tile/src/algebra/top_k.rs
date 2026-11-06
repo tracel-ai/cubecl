@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 use cubecl::prelude::*;
 
-use crate::algebra::indexed::{ordered_only, wins};
+use crate::algebra::indexed::{nan_lanes, ordered_only, wins};
 use crate::space::UnitShare;
 use crate::{Carrier, Indexed, Monoid};
 
@@ -44,39 +44,124 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
         }
     }
 
-    /// This list with `value`, read at `index`, kept if it is among the `K` best: the one-item
-    /// combine, `K` steps where combining with a list of one is `K * K`. Its walk unrolls
-    /// within [`TOP_K_UNROLL_BUDGET`], as every walk of a `K`-by-`K` nest does.
+    /// `value`, read at `index`, kept in this list if it is among the `K` best: the one-item
+    /// combine, `K` steps where combining with a list of one is `K * K`. In place, since a
+    /// reduction inserts once a value read: a list returned anew is copied back slot by slot.
+    ///
+    /// A value that is no NaN on any lane, almost every value, walks with the compares numbers
+    /// take: it moves into a slot it beats by value, or ties by value at a lower index, and a NaN
+    /// slot, which compares false, stays ahead of it as the order wants. It skips the walk where
+    /// it beats the last kept slot on no lane: over a long row, almost every value. A value with
+    /// a NaN walks in the full order instead. The walks unroll within [`TOP_K_UNROLL_BUDGET`].
     pub fn insert(
-        self,
+        &mut self,
         value: Vector<E, N>,
         index: Vector<u32, N>,
         #[comptime] monoid: Monoid,
-    ) -> Self {
+    ) {
         ordered_only(monoid);
         let k = K::value();
-        let mut values = Array::new(k);
-        let mut indices = Array::new(k);
-        let mut value = value;
-        let mut index = index;
-        #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
-        for j in 0..k {
-            let kept = Indexed::<E, N> {
-                value: self.values[j],
-                index: self.indices[j],
-            };
-            let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
-            values[j] = select_many(keep, kept.value, value);
-            indices[j] = select_many(keep, kept.index, index);
-            value = select_many(keep, value, kept.value);
-            index = select_many(keep, index, kept.index);
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let elem = elem_type_of::<E>();
+        let mut nan = false;
+        if comptime!(elem.is_float()) {
+            nan = any_lane::<N>(nan_lanes::<E, N>(value));
         }
-        TopK::<E, N, K> {
-            values,
-            indices,
-            k: comptime!(PhantomData),
+        if nan {
+            self.insert_in_full_order(value, index, monoid);
+        } else {
+            let enters = takes_the_slot::<E, N>(
+                self.values[k - 1],
+                self.indices[k - 1],
+                value,
+                index,
+                monoid,
+            );
+            if any_lane::<N>(enters) {
+                let mut value = value;
+                let mut index = index;
+                #[unroll(unrolled)]
+                for j in 0..k {
+                    let kept_value = self.values[j];
+                    let kept_index = self.indices[j];
+                    let takes =
+                        takes_the_slot::<E, N>(kept_value, kept_index, value, index, monoid);
+                    self.values[j] = select_many(takes, value, kept_value);
+                    self.indices[j] = select_many(takes, index, kept_index);
+                    value = select_many(takes, kept_value, value);
+                    index = select_many(takes, kept_index, index);
+                }
+            }
         }
     }
+
+    /// `value`, read at `index`, kept in this list if it is among the `K` best, every step
+    /// comparing in the full order (value, then the lower index, NaN first): for values that
+    /// may be NaN, such as another list's. One walk, where [`insert`](Self::insert) has two,
+    /// so an unrolled combine stays half the size. A value the last kept slot beats on every
+    /// lane skips the walk.
+    pub fn insert_in_full_order(
+        &mut self,
+        value: Vector<E, N>,
+        index: Vector<u32, N>,
+        #[comptime] monoid: Monoid,
+    ) {
+        ordered_only(monoid);
+        let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let last = Indexed::<E, N> {
+            value: self.values[k - 1],
+            index: self.indices[k - 1],
+        };
+        let read = Indexed::<E, N> { value, index };
+        if any_lane::<N>(wins::<E, N>(read, last, monoid)) {
+            let mut value = value;
+            let mut index = index;
+            #[unroll(unrolled)]
+            for j in 0..k {
+                let kept = Indexed::<E, N> {
+                    value: self.values[j],
+                    index: self.indices[j],
+                };
+                let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
+                self.values[j] = select_many(keep, kept.value, value);
+                self.indices[j] = select_many(keep, kept.index, index);
+                value = select_many(keep, value, kept.value);
+                index = select_many(keep, index, kept.index);
+            }
+        }
+    }
+}
+
+/// Where `value`, read at `index` and no NaN, takes the slot holding `kept` read at
+/// `kept_index`: it is better, or as good at a lower index. A NaN `kept` compares false both
+/// ways, so it keeps its slot.
+#[cube]
+fn takes_the_slot<E: Numeric, N: Size>(
+    kept: Vector<E, N>,
+    kept_index: Vector<u32, N>,
+    value: Vector<E, N>,
+    index: Vector<u32, N>,
+    #[comptime] monoid: Monoid,
+) -> Vector<bool, N> {
+    let better = match comptime!(monoid) {
+        Monoid::Max => kept.less_than(&value),
+        _ => kept.greater_than(&value),
+    };
+    select_many(kept.equal(&value), index.less_than(&kept_index), better)
+}
+
+/// Whether any lane of `lanes` is set.
+#[cube]
+fn any_lane<N: Size>(lanes: Vector<bool, N>) -> bool {
+    let mut any = false;
+    #[unroll]
+    for lane in 0..N::value() {
+        if lanes.extract(lane) {
+            any = true;
+        }
+    }
+    any
 }
 
 #[cube]
@@ -84,10 +169,11 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
     fn combine(lhs: Self, rhs: Self, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
         let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
         let mut total = lhs;
-        #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+        #[unroll(unrolled)]
         for j in 0..k {
-            total = total.insert(rhs.values[j], rhs.indices[j], monoid);
+            total.insert_in_full_order(rhs.values[j], rhs.indices[j], monoid);
         }
         total
     }
@@ -118,6 +204,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane | UnitShare::Group { .. } => {
                 let k = K::value();
+                let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
                 let none = Indexed::<E, N>::identity(monoid);
                 let mut held_values = Array::new(k);
                 let mut held_indices = Array::new(k);
@@ -128,7 +215,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                 }
                 let mut values = Array::new(k);
                 let mut indices = Array::new(k);
-                #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+                #[unroll(unrolled)]
                 for round in 0..k {
                     let head = Indexed::<E, N> {
                         value: held_values[0],
@@ -138,7 +225,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                     values[round] = best.value;
                     indices[round] = best.index;
                     let taken = held_indices[0].equal(&best.index);
-                    #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+                    #[unroll(unrolled)]
                     for j in 0..comptime!(k - 1) {
                         held_values[j] = select_many(taken, held_values[j + 1], held_values[j]);
                         held_indices[j] = select_many(taken, held_indices[j + 1], held_indices[j]);
