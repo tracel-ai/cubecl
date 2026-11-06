@@ -99,8 +99,8 @@ mod storage {
     use super::*;
     use crate::bundle::{BundleFormat, ExportOptions, SqliteBundle, export, import_into};
     use crate::environment::{activate, active, file_name, load, path, root, sanitize};
-    use crate::persistence::turso::same_file;
-    use crate::persistence::{Access, Database, Storage, TursoStorage};
+    use crate::persistence::database::same_file;
+    use crate::persistence::{Access, Database, DatabaseStorage, Storage};
     use crate::sync::LazyLock;
     use alloc::boxed::Box;
     use alloc::string::ToString;
@@ -131,8 +131,8 @@ mod storage {
         /// process keeps one connection per database for its whole life, so a
         /// file replaced under it would leave that connection writing into one
         /// nothing reads. Everything that could refuse is checked first, and
-        /// the replacement is one transaction, so a failure leaves the
-        /// environment as it was.
+        /// the replacement lands as a whole ([`Database::replace_with`]), so a
+        /// failure leaves the environment as it was.
         ///
         /// # Errors
         ///
@@ -212,7 +212,10 @@ mod storage {
             let open = |namespace: &str| -> Result<Box<dyn Storage>, EnvironmentError> {
                 let database = Database::open_at(&path, Access::ReadWrite)
                     .map_err(|reason| EnvironmentError::Storage { reason })?;
-                Ok(Box::new(TursoStorage::new(database, namespace.to_string())))
+                Ok(Box::new(DatabaseStorage::new(
+                    database,
+                    namespace.to_string(),
+                )))
             };
             match import_into(&source, open)?.failed {
                 0 => Ok(()),

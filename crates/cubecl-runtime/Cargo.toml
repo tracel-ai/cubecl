@@ -18,6 +18,8 @@ workspace = true
 [features]
 autotune-checks = []
 persistence = ["std", "cubecl-environment/persistence"]
+# The native caches on SQLite instead of Turso; see `cubecl-environment`.
+rusqlite = ["persistence", "cubecl-environment/rusqlite"]
 channel-cell = []
 channel-mpsc = []
 channel-mutex = []
