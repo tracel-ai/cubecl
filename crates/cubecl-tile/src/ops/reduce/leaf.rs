@@ -166,7 +166,6 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
 
 /// [`element`]'s line path: one read serves `contracted_per_step` values.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
     #[comptime] in_space: &Space,
@@ -224,7 +223,6 @@ fn read_or_identity<In: Numeric, V: Size>(
 
 /// [`element`]'s scalar path: one extract per contracted element.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
     #[comptime] in_space: &Space,

@@ -116,7 +116,6 @@ fn scaled_matmul_promoted<E: Numeric>(
 /// the operand for a sum in `instruction`'s form multiplies the sum once, as it drains; what it
 /// leaves rides the load.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn factored_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
@@ -188,7 +187,6 @@ fn two_level_scaled_matmul(
 /// by the plane's units, unpacked and scaled, and loaded as the fragment the plain instruction
 /// takes. Both operands carry a landing here so one kernel serves either side.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn scaled_matmul_cmma<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
@@ -2034,7 +2032,6 @@ const NI: Axis = Axis(5);
 /// The scales of a chunk are loaded once, into the plane's units or its own shared window, and
 /// every step reads its scale from there.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn chunked_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
@@ -2475,7 +2472,6 @@ fn a_tile_ordered_weight_lands_on_the_tensor_cores_under_byte_scales() {
 /// The partition's fragments load through their landing a depth at a time, the quant block being
 /// the loop inside the partition's depth: two instructions under one scale.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn partitioned_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
@@ -2796,7 +2792,6 @@ enum Unpacked {
 /// `decoded` for the instruction, summing in `A`: a stage the fill decodes holds `decoded`, and
 /// words staged as they are stored are dequantized at it by each plane.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn staged_stepped_scaled_matmul<A: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
