@@ -374,17 +374,22 @@ impl Memory {
         self.window_start.cast::<usize>()
     }
 
-    /// Scalar stride between matrix rows, `row` the dim a row steps along (direct, untiled stores;
-    /// any other steps along its second-to-last dim).
+    /// Scalar stride between matrix rows, `row` the coordinate a direct window's rows step along:
+    /// its dim in an untiled store, its innermost carrier in a tiled one. A gathered window steps
+    /// along its second-to-last dim.
     pub(crate) fn row_stride_at(&self, #[comptime] row: usize) -> u32 {
         let rank = comptime!(self.layout.projection.physical_rank());
-        let row = comptime!(
-            if self.projection.is_direct() && !self.layout.projection.is_tiled() {
-                row
-            } else {
-                rank - 2
+        let row = comptime!({
+            let positional = &self.layout.projection;
+            match (self.projection.is_direct(), positional.is_tiled()) {
+                (true, true) => *positional
+                    .carriers(positional.logical_axes()[row])
+                    .last()
+                    .unwrap(),
+                (true, false) => row,
+                (false, _) => rank - 2,
             }
-        );
+        });
         self.layout
             .physical_strides
             .at(row)
@@ -459,6 +464,7 @@ impl Memory {
 
     /// Re-view this buffer as a flat 1-D [`FlatView`] over its [`Window`] extent.
     pub(crate) fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
+        comptime!(self.projection.refuse_backward("Memory::flat"));
         FlatView::new(
             self.window_view::<T, W>(comptime!(Guard::Checked))
                 .view(FlatLayout::new(self.window.extent.clone())),
@@ -564,6 +570,7 @@ impl Memory {
     /// The identity step over this window's physical box, for callers that evaluate the map themselves.
     /// It masks against the physical box only: the caller owes in-range logical coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
+        comptime!(self.projection.refuse_backward("Memory::physical_box"));
         let rank = comptime!(self.projection.physical_rank());
         CompactionStep::new(self.window.extent.clone(), comptime!(vec![1; rank]))
     }
@@ -624,6 +631,7 @@ impl Memory {
 
     /// The mutable twin of [`flat`](Memory::flat).
     pub(crate) fn flat_mut<T: Numeric, W: Size>(&mut self) -> FlatViewMut<'_, Vector<T, W>> {
+        comptime!(self.projection.refuse_backward("Memory::flat_mut"));
         if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::flat_mut: writing a packed tile requires repacking")
         }
@@ -1114,7 +1122,7 @@ fn gathered_axis_descent(
     let lined = comptime!(pa == projection.physical_rank() - 1);
 
     let mut terms = Coords::<u32>::new();
-    // Receptive-field terms `(edge - 1) * scale`; each branch adds the leading `1`.
+    // Receptive-field terms `(edge - 1) * |scale|`; each branch adds the leading `1`.
     let mut spans = Coords::<u32>::new();
     #[unroll]
     for t in 0..n {
@@ -1122,6 +1130,8 @@ fn gathered_axis_descent(
         let edge = comptime!(cut.level.extent_in(&cut.space, term.axis).get());
         match comptime!(term.scale) {
             Scale::Static(s) => {
+                let step_sign = comptime!(s.signum());
+                let s = comptime!(s.unsigned_abs());
                 let step = comptime!(if lined {
                     assert!(
                         (edge * s).is_multiple_of(vector_size)
@@ -1135,7 +1145,9 @@ fn gathered_axis_descent(
                 } else {
                     edge * s
                 });
-                terms.push(cut.coord(term.axis).times(step).cast::<u32>());
+                // A backward step wraps to its two's complement, so the sum subtracts it.
+                let step = comptime!((step as isize * step_sign) as u32);
+                terms.push(cut.coord(term.axis).cast::<u32>().times(step));
                 spans.push(comptime!(((edge - 1) * s) as u32).runtime());
             }
             // No line division: `Projection::validate` keeps the innermost axis a static identity.

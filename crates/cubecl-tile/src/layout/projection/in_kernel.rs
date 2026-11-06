@@ -63,25 +63,26 @@ impl ProjectionInKernel {
 }
 
 /// A term's coefficient in its physical axis's units: lines on the innermost, which must divide.
+/// A backward coefficient is its two's complement, so a wrapping product and sum subtract it.
 fn line_scale(
     space: &Space,
     projection: &Projection,
     width: usize,
     pa: usize,
     axis: Axis,
-    scale: usize,
-) -> usize {
+    scale: isize,
+) -> u32 {
     let innermost = space.axis_at(space.rank() - 1);
     if pa != projection.physical_rank() - 1 || width == 1 || axis == innermost {
-        return scale;
+        return scale as u32;
     }
     assert!(
-        scale.is_multiple_of(width),
+        scale.unsigned_abs().is_multiple_of(width),
         "ProjectionInKernel: {axis:?} steps {scale} values of a physical axis read {width} at a time, \
          so one line spans more than one {axis:?}; serve narrower lines, or give {axis:?} a \
          physical axis of its own"
     );
-    scale / width
+    (scale / width as isize) as u32
 }
 
 #[cube]
@@ -130,8 +131,7 @@ impl ProjectionInKernel {
                             pa,
                             term.axis,
                             s
-                        )
-                            as u32))),
+                        )))),
                         Scale::Dynamic { .. } => {
                             terms.push(pos[p].times(self.map.coefficients.at(comptime!(
                                 self.projection.dynamic_scale_index(pa, t).unwrap()
@@ -193,8 +193,7 @@ impl ProjectionInKernel {
                             pa,
                             term.axis,
                             step
-                        )
-                            as u32))),
+                        )))),
                         None => steps.push(pos[p].times(self.map.coefficients.at(comptime!(
                             self.projection.dynamic_scale_index(pa, t).unwrap()
                         )))),

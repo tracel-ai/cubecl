@@ -129,11 +129,15 @@ impl Tile {
         g.nd_words_mut::<WP>(layout)
     }
 
-    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] axis.
+    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] axis, and where a
+    /// backward coefficient puts the box's extremes off its two logical corners.
     pub(crate) fn guard_provable(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
-                comptime!(!data.window.boundaries.contains(&Some(Boundary::Clamp)))
+                comptime!(
+                    !data.window.boundaries.contains(&Some(Boundary::Clamp))
+                        && !data.projection.has_negative_scale()
+                )
             }
             TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
