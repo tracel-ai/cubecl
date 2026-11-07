@@ -17,7 +17,10 @@ impl Tile {
     ///
     /// The block scales are calibrated first ([`Factor::calibrate_from`]), and the window's
     /// holder meets before its units encode the values under them. Where one load is one block,
-    /// alone under its scale, each load calibrates its block as it encodes it, with no meeting.
+    /// alone under its scale, each load calibrates its block as it encodes it, with no meeting;
+    /// where one load of the scales holds the scales of several such loads, a unit takes those
+    /// loads together, calibrates each from its own lines and writes their scales as one load
+    /// ([`blocks_a_scale_load`]).
     pub(crate) fn copy_quantized_from<F: Float>(&mut self, src: &Tile) {
         let coarse = self.factor.coarse();
         let packing = self.packing();
@@ -25,12 +28,10 @@ impl Tile {
         let scales = self.factor.innermost_scale();
         let space = comptime!(self.place.space.clone());
         let (load, scale_load) = (self.vector_tile(), scales.vector_tile());
-        let fused = comptime!(one_block_a_load(
-            &load,
-            &space,
-            &scales.place.space,
-            &scale_load
-        ));
+        let fused = comptime!(
+            one_block_a_load(&load, &space, &scales.place.space, &scale_load)
+                || blocks_a_scale_load(&load, &space, &scales.place.space, &scale_load).is_some()
+        );
         if !fused {
             self.factor.calibrate_from::<F>(src, coarse, value);
             // The scales are read back from wherever they are stored, global memory included.
@@ -83,14 +84,62 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        self.encode_loads_into::<F, I, WP, LW>(
-            read,
-            out,
-            coarse,
-            fill,
-            comptime!(from.clone()),
-            comptime!(line.clone()),
-        );
+        let scales = self.factor.innermost_scale();
+        let scale_load = scales.vector_tile();
+        let grouped = comptime!(blocks_a_scale_load(
+            &load,
+            &space,
+            &scales.place.space,
+            &scale_load
+        ));
+        match comptime!(grouped) {
+            Some(_) => self.encode_groups_into::<F, I, WP, LW>(
+                read,
+                out,
+                coarse,
+                fill,
+                comptime!(from.clone()),
+                comptime!(line.clone()),
+            ),
+            None => self.encode_loads_into::<F, I, WP, LW>(
+                read,
+                out,
+                coarse,
+                fill,
+                comptime!(from.clone()),
+                comptime!(line.clone()),
+            ),
+        }
+    }
+
+    /// This tile's groups of loads encoded into `out` ([`encode_group_into`](Tile::encode_group_into)),
+    /// cyclically across `fill`'s units, each unit a group at a time: what a tile whose loads
+    /// group under one load of their scales takes ([`blocks_a_scale_load`]).
+    fn encode_groups_into<F: Float, I: Numeric, WP: Size, LW: Size>(
+        &self,
+        read: Masked<'_, Vector<F, LW>, CoordsDyn>,
+        mut out: MaskedMut<'_, Vector<I, WP>, CoordsDyn>,
+        coarse: f32,
+        #[comptime] fill: FillUnits,
+        #[comptime] from: Space,
+        #[comptime] line: VectorTile,
+    ) {
+        let load = self.vector_tile();
+        let space = comptime!(self.place.space.clone());
+        let n = self.loads_a_scale_load();
+        let loads = comptime!(load.counts(&space).iter().product::<usize>());
+        let first = FillUnits::worker(fill) as u32;
+        let stride = FillUnits::workers(fill) as u32;
+        for at_group in range_stepped(first, comptime!((loads / n) as u32), stride) {
+            self.encode_group_into::<F, I, WP, LW>(
+                &read,
+                &mut out,
+                at_group,
+                coarse,
+                comptime!(from.clone()),
+                comptime!(line.clone()),
+            );
+        }
     }
 
     /// This tile's loads encoded into `out`, cyclically across `fill`'s units, each read out of
@@ -150,6 +199,94 @@ impl Tile {
                     comptime!(line.clone()),
                 );
             }
+        }
+    }
+
+    /// The loads one load of this tile's scales covers, each one block
+    /// ([`blocks_a_scale_load`]): what a group of [`encode_group_into`](Tile::encode_group_into)
+    /// holds.
+    fn loads_a_scale_load(&self) -> comptime_type!(usize) {
+        let scales = self.factor.innermost_scale();
+        let (load, scale_load) = (self.vector_tile(), scales.vector_tile());
+        let space = comptime!(self.place.space.clone());
+        comptime!(
+            blocks_a_scale_load(&load, &space, &scales.place.space, &scale_load)
+                .expect("a group is taken where one load of the scales covers several loads")
+        )
+    }
+
+    /// This tile's `at_group`-th group of loads, each one block, whose scales are one load
+    /// of the scales ([`blocks_a_scale_load`]): every block's lines read out of `read`, a source
+    /// spanning `from` read in `line`s, its scale calibrated from them, the `n` scales written as
+    /// that one load, and each block's values encoded under its scale into `out`.
+    fn encode_group_into<F: Float, I: Numeric, WP: Size, LW: Size>(
+        &self,
+        read: &Masked<'_, Vector<F, LW>, CoordsDyn>,
+        out: &mut MaskedMut<'_, Vector<I, WP>, CoordsDyn>,
+        at_group: u32,
+        coarse: f32,
+        #[comptime] from: Space,
+        #[comptime] line: VectorTile,
+    ) {
+        let load = self.vector_tile();
+        let n = self.loads_a_scale_load();
+        let (sw, lw) = comptime!((load.values(), line.values()));
+        let lines = comptime!(sw / lw);
+        let packing = self.packing();
+        let value = comptime!(packing.quantized_value(self.element));
+        let two_levels = comptime!(self.factor.depth() > 1);
+        let scales = self.factor.innermost_scale();
+        let scale_packing = scales.packing();
+        let dtype = comptime!(scale_packing.scale_dtype(scales.element));
+        let space = comptime!(self.place.space.clone());
+        let rank = comptime!(space.rank());
+        let first = at_group * comptime!(n as u32);
+        let size!(NB) = n;
+        let mut held = Array::<Vector<F, LW>>::new(comptime!(n * lines));
+        let mut inner = Vector::<f32, NB>::empty();
+        #[unroll]
+        for j in 0..n {
+            let start = load.start(first + comptime!(j as u32), &space);
+            let mut most = F::new(0.0);
+            #[unroll]
+            for c in 0..lines {
+                let offset = comptime!(c * lw);
+                let mut to = Coords::<u32>::new();
+                #[unroll]
+                for p in 0..rank {
+                    if comptime!(from.contains(space.axis_at(p))) {
+                        let inner = comptime!(load.offset_along(offset, space.axis_at(p)) as u32);
+                        to.push(start.at(p) + inner);
+                    }
+                }
+                let at = comptime!(j * lines + c);
+                held[at] = read.read(line.index(&to, &from));
+                most = max(most, largest::<F, LW>(held[at]));
+            }
+            inner.insert(
+                j,
+                f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels)),
+            );
+        }
+        self.factor
+            .write_at::<NB>(&load.start(first, &space), comptime!(space.clone()), inner);
+        #[unroll]
+        for j in 0..n {
+            let start = load.start(first + comptime!(j as u32), &space);
+            let scale = inner.extract(j);
+            let effective = if comptime!(two_levels) {
+                scale * coarse
+            } else {
+                scale
+            };
+            let mut words = Vector::<I, WP>::new(I::from_int(0));
+            #[unroll]
+            for c in 0..lines {
+                let values =
+                    encoded::<F, LW>(held[comptime!(j * lines + c)], effective, value, two_levels);
+                words = place_at::<I, WP, LW>(words, values, comptime!(c * lw), packing);
+            }
+            out.write(load.index(&start, &space), words);
         }
     }
 
@@ -441,4 +578,35 @@ fn one_block_a_load(
             .extents()
             .iter()
             .all(|&(axis, extent)| block.contains(axis) && block.extent(axis) == extent)
+}
+
+/// The loads one `scale_load` of the scales spanning `scales` covers, where each `load` of values
+/// spanning `values` is one block and a load of the scales holds the scales of `n` such blocks in
+/// a row, along the axis the loads step through first: `Some(n)` for `n` past one. A unit taking
+/// those `n` loads together calibrates every block from its own lines and writes their scales as
+/// that one load, which no other unit shares.
+fn blocks_a_scale_load(
+    load: &VectorTile,
+    values: &Space,
+    scales: &Space,
+    scale_load: &VectorTile,
+) -> Option<usize> {
+    let block = values.subspace(&values.difference(scales));
+    let one_block = load.values() == block.cells()
+        && load
+            .extents()
+            .iter()
+            .all(|&(axis, extent)| block.contains(axis) && block.extent(axis) == extent);
+    let n = scale_load.values();
+    let [(axis, extent)] = scale_load.extents() else {
+        return None;
+    };
+    if !one_block || n <= 1 || *extent != n {
+        return None;
+    }
+    // The loads step `axis` first: every axis after it is one load long, and `n` divides it.
+    let counts = load.counts(values);
+    let position = values.position(*axis);
+    (counts[position].is_multiple_of(n) && counts[position + 1..].iter().all(|&count| count == 1))
+        .then_some(n)
 }
