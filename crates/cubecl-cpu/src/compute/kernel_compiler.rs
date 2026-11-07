@@ -134,6 +134,10 @@ impl CompilationTarget for CpuKernelCompiler {
         #[cfg(compilation_cache)]
         {
             let entry = self.store.take_variant(id)?;
+            if entry.abi_version != cubecl_llvm::cpu::abi::CPU_KERNEL_ABI_VERSION {
+                self.store.purge_variant(id);
+                return None;
+            }
 
             let requirements = cubecl_llvm::KernelRequirements {
                 needs_parallelism: entry.needs_parallelism,
@@ -205,6 +209,7 @@ impl CompilationTarget for CpuKernelCompiler {
             };
 
             let entry = CpuCacheEntry {
+                abi_version: cubecl_llvm::cpu::abi::CPU_KERNEL_ABI_VERSION,
                 object,
                 entrypoint_name: artifact.entrypoint_name.clone(),
                 cube_dim: artifact.cube_dim,
