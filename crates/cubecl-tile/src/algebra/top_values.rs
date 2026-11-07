@@ -254,7 +254,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopValues<E, N, K> {
                 #[unroll]
                 for bit in 0..comptime!(usize::BITS - unit_bits.leading_zeros()) {
                     if comptime!(unit_bits & (1 << bit) != 0) {
-                        let mask = comptime!(1u32 << bit);
+                        let mask = 1u32 << bit;
                         let mut other = Array::new(k);
                         #[unroll]
                         for j in 0..k {

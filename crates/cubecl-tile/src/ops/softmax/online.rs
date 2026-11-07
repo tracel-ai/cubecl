@@ -5,6 +5,7 @@ use core::f64::consts::LOG2_E;
 
 use cubecl::prelude::*;
 
+use crate::dialect::LogsumexpOp;
 use crate::*;
 
 /// The running max `m` and sum `l` of every slice along `axis` of a score, in the registers of
@@ -136,7 +137,7 @@ impl<E: Float> OnlineSoftmax<E> {
                 .product::<usize>()
         );
         let mut factor = Array::<E>::new(self.slices);
-        if comptime!(planes == 1) {
+        if planes == 1 {
             factor = self.recip_l();
         } else {
             let correction = self.merge_planes(plane.coord(axis), planes);
@@ -245,7 +246,21 @@ impl<E: Float> OnlineSoftmax<E> {
     ///
     /// `score` is the tile the state was taken in from, which says which unit holds which slice,
     /// as [`store_rows`](OnlineSoftmax::store_rows) reads it. Every unit of the holder calls it.
+    ///
+    /// It reaches the IR as one `tile.logsumexp` op.
     pub fn store_logsumexp(&self, score: &Tile, logsumexp: &mut Tile) {
+        intrinsic!(|scope| LogsumexpOp::trace(scope, |scope| {
+            self.__expand_write_logsumexp_method(scope, score, logsumexp)
+        }))
+    }
+
+    /// [`store_logsumexp`](OnlineSoftmax::store_logsumexp)'s write, as tracing writes it inside
+    /// the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn write_logsumexp(&self, score: &Tile, logsumexp: &mut Tile) {
         let mut values = Array::<E>::new(self.slices);
         #[unroll]
         for i in 0..self.slices {

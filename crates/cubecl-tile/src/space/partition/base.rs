@@ -58,7 +58,7 @@ impl Partitioning {
 
     /// The regions of `level` over this space, a level of the kernel's own.
     pub fn over(&self, #[comptime] level: &Level) -> Walk {
-        Walk::of(&self.space, comptime!(level.clone()), Region::root(self))
+        Walk::of(&self.space, level.clone(), Region::root(self))
     }
 }
 

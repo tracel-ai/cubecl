@@ -14,5 +14,5 @@ pub fn device_properties() -> comptime_type!(Arc<DeviceProperties>) {
 #[cube]
 pub fn hardware_properties() -> comptime_type!(HardwareProperties) {
     let props = &device_properties().comptime().hardware;
-    comptime!(props.clone())
+    props.clone()
 }

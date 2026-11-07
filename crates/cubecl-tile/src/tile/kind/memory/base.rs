@@ -287,20 +287,20 @@ impl FillUnits {
             fill.scope != ComputeScope::Unit,
             "FillUnits::worker: a cooperative fill is shared by a cube or a plane, never one unit"
         ));
-        if comptime!(fill.fillers > 0) {
+        if fill.fillers > 0 {
             (UNIT_POS - (CUBE_DIM - comptime!(fill.fillers as u32) * CUBE_DIM_X)) as usize
         } else {
-            ComputeScope::unit(comptime!(fill.scope))
+            ComputeScope::unit(fill.scope)
         }
     }
 
     /// How many units `fill` names at runtime: the cube's, the filling planes', or one plane's
     /// ([`worker`](FillUnits::worker)).
     pub(crate) fn workers(#[comptime] fill: FillUnits) -> usize {
-        if comptime!(fill.fillers > 0) {
-            return comptime!(fill.fillers) * CUBE_DIM_X as usize;
+        if fill.fillers > 0 {
+            return fill.fillers * CUBE_DIM_X as usize;
         }
-        match comptime!(fill.scope) {
+        match fill.scope {
             ComputeScope::Cube => CUBE_DIM as usize,
             ComputeScope::Plane => CUBE_DIM_X as usize,
             ComputeScope::PlaneGroup { planes } => planes * CUBE_DIM_X as usize,

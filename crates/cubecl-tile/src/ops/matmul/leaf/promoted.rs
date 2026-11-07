@@ -60,12 +60,12 @@ impl RegisterData {
         let size!(L) = lw;
 
         let operands = comptime!(Space::merge(&[&lhs.place.space, &rhs.place.space]));
-        let kc = comptime!(operands.contracted_extent(&out));
+        let kc = operands.contracted_extent(&out);
         let (mr, nr) = comptime!((self.mr, self.nr));
 
         // Read the column edge off the operands so a split column group stays one edge.
         let acc_axes = comptime!(MatrixAxes::accumulator(&out, &lhs.place.space));
-        let cols = comptime!(acc_axes.cols(&out));
+        let cols = acc_axes.cols(&out);
         let lhs_axes =
             comptime!(MatrixAxes::new(&lhs.place.space, mr, kc).unwrap_or_else(|e| panic!("{e}")));
         let rhs_axes = comptime!(if lined_along_k {
@@ -80,7 +80,7 @@ impl RegisterData {
         // The scalars the block holds: a line a cell, one value where a cell sums a run, a run's
         // partials where it keeps them.
         let unroll = comptime!(mr * nr * self.vector_size <= config.budget);
-        let component_fanout = comptime!(config.component_fanout);
+        let component_fanout = config.component_fanout;
 
         let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, 0usize);
         let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, 0usize);
@@ -88,14 +88,14 @@ impl RegisterData {
             lhs_axes,
             0usize,
             comptime!(Side::Lhs),
-            comptime!(out.clone()),
+            out.clone(),
             comptime!(acc_axes),
         );
         let rhs_scales = rhs.reader(
             rhs_axes,
             0usize,
             comptime!(Side::Rhs),
-            comptime!(out.clone()),
+            out.clone(),
             comptime!(acc_axes),
         );
 

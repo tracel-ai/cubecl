@@ -87,7 +87,7 @@ impl WgmmaData {
         let b = descriptor::<R>(rhs, comptime!(self.n), k);
         let mut acc = self.acc.downcast::<T>();
         #[unroll]
-        for step in 0..comptime!(k / k_step) {
+        for step in 0..(k / k_step) {
             let at = step * k_step;
             acc.execute(&a.at(0usize, at), &b.at(0usize, at));
         }
@@ -173,7 +173,7 @@ fn descriptor<E: Numeric>(
     let elem_size = E::size().comptime();
     let mem = tile.mem("wgmma");
     let swizzle = comptime!(stage_swizzle(&mem.layout.rows));
-    let row = comptime!(swizzle.width() / elem_size);
+    let row = swizzle.width() / elem_size;
     comptime!(assert!(
         k <= row,
         "WgmmaData: a window of {k} along k runs past its stage's row of {row}"
