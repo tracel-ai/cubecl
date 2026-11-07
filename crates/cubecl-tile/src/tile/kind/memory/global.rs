@@ -43,7 +43,7 @@ impl GlobalOperand {
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             Coords::<u32>::new(),
             Coords::<i32>::new(),
@@ -73,12 +73,12 @@ impl GlobalOperand {
             table,
             tensor.shape(sequence_dim) as u32,
             paging,
-            projection,
+            &projection,
             tensor.vector_size(),
         );
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             Coords::<u32>::new(),
             Coords::<i32>::new(),
@@ -90,14 +90,14 @@ impl GlobalOperand {
     /// `coefficients` and `offsets` follow the field order; only their lengths are checked.
     pub(crate) fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] spec: TileSpec,
         coefficients: Coords<u32>,
         offsets: Coords<i32>,
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             coefficients,
             offsets,
@@ -215,7 +215,7 @@ impl GlobalOperand {
             self.space.subspace(self.spec.axes()),
             levels
         ));
-        Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place)
+        Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place.clone())
     }
 }
 
@@ -300,14 +300,14 @@ impl Memory {
         }
         let gmem_projection = projection.positional();
         // The product of the physical shape, so tiled (padded) operands get the logical extent.
-        let bound = logical_extent(gmem_projection.clone(), &physical_shape);
+        let bound = logical_extent(&gmem_projection, &physical_shape);
         let (origin, extent, map) = top_window(
-            space.clone(),
+            &space,
             &bound,
             &offsets,
             coefficients,
             load.clone(),
-            coords.clone(),
+            &coords,
         );
         Memory {
             address: comptime!(AddressSpace::Global),
@@ -389,12 +389,12 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
 /// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` axes read `bound`.
 #[cube]
 fn top_window(
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     bound: &Coords<u32>,
     offsets: &Coords<i32>,
     coefficients: Coords<u32>,
     #[comptime] load: VectorTile,
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
 ) -> (Coords<i32>, Coords<u32>, RuntimeMap) {
     let mut origin = Coords::<i32>::new();
     let mut extent = Coords::<u32>::new();
@@ -412,7 +412,7 @@ fn top_window(
                 Extent::Dynamic => bound.at(pa),
             }
         } else {
-            let (start, phase) = gathered_origin(projection.clone(), offsets, &coefficients, pa);
+            let (start, phase) = gathered_origin(projection, offsets, &coefficients, pa);
             origin.push(start);
             residues.push(phase);
             bound.at(pa)
@@ -433,7 +433,7 @@ fn top_window(
 /// Where a gathered physical axis's top window starts, and the phase its division left behind.
 #[cube]
 fn gathered_origin(
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
     offsets: &Coords<i32>,
     coefficients: &Coords<u32>,
     #[comptime] pa: usize,

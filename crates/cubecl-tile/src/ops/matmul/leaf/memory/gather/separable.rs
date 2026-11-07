@@ -50,7 +50,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
         let mut acc = acc.matrix_accumulate::<E, A>(
             mat,
             problem.block.acc_axes,
-            problem.block.space.clone(),
+            &problem.block.space,
             semiring.add(),
         );
         // Taps unroll on their own budget: each unrolled tap costs a body per cell.
@@ -188,7 +188,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                                 i as u32,
                                 n as u32,
                                 &reduce_coords,
-                                problem.rhs_space.clone(),
+                                &problem.rhs_space,
                                 problem.clone(),
                                 problem.block.vw,
                             ),
@@ -225,7 +225,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                             i as u32,
                             0u32,
                             &reduce_coords,
-                            problem.rhs_space.clone(),
+                            &problem.rhs_space,
                             problem.clone(),
                             problem.block.vw,
                         ),
@@ -274,7 +274,7 @@ fn rhs_anchor(
             row,
             col,
             &factor_coords(problem.factors.unwrap(), 0usize, 0usize),
-            problem.rhs_space.clone(),
+            &problem.rhs_space,
             problem.clone(),
             problem.block.vw,
         ),
@@ -308,7 +308,7 @@ fn factor_walk<EL: Numeric>(
                     row,
                     col,
                     &factor_coords(problem.factors.unwrap(), factor, k),
-                    problem.lhs_space.clone(),
+                    &problem.lhs_space,
                     problem.clone(),
                     1usize,
                 );
@@ -325,7 +325,7 @@ fn factor_walk<EL: Numeric>(
                     row,
                     col,
                     &reduce_coords,
-                    problem.lhs_space.clone(),
+                    &problem.lhs_space,
                     problem.clone(),
                     1usize,
                 );
@@ -337,7 +337,7 @@ fn factor_walk<EL: Numeric>(
                             row,
                             col,
                             &reduce_coords,
-                            problem.rhs_space.clone(),
+                            &problem.rhs_space,
                             problem.clone(),
                             problem.block.vw,
                         );

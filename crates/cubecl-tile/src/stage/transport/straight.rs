@@ -15,7 +15,7 @@ impl Memory {
     pub(crate) fn fill_straight<I2: Numeric, WP2: Size>(
         &mut self,
         src: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         // A gathered stage carries the source window's map in its own registers.
         if comptime!(self.projection.is_rational() || self.projection.has_dynamic_scales()) {
@@ -28,7 +28,7 @@ impl Memory {
         let dense = comptime!(self.projection.is_direct() && self.source_window.is_none());
         let compaction = comptime!(match dense {
             true => None,
-            false => stage_compaction(&src.projection, &self.projection, w, &space),
+            false => stage_compaction(&src.projection, &self.projection, w, space),
         });
         comptime!(assert!(
             !dense
@@ -49,7 +49,7 @@ impl Memory {
             .product(comptime!((0..plen).collect::<Vec<_>>()))
             .cast::<usize>();
         let layout = self.layout.clone();
-        let extent = comptime!(fill_extent(&space, sw, w, check));
+        let extent = comptime!(fill_extent(space, sw, w, check));
         let src_rank = comptime!(src.projection.physical_rank());
         let padding = comptime!((sw != w).then(|| {
             // `source_component` only addresses the source when both boxes share a rank.
@@ -102,7 +102,7 @@ impl Memory {
                 // Read at the stage's logical coordinates through the source's own projection.
                 Masked::new(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
-                        .view(src.axis_projection(space.clone())),
+                        .view(src.axis_projection(space)),
                     check,
                 )
             } else {

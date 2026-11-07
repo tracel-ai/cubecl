@@ -439,7 +439,7 @@ fn with_extent(space: &Space, #[comptime] p: usize, extent: usize) -> Space {
             sizes.push(space.runtime_extent_at(i));
         }
     }
-    Space::with_sizes(comptime!(space.clone()), sizes)
+    Space::with_sizes(&comptime!(space.clone()), sizes)
 }
 
 impl TileExpand {
