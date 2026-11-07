@@ -79,11 +79,34 @@ impl Tile {
             varies
         ));
         let read = src.nd_packed::<F, LW>(comptime!(Guard::Checked));
-        let mut out = out;
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
+        self.encode_loads_into::<F, I, WP, LW>(
+            read,
+            out,
+            coarse,
+            fill,
+            comptime!(from.clone()),
+            comptime!(line.clone()),
+        );
+    }
+
+    /// This tile's loads encoded into `out`, cyclically across `fill`'s units, each read out of
+    /// `read`, a source spanning `from` read in `line`s
+    /// ([`encode_load_into`](Tile::encode_load_into)).
+    fn encode_loads_into<F: Float, I: Numeric, WP: Size, LW: Size>(
+        &self,
+        read: Masked<'_, Vector<F, LW>, CoordsDyn>,
+        mut out: MaskedMut<'_, Vector<I, WP>, CoordsDyn>,
+        coarse: f32,
+        #[comptime] fill: FillUnits,
+        #[comptime] from: Space,
+        #[comptime] line: VectorTile,
+    ) {
+        let load = self.vector_tile();
+        let space = comptime!(self.place.space.clone());
         let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
