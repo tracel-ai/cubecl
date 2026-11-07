@@ -410,10 +410,7 @@ mod tests {
         let dense = StorageLevels::new(&[(K, 16)])
             .tile(&[(N, 16)])
             .grid(&[K, N]);
-        let stagger = Stagger {
-            transaction_bits: 1024,
-            element_bits: 4,
-        };
+        let stagger = Stagger::new(1024, 4).expect("a 4-bit value divides a transaction");
         let staggered = dense.clone().staggered(stagger);
         let extents = [(K, 4096), (N, 64)];
         let dense_geometry = dense.physical(&extents).unwrap();

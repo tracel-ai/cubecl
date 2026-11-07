@@ -42,6 +42,20 @@ impl Geometry {
         }
     }
 
+    /// Elements from the first it addresses to past its last: its extents' product where its dims
+    /// lie back to back, more where a stride pads one apart; zero for a buffer of no element.
+    pub fn span(&self) -> usize {
+        if self.shape.contains(&0) {
+            return 0;
+        }
+        self.shape
+            .iter()
+            .zip(&self.strides)
+            .map(|(extent, stride)| (extent - 1) * stride)
+            .sum::<usize>()
+            + 1
+    }
+
     /// This geometry with its dims stated as pieces of logical dims, as `tiling` says.
     pub(crate) fn with_tiling(mut self, tiling: Tiling) -> Self {
         self.tiling = tiling;
@@ -301,6 +315,16 @@ pub(crate) fn stride_order((extent, stride): (usize, usize)) -> (core::cmp::Reve
 
 #[cfg(test)]
 mod tests {
+    /// A geometry's span is the elements its strides reach, padding included, and zero when it
+    /// holds none.
+    #[test]
+    fn a_span_reaches_past_the_last_element_its_strides_address() {
+        use super::Geometry;
+        assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
+        assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
+        assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
+    }
+
     use super::*;
     use crate::StorageLevels;
 
