@@ -12,13 +12,13 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::Device;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::runtime::Runtime;
-use cubecl_wgpu::{WgpuDevice, WgpuDeviceKind, WgpuRuntime};
+use cubecl_wgpu::{WgpuBackend, WgpuDevice, WgpuDeviceKind, WgpuRuntime};
 
 #[test]
 fn a_mapped_write_lands_after_a_write_queued_on_another_stream() {
-    let device = WgpuDevice::new(WgpuDeviceKind::IntegratedGpu(0));
+    let device = WgpuDevice::new(WgpuDeviceKind::IntegratedGpu(0)).on(WgpuBackend::Vulkan);
     if <WgpuRuntime>::find_device(device.to_id()).is_err() {
-        eprintln!("no integrated GPU, so nothing here maps its buffers");
+        eprintln!("no integrated GPU on Vulkan, so nothing here maps its buffers");
         return;
     }
     let client = <WgpuRuntime>::client(&device);
