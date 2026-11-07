@@ -106,7 +106,7 @@ fn staged_k_walk<EA: Numeric>(
             &b,
             &mut acc,
             walk,
-            comptime!(inner.clone()),
+            inner.clone(),
             storage,
             depth,
             schedule,

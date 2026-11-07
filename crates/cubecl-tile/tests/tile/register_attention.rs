@@ -123,9 +123,9 @@ fn register_attention(
     // Two stages: the next block's keys and values land by async copy while this one computes.
     let stage_lines = comptime!(KEYS * ROW_LINES);
     let mut key_stage =
-        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(comptime!(2 * stage_lines), 16usize);
+        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(2 * stage_lines, 16usize);
     let mut value_stage =
-        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(comptime!(2 * stage_lines), 16usize);
+        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(2 * stage_lines, 16usize);
     let landed_even = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let landed_odd = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let kv_base = kv_head * keys * comptime!((DIM / LINE) as u32);
@@ -240,7 +240,7 @@ fn register_attention(
             }
         }
 
-        if comptime!(value_depth == 16) {
+        if value_depth == 16 {
             // out += p · v: two score tiles side by side are one `A` fragment of a 16-key step.
             #[unroll]
             for step in 0..comptime!(KEYS / 16) {
@@ -358,7 +358,7 @@ fn row_across(
     let mut acc = value;
     #[unroll]
     for bit in 0..5u32 {
-        let mask = comptime!(1u32 << bit);
+        let mask = 1u32 << bit;
         let (other_row, _) = def.position_of_nth(mask, nth as u32, MatrixIdent::Accumulator);
         if other_row == row {
             acc = monoid.combine::<f32>(acc, plane_shuffle_xor(acc, mask));

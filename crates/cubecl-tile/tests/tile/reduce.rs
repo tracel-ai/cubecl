@@ -107,7 +107,7 @@ fn reduce_kernel<E: Numeric>(
         &input,
         &mut output,
         &space,
-        comptime!(level.clone()),
+        level.clone(),
         read,
         monoid,
     );
@@ -138,7 +138,7 @@ fn procedural_reduce_kernel<E: Float>(
         &input,
         &mut output,
         &space,
-        comptime!(level.clone()),
+        level.clone(),
         read,
         comptime!(Monoid::Max),
     );

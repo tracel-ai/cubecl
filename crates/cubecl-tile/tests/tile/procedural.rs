@@ -279,7 +279,7 @@ fn divided_direct_copy_kernel<E: Float>(
     let region = Region::trailing(
         comptime!(0usize),
         comptime!(space.space().clone()),
-        comptime!(level.clone()),
+        level.clone(),
         0usize,
         0usize,
     );

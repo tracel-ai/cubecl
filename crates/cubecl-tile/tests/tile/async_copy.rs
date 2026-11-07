@@ -78,7 +78,7 @@ fn staged_copy(
 ) {
     let src = src.tile(&space);
     let dst = dst.tile(&space);
-    let mut stage = src.stage(comptime!(level.clone()), StageStorage::Strided);
+    let mut stage = src.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
         sync_cube();
@@ -100,7 +100,7 @@ fn staged_packed_copy(
 ) {
     let src = src.tile(&space);
     let dst = dst.tile(&space);
-    let mut stage = src.stage(comptime!(level.clone()), StageStorage::Strided);
+    let mut stage = src.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
         sync_cube();

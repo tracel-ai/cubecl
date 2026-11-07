@@ -44,7 +44,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
             &walk,
             &input,
             &weight,
-            comptime!(storage.clone()),
+            storage.clone(),
             1usize,
             None,
         );
@@ -52,7 +52,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
             let mut acc_r = acc.at(region);
             slot.consume(|i, w| {
                 // A stage taller than one block holds a block per plane, each contracting its own.
-                if comptime!(planes > 1) {
+                if planes > 1 {
                     for plane in region {
                         let mut acc_p = acc_r.at(&plane);
                         acc_p.mma(&i.at(&plane), &w.at(&plane));

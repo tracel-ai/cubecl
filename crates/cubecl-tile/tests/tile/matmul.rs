@@ -152,7 +152,7 @@ fn matmul_in_place<E: Numeric>(
     let b = b.tile(&space);
     let c = c.tile(&space);
     for outer in space.over(&outer) {
-        match comptime!(runs.clone()) {
+        match runs.clone() {
             Some(runs) => {
                 for run in outer.over(&runs) {
                     contract_in_place::<E>(
@@ -160,7 +160,7 @@ fn matmul_in_place<E: Numeric>(
                         &b,
                         &c,
                         &run,
-                        comptime!(inner.clone()),
+                        inner.clone(),
                         config,
                         semiring,
                     );
@@ -171,7 +171,7 @@ fn matmul_in_place<E: Numeric>(
                 &b,
                 &c,
                 &outer,
-                comptime!(inner.clone()),
+                inner.clone(),
                 config,
                 semiring,
             ),
@@ -196,7 +196,7 @@ fn contract_in_place<E: Numeric>(
     let c_o = c.at(owned);
     for region in c_o.over(&inner) {
         let mut c_w = c_o.at(&region);
-        c_w.init::<E>(Monoid::identity::<E>(comptime!(semiring.add())));
+        c_w.init::<E>(Monoid::identity::<E>(semiring.add()));
     }
     for region in owned.over(&inner) {
         let mut c_r = c.at(&region).accumulating(config, semiring);
@@ -222,13 +222,13 @@ fn matmul_smem_ring(
     let b = b.tile(&space);
     let c = c.tile(&space);
     for cube in space.over(&cubes) {
-        match comptime!(runs.clone()) {
+        match runs.clone() {
             Some(runs) => {
                 for run in cube.over(&runs) {
-                    contract_staged(&a, &b, &c, &run, comptime!(steps.clone()), depth);
+                    contract_staged(&a, &b, &c, &run, steps.clone(), depth);
                 }
             }
-            None => contract_staged(&a, &b, &c, &cube, comptime!(steps.clone()), depth),
+            None => contract_staged(&a, &b, &c, &cube, steps.clone(), depth),
         }
     }
 }
@@ -519,7 +519,7 @@ fn matmul_two_levels_smem_then_smem(
         c_w.zero();
     }
     let walk = space.over(&outer);
-    let mut stages = Stages::smem(&walk, &a, &b, comptime!(storage.clone()), depth_outer, None);
+    let mut stages = Stages::smem(&walk, &a, &b, storage.clone(), depth_outer, None);
     stages.pipelined(walk, |slot, region| {
         let c_o = c.at(region);
         slot.consume(|a_s, b_s| {
@@ -528,7 +528,7 @@ fn matmul_two_levels_smem_then_smem(
                 &cells,
                 a_s,
                 b_s,
-                comptime!(storage.clone()),
+                storage.clone(),
                 depth_inner,
                 None,
             );
