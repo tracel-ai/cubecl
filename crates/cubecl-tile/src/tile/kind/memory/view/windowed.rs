@@ -9,6 +9,7 @@ use cubecl_std::tensor::{
 };
 
 use super::super::Window;
+use crate::{Boundary, Fill};
 
 /// A buffer addressed through `window`, which alone checks bounds.
 ///
@@ -102,6 +103,22 @@ fn addressed(
     (clamped.__expand_to_source_pos_method(scope, pos), in_bounds)
 }
 
+/// What a masked read of `window` returns past the edge: zero, or the element type's
+/// [`Fill`] value where the window's axes name one.
+fn past_edge<T: CubePrimitive>(
+    scope: &Scope,
+    window: &<Window as CubeType>::ExpandType,
+) -> T::ExpandType {
+    let elem = T::Scalar::elem_type(scope);
+    match Boundary::fill_of(&window.boundaries) {
+        None => T::__expand_cast_from(scope, 0.into()),
+        Some(Fill::Lowest) => T::__expand_cast_from::<T::Scalar>(scope, elem.min_variable().into()),
+        Some(Fill::Highest) => {
+            T::__expand_cast_from::<T::Scalar>(scope, elem.max_variable(scope).into())
+        }
+    }
+}
+
 macro_rules! windowed_reads {
     ($expand: ident, $buffer: ident) => {
         impl<'a, T: CubePrimitive> ViewOperationsExpand<T, CoordsDyn> for $expand<'a, T> {
@@ -122,8 +139,8 @@ macro_rules! windowed_reads {
                 scope: &Scope,
                 pos: <CoordsDyn as CubeType>::ExpandType,
             ) -> T::ExpandType {
-                let zero = T::__expand_cast_from(scope, 0.into());
-                self.__expand_read_masked_method(scope, pos, zero)
+                let mask_value = past_edge::<T>(scope, &self.window);
+                self.__expand_read_masked_method(scope, pos, mask_value)
             }
 
             fn __expand_read_masked_method(

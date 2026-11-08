@@ -1075,10 +1075,12 @@ impl Memory {
                 comptime!(self.window.signed),
                 comptime!({
                     let mut boundaries = self.window.boundaries.clone();
+                    // The operand's own mask, so a fill reads the same value past this edge.
+                    let mask = boundaries.iter().flatten().copied().find(Boundary::masks);
                     if boundaries.is_empty() {
                         boundaries = (0..rank).map(|_| None).collect();
                     }
-                    boundaries[at] = Some(Boundary::Zero);
+                    boundaries[at] = Some(mask.unwrap_or(Boundary::Zero));
                     boundaries
                 }),
             ),

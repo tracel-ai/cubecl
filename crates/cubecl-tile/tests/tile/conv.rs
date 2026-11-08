@@ -22,7 +22,10 @@ use cubecl_tile::layout::Scale;
 use cubecl_tile::ops::matmul::LoadMethod;
 use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::*;
-use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
+use cubecl_tile::{
+    kind::{Boundary, Fill},
+    launch::BoundaryPolicy,
+};
 
 // Output positions, output channels, window taps, input channels. `OW`/`RW` are the second
 // spatial pair the 2-D case adds.
@@ -738,6 +741,108 @@ fn conv1d_padded_underflow_clamps_to_edge() {
                 got.get_f32(&[o, c]),
                 want[o * co + c],
                 "clamped conv1d: wrong at ({o}, {c})"
+            );
+        }
+    }
+}
+
+/// Max pooling as a gather: each output takes the max over its window of input plus a zero
+/// weight ([`Semiring::MAX_SUM`]).
+#[cube(launch)]
+fn max_pool_kernel(
+    input: &TileTensor<'_>,
+    weight: &TileTensor<'_>,
+    out: &TileTensor<'_>,
+    #[comptime] config: RegisterBlock,
+    space: Partitioning,
+    #[comptime] level: Level,
+) {
+    let input = input.tile(&space);
+    let weight = weight.tile(&space);
+    let out = out.tile(&space);
+    for region in space.over(&level) {
+        let mut out_region = out.at(&region).accumulating(config, Semiring::MAX_SUM);
+        out_region.mm(&weight.at(&region), &input.at(&region));
+    }
+}
+
+/// Padded, dilated 1-D max pooling under `Boundary::Fill(Fill::Lowest)`: every input is
+/// negative, so a padded tap read as zero (`Boundary::Zero`) or as the edge cell a dilation
+/// skipped (`Boundary::Clamp`) would win the max. Read as the lowest value, it never does.
+#[test]
+fn max_pool1d_padded_taps_read_the_lowest_value() {
+    let (oh, c, rh) = (6, 4, 3);
+    let (stride, dilation, padding) = (1, 2, 2);
+    let in_len = 6;
+
+    let launcher = implied(
+        &cubecl::test_device().client(),
+        Partitioning::new(
+            Space::new(&[(OH, oh), (CO, c), (RH, rh)]),
+            Levels::leaf(&[(OH, 3), (CO, c), (RH, rh)])
+                .walk_every(&[OH, CO, RH])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let in_spec = TileSpec::new(Projection::new(
+        &[OH, RH, CO],
+        &[
+            PhysicalAxisMap::affine(&[(OH, stride), (RH, dilation)]).shifted(-(padding as isize)),
+            PhysicalAxisMap::of(CO),
+        ],
+    ))
+    .boundary(BoundaryPolicy::Every(Boundary::Fill(Fill::Lowest)));
+
+    let client = cubecl::test_device().client();
+    let f32_ty = f32::elem_type_native();
+    let input: Vec<f32> = (0..in_len * c).map(|i| -1.0 - (i % 7) as f32).collect();
+    let (in_handle, _) = TestInput::builder(client.clone(), shape![in_len, c])
+        .dtype(f32_ty)
+        .custom(input.clone())
+        .generate_with_f32_host_data();
+    let (w_handle, _) = TestInput::builder(client.clone(), shape![rh])
+        .dtype(f32_ty)
+        .custom(vec![0.0; rh])
+        .generate_with_f32_host_data();
+    let out_handle = TestInput::builder(client.clone(), shape![oh, c])
+        .dtype(f32_ty)
+        .zeros()
+        .generate_without_host_data();
+    max_pool_kernel::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
+        TileTensorLaunch::new(
+            w_handle.binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[RH]),
+        ),
+        TileTensorLaunch::new(
+            out_handle.clone().binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
+        ),
+        REGISTER_BLOCK,
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+    );
+    let got = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
+
+    for o in 0..oh {
+        for ch in 0..c {
+            let want = (0..rh)
+                .map(|r| (o * stride + r * dilation) as isize - padding as isize)
+                .filter(|h| (0..in_len as isize).contains(h))
+                .map(|h| input[h as usize * c + ch])
+                .fold(f32::MIN, f32::max);
+            assert_eq!(
+                got.get_f32(&[o, ch]),
+                want,
+                "max pool: wrong at ({o}, {ch})"
             );
         }
     }

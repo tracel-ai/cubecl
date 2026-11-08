@@ -57,7 +57,7 @@ impl Window {
         #[unroll]
         for a in 0..axes.len() {
             let i = comptime!(axes[a]);
-            if comptime!(self.boundaries.get(i).copied().flatten() == Some(Boundary::Zero)) {
+            if comptime!(Boundary::masking(self.boundaries.get(i))) {
                 valid = valid && self.axis_in_bounds(pos[i], i);
             }
         }
@@ -66,7 +66,7 @@ impl Window {
 
     /// The scalar physical-axis check behind [`axes_in_bounds`](Self::axes_in_bounds).
     pub(crate) fn axis_in_bounds(&self, pos: u32, #[comptime] axis: usize) -> bool {
-        if comptime!(self.boundaries.get(axis).copied().flatten() == Some(Boundary::Zero)) {
+        if comptime!(Boundary::masking(self.boundaries.get(axis))) {
             self.lands(pos, axis)
         } else {
             true.runtime()
@@ -167,7 +167,7 @@ impl SourceWindow {
         #[unroll]
         for a in 0..axes.len() {
             let i = comptime!(axes[a]);
-            if comptime!(self.boundaries.get(i).copied().flatten() == Some(Boundary::Zero)) {
+            if comptime!(Boundary::masking(self.boundaries.get(i))) {
                 valid = valid && self.axis_in_bounds(stage_origin.at(i), pos[i], i);
             }
         }
@@ -181,7 +181,7 @@ impl SourceWindow {
         pos: u32,
         #[comptime] axis: usize,
     ) -> bool {
-        if comptime!(self.boundaries.get(axis).copied().flatten() == Some(Boundary::Zero)) {
+        if comptime!(Boundary::masking(self.boundaries.get(axis))) {
             let step = comptime!(self.steps.get(axis).copied().unwrap_or(1) as i32);
             let cell = (stage_origin + pos.cast::<i32>()) * step;
             let abs = self.origin.at(axis) + cell;
@@ -220,7 +220,7 @@ impl Layout for Window {
                     // Both arms evaluate: a zero-extent axis's wrapped `bound - 1` is discarded.
                     select(bound_i == 0u32, 0u32, edge)
                 }
-                None | Some(Boundary::Zero) => shifted,
+                None | Some(Boundary::Zero | Boundary::Fill(_)) => shifted,
             };
             out.push(shifted);
         }

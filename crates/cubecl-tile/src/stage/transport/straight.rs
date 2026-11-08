@@ -115,6 +115,11 @@ impl Memory {
             // Only an equal-width fill moves each line whole, which is what the copy engine does
             // ([`TransportKind::new`] refuses it any other).
             if comptime!(src.access.delivery == Delivery::AsyncPerUnit) {
+                comptime!(assert!(
+                    Boundary::fill_of(&src.window.boundaries).is_none(),
+                    "Stage: the copy engine zero-fills what lies past the edge, so a \
+                     `Boundary::Fill` operand stages through the units, not by async copy"
+                ));
                 fill_lines_async::<I2, WP2>(d, &s, &layout, total, total_c, fill, straight);
             } else {
                 fill_lines::<I2, WP2, WP2>(d, &s, &layout, total, total_c, fill, straight, padding);

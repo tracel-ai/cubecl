@@ -416,6 +416,48 @@ pub enum Boundary {
     Zero,
     /// Out-of-bounds reads/writes clamp to the edge cell.
     Clamp,
+    /// Out-of-bounds reads return the element type's [`Fill`] value; writes are skipped. A max
+    /// over taps reads [`Fill::Lowest`] past the edge, so a padded tap never wins.
+    Fill(Fill),
+}
+
+/// The value a [`Boundary::Fill`] read returns past the edge, in the operand's element type.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Fill {
+    /// The lowest finite value (`i32::MIN`, `f32::MIN`).
+    Lowest,
+    /// The highest finite value (`i32::MAX`, `f32::MAX`).
+    Highest,
+}
+
+impl Boundary {
+    /// Whether reads past the edge are masked (return a value of their own) and writes skipped,
+    /// rather than clamped onto the edge cell.
+    pub fn masks(&self) -> bool {
+        matches!(self, Boundary::Zero | Boundary::Fill(_))
+    }
+
+    /// Whether `boundary`, an axis's mode, masks.
+    pub(crate) fn masking(boundary: Option<&Option<Boundary>>) -> bool {
+        boundary.copied().flatten().is_some_and(|b| b.masks())
+    }
+
+    /// The value the masked axes of `boundaries` read past the edge: `None` for zero. Every
+    /// masking axis of one operand names the same value, since a read past two edges at once
+    /// returns one.
+    pub(crate) fn fill_of(boundaries: &[Option<Boundary>]) -> Option<Fill> {
+        let mut masks = boundaries.iter().flatten().filter(|b| b.masks());
+        let first = masks.next().copied();
+        assert!(
+            masks.all(|b| Some(*b) == first),
+            "Boundary: one operand masks its axes with {boundaries:?}; a read past two edges \
+             returns one value, so every masking axis names the same one"
+        );
+        match first {
+            Some(Boundary::Fill(fill)) => Some(fill),
+            _ => None,
+        }
+    }
 }
 
 impl Overhang {

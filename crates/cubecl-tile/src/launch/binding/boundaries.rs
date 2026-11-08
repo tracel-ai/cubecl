@@ -74,7 +74,7 @@ impl Boundaries {
         let one_extent = !matches!(policy, Some(BoundaryPolicy::AnyExtent(_)));
         let whole_lines = |pa: usize| {
             one_extent
-                && boundary == Boundary::Zero
+                && boundary.masks()
                 && !projection.may_underflow()
                 && coords
                     .physical_axis(pa)
