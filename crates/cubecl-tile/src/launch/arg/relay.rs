@@ -177,7 +177,11 @@ impl<'a> Relay<'a> {
 
     /// The instances the cube level distributes axis `p` to: its workers where spread across them,
     /// its tile count otherwise.
-    fn radix(partitioning: &Partitioning, #[comptime] level: &Level, #[comptime] p: usize) -> usize {
+    fn radix(
+        partitioning: &Partitioning,
+        #[comptime] level: &Level,
+        #[comptime] p: usize,
+    ) -> usize {
         let axis = comptime!(partitioning.space().axis_at(p));
         match level.count(axis) {
             Some(Count::AllAcross(workers)) => workers.runtime(),

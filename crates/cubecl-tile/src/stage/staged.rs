@@ -48,10 +48,7 @@ impl Memory {
         while i < total {
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
-            dst.write(
-                i,
-                Vector::cast_from(src.read_masked::<T>(&pos, space)),
-            );
+            dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));
             i += stride;
         }
     }

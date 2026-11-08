@@ -94,9 +94,7 @@ impl Tile {
                 let layout = g.axis_projection(&self.place.space);
                 g.packed::<T, W, CoordsDyn, ProjectionInKernel>(layout, guard)
             }
-            TileKind::Procedural(data) => {
-                procedural_nd::<T, W>(data, &self.place.space, guard)
-            }
+            TileKind::Procedural(data) => procedural_nd::<T, W>(data, &self.place.space, guard),
             TileKind::PlaneTile(_) | TileKind::PlanePartition(_) => {
                 panic!("Tile::nd: a plane tile has no memory view")
             }

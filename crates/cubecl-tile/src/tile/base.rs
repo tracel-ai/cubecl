@@ -446,9 +446,7 @@ impl Tile {
         #[comptime] factor: usize,
     ) -> T {
         match &self.kind {
-            TileKind::Procedural(data) => {
-                data.read_factor_at::<T>(&pos, factor, &self.place.space)
-            }
+            TileKind::Procedural(data) => data.read_factor_at::<T>(&pos, factor, &self.place.space),
             TileKind::Memory(_)
             | TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -589,18 +587,10 @@ impl Tile {
     /// One level down: window this tile to `step`'s box.
     pub(crate) fn at_step(&self, step: &Step) -> Tile {
         let tile_kind = match &self.kind {
-            TileKind::Memory(g) => {
-                TileKind::new_Memory(g.at(step, &self.place.space))
-            }
-            TileKind::TmaGmem(t) => {
-                TileKind::new_TmaGmem(t.at(step, &self.place.space))
-            }
-            TileKind::Procedural(p) => {
-                TileKind::new_Procedural(p.at(step, &self.place.space))
-            }
-            TileKind::Lines(c) => {
-                TileKind::new_Lines(c.at(step, &self.place.space))
-            }
+            TileKind::Memory(g) => TileKind::new_Memory(g.at(step, &self.place.space)),
+            TileKind::TmaGmem(t) => TileKind::new_TmaGmem(t.at(step, &self.place.space)),
+            TileKind::Procedural(p) => TileKind::new_Procedural(p.at(step, &self.place.space)),
+            TileKind::Lines(c) => TileKind::new_Lines(c.at(step, &self.place.space)),
             // A plane tile passes through; legal only where the level cuts nothing on m/n.
             TileKind::PlaneTile(t) => {
                 comptime!(assert!(
@@ -825,8 +815,7 @@ impl Tile {
             walk.depth(),
             walk.parent.path.root_levels(),
         ));
-        let tile =
-            Memory::smem_owned::<T>(&place.space, 1usize, storage, 0usize, 0usize, owner);
+        let tile = Memory::smem_owned::<T>(&place.space, 1usize, storage, 0usize, 0usize, owner);
         Tile::new::<T>(tile.kind, place.clone())
     }
 

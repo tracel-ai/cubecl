@@ -79,13 +79,7 @@ impl Walk {
         // A level distributed over a scope reaches the IR as one `tile.level` op.
         let (counts, positions, scales) = match level.coverage().scope() {
             Some(_) => intrinsic!(|scope| LevelOp::trace(scope, |scope| {
-                Walk::__expand_tiles_of(
-                    scope,
-                    &host,
-                    &level,
-                    distributes.clone(),
-                    &grid,
-                )
+                Walk::__expand_tiles_of(scope, &host, &level, distributes.clone(), &grid)
             })),
             None => Walk::tiles_of(&host, &level, distributes.clone(), &grid),
         };
@@ -310,8 +304,7 @@ impl Walk {
     /// The `i`-th region of the walk.
     pub fn region(&self, i: usize) -> Region {
         let idx = self.base.plus(i);
-        self.parent
-            .below(self.resolve(idx), &self.level)
+        self.parent.below(self.resolve(idx), &self.level)
     }
 
     /// The planes below this walk's regions, each once, at its first step ([`Region::planes`]):
