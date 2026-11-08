@@ -175,7 +175,7 @@ impl TileMatrix {
         #[unroll]
         for p in 0..upto {
             // A partition's windows tile, so the window still sizes every logical axis.
-            if comptime!(composition == Composition::Overlapping) {
+            if comptime!(composition != Composition::Disjoint) {
                 out.push(comptime!(space.extent_at(p) as u32));
             } else {
                 out.push(bound.at(p));

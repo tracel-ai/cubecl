@@ -307,10 +307,11 @@ impl Tile {
         }
     }
 
-    /// Whether this tile's mapping has overlapping windows, so only an N-D view describes it.
+    /// Whether this tile's mapping is no partition from 0, its windows overlapping or moved, so
+    /// only an N-D view describes it.
     pub fn gathered(&self) -> comptime_type!(bool) {
         let projection = self.projection();
-        comptime!(projection.composition() == Composition::Overlapping)
+        comptime!(projection.composition() != Composition::Disjoint)
     }
 
     /// Whether this tile evaluates values from coordinates instead of a backing buffer.
