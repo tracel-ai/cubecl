@@ -728,19 +728,11 @@ const_eval!(SMulHiOp, {
     IntegerAttr(i64): |lhs, rhs| ((lhs as i128 * rhs as i128) >> 64) as i64,
     IntegerAttr(i32): |lhs, rhs| ((lhs as i64 * rhs as i64) >> 32) as i32,
     // 0 * x -> 0; x * 0 -> 0
+    // No rule for a factor of one: the high half of `x * 1` is the sign of `x` (0 or -1), a
+    // shift of `x` and no operand of this op.
     custom: |lhs, rhs| match lhs.or(rhs)?.as_const_val(ctx) {
         ConstantValue::Int(0) => Some(int_attr(ctx, self.result_type(ctx), 0)),
         _ => None?
-    }
-});
-simplify!(SMulHiOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(self.rhs(ctx)),
-        _ => None?,
-    },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(self.lhs(ctx)),
-        _ => None?,
     }
 });
 
@@ -754,16 +746,11 @@ const_eval!(UMulHiOp, {
     custom: |lhs, rhs| match lhs.or(rhs)?.as_const_val(ctx) {
         ConstantValue::UInt(0) => Some(int_attr(ctx, self.result_type(ctx), 0)),
         _ => None?
-    }
-});
-simplify!(UMulHiOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::UInt(1) => Some(self.rhs(ctx)),
-        _ => None?,
     },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::UInt(1) => Some(self.lhs(ctx)),
-        _ => None?,
+    // 1 * x -> 0; x * 1 -> 0: the product fits in the low half
+    custom: |lhs, rhs| match lhs.or(rhs)?.as_const_val(ctx) {
+        ConstantValue::UInt(1) => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        _ => None?
     }
 });
 
