@@ -270,9 +270,12 @@ impl<'a> Arg<'a, Labelled> {
         let stored_tiles = partitioning
             .as_ref()
             .map_or_else(Vec::new, |storage| storage.tiles().to_vec());
-        let tiles = partitioning
+        // A staggered buffer reads back as its dense statement: its strides say where a run ends.
+        let dense_run = geometry.dense_run();
+        let mut tiles = partitioning
             .map(|storage| storage.contiguous_tiles(&geometry.extents(&labels)))
             .unwrap_or_default();
+        tiles.retain(|tile| tile.iter().map(|&(_, extent)| extent).product::<usize>() <= dense_run);
         // Each level's window along the operand's axes, outermost first: the extent this launch
         // cuts it to, and whether the kernel hands it down dynamic. A level that cuts an axis gives
         // it its tile; one that does not passes the window above it down.

@@ -34,8 +34,9 @@ pub struct StoragePartitioning {
 impl StoragePartitioning {
     /// The statement a bound buffer was written from, read off its dims by stride; `labels` name
     /// the trailing dims. `None` where the buffer's order is no partitioning. Its
-    /// [`stagger`](Self::stagger) is not read back: the tiles and their order are what a reader
-    /// asks of it, and a padded coarsest stride orders the pieces as a dense one does.
+    /// [`stagger`](Self::stagger) is not read back: a padded coarsest stride orders the pieces as a
+    /// dense one does, so the tiles and their order read the same, but a reader asking where runs
+    /// are contiguous asks the geometry's strides ([`Geometry::dense_run`]).
     pub fn new(geometry: &Geometry, labels: &[Axis]) -> Option<Self> {
         let rank = geometry.rank();
         let unlabelled = rank.saturating_sub(labels.len());
@@ -172,7 +173,9 @@ impl StoragePartitioning {
         Ok(())
     }
 
-    /// The tiles, finest first, a window can be addressed inside with one stride per axis.
+    /// The tiles, finest first, a window can be addressed inside with one stride per axis, its
+    /// pieces back to back. A buffer read back from a staggered one can hold a tile across a pad:
+    /// the bound geometry's [`dense_run`](Geometry::dense_run) says how far a run really goes.
     pub(crate) fn contiguous_tiles(
         &self,
         extents: &[(Axis, usize)],
@@ -196,8 +199,8 @@ impl StoragePartitioning {
     }
 
     /// The buffer storing a tensor of `extents`: its dims in [`labels`](Self::labels)' order and
-    /// its [`Tiling`]. Each piece steps by the run of every piece finer than it, the coarsest by
-    /// its [`stagger`](Self::stagger)'s pitch over that run where it has one.
+    /// its [`Tiling`]. Each piece steps by the run of every piece finer than it, the coarsest piece
+    /// of more than one by its [`stagger`](Self::stagger)'s pitch over that run where it has one.
     pub fn physical(&self, extents: &[(Axis, usize)]) -> Result<Geometry, Refusal> {
         let axes: SmallVec<[Axis; Space::MAX_RANK]> =
             extents.iter().map(|&(axis, _)| axis).collect();
@@ -216,17 +219,22 @@ impl StoragePartitioning {
         })?;
         let tiling =
             Tiling::new(&self.fragments(&axes)).map_err(Refusal::StoragePiecesUnrecordable)?;
-        let mut strides: PieceList<usize> = pieces
+        // A piece of one steps nowhere, so the stagger pads the coarsest piece that steps.
+        let staggered = self
+            .stagger
+            .zip(pieces.iter().rposition(|piece| piece.count > 1));
+        let strides: PieceList<usize> = pieces
             .iter()
-            .scan(1, |run, piece| {
-                let stride = *run;
-                *run *= piece.count;
+            .enumerate()
+            .scan(1, |run, (p, piece)| {
+                let stride = match staggered {
+                    Some((stagger, at)) if at == p => stagger.pitch(*run),
+                    _ => *run,
+                };
+                *run = stride * piece.count;
                 Some(stride)
             })
             .collect();
-        if let (Some(stagger), Some(coarsest)) = (self.stagger, pieces.len().checked_sub(1)) {
-            strides[coarsest] = stagger.pitch(strides[coarsest]);
-        }
         // `labels` names an axis's pieces coarsest first; `pieces` lists them finest first.
         let mut taken: PieceList<bool> = SmallVec::from_elem(false, pieces.len());
         let dims: PieceList<(usize, usize)> = self
@@ -427,6 +435,23 @@ mod tests {
         assert!(coarsest.1 > coarsest.0);
         let read = StoragePartitioning::new(&geometry, &geometry.labels(&[K, N])).unwrap();
         assert_eq!(read, dense);
+    }
+
+    /// A rest of one steps nowhere, so the stagger pads the coarsest piece that does: one strip of
+    /// tiles along N leaves its tiles down K staggered.
+    #[test]
+    fn a_stagger_skips_a_coarsest_piece_of_one() {
+        let one_strip = StorageLevels::new(&[(K, 16)])
+            .tile(&[(N, 32)])
+            .grid(&[K, N])
+            .staggered(Stagger::new(1024, 4).expect("a 4-bit value divides a transaction"));
+        // Each K tile is 512 values, two transactions: three hold it.
+        let geometry = one_strip.physical(&[(K, 4096), (N, 32)]).unwrap();
+        let k_rest = geometry
+            .dims()
+            .find(|&(extent, _)| extent == 256)
+            .expect("4096 / 16 tiles down K");
+        assert_eq!(k_rest.1, 3 * 256);
     }
 
     /// An untiled buffer states no tiles: its order is its dims by stride.

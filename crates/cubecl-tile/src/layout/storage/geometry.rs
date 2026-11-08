@@ -195,6 +195,19 @@ impl Geometry {
         extents
     }
 
+    /// Elements that lie back to back from the first: the dims taken finest stride first, each
+    /// while it steps by what the finer ones hold. A stride padded past that run ends it.
+    pub(crate) fn dense_run(&self) -> usize {
+        let mut run = 1;
+        for (_, (extent, stride)) in self.addressing_dims_by_stride().into_iter().rev() {
+            if stride != run {
+                break;
+            }
+            run *= extent;
+        }
+        run
+    }
+
     /// The dims with extent above one and non-zero stride, as `(index, (extent, stride))`,
     /// coarsest stride first.
     pub(crate) fn addressing_dims_by_stride(
