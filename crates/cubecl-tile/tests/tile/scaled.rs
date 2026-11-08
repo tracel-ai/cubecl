@@ -2059,10 +2059,8 @@ fn chunked_scaled_matmul<E: Numeric>(
             let b_plane = b_cube.at(&plane);
             let scale_plane = scale_cube.at(&plane);
             let c_plane = c_cube.at(&plane);
-            let mut lines = scale_plane.stage(
-                chunks.clone(),
-                comptime!(StageStorage::Lines { read }),
-            );
+            let mut lines =
+                scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
             let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, instruction, Semiring::SUM_PROD);
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
@@ -2497,10 +2495,8 @@ fn partitioned_scaled_matmul<E: Numeric>(
             let b_plane = b_cube.at(&plane);
             let scale_plane = scale_cube.at(&plane);
             let c_plane = c_cube.at(&plane);
-            let mut lines = scale_plane.stage(
-                chunks.clone(),
-                comptime!(StageStorage::Lines { read }),
-            );
+            let mut lines =
+                scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
             let sum =
                 c_plane.accumulator::<E>(&a_plane, &b_plane, Instruction::Cmma, Semiring::SUM_PROD);
             for chunk in plane {

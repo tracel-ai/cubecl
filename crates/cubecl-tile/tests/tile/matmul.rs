@@ -155,26 +155,10 @@ fn matmul_in_place<E: Numeric>(
         match runs.clone() {
             Some(runs) => {
                 for run in outer.over(&runs) {
-                    contract_in_place::<E>(
-                        &a,
-                        &b,
-                        &c,
-                        &run,
-                        inner.clone(),
-                        config,
-                        semiring,
-                    );
+                    contract_in_place::<E>(&a, &b, &c, &run, inner.clone(), config, semiring);
                 }
             }
-            None => contract_in_place::<E>(
-                &a,
-                &b,
-                &c,
-                &outer,
-                inner.clone(),
-                config,
-                semiring,
-            ),
+            None => contract_in_place::<E>(&a, &b, &c, &outer, inner.clone(), config, semiring),
         }
     }
 }
@@ -524,14 +508,7 @@ fn matmul_two_levels_smem_then_smem(
         let c_o = c.at(region);
         slot.consume(|a_s, b_s| {
             let cells = region.over(&inner);
-            let mut inner_ring = Stages::smem(
-                &cells,
-                a_s,
-                b_s,
-                storage.clone(),
-                depth_inner,
-                None,
-            );
+            let mut inner_ring = Stages::smem(&cells, a_s, b_s, storage.clone(), depth_inner, None);
             inner_ring.pipelined(cells, |slot, cell| {
                 let mut c_r = c_o
                     .at(cell)

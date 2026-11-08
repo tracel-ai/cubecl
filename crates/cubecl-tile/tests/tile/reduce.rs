@@ -103,14 +103,7 @@ fn reduce_kernel<E: Numeric>(
 ) {
     let input = input.tile(&space);
     let mut output = output.tile(&space);
-    reduce_body::<E>(
-        &input,
-        &mut output,
-        &space,
-        level.clone(),
-        read,
-        monoid,
-    );
+    reduce_body::<E>(&input, &mut output, &space, level.clone(), read, monoid);
 }
 
 /// Reduce an axis-index recipe so a trailing partial tile must be masked without a backing window.
