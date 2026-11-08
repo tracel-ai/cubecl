@@ -328,22 +328,21 @@ pub(crate) fn stride_order((extent, stride): (usize, usize)) -> (core::cmp::Reve
 
 #[cfg(test)]
 mod tests {
-    /// A geometry's span is the elements its strides reach, padding included, and zero when it
-    /// holds none.
-    #[test]
-    fn a_span_reaches_past_the_last_element_its_strides_address() {
-        use super::Geometry;
-        assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
-        assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
-        assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
-    }
-
     use super::*;
     use crate::StorageLevels;
 
     const M: Axis = Axis(0);
     const N: Axis = Axis(1);
     const K: Axis = Axis(2);
+
+    /// A geometry's span is the elements its strides reach, padding included, and zero when it
+    /// holds none.
+    #[test]
+    fn a_span_reaches_past_the_last_element_its_strides_address() {
+        assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
+        assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
+        assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
+    }
 
     #[test]
     fn stride_order_reorders_the_dims_and_their_labels() {

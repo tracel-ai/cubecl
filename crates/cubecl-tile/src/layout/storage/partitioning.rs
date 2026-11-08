@@ -411,8 +411,8 @@ mod tests {
         }
     }
 
-    /// A staggered statement pads only its coarsest piece's stride, and reads back as its tiles
-    /// and order.
+    /// A staggered statement differs from its dense one, pads only its coarsest piece's stride,
+    /// and reads back as its tiles and order.
     #[test]
     fn a_staggered_buffer_pads_its_coarsest_stride_alone() {
         let dense = StorageLevels::new(&[(K, 16)])
@@ -420,6 +420,9 @@ mod tests {
             .grid(&[K, N]);
         let stagger = Stagger::new(1024, 4).expect("a 4-bit value divides a transaction");
         let staggered = dense.clone().staggered(stagger);
+        // The two lay the buffer down differently, so a derivation keyed on one never serves the
+        // other.
+        assert_ne!(staggered, dense);
         let extents = [(K, 4096), (N, 64)];
         let dense_geometry = dense.physical(&extents).unwrap();
         let geometry = staggered.physical(&extents).unwrap();
