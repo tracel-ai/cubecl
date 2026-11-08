@@ -102,3 +102,28 @@ impl Boundaries {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{PhysicalAxisMap, Scale};
+
+    const OH: Axis = Axis(0);
+    const RH: Axis = Axis(1);
+    const CI: Axis = Axis(2);
+
+    #[test]
+    fn a_backward_map_with_no_policy_zeroes_its_spatial_axis_only() {
+        let p = Projection::new(
+            &[OH, RH, CI],
+            &[
+                PhysicalAxisMap::scaled(&[(OH, Scale::Static(1)), (RH, Scale::Static(-1))])
+                    .shifted(1),
+                PhysicalAxisMap::of(CI),
+            ],
+        );
+        let concrete = Space::new(&[(OH, 8), (RH, 3), (CI, 4)]);
+        let boundaries = Boundaries::new(None, &p, &[OH, RH, CI], &concrete, &[], 1).unwrap();
+        assert_eq!(boundaries.modes.as_slice(), &[Some(Boundary::Zero), None]);
+    }
+}

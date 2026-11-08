@@ -282,7 +282,7 @@ impl Memory {
             "a window inside one storage tile is addressed as one run"
         ));
         let positional = comptime!(self.layout.projection.clone());
-        let rank = comptime!(positional.coordinate_rank());
+        let rank = positional.coordinate_rank();
         let mut strides = Coords::<u32>::new();
         #[unroll]
         for c in 0..rank {
@@ -374,17 +374,22 @@ impl Memory {
         self.window_start.cast::<usize>()
     }
 
-    /// Scalar stride between matrix rows, `row` the dim a row steps along (direct, untiled stores;
-    /// any other steps along its second-to-last dim).
+    /// Scalar stride between matrix rows, `row` the coordinate a direct window's rows step along:
+    /// its dim in an untiled store, its innermost carrier in a tiled one. A gathered window steps
+    /// along its second-to-last dim.
     pub(crate) fn row_stride_at(&self, #[comptime] row: usize) -> u32 {
         let rank = comptime!(self.layout.projection.physical_rank());
-        let row = comptime!(
-            if self.projection.is_direct() && !self.layout.projection.is_tiled() {
-                row
-            } else {
-                rank - 2
+        let row = comptime!({
+            let positional = &self.layout.projection;
+            match (self.projection.is_direct(), positional.is_tiled()) {
+                (true, true) => *positional
+                    .carriers(positional.logical_axes()[row])
+                    .last()
+                    .unwrap(),
+                (true, false) => row,
+                (false, _) => rank - 2,
             }
-        );
+        });
         self.layout
             .physical_strides
             .at(row)
@@ -459,6 +464,7 @@ impl Memory {
 
     /// Re-view this buffer as a flat 1-D [`FlatView`] over its [`Window`] extent.
     pub(crate) fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
+        comptime!(self.projection.refuse_backward("Memory::flat"));
         FlatView::new(
             self.window_view::<T, W>(comptime!(Guard::Checked))
                 .view(FlatLayout::new(self.window.extent.clone())),
@@ -564,6 +570,7 @@ impl Memory {
     /// The identity step over this window's physical box, for callers that evaluate the map themselves.
     /// It masks against the physical box only: the caller owes in-range logical coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
+        comptime!(self.projection.refuse_backward("Memory::physical_box"));
         let rank = comptime!(self.projection.physical_rank());
         CompactionStep::new(self.window.extent.clone(), comptime!(vec![1; rank]))
     }
@@ -580,13 +587,13 @@ impl Memory {
         ProjectedMatrix::new(
             TileMatrix::batch(
                 &bound,
-                comptime!(&space),
+                &space,
                 comptime!(self.projection.composition()),
                 comptime!(&load),
                 axes,
                 i,
             ),
-            self.axis_projection(comptime!(space.clone())),
+            self.axis_projection(space.clone()),
         )
     }
 
@@ -599,7 +606,7 @@ impl Memory {
     ) -> ProjectedMatrix {
         let vector_size = comptime!(self.store.vector_size);
         ProjectedMatrix::new(
-            TileMatrix::whole(comptime!(&space), vector_size, rows, cols),
+            TileMatrix::whole(&space, vector_size, rows, cols),
             axis_projection(
                 comptime!(space),
                 comptime!(self.projection.clone()),
@@ -616,7 +623,7 @@ impl Memory {
         ProjectionInKernel::new(
             Coords::constant(comptime!(load.counts(&space))),
             self.map.clone(),
-            comptime!(space.clone()),
+            space.clone(),
             comptime!(self.projection.clone()),
             comptime!(load.values()),
         )
@@ -624,6 +631,7 @@ impl Memory {
 
     /// The mutable twin of [`flat`](Memory::flat).
     pub(crate) fn flat_mut<T: Numeric, W: Size>(&mut self) -> FlatViewMut<'_, Vector<T, W>> {
+        comptime!(self.projection.refuse_backward("Memory::flat_mut"));
         if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::flat_mut: writing a packed tile requires repacking")
         }
@@ -706,7 +714,7 @@ impl Memory {
     pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> Memory {
         let rank = comptime!(self.projection.physical_rank());
         let (origin, extent, advances, map) = if comptime!(self.projection.is_direct()) {
-            self.direct_descent(step, comptime!(space.clone()))
+            self.direct_descent(step, space.clone())
         } else {
             self.gathered_descent(step)
         };
@@ -832,10 +840,10 @@ impl Memory {
                 // Over a storage-tiled axis the offset is not linear in the coordinate: a step
                 // into the next stored tile lands at that tile's stride, so the advance is the
                 // difference of the two offsets.
-                let advance = if comptime!(projection.carriers(coordinate).len() > 1) {
+                let advance = if projection.carriers(coordinate).len() > 1 {
                     let from = from.cast::<u32>();
                     axis_offset(
-                        comptime!(projection.clone()),
+                        projection.clone(),
                         coordinate,
                         from.plus(moved),
                         shape,
@@ -977,7 +985,7 @@ impl Memory {
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
     pub(crate) fn placed_at(&self, #[comptime] axis: Axis, coord: u32) -> Memory {
         let proj = comptime!(self.projection.clone());
-        let rank = comptime!(proj.physical_rank());
+        let rank = proj.physical_rank();
         let at = comptime!(
             placed_dim(&proj, axis)
                 .filter(|_| !self.layout.projection.is_tiled())
@@ -988,7 +996,7 @@ impl Memory {
         let mut extent = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            if comptime!(p == at) {
+            if p == at {
                 origin.push(self.window.origin.at(p).plus(coord.cast::<i32>()));
                 extent.push(1u32.runtime());
             } else {
@@ -1035,14 +1043,14 @@ impl Memory {
             proj.untiled().is_direct() && !proj.is_tiled(),
             "Memory::within: placing a window at an element needs a direct, untiled mapping"
         ));
-        let rank = comptime!(proj.physical_rank());
-        let at = comptime!(proj.position(axis));
+        let rank = proj.physical_rank();
+        let at = proj.position(axis);
 
         let mut origin = Coords::<i32>::new();
         let mut bound = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            if comptime!(p == at) {
+            if p == at {
                 origin.push(self.window.origin.at(p).plus(from.cast::<i32>()));
                 bound.push(self.window.bound.at(p).min_with(until.cast::<u32>()));
             } else {
@@ -1108,20 +1116,22 @@ fn gathered_axis_descent(
     #[comptime] vector_size: usize,
     #[comptime] pa: usize,
 ) -> (u32, u32, u32) {
-    let axis_map = comptime!(projection.physical_axis(pa));
-    let n = comptime!(axis_map.terms().len());
+    let axis_map = projection.physical_axis(pa);
+    let n = axis_map.terms().len();
     let picks = comptime!((0..n).collect::<Vec<_>>());
-    let lined = comptime!(pa == projection.physical_rank() - 1);
+    let lined = pa == projection.physical_rank() - 1;
 
     let mut terms = Coords::<u32>::new();
-    // Receptive-field terms `(edge - 1) * scale`; each branch adds the leading `1`.
+    // Receptive-field terms `(edge - 1) * |scale|`; each branch adds the leading `1`.
     let mut spans = Coords::<u32>::new();
     #[unroll]
     for t in 0..n {
         let term = comptime!(axis_map.terms()[t]);
         let edge = comptime!(cut.level.extent_in(&cut.space, term.axis).get());
-        match comptime!(term.scale) {
+        match term.scale {
             Scale::Static(s) => {
+                let step_sign = comptime!(s.signum());
+                let s = comptime!(s.unsigned_abs());
                 let step = comptime!(if lined {
                     assert!(
                         (edge * s).is_multiple_of(vector_size)
@@ -1135,14 +1145,16 @@ fn gathered_axis_descent(
                 } else {
                     edge * s
                 });
-                terms.push(cut.coord(term.axis).times(step).cast::<u32>());
+                // A backward step wraps to its two's complement, so the sum subtracts it.
+                let step = comptime!((step as isize * step_sign) as u32);
+                terms.push(cut.coord(term.axis).cast::<u32>().times(step));
                 spans.push(comptime!(((edge - 1) * s) as u32).runtime());
             }
             // No line division: `Projection::validate` keeps the innermost axis a static identity.
             Scale::Dynamic { .. } => {
                 let coefficient = map
                     .coefficients
-                    .at(comptime!(projection.dynamic_scale_index(pa, t).unwrap()));
+                    .at(projection.dynamic_scale_index(pa, t).unwrap());
                 terms.push(
                     cut.coord(term.axis)
                         .cast::<u32>()
@@ -1153,24 +1165,24 @@ fn gathered_axis_descent(
             }
         }
     }
-    let advance = terms.sum(comptime!(picks.clone()));
+    let advance = terms.sum(picks.clone());
 
-    if comptime!(!axis_map.is_rational()) {
-        let span = if comptime!(!axis_map.has_dynamic_scale()) {
+    if !axis_map.is_rational() {
+        let span = if !axis_map.has_dynamic_scale() {
             comptime!({
                 let s = projection.span(pa, |a| cut.level.extent_in(&cut.space, a).get());
                 (if lined { s / vector_size } else { s }) as u32
             })
             .runtime()
         } else {
-            spans.sum(comptime!(picks.clone())).plus(1)
+            spans.sum(picks.clone()).plus(1)
         };
         (advance, 0u32, span)
     } else {
         // No `/ vector_size`: `Projection::validate` forces width `1` on a rational innermost axis.
         let numerator = advance.plus(map.residues.at(pa));
-        let field = spans.sum(comptime!(picks.clone()));
-        match comptime!(axis_map.divisor()) {
+        let field = spans.sum(picks.clone());
+        match axis_map.divisor() {
             Divisor::Static(d) => {
                 let d = comptime!(d as u32);
                 let residue = numerator.remainder(d);
@@ -1183,7 +1195,7 @@ fn gathered_axis_descent(
             Divisor::Dynamic { .. } => {
                 let d = map
                     .coefficients
-                    .at(comptime!(projection.dynamic_divisor_index(pa).unwrap()));
+                    .at(projection.dynamic_divisor_index(pa).unwrap());
                 let residue = numerator.remainder(d);
                 (
                     numerator.divided_by(d),

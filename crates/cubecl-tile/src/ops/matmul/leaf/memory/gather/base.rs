@@ -252,12 +252,9 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let normalization = lhs.factor_normalization();
     let rhs_projection = rhs.projection();
     let rhs_boundaries = rhs.separable_boundaries();
-    let rank = comptime!(space.rank());
-    let factor_dependencies = lhs.factor_dependencies(
-        factors,
-        comptime!(space.axis_at(rank - 2)),
-        comptime!(space.axis_at(rank - 1)),
-    );
+    let rank = space.rank();
+    let factor_dependencies =
+        lhs.factor_dependencies(factors, space.axis_at(rank - 2), space.axis_at(rank - 1));
 
     let problem = comptime!(GatherProblem::new(
         &lhs.place.space,
@@ -287,7 +284,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
         let size!(V) = rw;
         let size!(A) = aw;
         separable::contract::<E, EL, ER, V, A>(acc, lhs, rhs, problem, config, semiring);
-    } else if comptime!(contracted_per_step > 1) {
+    } else if contracted_per_step > 1 {
         let size!(W) = contracted_per_step;
         let size!(A) = 1usize;
         nd::nest::<E, EL, W, ER, W, A>(acc, lhs, rhs, problem, config, semiring);

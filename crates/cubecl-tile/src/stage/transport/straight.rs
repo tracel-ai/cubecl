@@ -24,11 +24,19 @@ impl Memory {
         let check = comptime!(src.access.overhang.masks());
         let sw = comptime!(src.store.vector_size);
         let w = comptime!(self.store.vector_size);
-        let compaction = comptime!(stage_compaction(
-            &src.projection,
-            &self.projection,
-            w,
-            &space
+        // A direct stage with no source window holds its logical box, whatever the source gathers.
+        let dense = comptime!(self.projection.is_direct() && self.source_window.is_none());
+        let compaction = comptime!(match dense {
+            true => None,
+            false => stage_compaction(&src.projection, &self.projection, w, &space),
+        });
+        comptime!(assert!(
+            !dense
+                || src.projection.is_direct()
+                || src.projection.composition() == Composition::Disjoint
+                || (sw == w && !src.projection.is_rational()),
+            "Memory::fill_straight: a dense stage reads its gathered source through the source's \
+             map, which a padded or rational fill does not"
         ));
         // Empty when the window has no holes to skip.
         let steps = comptime!(match &compaction {
@@ -59,7 +67,7 @@ impl Memory {
         // A comptime worker count unrolls the tasks: a runtime stride (`CUBE_DIM`, or a plane's
         // `CUBE_DIM_X`) stalls each store on Metal's in-order pipe. Unknown or tiny cubes stay rolled.
         let fill = comptime!(self.access.fill);
-        let units = comptime!(fill.count);
+        let units = fill.count;
         let total_c = total.constant();
         // A gathered destination's line count must equal the compacted window's.
         let cells = comptime!(compaction.as_ref().map(|c| c.cells(w)));
@@ -74,7 +82,7 @@ impl Memory {
         let straight =
             comptime!(matches!(total_c, Some(t) if units > 0 && (t as usize).div_ceil(units) <= 8));
         let d = self.lines_storage_mut::<I2, WP2>();
-        if comptime!(sw == w) {
+        if sw == w {
             // A partition no compaction stands in for, several of whose axes share one of its
             // physical axes, is a source of fewer physical axes than the stage's logical ones:
             // the stage's coordinates name its axes, not the source's physical ones.
@@ -82,9 +90,10 @@ impl Memory {
                 compaction.is_none()
                     && !src.projection.is_direct()
                     && !src.projection.is_rational()
-                    && src_rank != plen
+                    && (src_rank != plen
+                        || src.projection.composition() == Composition::Overlapping)
             );
-            let s = if comptime!(steps.is_empty() && !through_projection) {
+            let s = if steps.is_empty() && !through_projection {
                 Masked::new(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked)),
                     check,
@@ -93,7 +102,7 @@ impl Memory {
                 // Read at the stage's logical coordinates through the source's own projection.
                 Masked::new(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
-                        .view(src.axis_projection(comptime!(space.clone()))),
+                        .view(src.axis_projection(space.clone())),
                     check,
                 )
             } else {
@@ -111,7 +120,7 @@ impl Memory {
                 fill_lines::<I2, WP2, WP2>(d, &s, &layout, total, total_c, fill, straight, padding);
             }
         } else {
-            let s = if comptime!(steps.is_empty()) {
+            let s = if steps.is_empty() {
                 Masked::new(
                     src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked)),
                     check,
@@ -170,11 +179,11 @@ fn fill_lines<I2: Numeric, WP2: Size, SW: Size>(
     #[comptime] padding: Option<Padding>,
 ) {
     if comptime!(straight) {
-        let units = comptime!(fill.count);
+        let units = fill.count;
         let tasks = comptime!((total_c.unwrap() as usize).div_ceil(units));
         #[unroll]
         for t in 0..tasks {
-            let i = FillUnits::worker(fill) + comptime!(t * units);
+            let i = FillUnits::worker(fill) + (t * units);
             if comptime!((t + 1) * units > total_c.unwrap() as usize) {
                 if i < total {
                     d[layout.line_offset(i)] = read_stage_line::<I2, WP2, SW>(

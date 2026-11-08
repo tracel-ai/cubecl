@@ -129,11 +129,15 @@ impl Tile {
         g.nd_words_mut::<WP>(layout)
     }
 
-    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] axis.
+    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] axis, and where a
+    /// backward coefficient puts the box's extremes off its two logical corners.
     pub(crate) fn guard_provable(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
-                comptime!(!data.window.boundaries.contains(&Some(Boundary::Clamp)))
+                comptime!(
+                    !data.window.boundaries.contains(&Some(Boundary::Clamp))
+                        && !data.projection.has_negative_scale()
+                )
             }
             TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -152,9 +156,9 @@ fn procedural_nd<T: Numeric, W: Size>(
     #[comptime] guard: Guard,
 ) -> Masked<'_, Vector<T, W>, CoordsDyn> {
     let layout = axis_projection(
-        comptime!(space.clone()),
+        space.clone(),
         comptime!(Projection::direct_over(&space)),
-        RuntimeMap::integral(comptime!(space.rank())),
+        RuntimeMap::integral(space.rank()),
         comptime!(1usize),
     );
     Masked::new(
@@ -190,7 +194,7 @@ impl Tile {
         let space = comptime!(self.place.space.clone());
         match &self.kind {
             TileKind::Memory(g) => Gathered::new(
-                g.axis_projection(comptime!(space.clone())),
+                g.axis_projection(space.clone()),
                 // A caller that evaluated the map derived its coordinates itself, so both guards stay on.
                 g.packed::<T, W, CoordsDyn, CompactionStep>(
                     g.physical_box(),
@@ -200,13 +204,13 @@ impl Tile {
             ),
             TileKind::Procedural(_) | TileKind::Lines(_) => Gathered::new(
                 axis_projection(
-                    comptime!(space.clone()),
+                    space.clone(),
                     comptime!(Projection::direct_over(&space)),
-                    RuntimeMap::integral(comptime!(space.rank())),
+                    RuntimeMap::integral(space.rank()),
                     comptime!(1usize),
                 ),
                 self.nd_packed::<T, W>(comptime!(Guard::Checked)),
-                comptime!(space.rank()),
+                space.rank(),
             ),
             TileKind::PlaneTile(_) | TileKind::PlanePartition(_) | TileKind::TmaGmem(_) => {
                 panic!("Tile::nd_split: this tile has no addressable N-D read surface")
@@ -223,7 +227,7 @@ pub(crate) fn axis_projection(
     map: RuntimeMap,
     #[comptime] vector_size: usize,
 ) -> ProjectionInKernel {
-    let rank = comptime!(space.rank());
+    let rank = space.rank();
     let shape = Coords::constant(comptime!(line_extents(&space, vector_size, 0, rank)));
 
     ProjectionInKernel::new(shape, map, space, projection, vector_size)

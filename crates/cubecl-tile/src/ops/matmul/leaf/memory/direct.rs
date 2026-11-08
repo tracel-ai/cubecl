@@ -54,7 +54,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
 
     // A load holds this many runs along the contraction, each its own column.
     let columns = comptime!(rhs_load.values() / rw);
-    if comptime!(contracted_per_step > 1) {
+    if contracted_per_step > 1 {
         let size!(W) = contracted_per_step;
         let size!(A) = 1usize;
         let size!(RL) = comptime!(rhs_load.values());
@@ -78,20 +78,20 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
     #[comptime] config: RegisterBlock,
     #[comptime] semiring: Semiring,
 ) {
-    let mr = comptime!(shape.mr);
-    let nr = comptime!(shape.nr);
-    let cols = comptime!(shape.cols);
-    let kc = comptime!(shape.kc);
-    let contracted_per_step = comptime!(shape.contracted_per_step);
-    let lw = comptime!(shape.lw);
-    let aw = comptime!(shape.aw);
-    let matrices = comptime!(shape.matrices());
+    let mr = shape.mr;
+    let nr = shape.nr;
+    let cols = shape.cols;
+    let kc = shape.kc;
+    let contracted_per_step = shape.contracted_per_step;
+    let lw = shape.lw;
+    let aw = shape.aw;
+    let matrices = shape.matrices();
 
     let lhs_axes = comptime!(shape.lhs_axes(&lhs.place.space));
     let rhs_axes = comptime!(shape.rhs_axes(&rhs.place.space));
 
-    let lhs_k_lines = comptime!(kc.div_ceil(lw));
-    let component_fanout = comptime!(config.component_fanout);
+    let lhs_k_lines = kc.div_ceil(lw);
+    let component_fanout = config.component_fanout;
 
     // Every value this nest reads is read under its factor, so an `e2m1` operand is read placed,
     // its lift carried by the factor.
@@ -103,28 +103,24 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
             lhs_axes,
             mat,
             comptime!(Side::Lhs),
-            comptime!(shape.space.clone()),
-            comptime!(shape.acc_axes),
+            shape.space.clone(),
+            shape.acc_axes,
         );
         let rhs_scales = rhs.reader(
             rhs_axes,
             mat,
             comptime!(Side::Rhs),
-            comptime!(shape.space.clone()),
-            comptime!(shape.acc_axes),
+            shape.space.clone(),
+            shape.acc_axes,
         );
-        let mut acc_view = acc.matrix_accumulate::<E, A>(
-            mat,
-            comptime!(shape.acc_axes),
-            comptime!(shape.space.clone()),
-            comptime!(semiring.add()),
-        );
+        let mut acc_view =
+            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, shape.space.clone(), semiring.add());
 
         // Split into an in-bounds body kept in registers and a checked edge body.
         let lhs_check = comptime!(lhs_mat.check);
         let rhs_check = comptime!(rhs_mat.check);
         let acc_check = acc_view.check();
-        let eligible = comptime!(shape.scalars() <= config.budget);
+        let eligible = shape.scalars() <= config.budget;
         let split_edge =
             comptime!(eligible && config.split_edge && (lhs_check || rhs_check || acc_check));
         let in_bounds = if comptime!(split_edge) {
@@ -133,7 +129,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
                 comptime!(mr as u32).runtime(),
                 comptime!(lhs_k_lines as u32).runtime(),
             );
-            let rhs_extent = if comptime!(contracted_per_step > 1) {
+            let rhs_extent = if contracted_per_step > 1 {
                 (
                     comptime!((nr / columns) as u32).runtime(),
                     comptime!((kc / contracted_per_step) as u32).runtime(),

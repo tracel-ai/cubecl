@@ -59,12 +59,7 @@ pub(crate) fn block_scaled_definition<CD: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> MmaDefinition<LhsCodes, RhsCodes, CD> {
-    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(
-        m,
-        n,
-        k,
-        comptime!(k / form.block),
-    )
+    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(m, n, k, k / form.block)
 }
 
 /// Refuses `src`, loaded into a fragment of `T` in role `ident`, as an operand of the device's
@@ -364,18 +359,18 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
         // The step's scales as the operand stores them: one word, the register itself
         // (`assert_block_scaled` holds a word to a step's scales).
         let at = TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, axes, 1usize);
-        let word = factor.word_at(&at, comptime!(space.clone()));
+        let word = factor.word_at(&at, space.clone());
         scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
     } else {
         let mut register = Vector::<BlockScale, NS>::empty();
         #[unroll]
-        for b in 0..comptime!(k / form.block) {
+        for b in 0..(k / form.block) {
             // The window's rows are the served axis whichever its layout: an `A`'s rows, a
             // `B`'s columns lying col-major.
             let along_k = comptime!((b * form.block) as u32);
             let at =
                 TileMatrix::value_coords(served, along_k.runtime(), 0usize, &space, axes, 1usize);
-            let scale = factor.at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked));
+            let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
             register.insert(b, BlockScale::cast_from(scale));
         }
         scales[0] = register;
@@ -408,7 +403,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
 ) {
     let space = comptime!(src.place.space.clone());
     let load = src.vector_tile();
-    let rank = comptime!(space.rank());
+    let rank = space.rank();
     // An element of the register holds `per_element` codes, an `e2m1x2` two; a register is one
     // word.
     let per_register = def.vector_size(ident);

@@ -37,9 +37,9 @@ impl Procedural {
         let mut origin = Coords::<u32>::new();
         let mut bound = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(space.rank()) {
+        for p in 0..space.rank() {
             origin.push(0u32.runtime());
-            let axis = comptime!(space.axis_at(p));
+            let axis = space.axis_at(p);
             let extent = comptime!(if space.is_dynamic(axis) {
                 u32::MAX.runtime()
             } else {
@@ -62,8 +62,8 @@ impl Procedural {
     pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> Self {
         let mut origin = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(space.rank()) {
-            let axis = comptime!(space.axis_at(p));
+        for p in 0..space.rank() {
+            let axis = space.axis_at(p);
             match comptime!(step.level.tile(axis)) {
                 Some(tile) => {
                     let tile = comptime!(tile as u32);
@@ -87,7 +87,7 @@ impl Procedural {
         Procedural {
             origin,
             bound: self.bound.clone(),
-            bounds_check: comptime!(!bounded_axes.is_empty()),
+            bounds_check: !bounded_axes.is_empty(),
             bounded_axes,
             normalization: comptime!(self.normalization.clone()),
             recipe: self.recipe.clone(),
@@ -124,7 +124,7 @@ impl Procedural {
                 .collect();
             (extents, sources)
         });
-        let position_at = comptime!(space.rank() - 1);
+        let position_at = space.rank() - 1;
         let slice_coords = Coords::<u32>::constant(slice_extents).unravel(slice);
         let mut coords = Coords::<u32>::new();
         // `#[unroll]` needs a range loop.
@@ -144,6 +144,11 @@ impl Procedural {
         self.recipe.factorization()
     }
 
+    /// Whether this source is zero everywhere ([`zero`](Self::zero)).
+    pub(crate) fn is_zero(&self) -> comptime_type!(bool) {
+        self.recipe.is_zero()
+    }
+
     #[allow(dead_code)] // Reached through its expand, from [`Tile::factor_dependencies`].
     pub(crate) fn factor_reads(
         &self,
@@ -161,7 +166,7 @@ impl Procedural {
     ) -> T {
         let mut coords = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(space.rank()) {
+        for p in 0..space.rank() {
             coords.push(pos[p]);
         }
         let absolute = RecipeCoords::new(&self.origin, &coords, space);
@@ -191,7 +196,7 @@ impl Procedural {
     pub(crate) fn read_at<T: Numeric>(&self, pos: &CoordsDyn, #[comptime] space: Space) -> T {
         let mut coords = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(space.rank()) {
+        for p in 0..space.rank() {
             coords.push(pos[p]);
         }
         self.evaluate::<T>(&coords, space)
@@ -358,6 +363,17 @@ impl Procedural {
             space,
             ErasedRecipe::__expand_new::<T, R>(scope, recipe),
         )
+    }
+
+    /// A source over `space` that is zero everywhere, computing at `T`. It reads as zeros like a
+    /// [`Constant`] zero, and an op it is handed to may skip it: a bias of zeros
+    /// ([`OnlineSoftmax::step`]) is no bias.
+    pub fn zero<T: Numeric>(_space: Space) -> Self {
+        unexpanded!()
+    }
+
+    pub fn __expand_zero<T: Numeric>(scope: &Scope, space: Space) -> ProceduralExpand {
+        Self::__expand_erased(scope, space, ErasedRecipe::__expand_zero::<T>(scope))
     }
 
     /// [`new`](Self::new) keeping the recipe's factorization, one factor per contracted axis.

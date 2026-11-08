@@ -120,7 +120,7 @@ impl PageTable {
             last_entry,
             // A bound pool holds a page at least; one stated by hand is kept off underflow.
             last_page: pool_pages.max_with(1u32).minus(1u32),
-            page_size: comptime!(paging.page_size),
+            page_size: paging.page_size,
             sequence_dim,
             position_dim,
             unit,
@@ -231,8 +231,8 @@ impl PageTable {
         let page_lines = comptime!((self.list.page_size / self.list.unit) as u32);
         let mut bases = Coords::<u32>::new();
         #[unroll]
-        for k in 0..comptime!(spans.pages()) {
-            let listed = match comptime!(k == 0) {
+        for k in 0..spans.pages() {
+            let listed = match k == 0 {
                 true => page,
                 false => self.list.lookup(sequence, column.plus(comptime!(k as u32))),
             };
@@ -328,7 +328,7 @@ impl PageTable {
     fn pinned_base(&self, physical: &Coords<u32>) -> u32 {
         let mut base = self.bases.at(0);
         let pages = comptime!(self.spans.pages());
-        if comptime!(pages > 1) {
+        if pages > 1 {
             let unit = comptime!(self.list.unit as u32);
             let offset = physical
                 .at(comptime!(self.list.position_dim))
