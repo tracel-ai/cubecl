@@ -11,7 +11,7 @@ use crate::*;
 pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
     acc: &mut RegisterData,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     // Drain the block the way it was built to reduce; the partials fit no other operator.
@@ -30,12 +30,12 @@ pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
 fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
     acc: &mut RegisterData,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     let in_space = comptime!(input.place.space.clone());
     let vw = input.vector_size();
-    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
+    let layout = comptime!(ReduceLayout::new(&in_space, acc_space));
     let total_acc = layout.total_acc;
 
     let count = comptime!(acc.mr * acc.nr);
@@ -57,7 +57,7 @@ fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
         let curr_val: Acc = element::<Acc, In, V>(
             &in_view,
             &in_space,
-            &acc_space,
+            acc_space,
             &layout,
             &acc_coords,
             vw,
@@ -75,7 +75,7 @@ fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
 pub(crate) fn memory<Acc: Numeric, In: Numeric>(
     acc: &mut Memory,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     let size!(V) = input.vector_size();
@@ -86,12 +86,12 @@ pub(crate) fn memory<Acc: Numeric, In: Numeric>(
 fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
     acc: &mut Memory,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     let in_space = comptime!(input.place.space.clone());
     let vw = input.vector_size();
-    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
+    let layout = comptime!(ReduceLayout::new(&in_space, acc_space));
     let total_acc = layout.total_acc;
 
     let ws = comptime!(acc.store.vector_size);
@@ -118,7 +118,7 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
             let curr_val: Acc = element::<Acc, In, V>(
                 &in_view,
                 &in_space,
-                &acc_space,
+                acc_space,
                 &layout,
                 &acc_coords,
                 vw,
@@ -283,11 +283,11 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
 pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
 ) -> Array<E> {
     let in_space = comptime!(lhs.place.space.clone());
     let vw = lhs.vector_size();
-    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
+    let layout = comptime!(ReduceLayout::new(&in_space, acc_space));
     let total_acc = layout.total_acc;
     let lhs_view = lhs.nd_packed::<Lhs, V>(comptime!(Guard::Checked));
     let rhs_view = rhs.nd_packed::<Rhs, V>(comptime!(Guard::Checked));
@@ -304,7 +304,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 let reduce_coords = Coords::constant(line_extents.clone()).unravel(p.cast::<u32>());
                 let coords = resolve_nd_coords(
                     &in_space,
-                    &acc_space,
+                    acc_space,
                     &layout.reduce_axes,
                     &acc_coords,
                     &reduce_coords,
@@ -323,7 +323,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                     Coords::constant(layout.reduce_extents.clone()).unravel(p.cast::<u32>());
                 let coords = resolve_nd_coords(
                     &in_space,
-                    &acc_space,
+                    acc_space,
                     &layout.reduce_axes,
                     &acc_coords,
                     &reduce_coords,
@@ -332,7 +332,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 );
                 let component = resolve_reduce_component(
                     &in_space,
-                    &acc_space,
+                    acc_space,
                     &layout.reduce_axes,
                     &acc_coords,
                     &reduce_coords,

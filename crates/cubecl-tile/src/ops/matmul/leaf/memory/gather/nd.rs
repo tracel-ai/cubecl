@@ -41,8 +41,8 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
     let split_operands =
         config.split_edge && eligible && provable && !spread_overhang && (lhs_check || rhs_check);
     let operands_inside = if split_operands {
-        box_in_bounds::<EL, L>(&lhs_view, problem.lhs_space.clone(), problem.block.lw)
-            && box_in_bounds::<ER, V>(&rhs_view, problem.rhs_space.clone(), problem.block.vw)
+        box_in_bounds::<EL, L>(&lhs_view, &problem.lhs_space, problem.block.lw)
+            && box_in_bounds::<ER, V>(&rhs_view, &problem.rhs_space, problem.block.vw)
     } else {
         comptime!(false).runtime()
     };
@@ -53,7 +53,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
         let mut acc = acc.matrix_accumulate::<E, A>(
             mat,
             problem.block.acc_axes,
-            problem.block.space.clone(),
+            &problem.block.space,
             semiring.add(),
         );
 
@@ -108,11 +108,11 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
 #[allow(clippy::needless_range_loop)]
 fn box_in_bounds<T: Numeric, W: Size>(
     view: &Masked<'_, Vector<T, W>, CoordsDyn>,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] width: usize,
 ) -> bool {
     let rank = space.rank();
-    let extents = comptime!(crate::line_extents(&space, width, 0, rank));
+    let extents = comptime!(crate::line_extents(space, width, 0, rank));
 
     let mut near = CoordsDyn::new();
     let mut far = CoordsDyn::new();
@@ -289,7 +289,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                 0u32,
                 n as u32,
                 &reduce_coords,
-                problem.rhs_space.clone(),
+                &problem.rhs_space,
                 problem.clone(),
                 problem.block.vw,
             ));
@@ -307,7 +307,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                 i as u32,
                 0u32,
                 &reduce_coords,
-                problem.lhs_space.clone(),
+                &problem.lhs_space,
                 problem.clone(),
                 lw,
             );
@@ -328,7 +328,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                 i as u32,
                 0u32,
                 &reduce_coords,
-                problem.rhs_space.clone(),
+                &problem.rhs_space,
                 problem.clone(),
                 problem.block.vw,
             ));
@@ -343,7 +343,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                     i as u32,
                     n as u32,
                     &reduce_coords,
-                    problem.lhs_space.clone(),
+                    &problem.lhs_space,
                     problem.clone(),
                     lw,
                 );
@@ -373,7 +373,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                     i as u32,
                     n as u32,
                     &reduce_coords,
-                    problem.rhs_space.clone(),
+                    &problem.rhs_space,
                     problem.clone(),
                     problem.block.vw,
                 ))

@@ -47,7 +47,7 @@ impl Tile {
         let space = comptime!(self.place.space.clone());
         let cells = space.cells();
         let size!(V) = width;
-        let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, space);
+        let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, &space);
         self.set_cells(&values, cells);
     }
 
@@ -88,10 +88,10 @@ fn reduce_leaf<Acc: Numeric, In: Numeric>(
     let space = comptime!(acc.place.space.clone());
     match &mut acc.kind {
         TileKind::Memory(g) => {
-            reduce::memory::<Acc, In>(g, input, space, monoid);
+            reduce::memory::<Acc, In>(g, input, &space, monoid);
         }
         TileKind::PlaneTile(t) => {
-            reduce_plane_tile::<Acc, In>(t, input, space, monoid);
+            reduce_plane_tile::<Acc, In>(t, input, &space, monoid);
         }
         TileKind::PlanePartition(p) => {
             comptime!(assert!(
@@ -99,7 +99,7 @@ fn reduce_leaf<Acc: Numeric, In: Numeric>(
                 "reduce_leaf: a multi-tile partition must be contracted at its partition level"
             ));
             let mut t = p.at(0usize, 0usize);
-            reduce_plane_tile::<Acc, In>(&mut t, input, space, monoid);
+            reduce_plane_tile::<Acc, In>(&mut t, input, &space, monoid);
         }
         TileKind::TmaGmem(_) => panic!("reduce: a tma source is not an accumulator sink"),
         TileKind::Procedural(_) | TileKind::Lines(_) => {
@@ -112,7 +112,7 @@ fn reduce_leaf<Acc: Numeric, In: Numeric>(
 fn reduce_plane_tile<Acc: Numeric, In: Numeric>(
     tile: &mut PlaneTile,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     match tile {

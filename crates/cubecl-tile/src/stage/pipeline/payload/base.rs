@@ -73,7 +73,7 @@ pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
     let define!(Staged) = operand.staged_element(spec.decoded);
     let stage = Memory::stage::<Staged>(
         operand,
-        spec.level.clone(),
+        &spec.level,
         spec.storage.clone(),
         spec.width,
         spec.owner,

@@ -40,9 +40,9 @@ impl Tile {
             let group = group_line(&extents.unravel(i.cast::<u32>()), split.clone());
             let (a_base, b_base) = bases(
                 &group,
-                space.clone(),
-                comptime!(a.place.space.clone()),
-                comptime!(b.place.space.clone()),
+                &space,
+                &a.place.space,
+                &b.place.space,
                 width,
                 per_read,
             );
@@ -130,9 +130,9 @@ fn group_line(at: &Coords<u32>, #[comptime] split: GroupWalk) -> CoordsDyn {
 #[cube]
 fn bases(
     group: &CoordsDyn,
-    #[comptime] dst: Space,
-    #[comptime] a: Space,
-    #[comptime] b: Space,
+    #[comptime] dst: &Space,
+    #[comptime] a: &Space,
+    #[comptime] b: &Space,
     #[comptime] width: usize,
     #[comptime] per_read: usize,
 ) -> (CoordsDyn, CoordsDyn) {
@@ -148,8 +148,8 @@ fn bases(
     let no_reduce = comptime!(Vec::<Axis>::new());
     (
         resolve_nd_coords(
-            &a,
-            &dst,
+            a,
+            dst,
             &no_reduce,
             &cells,
             &empty,
@@ -157,8 +157,8 @@ fn bases(
             AccCoords::Cells,
         ),
         resolve_nd_coords(
-            &b,
-            &dst,
+            b,
+            dst,
             &no_reduce,
             &cells,
             &empty,

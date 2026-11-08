@@ -30,7 +30,7 @@ impl Memory {
     pub(crate) fn fill_procedural<T: Numeric>(
         &mut self,
         src: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         comptime!(assert!(
             self.store.packing.as_stored()
@@ -50,7 +50,7 @@ impl Memory {
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
             dst.write(
                 i,
-                Vector::cast_from(src.read_masked::<T>(&pos, space.clone())),
+                Vector::cast_from(src.read_masked::<T>(&pos, space)),
             );
             i += stride;
         }
@@ -61,7 +61,7 @@ impl Memory {
     /// which only a plain stage of served values is.
     pub(crate) fn stage<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
@@ -71,7 +71,7 @@ impl Memory {
             StageStorage::Lines { read } => {
                 owner.refuse_for_a_plane("held in the plane's units");
                 Tile {
-                    kind: TileKind::new_Lines(Lines::new(operand, level.clone(), comptime!(read))),
+                    kind: TileKind::new_Lines(Lines::new(operand, level, comptime!(read))),
                     factor: Factor::none(),
                     place: comptime!(Placement::new(
                         level.child(&operand.place.space),
@@ -88,7 +88,7 @@ impl Memory {
     /// [`stage`](Memory::stage) in shared memory.
     fn stage_memory<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
@@ -109,7 +109,7 @@ impl Memory {
     /// [`stage_memory`](Memory::stage_memory) before a stage of words is read as words.
     fn stage_memory_as_served<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
@@ -143,7 +143,7 @@ impl Memory {
                     None if decodes => {
                         let innermost = space.axis_at(space.rank() - 1);
                         space
-                            .leaf(operand.place.below_level(&level))
+                            .leaf(operand.place.below_level(level))
                             .whole_run(innermost, source_width)
                     }
                     None => source_width,
@@ -158,11 +158,11 @@ impl Memory {
                 // so is a tiled one, which an instruction reads as one matrix.
                 let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));
                 if comptime!(projection.is_direct() || decodes || tiled) {
-                    Memory::smem_owned::<S>(space, vector_size, storage, units, alignment, owner)
+                    Memory::smem_owned::<S>(&space, vector_size, storage, units, alignment, owner)
                 } else {
                     owner.refuse_for_a_plane("gathered");
                     Memory::smem_gathered::<S>(
-                        space,
+                        &space,
                         vector_size,
                         storage,
                         units,
@@ -185,7 +185,7 @@ impl Memory {
     /// names, whose units fill it.
     fn smem_stored<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] owner: StageOwner,
     ) -> Tile {
@@ -209,10 +209,10 @@ impl Memory {
             Packing::Plain | Packing::Words { .. } => {
                 // The values the bulk engine lands come packed; a plain stored stage keeps the
                 // copy's alignment.
-                Memory::smem_owned::<S>(space, vector_size, storage, units, 0usize, owner)
+                Memory::smem_owned::<S>(&space, vector_size, storage, units, 0usize, owner)
             }
             packing => Memory::smem_packed::<S>(
-                space,
+                &space,
                 vector_size,
                 storage,
                 units,

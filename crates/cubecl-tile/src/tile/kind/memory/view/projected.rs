@@ -79,7 +79,7 @@ impl Tile {
             g.projection.composition() != Composition::Overlapping,
             "Tile::nd_mut: an overlapping operand aliases under a write"
         ));
-        let layout = g.axis_projection(space);
+        let layout = g.axis_projection(&space);
         g.masked_mut::<T, W, CoordsDyn, ProjectionInKernel>(layout)
     }
 
@@ -91,11 +91,11 @@ impl Tile {
     ) -> Masked<'_, Vector<T, W>, CoordsDyn> {
         match &self.kind {
             TileKind::Memory(g) => {
-                let layout = g.axis_projection(comptime!(self.place.space.clone()));
+                let layout = g.axis_projection(&self.place.space);
                 g.packed::<T, W, CoordsDyn, ProjectionInKernel>(layout, guard)
             }
             TileKind::Procedural(data) => {
-                procedural_nd::<T, W>(data, comptime!(self.place.space.clone()), guard)
+                procedural_nd::<T, W>(data, &self.place.space, guard)
             }
             TileKind::PlaneTile(_) | TileKind::PlanePartition(_) => {
                 panic!("Tile::nd: a plane tile has no memory view")
@@ -113,7 +113,7 @@ impl Tile {
         #[comptime] guard: Guard,
     ) -> Masked<'_, Vector<u32, WP>, CoordsDyn> {
         let g = self.mem("nd_words");
-        let layout = g.axis_projection(comptime!(self.place.space.clone()));
+        let layout = g.axis_projection(&self.place.space);
         g.nd_words::<WP>(layout, guard)
     }
 
@@ -125,7 +125,7 @@ impl Tile {
             g.projection.composition() != Composition::Overlapping,
             "Tile::nd_words_mut: an overlapping operand aliases under a write"
         ));
-        let layout = g.axis_projection(space);
+        let layout = g.axis_projection(&space);
         g.nd_words_mut::<WP>(layout)
     }
 
@@ -150,14 +150,14 @@ impl Tile {
 
 /// A procedural tile's whole box as an N-D view, evaluated at the coordinate.
 #[cube]
-fn procedural_nd<T: Numeric, W: Size>(
-    data: &Procedural,
-    #[comptime] space: Space,
+fn procedural_nd<'a, T: Numeric, W: Size>(
+    data: &'a Procedural,
+    #[comptime] space: &Space,
     #[comptime] guard: Guard,
-) -> Masked<'_, Vector<T, W>, CoordsDyn> {
+) -> Masked<'a, Vector<T, W>, CoordsDyn> {
     let layout = axis_projection(
-        space.clone(),
-        comptime!(Projection::direct_over(&space)),
+        space,
+        &comptime!(Projection::direct_over(space)),
         RuntimeMap::integral(space.rank()),
         comptime!(1usize),
     );
@@ -194,7 +194,7 @@ impl Tile {
         let space = comptime!(self.place.space.clone());
         match &self.kind {
             TileKind::Memory(g) => Gathered::new(
-                g.axis_projection(space.clone()),
+                g.axis_projection(&space),
                 // A caller that evaluated the map derived its coordinates itself, so both guards stay on.
                 g.packed::<T, W, CoordsDyn, CompactionStep>(
                     g.physical_box(),
@@ -204,8 +204,8 @@ impl Tile {
             ),
             TileKind::Procedural(_) | TileKind::Lines(_) => Gathered::new(
                 axis_projection(
-                    space.clone(),
-                    comptime!(Projection::direct_over(&space)),
+                    &space,
+                    &comptime!(Projection::direct_over(&space)),
                     RuntimeMap::integral(space.rank()),
                     comptime!(1usize),
                 ),
@@ -222,15 +222,15 @@ impl Tile {
 /// The tile's per-axis extents paired with its operand's mapping; the innermost is in lines.
 #[cube]
 pub(crate) fn axis_projection(
-    #[comptime] space: Space,
-    #[comptime] projection: Projection,
+    #[comptime] space: &Space,
+    #[comptime] projection: &Projection,
     map: RuntimeMap,
     #[comptime] vector_size: usize,
 ) -> ProjectionInKernel {
     let rank = space.rank();
-    let shape = Coords::constant(comptime!(line_extents(&space, vector_size, 0, rank)));
+    let shape = Coords::constant(comptime!(line_extents(space, vector_size, 0, rank)));
 
-    ProjectionInKernel::new(shape, map, space, projection, vector_size)
+    ProjectionInKernel::new(shape, map, space.clone(), projection.clone(), vector_size)
 }
 
 /// The extents of `space` in `from..to`, the innermost rounded up to a line count.

@@ -48,7 +48,7 @@ impl Memory {
     pub(crate) fn fill_cast_from<T: Numeric, S: Numeric>(
         &mut self,
         src: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         comptime!(assert!(
             src.store.packing.as_stored()
@@ -62,7 +62,7 @@ impl Memory {
         // The innermost extent is whole lines, as the uncast scan asks (`Scan::new`): nothing on
         // this path would notice the last line the source cannot fill.
         comptime!(fill_extent(
-            &space,
+            space,
             src.store.vector_size,
             self.store.vector_size,
             src.access.overhang.masks()

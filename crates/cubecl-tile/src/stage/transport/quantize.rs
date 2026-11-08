@@ -98,8 +98,8 @@ impl Tile {
                         &mut out,
                         at_load,
                         coarse,
-                        from.clone(),
-                        comptime!(line.clone()),
+                        &from,
+                        line.clone(),
                     );
                 } else {
                     if at_load < comptime!(loads as u32) {
@@ -108,8 +108,8 @@ impl Tile {
                             &mut out,
                             at_load,
                             coarse,
-                            from.clone(),
-                            comptime!(line.clone()),
+                            &from,
+                            line.clone(),
                         );
                     }
                 }
@@ -123,8 +123,8 @@ impl Tile {
                     &mut out,
                     at_load,
                     coarse,
-                    from.clone(),
-                    comptime!(line.clone()),
+                    &from,
+                    line.clone(),
                 );
             }
         }
@@ -140,7 +140,7 @@ impl Tile {
         out: &mut MaskedMut<'_, Vector<I, WP>, CoordsDyn>,
         at_load: u32,
         coarse: f32,
-        #[comptime] from: Space,
+        #[comptime] from: &Space,
         #[comptime] line: VectorTile,
     ) {
         let load = self.vector_tile();
@@ -179,7 +179,7 @@ impl Tile {
                     to.push(coord);
                 }
             }
-            held[c] = read.read(line.index(&to, &from));
+            held[c] = read.read(line.index(&to, from));
             if fused {
                 most = max(most, largest::<F, LW>(held[c]));
             } else {
@@ -264,8 +264,8 @@ impl Tile {
                         &start,
                         c + comptime!(k as u32),
                         coarse,
-                        from.clone(),
-                        comptime!(line.clone()),
+                        &from,
+                        line.clone(),
                         value,
                         two_levels,
                     );
@@ -297,7 +297,7 @@ impl Tile {
         start: &Coords<u32>,
         c: u32,
         coarse: f32,
-        #[comptime] from: Space,
+        #[comptime] from: &Space,
         #[comptime] line: VectorTile,
         #[comptime] value: QuantValue,
         #[comptime] two_levels: bool,
@@ -327,7 +327,7 @@ impl Tile {
                     at.push(comptime!(line.offset_in(l, &block, axis) as u32).runtime());
                 }
             }
-            most = max(most, largest::<F, LW>(read.read(line.index(&at, &from))));
+            most = max(most, largest::<F, LW>(read.read(line.index(&at, from))));
         }
         f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels))
     }
