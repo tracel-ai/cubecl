@@ -611,12 +611,6 @@ const_eval!(SRemOp, {
         _ => None
     }
 });
-simplify!(SRemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
 
 #[op_interface_impl]
 impl ConditionallySpeculatable for SRemOp {
@@ -656,12 +650,6 @@ const_eval!(URemOp, {
     custom: |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::UInt(1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
         _ => None
-    }
-});
-simplify!(URemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::UInt(1) => Some(self.lhs(ctx)),
-        _ => None?,
     }
 });
 
