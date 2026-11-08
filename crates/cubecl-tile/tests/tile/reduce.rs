@@ -72,7 +72,7 @@ fn reduce_body<E: Numeric>(
 ) {
     output.init::<E>(Monoid::identity::<E>(monoid));
     let walk = space.over(&level);
-    match comptime!(read) {
+    match read {
         Read::InPlace => {
             for region in walk {
                 let mut out_region = output.at(&region);

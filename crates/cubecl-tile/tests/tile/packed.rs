@@ -3220,7 +3220,7 @@ fn decoded_lines<N: Size>(
     let at = ABSOLUTE_POS;
     let (row, line) = (at / lines, at % lines);
     if at < output.len() {
-        output[at] = match comptime!(read) {
+        output[at] = match read {
             LineRead::Masked => decoded.read(row, line),
             LineRead::Untested => decoded.read_unchecked(row, line),
         };

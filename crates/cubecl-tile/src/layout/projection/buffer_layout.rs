@@ -277,7 +277,7 @@ impl BufferLayout {
             // Strip the finer coordinates, then take this one; the outermost keeps the full
             // quotient.
             let quot = pos[p].divided_by(self.physical_shape.product(finer.to_vec()));
-            let coord = match comptime!(modulo) {
+            let coord = match modulo {
                 Some(m) => quot.remainder(self.physical_shape.at(m)),
                 None => quot,
             };

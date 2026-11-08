@@ -288,7 +288,7 @@ fn matmul_smem_ring_scheduled(
             let mut c_w = c.at(&region);
             c_w.zero();
         }
-        let walk = match comptime!(unrolled) {
+        let walk = match unrolled {
             true => cube.over(&steps).unrolled(),
             false => cube.over(&steps),
         };

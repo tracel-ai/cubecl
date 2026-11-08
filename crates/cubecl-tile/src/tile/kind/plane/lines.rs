@@ -104,7 +104,7 @@ impl Lines {
         ));
         let words = line / per_word;
         register_line_words(words);
-        let window = match comptime!(read) {
+        let window = match read {
             UnitRead::Shuffle => ComptimeOption::new_None(),
             UnitRead::PlaneShared => {
                 let planes = comptime!(plane_windows(&operand.place.space, &operand.place.levels));

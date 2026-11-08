@@ -70,7 +70,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
         );
 
         let mut block_weights = Array::<EL>::new(taps);
-        if comptime!(caches_block) {
+        if caches_block {
             let block_anchor = rhs_anchor(&rhs_reader.map, &batch, 0u32, 0u32, problem.clone());
             #[unroll]
             for f in 0..factors {
@@ -93,7 +93,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
         }
 
         let mut column_weights = Array::<EL>::new(taps * nr);
-        if comptime!(caches_column) {
+        if caches_column {
             #[unroll(unroll)]
             for n in 0..nr {
                 let anchor = rhs_anchor(&rhs_reader.map, &batch, 0u32, n as u32, problem.clone());
@@ -140,7 +140,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                     );
                 }
             }
-            if comptime!(factors_span_col) {
+            if factors_span_col {
                 #[unroll(unroll)]
                 for n in 0..nr {
                     let anchor =
@@ -427,7 +427,7 @@ fn factor_weight<EL: Numeric>(
     #[comptime] reuse: FactorReuse,
 ) -> EL {
     let tap = factor_tap(reduce_coords, factor, offset);
-    match comptime!(reuse) {
+    match reuse {
         FactorReuse::Block => block[tap],
         FactorReuse::Row => row[tap],
         FactorReuse::Column => column[column_index * comptime!(taps) + tap],

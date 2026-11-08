@@ -130,7 +130,7 @@ impl Meeting {
                 let full =
                     Barrier::shared(Meeting::producers(collective_full, fillers), UNIT_POS == 0);
                 let empty = Barrier::shared(Meeting::consumers(fillers), UNIT_POS == 0);
-                if comptime!(fences) {
+                if fences {
                     sync_async_proxy_shared();
                 }
                 sync_cube();
@@ -146,7 +146,7 @@ impl Meeting {
     pub(crate) fn producers(#[comptime] collective_full: bool, #[comptime] fillers: usize) -> u32 {
         if fillers > 0 {
             comptime!(fillers as u32) * CUBE_DIM_X
-        } else if comptime!(collective_full) {
+        } else if collective_full {
             CUBE_DIM
         } else {
             1u32.runtime()

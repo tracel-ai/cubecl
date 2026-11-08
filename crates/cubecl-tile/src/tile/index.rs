@@ -343,7 +343,7 @@ impl Tile {
         let p = comptime!(placed_dim(&memory.projection, axis).unwrap());
         let zero =
             comptime!(memory.window.boundaries.get(p).copied().flatten() == Some(Boundary::Zero));
-        if comptime!(zero) {
+        if zero {
             coord
         } else {
             coord.min_with(memory.window.bound.at(p).max_with(1u32).minus(1u32))

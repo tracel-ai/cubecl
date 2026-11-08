@@ -123,7 +123,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
         let eligible = shape.scalars() <= config.budget;
         let split_edge =
             comptime!(eligible && config.split_edge && (lhs_check || rhs_check || acc_check));
-        let in_bounds = if comptime!(split_edge) {
+        let in_bounds = if split_edge {
             let origin = (0u32.runtime(), 0u32.runtime());
             let lhs_extent = (
                 comptime!(mr as u32).runtime(),
@@ -151,7 +151,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
             false.runtime()
         };
 
-        if comptime!(split_edge) {
+        if split_edge {
             if in_bounds {
                 body::<E, EL, L, ER, V, A, RL>(
                     &mut acc_view,

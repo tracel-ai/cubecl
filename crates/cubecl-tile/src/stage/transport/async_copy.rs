@@ -48,7 +48,7 @@ pub(crate) fn fill_lines_async<I2: Numeric, W: Size>(
         "fill_lines_async: the copy engine moves 4, 8 or 16 bytes at once, and this stage's lines \
          are {bytes}: serve the operand in lines one copy moves"
     ));
-    if comptime!(straight) {
+    if straight {
         let units = fill.count;
         let tasks = comptime!((total_c.unwrap() as usize).div_ceil(units));
         #[unroll]

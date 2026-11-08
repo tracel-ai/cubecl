@@ -133,7 +133,7 @@ impl Tile {
         #[comptime] instruction: Instruction,
         #[comptime] semiring: Semiring,
     ) -> Tile {
-        match comptime!(instruction) {
+        match instruction {
             Instruction::Registers { config } => {
                 register_accumulator::<EA>(self, lhs, rhs, config, semiring)
             }
@@ -181,7 +181,7 @@ impl Tile {
     /// a drain region by region.
     pub fn with_scratch(self, #[comptime] scratch: Scratch) -> Tile {
         let define!(Served) = self.element;
-        match comptime!(scratch) {
+        match scratch {
             Scratch::None => self,
             _ => match &self.kind {
                 TileKind::PlanePartition(p) => {
@@ -260,7 +260,7 @@ impl Tile {
         if comptime!(unopened && (scaled || bounces)) {
             let opened = self.clone().with_scratch(Scratch::OneTile);
             opened.drain_into(dest);
-        } else if comptime!(scaled) {
+        } else if scaled {
             let mut sum = self.unscaled();
             sum.scale_by::<f32>(self.factor.whole());
             sum.drain_into(dest);
@@ -814,7 +814,7 @@ fn drain_chunk_leaf<A: Numeric, O: Numeric>(
     #[comptime] pass: DrainPass,
     lands: bool,
 ) {
-    match comptime!(pass) {
+    match pass {
         DrainPass::Copy => {
             if lands {
                 let mut window = dest.clone();
@@ -850,7 +850,7 @@ fn drain_chunk_leaf<A: Numeric, O: Numeric>(
 /// One tile of a drain against the one window it lands in.
 #[cube]
 fn drain_leaf<A: Numeric, O: Numeric>(acc: &Tile, dest: &Tile, #[comptime] pass: DrainPass) {
-    match comptime!(pass) {
+    match pass {
         DrainPass::Copy => {
             let mut window = dest.clone();
             window.copy_cast_from(acc);

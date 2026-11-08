@@ -40,7 +40,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
     ));
     let split_operands =
         config.split_edge && eligible && provable && !spread_overhang && (lhs_check || rhs_check);
-    let operands_inside = if comptime!(split_operands) {
+    let operands_inside = if split_operands {
         box_in_bounds::<EL, L>(&lhs_view, problem.lhs_space.clone(), problem.block.lw)
             && box_in_bounds::<ER, V>(&rhs_view, problem.rhs_space.clone(), problem.block.vw)
     } else {
@@ -62,7 +62,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
 
         // Interior instances prove the operand box once and read unguarded. The accumulator stays
         // guarded on both sides: it must never write outside the output.
-        if comptime!(split_operands) {
+        if split_operands {
             let inside = operands_inside;
             if inside {
                 walk::<E, EL, L, ER, V, A>(

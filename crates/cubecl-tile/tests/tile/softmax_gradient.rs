@@ -218,7 +218,7 @@ fn by_plane_fragments(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let (rows, cols, rows_gradient, cols_gradient) = match comptime!(keys_first) {
+    let (rows, cols, rows_gradient, cols_gradient) = match keys_first {
         true => (
             key.clone(),
             query.clone(),

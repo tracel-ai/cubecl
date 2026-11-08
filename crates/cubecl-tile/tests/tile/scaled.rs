@@ -70,7 +70,7 @@ fn scaled_matmul(
         let mut c_r = c
             .at(&region)
             .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -104,7 +104,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     );
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => acc_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => acc_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -167,7 +167,7 @@ fn two_level_scaled_matmul(
         let mut c_r = c
             .at(&region)
             .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => c_r.mma(
                 &a.at(&region)
                     .mul(&blocks.at(&region))
@@ -206,7 +206,7 @@ fn scaled_matmul_cmma<E: Numeric>(
     let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => acc_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => acc_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -1446,7 +1446,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     );
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => acc_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => acc_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -1594,7 +1594,7 @@ fn wide_lhs_scaled_matmul(
             comptime!(RegisterBlock::new(64).component_fanout()),
             Semiring::SUM_PROD,
         );
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r
                 .accumulating(
@@ -2691,7 +2691,7 @@ fn decoded_tile_order_copy(
     for cube in space {
         let decoded = b.at(&cube).mul(&scale.at(&cube));
         let mut out_cube = out.at(&cube);
-        match comptime!(through) {
+        match through {
             CopiedThrough::Directly => out_cube.dequantize_from(&decoded),
             CopiedThrough::ABlockAtATime => {
                 for block in cube.walk() {
@@ -2818,7 +2818,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
         let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Instruction::Cmma, Semiring::SUM_PROD);
         let run = cube.walk();
-        let staged = match comptime!(unpacked) {
+        let staged = match unpacked {
             Unpacked::ByEachPlane => b_cube.clone(),
             Unpacked::ByTheFill => b_cube.mul(&scale_cube),
         };
@@ -2836,7 +2836,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
             slot.consume(|a_stage, b_stage| {
                 for plane in stage {
                     let mut sum_plane = sum_stage.at(&plane);
-                    let b_plane = match comptime!(unpacked) {
+                    let b_plane = match unpacked {
                         Unpacked::ByEachPlane => b_stage.at(&plane).mul(&scale_stage.at(&plane)),
                         Unpacked::ByTheFill => b_stage.at(&plane),
                     };
@@ -3116,7 +3116,7 @@ fn scaled_copy<E: Numeric>(
     let a = a.tile(&space);
     let scale = scale.tile(&space);
     let mut out = out.tile(&space);
-    if comptime!(staged) {
+    if staged {
         let mut stage = Tile::shared::<E>(comptime!(space.space().clone()), StageStorage::Strided);
         stage.dequantize_from(&a.mul(&scale));
         sync_cube();

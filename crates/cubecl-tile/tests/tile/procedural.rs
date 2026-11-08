@@ -160,7 +160,7 @@ fn phase_kernel<E: Float>(
     #[comptime] launch_ratio: bool,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = if comptime!(launch_ratio) {
+    let source = if launch_ratio {
         affine_plus_phase::<E>(
             comptime!(space.space().clone()),
             SCALE.runtime(),

@@ -209,7 +209,7 @@ fn read_or_identity<In: Numeric, V: Size>(
     in_coords: CoordsDyn,
     #[comptime] monoid: Monoid,
 ) -> Vector<In, V> {
-    match comptime!(monoid) {
+    match monoid {
         Monoid::Sum => in_view.read(in_coords),
         Monoid::Prod | Monoid::Max | Monoid::Min => {
             let valid = in_view.is_in_bounds(in_coords.clone());
@@ -297,7 +297,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     for a in 0..total_acc {
         let acc_coords = Coords::constant(layout.acc_extents.clone()).unravel(comptime!(a as u32));
         let mut sum = E::from_int(0);
-        if comptime!(whole_lines) {
+        if whole_lines {
             // The innermost run counted in lines: its coordinate is already the line's.
             let line_extents = comptime!(layout.line_extents(vw));
             for p in 0..comptime!(layout.kc / vw) {
