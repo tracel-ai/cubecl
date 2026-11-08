@@ -3,15 +3,29 @@
 use cubecl::prelude::*;
 
 use super::leaf as reduce;
+use crate::dialect::ReduceOp;
 use crate::*;
 
 #[cube]
 impl Tile {
     /// `c = reduce(input)`: reduce `input` into `self` across the contracted axes.
+    ///
+    /// It reaches the IR as one `tile.reduce` op.
     pub fn reduce_axis(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
+        intrinsic!(|scope| ReduceOp::trace(scope, |scope| {
+            self.__expand_reduce_from_identity_method(scope, input, monoid)
+        }))
+    }
+
+    /// [`reduce_axis`](Tile::reduce_axis)'s reduction, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn reduce_from_identity(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
         self.init_identity::<Served>(monoid);
-        self.reduce_axis_accumulate(input, monoid);
+        self.reduce_onto_held(input, monoid);
     }
 
     /// `self[c] = Σ_r lhs[c, r] · rhs[c, r]`, `r` the axes `lhs` and `rhs` span beyond `self`'s:
@@ -31,14 +45,24 @@ impl Tile {
         let define!(Lhs) = lhs.read_element();
         let define!(Rhs) = rhs.read_element();
         let space = comptime!(self.place.space.clone());
-        let cells = comptime!(space.cells());
+        let cells = space.cells();
         let size!(V) = width;
         let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, space);
         self.set_cells(&values, cells);
     }
 
     /// `c = reduce(c, input)`: reduce `input` into what `self` holds, which must be seeded.
+    ///
+    /// It reaches the IR as one `tile.reduce` op.
     pub fn reduce_axis_accumulate(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
+        intrinsic!(|scope| ReduceOp::trace(scope, |scope| {
+            self.__expand_reduce_onto_held_method(scope, input, monoid)
+        }))
+    }
+
+    /// [`reduce_axis_accumulate`](Tile::reduce_axis_accumulate)'s reduction, as tracing writes it
+    /// inside the op.
+    fn reduce_onto_held(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
         let define!(Source) = input.read_element();
         reduce_leaf::<Served, Source>(self, input, monoid)

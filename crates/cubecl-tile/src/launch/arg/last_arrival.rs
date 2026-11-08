@@ -59,10 +59,10 @@ impl<'a> TileTensor<'a> {
         let boxes_space = comptime!(partitioning.clone().arrival_slots_space(self.spec.axes()));
         let boxes = Partitioning {
             space: Space::with_sizes(
-                comptime!(boxes_space.space().clone()),
+                boxes_space.space().clone(),
                 partitioning.space.sizes.clone(),
             ),
-            levels: comptime!(boxes_space.levels().to_vec()),
+            levels: boxes_space.levels().to_vec(),
         };
         let (first, holders) = portion.holders(i);
         let run = portion.run();

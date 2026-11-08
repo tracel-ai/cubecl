@@ -40,9 +40,9 @@ impl MmaData {
                     bf,
                     b_scales,
                     acc.at_mut::<A>(),
-                    comptime!(operands.block_scaled().expect(
-                        "MmaData::mma: block-scaled fragments are contracted under their form"
-                    )),
+                    operands.block_scaled().expect(
+                        "MmaData::mma: block-scaled fragments are contracted under their form",
+                    ),
                     m,
                     n,
                     k,

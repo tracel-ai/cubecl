@@ -142,12 +142,12 @@ impl Memory {
             space.slices_along(space.axis_at(space.rank() - 1)),
             space.extent_at(space.rank() - 1)
         ));
-        let step = comptime!(broadcast.position);
+        let step = broadcast.position;
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
-            let first = comptime!(broadcast.at(i, 0));
+            let first = broadcast.at(i, 0);
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;
@@ -175,13 +175,13 @@ impl Memory {
             space.slices_along(space.axis_at(space.rank() - 1)),
             space.extent_at(space.rank() - 1)
         ));
-        let step = comptime!(broadcast.position);
+        let step = broadcast.position;
         let size!(W) = 1usize;
         let read = probabilities.flat::<E, W>();
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
-            let first = comptime!(broadcast.at(i, 0));
+            let first = broadcast.at(i, 0);
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;

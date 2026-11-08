@@ -6,6 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use cubecl::zspace::SmallVec;
 
+use crate::dialect::{CopyOp, DequantizeOp};
 use crate::stage::pipeline::payload::base::{StageOperand, StageSpec, stage_one};
 use crate::*;
 
@@ -581,7 +582,7 @@ impl Tile {
         if comptime!(i + 1 == region.path.len()) {
             sub
         } else {
-            sub.at_from(region, comptime!(i + 1))
+            sub.at_from(region, i + 1)
         }
     }
 
@@ -685,7 +686,7 @@ impl Tile {
         let space = self.runtime_space();
         Walk::of(
             &space,
-            comptime!(level.clone()),
+            level.clone(),
             Region::rooted(
                 &space,
                 comptime!(self.place.levels.clone()),
@@ -771,7 +772,7 @@ impl Tile {
     pub fn stage(&self, #[comptime] level: Level, #[comptime] storage: StageStorage) -> Tile {
         let define!(Staged) = self.staged_element(comptime!(None));
         Memory::stage::<Staged>(
-            &self.shaped_for(comptime!(level.clone())),
+            &self.shaped_for(level.clone()),
             level,
             storage,
             comptime!(None),
@@ -874,7 +875,20 @@ impl Tile {
     /// A source whose scales a stage keeps beside it copies its values as they are stored, into a
     /// stage that keeps them too; the stage's fill brings the scales. Any other scaled source is
     /// written with its scales applied, which only [`dequantize_from`](Tile::dequantize_from) does.
+    ///
+    /// It reaches the IR as one `tile.copy` op.
     pub fn copy_from(&mut self, src: &Tile) {
+        intrinsic!(|scope| CopyOp::trace(scope, |scope| {
+            self.__expand_copy_as_stored_method(scope, src)
+        }))
+    }
+
+    /// [`copy_from`](Tile::copy_from)'s copy, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn copy_as_stored(&mut self, src: &Tile) {
         let decodes = src.decodes();
         comptime!(assert!(
             !decodes,
@@ -898,7 +912,20 @@ impl Tile {
     /// From memory, each load is decoded once, in the unit that reads it, its scales multiplied
     /// together in `f32` and the value rounded once. From an accumulator, it is the sum's drain,
     /// which multiplies the sum by the scale it carries; the sum is spent by its write.
+    ///
+    /// It reaches the IR as one `tile.dequantize` op.
     pub fn dequantize_from(&mut self, src: &Tile) {
+        intrinsic!(|scope| DequantizeOp::trace(scope, |scope| {
+            self.__expand_decode_from_method(scope, src)
+        }))
+    }
+
+    /// [`dequantize_from`](Tile::dequantize_from)'s decode, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn decode_from(&mut self, src: &Tile) {
         match &src.kind {
             TileKind::Memory(_) => {
                 let into_memory = self.is_memory();
@@ -1065,7 +1092,7 @@ impl Tile {
             // A stage answers against the window it was filled from.
             TileKind::Memory(data) => {
                 let projection = comptime!(data.projection.clone());
-                if comptime!(!projection.addresses(axis)) {
+                if !projection.addresses(axis) {
                     true.runtime()
                 } else {
                     #[comptime]
@@ -1073,12 +1100,12 @@ impl Tile {
                         ComptimeOption::Some(source) => source.axes_in_bounds(
                             &data.window.origin,
                             pos,
-                            comptime!(projection.carriers(axis).to_vec()),
+                            projection.carriers(axis).to_vec(),
                         ),
                         ComptimeOption::None => match comptime!(data.address) {
                             AddressSpace::Global => data
                                 .window
-                                .axes_in_bounds(pos, comptime!(projection.carriers(axis).to_vec())),
+                                .axes_in_bounds(pos, projection.carriers(axis).to_vec()),
                             AddressSpace::Shared => true.runtime(),
                         },
                     }
@@ -1144,12 +1171,12 @@ impl TileExpand {
 #[cube]
 pub(crate) fn witnessed_space(#[comptime] space: Space, a: &Tile, b: &Tile, c: &Tile) -> Space {
     let mut sizes = Sequence::<usize>::new();
-    if comptime!(!space.is_static()) {
+    if !space.is_static() {
         #[unroll]
-        for p in 0..comptime!(space.rank()) {
-            let axis = comptime!(space.axis_at(p));
+        for p in 0..space.rank() {
+            let axis = space.axis_at(p);
             // Evaluate `Static` axes here so one `Dynamic` axis doesn't require a bound for the rest.
-            let size = match comptime!(space.extent_raw(axis)) {
+            let size = match space.extent_raw(axis) {
                 Extent::Static(n) => comptime!(n).runtime(),
                 Extent::Dynamic => {
                     let by_a = a.witnesses(axis);
@@ -1674,8 +1701,8 @@ impl Tile {
         #[unroll]
         for p in 0..rank {
             let axis = comptime!(self.place.space.axis_at(p));
-            if comptime!(values.contains(axis)) {
-                own.push(coords.at(comptime!(values.position(axis))));
+            if values.contains(axis) {
+                own.push(coords.at(values.position(axis)));
             } else {
                 comptime!(assert!(
                     !projection.addresses(axis),
@@ -1695,16 +1722,16 @@ impl Tile {
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let load = self.vector_tile();
         let width = comptime!(load.values());
         let packing = self.packing();
         let mut position = 0u32.runtime();
         #[unroll]
         for p in 0..rank {
-            let axis = comptime!(space.axis_at(p));
+            let axis = space.axis_at(p);
             let extent = comptime!(load.extent_along(axis) as u32);
-            if comptime!(extent > 1) {
+            if extent > 1 {
                 let step = comptime!(load.step_along(axis) as u32);
                 position += coords.at(p).remainder(extent).times(step);
             }
@@ -1715,7 +1742,7 @@ impl Tile {
                 let line = self
                     .nd_packed::<Served, W>(guard)
                     .read(load.index(coords, &space));
-                let value = if comptime!(width > 1) {
+                let value = if width > 1 {
                     line.extract_dynamic(position.cast::<usize>())
                 } else {
                     line.extract(0usize)
@@ -1728,7 +1755,7 @@ impl Tile {
                 let words_wide = comptime!(packing.physical(width));
                 let size!(WP) = words_wide;
                 let words = self.nd_words::<WP>(guard).read(load.index(coords, &space));
-                let word = if comptime!(words_wide > 1) {
+                let word = if words_wide > 1 {
                     words.extract_dynamic((position / per_word).cast::<usize>())
                 } else {
                     words.extract(0usize)

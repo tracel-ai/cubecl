@@ -16,17 +16,15 @@ pub(crate) fn launch_tiles(
     #[comptime] level: Level,
     grid: &Coords<usize>,
 ) -> (Coords<usize>, Coords<usize>) {
-    let order = comptime!(
-        level
-            .launch_order()
-            .expect("a level spanning the launch states the order its instances take")
-    );
+    let order = level
+        .launch_order()
+        .expect("a level spanning the launch states the order its instances take");
     // An instance's place in its cube: a plane's row, or a unit's place among all of its units.
-    let in_cube = match comptime!(level.coverage().scope()) {
+    let in_cube = match level.coverage().scope() {
         Some(ComputeScope::Unit) => UNIT_POS as usize,
         _ => UNIT_POS_Y as usize,
     };
-    let rank = comptime!(space.rank());
+    let rank = space.rank();
     // The level's axes in the order it names them: the first rides fastest across the blocks, as
     // a cube level's `X` does.
     let named = comptime!(
@@ -40,33 +38,26 @@ pub(crate) fn launch_tiles(
     // its `z` is always one.
     let cube = CubeAxis::position(CubeAxis::X)
         .plus(CubeAxis::position(CubeAxis::Y).times(CUBE_COUNT_X as usize));
-    let (block, local) = if comptime!(order.one_block_a_cube()) {
+    let (block, local) = if order.one_block_a_cube() {
         (cube, in_cube)
     } else {
-        let flat = cube
-            .times(comptime!(order.planes_per_cube()).runtime())
-            .plus(in_cube);
-        let planes = comptime!(order.block_planes()).runtime();
+        let flat = cube.times(order.planes_per_cube().runtime()).plus(in_cube);
+        let planes = order.block_planes().runtime();
         (flat.divided_by(planes), flat.remainder(planes))
     };
 
     // Blocks along each named axis, the last one ragged.
     let mut blocks = Coords::<usize>::new();
     #[unroll]
-    for p in comptime!(named.clone()) {
-        let along = comptime!(order.block_along(space.axis_at(p)));
+    for p in named.clone() {
+        let along = order.block_along(space.axis_at(p));
         blocks.push(
             grid.at(p)
-                .plus(comptime!(along - 1).runtime())
+                .plus((along - 1).runtime())
                 .divided_by(along.runtime()),
         );
     }
-    let at = block_coords(
-        block,
-        &blocks,
-        comptime!(named.len()),
-        comptime!(order.block_order()),
-    );
+    let at = block_coords(block, &blocks, named.len(), order.block_order());
 
     let mut positions = Coords::<usize>::new();
     let mut counts = Coords::<usize>::new();
@@ -78,7 +69,7 @@ pub(crate) fn launch_tiles(
                 counts.push(grid.at(p));
             }
             Some(i) => {
-                let along = comptime!(order.block_along(space.axis_at(p)));
+                let along = order.block_along(space.axis_at(p));
                 // The last named axis rides fastest within a block, as a plane level's does.
                 let inner = comptime!(
                     named[i + 1..]
@@ -106,11 +97,11 @@ fn block_coords(
     #[comptime] order: CubeOrder,
 ) -> Coords<usize> {
     let mut out = Coords::<usize>::new();
-    if comptime!(named == 1) {
+    if named == 1 {
         out.push(block);
     } else {
         let plane = blocks.at(0).times(blocks.at(1));
-        let first_two = if comptime!(named == 2) {
+        let first_two = if named == 2 {
             block
         } else {
             block.remainder(plane)
@@ -121,7 +112,7 @@ fn block_coords(
         let mut rest = block.divided_by(plane);
         #[unroll]
         for i in 2..named {
-            if comptime!(i + 1 == named) {
+            if i + 1 == named {
                 out.push(rest);
             } else {
                 out.push(rest.remainder(blocks.at(i)));

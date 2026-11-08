@@ -50,7 +50,7 @@ impl Memory {
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
             dst.write(
                 i,
-                Vector::cast_from(src.read_masked::<T>(&pos, comptime!(space.clone()))),
+                Vector::cast_from(src.read_masked::<T>(&pos, space.clone())),
             );
             i += stride;
         }
@@ -66,16 +66,12 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
     ) -> Tile {
-        match comptime!(storage.clone()) {
+        match storage.clone() {
             // The plane holds the units at the depth of one region of `level`.
             StageStorage::Lines { read } => {
-                comptime!(owner.refuse_for_a_plane("held in the plane's units"));
+                owner.refuse_for_a_plane("held in the plane's units");
                 Tile {
-                    kind: TileKind::new_Lines(Lines::new(
-                        operand,
-                        comptime!(level.clone()),
-                        comptime!(read),
-                    )),
+                    kind: TileKind::new_Lines(Lines::new(operand, level.clone(), comptime!(read))),
                     factor: Factor::none(),
                     place: comptime!(Placement::new(
                         level.child(&operand.place.space),
@@ -164,7 +160,7 @@ impl Memory {
                 if comptime!(projection.is_direct() || decodes || tiled) {
                     Memory::smem_owned::<S>(space, vector_size, storage, units, alignment, owner)
                 } else {
-                    comptime!(owner.refuse_for_a_plane("gathered"));
+                    owner.refuse_for_a_plane("gathered");
                     Memory::smem_gathered::<S>(
                         space,
                         vector_size,
@@ -179,7 +175,7 @@ impl Memory {
                 }
             }
             StageElement::Stored => {
-                comptime!(owner.refuse_for_a_plane("kept in its stored form"));
+                owner.refuse_for_a_plane("kept in its stored form");
                 Memory::smem_stored::<S>(operand, level, storage, owner)
             }
         }
