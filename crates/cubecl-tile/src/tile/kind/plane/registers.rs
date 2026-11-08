@@ -248,7 +248,11 @@ impl RegisterData {
     }
 
     /// [`store_cast_window`](Self::store_cast_window) into a sink of `A`-wide cells.
-    fn drain<T: Numeric, Out: Numeric, A: Size>(&self, mem: &mut Memory, #[comptime] space: &Space) {
+    fn drain<T: Numeric, Out: Numeric, A: Size>(
+        &self,
+        mem: &mut Memory,
+        #[comptime] space: &Space,
+    ) {
         let data = self.data.at::<T>();
         let mem_write = comptime!(mem.access.write);
         let unit_share = comptime!(mem.unit_share);

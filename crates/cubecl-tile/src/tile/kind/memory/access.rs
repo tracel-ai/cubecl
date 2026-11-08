@@ -813,10 +813,7 @@ impl Memory {
         for p in 0..rank {
             let axis = space.axis_at(p);
             // A whole axis over a dynamic extent carries through unmoved.
-            if comptime!(matches!(
-                step.level.extent_in(space, axis),
-                Extent::Dynamic
-            )) {
+            if comptime!(matches!(step.level.extent_in(space, axis), Extent::Dynamic)) {
                 origin.push(self.window.origin.at(p));
                 extent.push(self.window.extent.at(p));
                 advances.push(0u32);
@@ -842,14 +839,8 @@ impl Memory {
                 // difference of the two offsets.
                 let advance = if projection.carriers(coordinate).len() > 1 {
                     let from = from.cast::<u32>();
-                    axis_offset(
-                        &projection,
-                        coordinate,
-                        from.plus(moved),
-                        shape,
-                        strides,
-                    )
-                    .minus(axis_offset(&projection, coordinate, from, shape, strides))
+                    axis_offset(&projection, coordinate, from.plus(moved), shape, strides)
+                        .minus(axis_offset(&projection, coordinate, from, shape, strides))
                 } else {
                     index.cast::<u32>().times(axis_offset(
                         &projection,

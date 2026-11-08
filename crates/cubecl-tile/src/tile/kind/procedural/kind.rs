@@ -184,7 +184,11 @@ impl Procedural {
     }
 
     /// Evaluate with the static partial-tile mask; dynamic axes are unmasked.
-    pub(crate) fn read_masked<T: Numeric>(&self, pos: &Coords<u32>, #[comptime] space: &Space) -> T {
+    pub(crate) fn read_masked<T: Numeric>(
+        &self,
+        pos: &Coords<u32>,
+        #[comptime] space: &Space,
+    ) -> T {
         if comptime!(self.bounds_check) && !self.is_in_bounds(pos) {
             T::from_int(0)
         } else {
@@ -373,7 +377,11 @@ impl Procedural {
     }
 
     pub fn __expand_zero<T: Numeric>(scope: &Scope, space: Space) -> ProceduralExpand {
-        Self::__expand_erased(scope, space.clone(), ErasedRecipe::__expand_zero::<T>(scope))
+        Self::__expand_erased(
+            scope,
+            space.clone(),
+            ErasedRecipe::__expand_zero::<T>(scope),
+        )
     }
 
     /// [`new`](Self::new) keeping the recipe's factorization, one factor per contracted axis.
