@@ -605,9 +605,9 @@ const_eval!(SRemOp, {
         ConstantValue::Int(0) => Some(int_attr(ctx, lhs?.get_type(ctx), 0)),
         _ => None
     },
-    // x % 1 -> 0
+    // x % 1 -> 0; x % -1 -> 0, so no `MIN % -1` is left to run
     custom: |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
+        ConstantValue::Int(1 | -1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
         _ => None
     }
 });
@@ -695,9 +695,9 @@ const_eval!(SModFloorOp, {
         ConstantValue::Int(0) => Some(int_attr(ctx, lhs?.get_type(ctx), 0)),
         _ => None?
     },
-    // x % 1 -> 0
+    // x % 1 -> 0; x % -1 -> 0, so no `MIN mod_floor -1` is left to run
     custom: |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
+        ConstantValue::Int(1 | -1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
         _ => None?
     }
 });
