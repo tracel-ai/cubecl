@@ -113,7 +113,7 @@ impl Memory {
         #[comptime] element: StageElement,
         #[comptime] decodes: bool,
     ) -> Tile {
-        match comptime!(element) {
+        match element {
             StageElement::Served | StageElement::Decoded => {
                 let space = comptime!(level.child(&operand.place.space));
                 let projection = operand.projection();

@@ -99,11 +99,11 @@ fn lane_run_matmul(
     let a = a.tile(&space);
     let mut c = c.tile(&space);
     let (b, b_factor) = b.tile(&space).factor(c.space(), instruction);
-    let acc = match comptime!(first) {
+    let acc = match first {
         First::Activation => c.accumulator::<f32>(&a, &b, instruction, Semiring::SUM_PROD),
         First::Weight => c.accumulator::<f32>(&b, &a, instruction, Semiring::SUM_PROD),
     };
-    match comptime!(staged) {
+    match staged {
         Staged::Nothing => {
             for region in space.over(&level) {
                 let mut acc_r = acc.at(&region);

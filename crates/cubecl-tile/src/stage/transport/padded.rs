@@ -61,7 +61,7 @@ fn widen_line<T: Numeric, W: Size, SW: Size>(
         let cell = line
             .times(comptime!(width as u32))
             .plus(comptime!(l as u32));
-        let valid = if comptime!(guarded) {
+        let valid = if guarded {
             cell < comptime!(padding.extent.unwrap() as u32)
         } else {
             true.runtime()

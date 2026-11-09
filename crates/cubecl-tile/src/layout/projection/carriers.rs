@@ -41,7 +41,7 @@ pub(crate) fn axis_offset(
         let (finer, modulo) = projection.carried_by(pa, axis);
         let scale = comptime!(projection.scale(pa, axis) as u32);
         let quot = at.divided_by(physical_shape.product(finer.to_vec()));
-        let coord = match comptime!(modulo) {
+        let coord = match modulo {
             Some(m) => quot.remainder(physical_shape.at(m)),
             None => quot,
         };

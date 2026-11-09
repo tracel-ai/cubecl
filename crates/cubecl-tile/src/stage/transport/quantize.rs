@@ -180,7 +180,7 @@ impl Tile {
                 }
             }
             held[c] = read.read(line.index(&to, from));
-            if comptime!(fused) {
+            if fused {
                 most = max(most, largest::<F, LW>(held[c]));
             } else {
                 over[c] = self
@@ -188,17 +188,13 @@ impl Tile {
                     .at_coords(&at, space.clone(), comptime!(Guard::Checked));
             }
         }
-        if comptime!(fused) {
+        if fused {
             let scale_packing = scales.packing();
             let dtype = comptime!(scale_packing.scale_dtype(scales.element));
             let inner = f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels));
             self.factor
                 .write_at::<Const<1>>(&start, space.clone(), Vector::new(inner));
-            let effective = if comptime!(two_levels) {
-                inner * coarse
-            } else {
-                inner
-            };
+            let effective = if two_levels { inner * coarse } else { inner };
             #[unroll]
             for c in 0..lines {
                 over[c] = effective;
@@ -363,7 +359,7 @@ fn block_scale<F: Float>(
 ) -> F {
     let (low, high) = value.range();
     let wanted = most * F::new(2.0) / F::new(comptime!((high - low) as f64));
-    if comptime!(two_levels) {
+    if two_levels {
         round_up_to_dtype::<F>(F::cast_from(f32::cast_from(wanted) / coarse), dtype)
     } else {
         round_up_to_dtype::<F>(wanted, dtype)
@@ -381,7 +377,7 @@ fn encoded<F: Float, N: Size>(
     #[comptime] value: QuantValue,
     #[comptime] two_levels: bool,
 ) -> Vector<f32, N> {
-    let (scaled, zero) = if comptime!(two_levels) {
+    let (scaled, zero) = if two_levels {
         (
             Vector::<f32, N>::cast_from(line) / Vector::new(scale),
             scale == 0.0,
@@ -394,7 +390,7 @@ fn encoded<F: Float, N: Size>(
         )
     };
     let (low, high) = value.range();
-    let on_grid = match comptime!(value) {
+    let on_grid = match value {
         QuantValue::E2M1 | QuantValue::E4M3 | QuantValue::E5M2 => {
             clamp(scaled, Vector::new(low), Vector::new(high))
         }

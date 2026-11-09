@@ -87,7 +87,7 @@ fn separable_kernel<E: Float>(
 ) {
     let input = input.tile(&space);
     let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
-    let weights = if comptime!(separable) {
+    let weights = if separable {
         Procedural::separable::<E, Weights<E>>(
             comptime!(space.space().subspace(&weight_axes)),
             weights::<E>(),
@@ -381,7 +381,7 @@ fn resample_kernel<E: Float>(
         comptime!(space.space().subspace(&[ROW, TAP[0]])),
         resample_weights::<E>(),
     );
-    let weights = if comptime!(normalized) {
+    let weights = if normalized {
         weights.normalized(comptime!(TapSupport::Whole), comptime!(DivGuard::default()))
     } else {
         weights

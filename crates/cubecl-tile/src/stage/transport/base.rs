@@ -161,7 +161,7 @@ impl Memory {
             &self.access,
             space
         ));
-        match comptime!(transport) {
+        match transport {
             TransportKind::Packed => {
                 let size!(WP) = comptime!(self.store.packing.physical(self.store.vector_size));
                 self.fill_straight::<u32, WP>(src, space);
