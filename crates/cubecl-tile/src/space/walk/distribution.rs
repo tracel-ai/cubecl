@@ -159,9 +159,9 @@ impl AxisDistribution {
         #[comptime] dim: Option<CubeAxis>,
     ) -> usize {
         match comptime!(compute_scope) {
-            ComputeScope::Cube => CubeAxis::position(comptime!(
-                dim.expect("a cube level's distributed axis rides a grid dimension")
-            )),
+            ComputeScope::Cube => CubeAxis::position(
+                dim.expect("a cube level's distributed axis rides a grid dimension"),
+            ),
             ComputeScope::Plane | ComputeScope::PlaneGroup { .. } | ComputeScope::Unit => {
                 ComputeScope::position(compute_scope)
             }

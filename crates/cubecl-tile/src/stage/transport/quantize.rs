@@ -31,7 +31,7 @@ impl Tile {
             &scales.place.space,
             &scale_load
         ));
-        if comptime!(!fused) {
+        if !fused {
             self.factor.calibrate_from::<F>(src, coarse, value);
             // The scales are read back from wherever they are stored, global memory included.
             match comptime!(self.place.holder()) {
@@ -68,7 +68,7 @@ impl Tile {
         let size!(LW) = lw;
         let space = comptime!(self.place.space.clone());
         let from = comptime!(src.place.space.clone());
-        let along = comptime!(from.axis_at(from.rank() - 1));
+        let along = from.axis_at(from.rank() - 1);
         let varies = self.factor.varies_along(comptime!(along));
         comptime!(check_scaled_copy(
             "Tile::quantize_from",
@@ -84,21 +84,21 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        let units = comptime!(fill.count);
+        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
         // runtime stride stalls each store on Metal's in-order pipe.
-        if comptime!(units > 0 && loads.div_ceil(units) <= 8) {
+        if units > 0 && loads.div_ceil(units) <= 8 {
             #[unroll]
-            for t in 0..comptime!(loads.div_ceil(units)) {
+            for t in 0..loads.div_ceil(units) {
                 let at_load = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if comptime!((t + 1) * units <= loads) {
+                if (t + 1) * units <= loads {
                     self.encode_load_into::<F, I, WP, LW>(
                         &read,
                         &mut out,
                         at_load,
                         coarse,
-                        comptime!(from.clone()),
+                        from.clone(),
                         comptime!(line.clone()),
                     );
                 } else {
@@ -108,7 +108,7 @@ impl Tile {
                             &mut out,
                             at_load,
                             coarse,
-                            comptime!(from.clone()),
+                            from.clone(),
                             comptime!(line.clone()),
                         );
                     }
@@ -123,7 +123,7 @@ impl Tile {
                     &mut out,
                     at_load,
                     coarse,
-                    comptime!(from.clone()),
+                    from.clone(),
                     comptime!(line.clone()),
                 );
             }
@@ -145,7 +145,7 @@ impl Tile {
     ) {
         let load = self.vector_tile();
         let (sw, lw) = comptime!((load.values(), line.values()));
-        let lines = comptime!(sw / lw);
+        let lines = sw / lw;
         let packing = self.packing();
         let value = comptime!(packing.quantized_value(self.element));
         let two_levels = comptime!(self.factor.depth() > 1);
@@ -158,7 +158,7 @@ impl Tile {
             &scales.place.space,
             &scale_load
         ));
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let start = load.start(at_load, &space);
         // The source lines this load holds, `offset` their place in it, where each is read, and
         // the scale it is over.
@@ -167,7 +167,7 @@ impl Tile {
         let mut most = F::new(0.0);
         #[unroll]
         for c in 0..lines {
-            let offset = comptime!(c * lw);
+            let offset = c * lw;
             let mut at = Coords::<u32>::new();
             let mut to = Coords::<u32>::new();
             #[unroll]
@@ -175,7 +175,7 @@ impl Tile {
                 let inner = comptime!(load.offset_along(offset, space.axis_at(p)) as u32);
                 let coord = start.at(p) + inner;
                 at.push(coord);
-                if comptime!(from.contains(space.axis_at(p))) {
+                if from.contains(space.axis_at(p)) {
                     to.push(coord);
                 }
             }
@@ -183,9 +183,9 @@ impl Tile {
             if comptime!(fused) {
                 most = max(most, largest::<F, LW>(held[c]));
             } else {
-                over[c] =
-                    self.factor
-                        .at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked));
+                over[c] = self
+                    .factor
+                    .at_coords(&at, space.clone(), comptime!(Guard::Checked));
             }
         }
         if comptime!(fused) {
@@ -193,7 +193,7 @@ impl Tile {
             let dtype = comptime!(scale_packing.scale_dtype(scales.element));
             let inner = f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels));
             self.factor
-                .write_at::<Const<1>>(&start, comptime!(space.clone()), Vector::new(inner));
+                .write_at::<Const<1>>(&start, space.clone(), Vector::new(inner));
             let effective = if comptime!(two_levels) {
                 inner * coarse
             } else {
@@ -208,7 +208,7 @@ impl Tile {
         #[unroll]
         for c in 0..lines {
             let values = encoded::<F, LW>(held[c], over[c], value, two_levels);
-            words = place_at::<I, WP, LW>(words, values, comptime!(c * lw), packing);
+            words = place_at::<I, WP, LW>(words, values, c * lw, packing);
         }
         out.write(load.index(&start, &space), words);
     }
@@ -268,7 +268,7 @@ impl Tile {
                         &start,
                         c + comptime!(k as u32),
                         coarse,
-                        comptime!(from.clone()),
+                        from.clone(),
                         comptime!(line.clone()),
                         value,
                         two_levels,
@@ -311,18 +311,18 @@ impl Tile {
         let dtype = comptime!(packing.scale_dtype(self.element));
         let space = comptime!(self.place.space.clone());
         let (along, _) = comptime!(load.along_one_axis("Tile::quantize_from"));
-        let block = comptime!(from.subspace(&from.difference(&space)));
-        let lines = comptime!(block.tiles(&line.space()));
+        let block = from.subspace(&from.difference(&space));
+        let lines = block.tiles(&line.space());
         let mut most = F::new(0.0);
         #[unroll]
         for l in 0..lines {
             let mut at = Coords::<u32>::new();
             #[unroll]
-            for p in 0..comptime!(from.rank()) {
-                let axis = comptime!(from.axis_at(p));
-                if comptime!(space.contains(axis)) {
-                    let coord = start.at(comptime!(space.position(axis)));
-                    if comptime!(axis == along) {
+            for p in 0..from.rank() {
+                let axis = from.axis_at(p);
+                if space.contains(axis) {
+                    let coord = start.at(space.position(axis));
+                    if axis == along {
                         at.push(coord + c);
                     } else {
                         at.push(coord);
@@ -361,7 +361,7 @@ fn block_scale<F: Float>(
     #[comptime] dtype: ScaleDtype,
     #[comptime] two_levels: bool,
 ) -> F {
-    let (low, high) = comptime!(value.range());
+    let (low, high) = value.range();
     let wanted = most * F::new(2.0) / F::new(comptime!((high - low) as f64));
     if comptime!(two_levels) {
         round_up_to_dtype::<F>(F::cast_from(f32::cast_from(wanted) / coarse), dtype)
@@ -393,7 +393,7 @@ fn encoded<F: Float, N: Size>(
             scale == F::new(0.0),
         )
     };
-    let (low, high) = comptime!(value.range());
+    let (low, high) = value.range();
     let on_grid = match comptime!(value) {
         QuantValue::E2M1 | QuantValue::E4M3 | QuantValue::E5M2 => {
             clamp(scaled, Vector::new(low), Vector::new(high))

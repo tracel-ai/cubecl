@@ -131,9 +131,9 @@ impl RegisterData {
             "RegisterData::alloc: n ({n}) must be a whole number of {vector_size}-wide lines"
         ));
         register_block_size(vector_size);
-        let nr = comptime!(n / cells);
+        let nr = n / cells;
         RegisterData {
-            data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(comptime!(m * nr))),
+            data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(m * nr)),
             vector_size,
             contracted_per_step,
             mr: m,

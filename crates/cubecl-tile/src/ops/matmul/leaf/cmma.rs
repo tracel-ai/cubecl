@@ -54,13 +54,7 @@ impl Tile {
             | TileKind::Procedural(_)
             | TileKind::Lines(_) => {
                 let mut fragment = unsafe {
-                    Matrix::<E>::uninitialized(
-                        ident,
-                        read.m,
-                        read.n,
-                        read.k,
-                        comptime!(read.layout),
-                    )
+                    Matrix::<E>::uninitialized(ident, read.m, read.n, read.k, read.layout)
                 };
                 self.load(&mut fragment, comptime!(read));
                 fragment
@@ -119,8 +113,8 @@ impl Tile {
         let packing = self.packing();
         let shared = self.is_shared();
         if comptime!(scaled || !packing.as_stored() || !shared) {
-            let landing = self.landed::<E>(comptime!(read.side), comptime!(read.out.clone()));
-            landing.load_into(frag, comptime!(read.out.clone()));
+            let landing = self.landed::<E>(read.side, read.out.clone());
+            landing.load_into(frag, read.out.clone());
             // The landing is this region's until every unit's load has read it.
             sync_plane();
         } else {
@@ -177,7 +171,7 @@ impl Tile {
         let space = comptime!(self.place.space.clone());
         let units = self.units();
         let planes = comptime!(plane_windows(&space, &self.place.levels));
-        let (stage, mut window) = Memory::landing::<S>(comptime!(space.clone()), units, planes);
+        let (stage, mut window) = Memory::landing::<S>(space.clone(), units, planes);
         let landing = Tile::new::<S>(stage.kind, comptime!(self.place.clone()));
 
         // A load is read whole, a tile of several axes included, and landed a run of its finest
@@ -192,11 +186,11 @@ impl Tile {
             comptime!(MatrixAxes::trailing(&space)),
             0usize,
             side,
-            comptime!(out.clone()),
+            out.clone(),
             acc_axes,
         );
         let lines = load.count(&space);
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let strides = comptime!(dense_strides(&space));
         let run_stride = comptime!(strides[space.position(finest)]);
         // Every unit joins every turn, so a scale read by shuffle has the whole plane; units past
@@ -208,8 +202,8 @@ impl Tile {
             let start = load.start(min(mine, lines - 1), &space);
             let held = view.read(load.index(&start, &space));
             #[unroll]
-            for r in 0..comptime!(sw / run) {
-                let offset = comptime!(r * run);
+            for r in 0..(sw / run) {
+                let offset = r * run;
                 let mut at = Coords::<u32>::new();
                 #[unroll]
                 for p in 0..rank {
@@ -224,7 +218,7 @@ impl Tile {
                 }
                 let landed = scales.apply_at::<S, RUN>(values, &at);
                 if mine < lines {
-                    let base = offset_of(&at, comptime!(strides.clone()));
+                    let base = offset_of(&at, strides.clone());
                     #[unroll]
                     for v in 0..run {
                         window[base + v * run_stride] = landed.extract(v);

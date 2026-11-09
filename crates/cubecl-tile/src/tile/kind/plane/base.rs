@@ -465,8 +465,8 @@ impl PlanePartition {
             true => grid_axes(&space, (self.rows, self.cols), (self.m_tiles, self.n_tiles)),
             false => MatrixAxes::edges(&space),
         });
-        let a0 = comptime!(space.axis_at(edges.row_split));
-        let a1 = comptime!(space.axis_at(edges.col_split));
+        let a0 = space.axis_at(edges.row_split);
+        let a1 = space.axis_at(edges.col_split);
         // A single-tile axis is the constant `0`; a `Dynamic` axis stays runtime (`None`).
         let mi = if comptime!(step.level.tiles_const(&space, a0) == Some(1)) {
             comptime!(Some(0u64))
@@ -490,7 +490,7 @@ impl PlanePartition {
                 });
                 let mi = comptime!(c0 as usize * sub_m);
                 let ni = comptime!(c1 as usize * sub_n);
-                if comptime!(sub_m == 1 && sub_n == 1) {
+                if sub_m == 1 && sub_n == 1 {
                     TileKind::new_PlaneTile(self.at(mi, ni))
                 } else {
                     TileKind::new_PlanePartition(self.window(mi, ni, sub_m, sub_n))
@@ -520,7 +520,7 @@ impl PlanePartition {
         for i in 0..m_tiles {
             #[unroll]
             for j in 0..n_tiles {
-                frags.push(self.at(comptime!(mi + i), comptime!(ni + j)));
+                frags.push(self.at(mi + i, ni + j));
             }
         }
         PlanePartition {
@@ -619,7 +619,7 @@ impl PlanePartition {
         #[comptime] depth: usize,
         #[comptime] levels: Vec<Level>,
     ) -> Tile {
-        let (m_tiles, n_tiles) = comptime!(grid.tiles);
+        let (m_tiles, n_tiles) = grid.tiles;
         let (m, n, k) = comptime!((grid.m, grid.n, grid.k));
 
         let mut frags = Sequence::<PlaneTile>::new();
@@ -670,8 +670,8 @@ impl PlanePartition {
         #[comptime] levels: Vec<Level>,
     ) -> Tile {
         let edges = comptime!(MatrixAxes::operand(&window, &out));
-        let a0 = comptime!(window.axis_at(edges.row_split));
-        let a1 = comptime!(window.axis_at(edges.col_split));
+        let a0 = window.axis_at(edges.row_split);
+        let a1 = window.axis_at(edges.col_split);
 
         // The contracted axis is the one `out` lacks; `A` shares its rows, `B` its columns.
         let (contracted, free) = comptime!(match (out.contains(a0), out.contains(a1)) {
@@ -683,7 +683,7 @@ impl PlanePartition {
             ),
         });
         let out_edges = comptime!(MatrixAxes::edges(&out));
-        let out_rows = comptime!(out.axis_at(out_edges.row_split));
+        let out_rows = out.axis_at(out_edges.row_split);
         let (ident, tiles) = comptime!(if free == out_rows {
             (MatrixIdent::A, grid.0)
         } else {
@@ -795,13 +795,13 @@ impl PlanePartition {
             Instruction::Mma { operands, .. } => operands.block_scaled(),
             Instruction::Cmma | Instruction::Registers { .. } | Instruction::Wgmma => None,
         });
-        let block_scaled = comptime!(scaled_form.is_some());
+        let block_scaled = scaled_form.is_some();
         if comptime!(block_scaled) {
             let ident = comptime!(match Side::of(&src.place.space, &acc.place.space) {
                 Side::Lhs => MatrixIdent::A,
                 Side::Rhs => MatrixIdent::B,
             });
-            assert_block_scaled::<T>(src, comptime!(scaled_form.unwrap()), ident, m, n, k);
+            assert_block_scaled::<T>(src, scaled_form.unwrap(), ident, m, n, k);
         }
         let mut frags = PlanePartition::store::<T>(
             comptime!(src.place.space.clone()),
@@ -870,7 +870,7 @@ impl PlanePartition {
         let first = src.at(&Region::cell(
             comptime!(src.place.depth),
             comptime!(src.place.space.clone()),
-            comptime!(level.clone()),
+            level.clone(),
             edges,
             0usize,
             0usize,
@@ -888,7 +888,7 @@ impl PlanePartition {
                         let window = src.at(&Region::cell(
                             comptime!(src.place.depth),
                             comptime!(src.place.space.clone()),
-                            comptime!(level.clone()),
+                            level.clone(),
                             edges,
                             mi,
                             ni,
@@ -919,13 +919,13 @@ impl PlanePartition {
         });
         let level = comptime!(fragment_level(&src.place.space, pair, pairs));
         #[unroll]
-        for pi in 0..comptime!(pairs.0) {
+        for pi in 0..pairs.0 {
             #[unroll]
-            for pj in 0..comptime!(pairs.1) {
+            for pj in 0..pairs.1 {
                 let window = src.at(&Region::cell(
                     comptime!(src.place.depth),
                     comptime!(src.place.space.clone()),
-                    comptime!(level.clone()),
+                    level.clone(),
                     edges,
                     pi,
                     pj,
@@ -1010,7 +1010,7 @@ impl PlanePartition {
                 fragment.scale_add_along::<E>(
                     scale,
                     bias,
-                    comptime!(space.clone()),
+                    space.clone(),
                     comptime!((mi * self.rows, ni * self.cols)),
                 );
             }
@@ -1074,8 +1074,8 @@ impl PlanePartition {
                     scale,
                     bias,
                     logsumexp,
-                    comptime!(space.clone()),
-                    comptime!(broadcast.clone()),
+                    space.clone(),
+                    broadcast.clone(),
                     comptime!((mi * self.rows, ni * self.cols)),
                 );
             }
@@ -1098,7 +1098,7 @@ impl PlanePartition {
                 fragment.softmax_gradient_along::<E>(
                     &probabilities.at(mi, ni).manual_fragment(),
                     delta,
-                    comptime!(broadcast.clone()),
+                    broadcast.clone(),
                     comptime!((mi * self.rows, ni * self.cols)),
                 );
             }

@@ -48,14 +48,14 @@ pub fn fp8_bits_to_f32<N: Size>(
     bits: Vector<u32, N>,
     #[comptime] format: Fp8Format,
 ) -> Vector<f32, N> {
-    let mantissa_bits = comptime![format.mantissa_bits()];
-    let exponent_mask = comptime![(1u32 << format.exponent_bits()) - 1];
+    let mantissa_bits = format.mantissa_bits();
+    let exponent_mask = (1u32 << format.exponent_bits()) - 1;
     let rebias = comptime![(F32_EXPONENT_BIAS - format.bias()) << F32_MANTISSA_BITS];
     let mantissa_shift = comptime![F32_MANTISSA_BITS - mantissa_bits];
-    let subnormal_step = comptime![format.subnormal_step()];
+    let subnormal_step = format.subnormal_step();
     // The first magnitude with a non-zero exponent, and the first with an all-ones one.
-    let smallest_normal = comptime![1u32 << mantissa_bits];
-    let special = comptime![exponent_mask << mantissa_bits];
+    let smallest_normal = 1u32 << mantissa_bits;
+    let special = exponent_mask << mantissa_bits;
 
     let sign = (bits & Vector::new(FP8_SIGN_BIT)) << Vector::new(SIGN_SHIFT);
     let magnitude = bits & Vector::new(FP8_MAGNITUDE_MASK);
@@ -72,7 +72,7 @@ pub fn fp8_bits_to_f32<N: Size>(
         normal,
     );
 
-    let result = if comptime![format.has_infinity()] {
+    let result = if format.has_infinity() {
         let specials = select_many(
             magnitude.equal(&Vector::new(special)),
             Vector::new(F32_INFINITY_BITS),
@@ -186,15 +186,15 @@ pub fn f32_to_fp8_bits<N: Size>(
     value: Vector<f32, N>,
     #[comptime] format: Fp8Format,
 ) -> Vector<u32, N> {
-    let mantissa_bits = comptime![format.mantissa_bits()];
+    let mantissa_bits = format.mantissa_bits();
     let mantissa_shift = comptime![F32_MANTISSA_BITS - mantissa_bits];
     let rebias = comptime![format.bias().wrapping_sub(F32_EXPONENT_BIAS)];
-    let half_ulp = comptime![1u32 << (mantissa_shift - 1)];
-    let subnormal_scale = comptime![1.0 / format.subnormal_step()];
-    let min_normal = comptime![format.min_normal()];
-    let max_value = comptime![format.max_value()];
-    let max_code = comptime![format.max_code()];
-    let nan_code = comptime![format.nan_code()];
+    let half_ulp = 1u32 << (mantissa_shift - 1);
+    let subnormal_scale = 1.0 / format.subnormal_step();
+    let min_normal = format.min_normal();
+    let max_value = format.max_value();
+    let max_code = format.max_code();
+    let nan_code = format.nan_code();
 
     let bits = Vector::<u32, N>::reinterpret(value);
     let sign = (bits >> Vector::new(SIGN_SHIFT)) & Vector::new(FP8_SIGN_BIT);

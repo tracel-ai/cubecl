@@ -64,7 +64,7 @@ impl<E: Numeric, N: Size> Carrier for Indexed<E, N> {
                 #[unroll]
                 for bit in 0..comptime!(usize::BITS - unit_bits.leading_zeros()) {
                     if comptime!(unit_bits & (1 << bit) != 0) {
-                        let mask = comptime!(1u32 << bit);
+                        let mask = 1u32 << bit;
                         let other = Indexed::<E, N> {
                             value: plane_shuffle_xor(total.value, mask),
                             index: plane_shuffle_xor(total.index, mask),

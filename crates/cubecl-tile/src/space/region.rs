@@ -104,14 +104,14 @@ impl Region {
         c0: usize,
         c1: usize,
     ) -> Region {
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let mut coords = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
             // `cast`, not `as`, and `runtime` on the `0`: both keep a comptime coordinate constant.
-            let c = if comptime!(p == edges.row_split) {
+            let c = if p == edges.row_split {
                 c0.cast::<u32>()
-            } else if comptime!(p == edges.col_split) {
+            } else if p == edges.col_split {
                 c1.cast::<u32>()
             } else {
                 0u32.runtime()
@@ -184,7 +184,7 @@ impl Region {
 
     /// The regions of `level` over this region's own box.
     pub fn over(&self, #[comptime] level: &Level) -> Walk {
-        Walk::of(&self.child(), comptime!(level.clone()), self.clone())
+        Walk::of(&self.child(), level.clone(), self.clone())
     }
 }
 

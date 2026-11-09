@@ -39,6 +39,8 @@ std = [
 stdlib = ["cubecl-std"] # CubeCL standard library
 tile = ["stdlib", "cubecl-tile"] # The tile DSL
 template = ["cubecl-core/template"]
+# Warns on each `comptime!` the `#[cube]` macro doesn't need. A repo's CI turns it on for its own crates.
+warn-redundant-comptime = ["cubecl-core/warn-redundant-comptime"]
 
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 

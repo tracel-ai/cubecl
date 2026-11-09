@@ -23,6 +23,9 @@ workspace = true
 
 [features]
 debug_symbols = []
+# Warns on each `comptime!` the macro doesn't need. Off by default; a repo's CI turns it on for its
+# own crates.
+warn-redundant-comptime = []
 default = []
 std = []
 

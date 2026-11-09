@@ -192,8 +192,8 @@ impl CmmaData {
              fragment's columns ({n})"
         ));
         let size!(W) = width;
-        let lines_per_row = comptime!(n / width);
-        let lines = comptime!(m * lines_per_row);
+        let lines_per_row = n / width;
+        let lines = m * lines_per_row;
         let axes = comptime!(MatrixAxes::trailing(&space));
         let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
         let plane_units = PLANE_DIM as usize;
