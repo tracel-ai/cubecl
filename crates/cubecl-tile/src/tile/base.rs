@@ -584,9 +584,11 @@ impl Tile {
         }
     }
 
-    /// One level down: window this tile to `step`'s box.
+    /// One level down: window this tile to `step`'s box. A run the step cuts is placed first,
+    /// so the box is taken inside it ([`Indexing::Run`]).
     pub(crate) fn at_step(&self, step: &Step) -> Tile {
-        let tile_kind = match &self.kind {
+        let indexed = self.clone().run_placed_at(step);
+        let tile_kind = match &indexed.kind {
             TileKind::Memory(g) => TileKind::new_Memory(g.at(step, &self.place.space)),
             TileKind::TmaGmem(t) => TileKind::new_TmaGmem(t.at(step, &self.place.space)),
             TileKind::Procedural(p) => TileKind::new_Procedural(p.at(step, &self.place.space)),
@@ -604,7 +606,7 @@ impl Tile {
         };
         let windowed = Tile {
             kind: tile_kind,
-            factor: self.factor.at(step),
+            factor: indexed.factor.at(step),
             place: comptime!(self.place.at_step(&step.level)),
             element: comptime!(self.element),
         };
