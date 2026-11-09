@@ -1,5 +1,6 @@
 #![allow(clippy::approx_constant)]
 
+use alloc::{format, string::String, vec::Vec};
 use core::fmt::Display;
 use cubecl_common::powi_portable;
 use cubecl_runtime::runtime::Runtime;
@@ -470,6 +471,108 @@ pub fn test_powi_exponents<R: Runtime, F: Float + num_traits::Float + CubeElemen
             );
         }
         assert_equals_exact::<F>(&client, output, expected);
+    }
+}
+
+#[cube(launch_unchecked)]
+fn test_powf_special_kernel<F: Float, N: Size>(
+    lhs: &[Vector<F, N>],
+    rhs: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < lhs.len() {
+        output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].powf(rhs[ABSOLUTE_POS]);
+    }
+}
+
+/// `powf` follows C99 Annex F.9.4.4 (as Rust's `powf` does) for zero, infinite, NaN, one and
+/// negative bases and for zero, infinite, NaN, integer and non-integer exponents.
+pub fn test_powf_special_values<
+    R: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: Client,
+) {
+    let (nan, inf) = (f64::NAN, f64::INFINITY);
+    #[rustfmt::skip]
+    let cases: &[(f64, f64)] = &[
+        // x^±0 = 1 and 1^y = 1, NaN included.
+        (nan, 0.), (nan, -0.), (0., 0.), (-0., 0.), (inf, 0.), (-inf, -0.), (-2., 0.),
+        (1., nan), (1., inf), (1., -inf), (1., 3.),
+        // Other NaN operands propagate.
+        (nan, 1.), (nan, -2.5), (2., nan), (-1., nan), (0., nan),
+        // -1 to an infinite power is 1.
+        (-1., inf), (-1., -inf),
+        // Zero bases, signed by an odd integer exponent.
+        (0., -1.), (-0., -1.), (0., -2.), (-0., -2.), (0., -0.5), (-0., -0.5), (-0., -inf),
+        (0., 3.), (-0., 3.), (0., 2.), (-0., 2.), (-0., 0.5), (-0., inf),
+        // Infinite exponents, by |base| against 1.
+        (0.5, inf), (0.5, -inf), (-0.5, inf), (-0.5, -inf),
+        (2., inf), (2., -inf), (-2., inf), (-2., -inf),
+        // Infinite bases, signed by an odd integer exponent.
+        (inf, 2.), (inf, -2.), (inf, 0.5), (inf, -0.5),
+        (-inf, 3.), (-inf, 2.), (-inf, -3.), (-inf, -2.), (-inf, 0.5), (-inf, -0.5),
+        // A finite negative base to a finite non-integer power is NaN.
+        (-2., 0.5), (-8., 1. / 3.), (-1., 0.5), (-0.5, -1.5),
+        // Finite bases to integer and non-integer powers.
+        (-2., 3.), (-2., 2.), (-3., -1.), (-2., -2.), (-1., 3.), (-1., 4.), (-0.5, 3.),
+        (2., 0.5), (2., 3.), (0.5, -2.), (3., -1.5), (10., 2.5), (-1.5, 8.), (2., -3.),
+    ];
+    // Pad to whole vectors with a plain case.
+    let mut cases = cases.to_vec();
+    while !cases.len().is_multiple_of(4) {
+        cases.push((2., 2.));
+    }
+    let lhs: Vec<F> = cases.iter().map(|&(b, _)| F::new(b)).collect();
+    // Vulkan only keeps the sign of a zero operand under `SignedZeroInfNanPreserve`, which wgpu
+    // kernels don't declare, and WGSL never promises it; Intel's driver drops it. There, a zero
+    // base's result is only checked up to its sign.
+    let signed_zeros = !client.name().starts_with("wgpu<");
+    let rhs: Vec<F> = cases.iter().map(|&(_, e)| F::new(e)).collect();
+
+    for vector_size in [1, 4] {
+        let lhs_handle = client.create_from_slice(F::as_bytes(&lhs));
+        let rhs_handle = client.create_from_slice(F::as_bytes(&rhs));
+        let output = client.empty(lhs.len() * size_of::<F>());
+        unsafe {
+            test_powf_special_kernel::launch_unchecked::<F>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d((lhs.len() / vector_size) as u32),
+                vector_size,
+                BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                BufferArg::from_raw_parts(output.clone(), lhs.len()),
+            );
+        }
+        let actual = client.read_one_unchecked(output);
+        let actual = F::from_bytes(&actual);
+
+        let mut mismatches = Vec::new();
+        for (i, (&b, &e)) in lhs.iter().zip(&rhs).enumerate() {
+            let (b, e) = (b.to_f64().unwrap(), e.to_f64().unwrap());
+            let expected = num_traits::Float::powf(b, e);
+            let got = actual[i].to_f64().unwrap();
+            let ok = if expected.is_nan() {
+                got.is_nan()
+            } else if expected == 0. || expected.is_infinite() || expected.abs() == 1. {
+                // Special results are exact, including the sign of zero.
+                let sign_matters = signed_zeros || b != 0.;
+                got.abs() == expected.abs()
+                    && (!sign_matters || got.is_sign_negative() == expected.is_sign_negative())
+            } else {
+                let tolerance = 16. * F::epsilon().to_f64().unwrap();
+                ((got - expected) / expected).abs() <= tolerance
+            };
+            if !ok {
+                mismatches.push(format!("powf({b}, {e}) = {got}, expected {expected}"));
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "vector size {vector_size}:\n{}",
+            mismatches.join("\n")
+        );
     }
 }
 
@@ -1217,6 +1320,7 @@ macro_rules! testgen_binary {
 
             add_test!(test_dot);
             add_test!(test_powf);
+            add_test!(test_powf_special_values);
             add_test!(test_hypot);
             add_test!(test_rhypot);
             add_test!(test_powi);
