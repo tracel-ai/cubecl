@@ -59,3 +59,48 @@ pub struct PruneTally {
     /// The bytes of the removed entries' keys and values.
     pub removed_bytes: u64,
 }
+
+impl PruneTally {
+    /// The entries the prune saw: those kept and those removed.
+    pub fn total(&self) -> u64 {
+        self.kept + self.removed
+    }
+}
+
+/// Several prunes' tallies of one kind, summed: every environment of a
+/// directory, or kernels and records together.
+impl core::ops::AddAssign for PruneTally {
+    fn add_assign(&mut self, other: Self) {
+        self.kept += other.kept;
+        self.removed += other.removed;
+        self.removed_bytes += other.removed_bytes;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tallies_sum_field_by_field() {
+        let mut sum = PruneTally {
+            kept: 1,
+            removed: 2,
+            removed_bytes: 30,
+        };
+        sum += PruneTally {
+            kept: 4,
+            removed: 5,
+            removed_bytes: 60,
+        };
+        assert_eq!(
+            sum,
+            PruneTally {
+                kept: 5,
+                removed: 7,
+                removed_bytes: 90,
+            }
+        );
+        assert_eq!(sum.total(), 12);
+    }
+}
