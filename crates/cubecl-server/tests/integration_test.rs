@@ -2804,3 +2804,91 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
+
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
+    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+    use std::sync::Mutex;
+
+    static OUTER: LocalTuner<String, String> = local_tuner!("nested_compile_outer");
+    static INNER: LocalTuner<String, String> = local_tuner!("nested_compile_inner");
+    static RUNS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+
+    fn inner_set(client: DummyClient, uid: String) -> TunableSet<String, Vec<Handle>, ()> {
+        let candidate = |name: &'static str| {
+            let op = OneKernelAutotuneOperation::new(
+                KernelTask::new(DummyElementwiseAddition),
+                client.clone(),
+            );
+            Tunable::new(name, move |inputs| {
+                RUNS.lock().unwrap().push(name);
+                op.run(inputs)
+            })
+        };
+        TunableSet::new(
+            move |_: &Vec<Handle>| format!("nested-inner-{uid}"),
+            CloneInputGenerator,
+        )
+        .with(candidate("inner-a"))
+        .with(candidate("inner-b"))
+    }
+
+    fn outer_set(client: DummyClient, uid: String) -> TunableSet<String, Vec<Handle>, ()> {
+        let plain = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            client.clone(),
+        );
+        let outer_key = format!("nested-outer-{uid}");
+        TunableSet::new(
+            move |_: &Vec<Handle>| outer_key.clone(),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("nests", move |inputs: Vec<Handle>| {
+            RUNS.lock().unwrap().push("outer");
+            let inner = client.clone();
+            let uid = uid.clone();
+            let set = INNER.init(&"nested-inner".to_string(), move || {
+                inner_set(inner.clone(), uid.clone())
+            });
+            INNER.execute(&"nested-inner".to_string(), &client, set, inputs);
+            Ok::<(), String>(())
+        }))
+        .with(Tunable::new("plain", move |inputs| plain.run(inputs)))
+    }
+
+    let client = test_client(&DummyDevice);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+
+    let uid = fresh_tune_key_uid();
+    let set = OUTER.init(&"nested-outer".to_string(), move || {
+        outer_set(test_client(&DummyDevice), uid.clone())
+    });
+    OUTER.execute(&"nested-outer".to_string(), &client, set, handles);
+
+    let runs = RUNS.lock().unwrap().clone();
+    let first_pass: Vec<_> = runs
+        .iter()
+        .skip(1)
+        .take_while(|run| **run != "outer")
+        .copied()
+        .collect();
+    assert_eq!(runs.first(), Some(&"outer"));
+    // Each inner candidate queues its kernels, then the first serves the call untuned.
+    assert_eq!(
+        first_pass,
+        ["inner-a", "inner-b", "inner-a"],
+        "the inner key was tuned while the outer candidates compiled: {runs:?}"
+    );
+    // Only a tune runs every inner candidate.
+    let mut warmup = runs.iter().skip(1).skip_while(|run| **run != "outer");
+    assert!(
+        warmup.any(|run| *run == "inner-b"),
+        "the inner key was not tuned at the outer warmup: {runs:?}"
+    );
+}
