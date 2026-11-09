@@ -29,6 +29,15 @@ pub(crate) const PRIMITIVES: &[&str] = &[
 ];
 
 impl Expression {
+    /// Parses the whole condition of an `if` or the whole value of a `match`.
+    pub fn from_branch_selector(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+        let is_comptime = matches!(&expr, Expr::Macro(mac) if mac.mac.path.is_ident("comptime"));
+        let outer = core::mem::replace(&mut context.in_branch_selector, is_comptime);
+        let result = Self::from_expr(expr, context);
+        context.in_branch_selector = outer;
+        result
+    }
+
     pub fn from_expr(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
@@ -304,7 +313,7 @@ impl Expression {
                 }
             }
             Expr::Match(mat) => {
-                let expr = Expression::from_expr(*mat.expr.clone(), context)?;
+                let expr = Expression::from_branch_selector(*mat.expr.clone(), context)?;
                 if expr.is_const() {
                     let mut arms = Vec::new();
 

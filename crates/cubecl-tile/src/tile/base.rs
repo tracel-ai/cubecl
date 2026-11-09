@@ -701,7 +701,7 @@ impl Tile {
 
     /// Seed this tile with `monoid`'s identity.
     pub(crate) fn init_identity<S: Numeric>(&mut self, #[comptime] monoid: Monoid) {
-        match comptime!(monoid) {
+        match monoid {
             Monoid::Sum => self.zero(),
             Monoid::Prod | Monoid::Max | Monoid::Min => {
                 self.init::<S>(Monoid::identity::<S>(monoid))

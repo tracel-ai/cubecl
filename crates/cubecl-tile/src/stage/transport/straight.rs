@@ -98,7 +98,7 @@ impl Memory {
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked)),
                     check,
                 )
-            } else if comptime!(through_projection) {
+            } else if through_projection {
                 // Read at the stage's logical coordinates through the source's own projection.
                 Masked::new(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
@@ -178,7 +178,7 @@ fn fill_lines<I2: Numeric, WP2: Size, SW: Size>(
     #[comptime] straight: bool,
     #[comptime] padding: Option<Padding>,
 ) {
-    if comptime!(straight) {
+    if straight {
         let units = fill.count;
         let tasks = comptime!((total_c.unwrap() as usize).div_ceil(units));
         #[unroll]
