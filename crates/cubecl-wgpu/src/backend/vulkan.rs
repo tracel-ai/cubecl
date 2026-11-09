@@ -310,6 +310,7 @@ pub(crate) fn create_storage_buffer(
         buffer,
         address: NonZeroU64::new(device_address),
         host_ptr,
+        alive: Default::default(),
     })
 }
 
