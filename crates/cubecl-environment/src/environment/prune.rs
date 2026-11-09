@@ -28,8 +28,11 @@ pub enum RecordPruning {
     /// None: the environment keeps what running needs and nothing else.
     #[default]
     RemoveAll,
-    /// The records of the newest sessions, this many of them.
-    KeepLatest(u32),
+    /// The records of the newest sessions.
+    KeepLatest {
+        /// How many sessions keep their records.
+        sessions: u32,
+    },
     /// Every one.
     KeepAll,
 }

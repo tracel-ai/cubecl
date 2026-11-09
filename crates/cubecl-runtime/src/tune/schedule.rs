@@ -652,7 +652,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
     for candidate in candidates {
         if let Err(rejection @ AutotuneError::Rejected { .. }) =
-            autotunables[candidate.index].execute(inputs.clone())
+            autotunables[candidate.index].race(inputs.clone())
         {
             candidate.fail(rejection);
         }

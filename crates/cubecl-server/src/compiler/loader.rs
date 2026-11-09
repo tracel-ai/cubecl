@@ -10,7 +10,7 @@ use cubecl_runtime::execution::{KernelHandling, KernelOutcome, KernelRegistratio
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
-    CompilationRecording, CompilationTarget, VariantOf,
+    CompilationRecording, CompilationTarget, VariantOf, WorkLaunchStore,
 };
 use crate::config::RuntimeConfig;
 use crate::kernel::CubeKernel;
@@ -33,7 +33,9 @@ use crate::server::LaunchError;
 /// it compiles in one phase that lasts about as long as its slowest kernel.
 pub struct KernelLoader<T: CompilationTarget> {
     target: T,
-    loaded: CompilationCache<ArtifactId<VariantOf<T>>, T::Loaded>,
+    loaded: CompilationCache<ArtifactId<VariantOf<T>>, LoadedKernel<T::Loaded>>,
+    /// Where the kernels the work loads are recorded.
+    work: WorkLaunchStore,
     /// The kernels queued and not compiled yet.
     queue: KernelQueue<VariantOf<T>>,
     /// Why each queued kernel of the latest batch that failed to compile
@@ -59,6 +61,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         Self {
             target,
             loaded,
+            work: WorkLaunchStore::new(),
             queue: KernelQueue::new(),
             failed: HashMap::new(),
             parallelism,
@@ -68,7 +71,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// The kernel loaded for `id`, if it is.
     #[cfg(test)]
     fn get(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<&T::Loaded> {
-        self.loaded.get(id)
+        self.loaded.get(id).map(|loaded| &loaded.kernel)
     }
 
     /// The kernel loaded for `kernel`, under `id`, loading it first if it is
@@ -78,7 +81,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// `id` is `kernel`'s, with what the launch adds to it: the launch already
     /// built the kernel's id, and building it again on every launch costs. A
     /// kernel already loaded, with nothing queued, costs one lookup and a
-    /// clone of what was loaded; `id` is only cloned to compile.
+    /// clone of what was loaded; `id` is only cloned to compile. The first
+    /// time the work's launch loads it, it is recorded as the work's.
     ///
     /// # Errors
     ///
@@ -92,11 +96,21 @@ impl<T: CompilationTarget> KernelLoader<T> {
         logger: &ServerLogger,
     ) -> Result<T::Loaded, LaunchError> {
         if self.queue.is_empty()
-            && let Some(loaded) = self.loaded.get(id)
+            && let Some(loaded) = self.launch_loaded(id)
         {
-            return Ok(loaded.clone());
+            return Ok(loaded);
         }
         self.load_missing(kernel, id, logger)
+    }
+
+    /// The kernel loaded for `id`, for the launch loading it on this thread,
+    /// which is recorded when it is the work's first.
+    fn launch_loaded(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<T::Loaded> {
+        let loaded = self.loaded.get_mut(id)?;
+        if !loaded.recorded {
+            loaded.recorded = self.work.record(&id.kernel);
+        }
+        Some(loaded.kernel.clone())
     }
 
     /// [`load`](Self::load) past its one lookup: the kernel is not loaded, or
@@ -126,8 +140,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
             // An environment switch during the batch drops every kernel loaded
             // before it, this one too when it was: it loads again, from the
             // store of the environment switched to.
-            if let Some(loaded) = self.loaded.get(id) {
-                return Ok(loaded.clone());
+            if let Some(loaded) = self.launch_loaded(id) {
+                return Ok(loaded);
             }
         }
     }
@@ -192,7 +206,13 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// Keeps a loaded kernel, or the reason it failed.
     fn keep(&mut self, outcome: JobOutcome<T>) {
         match outcome.result {
-            Ok(loaded) => self.loaded.insert(outcome.id, loaded),
+            Ok(kernel) => self.loaded.insert(
+                outcome.id,
+                LoadedKernel {
+                    kernel,
+                    recorded: false,
+                },
+            ),
             Err(err) => {
                 self.failed.insert(outcome.id, err);
             }
@@ -327,6 +347,15 @@ struct JobOutcome<T: CompilationTarget> {
     stored: bool,
 }
 
+/// A kernel a [`KernelLoader`] holds loaded, and whether the work has loaded
+/// it yet: until it has, each load asks the launch's purpose, and after, none
+/// does.
+#[derive(Debug)]
+struct LoadedKernel<L> {
+    kernel: L,
+    recorded: bool,
+}
+
 /// The kernels a [`KernelLoader`] holds loaded — pipelines, modules — in front
 /// of the compilation store its target persists to.
 ///
@@ -364,9 +393,16 @@ impl<K: Eq + core::hash::Hash, V> CompilationCache<K, V> {
     }
 
     /// The kernel loaded for `key`, if it is still valid.
+    #[cfg(test)]
     fn get(&mut self, key: &K) -> Option<&V> {
         self.reset_if_switched();
         self.entries.get(key)
+    }
+
+    /// The kernel loaded for `key`, to update, if it is still valid.
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.reset_if_switched();
+        self.entries.get_mut(key)
     }
 
     /// Whether a kernel is loaded for `key` and still valid.

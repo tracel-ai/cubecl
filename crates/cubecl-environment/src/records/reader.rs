@@ -1,5 +1,6 @@
 use super::{ROOT, Record, SESSIONS, Session, SessionId, Stamped};
 use crate::bytes::Bytes;
+use crate::environment::{PruneTally, RecordPruning};
 use crate::persistence::{Database, encode};
 use alloc::vec::Vec;
 
@@ -39,20 +40,48 @@ impl<'a> Records<'a> {
         records
     }
 
-    /// Whether `namespace` holds records or sessions, of this layout or an
-    /// earlier one.
-    pub fn holds(namespace: &str) -> bool {
-        let root = ROOT.split('/').next().unwrap_or(ROOT);
-        namespace.split('/').next() == Some(root)
+    /// Keep the records `pruning` keeps and delete the rest, counting the
+    /// entries kept and deleted. A layout older than this one has no
+    /// sessions this reader knows: removing every record removes it too, and
+    /// keeping the latest sessions keeps it.
+    pub fn retain(&self, pruning: RecordPruning) -> PruneTally {
+        let before = self.entries();
+        match pruning {
+            RecordPruning::RemoveAll => self.remove_all(),
+            RecordPruning::KeepLatest { sessions } => {
+                self.prune(sessions as usize);
+            }
+            RecordPruning::KeepAll => {}
+        }
+        let after = self.entries();
+        // Another process recording into the environment meanwhile can leave
+        // more than there was: what it added was never removed.
+        PruneTally {
+            kept: after.entries,
+            removed: before.entries.saturating_sub(after.entries),
+            removed_bytes: before.bytes.saturating_sub(after.bytes),
+        }
     }
 
     /// Deletes every session and every record, of every layout.
-    pub fn remove_all(&self) {
+    fn remove_all(&self) {
         for namespace in self.database.namespaces() {
-            if Self::holds(&namespace) {
+            if holds_records(&namespace) {
                 self.database.purge(&namespace);
             }
         }
+    }
+
+    /// The entries of every layout of records, and the bytes they take.
+    fn entries(&self) -> RecordSize {
+        let mut total = RecordSize::default();
+        for summary in self.database.summary() {
+            if holds_records(&summary.namespace) {
+                total.entries += summary.entries;
+                total.bytes += summary.bytes;
+            }
+        }
+        total
     }
 
     /// Deletes every session but the newest `keep`, with their records.
@@ -92,4 +121,18 @@ impl<'a> Records<'a> {
         }
         pruned.len()
     }
+}
+
+/// How many entries the records hold, and the bytes of their keys and values.
+#[derive(Default)]
+struct RecordSize {
+    entries: u64,
+    bytes: u64,
+}
+
+/// Whether `namespace` holds records or sessions, of this layout or an earlier
+/// one.
+fn holds_records(namespace: &str) -> bool {
+    let root = ROOT.split('/').next().unwrap_or(ROOT);
+    namespace.split('/').next() == Some(root)
 }

@@ -371,13 +371,14 @@ fn test_object_bytes_not_retained() {
     );
 }
 
-/// A tune on the CPU runtime stores both candidates' kernels, each under the
-/// variant the runtime compiles it in, and the answer names which candidate
-/// launched which: a prune removes the loser's artifact and keeps the
-/// winner's.
+/// A tune on the CPU runtime races both candidates, storing each one's kernel
+/// under the variant the runtime compiles it in; the work then runs the pick.
+/// A prune keeps the kernel the work loaded and removes the one only the race
+/// did.
 #[test]
-fn a_prune_keeps_only_the_kernel_the_tune_picked() {
+fn a_prune_keeps_only_the_kernel_the_work_loaded() {
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_server::compiler::WorkLaunchStore;
     use cubecl_server::prune::Prune;
     use cubecl_server::server::Handle;
     use cubecl_server::tune::{Tunable, TunableSet, TuneCacheResult, Tuner};
@@ -421,11 +422,32 @@ fn a_prune_keeps_only_the_kernel_the_tune_picked() {
     let tuner: Tuner<String> = Tuner::new("pruned", &client.hardware_identity());
 
     let answer = tuner.check_tune(&key, &inputs, &set, &client, None);
-    assert!(matches!(answer, TuneCacheResult::Hit { .. }), "{answer:?}");
+    let TuneCacheResult::Hit { fastest_index } = answer else {
+        panic!("the tune answers inline: {answer:?}");
+    };
+    set.fastest(fastest_index)
+        .execute(inputs.clone())
+        .expect("the pick runs");
+    // Read back, so the server has loaded the pick's kernel for the work.
+    let _ = client.read_one_unchecked(inputs.2.clone());
     let pruned = EnvironmentId::active()
         .prune(PruneOptions::default())
         .unwrap();
 
     assert_eq!(pruned.kernels.removed, 1, "{pruned:?}");
     assert_eq!(pruned.kernels.kept, 1, "{pruned:?}");
+    let database = Database::open_active().unwrap();
+    let mut work = Vec::new();
+    let mut stored = Vec::new();
+    for namespace in database.namespaces() {
+        database.scan(&namespace, &mut |key, value| {
+            if namespace.starts_with(WorkLaunchStore::ROOT) {
+                work.push(ciborium::from_reader::<u128, _>(key).unwrap());
+            } else if namespace.starts_with("cpu") {
+                stored.extend(KernelCacheKey::of_entry(key, value).map(|artifact| artifact.id));
+            }
+        });
+    }
+    assert_eq!(work.len(), 1, "the work loaded one kernel");
+    assert_eq!(stored, work, "what is stored is the kernel the work loaded");
 }

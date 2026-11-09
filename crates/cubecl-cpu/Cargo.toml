@@ -74,6 +74,8 @@ bytemuck = { workspace = true }
 winapi = { workspace = true }
 
 [dev-dependencies]
+# Reads the kernels the work recorded back, in the prune test.
+ciborium = { workspace = true, features = ["std"] }
 cubecl-core = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }
