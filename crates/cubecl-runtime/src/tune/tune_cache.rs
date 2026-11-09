@@ -2,7 +2,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use cubecl_common::device::ServiceId;
-use cubecl_common::hash::StableHash;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
@@ -15,7 +14,6 @@ use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
-use crate::launched::CandidateKernelMap;
 #[cfg(persistence)]
 use crate::namespace_version::NamespaceVersion;
 #[cfg(persistence)]
@@ -37,23 +35,11 @@ pub(crate) enum CacheEntry {
     /// on one of `services`. Never persisted. `registration` is the key's tune as the override that
     /// gathered it first registered it, settled once its pick commits; `None` when it registered
     /// none. Replacing the entry other than through [`TuneCache::mark_pending`] or
-    /// [`TuneCache::look_up`] drops the registration, which counts it abandoned. `kernels` are
-    /// what each candidate launched while it was gathered, handed to the tune that measures the
-    /// key: a candidate that tune never runs is still known by the kernels it compiled.
+    /// [`TuneCache::look_up`] drops the registration, which counts it abandoned.
     Compiled {
         registration: Option<TuneRegistration>,
         services: Vec<ServiceId>,
-        kernels: CandidateKernelMap,
     },
-}
-
-/// What a `CompileOnly` override left for the tune that measures a key it gathered.
-#[derive(Debug, Default)]
-pub(crate) struct GatheredTune {
-    /// Where the key's tune was registered, if the override registered it.
-    pub registration: Option<TuneRegistration>,
-    /// The kernels each candidate launched while it was gathered.
-    pub kernels: CandidateKernelMap,
 }
 
 /// Persistent cache key
@@ -100,27 +86,17 @@ pub struct PersistentCacheValue {
 pub struct AutotuneResult {
     /// The outcome of the benchmark.
     pub outcome: Result<AutotuneOutcome, AutotuneError>,
-    /// The kernels the candidate launched, while it was gathered or measured, by the stable hash
-    /// that names each one's stored artifact: what tells a losing candidate's kernels, which no
-    /// workload loads, from the winner's.
-    ///
-    /// Defaulted, so entries written before this field existed still decode; such an entry names
-    /// no kernel, and nothing is known to be a loser's.
-    #[cfg_attr(serializable, serde(default))]
-    pub kernels: Vec<StableHash>,
 }
 
 impl AutotuneResult {
     pub(crate) fn error(error: AutotuneError) -> Self {
         Self {
             outcome: Err(error),
-            kernels: Vec::new(),
         }
     }
     pub(crate) fn success(outcome: AutotuneOutcome) -> Self {
         Self {
             outcome: Ok(outcome),
-            kernels: Vec::new(),
         }
     }
 }
@@ -289,18 +265,12 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
-    /// for the same key. Returns what the override that gathered the key left for its tune.
-    pub(crate) fn mark_pending(&mut self, key: K) -> GatheredTune {
+    /// for the same key. Returns where the key's tune was registered, if the override that
+    /// gathered it registered it.
+    pub(crate) fn mark_pending(&mut self, key: K) -> Option<TuneRegistration> {
         match self.in_memory_cache.insert(key, CacheEntry::Pending) {
-            Some(CacheEntry::Compiled {
-                registration,
-                kernels,
-                ..
-            }) => GatheredTune {
-                registration,
-                kernels,
-            },
-            _ => GatheredTune::default(),
+            Some(CacheEntry::Compiled { registration, .. }) => registration,
+            _ => None,
         }
     }
 
@@ -330,24 +300,8 @@ impl<K: AutotuneKey> TuneCache<K> {
             CacheEntry::Compiled {
                 registration: register(),
                 services: vec![service],
-                kernels: CandidateKernelMap::default(),
             },
         );
-    }
-
-    /// Add what a `CompileOnly` override's run of `key`'s candidates launched to what the key
-    /// gathered: several cards gather one key, each launching its own candidates. Nothing is
-    /// kept for a key no override is gathering any more.
-    pub(crate) fn add_gathered(&mut self, key: &K, launched: CandidateKernelMap) {
-        let Some(CacheEntry::Compiled { kernels, .. }) = self.in_memory_cache.get_mut(key) else {
-            return;
-        };
-        for (candidate, launched) in launched {
-            let gathered = kernels.entry(candidate).or_default();
-            gathered.extend(launched);
-            gathered.sort_unstable();
-            gathered.dedup();
-        }
     }
 
     /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates on

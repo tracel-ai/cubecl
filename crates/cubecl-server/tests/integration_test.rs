@@ -2790,151 +2790,78 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// A tune stores what each candidate launched beside its answer, and a prune
-/// removes from the environment the kernels only the loser launched, the ones
-/// another build compiled, and the build records, keeping the winner's.
+/// A prune keeps this executable's kernels its work loaded, every variant of
+/// them, and removes those only a race loaded, those another executable
+/// compiled, and the build records; the autotune answers stay.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
-fn a_prune_removes_what_only_a_losing_candidate_launched() {
+fn a_prune_keeps_what_the_work_loaded() {
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_environment::persistence::{Database, Origin};
-    use cubecl_environment::records::RecordLevel;
-    use cubecl_server::compiler::{KernelCacheKey, build_id_hash};
+    use cubecl_server::compiler::{KernelCacheKey, WorkLaunchStore, build_id_hash};
     use cubecl_server::prune::Prune;
-    use cubecl_server::tune::{TuneCacheResult, Tuner};
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
-    recording_at(RecordLevel::Basic);
-
+    // Opens the active environment's database, created by the first store.
     let client = test_client(&DummyDevice);
     let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
     let (handles, key) = addition_inputs(&client, &set);
-    let tuner: Tuner<String> = Tuner::new("pruned", &client.hardware_identity());
-    let TuneCacheResult::Hit { fastest_index } =
-        tuner.check_tune(&key, &handles, &set, &client, None)
-    else {
-        panic!("the tune answers inline");
-    };
-
+    let tuner: cubecl_server::tune::Tuner<String> =
+        cubecl_server::tune::Tuner::new("pruned", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
     let database = Database::open_active().unwrap();
-    let answers = stored_answers();
-    assert_eq!(answers.len(), 1);
-    let answer = &answers[0];
-    assert_eq!(answer.fastest_index, fastest_index);
-    let launched = |won: bool| -> Vec<u128> {
-        answer
-            .results
-            .iter()
-            .filter(|result| {
-                result
-                    .outcome
-                    .as_ref()
-                    .is_ok_and(|outcome| outcome.index == fastest_index)
-                    == won
-            })
-            .flat_map(|result| result.kernels.clone())
-            .collect()
-    };
-    let (winner, loser) = (launched(true), launched(false));
-    assert_eq!(
-        winner.len(),
-        1,
-        "the winner launched its kernel: {answer:?}"
-    );
-    assert_eq!(loser.len(), 1, "the loser launched its own: {answer:?}");
-    assert_ne!(winner, loser);
 
-    // The dummy runtime stores no artifact; these stand in for what a
-    // compiler would have stored under each kernel.
-    let artifact = |id: u128, build_id: u128| {
-        let mut bytes = Vec::new();
-        ciborium::into_writer(
-            &KernelCacheKey {
-                id,
-                variant: 0,
-                build_id,
-            },
-            &mut bytes,
-        )
-        .unwrap();
-        bytes
-    };
     let build = build_id_hash();
+    let artifact = |id: u128, variant: u128, build_id: u128| {
+        cbor(&KernelCacheKey {
+            id,
+            variant,
+            build_id,
+        })
+    };
+    let (work, race) = (0x1111_u128, 0x2222_u128);
     let stored = [
-        artifact(winner[0], build),
-        artifact(loser[0], build),
-        artifact(winner[0], build + 1),
+        artifact(work, 0, build),
+        artifact(work, 5, build),
+        artifact(race, 0, build),
+        artifact(work, 0, build ^ 1),
     ];
     for key in &stored {
         database.insert("dummy/artifacts", key, b"binary", Origin::Local);
     }
+    database.insert(
+        &format!("{}/work", WorkLaunchStore::ROOT),
+        &cbor(&work),
+        &cbor(&()),
+        Origin::Local,
+    );
 
     let pruned = EnvironmentId::active()
         .prune(PruneOptions::default())
         .unwrap();
 
-    assert_eq!(pruned.kernels.kept, 1);
-    assert_eq!(pruned.kernels.removed, 2);
-    assert!(pruned.records.removed > 0, "the tune was recorded");
-    assert_eq!(pruned.records.kept, 0);
+    assert_eq!((pruned.kernels.kept, pruned.kernels.removed), (2, 2));
     let present = |key: &[u8]| database.get("dummy/artifacts", key).is_some();
-    assert!(present(&stored[0]));
-    assert!(!present(&stored[1]) && !present(&stored[2]));
-    assert_eq!(stored_answers(), answers, "the answer stays");
-}
-
-/// The answers an environment holds, decoded.
-#[cfg(all(feature = "std", persistence))]
-fn stored_answers() -> Vec<cubecl_server::tune::PersistentCacheValue> {
-    use cubecl_environment::persistence::Database;
-
-    let database = Database::open_active().unwrap();
-    let mut answers = Vec::new();
-    for namespace in database.namespaces() {
-        if namespace.starts_with("autotune/") {
-            database.scan(&namespace, &mut |_, value| {
-                answers.push(ciborium::from_reader(value).unwrap());
-            });
-        }
-    }
-    answers
-}
-
-/// A key a `CompileOnly` override gathered keeps what each candidate launched
-/// there for the tune that measures it, so the stored answer names every
-/// candidate's kernels.
-#[test_log::test]
-#[cfg(all(feature = "std", persistence))]
-#[serial_test::serial]
-fn a_gathered_candidates_kernels_reach_the_stored_answer() {
-    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
-    use cubecl_server::tune::Tuner;
-
-    let root = tempfile::tempdir().unwrap();
-    rooted_at(root.path());
-
-    let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-    let tuner: Tuner<String> = Tuner::new("gathered-kernels", &client.hardware_identity());
-
-    let collector = StatisticsCollector::new();
-    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
-    tuner.check_tune(&key, &handles, &set, &client, None);
-    drop(compile);
-    assert!(stored_answers().is_empty(), "gathering decides nothing");
-    tuner.check_tune(&key, &handles, &set, &client, None);
-
-    let answers = stored_answers();
-    assert_eq!(answers.len(), 1);
     assert!(
-        answers[0]
-            .results
-            .iter()
-            .all(|result| result.kernels.len() == 1),
-        "every candidate names its kernel: {:?}",
-        answers[0]
+        present(&stored[0]) && present(&stored[1]),
+        "the work's kernel, in each variant"
     );
+    assert!(!present(&stored[2]), "only a race loaded it");
+    assert!(!present(&stored[3]), "another executable compiled it");
+    let autotune = database
+        .namespaces()
+        .into_iter()
+        .filter(|namespace| namespace.starts_with("autotune/"))
+        .count();
+    assert_eq!(autotune, 1, "the answer stays");
+}
+
+/// `value` encoded as a store encodes it: CBOR.
+#[cfg(all(feature = "std", persistence))]
+fn cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).unwrap();
+    bytes
 }

@@ -32,10 +32,17 @@ pub struct TuneFn<I: TuneInputs, Out> {
 }
 
 impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
-    /// Run the wrapped function on the given inputs. What it launches counts
-    /// toward this candidate in a tune open on this thread.
+    /// Run the wrapped function on the given inputs.
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
-        crate::launched::running(&self.name, || (self.func)(inputs))
+        (self.func)(inputs)
+    }
+
+    /// Run the wrapped function as an autotune race runs a candidate, to
+    /// measure it or gather its kernels: what it launches is
+    /// [issued for the race](crate::execution::LaunchPurpose::Race), never
+    /// the work's.
+    pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
+        crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
     }
 }
 

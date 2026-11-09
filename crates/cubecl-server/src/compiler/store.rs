@@ -6,6 +6,88 @@ use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 
+/// The kernels the work loaded in the active environment, by the stable hash
+/// of their id: what an environment's prune keeps of the artifacts its stores
+/// hold, the rest being what only an autotune race loaded.
+///
+/// A kernel is recorded the first time a launch issued for the
+/// [work](crate::execution::LaunchPurpose::Work) loads it, whatever shape or
+/// variant it was launched for, and never for a race's launch. Kept beside the
+/// compilation stores, under the same switch and the same configuration: with
+/// nothing compiled kept, there is nothing to record either.
+#[derive(Debug)]
+pub struct WorkLaunchStore {
+    store: Option<Store<StableHash, ()>>,
+}
+
+impl WorkLaunchStore {
+    /// The root of the namespace the kernels are recorded under.
+    pub const ROOT: &'static str = "launched";
+
+    /// The store of the active environment, or nothing to record into when
+    /// compilation caching is disabled or the target has nowhere durable to
+    /// put it.
+    pub fn new() -> Self {
+        Self {
+            store: compilation_store(Self::ROOT, "work"),
+        }
+    }
+
+    /// Record `kernel` when the launch loading it on this thread is the
+    /// work's. Answers whether the kernel needs no recording any more: it was
+    /// recorded, or there is nowhere to record it.
+    pub fn record(&mut self, kernel: &KernelId) -> bool {
+        let Some(store) = self.store.as_mut() else {
+            return true;
+        };
+        if crate::execution::LaunchPurpose::running() == crate::execution::LaunchPurpose::Race {
+            return false;
+        }
+        store_compiled(store, kernel.stable_hash(), ())
+    }
+}
+
+impl Default for WorkLaunchStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The first segment of a namespace: who wrote it — `autotune`, a backend's
+/// compiler, the records, an application.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NamespaceRoot<'a>(&'a str);
+
+impl<'a> NamespaceRoot<'a> {
+    /// The root of `namespace`.
+    pub fn new(namespace: &'a str) -> Self {
+        Self(namespace.split('/').next().unwrap_or_default())
+    }
+
+    /// The root of the records, which every layout of them shares.
+    pub fn records() -> Self {
+        Self::new(cubecl_environment::records::ROOT)
+    }
+
+    /// The root as written.
+    pub fn as_str(self) -> &'a str {
+        self.0
+    }
+
+    /// Whether the namespace may hold compiled artifacts: everything but the
+    /// measurements, the records and the work's launches cubecl keeps beside
+    /// them.
+    pub fn holds_artifacts(self) -> bool {
+        ![
+            crate::tune::ROOT,
+            crate::throughput::ROOT,
+            Self::records().0,
+            WorkLaunchStore::ROOT,
+        ]
+        .contains(&self.0)
+    }
+}
+
 /// Platform-specific build identifier, changes on rebuild
 pub type BuildId = Option<&'static [u8]>;
 
@@ -79,36 +161,33 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct KernelCacheKey {
-    /// Hash of the [kernel id](KernelId): what a launch of the kernel is
-    /// collected by, so an artifact is known by the launches that load it.
+    /// Hash of the [kernel id](KernelId): what the
+    /// [work's launches](WorkLaunchStore) record, so an artifact is known by
+    /// the kernel that loads it, whichever variant it is.
     pub id: StableHash,
     /// Hash of what else decides the artifact for that kernel: the variant a
     /// backend compiles it in, the device properties its code is specialized
-    /// for. Zero when the kernel id says everything, and then not written, so
-    /// such a key stays what it was before variants were kept apart.
+    /// for. Zero when the kernel id says everything; not written then, so such
+    /// a key encodes as `id` and `build_id` alone.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub variant: StableHash,
     /// Hash of the [build id](buildid::build_id).
     pub build_id: StableHash,
 }
 
-fn is_zero(variant: &StableHash) -> bool {
-    *variant == 0
-}
-
 impl KernelCacheKey {
     /// Create a key from a kernel id and the current build ID.
     pub fn new(id: &KernelId, build_id: StableHash) -> Self {
-        Self::with_variant(id, 0, build_id)
-    }
-
-    /// Create a key for `id` compiled in `variant`, with the current build ID.
-    pub fn with_variant(id: &KernelId, variant: StableHash, build_id: StableHash) -> Self {
         Self {
             id: id.stable_hash(),
-            variant,
+            variant: 0,
             build_id,
         }
+    }
+
+    /// The key of the same kernel, compiled in `variant`.
+    pub fn variant(self, variant: StableHash) -> Self {
+        Self { variant, ..self }
     }
 
     /// Create a key from an artifact id (kernel and variant) and the current build ID.
@@ -116,7 +195,16 @@ impl KernelCacheKey {
         id: &super::ArtifactId<V>,
         build_id: StableHash,
     ) -> Self {
-        Self::with_variant(&id.kernel, StableHasher::hash_one(&id.variant), build_id)
+        Self::new(&id.kernel, build_id).variant(StableHasher::hash_one(&id.variant))
+    }
+
+    /// The artifact a compilation store's entry is of: its key for an
+    /// artifact, its value for an entry mapping a source to one. `None` for
+    /// an entry of anything else.
+    #[cfg(compilation_cache)]
+    pub fn of_entry(key: &[u8], value: &[u8]) -> Option<Self> {
+        let decode = |bytes: &[u8]| ciborium::from_reader::<Self, _>(bytes).ok();
+        decode(key).or_else(|| decode(value))
     }
 }
 
@@ -339,4 +427,10 @@ mod tests {
         store.build_id = StableHasher::hash_one(&"an earlier build");
         assert_eq!(store.take(&kernel), None, "moved out");
     }
+}
+
+/// Whether a key's variant is the one a kernel id says everything for, which
+/// is not written.
+fn is_zero(variant: &StableHash) -> bool {
+    *variant == 0
 }

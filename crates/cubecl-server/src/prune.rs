@@ -1,35 +1,44 @@
-//! Removing from an environment what no workload of this build loads.
+//! Removing from an environment what this executable's work never loaded.
 //!
-//! An autotune race compiles every candidate it measures, and the stored
-//! answer names the one that won: from then on only the winner's kernels are
-//! launched for that key. Each stored result lists the kernels its candidate
-//! launched, so the answers alone tell which compiled kernels only a losing
-//! candidate ever used. Those go, with every kernel another build compiled,
-//! which this build never loads, and the build records the caller does not
-//! keep. Everything else stays: the answers, the winners' kernels, and every
-//! kernel no tune raced.
+//! A tune races every candidate it measures, at the shape it tunes for, and
+//! each candidate compiles kernels for that shape; the work then loads the
+//! pick's kernels, for every shape it runs. What decides a kernel's fate is
+//! therefore not the tune but the work: the
+//! [loader](crate::compiler::KernelLoader) records each kernel the work loads
+//! ([`WorkLaunchStore`]), whatever shape or variant it was launched for, and
+//! never one only a race loaded. A prune keeps what was recorded and removes
+//! the rest of this executable's compiled kernels, with every kernel another
+//! executable compiled, and the build records the caller does not keep. The
+//! autotune answers stay. Another executable's kernel is loaded by this one
+//! only where a backend reuses an artifact by its source, as CUDA's and HIP's
+//! do: such a kernel compiles again after a prune, and nothing else does.
 //!
-//! A kernel a loser launched that also runs outside any tune goes too, and
-//! compiles again on its first launch: the answers cannot see it, and
-//! pruning it costs one compile, never a wrong result.
+//! An environment that recorded nothing — one written before the work's
+//! launches were recorded, or one no work ran in — has no kernel known unused,
+//! and keeps every kernel this executable compiled.
 
-use crate::compiler::{KernelCacheKey, build_id_hash};
-use crate::tune::{PersistentCacheValue, ROOT as AUTOTUNE};
+use crate::compiler::{KernelCacheKey, NamespaceRoot, WorkLaunchStore, build_id_hash};
 use alloc::vec::Vec;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::environment::{
-    EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned, RecordPruning,
+    EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned,
 };
-use cubecl_environment::persistence::{Access, Database, NamespaceSummary};
+use cubecl_environment::persistence::{Access, Database};
 use cubecl_environment::records::Records;
 
-/// Pruning an environment: removing what no workload of this build loads.
+/// Pruning an environment: removing what this executable's work never loaded.
+///
+/// A trait rather than a method, because an [`EnvironmentId`] is declared
+/// where the layout of the compilation stores is unknown: this crate reads it.
 pub trait Prune {
-    /// Remove the kernels only a losing autotune candidate launched, those
-    /// another build compiled, and the build records `options` does not keep.
-    /// The space they took is reclaimed by the next save, which copies what
-    /// is left.
+    /// Remove the kernels this executable compiled and its work never loaded,
+    /// those another executable compiled, and the build records `options`
+    /// does not keep. The space they took is reclaimed by the next save, which
+    /// copies what is left.
+    ///
+    /// Prune from the executable that runs the environment: the kernels any
+    /// other one compiled are removed.
     ///
     /// # Errors
     ///
@@ -41,179 +50,122 @@ pub trait Prune {
 impl Prune for EnvironmentId {
     fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError> {
         let database = self.database(Access::ReadWrite)?;
-        let kernels = prune_kernels(&database, build_id_hash());
-        let records = prune_records(&database, options.records);
+        let launches = WorkLaunches::read(&database, build_id_hash());
+        let kernels = launches.prune(&database);
+        let records = Records::new(&database).retain(options.records);
         Ok(Pruned { kernels, records })
     }
 }
 
-/// The kernels the autotune answers of an environment name: those a winner
-/// launched, and those only a losing candidate did.
-#[derive(Debug, Default)]
-pub(crate) struct RacedKernels {
-    won: HashSet<StableHash>,
-    lost: HashSet<StableHash>,
+/// What a prune does with one compiled artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArtifactFate {
+    /// Another executable compiled it: this one loads it only through a
+    /// source it shares, and compiles it again otherwise.
+    OtherBuild,
+    /// This executable compiled it and its work never loaded it: only a race
+    /// did.
+    NeverLoaded,
+    /// The work loaded it, or nothing says it did not.
+    Kept,
 }
 
-impl RacedKernels {
-    /// What `answers` name. A result counts as the winner's when it is the
-    /// measured outcome of the answer's pick; every other result lost.
-    pub(crate) fn new<'a>(answers: impl IntoIterator<Item = &'a PersistentCacheValue>) -> Self {
-        let mut raced = Self::default();
-        for answer in answers {
-            for result in &answer.results {
-                let won = result
-                    .outcome
-                    .as_ref()
-                    .is_ok_and(|outcome| outcome.index == answer.fastest_index);
-                let kernels = match won {
-                    true => &mut raced.won,
-                    false => &mut raced.lost,
+impl ArtifactFate {
+    fn removes(self) -> bool {
+        match self {
+            Self::OtherBuild | Self::NeverLoaded => true,
+            Self::Kept => false,
+        }
+    }
+}
+
+/// The kernels this executable's work loaded in an environment.
+#[derive(Debug)]
+struct WorkLaunches {
+    /// The build this executable is.
+    build: StableHash,
+    /// The kernels recorded, `None` when the environment recorded none.
+    loaded: Option<HashSet<StableHash>>,
+}
+
+impl WorkLaunches {
+    /// What `database` recorded of the work of `build`.
+    fn read(database: &Database, build: StableHash) -> Self {
+        let mut loaded = HashSet::default();
+        for namespace in database.namespaces() {
+            if NamespaceRoot::new(&namespace).as_str() != WorkLaunchStore::ROOT {
+                continue;
+            }
+            database.scan(&namespace, &mut |key, _| {
+                if let Ok(kernel) = ciborium::from_reader::<StableHash, _>(key) {
+                    loaded.insert(kernel);
+                }
+            });
+        }
+        Self {
+            build,
+            loaded: (!loaded.is_empty()).then_some(loaded),
+        }
+    }
+
+    fn fate(&self, artifact: &KernelCacheKey) -> ArtifactFate {
+        if artifact.build_id != self.build {
+            return ArtifactFate::OtherBuild;
+        }
+        match &self.loaded {
+            Some(loaded) if !loaded.contains(&artifact.id) => ArtifactFate::NeverLoaded,
+            Some(_) | None => ArtifactFate::Kept,
+        }
+    }
+
+    /// Remove from `database` the artifacts whose [fate](Self::fate) is to
+    /// go, counting by artifact: an artifact and the entries that map a
+    /// source to it are one kernel.
+    fn prune(&self, database: &Database) -> PruneTally {
+        let mut kept: HashSet<KernelCacheKey> = HashSet::default();
+        let mut removed: HashMap<KernelCacheKey, u64> = HashMap::default();
+        for namespace in database.namespaces() {
+            if !NamespaceRoot::new(&namespace).holds_artifacts() {
+                continue;
+            }
+            let mut doomed = Vec::new();
+            database.scan(&namespace, &mut |key, value| {
+                let Some(artifact) = KernelCacheKey::of_entry(key, value) else {
+                    return;
                 };
-                kernels.extend(result.kernels.iter().copied());
-            }
-        }
-        raced
-    }
-
-    /// Whether this build's workloads never load `artifact`: another build
-    /// compiled it, or only losing candidates launched it.
-    pub(crate) fn prunes(&self, artifact: &KernelCacheKey, build: StableHash) -> bool {
-        artifact.build_id != build
-            || (self.lost.contains(&artifact.id) && !self.won.contains(&artifact.id))
-    }
-}
-
-/// Remove the kernels [`RacedKernels::prunes`] names, counting by artifact: an
-/// artifact and the entries that map a source to it are one kernel.
-fn prune_kernels(database: &Database, build: StableHash) -> PruneTally {
-    let raced = RacedKernels::new(&answers(database));
-    let mut kept: HashSet<KernelCacheKey> = HashSet::default();
-    let mut removed: HashMap<KernelCacheKey, u64> = HashMap::default();
-    for namespace in database.namespaces() {
-        if is_autotune(&namespace) || Records::holds(&namespace) {
-            continue;
-        }
-        let mut doomed = Vec::new();
-        database.scan(&namespace, &mut |key, value| {
-            // An artifact is keyed by its kernel; a second-line entry maps a
-            // source hash to that key, and goes with the artifact.
-            let Some(artifact) = decode::<KernelCacheKey>(key).or_else(|| decode(value)) else {
-                return;
-            };
-            match raced.prunes(&artifact, build) {
-                true => {
-                    *removed.entry(artifact).or_default() += (key.len() + value.len()) as u64;
-                    doomed.push(key.to_vec());
+                match self.fate(&artifact).removes() {
+                    true => {
+                        *removed.entry(artifact).or_default() += (key.len() + value.len()) as u64;
+                        doomed.push(key.to_vec());
+                    }
+                    false => {
+                        kept.insert(artifact);
+                    }
                 }
-                false => {
-                    kept.insert(artifact);
-                }
+            });
+            for key in doomed {
+                database.purge_key(&namespace, &key);
             }
-        });
-        for key in doomed {
-            database.purge_key(&namespace, &key);
+        }
+        PruneTally {
+            kept: kept.len() as u64,
+            removed: removed.len() as u64,
+            removed_bytes: removed.values().sum(),
         }
     }
-    PruneTally {
-        kept: kept.len() as u64,
-        removed: removed.len() as u64,
-        removed_bytes: removed.values().sum(),
-    }
-}
-
-/// Remove the build records `pruning` does not keep, counting entries.
-fn prune_records(database: &Database, pruning: RecordPruning) -> PruneTally {
-    let before = record_entries(database);
-    let records = Records::new(database);
-    match pruning {
-        RecordPruning::RemoveAll => records.remove_all(),
-        RecordPruning::KeepLatest(sessions) => {
-            records.prune(sessions as usize);
-        }
-        RecordPruning::KeepAll => {}
-    }
-    let after = record_entries(database);
-    PruneTally {
-        kept: after.entries,
-        removed: before.entries - after.entries,
-        removed_bytes: before.bytes - after.bytes,
-    }
-}
-
-/// Every autotune answer the environment holds that decodes.
-fn answers(database: &Database) -> Vec<PersistentCacheValue> {
-    let mut answers = Vec::new();
-    for namespace in database.namespaces() {
-        if !is_autotune(&namespace) {
-            continue;
-        }
-        database.scan(&namespace, &mut |_, value| {
-            if let Some(answer) = decode(value) {
-                answers.push(answer);
-            }
-        });
-    }
-    answers
-}
-
-/// The entries and bytes of the build records, of every layout.
-fn record_entries(database: &Database) -> NamespaceSummary {
-    let mut total = NamespaceSummary {
-        namespace: Default::default(),
-        entries: 0,
-        bytes: 0,
-    };
-    for summary in database.summary() {
-        if Records::holds(&summary.namespace) {
-            total.entries += summary.entries;
-            total.bytes += summary.bytes;
-        }
-    }
-    total
-}
-
-fn is_autotune(namespace: &str) -> bool {
-    namespace.split('/').next() == Some(AUTOTUNE)
-}
-
-/// A stored key or value, `None` when it is something else. Entries of every
-/// kind are tried, so one that is not of `T` is routine, not corruption.
-fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
-    ciborium::from_reader(bytes).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tune::{AutotuneError, AutotuneOutcome, AutotuneResult};
-    use alloc::string::ToString;
     use alloc::vec;
-    use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations, TimingMethod};
 
     const BUILD: StableHash = 7;
 
-    fn measured(index: usize, kernels: &[StableHash]) -> AutotuneResult {
-        let durations = BenchmarkDurations::from_durations(
-            TimingMethod::Device,
-            vec![core::time::Duration::from_micros(10)],
-        );
-        AutotuneResult {
-            outcome: Ok(AutotuneOutcome::new(
-                index.to_string(),
-                index,
-                BenchmarkComputations::new(&durations),
-            )),
-            kernels: kernels.to_vec(),
-        }
-    }
-
-    fn answer(fastest_index: usize, results: Vec<AutotuneResult>) -> PersistentCacheValue {
-        PersistentCacheValue {
-            fastest_index,
-            results,
-            bounds: None,
-            limit: None,
+    fn launches(loaded: Option<&[StableHash]>) -> WorkLaunches {
+        WorkLaunches {
+            build: BUILD,
+            loaded: loaded.map(|loaded| loaded.iter().copied().collect()),
         }
     }
 
@@ -226,91 +178,47 @@ mod tests {
     }
 
     #[test]
-    fn a_kernel_only_a_loser_launched_is_pruned() {
-        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[1]), measured(1, &[2])])]);
-
-        assert!(!raced.prunes(&artifact(1), BUILD));
-        assert!(raced.prunes(&artifact(2), BUILD));
+    fn a_kernel_the_work_loaded_is_kept() {
+        assert_eq!(launches(Some(&[1])).fate(&artifact(1)), ArtifactFate::Kept);
     }
 
     #[test]
-    fn a_kernel_the_winner_also_launched_stays() {
-        let raced =
-            RacedKernels::new(&[answer(1, vec![measured(0, &[1, 3]), measured(1, &[2, 3])])]);
-
-        assert!(raced.prunes(&artifact(1), BUILD));
-        assert!(!raced.prunes(&artifact(3), BUILD));
+    fn a_kernel_only_a_race_loaded_goes() {
+        assert_eq!(
+            launches(Some(&[1])).fate(&artifact(2)),
+            ArtifactFate::NeverLoaded
+        );
     }
 
-    /// A kernel one key's race lost is another key's winner: it stays.
+    /// The work's launch records the kernel, not the variant it was compiled
+    /// in: every variant of a kernel the work loaded stays.
     #[test]
-    fn a_kernel_any_answer_picked_stays() {
-        let raced = RacedKernels::new(&[
-            answer(0, vec![measured(0, &[1]), measured(1, &[2])]),
-            answer(1, vec![measured(0, &[1]), measured(1, &[2])]),
-        ]);
-
-        assert!(!raced.prunes(&artifact(1), BUILD));
-        assert!(!raced.prunes(&artifact(2), BUILD));
-    }
-
-    /// A backend that keeps one kernel's artifacts apart by variant still
-    /// names the kernel itself: each variant goes with the kernel.
-    #[test]
-    fn every_variant_of_a_losers_kernel_is_pruned() {
-        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[1]), measured(1, &[2])])]);
-        let variant = |id, variant| KernelCacheKey {
-            id,
-            variant,
-            build_id: BUILD,
+    fn every_variant_of_a_kernel_the_work_loaded_is_kept() {
+        let in_variant = KernelCacheKey {
+            variant: 5,
+            ..artifact(1)
         };
-
-        assert!(raced.prunes(&variant(2, 5), BUILD));
-        assert!(!raced.prunes(&variant(1, 5), BUILD));
+        assert_eq!(launches(Some(&[1])).fate(&in_variant), ArtifactFate::Kept);
     }
 
     #[test]
-    fn a_kernel_no_tune_raced_stays() {
-        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[1]), measured(1, &[2])])]);
-
-        assert!(!raced.prunes(&artifact(9), BUILD));
-    }
-
-    /// A candidate that failed lost, whatever it launched before failing.
-    #[test]
-    fn a_failed_candidates_kernels_are_pruned() {
-        let failed = AutotuneResult {
-            outcome: Err(AutotuneError::Skip {
-                name: "failed".to_string(),
-            }),
-            kernels: vec![4],
+    fn another_builds_kernel_goes_even_when_the_work_loaded_it() {
+        let other = KernelCacheKey {
+            build_id: BUILD + 1,
+            ..artifact(1)
         };
-        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[1]), failed])]);
-
-        assert!(raced.prunes(&artifact(4), BUILD));
+        assert_eq!(launches(Some(&[1])).fate(&other), ArtifactFate::OtherBuild);
     }
 
-    /// An answer stored before results listed their kernels names none, and
-    /// nothing is known to be a loser's.
+    /// An environment that recorded no launch says nothing of its kernels:
+    /// this build's stay.
     #[test]
-    fn an_answer_naming_no_kernel_prunes_nothing() {
-        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[]), measured(1, &[])])]);
-
-        assert!(!raced.prunes(&artifact(1), BUILD));
-        assert!(!raced.prunes(&artifact(2), BUILD));
-    }
-
-    #[test]
-    fn another_builds_kernel_is_pruned() {
-        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[1])])]);
-
-        assert!(raced.prunes(
-            &KernelCacheKey {
-                id: 1,
-                variant: 0,
-                build_id: BUILD + 1,
-            },
-            BUILD
-        ));
+    fn an_environment_that_recorded_nothing_keeps_this_builds_kernels() {
+        assert_eq!(launches(None).fate(&artifact(9)), ArtifactFate::Kept);
+        assert!(
+            vec![ArtifactFate::OtherBuild, ArtifactFate::NeverLoaded]
+                .into_iter()
+                .all(ArtifactFate::removes)
+        );
     }
 }

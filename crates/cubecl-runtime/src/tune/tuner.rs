@@ -19,13 +19,11 @@ use crate::config::Logger;
 use crate::config::autotune::AutotuneLogLevel;
 use crate::device::HardwareIdentity;
 use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
-use crate::launched::{CandidateKernelMap, TuneLaunches};
 use crate::server::LaunchError;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
 use crate::tune::sampler::measured;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
-use cubecl_common::hash::StableHash;
 use cubecl_environment::config::RuntimeConfig;
 
 use super::{
@@ -172,32 +170,13 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     /// Where the tune settles once its pick is committed.
     registration: Option<TuneRegistration>,
     mark: PendingMark<K>,
-    /// What each candidate launches while it is measured.
-    launches: TuneLaunches,
-    /// What each candidate launched while a `CompileOnly` override gathered the key.
-    gathered: CandidateKernelMap,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
     fn into_request(self, pending: Vec<PendingBench>, decided: Option<usize>) -> TuneRequest<K> {
-        let mut launched = self.launches.finish();
-        let mut gathered = self.gathered;
-        // One list per candidate, in tunable order: what it launched measured or gathered.
-        let kernels = self
-            .autotunables
-            .iter()
-            .map(|tune| {
-                let mut kernels = launched.remove(&tune.name).unwrap_or_default();
-                kernels.extend(gathered.remove(&tune.name).unwrap_or_default());
-                kernels.sort_unstable();
-                kernels.dedup();
-                kernels
-            })
-            .collect();
         TuneRequest {
             key: self.key,
             results: self.results,
-            kernels,
             #[cfg(persistence)]
             checksum: self.checksum,
             log_context: self.log_context,
@@ -220,8 +199,6 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
 struct TuneRequest<K: AutotuneKey> {
     key: K,
     results: Vec<AutotuneResult>,
-    /// What each candidate launched, in tunable order, as `results` are before they are sorted.
-    kernels: Vec<Vec<StableHash>>,
     #[cfg(persistence)]
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
@@ -319,8 +296,8 @@ impl<K: AutotuneKey> Tuner<K> {
         #[cfg(persistence)]
         let checksum;
 
-        // What the override that gathered the key left for its tune, if one did.
-        let mut gathered = super::tune_cache::GatheredTune::default();
+        // Where the key's tune was registered, if the override that gathered it registered it.
+        let mut gathered = None;
         let mark = {
             // Scoped: the rest of this function re-locks `self.cache`, and the mutex is
             // non-reentrant.
@@ -401,15 +378,12 @@ impl<K: AutotuneKey> Tuner<K> {
         // stays untuned for the pass that profiles it.
         let Some(mark) = mark else {
             let gathering = super::gathering::CandidateGathering::new();
-            let launches = TuneLaunches::open();
             self.compile_plan(key, inputs, tunables, &autotunables);
-            let launched = launches.finish();
             core::mem::drop(gathering);
-            self.cache.lock().add_gathered(key, launched);
             return TuneCacheResult::Compiled;
         };
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
-        let registration = gathered.registration.or_else(TuneRegistration::register);
+        let registration = gathered.or_else(TuneRegistration::register);
 
         let results: Vec<AutotuneResult> = autotunables
             .iter()
@@ -476,8 +450,6 @@ impl<K: AutotuneKey> Tuner<K> {
             recording,
             registration,
             mark,
-            launches: TuneLaunches::open(),
-            gathered: gathered.kernels,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -518,7 +490,7 @@ impl<K: AutotuneKey> Tuner<K> {
             // Every candidate of the batch runs, so every one of them queues its kernels.
             let mut served = false;
             for index in batch.indices() {
-                served |= autotunables[index].execute(test_inputs.clone()).is_ok();
+                served |= autotunables[index].race(test_inputs.clone()).is_ok();
             }
             if served {
                 break;
@@ -772,7 +744,6 @@ async fn process_request<K: AutotuneKey>(
     let TuneRequest {
         key,
         mut results,
-        kernels,
         #[cfg(persistence)]
         checksum,
         mut log_context,
@@ -813,10 +784,6 @@ async fn process_request<K: AutotuneKey>(
         }
 
         results[index] = result;
-    }
-    // Attached before the sort, while `results` are still in tunable order.
-    for (result, kernels) in results.iter_mut().zip(kernels) {
-        result.kernels = kernels;
     }
 
     // Read before the sort, which reorders `results` out of tunable order. A
