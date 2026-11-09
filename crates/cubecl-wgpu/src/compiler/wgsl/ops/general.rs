@@ -162,15 +162,12 @@ impl AttrToWgsl for FloatAttr {
 }
 
 /// `value`, an infinity or a NaN, as an expression of the float type `ty`: WGSL spells neither, so
-/// its bits are cast. An `f16`'s are half of a `u32`, read back out of the pair; an `f64` widens
-/// the `f32`.
+/// its bits are cast. An `f16` or `f64` converts the `f32`: naga rejects a component of a
+/// `bitcast<vec2<f16>>`.
 fn non_finite_literal(ty: &str, value: f64) -> String {
     let single = (value as f32).to_bits();
     match ty {
-        "f16" => format!(
-            "bitcast<vec2<f16>>({:#x}u).x",
-            half::f16::from_f64(value).to_bits()
-        ),
+        "f16" => format!("f16(bitcast<f32>({single:#x}u))"),
         "f64" => format!("f64(bitcast<f32>({single:#x}u))"),
         _ => format!("bitcast<f32>({single:#x}u)"),
     }
@@ -281,7 +278,7 @@ mod tests {
         );
         assert_eq!(
             non_finite_literal("f16", f64::INFINITY),
-            "bitcast<vec2<f16>>(0x7c00u).x"
+            "f16(bitcast<f32>(0x7f800000u))"
         );
         assert_eq!(
             non_finite_literal("f64", f64::NEG_INFINITY),

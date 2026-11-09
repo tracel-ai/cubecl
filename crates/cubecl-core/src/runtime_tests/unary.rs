@@ -1124,6 +1124,59 @@ test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, Vector::trailing_zeros, 
     }
 ]);
 
+#[cube(launch_unchecked)]
+fn non_finite_constants_kernel<F: Float>(scalars: &mut [F], vectors: &mut [Vector<F, Const<4>>]) {
+    if ABSOLUTE_POS == 0 {
+        scalars[0] = F::new(f64::INFINITY);
+        scalars[1] = F::new(f64::NEG_INFINITY);
+        scalars[2] = F::new(f64::NAN);
+        vectors[0] = Vector::new(F::new(f64::INFINITY));
+        vectors[1] = Vector::new(F::new(f64::NEG_INFINITY));
+        vectors[2] = Vector::new(F::new(f64::NAN));
+    }
+}
+
+/// Infinite and NaN constants compile and keep their value, as scalars and vector splats.
+pub fn test_non_finite_constants<
+    R: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: Client,
+) {
+    let scalars = client.empty(3 * size_of::<F>());
+    let vectors = client.empty(3 * 4 * size_of::<F>());
+    unsafe {
+        non_finite_constants_kernel::launch_unchecked::<F>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(scalars.clone(), 3),
+            BufferArg::from_raw_parts(vectors.clone(), 3 * 4),
+        );
+    }
+
+    let scalars = client.read_one_unchecked(scalars);
+    let vectors = client.read_one_unchecked(vectors);
+    let scalars = F::from_bytes(&scalars);
+    let vectors = F::from_bytes(&vectors);
+    assert_eq!(scalars.len(), 3, "a failed launch reads back nothing");
+    for (i, value) in scalars.iter().chain(vectors).enumerate() {
+        // Each scalar, then each vector's four lanes: +inf, -inf, NaN.
+        let which = if i < 3 { i } else { (i - 3) / 4 };
+        let value = num_traits::ToPrimitive::to_f64(value).unwrap();
+        let ok = match which {
+            0 => value.is_infinite() && value.is_sign_positive(),
+            1 => value.is_infinite() && value.is_sign_negative(),
+            _ => value.is_nan(),
+        };
+        assert!(
+            ok,
+            "value {i} is {value}, expected {}",
+            ["inf", "-inf", "NaN"][which]
+        );
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_unary {
@@ -1143,6 +1196,7 @@ macro_rules! testgen_unary {
                 };
             }
 
+            add_test!(test_non_finite_constants);
             add_test!(test_sin);
             add_test!(test_cos);
             add_test!(test_tan);
