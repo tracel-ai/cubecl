@@ -106,7 +106,7 @@ fn staged_k_walk<EA: Numeric>(
             &b,
             &mut acc,
             walk,
-            comptime!(inner.clone()),
+            inner.clone(),
             storage,
             depth,
             schedule,
@@ -118,7 +118,6 @@ fn staged_k_walk<EA: Numeric>(
 
 /// The walk through a shared-memory stage, `staging` saying what is declared before it.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn staged(
     a: &Tile,
     b: &Tile,
@@ -150,7 +149,6 @@ fn staged(
 
 /// `a · b` into `acc`, a stage of `storage` at a time.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn walk_stages(
     a: &Tile,
     b: &Tile,

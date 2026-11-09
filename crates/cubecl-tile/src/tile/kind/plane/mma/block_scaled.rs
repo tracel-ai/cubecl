@@ -249,7 +249,6 @@ fn offers_block_scaled(
 /// load each, straight into the register; scales stored one to a value are read and narrowed one
 /// at a time.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     src: &Tile,
     values: &mut Array<Vector<C, NV>>,
@@ -388,7 +387,6 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
 /// The address is the window's own arrangement of the row ([`Masked::line_slice`]), so a swizzled
 /// stage is read where its fill wrote it.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     src: &Tile,
     words: &Masked<'_, Vector<u32, WP>, CoordsDyn>,
@@ -468,7 +466,6 @@ fn loads_words_as_matrix() -> comptime_type!(bool) {
 /// `MmaDefinition::execute_scaled`, each fragment's registers named at the elements it holds
 /// ([`MmaFragment::LhsBlockScaled`]).
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn mma_execute_block_scaled<A: Numeric>(
     lhs: &Raw<Registers<NLB>>,
     lhs_scales: &Raw<Registers<NSB>>,
