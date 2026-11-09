@@ -1391,8 +1391,6 @@ impl Client {
             }
         }
 
-        crate::launched::note(|| kernel.id());
-
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
         let launch_mode = crate::execution::LaunchMode::new(self.service_stream());

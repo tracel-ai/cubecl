@@ -77,7 +77,6 @@ pub mod compiler;
 /// Device identity and properties.
 pub mod description;
 pub mod execution;
-pub mod launched;
 /// The payload every error type carries when the device is poisoned.
 pub mod poison;
 /// Runtime trait and related types
