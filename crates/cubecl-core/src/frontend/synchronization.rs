@@ -118,7 +118,7 @@ pub mod sync_system {
 /// One unit's memory fence at `sync`: no barrier, so no unit waits for another and it is valid in
 /// divergent code. A hand-off through it needs an atomic flag whose access scope (see
 /// [`Atomic::load_at`] and [`Atomic::store_at`]) covers both units. At [`Unit`](SyncScope::Unit)
-/// scope it emits nothing.
+/// scope it emits nothing, and WebGPU and Metal reject it at compile time.
 #[allow(unused_variables)]
 pub fn fence(order: MemoryOrder, sync: SyncScope) {
     unexpanded!()

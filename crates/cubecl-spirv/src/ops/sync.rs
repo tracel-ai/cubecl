@@ -30,6 +30,17 @@ impl CustomCapabilitiesOp for MemoryBarrierOp {
     }
 }
 
+/// The memory scope of a sync scope.
+fn memory_scope(scope: SyncScope) -> Scope {
+    match scope {
+        SyncScope::Unit => Scope::Invocation,
+        SyncScope::Plane => Scope::Subgroup,
+        SyncScope::Cube => Scope::Workgroup,
+        // No memory is shared with another device, so the system is the device.
+        SyncScope::Device | SyncScope::System => Scope::Device,
+    }
+}
+
 #[op_interface_impl]
 impl ToSpirvDialectOp for SyncOp {
     fn to_spirv_dialect(
@@ -39,16 +50,15 @@ impl ToSpirvDialectOp for SyncOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let scope = self.scope(ctx).0;
-        let (scope_exec, scope_mem) = match scope {
-            SyncScope::Plane => (Scope::Subgroup, Scope::Subgroup),
-            SyncScope::Cube => (Scope::Workgroup, Scope::Workgroup),
-            // No memory is shared with another device, so the system is the device.
-            SyncScope::Device | SyncScope::System => (Scope::Workgroup, Scope::Device),
+        let scope_exec = match scope {
+            SyncScope::Plane => Scope::Subgroup,
+            SyncScope::Cube | SyncScope::Device | SyncScope::System => Scope::Workgroup,
             SyncScope::Unit => {
                 rewriter.erase_operation(ctx, self.get_operation());
                 return Ok(());
             }
         };
+        let scope_mem = memory_scope(scope);
         let semantics = match scope {
             // Vulkan has no subgroup storage class, and an acquire-release barrier needs one that
             // Vulkan supports (VUID-StandaloneSpirv-MemorySemantics-10870). A plane shares memory
@@ -106,13 +116,7 @@ impl ToSpirvDialectOp for FenceOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let scope = match self.scope(ctx).0 {
-            SyncScope::Plane => Scope::Subgroup,
-            SyncScope::Cube => Scope::Workgroup,
-            // No memory is shared with another device, so the system is the device.
-            SyncScope::Device | SyncScope::System => Scope::Device,
-            SyncScope::Unit => unreachable!("a unit fence is dropped at expansion"),
-        };
+        let scope = memory_scope(self.scope(ctx).0);
         // Availability and visibility operations carry non-private accesses to another unit, as
         // at a `SyncOp` of device scope; SPIR-V allows each only with the matching order.
         let order = match self.order(ctx).0 {

@@ -56,7 +56,7 @@ impl Synchronizes for SyncOp {
 
 /// Which accesses a [`FenceOp`] orders.
 #[format]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MemoryOrder {
     /// Later accesses of this unit see what another unit released before the store this unit's
     /// earlier load read.
@@ -68,11 +68,12 @@ pub enum MemoryOrder {
 }
 
 #[pliron_attr(name = "cube.memory_order", format = "$0", verifier = "succ")]
-#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash, PartialOrd, Ord)]
+#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct MemoryOrderAttr(pub MemoryOrder);
 
 /// A memory fence of one unit at `scope`, with no barrier: unlike a [`SyncOp`], no unit waits for
-/// another, so it orders only this unit's own accesses and is valid in divergent code.
+/// another, so it orders only this unit's own accesses and is valid in divergent code. It never
+/// carries [`SyncScope::Unit`]: the `fence` function drops it at expansion.
 #[cube_op(name = "sync.fence")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]

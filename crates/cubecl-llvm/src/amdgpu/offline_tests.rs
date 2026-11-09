@@ -12,7 +12,7 @@ use crate::{
 };
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, amd::GfxArch};
-use cubecl_core::prelude::SyncScope;
+use cubecl_core::prelude::{MemoryOrder, SyncScope};
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 
@@ -244,21 +244,25 @@ fn a_unit_fence_is_a_cache_operation_without_a_barrier() {
             .position(|line| line.contains(op) && line.contains("scope:SCOPE_SYS"))
             .unwrap_or_else(|| panic!("{op} at system scope:\n{asm}"))
     };
-    let send = asm_of(fence_send_kernel(SyncScope::System), "gfx1201");
+    let send = asm_of(
+        fence_send_kernel(MemoryOrder::Release, SyncScope::System),
+        "gfx1201",
+    );
     let write_back = line_of(&send, "global_wb");
     let flag = line_of(&send, "global_store_b32");
     assert!(write_back < flag, "the flag follows the release:\n{send}");
-    assert!(!send.contains("s_barrier"), "{send}");
 
-    let poll = asm_of(fence_poll_kernel(SyncScope::System), "gfx1201");
+    let poll = asm_of(
+        fence_poll_kernel(MemoryOrder::Acquire, SyncScope::System),
+        "gfx1201",
+    );
     let load = line_of(&poll, "global_load_b32");
     let invalidate = line_of(&poll, "global_inv");
     assert!(load < invalidate, "the acquire follows the load:\n{poll}");
-    assert!(!poll.contains("s_barrier"), "{poll}");
 }
 
-/// Each scope is LLVM's syncscope of that name, unnamed for the system, and a unit's own scope
-/// emits no fence.
+/// Each scope is LLVM's syncscope of that name, unnamed for the system, a unit's own scope emits
+/// no fence, and a fence is never a barrier.
 #[test]
 fn a_unit_fence_lowers_to_the_syncscope_of_its_scope() {
     let table = [
@@ -268,31 +272,41 @@ fn a_unit_fence_lowers_to_the_syncscope_of_its_scope() {
         (SyncScope::Device, Some("syncscope(\"agent\") ")),
         (SyncScope::System, Some("")),
     ];
+    fn check(kernel: impl CubeKernel, sync: SyncScope, name: Option<&str>, order: &str) {
+        let module = module_of(kernel, &GfxArch::parse("gfx1201"));
+        let fenced = module
+            .ir
+            .lines()
+            .any(|line| line.trim_start().starts_with("fence "));
+        match name {
+            Some(name) => assert!(
+                module.ir.contains(&format!("fence {name}{order}")),
+                "{sync:?} {order}:\n{}",
+                module.ir
+            ),
+            None => assert!(!fenced, "{sync:?} {order}:\n{}", module.ir),
+        }
+        assert!(!module.ir.contains("s.barrier"), "{}", module.ir);
+    }
     for (sync, name) in table {
-        let ir = module_of(fence_send_kernel(sync), &GfxArch::parse("gfx1201")).ir;
-        match name {
-            Some(name) => assert!(
-                ir.contains(&format!("fence {name}release")),
-                "{sync:?}:\n{ir}"
-            ),
-            None => assert!(
-                !ir.lines()
-                    .any(|line| line.trim_start().starts_with("fence ")),
-                "{sync:?}:\n{ir}"
-            ),
-        }
-        let ir = module_of(fence_poll_kernel(sync), &GfxArch::parse("gfx1201")).ir;
-        match name {
-            Some(name) => assert!(
-                ir.contains(&format!("fence {name}acquire")),
-                "{sync:?}:\n{ir}"
-            ),
-            None => assert!(
-                !ir.lines()
-                    .any(|line| line.trim_start().starts_with("fence ")),
-                "{sync:?}:\n{ir}"
-            ),
-        }
+        check(
+            fence_send_kernel(MemoryOrder::Release, sync),
+            sync,
+            name,
+            "release",
+        );
+        check(
+            fence_poll_kernel(MemoryOrder::Acquire, sync),
+            sync,
+            name,
+            "acquire",
+        );
+        check(
+            fence_send_kernel(MemoryOrder::AcqRel, sync),
+            sync,
+            name,
+            "acq_rel",
+        );
     }
 }
 

@@ -10,7 +10,7 @@ use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, nvidia::SmArch, settings::DebugInfo};
-use cubecl_core::prelude::SyncScope;
+use cubecl_core::prelude::{MemoryOrder, SyncScope};
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 use std::ffi::CStr;
@@ -761,37 +761,33 @@ fn barrier_copies_are_synchronous() {
 }
 
 /// A unit's fence at system scope is `fence.acq_rel.sys` ahead of the flag's system-scope store,
-/// with no barrier.
+/// and after the flag's system-scope load.
 #[test]
-fn a_unit_fence_is_a_system_fence_without_a_barrier() {
-    let send = ptx_of(fence_send_kernel(SyncScope::System), 80);
-    let fence = send
-        .find("fence.acq_rel.sys")
-        .unwrap_or_else(|| panic!("{send}"));
-    let flag = send
-        .find("st.relaxed.sys.global")
-        .unwrap_or_else(|| panic!("{send}"));
+fn a_unit_fence_is_a_system_fence_around_the_flag() {
+    let line_of = |ptx: &str, op: &str| {
+        ptx.lines()
+            .position(|line| line.contains(op))
+            .unwrap_or_else(|| panic!("{op}:\n{ptx}"))
+    };
+    let send = ptx_of(
+        fence_send_kernel(MemoryOrder::Release, SyncScope::System),
+        80,
+    );
+    let fence = line_of(&send, "fence.acq_rel.sys");
+    let flag = line_of(&send, "st.relaxed.sys.global");
     assert!(fence < flag, "the flag follows the release:\n{send}");
-    assert!(
-        !send.contains("bar.sync") && !send.contains("barrier.sync"),
-        "{send}"
-    );
 
-    let poll = ptx_of(fence_poll_kernel(SyncScope::System), 80);
-    let load = poll
-        .find("ld.relaxed.sys.global")
-        .unwrap_or_else(|| panic!("{poll}"));
-    let fence = poll
-        .find("fence.acq_rel.sys")
-        .unwrap_or_else(|| panic!("{poll}"));
-    assert!(load < fence, "the acquire follows the load:\n{poll}");
-    assert!(
-        !poll.contains("bar.sync") && !poll.contains("barrier.sync"),
-        "{poll}"
+    let poll = ptx_of(
+        fence_poll_kernel(MemoryOrder::Acquire, SyncScope::System),
+        80,
     );
+    let load = line_of(&poll, "ld.relaxed.sys.global");
+    let fence = line_of(&poll, "fence.acq_rel.sys");
+    assert!(load < fence, "the acquire follows the load:\n{poll}");
 }
 
-/// Each scope is the PTX fence of that scope, and a unit's own scope emits no fence.
+/// Each scope is the PTX fence of that scope, a unit's own scope emits no fence, and a fence is
+/// never a barrier.
 #[test]
 fn a_unit_fence_lowers_to_the_ptx_scope_of_its_scope() {
     let table = [
@@ -803,13 +799,18 @@ fn a_unit_fence_lowers_to_the_ptx_scope_of_its_scope() {
     ];
     for (sync, fence) in table {
         for ptx in [
-            ptx_of(fence_send_kernel(sync), 80),
-            ptx_of(fence_poll_kernel(sync), 80),
+            ptx_of(fence_send_kernel(MemoryOrder::Release, sync), 80),
+            ptx_of(fence_poll_kernel(MemoryOrder::Acquire, sync), 80),
+            ptx_of(fence_send_kernel(MemoryOrder::AcqRel, sync), 80),
         ] {
             match fence {
                 Some(fence) => assert!(ptx.contains(fence), "{sync:?}:\n{ptx}"),
                 None => assert!(!ptx.contains("fence."), "{sync:?}:\n{ptx}"),
             }
+            assert!(
+                !ptx.contains("bar.sync") && !ptx.contains("barrier.sync"),
+                "{sync:?}:\n{ptx}"
+            );
         }
     }
 }

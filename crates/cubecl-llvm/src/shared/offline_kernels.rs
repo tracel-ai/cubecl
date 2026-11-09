@@ -351,16 +351,21 @@ pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     )
 }
 
-/// Plain stores into a peer's `data`, released at system scope, then a flag store: a hand-off
+/// Plain stores into a peer's `data`, a fence of `order` at `sync`, then a flag store: a hand-off
 /// with no barrier.
 #[cube(launch)]
-fn fence_send(data: &mut Peer<[u32]>, flag: &Peer<[Atomic<u32>]>, #[comptime] sync: SyncScope) {
+fn fence_send(
+    data: &mut Peer<[u32]>,
+    flag: &Peer<[Atomic<u32>]>,
+    #[comptime] order: MemoryOrder,
+    #[comptime] sync: SyncScope,
+) {
     data[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
-    fence(MemoryOrder::Release, comptime![sync]);
+    fence(comptime![order], comptime![sync]);
     flag[ABSOLUTE_POS].store(1u32);
 }
 
-pub(crate) fn fence_send_kernel(sync: SyncScope) -> impl CubeKernel {
+pub(crate) fn fence_send_kernel(order: MemoryOrder, sync: SyncScope) -> impl CubeKernel {
     fence_kernel(|settings| {
         fence_send::FenceSend::new(
             settings,
@@ -368,25 +373,27 @@ pub(crate) fn fence_send_kernel(sync: SyncScope) -> impl CubeKernel {
             Arc::new(TargetProperties::default()),
             PeerCompilationArg,
             PeerCompilationArg,
+            order,
             sync,
         )
     })
 }
 
-/// Polls a peer's flag, then acquires at system scope and reads the data it guards.
+/// Polls a peer's flag, then fences with `order` at `sync` and reads the data it guards.
 #[cube(launch)]
 fn fence_poll(
     flag: &Peer<[Atomic<u32>]>,
     data: &Peer<[u32]>,
     out: &mut [u32],
+    #[comptime] order: MemoryOrder,
     #[comptime] sync: SyncScope,
 ) {
     while flag[ABSOLUTE_POS].load() == 0u32 {}
-    fence(MemoryOrder::Acquire, comptime![sync]);
+    fence(comptime![order], comptime![sync]);
     out[ABSOLUTE_POS] = data[ABSOLUTE_POS];
 }
 
-pub(crate) fn fence_poll_kernel(sync: SyncScope) -> impl CubeKernel {
+pub(crate) fn fence_poll_kernel(order: MemoryOrder, sync: SyncScope) -> impl CubeKernel {
     fence_kernel(|settings| {
         fence_poll::FencePoll::new(
             settings,
@@ -395,6 +402,7 @@ pub(crate) fn fence_poll_kernel(sync: SyncScope) -> impl CubeKernel {
             PeerCompilationArg,
             PeerCompilationArg,
             BufferCompilationArg { inplace: None },
+            order,
             sync,
         )
     })
