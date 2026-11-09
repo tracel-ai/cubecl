@@ -90,8 +90,7 @@ impl Memory {
                 compaction.is_none()
                     && !src.projection.is_direct()
                     && !src.projection.is_rational()
-                    && (src_rank != plen
-                        || src.projection.composition() == Composition::Overlapping)
+                    && (src_rank != plen || src.projection.composition() != Composition::Disjoint)
             );
             let s = if steps.is_empty() && !through_projection {
                 Masked::new(
