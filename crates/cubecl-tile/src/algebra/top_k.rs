@@ -400,6 +400,15 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
     /// list unrolls, by a cursor where a one-lane list is too long to.
     fn across(value: Self, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
+        let hardware = comptime::hardware_properties().comptime();
+        // A singleton plane already holds the entire list and needs no lane communication.
+        let share = comptime!(
+            if hardware.plane_size_min == 1 && hardware.plane_size_max == 1 {
+                UnitShare::Whole
+            } else {
+                share
+            }
+        );
         match share {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane | UnitShare::Group { .. } => {
