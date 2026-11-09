@@ -39,6 +39,22 @@ impl<'a> Records<'a> {
         records
     }
 
+    /// Whether `namespace` holds records or sessions, of this layout or an
+    /// earlier one.
+    pub fn holds(namespace: &str) -> bool {
+        let root = ROOT.split('/').next().unwrap_or(ROOT);
+        namespace.split('/').next() == Some(root)
+    }
+
+    /// Deletes every session and every record, of every layout.
+    pub fn remove_all(&self) {
+        for namespace in self.database.namespaces() {
+            if Self::holds(&namespace) {
+                self.database.purge(&namespace);
+            }
+        }
+    }
+
     /// Deletes every session but the newest `keep`, with their records.
     /// Returns how many sessions went.
     ///

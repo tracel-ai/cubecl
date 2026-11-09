@@ -71,6 +71,12 @@ pub use cubecl_runtime::execution;
 /// environment shipped for it has to keep.
 pub use cubecl_runtime::launched;
 
+/// Removing from an environment what no workload of this build loads: the
+/// kernels only a losing autotune candidate launched, those another build
+/// compiled, and the build records a caller does not keep.
+#[cfg(compilation_cache)]
+pub use cubecl_server::prune;
+
 /// Watching what the runtime runs: the launch observer, and the profiling
 /// logger's levels.
 ///
