@@ -123,13 +123,31 @@ impl Levels {
     }
 
     /// One cube for every box these axes hold; the entries ride the grid's `X`, `Y`, `Z` in order.
-    pub fn cubes(self, axes: &[Axis]) -> Self {
+    ///
+    /// Stated above another cube level, it is a level of its own whose entries ride the grid's
+    /// `Z`, as batches do, the cube level below holding `X` and `Y`: each cube takes one tile of
+    /// these axes, then its box of the level below inside it. A table keyed by these axes is read
+    /// there, so a run it places along an axis the level below cuts is placed before that cut.
+    pub fn cubes(mut self, axes: &[Axis]) -> Self {
         assert!(
             axes.len() <= 3,
             "Levels::cubes: {} axes, but a launch grid has three dimensions",
             axes.len()
         );
-        self.every(Coverage::Distribute(ComputeScope::Cube), axes)
+        let below = Coverage::Distribute(ComputeScope::Cube);
+        let Some(inner) = self.stated.iter().find(|stated| stated.coverage == below) else {
+            return self.every(below, axes);
+        };
+        assert!(
+            inner.tiles.len() <= 2 && inner.batches.is_empty(),
+            "Levels::cubes: a cube level above another rides the grid's Z, which the one below \
+             holds"
+        );
+        let mut stated = StatedLevel::new(below, Vec::new(), Takes::Every);
+        stated.batches = axes.to_vec();
+        self.stated.push(stated);
+        self.closed.extend_from_slice(axes);
+        self
     }
 
     /// One plane of the launch for every tile these axes hold, the planes taking them in `order`:
@@ -508,6 +526,33 @@ mod tests {
             .plane_groups(4, &[(M, 2)])
             .walk_every(&[K])
             .build();
+    }
+
+    /// A cube level stated above another is a level of its own, its axis on the grid's `Z` and
+    /// the boxes below on `X` and `Y`, and a cube's box is the one the innermost cube level cuts.
+    /// A run keyed by the outer level's axis is read there, before the inner level cuts it.
+    #[test]
+    fn a_cube_level_above_another_rides_z() {
+        let levels = Levels::leaf(&[(M, 16), (N, 16)])
+            .walk_every(&[K])
+            .cubes(&[M, N])
+            .cubes(&[B])
+            .build();
+        assert_eq!(levels.len(), 3);
+        assert_eq!(levels[0].cube_axis(B), Some(crate::CubeAxis::Z));
+        assert_eq!(levels[1].cube_axis(M), Some(crate::CubeAxis::X));
+        assert_eq!(levels[1].cube_axis(N), Some(crate::CubeAxis::Y));
+        assert_eq!(crate::Indexing::Run(M).read_at(&[B], &levels), Ok(Some(0)));
+        let space = Space::new(&[(B, 3), (M, 64), (N, 32), (K, 8)]);
+        let partitioning = Partitioning::new(space, levels);
+        let cubecl::prelude::CubeCount::Static(x, y, z) = partitioning.cube_count() else {
+            panic!("a partitioning's grid is static")
+        };
+        assert_eq!((x, y, z), (4, 2, 3));
+        assert_eq!(
+            partitioning.box_of(ComputeScope::Cube).extents(),
+            vec![(B, 1), (M, 16), (N, 16), (K, 8)]
+        );
     }
 
     /// A plane group's level counts its groups, and the cube holds each group's planes.
