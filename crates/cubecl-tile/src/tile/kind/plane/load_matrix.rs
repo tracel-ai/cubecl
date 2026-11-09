@@ -103,7 +103,6 @@ pub(crate) enum PairAxis {
 /// most one `ldmatrix` reads. Units past the pair's matrices wrap onto them, as in
 /// [`load_ldmatrix`], since every unit hands the instruction an address it may read.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn load_ldmatrix_pair<
     T: Numeric,
     W: Size,

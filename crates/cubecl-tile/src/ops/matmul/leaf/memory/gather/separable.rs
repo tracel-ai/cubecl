@@ -284,7 +284,6 @@ fn rhs_anchor(
 
 /// Evaluate one factor's complete 1-D tap walk at the accumulator coordinate where it is cached.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn factor_walk<EL: Numeric>(
     weights: &mut Array<EL>,
     offset: usize,
@@ -369,7 +368,6 @@ fn factor_walk<EL: Numeric>(
 
 /// Multiply one tap's per-factor weights from their maximal cache levels.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn tap_weight<EL: Numeric>(
     block: &Array<EL>,
     row: &Array<EL>,
@@ -413,7 +411,6 @@ fn tap_weight<EL: Numeric>(
 }
 
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn factor_weight<EL: Numeric>(
     block: &Array<EL>,
     row: &Array<EL>,

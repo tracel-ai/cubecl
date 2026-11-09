@@ -10,7 +10,6 @@ use crate::*;
 /// The 2-D contraction nest: over each batch matrix, the `mr × nr` accumulator block lives in
 /// registers.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
@@ -68,7 +67,6 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
 
 /// The nest at fixed line widths: `L` the lhs's, `V` the rhs's and block's, `A` the accumulator's.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Size>(
     acc: &mut Memory,
     lhs: &Tile,
@@ -217,7 +215,6 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
 
 /// The nest body, either unrolled in registers or the checked edge fallback.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn body<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Size>(
     acc: &mut AccumulateView<'_, E, A>,
     lhs: &MatrixView<'_, Vector<EL, L>>,

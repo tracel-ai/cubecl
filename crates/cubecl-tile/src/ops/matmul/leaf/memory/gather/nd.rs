@@ -127,7 +127,6 @@ fn box_in_bounds<T: Numeric, W: Size>(
 
 /// The `K` walk over one batch matrix: seed the block, sum `kc` rank-1 updates, commit it back.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     lhs_view: &Masked<'_, Vector<EL, L>, CoordsDyn>,
     rhs_view: &Masked<'_, Vector<ER, V>, CoordsDyn>,
@@ -259,7 +258,6 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
 /// One gathered rank-1 update, each read hoisted to the coarsest cell its operand is invariant
 /// over. `unit` is the fixed component to extract; `None` resolves it from `reduce_coords`.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
     lhs_view: &Masked<'_, Vector<EL, L>, CoordsDyn>,
     rhs_view: &Masked<'_, Vector<ER, V>, CoordsDyn>,

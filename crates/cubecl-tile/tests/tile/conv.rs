@@ -2455,7 +2455,7 @@ fn conv_kernel_input_staged(
     let input = input.tile(&space);
     let weight = weight.tile(&space);
     let out = out.tile(&space);
-    let mut stage = input.stage(comptime!(level.clone()), StageStorage::Strided);
+    let mut stage = input.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&input.at(&region));
         sync_cube();
