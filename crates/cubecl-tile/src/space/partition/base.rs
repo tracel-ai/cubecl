@@ -233,18 +233,19 @@ impl Partitioning {
             })
     }
 
-    /// The box one of `scope`'s instances covers: the space cut down through the level distributed
-    /// over it. Panics where no level distributes over `scope`.
+    /// The box one of `scope`'s instances covers: the space cut down through the innermost level
+    /// distributed over it. Panics where no level distributes over `scope`.
     pub fn box_of(&self, scope: ComputeScope) -> Space {
         let coverage = Coverage::Distribute(scope);
         let mut space = self.space.clone();
+        let mut held = None;
         for level in &self.levels {
             space = level.child(&space);
             if level.coverage() == coverage {
-                return space;
+                held = Some(space.clone());
             }
         }
-        panic!("Partitioning::box_of: no level distributes over {scope:?}")
+        held.unwrap_or_else(|| panic!("Partitioning::box_of: no level distributes over {scope:?}"))
     }
 
     /// The levels one instance walks, outermost first.
