@@ -40,7 +40,7 @@ impl LaunchPurpose {
     /// Run `candidate`, a race's run of one candidate: the launches it issues
     /// on this thread are issued for the race. The thread is the one that
     /// issues them, the device's own when the race runs there.
-    pub fn racing<R>(candidate: impl FnOnce() -> R) -> R {
+    pub(crate) fn racing<R>(candidate: impl FnOnce() -> R) -> R {
         racing::enter();
         let leave = Leave;
         let output = candidate();
@@ -104,25 +104,18 @@ mod racing {
     }
 }
 
-/// How many races are running a candidate: with no threads to be local to,
-/// one count for the process.
+/// Without std nothing records a work launch, so nothing tells a race's
+/// launch from the work's: every launch is the work's, and a launch pays
+/// nothing to say so.
 #[cfg(not(feature = "std"))]
 mod racing {
-    use cubecl_environment::sync::{AtomicUsize, Ordering};
-
-    static DEPTH: AtomicUsize = AtomicUsize::new(0);
-
     pub(super) fn depth() -> usize {
-        DEPTH.load(Ordering::Relaxed)
+        0
     }
 
-    pub(super) fn enter() {
-        DEPTH.fetch_add(1, Ordering::Relaxed);
-    }
+    pub(super) fn enter() {}
 
-    pub(super) fn leave() {
-        DEPTH.fetch_sub(1, Ordering::Relaxed);
-    }
+    pub(super) fn leave() {}
 }
 
 /// The purpose of the launch running on this thread.
@@ -144,25 +137,23 @@ mod running {
     }
 }
 
-/// The purpose of the launch running: with no threads to be local to, one for
-/// the process.
+/// Without std, as for [`racing`]: no launch carries a purpose, so every one
+/// loads as the work's.
 #[cfg(not(feature = "std"))]
 mod running {
     use super::LaunchPurpose;
-    use cubecl_environment::sync::Mutex;
 
-    static RUNNING: Mutex<Option<LaunchPurpose>> = Mutex::new(None);
-
-    pub(super) fn replace(purpose: Option<LaunchPurpose>) -> Option<LaunchPurpose> {
-        core::mem::replace(&mut *RUNNING.lock(), purpose)
+    pub(super) fn replace(_purpose: Option<LaunchPurpose>) -> Option<LaunchPurpose> {
+        None
     }
 
     pub(super) fn get() -> Option<LaunchPurpose> {
-        *RUNNING.lock()
+        None
     }
 }
 
-#[cfg(test)]
+// Without std every launch is the work's: there is nothing to tell apart.
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 
