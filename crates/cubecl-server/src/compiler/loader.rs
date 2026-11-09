@@ -53,7 +53,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// A loader holding nothing yet, bound to the active environment exactly
     /// when `target` [persists](CompilationTarget::persists) what it compiles.
     pub fn new(target: T) -> Self {
-        let loaded = CompilationCache::new(target.persists());
+        let bound = target.persists();
+        let loaded = CompilationCache::new(bound);
         let parallelism = crate::config::CubeClRuntimeConfig::get()
             .compilation
             .parallelism();
@@ -61,7 +62,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         Self {
             target,
             loaded,
-            work: WorkLaunchStore::new(),
+            work: WorkLaunchStore::new(bound),
             queue: KernelQueue::new(),
             failed: HashMap::new(),
             parallelism,
@@ -196,6 +197,9 @@ impl<T: CompilationTarget> KernelLoader<T> {
             kernel: kernel.id(),
             variant,
         };
+        // Before anything that leaves the kernel alone: a work's launch queued
+        // in a compile-only pass is the work's, whoever queued it first.
+        self.work.record(&id.kernel);
         if self.loaded.contains(&id) || self.queue.contains(&id) {
             return;
         }
@@ -347,8 +351,8 @@ struct JobOutcome<T: CompilationTarget> {
     stored: bool,
 }
 
-/// A kernel a [`KernelLoader`] holds loaded, and whether the work has loaded
-/// it yet: until it has, each load asks the launch's purpose, and after, none
+/// A kernel a [`KernelLoader`] holds loaded, and whether it is recorded as the
+/// work's: until it is, each load of it tries to record it, and after, none
 /// does.
 #[derive(Debug)]
 struct LoadedKernel<L> {

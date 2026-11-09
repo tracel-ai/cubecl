@@ -104,7 +104,7 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
             use crate::{AutoRepresentation, CompilerInfo, ParamsTransfer};
 
             let key =
-                KernelCacheKey::new(&id.kernel, self.build_id).variant(self.properties_hash.into());
+                KernelCacheKey::new(&id.kernel, self.build_id).in_variant(self.properties_hash.into());
             let entry = self.spirv_store.as_mut()?.remove(&key)?;
             log::trace!("Using SPIR-V cache");
 
@@ -157,7 +157,7 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
                 return false;
             };
             let key =
-                KernelCacheKey::new(&id.kernel, self.build_id).variant(self.properties_hash.into());
+                KernelCacheKey::new(&id.kernel, self.build_id).in_variant(self.properties_hash.into());
             store_compiled(
                 store,
                 key,

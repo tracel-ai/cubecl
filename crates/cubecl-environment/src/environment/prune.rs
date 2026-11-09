@@ -1,16 +1,17 @@
 //! What pruning an environment removes, and what it reports.
 //!
-//! A build fills its environment with more than its workload runs: every
-//! candidate an autotune race measured compiled its kernels, and only the
-//! winner's are ever loaded again. Pruning removes what no workload of this
-//! build loads, and the build records the caller does not keep. The answers,
-//! the winners' kernels and every kernel no tune raced stay.
+//! A build fills its environment with more than its work runs: every
+//! candidate an autotune race measured compiled its kernels, at the shape it
+//! was tuned for. Pruning keeps the kernels this build's work launched and
+//! removes the rest of what it compiled, everything another build compiled,
+//! and the build records the caller does not keep. The autotune answers
+//! stay.
 //!
 //! These are values: what a caller asks for and what it gets back cross the
 //! network unchanged, so a remote environment prunes where it lives. The
 //! pruning itself is the runtime's, which knows the entries it stored.
 
-/// What a prune removes beyond the kernels no workload of this build loads.
+/// What a prune removes beyond the kernels this build's work never launched.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PruneOptions {
     /// Which of the environment's build records stay.

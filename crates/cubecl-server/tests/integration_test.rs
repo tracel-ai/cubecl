@@ -2790,15 +2790,17 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// A prune keeps this executable's kernels its work loaded, every variant of
-/// them, and removes those only a race loaded, those another executable
-/// compiled, and the build records; the autotune answers stay.
+/// A prune keeps this build's kernels its work launched, every variant of
+/// them, and removes those only a race launched, those another build compiled
+/// with the records of what its work launched, and the build records; the
+/// autotune answers stay. The launches are written here as the loader records
+/// them: what this tests is the prune, the recording being the runtimes'.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_keeps_what_the_work_loaded() {
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
-    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_environment::persistence::{Database, Namespace, Origin};
     use cubecl_server::compiler::{KernelCacheKey, WorkLaunchStore, build_id_hash};
     use cubecl_server::prune::Prune;
 
@@ -2831,10 +2833,21 @@ fn a_prune_keeps_what_the_work_loaded() {
     for key in &stored {
         database.insert("dummy/artifacts", key, b"binary", Origin::Local);
     }
+    let launched = |build_id: u128| {
+        Namespace::scoped(WorkLaunchStore::ROOT, WorkLaunchStore::build_path(build_id))
+    };
+    let (this_build, other_build) = (launched(build), launched(build ^ 1));
+    database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
     database.insert(
-        &format!("{}/work", WorkLaunchStore::ROOT),
-        &cbor(&work),
+        other_build.as_str(),
+        &cbor(&race),
         &cbor(&()),
+        Origin::Local,
+    );
+    database.insert(
+        cubecl_environment::records::ROOT,
+        b"record",
+        b"value",
         Origin::Local,
     );
 
@@ -2843,13 +2856,26 @@ fn a_prune_keeps_what_the_work_loaded() {
         .unwrap();
 
     assert_eq!((pruned.kernels.kept, pruned.kernels.removed), (2, 2));
+    assert!(pruned.records.removed > 0 && pruned.records.kept == 0);
+    let namespaces = database.namespaces();
+    assert!(
+        namespaces
+            .iter()
+            .any(|namespace| namespace == this_build.as_str())
+    );
+    assert!(
+        !namespaces
+            .iter()
+            .any(|namespace| namespace == other_build.as_str()),
+        "another build's launches go with its kernels"
+    );
     let present = |key: &[u8]| database.get("dummy/artifacts", key).is_some();
     assert!(
         present(&stored[0]) && present(&stored[1]),
         "the work's kernel, in each variant"
     );
-    assert!(!present(&stored[2]), "only a race loaded it");
-    assert!(!present(&stored[3]), "another executable compiled it");
+    assert!(!present(&stored[2]), "only a race launched it");
+    assert!(!present(&stored[3]), "another build compiled it");
     let autotune = database
         .namespaces()
         .into_iter()

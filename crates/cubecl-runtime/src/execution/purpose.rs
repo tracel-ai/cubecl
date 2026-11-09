@@ -3,12 +3,11 @@
 //! the thread that loads its kernel, as [`IssuedRecorder`](super::IssuedRecorder)
 //! carries where its work counts.
 //!
-//! A kernel the work launched is one a later run of that work loads again,
+//! A kernel the work launched is one a later run of that work launches again,
 //! whatever shape it was launched for; a kernel only a race launched is a
 //! candidate the work may never pick. That is what keeps an environment's
-//! prune from removing anything the work
-//! needs: the server records each kernel the work loads, and nothing a race
-//! loads.
+//! prune from removing anything the work needs: the server records each
+//! kernel the work launches, and nothing a race launches.
 
 /// What a launch is issued for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,8 +31,8 @@ impl LaunchPurpose {
 
     /// The purpose of the launch whose kernel this thread is loading. A kernel
     /// loaded outside a launch, or by one that carried no purpose, counts as
-    /// the work's: keeping a kernel a race loaded costs space, losing one the
-    /// work loads costs a compile.
+    /// the work's: keeping a kernel a race launched costs space, losing one
+    /// the work launches costs a compile.
     pub fn running() -> Self {
         running::get().unwrap_or(Self::Work)
     }
@@ -50,8 +49,9 @@ impl LaunchPurpose {
     }
 
     /// Run `launch`, a launch issued for this purpose, on the thread that
-    /// loads its kernel.
-    pub(crate) fn apply<R>(self, launch: impl FnOnce() -> R) -> R {
+    /// loads its kernel: what a launch's submit does on the server's side,
+    /// and what a test of a server stands in for it with.
+    pub fn apply<R>(self, launch: impl FnOnce() -> R) -> R {
         let previous = running::replace(Some(self));
         let restore = Restore { previous };
         let launched = launch();
