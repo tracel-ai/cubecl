@@ -190,6 +190,36 @@ pub struct AllocationOriginReport {
     pub frames: Vec<String>,
 }
 
+/// `1.02 KB (id 12): model.weights · thread main · #3`, then the call stack
+/// one frame a line, as the memory log writes an allocation.
+impl core::fmt::Display for AllocationReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} (id {}): ", BytesFormat::new(self.size), self.id)?;
+        match &self.origin {
+            Some(origin) => write!(f, "{origin}"),
+            None => f.write_str("(made before tracing was on)"),
+        }
+    }
+}
+
+/// `model.weights · thread main · #3`, then the call stack one frame a line.
+impl core::fmt::Display for AllocationOriginReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.labels.is_empty() {
+            true => f.write_str("(no label)")?,
+            false => f.write_str(&self.labels.join("."))?,
+        }
+        if let Some(thread) = &self.thread {
+            write!(f, " · thread {thread}")?;
+        }
+        write!(f, " · #{}", self.sequence)?;
+        for frame in &self.frames {
+            write!(f, "\n    at {frame}")?;
+        }
+        Ok(())
+    }
+}
+
 /// Which memory a [`MemoryReport`] covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryScope {
@@ -359,5 +389,24 @@ mod tests {
             pools: stream(0, 10).pools,
         });
         assert_eq!(report.usage().bytes_in_use, 33);
+    }
+
+    #[test]
+    fn an_allocation_reads_as_the_memory_log_writes_it() {
+        let allocation = AllocationReport {
+            id: 12,
+            size: 1024,
+            padding: 0,
+            origin: Some(AllocationOriginReport {
+                labels: vec!["model".into(), "weights".into()],
+                thread: Some("main".into()),
+                sequence: 3,
+                frames: vec!["load [burn-core/src/store/mod.rs:238:29]".into()],
+            }),
+        };
+        assert_eq!(
+            allocation.to_string(),
+            "1.02 KB (id 12): model.weights · thread main · #3\n    at load [burn-core/src/store/mod.rs:238:29]"
+        );
     }
 }

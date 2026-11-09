@@ -208,6 +208,21 @@ let handle = client.create(bytes); // reported under "weights"
 // the label stops applying when `_label` goes out of scope
 ```
 
+With tracing on, the memory log at the `full` level also writes it: a line for each allocation as
+it is made, with its pool, size and origin, and after each explicit cleanup
+(`Client::memory_cleanup`) the list of every allocation still alive. No code has to read the report
+to see them:
+
+```toml
+[memory]
+logger = { level = "full", file = "memory.log" }
+tracing = "backtraces"
+```
+
+```text
+[Main GPU Memory] Allocated in the persistent pool 800.00 KB (id 41): fc1.weight · thread main · #17
+```
+
 **Example:**
 
 ```toml

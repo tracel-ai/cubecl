@@ -7,10 +7,12 @@ use super::{
 use crate::{
     config::{
         CubeClRuntimeConfig, RuntimeConfig,
-        memory::{MemoryLogLevel, PersistentMemory},
+        memory::{MemoryLogLevel, MemoryTracing, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
+    memory_management::{
+        BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice, memory_tracing,
+    },
     server::IoError,
     storage::{ComputeStorage, ManagedResource, StorageHandle},
 };
@@ -31,6 +33,17 @@ enum PoolPosition {
     Persistent,
     Dedicated,
     Dynamic(u8),
+}
+
+/// `persistent`, `dedicated` or `dynamic[2]`, as the memory log names a pool.
+impl core::fmt::Display for PoolPosition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PoolPosition::Persistent => f.write_str("persistent"),
+            PoolPosition::Dedicated => f.write_str("dedicated"),
+            PoolPosition::Dynamic(index) => write!(f, "dynamic[{index}]"),
+        }
+    }
 }
 
 impl PoolPosition {
@@ -246,6 +259,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // driver instead of leaving them pending.
         if cleanup == Cleanup::Explicit {
             self.storage.flush();
+            self.log_live_allocations();
         }
     }
 
@@ -582,8 +596,60 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let location = allocated(reserved.descriptor())?;
+        // Kept to name the allocation in the log once it is bound.
+        let traced = (memory_tracing() != MemoryTracing::Disabled).then(|| assigned.clone());
         self.pool_mut(location)?
-            .bind(reserved, assigned, cursor, failures)
+            .bind(reserved, assigned, cursor, failures)?;
+        if let Some(memory) = traced {
+            self.log_allocation(&memory, PoolPosition::new(location.pool));
+        }
+        Ok(())
+    }
+
+    /// Log, at the `full` level, the allocation `memory` was just bound to in
+    /// `pool`: its size and who asked for it.
+    fn log_allocation(&self, memory: &ManagedMemoryHandle, pool: PoolPosition) {
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || match self.find(&memory.clone().binding()) {
+                Ok(slice) => format!(
+                    "[{}] Allocated in the {pool} pool {}",
+                    self.name,
+                    slice.allocation_report()
+                ),
+                Err(err) => format!("[{}] Allocated in the {pool} pool: {err:?}", self.name),
+            },
+        );
+    }
+
+    /// Log, at the `full` level, every allocation still alive, pool by pool:
+    /// what an explicit cleanup could not release.
+    fn log_live_allocations(&self) {
+        if memory_tracing() == MemoryTracing::Disabled {
+            return;
+        }
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || {
+                let report = self.memory_report();
+                let pools = report
+                    .dynamic
+                    .iter()
+                    .enumerate()
+                    .map(|(index, pool)| (PoolPosition::Dynamic(index as u8), pool))
+                    .chain([
+                        (PoolPosition::Persistent, &report.persistent),
+                        (PoolPosition::Dedicated, &report.dedicated),
+                    ]);
+                let mut text = format!("[{}] Live allocations after cleanup:", self.name);
+                for (pool, report) in pools {
+                    for allocation in &report.allocations {
+                        text.push_str(&format!("\n  {pool}: {allocation}"));
+                    }
+                }
+                text
+            },
+        );
     }
 
     /// The failure claiming any byte of `range` in the allocation behind
