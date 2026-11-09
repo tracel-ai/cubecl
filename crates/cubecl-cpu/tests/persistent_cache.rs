@@ -370,3 +370,62 @@ fn test_object_bytes_not_retained() {
         "store entry holds the object bytes on disk"
     );
 }
+
+/// A tune on the CPU runtime stores both candidates' kernels, each under the
+/// variant the runtime compiles it in, and the answer names which candidate
+/// launched which: a prune removes the loser's artifact and keeps the
+/// winner's.
+#[test]
+fn a_prune_keeps_only_the_kernel_the_tune_picked() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_server::prune::Prune;
+    use cubecl_server::server::Handle;
+    use cubecl_server::tune::{Tunable, TunableSet, TuneCacheResult, Tuner};
+
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempDir::new("prune");
+    let _ = CubeClRuntimeConfig::try_set(CubeClRuntimeConfig {
+        compilation: CompilationConfig {
+            cache: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    cubecl_environment::environment::set_root(&temp.path);
+
+    let client = Client::load::<CpuServer>(DeviceId::new(0, 30));
+    let inputs = (
+        client.clone(),
+        client.create_from_slice(u32::as_bytes(&[42])),
+        client.create_from_slice(u32::as_bytes(&[0])),
+    );
+    type Inputs = (Client, Handle, Handle);
+    // Two candidates, each its own kernel: the comptime scalar is in the id.
+    let adding = |scalar: u32| {
+        move |(client, input, output): Inputs| -> Result<(), String> {
+            add_scalar_kernel::launch(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(1),
+                unsafe { BufferArg::from_raw_parts(output, 1) },
+                unsafe { BufferArg::from_raw_parts(input, 1) },
+                scalar,
+            );
+            Ok(())
+        }
+    };
+    let set = TunableSet::<String, Inputs, ()>::new_cloning_inputs(|_: &Inputs| "add".to_string())
+        .with(Tunable::new("plus_one", adding(1)))
+        .with(Tunable::new("plus_two", adding(2)));
+    let key = "add".to_string();
+    let tuner: Tuner<String> = Tuner::new("pruned", &client.hardware_identity());
+
+    let answer = tuner.check_tune(&key, &inputs, &set, &client, None);
+    assert!(matches!(answer, TuneCacheResult::Hit { .. }), "{answer:?}");
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!(pruned.kernels.removed, 1, "{pruned:?}");
+    assert_eq!(pruned.kernels.kept, 1, "{pruned:?}");
+}
