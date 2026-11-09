@@ -485,9 +485,9 @@ impl ServerCommunication for HipServer {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
-        sent: SendReport,
+        report: SendReport,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst, sent)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -496,9 +496,9 @@ impl ServerCommunication for HipServer {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
-        sent: SendOutcome,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src, sent)
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
     }
 
     fn can_access_peer(&mut self, peer: DeviceId) -> bool {

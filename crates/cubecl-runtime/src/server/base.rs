@@ -1168,16 +1168,15 @@ pub trait ServerCommunication {
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
-    /// * `sent` - Tells the peer's [`recv`](Self::recv) whether to post.
+    /// * `report` - Tells the peer's [`recv`](Self::recv) whether to post.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     ///
-    /// `sent` is reported before the send is posted, not after: the first
-    /// transfer of a pair connects it, and that waits for the peer's recv. A
-    /// send that refuses reports the refusal and posts nothing, and so does
-    /// one dropped without a report.
+    /// An implementation must call [`SendReport::will_post`] before posting: the
+    /// first transfer of a pair connects it, and that waits for the peer's recv.
+    /// One that refuses calls [`SendReport::refused`] and posts nothing.
     ///
     /// # Errors
     ///
@@ -1188,7 +1187,7 @@ pub trait ServerCommunication {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
-        sent: SendReport,
+        report: SendReport,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1200,7 +1199,7 @@ pub trait ServerCommunication {
     /// * `handle` - The handle in which the received data is written.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
-    /// * `sent` - The result of the paired [`send`](Self::send), waited for before anything is posted.
+    /// * `outcome` - The result of the paired [`send`](Self::send), waited for before anything is posted.
     ///
     /// # Returns
     ///
@@ -1216,7 +1215,7 @@ pub trait ServerCommunication {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
-        sent: SendOutcome,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
@@ -1281,8 +1280,7 @@ impl SendOutcome {
         (SendReport { result: sender }, Self { result: receiver })
     }
 
-    /// Block until the source's server has reached the send, which holds this thread until the
-    /// source's queue gets there.
+    /// Block until the source's server has reached the send.
     ///
     /// # Errors
     ///
@@ -1298,9 +1296,18 @@ impl SendOutcome {
 }
 
 impl SendReport {
-    /// Hand the send's result to its recv.
-    pub fn report(self, result: Result<(), ServerError>) {
-        // A capacity of one and a single report: the channel always has room.
+    /// The send is about to be posted, so its recv can be too.
+    pub fn will_post(&self) {
+        self.deliver(Ok(()));
+    }
+
+    /// The send will not be posted, so its recv must not be.
+    pub fn refused(&self, error: ServerError) {
+        self.deliver(Err(error));
+    }
+
+    fn deliver(&self, result: Result<(), ServerError>) {
+        // The channel holds one report, so the first stands.
         let _ = self.result.try_send(result);
     }
 }

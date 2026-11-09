@@ -1284,6 +1284,9 @@ impl Client {
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
+    ///
+    /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
+    /// waits on the source, whose queue may hold a transfer waiting on the destination's.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
@@ -1308,7 +1311,7 @@ impl Client {
             src_descriptor.handle.size_in_used(),
         );
         let handle_cloned = handle.clone();
-        let (report, sent) = SendOutcome::channel();
+        let (report, outcome) = SendOutcome::channel();
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
@@ -1326,7 +1329,8 @@ impl Client {
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, sent) {
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome)
+            {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );

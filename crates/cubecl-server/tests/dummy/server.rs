@@ -178,13 +178,13 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _desc: CopyDescriptor,
         _stream_id: StreamId,
         _device_id_dst: DeviceId,
-        sent: SendReport,
+        report: SendReport,
     ) -> Result<(), ServerError> {
         let refusal = ServerError::Generic {
             reason: "the dummy source was never written".into(),
             backtrace: BackTrace::capture(),
         };
-        sent.report(Err(refusal.clone()));
+        report.refused(refusal.clone());
         Err(refusal)
     }
 
@@ -193,11 +193,11 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         handle: Handle,
         stream_id: StreamId,
         _device_id_src: DeviceId,
-        sent: SendOutcome,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
         let zeros = vec![0u8; handle.size() as usize];
         self.bind_with_data(&zeros, handle.clone(), stream_id);
-        if let Err(error) = sent.wait() {
+        if let Err(error) = outcome.wait() {
             self.taint(error.clone(), [&handle.binding()].into_iter());
             return Err(error);
         }

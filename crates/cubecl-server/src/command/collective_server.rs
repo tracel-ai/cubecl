@@ -345,42 +345,10 @@ pub trait CollectiveServer: Sized {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
-        sent: SendReport,
+        report: SendReport,
     ) -> Result<(), ServerError> {
-        // Joined before anything that can fail: on a pair's first transfer the
-        // peer's thread waits in its own join until this one arrives.
-        let comm = *self.collectives().transfers_with(device_id_dst)?;
-        let devices = pair(self.device_id(), device_id_dst);
-        let peer = self.collectives().peer_rank(&devices)?;
-        let transfers = self.transfer_stream();
-
-        // The send reads the source, so it is worth no more than the work that wrote it. Skipping
-        // this hands the peer stale bytes on a handle that carries no claim over there: the
-        // failure would be laundered across the device boundary.
-        if let Err(refusal) = self.streams().ensure_written([&desc.handle].into_iter()) {
-            sent.report(Err(refusal.clone()));
-            return Err(refusal);
-        }
-
-        let binding = desc.handle.clone();
-        let size = binding.size_in_used();
-
-        // A command on the source server retrieves the resource from the right
-        // memory pool, and aligns the current stream with the one the binding
-        // was allocated on.
-        let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
-        let resource = command.resource(binding)?;
-        let stream = command.stream().signal();
-
-        Self::Driver::wait_for(transfers, stream)?;
-        let bytes = Self::Driver::elements(BYTES, size)?;
-        sent.report(Ok(()));
-        Self::Driver::send(&comm, &resource, bytes, peer, transfers)?;
-        // This stream's pool may reuse the source from here, and dropping the command releases one
-        // borrowed from another stream once this stream gets here: both wait for the send.
-        Self::Driver::wait_for(stream, transfers)?;
-        drop(command);
-        Ok(())
+        post_send(self, desc, stream_id, device_id_dst, &report)
+            .inspect_err(|refusal| report.refused(refusal.clone()))
     }
 
     /// Receives into `handle` what `device_id_src` sends with [`send`](Self::send).
@@ -393,7 +361,7 @@ pub trait CollectiveServer: Sized {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
-        sent: SendOutcome,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
         // Staged before the handle is consumed below.
         let destination = handle.clone().binding();
@@ -401,7 +369,7 @@ pub trait CollectiveServer: Sized {
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
         // bytes for a result.
-        match receive(self, handle, stream_id, device_id_src, sent) {
+        match receive(self, handle, stream_id, device_id_src, outcome) {
             Ok(()) => {
                 // The data is on its way, so an earlier failure that left the
                 // destination stale has nothing left to say about it.
@@ -509,6 +477,54 @@ fn run<S: CollectiveServer, const N: usize>(
     Ok(())
 }
 
+/// The send itself, so every way it can fail reaches the peer through one path in
+/// [`CollectiveServer::send`].
+///
+/// # Errors
+///
+/// A source some failure left unwritten, and the driver's refusal to join or send.
+fn post_send<S: CollectiveServer>(
+    server: &mut S,
+    desc: CopyDescriptor,
+    stream_id: StreamId,
+    device_id_dst: DeviceId,
+    report: &SendReport,
+) -> Result<(), ServerError> {
+    // Joined before anything that can fail: on a pair's first transfer the
+    // peer's thread waits in its own join until this one arrives.
+    let comm = *server.collectives().transfers_with(device_id_dst)?;
+    let devices = pair(server.device_id(), device_id_dst);
+    let peer = server.collectives().peer_rank(&devices)?;
+    let transfers = server.transfer_stream();
+
+    // The send reads the source, so it is worth no more than the work that wrote it. Skipping
+    // this hands the peer stale bytes on a handle that carries no claim over there: the
+    // failure would be laundered across the device boundary.
+    server
+        .streams()
+        .ensure_written([&desc.handle].into_iter())?;
+
+    let binding = desc.handle.clone();
+    let size = binding.size_in_used();
+
+    // A command on the source server retrieves the resource from the right
+    // memory pool, and aligns the current stream with the one the binding
+    // was allocated on.
+    let mut command = server.command(stream_id, [&desc.handle].into_iter())?;
+    let resource = command.resource(binding)?;
+    let stream = command.stream().signal();
+
+    S::Driver::wait_for(transfers, stream)?;
+    let bytes = S::Driver::elements(BYTES, size)?;
+    report.will_post();
+    S::Driver::send(&comm, &resource, bytes, peer, transfers)?;
+    // This stream's pool may reuse the source from here, and dropping the command releases one
+    // borrowed from another stream once this stream gets here: both wait for the send.
+    S::Driver::wait_for(stream, transfers)?;
+    drop(command);
+    Ok(())
+}
+
 /// The receive itself, so every way it can fail settles the destination through one path in
 /// [`CollectiveServer::recv`].
 ///
@@ -521,7 +537,7 @@ fn receive<S: CollectiveServer>(
     handle: Handle,
     stream_id: StreamId,
     device_id_src: DeviceId,
-    sent: SendOutcome,
+    outcome: SendOutcome,
 ) -> Result<(), ServerError> {
     // Joined before anything that can fail or relocate: on a pair's first
     // transfer the peer's thread waits in its own join until this one arrives.
@@ -541,7 +557,7 @@ fn receive<S: CollectiveServer>(
 
     // After the reservation, so a refusal has memory to taint. A send that refused posts nothing,
     // and a recv posted without it would wait forever.
-    sent.wait()?;
+    outcome.wait()?;
 
     // Compute work queued before the reservation may still use its memory, and compute work
     // queued after it reads what arrives.
