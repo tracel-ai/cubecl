@@ -85,8 +85,7 @@ impl LowerOp for SyncAsyncProxyOp {
     }
 }
 
-/// LLVM's `fence` at the target's name for the scope; a scope a target has no name for takes the
-/// next wider one it has.
+/// LLVM's `fence` at the target's syncscope for the scope.
 #[op_interface_impl]
 impl LowerOp for FenceOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
@@ -96,21 +95,7 @@ impl LowerOp for FenceOp {
             MemoryOrder::Release => AtomicOrderingAttr::Release,
             MemoryOrder::AcqRel => AtomicOrderingAttr::AcqRel,
         };
-        let named = |name: &str| SyncScopeAttr::NamedScope(name.into());
-        let sync_scope = match (ctx.target(), self.scope(ctx).0) {
-            (_, SyncScope::Unit) => unreachable!("a unit fence is dropped at expansion"),
-            (_, SyncScope::System) | (LlvmTarget::Cpu, _) => SyncScopeAttr::System,
-            #[cfg(feature = "amdgpu")]
-            (LlvmTarget::AmdGpu, SyncScope::Plane) => named("wavefront"),
-            #[cfg(feature = "amdgpu")]
-            (LlvmTarget::AmdGpu, SyncScope::Cube) => named("workgroup"),
-            #[cfg(feature = "amdgpu")]
-            (LlvmTarget::AmdGpu, SyncScope::Device) => named("agent"),
-            #[cfg(feature = "nvptx")]
-            (LlvmTarget::Nvptx, SyncScope::Plane | SyncScope::Cube) => named("block"),
-            #[cfg(feature = "nvptx")]
-            (LlvmTarget::Nvptx, SyncScope::Device) => named("device"),
-        };
+        let sync_scope = ctx.target().sync_scope(self.scope(ctx).0);
         let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, sync_scope);
         scope.register(&fence);
         vec![]
