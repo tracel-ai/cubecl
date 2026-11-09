@@ -85,7 +85,7 @@ impl PageMapping {
 /// The methods that take a storage are for callers holding the pool's own
 /// type; the rest can be reached through `dyn MemoryPool`, which is how a
 /// location is resolved to whichever pool it names.
-pub trait MemoryPool {
+pub(crate) trait MemoryPool {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
 
@@ -194,6 +194,24 @@ pub trait MemoryPool {
 
     /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
+
+    /// The slices holding a live allocation.
+    fn live_slices(&self) -> impl Iterator<Item = &Slice>
+    where
+        Self: Sized;
+
+    /// Every allocation alive in the pool, as its report lists them: none
+    /// while [memory tracing](MemoryTracing) is off, so a report stays as
+    /// cheap as its counts.
+    fn allocations(&self) -> Vec<AllocationReport>
+    where
+        Self: Sized,
+    {
+        if memory_tracing() == MemoryTracing::Disabled {
+            return Vec::new();
+        }
+        self.live_slices().map(Slice::allocation_report).collect()
+    }
 
     /// Keep the page `location` names as it is for as long as the guard lives
     /// (see [`PageGuard`]). `None` when the pool holds no such page.
@@ -331,20 +349,4 @@ pub(crate) fn calculate_padding(size: u64, memory_alignment: u64) -> u64 {
     } else {
         0
     }
-}
-
-/// The allocations alive among `slices`, as a pool's report lists them: none
-/// while [memory tracing](MemoryTracing) is off, so a report stays as cheap as
-/// its counts.
-pub(crate) fn live_allocations<'a>(
-    slices: impl IntoIterator<Item = &'a Slice>,
-) -> Vec<AllocationReport> {
-    if memory_tracing() == MemoryTracing::Disabled {
-        return Vec::new();
-    }
-    slices
-        .into_iter()
-        .filter(|slice| !slice.is_free())
-        .map(Slice::allocation_report)
-        .collect()
 }

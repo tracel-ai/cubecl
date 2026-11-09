@@ -75,7 +75,7 @@ impl PersistentPool {
             pages_peak: self.pages_peak,
             pages_unmapped: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc: self.largest_alloc,
-            allocations: super::live_allocations(&self.slices),
+            allocations: self.allocations(),
         }
     }
 
@@ -181,6 +181,10 @@ impl MemoryPool for PersistentPool {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?;
         Some(PageGuard::allocation(slice.handle.clone().binding()))
+    }
+
+    fn live_slices(&self) -> impl Iterator<Item = &Slice> {
+        self.slices.iter().filter(|slice| !slice.is_free())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
