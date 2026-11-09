@@ -6,7 +6,9 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_runtime::execution::{KernelHandling, KernelOutcome, KernelRegistration, SettledKernel};
+use cubecl_runtime::execution::{
+    KernelHandling, KernelOutcome, KernelRegistration, LaunchPurpose, SettledKernel,
+};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -34,8 +36,9 @@ use crate::server::LaunchError;
 pub struct KernelLoader<T: CompilationTarget> {
     target: T,
     loaded: CompilationCache<ArtifactId<VariantOf<T>>, LoadedKernel<T::Loaded>>,
-    /// Where the kernels the work loads are recorded.
-    work: WorkLaunchStore,
+    /// Where the kernels the work launches are recorded, when the target
+    /// keeps what it compiles.
+    work: Option<WorkLaunchStore>,
     /// The kernels queued and not compiled yet.
     queue: KernelQueue<VariantOf<T>>,
     /// Why each queued kernel of the latest batch that failed to compile
@@ -55,6 +58,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
     pub fn new(target: T) -> Self {
         let bound = target.persists();
         let loaded = CompilationCache::new(bound);
+        let work = match bound {
+            true => WorkLaunchStore::new(),
+            false => None,
+        };
         let parallelism = crate::config::CubeClRuntimeConfig::get()
             .compilation
             .parallelism();
@@ -62,7 +69,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         Self {
             target,
             loaded,
-            work: WorkLaunchStore::new(bound),
+            work,
             queue: KernelQueue::new(),
             failed: HashMap::new(),
             parallelism,
@@ -108,8 +115,15 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// which is recorded when it is the work's first.
     fn launch_loaded(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<T::Loaded> {
         let loaded = self.loaded.get_mut(id)?;
-        if !loaded.recorded {
-            loaded.recorded = self.work.record(&id.kernel);
+        // The per-launch fast path: once the work launched the kernel, a
+        // launch reads this flag and nothing else, neither the launch's
+        // purpose nor the store. A race's launch leaves it unset, for the
+        // work's first to record.
+        if !loaded.recorded && LaunchPurpose::running() == LaunchPurpose::Work {
+            loaded.recorded = true;
+            if let Some(work) = self.work.as_mut() {
+                work.record(&id.kernel);
+            }
         }
         Some(loaded.kernel.clone())
     }
@@ -199,7 +213,11 @@ impl<T: CompilationTarget> KernelLoader<T> {
         };
         // Before anything that leaves the kernel alone: a work's launch queued
         // in a compile-only pass is the work's, whoever queued it first.
-        self.work.record(&id.kernel);
+        if LaunchPurpose::running() == LaunchPurpose::Work
+            && let Some(work) = self.work.as_mut()
+        {
+            work.record(&id.kernel);
+        }
         if self.loaded.contains(&id) || self.queue.contains(&id) {
             return;
         }
@@ -351,9 +369,9 @@ struct JobOutcome<T: CompilationTarget> {
     stored: bool,
 }
 
-/// A kernel a [`KernelLoader`] holds loaded, and whether it is recorded as the
-/// work's: until it is, each load of it tries to record it, and after, none
-/// does.
+/// A kernel a [`KernelLoader`] holds loaded, and whether the work launched it
+/// since: until it has, each launch of it reads the launch's purpose, and
+/// after, none does.
 #[derive(Debug)]
 struct LoadedKernel<L> {
     kernel: L,
@@ -881,6 +899,7 @@ mod tests {
     use alloc::vec;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use cubecl_environment::backtrace::BackTrace;
+    use cubecl_environment::persistence::MemoryStorage;
     use std::sync::Mutex;
 
     /// Nothing compiles before something asks: queuing is free, and a load
@@ -1390,9 +1409,52 @@ mod tests {
         assert!(threads > 1, "lowered on {threads} thread");
     }
 
+    /// A race's load of a kernel leaves it unrecorded, and the work's load of
+    /// it after records it: the race having loaded it first must not hide the
+    /// work's launch from a prune.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_race_load_then_a_work_load_records_the_kernel() {
+        let mut loader = loader(1);
+        let logger = ServerLogger::default();
+        let kernel = Numbered(0).id();
+
+        LaunchPurpose::Race
+            .apply(|| loader.load(&Numbered(0), &id(0), &logger))
+            .unwrap();
+        assert!(!loader.work.as_mut().unwrap().holds(&kernel), "raced only");
+
+        LaunchPurpose::Work
+            .apply(|| loader.load(&Numbered(0), &id(0), &logger))
+            .unwrap();
+        assert!(loader.work.as_mut().unwrap().holds(&kernel));
+    }
+
+    /// A kernel queued for the work is recorded, as a compile-only pass of
+    /// the work queues it; one queued for a race is not.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_queued_is_recorded_for_the_work_only() {
+        let mut loader = loader(1);
+
+        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(2)), ()));
+
+        let work = loader.work.as_mut().unwrap();
+        assert!(!work.holds(&Numbered(1).id()), "queued for a race");
+        assert!(work.holds(&Numbered(2).id()), "queued for the work");
+    }
+
+    /// A loader over a fake target, recording the work's launches in memory
+    /// of its own.
     fn loader(parallelism: usize) -> KernelLoader<Fake> {
+        static LOADERS: AtomicUsize = AtomicUsize::new(0);
+
         let mut loader = KernelLoader::new(Fake::default());
         loader.parallelism = parallelism;
+        let number = LOADERS.fetch_add(1, Ordering::Relaxed);
+        let storage = MemoryStorage::new(&alloc::format!("work-launches-{number}"));
+        loader.work = Some(WorkLaunchStore::over(Box::new(storage)));
         loader
     }
 

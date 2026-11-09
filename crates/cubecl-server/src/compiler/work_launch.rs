@@ -3,7 +3,6 @@
 use super::{build_id_hash, persistent_store};
 use crate::id::KernelId;
 use cubecl_common::hash::StableHash;
-use cubecl_environment::collections::HashSet;
 use cubecl_environment::persistence::{Namespace, Store};
 
 /// The kernels the work launched in the active environment, by the stable
@@ -11,21 +10,18 @@ use cubecl_environment::persistence::{Namespace, Store};
 /// build's compiled artifacts, the rest being what only an autotune race
 /// launched.
 ///
-/// A kernel is recorded the first time a launch issued for the
-/// [work](crate::execution::LaunchPurpose::Work) reaches the loader, to load
-/// it or to queue it, whatever shape or variant it was launched for, and never
-/// for a race's launch. A process writes a kernel at most once, and not at
-/// all when the environment already holds it, so a warm start only reads.
-/// Kept only beside a store of compiled artifacts, under the same switch and
-/// the same configuration: with nothing compiled kept, there is nothing to
-/// record either.
+/// The [loader](super::KernelLoader) records a kernel the first time a launch
+/// issued for the [work](crate::execution::LaunchPurpose::Work) reaches it, to
+/// load the kernel or to queue it, whatever shape or variant it was launched
+/// for, and never for a race's launch. A kernel the environment holds already
+/// is read, not written, so a warm start only reads. Kept only beside a store
+/// of compiled artifacts, under the same switch: with nothing compiled kept,
+/// there is nothing to record either.
 #[derive(Debug)]
 pub struct WorkLaunchStore {
-    store: Option<Store<StableHash, ()>>,
-    /// The kernels this process recorded or found recorded, in the
-    /// environment of `generation`.
-    known: HashSet<StableHash>,
-    generation: u32,
+    /// Lazy, as the compilation stores are: it memoizes each kernel it finds
+    /// recorded, and resets itself when the environment switches.
+    store: Store<StableHash, ()>,
 }
 
 impl WorkLaunchStore {
@@ -38,126 +34,154 @@ impl WorkLaunchStore {
         Namespace::scoped(Self::ROOT, alloc::format!("{build:032x}"))
     }
 
-    /// The records of this build in the active environment when `bound` — the
-    /// loader's target keeps what it compiles — and nothing to record into
-    /// otherwise, or when compilation caching is disabled.
-    pub fn new(bound: bool) -> Self {
-        let store = match bound {
-            true => persistent_store(Self::namespace(build_id_hash())),
-            false => None,
-        };
-        Self {
-            store,
-            known: HashSet::new(),
-            generation: cubecl_environment::environment::generation(),
-        }
+    /// The records of this build in the active environment, or `None` when
+    /// compilation caching is disabled or the target has nowhere durable to
+    /// put them.
+    pub(crate) fn new() -> Option<Self> {
+        persistent_store(Self::namespace(build_id_hash())).map(|store| Self { store })
     }
 
-    /// Record `kernel` when the launch reaching the loader on this thread is
-    /// the work's. Answers whether the kernel needs nothing more from here: it
-    /// is recorded, or there is nowhere to record it, or the storage refused
-    /// the write, which is not tried again: a lost record costs a compile
-    /// after a prune, never a result.
-    pub fn record(&mut self, kernel: &KernelId) -> bool {
-        if self.store.is_none() {
-            return true;
-        }
-        if crate::execution::LaunchPurpose::running() == crate::execution::LaunchPurpose::Race {
-            return false;
-        }
-        self.reset_if_switched();
+    /// Record that the work launched `kernel`. A storage that refuses the
+    /// write is logged, not reported: a lost record costs a compile after a
+    /// prune, never a result, and the next launch that reaches here tries
+    /// again.
+    pub(crate) fn record(&mut self, kernel: &KernelId) {
         let hash = kernel.stable_hash();
-        if !self.known.insert(hash) {
-            return true;
+        // `get_mut`, not `get`: a lazy store reads through to its storage
+        // only there, and memoizes what it finds, so a kernel recorded
+        // already, by this process or another, is read once and never
+        // written.
+        if self.store.get_mut(&hash).is_some() {
+            return;
         }
-        let store = self.store.as_mut().expect("checked above");
-        // `get_mut`, not `get`: a lazy store reads through to its storage only
-        // there, and a kernel another process recorded is read, not written.
-        if store.get_mut(&hash).is_none()
-            && let Err(error) = store.insert(hash, ())
-        {
+        if let Err(error) = self.store.insert(hash, ()) {
             log::debug!(
                 "the work's launch of a kernel was not recorded: {}",
                 error.reason()
             );
         }
-        true
-    }
-
-    /// Forget what was known of the environment the records were written
-    /// into when it switched, as the store it fronts does.
-    fn reset_if_switched(&mut self) {
-        let current = cubecl_environment::environment::generation();
-        if current != self.generation {
-            self.generation = current;
-            self.known.clear();
-        }
     }
 }
 
-#[cfg(all(test, compilation_cache))]
+#[cfg(test)]
+impl WorkLaunchStore {
+    /// The records kept in `storage`, which a test inspects.
+    pub(crate) fn over(
+        storage: alloc::boxed::Box<dyn cubecl_environment::persistence::Storage>,
+    ) -> Self {
+        use cubecl_environment::persistence::{CacheOption, StoreOptions};
+
+        Self {
+            store: Store::new(
+                StoreOptions::new()
+                    .storage_with(storage, Namespace::new(Self::ROOT))
+                    .cache(CacheOption::Lazy),
+            ),
+        }
+    }
+
+    /// Whether `kernel` is recorded.
+    pub(crate) fn holds(&mut self, kernel: &KernelId) -> bool {
+        self.store.get_mut(&kernel.stable_hash()).is_some()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
-    // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
-    // bring in itself.
-    use alloc::vec;
+    use alloc::boxed::Box;
+    use alloc::string::String;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use cubecl_environment::bytes::Bytes;
+    use cubecl_environment::persistence::{Insertion, MemoryStorage, Origin, Storage};
+    use cubecl_environment::sync::Arc;
 
     struct First;
     struct Second;
 
-    /// A work store over storage in an environment rooted at `root`.
-    fn work_store(root: &std::path::Path) -> WorkLaunchStore {
-        cubecl_environment::environment::set_root(root);
-        WorkLaunchStore {
-            store: Some(Store::new(
-                StoreOptions::new()
-                    .storage(Namespace::new("launched"))
-                    .cache(CacheOption::Lazy),
-            )),
-            known: HashSet::new(),
-            generation: cubecl_environment::environment::generation(),
+    /// The work's launch of a kernel is written once, however often it is
+    /// recorded, and a process that finds it recorded already writes
+    /// nothing: a warm start only reads.
+    #[test]
+    fn a_kernel_recorded_already_is_not_written_again() {
+        let storage = Counting::new("work-launch-written-once");
+        let kernel = KernelId::new::<First>();
+
+        let mut first = WorkLaunchStore::over(Box::new(storage.clone()));
+        first.record(&kernel);
+        first.record(&kernel);
+        first.record(&kernel);
+        assert_eq!(storage.writes(), 1, "one write for the first record");
+
+        let mut second = WorkLaunchStore::over(Box::new(storage.clone()));
+        second.record(&kernel);
+        assert_eq!(storage.writes(), 1, "found recorded, not written");
+        assert!(second.holds(&kernel));
+    }
+
+    /// Kernels are recorded apart: one recorded says nothing of another.
+    #[test]
+    fn each_kernel_is_recorded_on_its_own() {
+        let storage = Counting::new("work-launch-apart");
+        let mut work = WorkLaunchStore::over(Box::new(storage.clone()));
+        work.record(&KernelId::new::<First>());
+
+        assert!(work.holds(&KernelId::new::<First>()));
+        assert!(!work.holds(&KernelId::new::<Second>()));
+        assert_eq!(storage.writes(), 1);
+    }
+
+    /// A storage over shared memory, counting the writes it is asked for.
+    #[derive(Debug, Clone)]
+    struct Counting {
+        memory: MemoryStorage,
+        writes: Arc<AtomicUsize>,
+    }
+
+    impl Counting {
+        fn new(namespace: &str) -> Self {
+            let memory = MemoryStorage::new(namespace);
+            memory.purge();
+            Self {
+                memory,
+                writes: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn writes(&self) -> usize {
+            self.writes.load(Ordering::Relaxed)
         }
     }
 
-    /// A race's launch is not recorded and asks again; the work's is, once,
-    /// and its kernel needs nothing more.
-    #[test]
-    #[serial_test::serial(records)]
-    fn only_the_works_launch_is_recorded() {
-        use crate::execution::LaunchPurpose;
+    impl Storage for Counting {
+        fn get(&self, key: &[u8]) -> Option<Bytes> {
+            self.memory.get(key)
+        }
 
-        let root = tempfile::tempdir().unwrap();
-        let mut work = work_store(root.path());
-        let kernel = KernelId::new::<First>();
+        fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+            self.writes.fetch_add(1, Ordering::Relaxed);
+            self.memory.insert(key, value, origin)
+        }
 
-        let raced = LaunchPurpose::Race.apply(|| work.record(&kernel));
-        assert!(!raced, "a race's launch leaves the kernel to the work");
-        assert!(work.known.is_empty());
+        fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+            self.writes.fetch_add(1, Ordering::Relaxed);
+            self.memory.replace(key, value, origin)
+        }
 
-        assert!(LaunchPurpose::Work.apply(|| work.record(&kernel)));
-        assert!(work.known.contains(&kernel.stable_hash()));
-        let stored = work.store.as_mut().unwrap();
-        assert_eq!(stored.get_mut(&kernel.stable_hash()), Some(&mut ()));
-    }
+        fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
+            self.memory.scan(visit)
+        }
 
-    /// A process that finds a kernel recorded already reads it and writes
-    /// nothing, and one with nowhere to record has nothing to do.
-    #[test]
-    #[serial_test::serial(records)]
-    fn a_kernel_recorded_already_is_not_written_again() {
-        use crate::execution::LaunchPurpose;
+        fn purge(&self) {
+            self.memory.purge()
+        }
 
-        let root = tempfile::tempdir().unwrap();
-        let kernel = KernelId::new::<Second>();
-        let mut first = work_store(root.path());
-        assert!(LaunchPurpose::Work.apply(|| first.record(&kernel)));
-        let mut second = work_store(root.path());
-        assert!(LaunchPurpose::Work.apply(|| second.record(&kernel)));
-        assert!(second.known.contains(&kernel.stable_hash()));
+        fn purge_key(&self, key: &[u8]) {
+            self.memory.purge_key(key)
+        }
 
-        let mut nowhere = WorkLaunchStore::new(false);
-        assert!(nowhere.record(&kernel));
-        assert!(nowhere.known.is_empty());
+        fn describe(&self) -> String {
+            self.memory.describe()
+        }
     }
 }
