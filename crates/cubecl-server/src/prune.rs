@@ -60,22 +60,27 @@ impl Prune for EnvironmentId {
     }
 }
 
-/// What a prune does with one compiled artifact.
+/// What an environment's records say of one compiled artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ArtifactFate {
     /// Another build compiled it.
     OtherBuild,
-    /// This build compiled it and only an autotune race launched it.
-    OnlyRaced,
-    /// This build's work launched it, or nothing says it did not.
-    Kept,
+    /// This build compiled it, and its work launched other kernels but not
+    /// this one: only an autotune race did.
+    RaceOnly,
+    /// This build compiled it and its work launched it, in some variant.
+    WorkLaunched,
+    /// This build compiled it, and nothing records what its work launched.
+    NoLaunchRecorded,
 }
 
 impl ArtifactFate {
+    /// Whether a prune removes the artifact: what no run of this build will
+    /// load again. With no launch recorded, nothing says that of any kernel.
     fn removes(self) -> bool {
         match self {
-            Self::OtherBuild | Self::OnlyRaced => true,
-            Self::Kept => false,
+            Self::OtherBuild | Self::RaceOnly => true,
+            Self::WorkLaunched | Self::NoLaunchRecorded => false,
         }
     }
 }
@@ -119,13 +124,15 @@ impl WorkLaunches {
         }
     }
 
+    /// What the records say of `artifact`.
     fn fate(&self, artifact: &KernelCacheKey) -> ArtifactFate {
         if artifact.build_id != self.build {
             return ArtifactFate::OtherBuild;
         }
         match &self.launched {
-            Some(launched) if !launched.contains(&artifact.id) => ArtifactFate::OnlyRaced,
-            Some(_) | None => ArtifactFate::Kept,
+            Some(launched) if launched.contains(&artifact.id) => ArtifactFate::WorkLaunched,
+            Some(_) => ArtifactFate::RaceOnly,
+            None => ArtifactFate::NoLaunchRecorded,
         }
     }
 
@@ -194,16 +201,16 @@ mod tests {
 
     #[test]
     fn a_kernel_the_work_launched_is_kept() {
-        assert_eq!(launches(Some(&[1])).fate(&artifact(1)), ArtifactFate::Kept);
+        let fate = launches(Some(&[1])).fate(&artifact(1));
+        assert_eq!(fate, ArtifactFate::WorkLaunched);
+        assert!(!fate.removes());
     }
 
     #[test]
     fn a_kernel_only_a_race_launched_goes() {
-        assert_eq!(
-            launches(Some(&[1])).fate(&artifact(2)),
-            ArtifactFate::OnlyRaced
-        );
-        assert!(ArtifactFate::OnlyRaced.removes());
+        let fate = launches(Some(&[1])).fate(&artifact(2));
+        assert_eq!(fate, ArtifactFate::RaceOnly);
+        assert!(fate.removes());
     }
 
     /// The work's launch records the kernel, not the variant it was compiled
@@ -211,7 +218,8 @@ mod tests {
     #[test]
     fn every_variant_of_a_kernel_the_work_launched_is_kept() {
         let in_variant = artifact(1).in_variant(5);
-        assert_eq!(launches(Some(&[1])).fate(&in_variant), ArtifactFate::Kept);
+        let fate = launches(Some(&[1])).fate(&in_variant);
+        assert_eq!(fate, ArtifactFate::WorkLaunched);
     }
 
     #[test]
@@ -220,14 +228,17 @@ mod tests {
             build_id: BUILD + 1,
             ..artifact(1)
         };
-        assert_eq!(launches(Some(&[1])).fate(&other), ArtifactFate::OtherBuild);
-        assert!(ArtifactFate::OtherBuild.removes());
+        let fate = launches(Some(&[1])).fate(&other);
+        assert_eq!(fate, ArtifactFate::OtherBuild);
+        assert!(fate.removes());
     }
 
     /// An environment in which this build's work launched nothing says
     /// nothing of its kernels: this build's stay.
     #[test]
     fn an_environment_with_no_launch_of_this_build_keeps_its_kernels() {
-        assert_eq!(launches(None).fate(&artifact(9)), ArtifactFate::Kept);
+        let fate = launches(None).fate(&artifact(9));
+        assert_eq!(fate, ArtifactFate::NoLaunchRecorded);
+        assert!(!fate.removes());
     }
 }
