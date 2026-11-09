@@ -34,6 +34,7 @@ fn store_by_tma<E: Float, O: Destination>(
         staged.copy_from(&src.at(&cube));
         dst_box.copy_from(&staged);
     }
+    O::finish::<E>(out);
 }
 
 /// Every cell of the tensor holds its own index, stored box by box by the TMA engine, and only

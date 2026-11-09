@@ -71,14 +71,8 @@ fn buffer_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::gathered(
-        tensor,
-        comptime!(space.space().clone()),
-        spec,
-        coefficients,
-        offsets,
-    )
-    .tile::<E>(comptime!(space.levels().to_vec()))
+    GlobalOperand::gathered(tensor, space.space(), spec, coefficients, offsets)
+        .tile::<E>(space.levels().to_vec())
 }
 
 /// A codebook's table, `entries` long along its one axis, outside the kernel's space.
@@ -89,7 +83,7 @@ fn table_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(Space::new(&[(spec.axes()[0], entries)]));
-    GlobalOperand::tensor(tensor, comptime!(space.clone()), spec).tile::<E>(comptime!(Vec::new()))
+    GlobalOperand::tensor(tensor, space.clone(), spec).tile::<E>(comptime!(Vec::new()))
 }
 
 /// [`buffer_tile`] over a pool of pages, read as the sequences `table` names.
@@ -101,8 +95,8 @@ fn paged_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::paged(tensor, table, comptime!(space.space().clone()), spec)
-        .tile::<E>(comptime!(space.levels().to_vec()))
+    GlobalOperand::paged(tensor, table, space.space().clone(), spec)
+        .tile::<E>(space.levels().to_vec())
 }
 
 /// A tensor map, served as a TMA-filled tile.
@@ -115,15 +109,8 @@ fn tensor_map_tile<E: Numeric>(
     #[comptime] width: usize,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    let own = comptime!(space.space().subspace(spec.axes()));
-    let data = TmaData::from_tensor_map(
-        map,
-        layout,
-        comptime!(own.rank()),
-        comptime!(spec.units),
-        comptime!(spec.packing),
-        width,
-    );
+    let own = space.space().subspace(spec.axes());
+    let data = TmaData::from_tensor_map(map, layout, own.rank(), spec.units, spec.packing, width);
     Tile::new::<E>(
         TileKind::new_TmaGmem(data),
         comptime!(Placement::root(own.clone(), space.levels().to_vec())),

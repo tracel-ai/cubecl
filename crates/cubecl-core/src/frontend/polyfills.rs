@@ -142,7 +142,7 @@ pub fn expand_u_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
 #[cube]
 fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
     let half_bits = T::size_bits().comptime() / 2;
-    let low_mask = Vector::new(T::new(comptime!((1i64 << half_bits) - 1)));
+    let low_mask = Vector::new(T::new((1i64 << half_bits) - 1));
     let shift = Vector::new(T::new(half_bits as i64));
 
     let lhs_low = lhs & low_mask;
@@ -296,22 +296,22 @@ fn powi_constant<T: Float, N: Size>(base: Vector<T, N>, #[comptime] exp: i32) ->
     let mut factor = base;
     let mut result = Vector::one();
     #[unroll]
-    for bit in 0..comptime!(32 - magnitude.leading_zeros()) {
-        if comptime!(magnitude & (1 << bit) != 0) {
-            if comptime!(bit == magnitude.trailing_zeros()) {
+    for bit in 0..(32 - magnitude.leading_zeros()) {
+        if magnitude & (1 << bit) != 0 {
+            if bit == magnitude.trailing_zeros() {
                 result = factor;
             } else {
                 result *= factor;
             }
         }
-        if comptime!(bit + 1 < 32 - magnitude.leading_zeros()) {
+        if bit + 1 < 32 - magnitude.leading_zeros() {
             factor *= factor;
         }
     }
-    if comptime!(exp < 0) {
+    if exp < 0 {
         let reciprocal = Vector::one() / result;
         result = reciprocal * reciprocal;
-        if comptime!(exp & 1 != 0) {
+        if exp & 1 != 0 {
             result /= base;
         }
     }
@@ -378,7 +378,7 @@ pub fn powi_int<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vec
 
     // Only a signed base can be -1. For an unsigned one, `T::new(-1)` would be its maximum value.
     let dtype = elem_type_of::<T>().comptime();
-    let unit_base = if comptime!(dtype.is_signed_int()) {
+    let unit_base = if dtype.is_signed_int() {
         base.equal(&one).or(base.equal(&Vector::new(T::new(-1))))
     } else {
         base.equal(&one)
@@ -435,7 +435,7 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 pub fn cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     let zero = Vector::<T, N>::zero();
     let mag = input.abs();
-    let approx = mag.powf(Vector::new(T::new(comptime!(1.0 / 3.0))));
+    let approx = mag.powf(Vector::new(T::new(1.0 / 3.0)));
     let refined = (approx + approx + mag / (approx * approx)) / Vector::new(T::new(3.0));
     let root = select_many(mag.equal(&zero).or(mag.is_inf()), approx, refined);
     select_many(input.less_than(&zero), -root, root)

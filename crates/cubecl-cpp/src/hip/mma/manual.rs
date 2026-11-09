@@ -54,7 +54,7 @@ impl LowerOp<Hip> for ColIndexOp {
 /// it. Every RDNA4 fragment is built this way: A and B split `k`, the accumulator splits `m`.
 #[cube]
 fn split_half(lane_id: u32, i: u32, #[comptime] dim: u32) -> u32 {
-    (lane_id / 16) * comptime![dim / 2] + i
+    (lane_id / 16) * (dim / 2) + i
 }
 
 #[cube]

@@ -107,38 +107,30 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
         #[unroll]
         for _ in 0..depth {
             meetings.push(Meeting::new(
-                comptime!(plan.sync()),
-                comptime!(plan.collective_full()),
-                comptime!(plan.commits()),
-                comptime!(plan.fences()),
-                comptime!(plan.fillers()),
+                plan.sync(),
+                plan.collective_full(),
+                plan.commits(),
+                plan.fences(),
+                plan.fillers(),
             ));
         }
         // Later slots share buffers the first slot owns, so it is built first.
-        let first = sources.staged(
-            sources,
-            comptime!(spec.clone()),
-            comptime!(plan.refills(FIRST_SLOT)),
-        );
+        let first = sources.staged(sources, spec.clone(), comptime!(plan.refills(FIRST_SLOT)));
         let mut slots = Sequence::<Slot<P>>::new();
         #[unroll]
         for slot in 0..depth {
             let data = if comptime!(slot == FIRST_SLOT) {
                 first.clone()
             } else {
-                sources.staged(
-                    &first,
-                    comptime!(spec.clone()),
-                    comptime!(plan.refills(slot)),
-                )
+                sources.staged(&first, spec.clone(), plan.refills(slot))
             };
             slots.push(Slot::wrap(
                 data,
                 meetings.index(slot).clone(),
-                comptime!(plan.refills(slot)),
+                plan.refills(slot),
             ));
         }
-        Stages::wrap(slots, sources.clone(), depth, comptime!(plan.fillers()))
+        Stages::wrap(slots, sources.clone(), depth, plan.fillers())
     }
 
     /// Free the shared memory every slot holds, for what the kernel declares after it to take:

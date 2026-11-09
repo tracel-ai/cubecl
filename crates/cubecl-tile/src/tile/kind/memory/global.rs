@@ -43,7 +43,7 @@ impl GlobalOperand {
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             Coords::<u32>::new(),
             Coords::<i32>::new(),
@@ -63,7 +63,7 @@ impl GlobalOperand {
         let paging = comptime!(spec.paging.unwrap_or_else(|| panic!(
             "GlobalOperand::paged: the spec states no paging for the table to resolve"
         )));
-        let projection = comptime!(spec.projection.clone());
+        let projection = spec.projection.clone();
         let (sequence_dim, _) = comptime!(
             paging
                 .dims(&projection)
@@ -73,12 +73,12 @@ impl GlobalOperand {
             table,
             tensor.shape(sequence_dim) as u32,
             paging,
-            projection,
+            &projection,
             tensor.vector_size(),
         );
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             Coords::<u32>::new(),
             Coords::<i32>::new(),
@@ -90,14 +90,14 @@ impl GlobalOperand {
     /// `coefficients` and `offsets` follow the field order; only their lengths are checked.
     pub(crate) fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] spec: TileSpec,
         coefficients: Coords<u32>,
         offsets: Coords<i32>,
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             coefficients,
             offsets,
@@ -115,9 +115,9 @@ impl GlobalOperand {
         offsets: Coords<i32>,
         paging: ComptimeOption<PageTable>,
     ) -> GlobalOperand {
-        let rank = comptime!(spec.projection.physical_rank());
+        let rank = spec.projection.physical_rank();
         // Held at what the binding holds: `T`, or the `u32` words a packed one packs it in.
-        let backing = match comptime!(spec.packing) {
+        let backing = match spec.packing {
             Packing::Plain | Packing::Words { .. } => {
                 Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
                     tensor
@@ -215,7 +215,7 @@ impl GlobalOperand {
             self.space.subspace(self.spec.axes()),
             levels
         ));
-        Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place)
+        Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place.clone())
     }
 }
 
@@ -235,11 +235,11 @@ impl Memory {
         let spec = comptime!(operand.spec.clone());
         let write = comptime!(operand.write);
         let split_share = comptime!(SplitShare::Whole);
-        let space = comptime!(space.subspace(spec.axes()));
-        let projection = comptime!(spec.projection.clone());
-        let coords = comptime!(projection.untiled());
-        let packing = comptime!(spec.packing);
-        let vector_size = comptime!(packing.served(bound_width));
+        let space = space.subspace(spec.axes());
+        let projection = spec.projection.clone();
+        let coords = projection.untiled();
+        let packing = spec.packing;
+        let vector_size = packing.served(bound_width);
         let dims_given = geometry.shape.len();
         let coefficients_given = coefficients.len();
         let offsets_given = offsets.len();
@@ -266,7 +266,7 @@ impl Memory {
              (GlobalOperand::paged), and only such a spec is"
         ));
         // Gathered buffers have fewer physical axes than logical; storage-tiled ones have more.
-        let rank = comptime!(projection.physical_rank());
+        let rank = projection.physical_rank();
         // The buffer read in loads: each dim's extent over what one load covers of it, every
         // stride counted in loads. A plain buffer's innermost dim counts lines one line apart and
         // the coarser strides divide by the width; a stored tile a load takes whole is one.
@@ -278,7 +278,7 @@ impl Memory {
             )
             .unwrap_or_else(|why| panic!("GlobalOperand: {vector_size} values a load: {why}"))
         );
-        let parts = comptime!(load.parts(&spec.stored_tiles, &projection.dense_labels(), rank));
+        let parts = load.parts(&spec.stored_tiles, &projection.dense_labels(), rank);
         // A stated tile's extent is the statement's, not read off the buffer: the reads over it
         // divide by a constant.
         let stated = comptime!(VectorTile::stated_extents(
@@ -298,16 +298,16 @@ impl Memory {
             }
             physical_strides.push(geometry.strides.at(i) * part / comptime!(vector_size as u32));
         }
-        let gmem_projection = comptime!(projection.positional());
+        let gmem_projection = projection.positional();
         // The product of the physical shape, so tiled (padded) operands get the logical extent.
-        let bound = logical_extent(comptime!(gmem_projection.clone()), &physical_shape);
+        let bound = logical_extent(&gmem_projection, &physical_shape);
         let (origin, extent, map) = top_window(
-            comptime!(space.clone()),
+            &space,
             &bound,
             &offsets,
             coefficients,
-            comptime!(load.clone()),
-            comptime!(coords.clone()),
+            load.clone(),
+            &coords,
         );
         Memory {
             address: comptime!(AddressSpace::Global),
@@ -315,7 +315,7 @@ impl Memory {
                 backing,
                 vector_size: comptime!(vector_size),
                 packing: comptime!(packing),
-                stored_tiles: comptime!(spec.stored_tiles.clone()),
+                stored_tiles: spec.stored_tiles.clone(),
             },
             layout: BufferLayout {
                 physical_shape,
@@ -328,8 +328,8 @@ impl Memory {
                 origin,
                 extent,
                 bound,
-                comptime!(coords.may_underflow()),
-                comptime!(spec.boundaries.clone()),
+                coords.may_underflow(),
+                spec.boundaries.clone(),
             ),
             source_window: ComptimeOption::new_None(),
             projection: comptime!(coords),
@@ -389,31 +389,30 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
 /// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` axes read `bound`.
 #[cube]
 fn top_window(
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     bound: &Coords<u32>,
     offsets: &Coords<i32>,
     coefficients: Coords<u32>,
     #[comptime] load: VectorTile,
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
 ) -> (Coords<i32>, Coords<u32>, RuntimeMap) {
     let mut origin = Coords::<i32>::new();
     let mut extent = Coords::<u32>::new();
     let mut residues = Coords::<u32>::new();
-    let rank = comptime!(projection.physical_rank());
+    let rank = projection.physical_rank();
 
     #[unroll]
     for pa in 0..rank {
-        let size = if comptime!(projection.is_direct()) {
+        let size = if projection.is_direct() {
             origin.push(0);
             residues.push(0u32);
-            let axis = comptime!(space.axis_at(pa));
-            match comptime!(space.extent_raw(axis)) {
+            let axis = space.axis_at(pa);
+            match space.extent_raw(axis) {
                 Extent::Static(e) => (comptime!(e / load.extent_along(axis)) as u32).runtime(),
                 Extent::Dynamic => bound.at(pa),
             }
         } else {
-            let (start, phase) =
-                gathered_origin(comptime!(projection.clone()), offsets, &coefficients, pa);
+            let (start, phase) = gathered_origin(projection, offsets, &coefficients, pa);
             origin.push(start);
             residues.push(phase);
             bound.at(pa)
@@ -434,31 +433,31 @@ fn top_window(
 /// Where a gathered physical axis's top window starts, and the phase its division left behind.
 #[cube]
 fn gathered_origin(
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
     offsets: &Coords<i32>,
     coefficients: &Coords<u32>,
     #[comptime] pa: usize,
 ) -> (i32, u32) {
-    let axis_map = comptime!(projection.physical_axis(pa));
+    let axis_map = projection.physical_axis(pa);
 
-    if comptime!(axis_map.origin().is_some()) {
+    if axis_map.origin().is_some() {
         (
             comptime!(axis_map.origin().unwrap() as i32).runtime(),
             comptime!(axis_map.residue().unwrap() as u32).runtime(),
         )
     } else {
         // Floor division: a negative (padding) offset must not round toward zero.
-        let offset = match comptime!(axis_map.offset()) {
+        let offset = match axis_map.offset() {
             Offset::Static(o) => comptime!(o as i32).runtime(),
-            Offset::Dynamic => offsets.at(comptime!(projection.dynamic_offset_index(pa).unwrap())),
+            Offset::Dynamic => offsets.at(projection.dynamic_offset_index(pa).unwrap()),
         };
-        if comptime!(!axis_map.is_rational()) {
+        if !axis_map.is_rational() {
             (offset, 0u32)
         } else {
-            let divisor = match comptime!(axis_map.divisor()) {
+            let divisor = match axis_map.divisor() {
                 Divisor::Static(d) => comptime!(d as i32).runtime(),
                 Divisor::Dynamic { .. } => coefficients
-                    .at(comptime!(projection.dynamic_divisor_index(pa).unwrap()))
+                    .at(projection.dynamic_divisor_index(pa).unwrap())
                     .cast::<i32>(),
             };
             let (start, residue) = floor_div_rem(offset, divisor);

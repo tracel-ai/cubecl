@@ -131,9 +131,9 @@ impl RegisterData {
             "RegisterData::alloc: n ({n}) must be a whole number of {vector_size}-wide lines"
         ));
         register_block_size(vector_size);
-        let nr = comptime!(n / cells);
+        let nr = n / cells;
         RegisterData {
-            data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(comptime!(m * nr))),
+            data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(m * nr)),
             vector_size,
             contracted_per_step,
             mr: m,
@@ -230,7 +230,7 @@ impl RegisterData {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         register_block_size(self.vector_size);
         let size!(A) = comptime!(cells_per_line(self.contracted_per_step, self.vector_size));
@@ -248,7 +248,11 @@ impl RegisterData {
     }
 
     /// [`store_cast_window`](Self::store_cast_window) into a sink of `A`-wide cells.
-    fn drain<T: Numeric, Out: Numeric, A: Size>(&self, mem: &mut Memory, #[comptime] space: Space) {
+    fn drain<T: Numeric, Out: Numeric, A: Size>(
+        &self,
+        mem: &mut Memory,
+        #[comptime] space: &Space,
+    ) {
         let data = self.data.at::<T>();
         let mem_write = comptime!(mem.access.write);
         let unit_share = comptime!(mem.unit_share);
@@ -327,7 +331,7 @@ impl RegisterData {
         &mut self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let data = self.data.at_mut::<E>();
         #[unroll]
@@ -339,7 +343,7 @@ impl RegisterData {
                 #[unroll]
                 for j in 0..self.vector_size {
                     let column = n * self.vector_size + j;
-                    let cell = bias.value_at::<E>(r as u32, column as u32, space.clone());
+                    let cell = bias.value_at::<E>(r as u32, column as u32, space);
                     line.insert(j, line.extract(j) * scale + cell);
                 }
                 data[at] = line;
@@ -396,7 +400,7 @@ impl RegisterData {
         scale: E,
         bias: &Procedural,
         logsumexp: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
     ) {
         let data = self.data.at_mut::<E>();
@@ -410,7 +414,7 @@ impl RegisterData {
                 for j in 0..self.vector_size {
                     let column = n * self.vector_size + j;
                     let score = line.extract(j) * scale
-                        + bias.value_at::<E>(r as u32, column as u32, space.clone());
+                        + bias.value_at::<E>(r as u32, column as u32, space);
                     let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
                     line.insert(j, AxisSlices::exp_minus_cell::<E>(score, logsumexp[slot]));
                 }

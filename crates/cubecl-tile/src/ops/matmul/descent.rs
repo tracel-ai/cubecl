@@ -93,14 +93,14 @@ impl Descent {
         #[comptime] instruction: Instruction,
     ) {
         let out = comptime!(acc.place.space.clone());
-        let lhs = lhs.landed_for::<Lhs>(comptime!(Side::Lhs), comptime!(out.clone()), instruction);
-        let rhs = rhs.landed_for::<Rhs>(comptime!(Side::Rhs), out, instruction);
+        let lhs = lhs.landed_for::<Lhs>(comptime!(Side::Lhs), &out, instruction);
+        let rhs = rhs.landed_for::<Rhs>(comptime!(Side::Rhs), &out, instruction);
         let operands = comptime!(Space::merge(&[
             &acc.place.space,
             &lhs.place.space,
             &rhs.place.space
         ]));
-        let space = witnessed_space(operands, acc, &lhs, &rhs);
+        let space = witnessed_space(&operands, acc, &lhs, &rhs);
         let walk = Region::rooted(
             &space,
             comptime!(acc.place.levels.clone()),
@@ -135,10 +135,10 @@ impl Descent {
         let space = comptime!(acc.place.space.clone());
         let tile_kind = &mut acc.kind;
         match tile_kind {
-            TileKind::PlaneTile(t) => t.mma::<E, Lhs, Rhs>(lhs, rhs, space),
+            TileKind::PlaneTile(t) => t.mma::<E, Lhs, Rhs>(lhs, rhs, &space),
             TileKind::PlanePartition(p) => {
                 let mut t = p.at(0usize, 0usize);
-                t.mma::<E, Lhs, Rhs>(lhs, rhs, space)
+                t.mma::<E, Lhs, Rhs>(lhs, rhs, &space)
             }
             TileKind::Memory(g) => {
                 let contraction = g.stated_contraction();
@@ -146,7 +146,7 @@ impl Descent {
                     g,
                     lhs,
                     rhs,
-                    space,
+                    &space,
                     contraction.block,
                     contraction.semiring,
                 )

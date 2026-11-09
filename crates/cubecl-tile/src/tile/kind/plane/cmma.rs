@@ -181,7 +181,7 @@ impl CmmaData {
     pub(crate) fn add_from_scratch<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let scratch = self.scratch_slot::<T>();
         let (m, n) = comptime!(self.shape);
@@ -192,9 +192,9 @@ impl CmmaData {
              fragment's columns ({n})"
         ));
         let size!(W) = width;
-        let lines_per_row = comptime!(n / width);
-        let lines = comptime!(m * lines_per_row);
-        let axes = comptime!(MatrixAxes::trailing(&space));
+        let lines_per_row = n / width;
+        let lines = m * lines_per_row;
+        let axes = comptime!(MatrixAxes::trailing(space));
         let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
         let plane_units = PLANE_DIM as usize;
         let mut line = UNIT_POS_PLANE as usize;
@@ -216,7 +216,7 @@ impl CmmaData {
     pub(crate) fn bounce_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         sync_cube();
         self.spill_to_scratch::<T>();

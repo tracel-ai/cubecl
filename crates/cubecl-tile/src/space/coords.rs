@@ -75,7 +75,7 @@ impl Coords<u32> {
         let mut out = Coords::<u32>::new();
 
         #[unroll]
-        for p in 0..comptime!(values.len()) {
+        for p in 0..values.len() {
             out.push(comptime!(values[p] as u32).runtime());
         }
 

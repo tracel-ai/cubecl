@@ -61,7 +61,6 @@ impl Reads for AttendedExpand {
 }
 
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
@@ -163,7 +162,6 @@ fn plane_attention<E: Float>(
 /// instruction `m × n` along the queries and keys, and the value contracts the keys as deep as the
 /// level above the leaf steps them: `n`, or a run of the score's fragments read as one `A`.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn register_plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
@@ -276,7 +274,6 @@ fn register_plane_attention<E: Float>(
 }
 
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn unit_attention(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,

@@ -4,10 +4,11 @@
 //! way an illegal address faults a CUDA context. What remains is losing the
 //! device outright — a driver reset, a timeout, a GPU that went away — which
 //! wgpu reports once, through the device-lost callback, and never on the
-//! operations that follow.
+//! operations that follow; and an out-of-memory error no allocation caught,
+//! which reaches the uncaptured-error handler.
 //!
-//! The device is marked poisoned here when the callback fires, shared by every
-//! stream on the device, and every sync point checks it
+//! The device is marked poisoned here when either fires, shared by every
+//! stream on the device, and every sync point checks it.
 
 use core::fmt::Debug;
 #[cfg(not(target_family = "wasm"))]
@@ -47,6 +48,8 @@ impl PoisonWatch {
     /// Installs an uncaptured-error handler too. wgpu's default one panics,
     /// which on a healthy device is what surfaces a validation bug, so it
     /// still does; but once the device is poisoned every call on it errors.
+    /// An out-of-memory error that reaches it poisons the device instead (see
+    /// [`uncaptured_error`](Self::uncaptured_error)).
     pub fn watch(device: &wgpu::Device) -> Self {
         let poison = Self::default();
 
@@ -57,15 +60,21 @@ impl PoisonWatch {
         });
 
         let watched = poison.clone();
-        device.on_uncaptured_error(Arc::new(move |error| {
-            if watched.is_poisoned() {
-                log::debug!("error on a poisoned wgpu device: {error}");
-            } else {
-                panic!("wgpu error: {error}");
-            }
-        }));
+        device.on_uncaptured_error(Arc::new(move |error| watched.uncaptured_error(error)));
 
         poison
+    }
+
+    /// Poisons the device on an out-of-memory error no allocation caught, and panics on any other.
+    fn uncaptured_error(&self, error: wgpu::Error) {
+        if self.is_poisoned() {
+            log::debug!("error on a poisoned wgpu device: {error}");
+        } else if let wgpu::Error::OutOfMemory { .. } = error {
+            log::error!("the wgpu device ran out of memory: {error}");
+            self.poison(format!("out of memory: {error}"));
+        } else {
+            panic!("wgpu error: {error}");
+        }
     }
 
     /// Whether the device is poisoned.
@@ -211,6 +220,29 @@ mod tests {
         watch.wake_on_loss(&sender);
 
         assert!(block_on(receiver.recv()).is_err());
+    }
+
+    #[test]
+    fn an_out_of_memory_error_poisons_the_device() {
+        let watch = PoisonWatch::default();
+        let (sender, receiver) = bounded::<()>(1);
+        watch.wake_on_loss(&sender);
+
+        watch.uncaptured_error(wgpu::Error::OutOfMemory {
+            source: "no room for the buffer".into(),
+        });
+
+        assert!(block_on(receiver.recv()).is_err());
+        assert!(watch.check().is_err_and(|err| err.is_device_poisoned()));
+    }
+
+    #[test]
+    #[should_panic(expected = "wgpu error")]
+    fn any_other_error_on_a_healthy_device_panics() {
+        PoisonWatch::default().uncaptured_error(wgpu::Error::Internal {
+            source: "a bug".into(),
+            description: "a bug".into(),
+        });
     }
 
     #[test]

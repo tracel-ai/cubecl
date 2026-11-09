@@ -16,7 +16,7 @@ pub(super) fn cell_read<T: Numeric, W: Size>(
     row: u32,
     col: u32,
     reduce_coords: &Coords<u32>,
-    #[comptime] operand: Space,
+    #[comptime] operand: &Space,
     #[comptime] problem: GatherProblem,
     #[comptime] width: usize,
 ) -> Vector<T, W> {
@@ -38,7 +38,7 @@ pub(super) fn cell_position(
     row: u32,
     col: u32,
     reduce_coords: &Coords<u32>,
-    #[comptime] operand: Space,
+    #[comptime] operand: &Space,
     #[comptime] problem: GatherProblem,
     #[comptime] width: usize,
 ) -> CoordsDyn {
@@ -46,11 +46,11 @@ pub(super) fn cell_position(
         batch,
         row,
         col,
-        comptime!(problem.block.row_extents()),
-        comptime!(problem.block.column_line_extents()),
+        problem.block.row_extents(),
+        problem.block.column_line_extents(),
     );
     resolve_nd_coords(
-        &operand,
+        operand,
         &problem.block.space,
         &problem.block.reduce,
         &acc_coords,
@@ -66,7 +66,7 @@ pub(super) fn offset_last(coords: &CoordsDyn, #[comptime] rank: usize, delta: u3
     let mut out = CoordsDyn::new();
     #[unroll]
     for p in 0..rank {
-        out.push(if comptime!(p == rank - 1) {
+        out.push(if p == rank - 1 {
             coords[p].plus(delta)
         } else {
             coords[p]
@@ -91,12 +91,12 @@ fn acc_cell_coords(
     for p in 0..batch.len() {
         out.push(batch.at(p));
     }
-    let rows = Coords::constant(comptime!(row_extents.clone())).unravel(row);
+    let rows = Coords::constant(row_extents.clone()).unravel(row);
     #[unroll]
     for p in 0..rows.len() {
         out.push(rows.at(p));
     }
-    let cols = Coords::constant(comptime!(col_extents.clone())).unravel(col);
+    let cols = Coords::constant(col_extents.clone()).unravel(col);
     #[unroll]
     for p in 0..cols.len() {
         out.push(cols.at(p));

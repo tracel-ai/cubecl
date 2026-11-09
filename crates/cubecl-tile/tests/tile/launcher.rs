@@ -307,6 +307,40 @@ fn arg_matches_a_storage_tile_to_the_level_it_is() {
     assert_eq!(plain.spec.storage, Storage::Strided);
 }
 
+/// A storage tile that reaches a padded stride is no contiguous run: a buffer whose coarsest
+/// piece starts past the run below it does not match the level whose window spans that pad.
+#[test]
+fn arg_matches_no_level_across_a_padded_stride() {
+    let client = cubecl::test_device().client();
+    let launch = {
+        let (space, levels) = batched_space(1, 1, 16, 64, 8);
+        implied(&client, Partitioning::new(space, levels), Form::Static)
+    };
+    // `[m, k]` of 16 by 8 stored as tiles of 8 along K, the rest of K, then M: `[M, K, K]`.
+    let stored = |m_stride: usize| {
+        let mut tiles = binding(&client, &[16, 1, 8]);
+        tiles.strides = vec![m_stride, 8, 1].into();
+        tiles.tiling = Tiling::new(&[1, 2]).unwrap();
+        tiles
+    };
+
+    // Back to back, the whole buffer is the cube's window, one run.
+    let dense = launch
+        .arg(stored(8), f32::elem_type_native())
+        .axes(&[M, K])
+        .build()
+        .unwrap();
+    assert_eq!(dense.spec.storage, Storage::Tiled(Some(0)));
+
+    // Rows three 32-byte transactions apart: the cube's window holds a gap after every row.
+    let padded = launch
+        .arg(stored(24), f32::elem_type_native())
+        .axes(&[M, K])
+        .build()
+        .unwrap();
+    assert_eq!(padded.spec.storage, Storage::Tiled(None));
+}
+
 /// A `[m, k]` buffer of 64 by 64 stored in NVFP4-shaped tiles: a word of 8 along `K`, then 2
 /// words along `K` by 2 rows, then 4 of those along `K` by 4 rows, the tiles down `K`.
 fn nvfp4_shaped(client: &Client) -> TensorBinding {

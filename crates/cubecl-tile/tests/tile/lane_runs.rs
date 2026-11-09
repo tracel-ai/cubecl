@@ -82,7 +82,6 @@ enum First {
 /// them; a per-tensor scale above them leaves `b` for the sum (`Tile::factor`). Each operand read
 /// straight, or out of a stage in shared memory as `staged` says.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn lane_run_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,

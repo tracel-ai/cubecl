@@ -31,15 +31,15 @@ pub(crate) fn resolve_nd_coords(
     #[comptime] width: usize,
     #[comptime] acc_counts: AccCoords,
 ) -> CoordsDyn {
-    let operand_rank = comptime!(operand.rank());
+    let operand_rank = operand.rank();
     let mut out = CoordsDyn::new();
 
     #[unroll]
     for p in 0..operand_rank {
-        let axis = comptime!(operand.axis_at(p));
-        let in_acc = comptime!(acc.contains(axis));
+        let axis = operand.axis_at(p);
+        let in_acc = acc.contains(axis);
         let raw_coord = if comptime!(in_acc) {
-            let pos = comptime!(acc.position(axis));
+            let pos = acc.position(axis);
             acc_coords.at(comptime!(pos))
         } else {
             match comptime!(reduce.iter().position(|&r| r == axis)) {

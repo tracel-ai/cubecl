@@ -166,7 +166,7 @@ impl IndexTable {
     ) -> IndexTable {
         let mut strides = Coords::<u32>::new();
         #[unroll]
-        for i in 0..comptime!(keys.len()) {
+        for i in 0..keys.len() {
             strides.push(table.stride(i) as u32);
         }
         IndexTable {
@@ -433,13 +433,13 @@ fn with_extent(space: &Space, #[comptime] p: usize, extent: usize) -> Space {
     let mut sizes = Sequence::<usize>::new();
     #[unroll]
     for i in 0..comptime!(space.rank()) {
-        if comptime!(i == p) {
+        if i == p {
             sizes.push(extent);
         } else {
             sizes.push(space.runtime_extent_at(i));
         }
     }
-    Space::with_sizes(comptime!(space.clone()), sizes)
+    Space::with_sizes(&comptime!(space.clone()), sizes)
 }
 
 impl TileExpand {
