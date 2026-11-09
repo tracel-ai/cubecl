@@ -95,14 +95,14 @@ struct WorkLaunches {
 impl WorkLaunches {
     /// What `database` recorded of the work of `build`.
     fn read(database: &Database, build: StableHash) -> Self {
-        let this_build = WorkLaunchStore::build_path(build);
+        let this_build = WorkLaunchStore::namespace(build);
         let mut launched = HashSet::default();
         let mut other_builds = Vec::new();
         for namespace in database.namespaces() {
             if NamespaceRoot::new(&namespace).as_str() != WorkLaunchStore::ROOT {
                 continue;
             }
-            if namespace.rsplit('/').next() != Some(this_build.as_str()) {
+            if namespace != this_build.as_str() {
                 other_builds.push(namespace);
                 continue;
             }
@@ -142,7 +142,7 @@ impl WorkLaunches {
             }
             let mut doomed = Vec::new();
             database.scan(&namespace, &mut |key, value| {
-                let Some(artifact) = KernelCacheKey::of_entry(key, value) else {
+                let Some(artifact) = KernelCacheKey::from_entry(key, value) else {
                     return;
                 };
                 match self.fate(&artifact).removes() {

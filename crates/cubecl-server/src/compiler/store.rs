@@ -1,11 +1,11 @@
 //! Where a backend keeps the artifacts it compiled, between runs.
 
-use super::KernelCacheKey;
+use super::{ArtifactRoot, KernelCacheKey};
 use crate::id::KernelId;
 use cubecl_common::hash::{StableHash, StableHasher};
 #[cfg(compilation_cache)]
-use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
-use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
+use cubecl_environment::persistence::{CacheOption, StoreOptions};
+use cubecl_environment::persistence::{Namespace, Store, StoreKey, StoreValue};
 
 /// Platform-specific build identifier, changes on rebuild
 pub type BuildId = Option<&'static [u8]>;
@@ -15,7 +15,7 @@ pub fn build_id_hash() -> StableHash {
     StableHasher::hash_one(&buildid::build_id())
 }
 
-/// A store for `backend`'s compiled artifacts, or `None` when compilation
+/// A store for compiled artifacts under `root`, or `None` when compilation
 /// caching is disabled or the target has nowhere durable to put them.
 ///
 /// `fingerprint` names what the artifacts were built for — an architecture, a
@@ -24,8 +24,18 @@ pub fn build_id_hash() -> StableHash {
 /// serving the wrong binary. It needs no sanitizing: a namespace is a database
 /// column, never a path.
 pub fn compilation_store<K: StoreKey, V: StoreValue>(
-    backend: &'static str,
+    root: ArtifactRoot,
     fingerprint: impl AsRef<str>,
+) -> Option<Store<K, V>> {
+    persistent_store(Namespace::scoped(root.as_str(), fingerprint))
+}
+
+/// A store over `namespace` in the active environment, read lazily, or `None`
+/// when compilation caching is disabled or the target has nowhere durable to
+/// put it: the one switch every store the compilers keep between runs opens
+/// under, their artifacts and what is recorded beside them.
+pub(crate) fn persistent_store<K: StoreKey, V: StoreValue>(
+    namespace: Namespace,
 ) -> Option<Store<K, V>> {
     #[cfg(compilation_cache)]
     {
@@ -37,7 +47,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
 
         Some(Store::new(
             StoreOptions::new()
-                .storage(Namespace::scoped(backend, fingerprint))
+                .storage(namespace)
                 .cache(CacheOption::Lazy),
         ))
     }
@@ -45,7 +55,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     // No file system to persist to; the caller keeps its in-memory map.
     #[cfg(not(compilation_cache))]
     {
-        let _ = (backend, fingerprint);
+        let _ = namespace;
         None
     }
 }
@@ -72,13 +82,13 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(
 }
 
 /// What an [`ArtifactStore`] kept by kernel and by source names its two maps,
-/// as [`compilation_store`] takes a backend's name.
+/// as [`compilation_store`] takes a root.
 #[derive(Debug, Clone, Copy)]
 pub struct StoreNames {
     /// The map from kernel to artifact.
-    pub kernels: &'static str,
+    pub kernels: ArtifactRoot,
     /// The map from source to the kernel that first finalized it.
-    pub sources: &'static str,
+    pub sources: ArtifactRoot,
 }
 
 /// The compiled artifacts of one backend and device, kept by kernel and, for a
@@ -96,11 +106,11 @@ pub struct ArtifactStore<A> {
 }
 
 impl<A: StoreValue> ArtifactStore<A> {
-    /// The artifacts `backend` compiled for `fingerprint`, kept by kernel
-    /// only. See [`compilation_store`] for what the two name.
-    pub fn new(backend: &'static str, fingerprint: impl AsRef<str>) -> Self {
+    /// The artifacts compiled for `fingerprint`, kept by kernel only, under
+    /// `root`. See [`compilation_store`] for what the two name.
+    pub fn new(root: ArtifactRoot, fingerprint: impl AsRef<str>) -> Self {
         Self {
-            by_kernel: compilation_store(backend, fingerprint),
+            by_kernel: compilation_store(root, fingerprint),
             by_source: None,
             build_id: build_id_hash(),
         }

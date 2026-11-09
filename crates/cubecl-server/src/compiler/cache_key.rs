@@ -5,16 +5,21 @@ use cubecl_common::hash::{StableHash, StableHasher};
 
 /// Key for an entry in the persistent compilation cache.
 ///
-/// The [id](KernelId) alone doesn't describe what a kernel does: it covers the kernel type, its
-/// comptime arguments and its launch settings, but nothing of the body. Pairing it with a hash of
-/// the expanded IR is what lets a cached artifact be invalidated when the code behind it changes.
+/// The [id](KernelId) covers the kernel type, its comptime arguments and its
+/// launch settings, but nothing of the body: the build is what keeps an
+/// artifact from outliving the code it was compiled from, since any rebuild
+/// changes it.
+///
+/// Unknown fields refuse to decode: an environment holds an application's
+/// entries beside the compilers', and one of them must never read as a key.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct KernelCacheKey {
     /// Hash of the [kernel id](KernelId): what the
-    /// [work's launches](WorkLaunchStore) record, so an artifact is known by
-    /// its kernel, whichever variant it is.
+    /// [work's launches](super::WorkLaunchStore) record, so an artifact is
+    /// known by its kernel, whichever variant it is.
     pub id: StableHash,
     /// Hash of what else decides the artifact for that kernel: the variant a
     /// backend compiles it in, the device properties its code is specialized
@@ -55,12 +60,64 @@ impl KernelCacheKey {
         Self::new(&id.kernel, build_id).in_variant(StableHasher::hash_one(&id.variant))
     }
 
-    /// The artifact a compilation store's entry is of: its key for an
-    /// artifact, its value for an entry mapping a source to one. `None` for
-    /// an entry of anything else.
+    /// The key of the artifact a compilation store's entry is of: the entry's
+    /// key for an artifact, its value for an entry mapping a source to one.
+    /// `None` for an entry of anything else.
     #[cfg(compilation_cache)]
-    pub fn of_entry(key: &[u8], value: &[u8]) -> Option<Self> {
+    pub fn from_entry(key: &[u8], value: &[u8]) -> Option<Self> {
         let decode = |bytes: &[u8]| ciborium::from_reader::<Self, _>(bytes).ok();
         decode(key).or_else(|| decode(value))
+    }
+}
+
+#[cfg(all(test, compilation_cache))]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// A key written before variants were stored, and one in the kernel's own
+    /// variant, read back as the same key: the variant is written only when
+    /// it says something.
+    #[test]
+    fn a_key_without_a_variant_reads_as_variant_zero() {
+        let key = KernelCacheKey {
+            id: 1,
+            variant: 0,
+            build_id: 2,
+        };
+        let written = cbor(&key);
+        assert_eq!(written, cbor(&Pair { id: 1, build_id: 2 }));
+        assert_eq!(KernelCacheKey::from_entry(&written, &[]), Some(key));
+    }
+
+    /// An application's entry that carries a key's fields among its own is
+    /// not a key.
+    #[test]
+    fn an_entry_with_fields_of_its_own_is_not_a_key() {
+        let entry = cbor(&Extended {
+            id: 1,
+            build_id: 2,
+            name: "settings",
+        });
+        assert_eq!(KernelCacheKey::from_entry(&entry, &entry), None);
+    }
+
+    #[derive(serde::Serialize)]
+    struct Pair {
+        id: StableHash,
+        build_id: StableHash,
+    }
+
+    #[derive(serde::Serialize)]
+    struct Extended {
+        id: StableHash,
+        build_id: StableHash,
+        name: &'static str,
+    }
+
+    fn cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        bytes
     }
 }
