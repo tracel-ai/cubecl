@@ -351,6 +351,63 @@ pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     )
 }
 
+/// Plain stores into a peer's `data`, released at system scope, then a flag store: a hand-off
+/// with no barrier.
+#[cube(launch)]
+fn fence_send(data: &mut Peer<[u32]>, flag: &Peer<[Atomic<u32>]>, #[comptime] sync: SyncScope) {
+    data[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
+    fence(MemoryOrder::Release, comptime![sync]);
+    flag[ABSOLUTE_POS].store(1u32);
+}
+
+pub(crate) fn fence_send_kernel(sync: SyncScope) -> impl CubeKernel {
+    fence_kernel(|settings| {
+        fence_send::FenceSend::new(
+            settings,
+            device_properties(32),
+            Arc::new(TargetProperties::default()),
+            PeerCompilationArg,
+            PeerCompilationArg,
+            sync,
+        )
+    })
+}
+
+/// Polls a peer's flag, then acquires at system scope and reads the data it guards.
+#[cube(launch)]
+fn fence_poll(
+    flag: &Peer<[Atomic<u32>]>,
+    data: &Peer<[u32]>,
+    out: &mut [u32],
+    #[comptime] sync: SyncScope,
+) {
+    while flag[ABSOLUTE_POS].load() == 0u32 {}
+    fence(MemoryOrder::Acquire, comptime![sync]);
+    out[ABSOLUTE_POS] = data[ABSOLUTE_POS];
+}
+
+pub(crate) fn fence_poll_kernel(sync: SyncScope) -> impl CubeKernel {
+    fence_kernel(|settings| {
+        fence_poll::FencePoll::new(
+            settings,
+            device_properties(32),
+            Arc::new(TargetProperties::default()),
+            PeerCompilationArg,
+            PeerCompilationArg,
+            BufferCompilationArg { inplace: None },
+            sync,
+        )
+    })
+}
+
+fn fence_kernel<K: CubeKernel>(build: impl FnOnce(KernelSettings) -> K) -> K {
+    build(KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    ))
+}
+
 pub(crate) fn tally_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),

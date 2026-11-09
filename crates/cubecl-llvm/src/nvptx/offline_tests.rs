@@ -2,14 +2,15 @@
 
 use crate::shared::offline_kernels::{
     ProductA, Wait, bf16_math_kernel, carried_sum_around_walk_kernel, counted_walk_kernel,
-    keep_largest_kernel, keep_largest_rounds_kernel, mma_rounds_kernel, nested_calls_kernel,
-    nested_calls_with_source_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    strided_walk_kernel, tally_kernel, tile_product_kernel,
+    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, keep_largest_rounds_kernel,
+    mma_rounds_kernel, nested_calls_kernel, nested_calls_with_source_kernel, plane_moves_kernel,
+    relay_kernel, scale_kernel, strided_walk_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, nvidia::SmArch, settings::DebugInfo};
+use cubecl_core::prelude::SyncScope;
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 use std::ffi::CStr;
@@ -757,4 +758,52 @@ fn barrier_copies_are_synchronous() {
         !ptx.contains("cp.async"),
         "the copies are synchronous:\n{ptx}"
     );
+}
+
+/// A unit's fence at system scope is `fence.acq_rel.sys` ahead of the flag's system-scope store,
+/// with no barrier.
+#[test]
+fn a_unit_fence_is_a_system_fence_without_a_barrier() {
+    let send = ptx_of(fence_send_kernel(SyncScope::System), 80);
+    let fence = send
+        .find("fence.acq_rel.sys")
+        .unwrap_or_else(|| panic!("{send}"));
+    let flag = send
+        .find("st.relaxed.sys.global")
+        .unwrap_or_else(|| panic!("{send}"));
+    assert!(fence < flag, "the flag follows the release:\n{send}");
+    assert!(!send.contains("bar.sync"), "{send}");
+
+    let poll = ptx_of(fence_poll_kernel(SyncScope::System), 80);
+    let load = poll
+        .find("ld.relaxed.sys.global")
+        .unwrap_or_else(|| panic!("{poll}"));
+    let fence = poll
+        .find("fence.acq_rel.sys")
+        .unwrap_or_else(|| panic!("{poll}"));
+    assert!(load < fence, "the acquire follows the load:\n{poll}");
+    assert!(!poll.contains("bar.sync"), "{poll}");
+}
+
+/// Each scope is the PTX fence of that scope, and a unit's own scope emits no fence.
+#[test]
+fn a_unit_fence_lowers_to_the_ptx_scope_of_its_scope() {
+    let table = [
+        (SyncScope::Unit, None),
+        (SyncScope::Plane, Some("fence.acq_rel.cta")),
+        (SyncScope::Cube, Some("fence.acq_rel.cta")),
+        (SyncScope::Device, Some("fence.acq_rel.gpu")),
+        (SyncScope::System, Some("fence.acq_rel.sys")),
+    ];
+    for (sync, fence) in table {
+        for ptx in [
+            ptx_of(fence_send_kernel(sync), 80),
+            ptx_of(fence_poll_kernel(sync), 80),
+        ] {
+            match fence {
+                Some(fence) => assert!(ptx.contains(fence), "{sync:?}:\n{ptx}"),
+                None => assert!(!ptx.contains("fence."), "{sync:?}:\n{ptx}"),
+            }
+        }
+    }
 }

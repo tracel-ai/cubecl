@@ -1,8 +1,9 @@
+pub use crate::ir::dialect::synchronization::{MemoryOrder, SyncScope};
 use crate::{
     frontend::{NativeExpand, element::Atomic},
     ir::{
         Scope,
-        dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope},
+        dialect::synchronization::{FenceOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp},
     },
     prelude::{CubePrimitive, Numeric},
     unexpanded,
@@ -111,6 +112,23 @@ pub mod sync_system {
 
     pub fn expand(scope: &Scope) {
         scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::System));
+    }
+}
+
+/// A memory fence of this unit at `scope`. Unlike the `sync_*` functions it is not a barrier: no
+/// unit waits for another, and it orders only this unit's own accesses, so it is valid in
+/// divergent code. A [`Release`](MemoryOrder::Release) before an atomic flag store and an
+/// [`Acquire`](MemoryOrder::Acquire) after the atomic flag load hand plain accesses off through
+/// the flag. At [`Unit`](SyncScope::Unit) scope it orders nothing, and WGSL and Metal refuse it.
+pub fn fence(order: MemoryOrder, scope: SyncScope) {
+    let _ = (order, scope);
+}
+
+pub mod fence {
+    use super::*;
+
+    pub fn expand(scope: &Scope, order: MemoryOrder, sync: SyncScope) {
+        scope.register(&FenceOp::new(scope.ctx_mut(), order, sync));
     }
 }
 

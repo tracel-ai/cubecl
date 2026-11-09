@@ -1,8 +1,8 @@
 use cubecl_ir::{
-    dialect::synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope},
+    dialect::synchronization::{FenceOp, MemoryOrder, SyncOp, SyncPlaneStorageOp, SyncScope},
     prelude::*,
 };
-use pliron_spirv::ops::ControlBarrierOp;
+use pliron_spirv::ops::{ControlBarrierOp, MemoryBarrierOp};
 use rspirv::spirv::{Capability, MemorySemantics, Scope};
 
 use crate::{CustomCapabilitiesOp, ops::to_spirv_dialect::ToSpirvDialectOp};
@@ -11,6 +11,16 @@ use crate::{CustomCapabilitiesOp, ops::to_spirv_dialect::ToSpirvDialectOp};
 // scope behind, as a device-scope atomic does; nothing declares it for a kernel with no such atomic.
 #[op_interface_impl]
 impl CustomCapabilitiesOp for ControlBarrierOp {
+    fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability> {
+        match self.get_attr_memory(ctx).0 {
+            Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
+            _ => vec![],
+        }
+    }
+}
+
+#[op_interface_impl]
+impl CustomCapabilitiesOp for MemoryBarrierOp {
     fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability> {
         match self.get_attr_memory(ctx).0 {
             Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
@@ -82,6 +92,46 @@ impl ToSpirvDialectOp for SyncPlaneStorageOp {
             | MemorySemantics::MAKE_VISIBLE;
         let sync = ControlBarrierOp::new(ctx, Scope::Subgroup, Scope::Subgroup, semantics);
         rewriter.append_op(ctx, &sync);
+        rewriter.erase_operation(ctx, self.get_operation());
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for FenceOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let sync = self.scope(ctx).0;
+        let scope = match sync {
+            SyncScope::Unit => {
+                rewriter.erase_operation(ctx, self.get_operation());
+                return Ok(());
+            }
+            SyncScope::Plane => Scope::Subgroup,
+            SyncScope::Cube => Scope::Workgroup,
+            // No memory is shared with another device, so the system is the device.
+            SyncScope::Device | SyncScope::System => Scope::Device,
+        };
+        // Under the Vulkan memory model availability and visibility operations are what carry
+        // plain writes to another unit; SPIR-V allows each only with the matching order.
+        let order = match self.order(ctx).0 {
+            MemoryOrder::Acquire => MemorySemantics::ACQUIRE | MemorySemantics::MAKE_VISIBLE,
+            MemoryOrder::Release => MemorySemantics::RELEASE | MemorySemantics::MAKE_AVAILABLE,
+            MemoryOrder::AcqRel => {
+                MemorySemantics::ACQUIRE_RELEASE
+                    | MemorySemantics::MAKE_AVAILABLE
+                    | MemorySemantics::MAKE_VISIBLE
+            }
+        };
+        // Vulkan has no subgroup storage class, so a plane's fence covers the workgroup's, as at
+        // its barrier.
+        let semantics = order | MemorySemantics::UNIFORM_MEMORY | MemorySemantics::WORKGROUP_MEMORY;
+        let fence = MemoryBarrierOp::new(ctx, scope, semantics);
+        rewriter.append_op(ctx, &fence);
         rewriter.erase_operation(ctx, self.get_operation());
         Ok(())
     }

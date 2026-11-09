@@ -2,7 +2,7 @@
 
 use crate::prelude::*;
 use cubecl_core::ir::dialect::synchronization::{
-    SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+    FenceOp, MemoryOrder, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope,
 };
 
 #[op_interface_impl]
@@ -81,6 +81,38 @@ impl LowerOp for SyncAsyncProxyOp {
             LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_async_proxy(scope),
             _ => {}
         }
+        vec![]
+    }
+}
+
+/// LLVM's `fence` at the target's name for the scope; a scope a target has no name for takes the
+/// next wider one it has. At unit scope there is nothing to order.
+#[op_interface_impl]
+impl LowerOp for FenceOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        let ordering = match self.order(ctx).0 {
+            MemoryOrder::Acquire => AtomicOrderingAttr::Acquire,
+            MemoryOrder::Release => AtomicOrderingAttr::Release,
+            MemoryOrder::AcqRel => AtomicOrderingAttr::AcqRel,
+        };
+        let named = |name: &str| SyncScopeAttr::NamedScope(name.into());
+        let sync_scope = match (ctx.target(), self.scope(ctx).0) {
+            (_, SyncScope::Unit) => return vec![],
+            (_, SyncScope::System) | (LlvmTarget::Cpu, _) => SyncScopeAttr::System,
+            #[cfg(feature = "amdgpu")]
+            (LlvmTarget::AmdGpu, SyncScope::Plane) => named("wavefront"),
+            #[cfg(feature = "amdgpu")]
+            (LlvmTarget::AmdGpu, SyncScope::Cube) => named("workgroup"),
+            #[cfg(feature = "amdgpu")]
+            (LlvmTarget::AmdGpu, SyncScope::Device) => named("agent"),
+            #[cfg(feature = "nvptx")]
+            (LlvmTarget::Nvptx, SyncScope::Plane | SyncScope::Cube) => named("block"),
+            #[cfg(feature = "nvptx")]
+            (LlvmTarget::Nvptx, SyncScope::Device) => named("device"),
+        };
+        let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, sync_scope);
+        scope.register(&fence);
         vec![]
     }
 }
