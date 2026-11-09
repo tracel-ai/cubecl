@@ -9,7 +9,8 @@ use crate::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
         MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
+        ReduceOperation, Reduction, SendOutcome, Server, ServerError, ServerStorage,
+        ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1283,6 +1284,9 @@ impl Client {
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
+    ///
+    /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
+    /// waits on the source, whose queue may hold a transfer waiting on the destination's.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
@@ -1307,28 +1311,26 @@ impl Client {
             src_descriptor.handle.size_in_used(),
         );
         let handle_cloned = handle.clone();
+        let (report, outcome) = SendOutcome::channel();
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
-            // A refused send has no local buffer to answer for, so the log is
-            // the whole local report. The peer's posted recv is left waiting
-            // on its communication stream — the recv cannot be recalled from
-            // here, and cross-device failure propagation needs a design pass
-            // of its own — so the wedge is named loudly rather than hidden
-            // behind a swallowed unwrap.
-            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
-                log::error!(
-                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
-                );
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
+            {
+                log::error!("send to {device_id_dst:?} failed: {err}");
             }
         });
+        // Flushed before the recv is queued: called from the destination's own thread, the recv
+        // runs at once and waits on this send.
+        self.device.flush_queue();
 
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src) {
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome)
+            {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );
@@ -1337,7 +1339,6 @@ impl Client {
 
         // On a pair's first transfer, the send and the recv each wait in the join for the other, so
         // neither may sit in a queue behind work that waits on this thread.
-        self.device.flush_queue();
         dst_server.device.flush_queue();
 
         handle

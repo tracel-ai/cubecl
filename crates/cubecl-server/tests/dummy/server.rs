@@ -1,5 +1,9 @@
 use super::DummyKernel;
-use cubecl_common::{bytes::Bytes, device::ServiceId, profile::ProfileDuration};
+use cubecl_common::{
+    bytes::Bytes,
+    device::{DeviceId, ServiceId},
+    profile::ProfileDuration,
+};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
@@ -23,8 +27,8 @@ use cubecl_server::{
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
-        ServerUtilities,
+        KernelResource, ProfileError, ProfilingToken, SendOutcome, SendReport, Server,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -103,7 +107,8 @@ pub enum Isolated {}
 impl Marker for Isolated {}
 
 /// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
-/// the checks that refuse it on the caller. Nothing behind it moves data.
+/// the checks that refuse it on the caller. Nothing behind it moves data: every send refuses, as
+/// one whose source was never written does, so every recv taints its destination.
 #[derive(Debug)]
 pub enum Transported {}
 
@@ -165,7 +170,40 @@ impl KernelTask {
     }
 }
 
-impl<M: Marker> ServerCommunication for DummyServer<M> {}
+/// Only a runtime that claims a transport reaches these: the client refuses a transfer on any
+/// other before it is queued.
+impl<M: Marker> ServerCommunication for DummyServer<M> {
+    fn send(
+        &mut self,
+        _desc: CopyDescriptor,
+        _stream_id: StreamId,
+        _device_id_dst: DeviceId,
+        report: SendReport,
+    ) -> Result<(), ServerError> {
+        let refusal = ServerError::Generic {
+            reason: "the dummy source was never written".into(),
+            backtrace: BackTrace::capture(),
+        };
+        report.refused(refusal.clone());
+        Err(refusal)
+    }
+
+    fn recv(
+        &mut self,
+        handle: Handle,
+        stream_id: StreamId,
+        _device_id_src: DeviceId,
+        outcome: SendOutcome,
+    ) -> Result<(), ServerError> {
+        let zeros = vec![0u8; handle.size() as usize];
+        self.bind_with_data(&zeros, handle.clone(), stream_id);
+        if let Err(error) = outcome.wait() {
+            self.taint(error.clone(), [&handle.binding()].into_iter());
+            return Err(error);
+        }
+        Ok(())
+    }
+}
 
 impl<M: Marker> Server for DummyServer<M> {
     fn logger(&self) -> Arc<ServerLogger> {
