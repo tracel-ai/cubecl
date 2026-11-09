@@ -59,9 +59,9 @@ pub struct ManagedMemoryDescriptor {
     #[doc(hidden)]
     pub id: ManagedMemoryId,
     location: AtomicU64,
-    /// Who asked for the memory, while [memory
-    /// tracing](crate::config::memory::MemoryTracing) is on: held here so it
-    /// lives exactly as long as the allocation.
+    /// Pointers to the code that asked for the memory, while
+    /// [memory tracing](crate::config::memory::MemoryTracing) is on: held here
+    /// so it lives exactly as long as the allocation.
     origin: Option<Arc<AllocationOrigin>>,
 }
 
@@ -123,7 +123,8 @@ impl ManagedMemoryDescriptor {
         self.modify(|location| MemoryLocation { page, ..location });
     }
 
-    /// Who asked for the memory, when tracing was on as its handle was minted.
+    /// Pointers to the code that asked for the memory, when tracing was on as its handle
+    /// was created.
     #[doc(hidden)]
     pub fn origin(&self) -> Option<&AllocationOrigin> {
         self.origin.as_deref()

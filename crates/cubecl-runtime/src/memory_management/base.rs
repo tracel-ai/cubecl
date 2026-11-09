@@ -151,14 +151,14 @@ pub struct MemoryPoolReport {
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.
     pub largest_alloc: u64,
-    /// Every allocation alive in the pool, with who asked for it, while
+    /// Every allocation alive in the pool, while
     /// [memory tracing](crate::config::memory::MemoryTracing) is on; empty
     /// while it is off.
     #[serde(default)]
     pub allocations: Vec<AllocationReport>,
 }
 
-/// One allocation alive in a pool: the bytes it takes, and who asked for it.
+/// One allocation alive in a pool, its size, and its origin.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AllocationReport {
     /// The memory's id, stable for as long as the allocation lives and never
@@ -166,13 +166,14 @@ pub struct AllocationReport {
     pub id: u64,
     /// The bytes the allocation's slice holds.
     pub size: u64,
-    /// The bytes after it the pool's alignment leaves unused.
+    /// The padding bytes for the alignment.
     pub padding: u64,
-    /// Who asked for it; `None` for memory minted before tracing was on.
+    /// The piece of code that triggered an allocation; `None` for memory
+    /// allocated before tracing was on.
     pub origin: Option<AllocationOriginReport>,
 }
 
-/// Who asked for an allocation, as [`AllocationReport::origin`] states it.
+/// Pointers to the location where the allocation was made in the code.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AllocationOriginReport {
     /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
@@ -180,7 +181,7 @@ pub struct AllocationOriginReport {
     pub labels: Vec<String>,
     /// The allocating thread's name, when it has one.
     pub thread: Option<String>,
-    /// The allocation's place in the order allocations were made while
+    /// The allocation's index in the order allocations were made while
     /// tracing was on.
     pub sequence: u64,
     /// The call stack that asked for the memory, from the caller of the

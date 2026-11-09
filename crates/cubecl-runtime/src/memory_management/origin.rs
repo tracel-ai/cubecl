@@ -1,5 +1,5 @@
-//! Who asked for an allocation, kept with its memory handle for as long as the
-//! allocation lives.
+//! Pointers to the code that asked for an allocation, kept with its memory handle
+//! for as long as the allocation lives.
 
 use super::AllocationOriginReport;
 pub use crate::config::memory::MemoryTracing;
@@ -11,10 +11,10 @@ use cubecl_common::allocation_label::{self, AllocationLabel};
 
 /// The process's [`MemoryTracing`], as [`configure_tracing`] last set it.
 static TRACING: AtomicU8 = AtomicU8::new(MemoryTracing::Disabled as u8);
-/// How many origins were captured: each origin's place in that order.
+/// How many allocations were captured: each origin's index in that order.
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-/// Set what allocations remember from now on, process-wide: the runtime calls
+/// Set what allocations carry from now on, process-wide: the runtime calls
 /// it with its configuration's [`MemoryTracing`] once the configuration loads.
 /// Allocations made before keep what they captured.
 pub fn configure_tracing(tracing: MemoryTracing) {
@@ -22,7 +22,7 @@ pub fn configure_tracing(tracing: MemoryTracing) {
     allocation_label::set_recording(tracing != MemoryTracing::Disabled);
 }
 
-/// What allocations remember now.
+/// What allocations carry now.
 pub fn memory_tracing() -> MemoryTracing {
     match TRACING.load(Ordering::Relaxed) {
         x if x == MemoryTracing::Labels as u8 => MemoryTracing::Labels,
@@ -31,11 +31,11 @@ pub fn memory_tracing() -> MemoryTracing {
     }
 }
 
-/// Who asked for an allocation: the labels the allocating thread had entered,
-/// the thread, the allocation's place in the order origins were captured, and
-/// under [`MemoryTracing::Backtraces`] the call stack.
+/// Pointers to the code that asked for an allocation: the labels the allocating
+/// thread had entered, the thread, the allocation's index in the order origins
+/// were captured, and under [`MemoryTracing::Backtraces`] the call stack.
 ///
-/// Captured when a memory handle is minted — on the thread that asked for the
+/// Captured when a memory handle is created — on the thread that asked for the
 /// memory, before anything is queued to the device — and held by the handle's
 /// descriptor, so it lives and dies with the allocation.
 pub struct AllocationOrigin {

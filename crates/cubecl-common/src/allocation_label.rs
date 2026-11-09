@@ -1,18 +1,18 @@
-//! Labels naming the code that allocates device memory, kept per thread.
+//! Labels pointing to the code that allocates device memory, kept per thread.
 //!
 //! A label is pushed with [`AllocationLabel::enter`] and popped when its
-//! guard drops, so labels nest: loading `blocks.3` while loading the
-//! `attention` of it reads as `["blocks.3", "attention"]`. The runtime reads
-//! the stack ([`AllocationLabel::current`]) when a memory handle is minted and
-//! keeps it with the allocation, so a memory report can say who holds what.
+//! guard drops, so labels nest: loading `blocks.3` while loading its
+//! `attention` field reads as `["blocks.3", "attention"]`. The runtime reads
+//! the stack ([`AllocationLabel::current`]) when a memory handle is created and
+//! keeps it with the allocation, so a memory report can say who holds what part
+//! of the code.
 //!
 //! The stack lives in this crate rather than the runtime's so that code which
 //! never names a runtime — a framework's module loader, say — can label what
 //! it allocates.
 //!
-//! Nothing is kept unless [recording](set_recording) is on: a label entered
-//! while it is off costs a relaxed load. Without `std` there are no threads to
-//! keep a stack for, and every label is ignored.
+//! Nothing is kept unless [recording](set_recording) is on. Without `std` there
+//! are no threads to keep a stack for, and every label is ignored.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -36,10 +36,7 @@ pub fn is_recording() -> bool {
     RECORDING.load(Ordering::Relaxed)
 }
 
-/// A label on the allocations this thread makes while it lives.
-///
-/// Not `Send`: the label belongs to the stack of the thread that entered it,
-/// and must be popped there.
+/// A label on the allocations this thread makes.
 #[must_use = "the label is popped as soon as the guard drops"]
 pub struct AllocationLabel {
     /// Whether this guard pushed a label, so a guard made while recording was
@@ -100,7 +97,6 @@ impl Drop for AllocationLabel {
 mod tests {
     use super::*;
 
-    /// One test, since recording is process-wide and tests run in parallel.
     #[test]
     fn labels_nest_pop_in_order_and_cost_nothing_while_off() {
         set_recording(false);

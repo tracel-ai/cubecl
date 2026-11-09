@@ -14,34 +14,30 @@ pub struct MemoryConfig {
     /// Configuration for persistent memory pools.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
-    /// What every allocation remembers of the code that asked for it, for
-    /// the memory reports to list.
+    /// The level of precision reporting where in the code an allocation was made,
+    /// listed by a memory report.
     #[serde(default)]
     pub tracing: MemoryTracing,
 }
 
-/// What an allocation remembers of the code that asked for it.
+/// The level of precision reporting where in the code an allocation was made.
 ///
-/// With anything but [`Disabled`](Self::Disabled), each memory pool's report
-/// lists the allocations alive in it, each with its origin: what a memory
-/// report then answers is not only how much a pool holds but who holds it.
-/// An allocation's origin lives exactly as long as the allocation does, so
-/// the report never lists one that was freed.
+/// When enabled, every pool in a memory report lists its live allocations with its origin.
+/// The origin is stored with the allocation itself, so a report only ever lists memory that
+/// is still in use.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MemoryTracing {
-    /// Allocations remember nothing, and the reports list none: the default,
-    /// which costs a relaxed load per allocation.
+    /// Origin isn't reported.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,
     /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
-    /// allocating thread had entered, its name and the allocation's place in
+    /// allocating thread had entered, the thread's name and the allocation's index in
     /// the order allocations were made.
     #[serde(rename = "labels")]
     Labels,
-    /// The labels and the call stack, captured unresolved and resolved only
-    /// when a report lists the allocation. Capturing costs microseconds per
-    /// allocation: a diagnosis, not a way to run.
+    /// Same as [labels](`Self::Labels`) plus the call stack. Costs microseconds per
+    /// allocation: use for debugging.
     #[serde(rename = "backtraces")]
     Backtraces,
 }
