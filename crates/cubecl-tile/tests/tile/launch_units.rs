@@ -37,11 +37,11 @@ const BLOCK: [usize; 3] = [2, 2, 4];
 fn launch_unit_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &O::Arg<f32>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for unit in &space {
         let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
         let sum = c_unit.accumulator::<f32>(
@@ -58,6 +58,7 @@ fn launch_unit_matmul<O: Destination>(
         }
         sum.drained_into(&c_unit);
     }
+    O::finish::<f32>(out);
 }
 
 /// How many tiles every unit of the launch walks, at the unit's place in the launch.
