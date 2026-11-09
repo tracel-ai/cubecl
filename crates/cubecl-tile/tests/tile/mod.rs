@@ -1,9 +1,11 @@
+mod argmax;
 mod async_copy;
 mod block_scaled;
 mod block_scaled_peak;
 mod blocked;
 mod coarse;
 mod conv;
+mod conv_dense_stage;
 mod depthwise;
 mod dequant;
 mod destination;
@@ -44,6 +46,8 @@ mod stored_window;
 mod stream;
 mod tma_folded;
 mod tma_store;
+mod top_k;
+mod top_values;
 mod vector_tile;
 mod wgmma;
 

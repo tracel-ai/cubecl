@@ -175,10 +175,10 @@ impl Projection {
             "Projection::scales_per: {block:?} must partition its dim with an axis inside it \
              (PhysicalAxisMap::disjoint(&[({block:?}, block), (inside, 1)]))"
         );
-        let radix = terms[at].scale.get();
+        let radix = terms[at].scale.bound();
         let kept: Vec<(Axis, usize)> = terms[..=at]
             .iter()
-            .map(|term| (term.axis, term.scale.get() / radix))
+            .map(|term| (term.axis, term.scale.bound() / radix))
             .collect();
         let omitted: Vec<Axis> = terms[at + 1..].iter().map(|term| term.axis).collect();
         let mut physical = self.physical.clone();
@@ -263,7 +263,7 @@ impl Projection {
     }
 
     /// `axis`'s coefficient along physical axis `pa`, `0` when it does not address it.
-    pub fn scale(&self, pa: usize, axis: Axis) -> usize {
+    pub fn scale(&self, pa: usize, axis: Axis) -> isize {
         self.physical[pa].scale(axis)
     }
 
@@ -282,15 +282,31 @@ impl Projection {
         self.physical.iter().any(|m| m.is_rational())
     }
 
-    /// Whether any physical axis has a negative or dynamic offset.
+    /// Whether any physical axis has a negative or dynamic offset, or a backward coefficient.
     pub(crate) fn may_underflow(&self) -> bool {
-        self.physical.iter().any(|m| match m.offset() {
-            Offset::Static(o) => o < 0,
-            Offset::Dynamic => true,
-        })
+        self.has_negative_scale()
+            || self.physical.iter().any(|m| match m.offset() {
+                Offset::Static(o) => o < 0,
+                Offset::Dynamic => true,
+            })
     }
 
-    /// How many elements of physical axis `pa` a region covers: `1 + Σ (extent - 1) * scale`.
+    /// Whether any physical axis steps backward along a logical axis.
+    pub(crate) fn has_negative_scale(&self) -> bool {
+        self.physical.iter().any(|m| m.has_negative_scale())
+    }
+
+    /// Refuses a backward coefficient for `what`, which takes the window's physical box as its
+    /// bound: such a window reaches below its origin cell.
+    pub(crate) fn refuse_backward(&self, what: &str) {
+        assert!(
+            !self.has_negative_scale(),
+            "{what}: a backward coefficient reaches below its window's physical box; stage the \
+             operand in a tiled stage (`StageStorage::Tiled`)"
+        );
+    }
+
+    /// How many elements of physical axis `pa` a region covers: `1 + Σ (extent - 1) * |scale|`.
     /// Rational and dynamic axes report the widest span their bounds admit.
     pub(crate) fn span(&self, pa: usize, extent_of: impl Fn(Axis) -> usize) -> usize {
         let map = &self.physical[pa];
@@ -302,15 +318,22 @@ impl Projection {
         1 + field.div_ceil(map.divisor().bound())
     }
 
-    /// `Disjoint` if every physical axis is partitioned by its axes, else `Overlapping`.
+    /// `Disjoint` if every physical axis is partitioned by its axes, `Translated` if every one
+    /// is, some moved by an offset, else `Overlapping`.
     pub(crate) fn composition(&self) -> Composition {
+        let one_cell_a_position = |m: &PhysicalAxisMap| {
+            m.composition() != Composition::Overlapping && m.divisor().is_unit()
+        };
+        if !self.physical.iter().all(one_cell_a_position) {
+            return Composition::Overlapping;
+        }
         match self
             .physical
             .iter()
-            .all(|m| m.composition() == Composition::Disjoint && m.divisor().is_unit())
+            .any(|m| m.composition() == Composition::Translated)
         {
-            true => Composition::Disjoint,
-            false => Composition::Overlapping,
+            true => Composition::Translated,
+            false => Composition::Disjoint,
         }
     }
 
@@ -361,7 +384,7 @@ impl Projection {
             let last = &self.physical[self.physical.len() - 1];
             let steps_by_lines = match last.composition() {
                 Composition::Disjoint => last.terms().last().map(|t| t.axis) == Some(innermost),
-                Composition::Overlapping => last.is_identity(innermost),
+                Composition::Overlapping | Composition::Translated => last.is_identity(innermost),
             };
             if !steps_by_lines {
                 return Err(Refusal::GatherInnermostNotInLines);
@@ -766,8 +789,28 @@ mod tests {
         assert_eq!(with_offset.offset(1), Offset::Static(0));
     }
 
+    /// A backward coefficient lowers the lowest cell, so a region's span is the whole width
+    /// between its ends and the origin may land below the buffer.
     #[test]
-    fn may_underflow_tracks_negative_offsets_only() {
+    fn a_backward_coefficient_widens_the_span_and_may_underflow() {
+        let p = Projection::new(
+            &[A, R, B],
+            &[
+                PhysicalAxisMap::scaled(&[(A, Scale::Static(1)), (R, Scale::Static(-2))])
+                    .shifted(1),
+                PhysicalAxisMap::of(B),
+            ],
+        );
+        assert_eq!(p.scale(0, R), -2);
+        assert!(p.has_negative_scale());
+        assert!(p.may_underflow());
+        let extent = |a: Axis| if a == A { 4 } else { 3 };
+        assert_eq!(p.span(0, extent), 1 + 3 + 4);
+        assert!(!Projection::direct(&[A, B]).has_negative_scale());
+    }
+
+    #[test]
+    fn may_underflow_tracks_negative_offsets_and_scales() {
         let padded = Projection::new(
             &[A, R, B],
             &[
@@ -795,6 +838,15 @@ mod tests {
             ],
         );
         assert!(dynamic_offset.may_underflow());
+
+        let backward = Projection::new(
+            &[A, R, B],
+            &[
+                PhysicalAxisMap::scaled(&[(A, Scale::Static(1)), (R, Scale::Static(-2))]),
+                PhysicalAxisMap::of(B),
+            ],
+        );
+        assert!(backward.may_underflow());
     }
 
     /// Physical axis major, term order within; offsets indexed apart from coefficients.

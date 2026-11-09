@@ -1,4 +1,8 @@
-use cubecl_core::ir::{attributes::EntrypointInterface, interfaces::TypedExt, prelude::*};
+use cubecl_core::ir::{
+    attributes::{ATTR_PEER_BINDING, EntrypointInterface, FuncInterface},
+    interfaces::TypedExt,
+    prelude::*,
+};
 use itertools::Itertools;
 use pliron::builtin::{
     ops::{FuncOp, ModuleOp},
@@ -42,19 +46,23 @@ hip_op!(FuncOp, |op, ctx| {
     let entry_block = op.get_entry_block(ctx);
 
     let block = entry_block.deref(ctx);
-    let params = block.arguments();
-    let params = params.map(|arg| gen_param(ctx, arg)).join(", ");
+    let params = block.arguments().enumerate();
+    // Another device may write a peer buffer while the kernel runs, so it is not promised
+    // unaliased.
+    let params = params
+        .map(|(i, arg)| gen_param(ctx, arg, !op.has_arg_attr(ctx, i, &ATTR_PEER_BINDING)))
+        .join(", ");
 
     let body = block_to_cpp(ctx, entry_block);
 
     format!("{attributes} {func_name}({params}) {{\n{body}\n}}\n")
 });
 
-fn gen_param(ctx: &Context, arg: Value) -> String {
+fn gen_param(ctx: &Context, arg: Value, restrict: bool) -> String {
     let mut segments = vec![];
     segments.push(arg.get_type(ctx).to_cpp(ctx));
     segments.push("const".into());
-    if arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx) {
+    if restrict && (arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx)) {
         segments.push("__restrict__".into());
     }
     segments.push(arg.name(ctx).to_string());

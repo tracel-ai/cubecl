@@ -116,7 +116,7 @@ impl Memory {
     pub(crate) fn fetch_straight<T: Numeric, W: Size>(
         &self,
         src: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         fetched: &mut Array<Vector<T, W>>,
     ) {
         self.refuse_unfetchable(src);
@@ -127,7 +127,7 @@ impl Memory {
             "Memory::fetch_straight: registers of one width fetch a stage of another"
         ));
         let check = comptime!(src.access.overhang.masks());
-        comptime!(fill_extent(&space, w, w, check));
+        comptime!(fill_extent(space, w, w, check));
         let layout = self.layout.clone();
         let lines = self.unit_lines();
         let total = self.stage_lines();
@@ -176,13 +176,13 @@ impl Memory {
 /// The line task `t` of this unit moves.
 #[cube]
 fn task_line(#[comptime] t: usize, #[comptime] lines: UnitLines) -> usize {
-    FillUnits::worker(comptime!(lines.fill)) + comptime!(t * lines.fill.count)
+    FillUnits::worker(lines.fill) + (t * lines.fill.count)
 }
 
 /// Whether line `i` is inside the stage; a constant where task `t` cannot run past it.
 #[cube]
 fn in_stage(i: usize, total: usize, #[comptime] t: usize, #[comptime] lines: UnitLines) -> bool {
-    if comptime!(lines.guarded(t)) {
+    if lines.guarded(t) {
         i < total
     } else {
         true.runtime()

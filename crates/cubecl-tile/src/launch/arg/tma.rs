@@ -1,4 +1,4 @@
-//! A TMA tensor map as an operand's values ([`TileArgLaunch::tensor_map`]) and its in-kernel
+//! A TMA tensor map as an operand's values ([`TileTensorLaunch::tensor_map`]) and its in-kernel
 //! layouts.
 
 use cubecl::prelude::*;
@@ -19,8 +19,8 @@ pub struct TmaBox {
     pub transposed: bool,
 }
 
-impl TileArgLaunch {
-    /// A TMA tensor map as a tile argument over `axes`: two, or three with `shape.batch` set.
+impl TileTensorLaunch {
+    /// A TMA tensor map as a tile tensor over `axes`: two, or three with `shape.batch` set.
     pub fn tensor_map(tensor_map: TensorMapArg<Tiled>, axes: &[Axis], shape: TmaBox) -> Self {
         let layout = Self::dyn_layout(axes, shape);
         Self::of_tensor_map(
@@ -36,7 +36,7 @@ impl TileArgLaunch {
             (2, None) => false,
             (3, Some(_)) => true,
             (r, batch) => panic!(
-                "TileArgLaunch::tensor_map: the descriptor is (batch, row, col); {r} axes with \
+                "TileTensorLaunch::tensor_map: the descriptor is (batch, row, col); {r} axes with \
                  batch {batch:?} is not a matrix nor a batched one"
             ),
         };
@@ -45,8 +45,8 @@ impl TileArgLaunch {
     }
 }
 
-impl TileArgLaunch {
-    /// A TMA tensor map as a tile argument over `axes`, `extents` along each, whose descriptor
+impl TileTensorLaunch {
+    /// A TMA tensor map as a tile tensor over `axes`, `extents` along each, whose descriptor
     /// dims are not the tile's own axes: each descriptor coordinate is read off a position over
     /// `axes` as `coordinates` says, as a block-split operand lands in a descriptor over the
     /// matrix it splits (its `KB` and `KI` one column).
@@ -63,7 +63,7 @@ impl TileArgLaunch {
         assert_eq!(
             extents.len(),
             axes.len(),
-            "TileArgLaunch::tensor_map_folded: one extent an axis, {axes:?} against {extents:?}"
+            "TileTensorLaunch::tensor_map_folded: one extent an axis, {axes:?} against {extents:?}"
         );
         assert!(
             coordinates
@@ -71,7 +71,7 @@ impl TileArgLaunch {
                 .iter()
                 .flatten()
                 .all(|term| term.position < axes.len()),
-            "TileArgLaunch::tensor_map_folded: a term reads a position past {axes:?}"
+            "TileTensorLaunch::tensor_map_folded: a term reads a position past {axes:?}"
         );
         let mut shape = SequenceArg::new();
         for &extent in extents {
@@ -150,19 +150,19 @@ impl Layout for TmaFoldedLayout {
         let coordinates = comptime!(self.coordinates.clone());
         let mut src = CoordsDyn::new();
         #[unroll]
-        for d in 0..comptime!(coordinates.dims.len()) {
+        for d in 0..coordinates.dims.len() {
             let terms = comptime!(coordinates.dims[d].clone());
             let mut coordinate = 0u32;
             // Indexed: an unrolled loop walks a comptime list by its positions.
             #[allow(clippy::needless_range_loop)]
             #[unroll]
-            for t in 0..comptime!(terms.len()) {
+            for t in 0..terms.len() {
                 let term = comptime!(terms[t]);
-                let mut value = pos[comptime!(term.position)] * comptime!(term.scale);
-                if comptime!(term.modulus != 0) {
-                    value %= comptime!(term.modulus);
+                let mut value = pos[term.position] * term.scale;
+                if term.modulus != 0 {
+                    value %= term.modulus;
                 }
-                coordinate += value / comptime!(term.divisor);
+                coordinate += value / term.divisor;
             }
             src.push(coordinate);
         }

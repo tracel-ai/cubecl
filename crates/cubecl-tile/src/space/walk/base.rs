@@ -53,7 +53,7 @@ impl Walk {
     #[allow(clippy::needless_range_loop)]
     pub(crate) fn of(space: &Space, #[comptime] level: Level, parent: Region) -> Walk {
         let host = comptime!(space.clone());
-        let rank = comptime!(host.rank());
+        let rank = host.rank();
         // A swizzled cube level decodes its two in-plane axes jointly from the flat dispatch index.
         let in_plane = comptime!(
             level
@@ -77,22 +77,11 @@ impl Walk {
         }
 
         // A level distributed over a scope reaches the IR as one `tile.level` op.
-        let (counts, positions, scales) = match comptime!(level.coverage().scope()) {
+        let (counts, positions, scales) = match level.coverage().scope() {
             Some(_) => intrinsic!(|scope| LevelOp::trace(scope, |scope| {
-                Walk::__expand_tiles_of(
-                    scope,
-                    host.clone(),
-                    level.clone(),
-                    distributes.clone(),
-                    &grid,
-                )
+                Walk::__expand_tiles_of(scope, &host, &level, distributes.clone(), &grid)
             })),
-            None => Walk::tiles_of(
-                comptime!(host.clone()),
-                comptime!(level.clone()),
-                comptime!(distributes.clone()),
-                &grid,
-            ),
+            None => Walk::tiles_of(&host, &level, distributes.clone(), &grid),
         };
 
         // Computed whole, not accumulated, so a static walk can unroll.
@@ -118,12 +107,12 @@ impl Walk {
 
     /// `(counts, positions, scales)` of this instance at `level`.
     fn tiles_of(
-        #[comptime] host: Space,
-        #[comptime] level: Level,
+        #[comptime] host: &Space,
+        #[comptime] level: &Level,
         #[comptime] distributes: Vec<AxisDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        match comptime!(level.spans_launch()) {
+        match level.spans_launch() {
             true => Walk::spanning_launch(host, level, grid),
             false => Walk::dealt(host, level, distributes, grid),
         }
@@ -133,14 +122,14 @@ impl Walk {
     /// one tile this plane's or unit's place in the launch names, past the last for one past the
     /// last tile, which the binding masks; every tile of the others.
     fn spanning_launch(
-        #[comptime] host: Space,
-        #[comptime] level: Level,
+        #[comptime] host: &Space,
+        #[comptime] level: &Level,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        let (positions, counts) = launch_tiles(comptime!(host.clone()), level, grid);
+        let (positions, counts) = launch_tiles(host, level, grid);
         let mut scales = Coords::<usize>::new();
         #[unroll]
-        for _ in 0..comptime!(host.rank()) {
+        for _ in 0..host.rank() {
             scales.push(1usize);
         }
         (counts, positions, scales)
@@ -150,12 +139,12 @@ impl Walk {
     /// grid's cubes, each axis as `distributes` says.
     #[allow(clippy::needless_range_loop)]
     fn dealt(
-        #[comptime] host: Space,
-        #[comptime] level: Level,
+        #[comptime] host: &Space,
+        #[comptime] level: &Level,
         #[comptime] distributes: Vec<AxisDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        let rank = comptime!(host.rank());
+        let rank = host.rank();
         // Computed whole, so a constant grid's decode stays constant too.
         let mut instances = Coords::<usize>::new();
         #[unroll]
@@ -172,11 +161,7 @@ impl Walk {
                 AxisDistribution::Walked => instances.push(1usize),
             }
         }
-        let swizzled = swizzled_positions(
-            comptime!(host.clone()),
-            comptime!(level.clone()),
-            &instances,
-        );
+        let swizzled = swizzled_positions(host, level, &instances);
 
         let mut counts = Coords::<usize>::new();
         let mut positions = Coords::<usize>::new();
@@ -250,7 +235,7 @@ impl Walk {
         #[unroll]
         for p in 0..rank {
             // Clamped: a data-derived coordinate may be out of range, and a panic here goes unseen.
-            if comptime!(p == at) {
+            if p == at {
                 // The axis's own tiles, not `counts`, which is this instance's share.
                 let last = comptime!(self.level.tiles(&self.space, axis) - 1).runtime();
                 counts.push(1usize);
@@ -319,8 +304,7 @@ impl Walk {
     /// The `i`-th region of the walk.
     pub fn region(&self, i: usize) -> Region {
         let idx = self.base.plus(i);
-        self.parent
-            .below(self.resolve(idx), comptime!(self.level.clone()))
+        self.parent.below(self.resolve(idx), &self.level)
     }
 
     /// The planes below this walk's regions, each once, at its first step ([`Region::planes`]):
@@ -444,6 +428,20 @@ impl Walk {
         unexpanded!()
     }
 
+    /// This walk, which steps `axis` alone and in order, over the run its operands are cut to
+    /// along it ([`Tile::within`](crate::Tile::within) from the walk's first region): every
+    /// region but the last lies inside the run, so a ring over it
+    /// ([`Stages::walk`](crate::Stages::walk)) fills those unchecked and bounds only the last, as
+    /// over a run an index places ([`Region::walk_within`](crate::Region::walk_within)). A
+    /// [`range`](Self::range) of it keeps the run.
+    ///
+    /// # Panics
+    ///
+    /// At expansion, where the walk's level steps another axis than `axis`, or steps it back.
+    pub fn over_run(self, _axis: Axis) -> Walk {
+        unexpanded!()
+    }
+
     /// This walk over the `steps` regions starting at flat step `base`.
     /// The caller must keep `base + steps` within [`total`](Walk::total); nothing checks it.
     pub fn range(self, _base: usize, _steps: usize) -> Walk {
@@ -459,6 +457,15 @@ impl Walk {
 impl WalkExpand {
     pub fn __expand_unrolled_method(mut self, _scope: &Scope) -> Self {
         self.unroll = true;
+        self
+    }
+
+    pub fn __expand_over_run_method(mut self, _scope: &Scope, axis: Axis) -> Self {
+        assert!(
+            self.level.axes() == [axis] && !self.level.is_reversed(axis),
+            "Walk::over_run: a walk over a run along {axis:?} steps that axis alone, in order"
+        );
+        self.run = Some(axis);
         self
     }
 

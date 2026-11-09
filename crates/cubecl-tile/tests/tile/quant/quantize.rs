@@ -4,7 +4,8 @@ use cubecl::quant::scheme::{QuantValue, ScaleDtype};
 use cubecl::{bytes::Bytes, prelude::*, std::tensor::TensorHandle, zspace::shape};
 use cubecl_common::{e2m1, e4m3, ue8m0};
 use cubecl_tile::{
-    Axis, Launcher, Levels, Partitioning, Projection, Space, TileArg, TileArgLaunch, TileSpec,
+    Axis, Launcher, Levels, Partitioning, Projection, Space, TileSpec, TileTensor,
+    TileTensorLaunch,
     kind::Field,
     launch::Grid,
     layout::{PhysicalAxisMap, split},
@@ -20,7 +21,7 @@ const MB: Axis = Axis(3);
 
 /// The values packed from `input`, under the block scales they carry, which the copy computes.
 #[cube(launch)]
-fn quantize_copy(input: &TileArg<'_>, packed: &TileArg<'_>, space: Partitioning) {
+fn quantize_copy(input: &TileTensor<'_>, packed: &TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
     let mut packed = packed.tile(&space);
     packed.quantize_from(&input);
@@ -28,7 +29,7 @@ fn quantize_copy(input: &TileArg<'_>, packed: &TileArg<'_>, space: Partitioning)
 
 /// Each plane of the launch writing its box of the packed values from the float ones.
 #[cube(launch)]
-fn quantize_planes(input: &TileArg<'_>, packed: &TileArg<'_>, partitioning: Partitioning) {
+fn quantize_planes(input: &TileTensor<'_>, packed: &TileTensor<'_>, partitioning: Partitioning) {
     let input = input.tile(&partitioning);
     let packed = packed.tile(&partitioning);
     for plane in &partitioning {
@@ -188,7 +189,7 @@ fn check_quantize_as(
                 .dtype(f32::elem_type_native())
                 .zeros()
                 .generate_without_host_data();
-            let arg = TileArgLaunch::new(
+            let arg = TileTensorLaunch::new(
                 t.clone().binding().into_tensor_arg(),
                 f32::elem_type_native(),
                 1,
@@ -203,7 +204,7 @@ fn check_quantize_as(
                 client.create(Bytes::from_elems(vec![0u32; rows * blocks / per_word])),
                 u32::elem_type_native(),
             );
-            let arg = TileArgLaunch::new(
+            let arg = TileTensorLaunch::new(
                 in_values(&t, rows, blocks),
                 u32::elem_type_native(),
                 1,
@@ -216,7 +217,7 @@ fn check_quantize_as(
         Workers::OneUnit => 1,
         Workers::PlaneARow { words, .. } => words,
     };
-    let values = TileArgLaunch::new(
+    let values = TileTensorLaunch::new(
         in_values(&words, rows, cols),
         u32::elem_type_native(),
         words_a_load,
@@ -231,7 +232,7 @@ fn check_quantize_as(
                 .custom(vec![g])
                 .generate_without_host_data();
             let per_tensor = Projection::new(&[MB, M, KB, KI], &[PhysicalAxisMap::broadcast()]);
-            values.scales(TileArgLaunch::new(
+            values.scales(TileTensorLaunch::new(
                 t.binding().into_tensor_arg(),
                 f32::elem_type_native(),
                 1,
@@ -240,7 +241,7 @@ fn check_quantize_as(
         }
     };
     let input_arg = match source {
-        Source::AsTheWords => TileArgLaunch::new(
+        Source::AsTheWords => TileTensorLaunch::new(
             input_t.binding().into_tensor_arg(),
             f32::elem_type_native(),
             width,
@@ -250,7 +251,7 @@ fn check_quantize_as(
             let mut binding = input_t.binding();
             binding.shape = vec![rows, blocks, block].into();
             binding.strides = vec![cols, block, 1].into();
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 binding.into_tensor_arg(),
                 f32::elem_type_native(),
                 width,

@@ -37,7 +37,7 @@ impl Tile {
             StageStorage::Strided,
             LineBytes(elem_bytes)
         ));
-        let cells = comptime!(form.cells());
+        let cells = form.cells();
         let values = Shared::<[Atomic<A>]>::new_slice(cells);
         // The previous open from this call site may still be read; let it finish first.
         sync_cube();
@@ -50,29 +50,29 @@ impl Tile {
 
         let units = self.units();
         let sink = Memory::smem_backed::<A>(
-            comptime!(space.clone()),
+            &space,
             1usize,
             comptime!(FillUnits::cube(units)),
             Backing::new_WriteCall(RawCall::of::<A>(
                 ErasedTensor::<A, WriteOnly>::of_smem_accumulate(&values),
             )),
             comptime!(Packing::Plain),
-            comptime!(form.clone()),
-            RuntimeMap::integral(comptime!(form.physical_rank())),
+            form.clone(),
+            RuntimeMap::integral(form.physical_rank()),
             ComptimeOption::new_None(),
             comptime!(Write::Accumulate),
             comptime!(Overhang::Masked),
         );
         let source = Memory::smem_backed::<Served>(
-            space,
+            &space,
             1usize,
             comptime!(FillUnits::cube(units)),
             Backing::new_ReadCall(RawCall::of::<Served>(
                 ErasedTensor::<Served, ReadOnly>::of_smem_load::<A>(&values),
             )),
             comptime!(Packing::Plain),
-            comptime!(form.clone()),
-            RuntimeMap::integral(comptime!(form.physical_rank())),
+            form.clone(),
+            RuntimeMap::integral(form.physical_rank()),
             ComptimeOption::new_None(),
             comptime!(Write::Replace),
             comptime!(Overhang::Never),

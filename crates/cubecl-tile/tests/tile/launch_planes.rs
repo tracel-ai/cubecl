@@ -42,33 +42,35 @@ const UNITS: usize = 2;
 /// `c += a · b`, every plane of the launch its tile.
 #[cube(launch)]
 fn launch_plane_matmul<O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &O::Arg<f32>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for plane in &space {
         plane_product(&plane, &a, &b, &c);
     }
+    O::finish::<f32>(out);
 }
 
 /// `c += a · b`, every plane of every cube its tile: the control.
 #[cube(launch)]
 fn cube_plane_matmul<O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &O::Arg<f32>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for cube in &space {
         for plane in cube {
             plane_product(&plane, &a, &b, &c);
         }
     }
+    O::finish::<f32>(out);
 }
 
 /// How many tiles every plane of the launch walks, at the plane's place in the launch: its cube's,
@@ -253,13 +255,13 @@ fn run(problem: Problem, planes: &Planes, dealt: Dealt<'_>) -> Option<HostData> 
         .build()
         .unwrap();
 
-    let a_arg = TileArgLaunch::new(
+    let a_arg = TileTensorLaunch::new(
         a_handle.binding().into_tensor_arg(),
         dtype,
         1,
         TileSpec::direct(&[M, K]).boundary(policy),
     );
-    let b_arg = TileArgLaunch::new(
+    let b_arg = TileTensorLaunch::new(
         b_handle.binding().into_tensor_arg(),
         dtype,
         1,

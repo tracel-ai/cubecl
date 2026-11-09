@@ -52,7 +52,7 @@ impl Tile {
         let size!(VW) = vw;
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
-        let along = comptime!(dst.axis_at(dst.rank() - 1));
+        let along = dst.axis_at(dst.rank() - 1);
         let varies = src.factor.varies_along(comptime!(along));
         comptime!(check_scaled_copy(
             "Tile::dequantize_from",
@@ -66,22 +66,22 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        let units = comptime!(fill.count);
+        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
         // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
         // runtime stride stalls each store on Metal's in-order pipe.
-        if comptime!(units > 0 && loads.div_ceil(units) <= 8) {
+        if units > 0 && loads.div_ceil(units) <= 8 {
             #[unroll]
-            for t in 0..comptime!(loads.div_ceil(units)) {
+            for t in 0..loads.div_ceil(units) {
                 let line = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if comptime!((t + 1) * units <= loads) {
+                if (t + 1) * units <= loads {
                     src.decode_load_into::<S, O, I, WP, VW>(
                         &stored,
                         &mut out,
                         line,
-                        comptime!(dst.clone()),
-                        comptime!(lands.clone()),
+                        &dst,
+                        lands.clone(),
                     );
                 } else {
                     if line < comptime!(loads as u32) {
@@ -89,8 +89,8 @@ impl Tile {
                             &stored,
                             &mut out,
                             line,
-                            comptime!(dst.clone()),
-                            comptime!(lands.clone()),
+                            &dst,
+                            lands.clone(),
                         );
                     }
                 }
@@ -103,8 +103,8 @@ impl Tile {
                     &stored,
                     &mut out,
                     line,
-                    comptime!(dst.clone()),
-                    comptime!(lands.clone()),
+                    &dst,
+                    lands.clone(),
                 );
             }
         }
@@ -117,7 +117,7 @@ impl Tile {
         stored: &Masked<'_, Vector<I, WP>, CoordsDyn>,
         out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
         line: u32,
-        #[comptime] dst: Space,
+        #[comptime] dst: &Space,
         #[comptime] lands: VectorTile,
     ) {
         let load = self.vector_tile();
@@ -128,14 +128,14 @@ impl Tile {
         let packing = comptime!(stored_as.placed());
         let lift = comptime!(packing.lift() as f32);
         let space = comptime!(self.place.space.clone());
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let mem = self.mem("Tile::dequantize_from");
         let start = load.start(line, &space);
         let held = stored.read(load.index(&start, &space));
         // The destination lines this load holds, `offset` their place in it, and where they land.
         #[unroll]
-        for c in 0..comptime!(sw / vw) {
-            let offset = comptime!(c * vw);
+        for c in 0..(sw / vw) {
+            let offset = c * vw;
             let mut at = Coords::<u32>::new();
             let mut to = Coords::<u32>::new();
             #[unroll]
@@ -143,22 +143,22 @@ impl Tile {
                 let inner = comptime!(load.offset_along(offset, space.axis_at(p)) as u32);
                 let coord = start.at(p) + inner;
                 at.push(coord);
-                if comptime!(dst.contains(space.axis_at(p))) {
+                if dst.contains(space.axis_at(p)) {
                     to.push(coord);
                 }
             }
             let values = values_at::<S, I, WP, VW>(held, offset, packing);
-            let scale =
-                self.factor
-                    .at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked))
-                    * lift;
+            let scale = self
+                .factor
+                .at_coords(&at, space.clone(), comptime!(Guard::Checked))
+                * lift;
             // Multiplied in `f32`, rounded to `S` once: a placed `e2m1` value is a lift short,
             // which the scale carries, and the lift times a scale is past a half's range where
             // its product with the value is not.
             let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
                 * Vector::<f32, VW>::cast_from(scale);
             let decoded = Vector::<O, VW>::cast_from(scaled);
-            out.write(lands.index(&to, &dst), decoded);
+            out.write(lands.index(&to, dst), decoded);
         }
     }
 }

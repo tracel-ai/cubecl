@@ -135,7 +135,7 @@ impl Meeting {
                 }
                 sync_cube();
                 let elected = Meeting::elected(fillers);
-                let all_publish = comptime!(collective_full || fillers > 0);
+                let all_publish = collective_full || fillers > 0;
                 Meeting::new_Barrier(full, empty, all_publish, commits, elected, 0, 0)
             }
         }
@@ -144,7 +144,7 @@ impl Meeting {
     /// Units that arrive on `full`: the filling planes' where the cube sets planes aside, since
     /// they alone fill, whatever share of the fill is cooperative.
     pub(crate) fn producers(#[comptime] collective_full: bool, #[comptime] fillers: usize) -> u32 {
-        if comptime!(fillers > 0) {
+        if fillers > 0 {
             comptime!(fillers as u32) * CUBE_DIM_X
         } else if comptime!(collective_full) {
             CUBE_DIM
@@ -155,7 +155,7 @@ impl Meeting {
 
     /// Units that arrive on `empty`: the ones that read the slot.
     pub(crate) fn consumers(#[comptime] fillers: usize) -> u32 {
-        if comptime!(fillers == 0) {
+        if fillers == 0 {
             CUBE_DIM
         } else {
             CUBE_DIM - comptime!(fillers as u32) * CUBE_DIM_X
@@ -164,7 +164,7 @@ impl Meeting {
 
     /// The unit that issues a bulk copy and declares its bytes.
     pub(crate) fn elected(#[comptime] fillers: usize) -> u32 {
-        if comptime!(fillers == 0) {
+        if fillers == 0 {
             0u32.runtime()
         } else {
             Meeting::consumers(fillers)
@@ -246,13 +246,13 @@ impl Meeting {
         if comptime!(element == StageElement::Decoded) {
             dst.dequantize_from(src);
         } else {
-            self.fill_as_it_lies(dst, src, space);
+            self.fill_as_it_lies(dst, src, &space);
             dst.fill_scales_from(src, self);
         }
     }
 
     /// [`fill`](Meeting::fill) a source that decodes nothing.
-    fn fill_as_it_lies(&self, dst: &mut Tile, src: &Tile, #[comptime] space: Space) {
+    fn fill_as_it_lies(&self, dst: &mut Tile, src: &Tile, #[comptime] space: &Space) {
         let define!(Served) = dst.element;
         match self {
             Meeting::Barrier { full, elected, .. } => match (&mut dst.kind, &src.kind) {

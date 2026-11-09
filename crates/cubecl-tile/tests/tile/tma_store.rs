@@ -21,7 +21,7 @@ const BOX: (usize, usize) = (16, 16);
 
 #[cube(launch)]
 fn store_by_tma<E: Float, O: Destination>(
-    input: &TileArg<'_>,
+    input: &TileTensor<'_>,
     out: &O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -34,6 +34,7 @@ fn store_by_tma<E: Float, O: Destination>(
         staged.copy_from(&src.at(&cube));
         dst_box.copy_from(&staged);
     }
+    O::finish::<E>(out);
 }
 
 /// Every cell of the tensor holds its own index, stored box by box by the TMA engine, and only
@@ -87,7 +88,7 @@ fn a_box_stored_by_tma_lands_whole_and_clipped() {
         matrix,
         dtype,
     );
-    let out = TileArgLaunch::tensor_map(
+    let out = TileTensorLaunch::tensor_map(
         map,
         &[ROW, COL],
         TmaBox {

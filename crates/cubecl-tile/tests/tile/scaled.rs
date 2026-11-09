@@ -53,10 +53,10 @@ const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// `c = (a ⊗ s) · b`, with `s` at whatever granularity its own projection states.
 #[cube(launch)]
 fn scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -81,10 +81,10 @@ fn scaled_matmul(
 /// through `c`'s element between `K` steps, which is the form a decode step's one-row product wants.
 #[cube(launch)]
 fn scaled_matmul_promoted<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -116,13 +116,12 @@ fn scaled_matmul_promoted<E: Numeric>(
 /// the operand for a sum in `instruction`'s form multiplies the sum once, as it drains; what it
 /// leaves rides the load.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn factored_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    blocks: &TileArg<'_>,
-    global: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    blocks: &TileTensor<'_>,
+    global: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] instruction: Instruction,
@@ -146,11 +145,11 @@ fn factored_matmul<E: Numeric>(
 /// [`scaled_matmul`] with two scale levels: block scales, and one factor over the whole tensor.
 #[cube(launch)]
 fn two_level_scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    blocks: &TileArg<'_>,
-    global: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    blocks: &TileTensor<'_>,
+    global: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -188,12 +187,11 @@ fn two_level_scaled_matmul(
 /// by the plane's units, unpacked and scaled, and loaded as the fragment the plain instruction
 /// takes. Both operands carry a landing here so one kernel serves either side.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn scaled_matmul_cmma<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -268,7 +266,7 @@ fn two_levels_multiply_in_order() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -280,7 +278,7 @@ fn two_levels_multiply_in_order() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -292,7 +290,7 @@ fn two_levels_multiply_in_order() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -301,14 +299,14 @@ fn two_levels_multiply_in_order() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
             // Same axes as the level below it, addressing neither: one value over all their tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -414,13 +412,13 @@ fn check_factored(instruction: Instruction, size: usize) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(a_projection.clone()),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -432,20 +430,20 @@ fn check_factored(instruction: Instruction, size: usize) {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(a_projection.scales_per(KB)),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
             // Same axes as the level below it, addressing neither: one value over all their tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -526,13 +524,13 @@ fn a_scaled_contraction_multiplies_the_block_scale_in() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(a_projection.clone()),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -544,13 +542,13 @@ fn a_scaled_contraction_multiplies_the_block_scale_in() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(a_projection.scales_per(KB)),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -621,7 +619,7 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -633,7 +631,7 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -645,7 +643,7 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -654,7 +652,7 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -729,7 +727,7 @@ fn a_scale_over_no_axis_covers_everything() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -741,7 +739,7 @@ fn a_scale_over_no_axis_covers_everything() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -753,14 +751,14 @@ fn a_scale_over_no_axis_covers_everything() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
             // One physical axis, addressing no logical one: every position resolves to index 0.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -832,7 +830,7 @@ fn a_cut_coarser_than_the_block_changes_scale_within_a_region() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -844,7 +842,7 @@ fn a_cut_coarser_than_the_block_changes_scale_within_a_region() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -856,7 +854,7 @@ fn a_cut_coarser_than_the_block_changes_scale_within_a_region() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -865,7 +863,7 @@ fn a_cut_coarser_than_the_block_changes_scale_within_a_region() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -939,7 +937,7 @@ fn f16_scales_are_read_as_f16() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -951,7 +949,7 @@ fn f16_scales_are_read_as_f16() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -963,7 +961,7 @@ fn f16_scales_are_read_as_f16() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             scale_dtype,
             1,
@@ -972,7 +970,7 @@ fn f16_scales_are_read_as_f16() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1044,7 +1042,7 @@ fn scales_over_the_columns_scale_the_rhs() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1056,7 +1054,7 @@ fn scales_over_the_columns_scale_the_rhs() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1068,7 +1066,7 @@ fn scales_over_the_columns_scale_the_rhs() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1078,7 +1076,7 @@ fn scales_over_the_columns_scale_the_rhs() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(N)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1149,7 +1147,7 @@ fn an_rhs_scale_survives_a_finer_cut() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1161,7 +1159,7 @@ fn an_rhs_scale_survives_a_finer_cut() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1173,7 +1171,7 @@ fn an_rhs_scale_survives_a_finer_cut() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1182,7 +1180,7 @@ fn an_rhs_scale_survives_a_finer_cut() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(N)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1253,7 +1251,7 @@ fn an_rhs_scale_changes_within_a_coarser_region() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1265,7 +1263,7 @@ fn an_rhs_scale_changes_within_a_coarser_region() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1277,7 +1275,7 @@ fn an_rhs_scale_changes_within_a_coarser_region() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1286,7 +1284,7 @@ fn an_rhs_scale_changes_within_a_coarser_region() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(N)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1359,7 +1357,7 @@ fn a_promoted_accumulator_takes_the_scaled_contraction() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1371,7 +1369,7 @@ fn a_promoted_accumulator_takes_the_scaled_contraction() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1383,7 +1381,7 @@ fn a_promoted_accumulator_takes_the_scaled_contraction() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1392,7 +1390,7 @@ fn a_promoted_accumulator_takes_the_scaled_contraction() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1423,10 +1421,10 @@ fn a_promoted_accumulator_takes_the_scaled_contraction() {
 /// along `N`.
 #[cube(launch)]
 fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -1509,7 +1507,7 @@ fn rhs_scales_are_served_several_at_a_time() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1521,7 +1519,7 @@ fn rhs_scales_are_served_several_at_a_time() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1533,7 +1531,7 @@ fn rhs_scales_are_served_several_at_a_time() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             plane_units,
@@ -1544,7 +1542,7 @@ fn rhs_scales_are_served_several_at_a_time() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(N)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1576,10 +1574,10 @@ fn rhs_scales_are_served_several_at_a_time() {
 /// of it; the scalar walk has no line ordinal to scale under, so this block fans out over units.
 #[cube(launch)]
 fn wide_lhs_scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -1656,7 +1654,7 @@ fn lhs_scales_are_served_several_at_a_time() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             4,
@@ -1668,7 +1666,7 @@ fn lhs_scales_are_served_several_at_a_time() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1680,14 +1678,14 @@ fn lhs_scales_are_served_several_at_a_time() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             plane_units,
             // `KB` innermost and alone: the width lands on the axis the scales vary over.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::of(KB)])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1810,7 +1808,7 @@ fn check_scaled_cmma(case: CmmaCase) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1819,9 +1817,9 @@ fn check_scaled_cmma(case: CmmaCase) {
                 &[PhysicalAxisMap::of(M), split],
             )),
         ),
-        TileArgLaunch::new(b_t.binding().into_tensor_arg(), dtype, 1, b_spec),
-        TileArgLaunch::new(s_t.binding().into_tensor_arg(), dtype, 1, s_spec),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(b_t.binding().into_tensor_arg(), dtype, 1, b_spec),
+        TileTensorLaunch::new(s_t.binding().into_tensor_arg(), dtype, 1, s_spec),
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1879,10 +1877,10 @@ fn a_cmma_accumulator_takes_rhs_scales_col_major() {
 /// unpacks and scales out of the stage exactly as it would out of the global window.
 #[cube(launch)]
 fn scaled_matmul_cmma_staged<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -1891,7 +1889,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let mut stage = b.stage(comptime!(level.clone()), StageStorage::Strided);
+    let mut stage = b.stage(level.clone(), StageStorage::Strided);
     let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
     for region in space.over(&level) {
         stage.copy_from(&b.at(&region));
@@ -1966,7 +1964,7 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1975,7 +1973,7 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
                 &[PhysicalAxisMap::of(M), split.clone()],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1985,7 +1983,7 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1994,7 +1992,7 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(N)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -2034,12 +2032,11 @@ const NI: Axis = Axis(5);
 /// The scales of a chunk are loaded once, into the plane's units or its own shared window, and
 /// every step reads its scale from there.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn chunked_scaled_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] instruction: Instruction,
     #[comptime] chunks: Level,
@@ -2062,10 +2059,8 @@ fn chunked_scaled_matmul<E: Numeric>(
             let b_plane = b_cube.at(&plane);
             let scale_plane = scale_cube.at(&plane);
             let c_plane = c_cube.at(&plane);
-            let mut lines = scale_plane.stage(
-                comptime!(chunks.clone()),
-                comptime!(StageStorage::Lines { read }),
-            );
+            let mut lines =
+                scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
             let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, instruction, Semiring::SUM_PROD);
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
@@ -2475,12 +2470,11 @@ fn a_tile_ordered_weight_lands_on_the_tensor_cores_under_byte_scales() {
 /// The partition's fragments load through their landing a depth at a time, the quant block being
 /// the loop inside the partition's depth: two instructions under one scale.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn partitioned_scaled_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
@@ -2501,10 +2495,8 @@ fn partitioned_scaled_matmul<E: Numeric>(
             let b_plane = b_cube.at(&plane);
             let scale_plane = scale_cube.at(&plane);
             let c_plane = c_cube.at(&plane);
-            let mut lines = scale_plane.stage(
-                comptime!(chunks.clone()),
-                comptime!(StageStorage::Lines { read }),
-            );
+            let mut lines =
+                scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
             let sum =
                 c_plane.accumulator::<E>(&a_plane, &b_plane, Instruction::Cmma, Semiring::SUM_PROD);
             for chunk in plane {
@@ -2591,10 +2583,10 @@ fn a_tile_ordered_weight_lands_on_the_tensor_cores_under_a_partition_with_byte_s
 /// contraction deep: two instructions under one scale, the step's weight scaled as one window.
 #[cube(launch)]
 fn stepped_scaled_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -2679,9 +2671,9 @@ enum CopiedThrough {
 /// the weight's own axes, one cube a tile column, reaching it as `through` says.
 #[cube(launch)]
 fn decoded_tile_order_copy(
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    out: &TileArg<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] through: CopiedThrough,
 ) {
@@ -2796,12 +2788,11 @@ enum Unpacked {
 /// `decoded` for the instruction, summing in `A`: a stage the fill decodes holds `decoded`, and
 /// words staged as they are stored are dequantized at it by each plane.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn staged_stepped_scaled_matmul<A: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] unpacked: Unpacked,
     #[comptime] storage: StageStorage,
@@ -2826,7 +2817,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
             &run,
             &a_cube,
             &staged,
-            comptime!(storage.clone()),
+            storage.clone(),
             1usize,
             comptime!(Some(decoded)),
         );
@@ -3106,9 +3097,9 @@ fn a_tile_ordered_weight_read_a_block_a_load_lands_a_step_at_a_time_under_byte_s
 /// shared stage first, which is how a kernel keeps a stage of decoded values.
 #[cube(launch)]
 fn scaled_copy<E: Numeric>(
-    a: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    out: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] staged: bool,
     #[define(E)] _dtype: ElemType,
@@ -3170,19 +3161,19 @@ fn check_scaled_copy(staged: bool) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(projection.clone()),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(projection.scales_per(KB)),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -3229,10 +3220,10 @@ fn a_stage_filled_from_scaled_values_holds_them_decoded() {
 /// plain values.
 #[cube(launch)]
 fn staged_scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
@@ -3309,13 +3300,13 @@ fn check_staged_scaled_matmul(depth: usize) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(a_projection.clone()),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -3327,13 +3318,13 @@ fn check_staged_scaled_matmul(depth: usize) {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::new(a_projection.scales_per(KB)),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,

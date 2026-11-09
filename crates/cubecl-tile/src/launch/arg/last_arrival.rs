@@ -3,7 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::launch::arg::adding::adding_tile;
-use crate::launch::arg::tensor::TileArgExpand;
+use crate::launch::arg::tensor::TileTensorExpand;
 use crate::space::Extent;
 use crate::*;
 
@@ -45,7 +45,7 @@ pub struct LastArrival<'a> {
 }
 
 #[cube]
-impl<'a> TileArg<'a> {
+impl<'a> TileTensor<'a> {
     /// This operand as the slots of a [`LastArrival`] at the `i`-th box `portion` touches, under
     /// `partitioning`, whose cube level shares its steps ([`shared_by`](Levels::shared_by)). The
     /// operand is laid out as [`Partitioning::arrival_slots`] says for its axes.
@@ -58,11 +58,8 @@ impl<'a> TileArg<'a> {
     ) -> LastArrival<'t> {
         let boxes_space = comptime!(partitioning.clone().arrival_slots_space(self.spec.axes()));
         let boxes = Partitioning {
-            space: Space::with_sizes(
-                comptime!(boxes_space.space().clone()),
-                partitioning.space.sizes.clone(),
-            ),
-            levels: comptime!(boxes_space.levels().to_vec()),
+            space: Space::with_sizes(boxes_space.space(), partitioning.space.sizes.clone()),
+            levels: boxes_space.levels().to_vec(),
         };
         let (first, holders) = portion.holders(i);
         let run = portion.run();

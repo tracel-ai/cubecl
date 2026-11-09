@@ -1,12 +1,13 @@
-use cubecl_common::device::ServiceId;
-use cubecl_environment::stream::StreamId;
+use alloc::sync::Arc;
+use cubecl_common::{device::ServiceId, device_handle::DeviceHandle};
+use cubecl_environment::{stream::StreamId, sync::Mutex};
 use cubecl_zspace::{Shape, Strides};
 
 use crate::{
     memory_management::{
         ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId, WeakMemoryBinding,
     },
-    server::{CopyDescriptor, TensorMapBinding},
+    server::{CopyDescriptor, Server, ServerError, TensorMapBinding},
 };
 
 /// How two handles' bytes relate.
@@ -37,6 +38,100 @@ pub struct Handle {
     pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
     pub(crate) size: u64,
+    /// The address kernels on other devices bind this memory at, once the
+    /// owning client [shared](crate::client::Client::share_with_peers) it.
+    pub peer: Option<PeerMemory>,
+}
+
+/// Memory one device lets kernels on the other devices of its runtime bind.
+///
+/// It holds the address the owning device resolved for the allocation, and a
+/// binding that keeps the allocation in place there: a bound allocation is
+/// never freed, handed out again or relocated, so the address stays valid for
+/// as long as any clone lives.
+///
+/// Nothing orders the accesses. A kernel on another device reads whatever the
+/// memory holds when it runs, and its writes land whenever they land. Callers
+/// order them by synchronizing the devices, or by handing off inside the
+/// kernels through system-scope atomics.
+///
+/// Failures cross over through it. The owner marks it when work that should
+/// have written the memory failed, so a peer kernel reading it does not run on
+/// stale bytes, and a peer kernel that failed to write it marks it and taints
+/// the buffer on its owner, so a read there fails on the cause.
+#[derive(Clone)]
+pub struct PeerMemory {
+    inner: Arc<PeerMemoryInner>,
+}
+
+struct PeerMemoryInner {
+    /// Keeps the allocation in place on its device.
+    pin: ManagedMemoryBinding,
+    /// The device address of the allocation's first byte.
+    address: u64,
+    /// The device that owns the memory, which a peer's failure is reported to.
+    owner: DeviceHandle<dyn Server>,
+    /// The failure the memory carries, as far as peers are concerned.
+    failure: Mutex<Option<ServerError>>,
+}
+
+impl PeerMemory {
+    /// Memory at `address` on `owner`, held in place by `pin`.
+    ///
+    /// Only the owning client builds one, from the address its device
+    /// resolved: a kernel dereferences the address as it is.
+    pub(crate) fn new(
+        pin: ManagedMemoryBinding,
+        address: u64,
+        owner: DeviceHandle<dyn Server>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(PeerMemoryInner {
+                pin,
+                address,
+                owner,
+                failure: Mutex::new(None),
+            }),
+        }
+    }
+
+    /// The device address of the allocation's first byte.
+    pub fn address(&self) -> u64 {
+        self.inner.address
+    }
+
+    /// The device that owns the memory.
+    pub fn owner(&self) -> &DeviceHandle<dyn Server> {
+        &self.inner.owner
+    }
+
+    /// The failure of the work that should have written the memory last, if it failed.
+    pub fn failure(&self) -> Option<ServerError> {
+        self.inner.failure.lock().clone()
+    }
+
+    /// The work that should have written the memory failed with `error`.
+    pub fn fail(&self, error: ServerError) {
+        *self.inner.failure.lock() = Some(error);
+    }
+
+    /// Work writing the memory was enqueued. Whether it carried a failure until now.
+    pub fn repair(&self) -> bool {
+        self.inner.failure.lock().take().is_some()
+    }
+
+    /// Whether this is the memory `binding` names.
+    fn names(&self, binding: &BufferBinding) -> bool {
+        self.inner.pin.id() == binding.memory.id()
+    }
+}
+
+impl core::fmt::Debug for PeerMemory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PeerMemory")
+            .field("address", &format_args!("{:#x}", self.inner.address))
+            .finish()
+    }
 }
 
 impl core::fmt::Debug for Handle {
@@ -48,6 +143,7 @@ impl core::fmt::Debug for Handle {
             .field("offset_end", &self.offset_end)
             .field("stream", &self.stream)
             .field("size", &self.size)
+            .field("peer", &self.peer)
             .finish()
     }
 }
@@ -61,6 +157,7 @@ impl Clone for Handle {
             offset_end: self.offset_end,
             stream: self.stream,
             size: self.size,
+            peer: self.peer.clone(),
         }
     }
 }
@@ -80,6 +177,7 @@ impl Handle {
             offset_end: None,
             stream,
             size,
+            peer: None,
         }
     }
     /// Creates a new handle of the given size.
@@ -91,6 +189,7 @@ impl Handle {
             offset_end: None,
             stream,
             size,
+            peer: None,
         }
     }
     /// Checks whether the handle can be mutated in-place without affecting other computation.
@@ -107,6 +206,7 @@ impl Handle {
             offset_end: self.offset_end,
             stream: self.stream,
             size: self.size,
+            peer: self.peer,
         }
     }
 
@@ -181,6 +281,74 @@ pub enum KernelResource {
     Buffer(BufferBinding),
     /// Tensor map resource for CUDA
     TensorMap(TensorMapBinding),
+    /// Memory shared with the other devices of the runtime, passed to a `Peer`
+    /// parameter. The client binds it as a [`Buffer`](Self::Buffer) on the
+    /// device it lives on, so a server only ever sees memory of another device
+    /// here, bound at its address there.
+    Peer(PeerBinding),
+}
+
+impl KernelResource {
+    /// The buffer of this device the resource binds, or `None` for memory
+    /// of another device.
+    pub fn local_binding(&self) -> Option<&BufferBinding> {
+        match self {
+            KernelResource::Buffer(binding) => Some(binding),
+            KernelResource::TensorMap(map) => Some(&map.binding),
+            KernelResource::Peer(_) => None,
+        }
+    }
+}
+
+/// A buffer of another device, as a kernel binds it.
+#[derive(Clone, Debug)]
+pub struct PeerBinding {
+    /// The buffer on its own device. Holding it keeps the memory in place
+    /// until the server drops it, once the kernel binding it completed.
+    binding: BufferBinding,
+    /// The device address of the bound bytes, offsets applied.
+    address: u64,
+}
+
+impl PeerBinding {
+    /// `binding` at the address its owner shared, or `None` when it was
+    /// never shared, or the shared memory is not the memory it names.
+    pub fn new(binding: BufferBinding) -> Option<Self> {
+        let peer = binding.peer.as_ref()?;
+        if !peer.names(&binding) {
+            return None;
+        }
+        let address = peer.address() + binding.offset_start.unwrap_or(0);
+        Some(Self { binding, address })
+    }
+
+    /// The buffer on its own device.
+    pub fn binding(&self) -> &BufferBinding {
+        &self.binding
+    }
+
+    /// The memory shared with peers the buffer lives in.
+    pub fn memory(&self) -> &PeerMemory {
+        self.binding
+            .peer
+            .as_ref()
+            .expect("a peer binding is built from shared memory")
+    }
+
+    /// The buffer on its own device, which keeps the memory in place.
+    pub fn into_binding(self) -> BufferBinding {
+        self.binding
+    }
+
+    /// The device address of the bound bytes, offsets applied.
+    pub fn address(&self) -> u64 {
+        self.address
+    }
+
+    /// The bytes bound.
+    pub fn size(&self) -> u64 {
+        self.binding.size_in_used()
+    }
 }
 
 /// A buffer binding represents a [Handle] that is bound to managed memory.
@@ -205,6 +373,8 @@ pub struct BufferBinding {
     pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
     pub size: u64,
+    /// See [`Handle::peer`].
+    pub peer: Option<PeerMemory>,
 }
 
 /// A [`BufferBinding`] that does not keep its memory reserved: what a record
@@ -231,6 +401,7 @@ impl WeakBufferBinding {
             offset_end: self.offset_end,
             stream: self.stream,
             size: self.size,
+            peer: None,
         })
     }
 }

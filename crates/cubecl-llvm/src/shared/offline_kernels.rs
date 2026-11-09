@@ -104,6 +104,109 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
     )
 }
 
+/// [`keep_largest`] repeated by a loop of 256 turns, whose counter indexes nothing.
+// Cube code indexes: it has no iterators to lower.
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn keep_largest_rounds(input: &[f32], output: &mut [f32], #[comptime] k: usize) {
+    let mut largest = Array::<f32>::new(k);
+    #[unroll]
+    for i in 0..k {
+        largest[i] = f32::min_value();
+    }
+    for _ in 0..256u32 {
+        for r in 0..input.len() {
+            let mut candidate = input[r];
+            for j in 0..k {
+                let keep = largest[j] > candidate;
+                let displaced = select(keep, candidate, largest[j]);
+                largest[j] = select(keep, largest[j], candidate);
+                candidate = displaced;
+            }
+        }
+    }
+    #[unroll]
+    for i in 0..k {
+        output[i] = largest[i];
+    }
+}
+
+pub(crate) fn keep_largest_rounds_kernel(k: usize) -> impl CubeKernel {
+    keep_largest_rounds::KeepLargestRounds::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        k,
+    )
+}
+
+fn walk_settings() -> KernelSettings {
+    KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    )
+}
+
+/// A sum carried through a loop of 256 turns around a walk of a local array: the outer loop
+/// carries a value its inner counter does not depend on.
+// Cube code indexes: it has no iterators to lower.
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
+    let mut values = Array::<f32>::new(64usize);
+    #[unroll]
+    for i in 0..64usize {
+        values[i] = input[i];
+    }
+    let mut sum = 0.0f32;
+    for _ in 0..256u32 {
+        for j in 0..64usize {
+            sum += values[j];
+        }
+    }
+    output[UNIT_POS as usize] = sum;
+}
+
+pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
+    carried_sum_around_walk::CarriedSumAroundWalk::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// Fills a local array with a counter kept in a variable, so the index is carried from turn to
+/// turn rather than being the loop's own counter.
+#[allow(
+    clippy::explicit_counter_loop,
+    reason = "Exercise a loop-carried counter separate from the loop index"
+)]
+#[cube(launch)]
+fn counted_walk(input: &[f32], output: &mut [f32]) {
+    let mut values = Array::<f32>::new(256usize);
+    let mut count = 0usize;
+    for _ in 0..256u32 {
+        values[count] = input[count];
+        count += 1;
+    }
+    output[UNIT_POS as usize] = values[0usize] + values[255usize];
+}
+
+pub(crate) fn counted_walk_kernel() -> impl CubeKernel {
+    counted_walk::CountedWalk::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// How a cube waits for its turn on a relay's counter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Wait {
@@ -222,6 +325,30 @@ pub(crate) fn e4m3_decode_kernel() -> impl CubeKernel {
 fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
     output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
     tally[0].fetch_add(1u32);
+}
+
+/// [`tally`] counting into a `Peer` buffer, which kernels on other devices reach while it runs.
+#[cube(launch)]
+fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
+    output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
+    sync_system();
+    tally[0].fetch_add(1u32);
+}
+
+pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    peer_tally::PeerTally::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        PeerCompilationArg,
+    )
 }
 
 pub(crate) fn tally_kernel() -> impl CubeKernel {
@@ -862,6 +989,44 @@ pub(crate) fn mismatched_mma_kernel() -> impl CubeKernel {
             AddressType::U32,
         ),
         tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A manual `f16` `mma` repeated by a loop of 256 turns, whose registers sit in local arrays
+/// at constant indices.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn mma_rounds(output: &mut [f32]) {
+    let def = cmma::MmaDefinition::<f16, f16, f32>::new(16usize, 8usize, 16usize);
+    let mut registers_a = Array::<Vector<f16, Const<2>>>::new(4usize);
+    let mut registers_b = Array::<Vector<f16, Const<2>>>::new(2usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = Vector::new(f16::from_int(1));
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = Vector::new(f16::from_int(1));
+        registers_c[i] = Vector::new(0.0);
+    }
+    for _ in 0..256u32 {
+        let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+        #[unroll]
+        for i in 0..2usize {
+            registers_c[i] = registers_d[i];
+        }
+    }
+    output[UNIT_POS as usize] = registers_c[0usize].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn mma_rounds_kernel() -> impl CubeKernel {
+    mma_rounds::MmaRounds::new(
+        walk_settings(),
+        device_properties(32),
         Arc::new(TargetProperties::default()),
         BufferCompilationArg { inplace: None },
     )

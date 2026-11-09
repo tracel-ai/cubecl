@@ -19,8 +19,8 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
     #[comptime] config: RegisterBlock,
     #[comptime] semiring: Semiring,
 ) {
-    let matrices = comptime!(problem.block.matrices());
-    let batch_extents = comptime!(problem.block.batch_extents());
+    let matrices = problem.block.matrices();
+    let batch_extents = problem.block.batch_extents();
 
     let lhs_view = lhs.nd_packed::<EL, L>(comptime!(Guard::Checked));
     let rhs_view = rhs.nd_packed::<ER, V>(comptime!(Guard::Checked));
@@ -28,7 +28,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
     let lhs_check = comptime!(lhs_view.check);
     let rhs_check = comptime!(rhs_view.check);
 
-    let eligible = comptime!(problem.block.scalars() <= config.budget);
+    let eligible = problem.block.scalars() <= config.budget;
     // A clamp guard can't be retired by the corner check; see `Tile::guard_provable`.
     let lhs_provable = lhs.guard_provable();
     let rhs_provable = rhs.guard_provable();
@@ -38,31 +38,23 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
         problem.block.spread,
         problem.block.cols
     ));
-    let split_operands = comptime!(
-        config.split_edge && eligible && provable && !spread_overhang && (lhs_check || rhs_check)
-    );
+    let split_operands =
+        config.split_edge && eligible && provable && !spread_overhang && (lhs_check || rhs_check);
     let operands_inside = if comptime!(split_operands) {
-        box_in_bounds::<EL, L>(
-            &lhs_view,
-            comptime!(problem.lhs_space.clone()),
-            comptime!(problem.block.lw),
-        ) && box_in_bounds::<ER, V>(
-            &rhs_view,
-            comptime!(problem.rhs_space.clone()),
-            comptime!(problem.block.vw),
-        )
+        box_in_bounds::<EL, L>(&lhs_view, &problem.lhs_space, problem.block.lw)
+            && box_in_bounds::<ER, V>(&rhs_view, &problem.rhs_space, problem.block.vw)
     } else {
         comptime!(false).runtime()
     };
 
     for mat in 0..matrices {
-        let batch = Coords::constant(comptime!(batch_extents.clone())).unravel(mat.cast::<u32>());
+        let batch = Coords::constant(batch_extents.clone()).unravel(mat.cast::<u32>());
 
         let mut acc = acc.matrix_accumulate::<E, A>(
             mat,
-            comptime!(problem.block.acc_axes),
-            comptime!(problem.block.space.clone()),
-            comptime!(semiring.add()),
+            problem.block.acc_axes,
+            &problem.block.space,
+            semiring.add(),
         );
 
         let acc_check = acc.check();
@@ -78,7 +70,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
                     &rhs.nd_packed::<ER, V>(comptime!(Guard::Proved)),
                     &mut acc,
                     &batch,
-                    comptime!(problem.clone()),
+                    problem.clone(),
                     config,
                     comptime!(true),
                     semiring,
@@ -89,7 +81,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
                     &rhs_view,
                     &mut acc,
                     &batch,
-                    comptime!(problem.clone()),
+                    problem.clone(),
                     config,
                     comptime!(false),
                     semiring,
@@ -101,7 +93,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
                 &rhs_view,
                 &mut acc,
                 &batch,
-                comptime!(problem.clone()),
+                problem.clone(),
                 config,
                 unroll,
                 semiring,
@@ -116,11 +108,11 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
 #[allow(clippy::needless_range_loop)]
 fn box_in_bounds<T: Numeric, W: Size>(
     view: &Masked<'_, Vector<T, W>, CoordsDyn>,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] width: usize,
 ) -> bool {
-    let rank = comptime!(space.rank());
-    let extents = comptime!(crate::line_extents(&space, width, 0, rank));
+    let rank = space.rank();
+    let extents = comptime!(crate::line_extents(space, width, 0, rank));
 
     let mut near = CoordsDyn::new();
     let mut far = CoordsDyn::new();
@@ -135,7 +127,6 @@ fn box_in_bounds<T: Numeric, W: Size>(
 
 /// The `K` walk over one batch matrix: seed the block, sum `kc` rank-1 updates, commit it back.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     lhs_view: &Masked<'_, Vector<EL, L>, CoordsDyn>,
     rhs_view: &Masked<'_, Vector<ER, V>, CoordsDyn>,
@@ -147,18 +138,18 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     #[comptime] semiring: Semiring,
 ) {
     // Comptime locals: `#[unroll(flag)]` and `0..n` bounds silently roll otherwise.
-    let mr = comptime!(problem.block.mr);
-    let nr = comptime!(problem.block.nr);
-    let cols = comptime!(problem.block.cols);
-    let contracted_per_step = comptime!(problem.block.contracted_per_step);
-    let spread = comptime!(problem.block.spread);
-    let aw = comptime!(problem.block.aw);
-    let lw = comptime!(problem.block.lw);
-    let kc = comptime!(problem.block.kc);
+    let mr = problem.block.mr;
+    let nr = problem.block.nr;
+    let cols = problem.block.cols;
+    let contracted_per_step = problem.block.contracted_per_step;
+    let spread = problem.block.spread;
+    let aw = problem.block.aw;
+    let lw = problem.block.lw;
+    let kc = problem.block.kc;
 
     // The last physical line can be partial, so keep a short tail.
-    let k_lines = comptime!(kc / lw);
-    let k_tail = comptime!(kc % lw);
+    let k_lines = kc / lw;
+    let k_tail = kc % lw;
     // A col-lined lhs has no `K` component to extract, so the fan-out buys nothing.
     let component_fanout = comptime!(
         config.component_fanout
@@ -180,8 +171,8 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     // One rhs line per column, reused by every row; allocated once for the whole K walk.
     let mut b = Array::<Vector<E, V>>::new(comptime!(nr));
 
-    if comptime!(contracted_per_step > 1) {
-        for step in 0..comptime!(kc / contracted_per_step) {
+    if contracted_per_step > 1 {
+        for step in 0..(kc / contracted_per_step) {
             rank1_update::<E, EL, L, ER, V>(
                 lhs_view,
                 rhs_view,
@@ -191,11 +182,11 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
                 step * comptime!(contracted_per_step),
                 comptime!(None),
                 unroll,
-                comptime!(problem.clone()),
+                problem.clone(),
                 semiring,
             );
         }
-    } else if comptime!(component_fanout && lw > 1) {
+    } else if component_fanout && lw > 1 {
         for line in 0..k_lines {
             #[unroll]
             for unit in 0..lw {
@@ -208,7 +199,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
                     line * lw + unit,
                     comptime!(Some(unit)),
                     unroll,
-                    comptime!(problem.clone()),
+                    problem.clone(),
                     semiring,
                 );
             }
@@ -221,10 +212,10 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
                 &mut c,
                 &mut b,
                 batch,
-                comptime!(k_lines * lw + unit),
+                k_lines * lw + unit,
                 comptime!(Some(unit)),
                 unroll,
-                comptime!(problem.clone()),
+                problem.clone(),
                 semiring,
             );
         }
@@ -233,7 +224,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
         // A small register block can still contract a large filter (e.g. a depthwise weight
         // gradient). Bound tap expansion separately while keeping the cells in registers.
         // See https://github.com/tracel-ai/burn/issues/6054.
-        let unroll_taps = comptime!(unroll && kc <= config.budget);
+        let unroll_taps = unroll && kc <= config.budget;
         #[unroll(unroll_taps)]
         for p in 0..kc {
             rank1_update::<E, EL, L, ER, V>(
@@ -245,7 +236,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
                 p,
                 comptime!(None),
                 unroll,
-                comptime!(problem.clone()),
+                problem.clone(),
                 semiring,
             );
         }
@@ -267,7 +258,6 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
 /// One gathered rank-1 update, each read hoisted to the coarsest cell its operand is invariant
 /// over. `unit` is the fixed component to extract; `None` resolves it from `reduce_coords`.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
     lhs_view: &Masked<'_, Vector<EL, L>, CoordsDyn>,
     rhs_view: &Masked<'_, Vector<ER, V>, CoordsDyn>,
@@ -280,14 +270,14 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
     #[comptime] problem: GatherProblem,
     #[comptime] semiring: Semiring,
 ) {
-    let mr = comptime!(problem.block.mr);
-    let nr = comptime!(problem.block.nr);
-    let contracted_per_step = comptime!(problem.block.contracted_per_step);
-    let lw = comptime!(problem.block.lw);
+    let mr = problem.block.mr;
+    let nr = problem.block.nr;
+    let contracted_per_step = problem.block.contracted_per_step;
+    let lw = problem.block.lw;
     let reduce_coords =
-        Coords::constant(comptime!(problem.block.reduce_extents.clone())).unravel(p.cast::<u32>());
+        Coords::constant(problem.block.reduce_extents.clone()).unravel(p.cast::<u32>());
 
-    let k_axis_idx = comptime!(problem.block.reduce.len() - 1);
+    let k_axis_idx = problem.block.reduce.len() - 1;
     if comptime!(problem.rhs == RhsRole::FreeOfRow) {
         #[unroll(unroll)]
         for n in 0..nr {
@@ -297,9 +287,9 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                 0u32,
                 n as u32,
                 &reduce_coords,
-                comptime!(problem.rhs_space.clone()),
-                comptime!(problem.clone()),
-                comptime!(problem.block.vw),
+                &problem.rhs_space,
+                problem.clone(),
+                problem.block.vw,
             ));
         }
     }
@@ -315,8 +305,8 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                 i as u32,
                 0u32,
                 &reduce_coords,
-                comptime!(problem.lhs_space.clone()),
-                comptime!(problem.clone()),
+                &problem.lhs_space,
+                problem.clone(),
                 lw,
             );
             a_row = line_component::<E, EL, L, V>(
@@ -336,9 +326,9 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                 i as u32,
                 0u32,
                 &reduce_coords,
-                comptime!(problem.rhs_space.clone()),
-                comptime!(problem.clone()),
-                comptime!(problem.block.vw),
+                &problem.rhs_space,
+                problem.clone(),
+                problem.block.vw,
             ));
         }
         #[unroll(unroll)]
@@ -351,8 +341,8 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                     i as u32,
                     n as u32,
                     &reduce_coords,
-                    comptime!(problem.lhs_space.clone()),
-                    comptime!(problem.clone()),
+                    &problem.lhs_space,
+                    problem.clone(),
                     lw,
                 );
                 if comptime!(problem.lhs == LhsRole::LinedAlongColumn) {
@@ -381,9 +371,9 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                     i as u32,
                     n as u32,
                     &reduce_coords,
-                    comptime!(problem.rhs_space.clone()),
-                    comptime!(problem.clone()),
-                    comptime!(problem.block.vw),
+                    &problem.rhs_space,
+                    problem.clone(),
+                    problem.block.vw,
                 ))
             };
             // One semiring step, for the reason [`registers::rank1_update`] gives.
@@ -402,11 +392,11 @@ fn line_component<E: Numeric, EL: Numeric, L: Size, V: Size>(
     #[comptime] lw: usize,
     #[comptime] k_axis_idx: usize,
 ) -> Vector<E, V> {
-    if comptime!(contracted_per_step > 1) {
+    if contracted_per_step > 1 {
         Vector::<E, V>::cast_from(line)
-    } else if comptime!(unit.is_some()) {
-        Vector::<E, V>::cast_from(line.extract(comptime!(unit.unwrap())))
-    } else if comptime!(lw == 1) {
+    } else if unit.is_some() {
+        Vector::<E, V>::cast_from(line.extract(unit.unwrap()))
+    } else if lw == 1 {
         Vector::<E, V>::cast_from(line.extract(0usize))
     } else {
         let last_k = reduce_coords.at(comptime!(k_axis_idx));

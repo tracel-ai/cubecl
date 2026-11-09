@@ -47,7 +47,11 @@ metal_op!(PrintfOp, |op, ctx| {
 
 metal_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
-        SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_threadgroup);\n",
+        // The device flag is what makes the barrier order threadgroup memory too: measured on an
+        // M2, with `mem_threadgroup` alone a unit's second store before the barrier sometimes
+        // still had not reached the plane's other units after it, and seq_cst fences at simdgroup
+        // or threadgroup scope around it did not change that.
+        SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n",
         SyncScope::Cube => "threadgroup_barrier(mem_flags::mem_threadgroup);\n",
         // Three instructions, each measured on an M2 to be doing something. The barrier is the
         // cube's half, and on its own it leaves one threadgroup's writes unseen by the next. The
@@ -57,7 +61,8 @@ metal_op!(SyncOp, |op, ctx| {
         // more `threadgroup_barrier` in front of it did. So the release is stated before the
         // cube meets and the acquire after, and the barrier between them is what makes both the
         // whole cube's. `atomic_thread_fence` is MSL 3.2, the version this backend compiles at.
-        SyncScope::Device => {
+        // No memory is shared with another device, so the system is the device.
+        SyncScope::Device | SyncScope::System => {
             "atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);\n\
              threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n\
              atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);\n"

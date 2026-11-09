@@ -35,13 +35,13 @@ const BLOCK: [usize; 3] = [2, 2, 4];
 /// `c += a · b`, every unit of the launch its block.
 #[cube(launch)]
 fn launch_unit_matmul<O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &O::Arg<f32>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for unit in &space {
         let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
         let sum = c_unit.accumulator::<f32>(
@@ -58,6 +58,7 @@ fn launch_unit_matmul<O: Destination>(
         }
         sum.drained_into(&c_unit);
     }
+    O::finish::<f32>(out);
 }
 
 /// How many tiles every unit of the launch walks, at the unit's place in the launch.
@@ -187,13 +188,13 @@ fn run(problem: Problem, cube: UnitCube, reversed: &[Axis], form: Form<'_>) -> O
         .axes(&[B, M, N])
         .build()
         .unwrap();
-    let a_arg = TileArgLaunch::new(
+    let a_arg = TileTensorLaunch::new(
         a_handle.binding().into_tensor_arg(),
         dtype,
         1,
         TileSpec::direct(&[M, K]).boundary(policy),
     );
-    let b_arg = TileArgLaunch::new(
+    let b_arg = TileTensorLaunch::new(
         b_handle.binding().into_tensor_arg(),
         dtype,
         1,

@@ -74,7 +74,7 @@ pub trait Iterable: Sized {
 /// the whole loop machinery once per loop written anywhere — thousands of
 /// near-identical copies in a kernel-heavy crate. So this is a shim: it erases
 /// the body to a trait object straight away and hands off to
-/// [`for_expand_dyn`], which expands once per iterable. Expansion runs on the
+/// `for_expand_dyn`, which expands once per iterable. Expansion runs on the
 /// host while building a kernel, never on the device, so the indirection costs
 /// nothing that reaches the GPU.
 pub fn for_expand<I: Iterable>(

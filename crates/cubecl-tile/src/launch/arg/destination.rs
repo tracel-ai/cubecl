@@ -4,8 +4,8 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileArg, TileArgLaunch, kind::Write,
-    launch::Unbound,
+    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileTensor, TileTensorLaunch,
+    kind::Write, launch::Unbound,
 };
 
 /// Which launch argument carries a kernel's output and how the kernel serves it as a [`Tile`].
@@ -17,6 +17,14 @@ pub trait Destination: Send + Sync + 'static {
     /// Serve the argument as a [`Tile`] under the kernel's one `partitioning`, stored in lines of
     /// `V` where the argument does not state its own width.
     fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile;
+
+    /// The closing counterpart of [`tile`](Self::tile). Every unit of every launched cube calls it
+    /// once, in uniform control flow, after its last use of the tile and with no unit having
+    /// exited, so a destination may synchronize the cube and use plane operations here. Stores
+    /// made through the tile are issued but not known to be visible to any other unit; making them
+    /// visible is the destination's job where it needs it. A TMA store has only been read out of
+    /// shared memory: its global writes are not known to be complete here.
+    fn finish<E: Numeric>(arg: &Self::Arg<E>);
 }
 
 /// [`Destination`]'s host half: how what the launch built becomes the argument.
@@ -60,6 +68,8 @@ impl Destination for Buffered {
     fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         arg.tile(partitioning)
     }
+
+    fn finish<E: Numeric>(_arg: &Self::Arg<E>) {}
 }
 
 /// [`Write::Replace`] binds an [`Output::Tensor`], [`Write::Accumulate`] an [`Output::Atomic`].
@@ -71,8 +81,8 @@ impl DestinationLaunch for Buffered {
             Write::Replace => bound.output(),
             Write::Accumulate => bound.atomic(),
             Write::Exclusive(_) => panic!(
-                "Buffered: a relayed output is opened in the kernel with `TileArg::relay`, which \
-                 takes its turn counters beside it; bind the carry as a plain `TileArg`"
+                "Buffered: a relayed output is opened in the kernel with `TileTensor::relay`, \
+                 which takes its turn counters beside it; bind the carry as a plain `TileTensor`"
             ),
         }
     }
@@ -86,17 +96,19 @@ pub struct TmaStored;
 
 #[cube]
 impl Destination for TmaStored {
-    type Arg<E: Numeric> = TileArg<'static>;
+    type Arg<E: Numeric> = TileTensor<'static>;
 
     fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         arg.tile(partitioning)
     }
+
+    fn finish<E: Numeric>(_arg: &Self::Arg<E>) {}
 }
 
 impl DestinationLaunch for TmaStored {
-    type Operand = TileArgLaunch;
+    type Operand = TileTensorLaunch;
 
-    fn arg<E: Numeric>(operand: TileArgLaunch) -> TileArgLaunch {
+    fn arg<E: Numeric>(operand: TileTensorLaunch) -> TileTensorLaunch {
         operand
     }
 }

@@ -1,5 +1,5 @@
-//! A table of `u32` entries an operand carries ([`TileArgLaunch::indexed`]), read where its window
-//! is cut: each row's expert, each tile's group, each group's run of rows.
+//! A table of `u32` entries an operand carries ([`TileTensorLaunch::indexed`]), read where its
+//! window is cut: each row's expert, each tile's group, each group's run of rows.
 //!
 //! The table's dims are its key axes, in order: it holds one entry per tile of the first level of
 //! the nest that cuts them, the same entry a kernel would read off `region.coord(key)` itself.
@@ -15,7 +15,7 @@ use crate::stage::pipeline::payload::base::StageOperand;
 use crate::*;
 
 /// What an operand's table entry places. The table's own dims are its keys
-/// ([`TileArgLaunch::indexed`]).
+/// ([`TileTensorLaunch::indexed`]).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Indexing {
     /// The entry is the operand's coordinate along `axis`, which no level may cut: each row's
@@ -158,7 +158,7 @@ pub(crate) struct IndexTable {
 #[cube]
 impl IndexTable {
     /// `table`, its dims the `keys`, placing as `indexing` says.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn new(
         table: &Tensor<u32>,
         #[comptime] keys: Vec<Axis>,
@@ -166,7 +166,7 @@ impl IndexTable {
     ) -> IndexTable {
         let mut strides = Coords::<u32>::new();
         #[unroll]
-        for i in 0..comptime!(keys.len()) {
+        for i in 0..keys.len() {
             strides.push(table.stride(i) as u32);
         }
         IndexTable {
@@ -244,14 +244,14 @@ impl Tile {
     }
 
     /// This tile with `table` to read where a step cuts its keys.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn with_index(self, _table: IndexTable) -> Tile {
         cubecl::unexpanded!()
     }
 
     /// This tile with its table read at its first entry: what a table whose keys no level cuts
     /// holds, the keys being one tile.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn indexed_whole(self) -> Tile {
         cubecl::unexpanded!()
     }
@@ -433,13 +433,13 @@ fn with_extent(space: &Space, #[comptime] p: usize, extent: usize) -> Space {
     let mut sizes = Sequence::<usize>::new();
     #[unroll]
     for i in 0..comptime!(space.rank()) {
-        if comptime!(i == p) {
+        if i == p {
             sizes.push(extent);
         } else {
             sizes.push(space.runtime_extent_at(i));
         }
     }
-    Space::with_sizes(comptime!(space.clone()), sizes)
+    Space::with_sizes(&comptime!(space.clone()), sizes)
 }
 
 impl TileExpand {

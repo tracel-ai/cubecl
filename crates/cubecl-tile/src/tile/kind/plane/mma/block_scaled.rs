@@ -59,12 +59,7 @@ pub(crate) fn block_scaled_definition<CD: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> MmaDefinition<LhsCodes, RhsCodes, CD> {
-    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(
-        m,
-        n,
-        k,
-        comptime!(k / form.block),
-    )
+    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(m, n, k, k / form.block)
 }
 
 /// Refuses `src`, loaded into a fragment of `T` in role `ident`, as an operand of the device's
@@ -254,7 +249,6 @@ fn offers_block_scaled(
 /// load each, straight into the register; scales stored one to a value are read and narrowed one
 /// at a time.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     src: &Tile,
     values: &mut Array<Vector<C, NV>>,
@@ -364,18 +358,18 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
         // The step's scales as the operand stores them: one word, the register itself
         // (`assert_block_scaled` holds a word to a step's scales).
         let at = TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, axes, 1usize);
-        let word = factor.word_at(&at, comptime!(space.clone()));
+        let word = factor.word_at(&at, space.clone());
         scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
     } else {
         let mut register = Vector::<BlockScale, NS>::empty();
         #[unroll]
-        for b in 0..comptime!(k / form.block) {
+        for b in 0..(k / form.block) {
             // The window's rows are the served axis whichever its layout: an `A`'s rows, a
             // `B`'s columns lying col-major.
             let along_k = comptime!((b * form.block) as u32);
             let at =
                 TileMatrix::value_coords(served, along_k.runtime(), 0usize, &space, axes, 1usize);
-            let scale = factor.at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked));
+            let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
             register.insert(b, BlockScale::cast_from(scale));
         }
         scales[0] = register;
@@ -393,7 +387,6 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
 /// The address is the window's own arrangement of the row ([`Masked::line_slice`]), so a swizzled
 /// stage is read where its fill wrote it.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     src: &Tile,
     words: &Masked<'_, Vector<u32, WP>, CoordsDyn>,
@@ -408,7 +401,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
 ) {
     let space = comptime!(src.place.space.clone());
     let load = src.vector_tile();
-    let rank = comptime!(space.rank());
+    let rank = space.rank();
     // An element of the register holds `per_element` codes, an `e2m1x2` two; a register is one
     // word.
     let per_register = def.vector_size(ident);
@@ -470,14 +463,14 @@ fn loads_words_as_matrix() -> comptime_type!(bool) {
 }
 
 /// `acc += lhs · rhs` over two block-scaled operand fragments via
-/// `MmaDefinition::execute_scaled`.
+/// `MmaDefinition::execute_scaled`, each fragment's registers named at the elements it holds
+/// ([`MmaFragment::LhsBlockScaled`]).
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn mma_execute_block_scaled<A: Numeric>(
-    lhs: &Array<Vector<LhsCodes, NLB>>,
-    lhs_scales: &Array<Vector<BlockScale, NSB>>,
-    rhs: &Array<Vector<RhsCodes, NRB>>,
-    rhs_scales: &Array<Vector<BlockScale, NSB>>,
+    lhs: &Raw<Registers<NLB>>,
+    lhs_scales: &Raw<Registers<NSB>>,
+    rhs: &Raw<Registers<NRB>>,
+    rhs_scales: &Raw<Registers<NSB>>,
     acc: &mut Array<Vector<A, NA>>,
     #[comptime] form: BlockScaledOperands,
     #[comptime] m: usize,
@@ -486,7 +479,13 @@ pub(crate) fn mma_execute_block_scaled<A: Numeric>(
 ) {
     register_block_scaled_elements(form);
     let def = block_scaled_definition::<A>(form, m, n, k);
-    let out = def.execute_scaled(lhs, rhs, &*acc, lhs_scales[0], rhs_scales[0]);
+    let out = def.execute_scaled(
+        lhs.at::<LhsCodes>(),
+        rhs.at::<RhsCodes>(),
+        &*acc,
+        lhs_scales.at::<BlockScale>()[0],
+        rhs_scales.at::<BlockScale>()[0],
+    );
     let num = def.vectors_per_lane(MatrixIdent::Accumulator);
     #[unroll]
     for i in 0..num {

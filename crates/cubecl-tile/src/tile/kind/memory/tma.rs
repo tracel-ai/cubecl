@@ -30,7 +30,7 @@ pub(crate) struct TmaData {
     /// How the values sit in the cells the descriptor moves.
     #[cube(comptime)]
     pub(crate) packing: Packing,
-    /// The cells a line of a stage it fills holds ([`TileArgLaunch::served_wide`]).
+    /// The cells a line of a stage it fills holds ([`TileTensorLaunch::served_wide`]).
     #[cube(comptime)]
     pub(crate) width: usize,
 }
@@ -146,7 +146,7 @@ impl TmaData {
     /// Window down to `step`: advance the global box origin by each axis's tile offset.
     // The layout is `Copy`, but its expand is an `Arc` that the expansion moves: clone it.
     #[allow(clippy::clone_on_copy)]
-    pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> TmaData {
+    pub(crate) fn at(&self, step: &Step, #[comptime] space: &Space) -> TmaData {
         let mut pos = CoordsDyn::new();
 
         #[unroll]

@@ -1,5 +1,5 @@
 //! A box the TMA engine loads through a descriptor whose dims are not the tile's own axes
-//! ([`TileArgLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split axes
+//! ([`TileTensorLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split axes
 //! `(M, KB, KI)` a packed product states its float input over, the descriptor over the matrix as
 //! it lies, each position landing at the column `KB · block + KI`. Each cube lands its box in
 //! shared memory and copies it out over the same axes.
@@ -24,7 +24,7 @@ const BLOCK: usize = 16;
 const BOX: (usize, usize) = (16, 2);
 
 #[cube(launch)]
-fn load_by_tma(input: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn load_by_tma(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
     let dst = out.tile(&space);
     for cube in &space {
@@ -98,7 +98,7 @@ fn a_block_split_box_lands_through_a_folded_descriptor() {
             vec![TmaTerm::axis(1).times(BLOCK as u32), TmaTerm::axis(2)],
         ],
     };
-    let src = TileArgLaunch::tensor_map_folded(
+    let src = TileTensorLaunch::tensor_map_folded(
         map,
         &[M, KB, KI],
         &[ROWS as u32, blocks as u32, BLOCK as u32],

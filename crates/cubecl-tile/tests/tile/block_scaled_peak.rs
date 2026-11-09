@@ -26,7 +26,7 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
     Axis, BlockScaledOperands, Instruction, Level, Levels, MmaOperands, Partitioning, Projection,
-    Semiring, Space, StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field,
+    Semiring, Space, StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
     layout::PhysicalAxisMap, ops::matmul::MmaIo,
 };
 
@@ -68,13 +68,12 @@ enum ScaleForm {
 
 /// `c = repeats · (a ⊗ sa) · (b ⊗ sb)` per cube, over one stage contracted `repeats` times.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn block_scaled_peak<E: Numeric>(
-    a: &TileArg<'_>,
-    a_scales: &TileArg<'_>,
-    b: &TileArg<'_>,
-    b_scales: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    a_scales: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    b_scales: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -121,11 +120,10 @@ fn block_scaled_peak<E: Numeric>(
 /// `c = repeats · a · bᵀ` per cube at `f16`, the same walk through the plain manual-mma
 /// instruction.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn float_peak(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -319,11 +317,11 @@ fn launch_nvfp4(
         client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(upload_codes(&operands.a_codes, m), words, 1, values(M)),
-        TileArgLaunch::new(upload_scales(&operands.a_scales, m), words, 1, scales(M)),
-        TileArgLaunch::new(upload_codes(&operands.b_codes, n), words, 1, values(N)),
-        TileArgLaunch::new(upload_scales(&operands.b_scales, n), words, 1, scales(N)),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(upload_codes(&operands.a_codes, m), words, 1, values(M)),
+        TileTensorLaunch::new(upload_scales(&operands.a_scales, m), words, 1, scales(M)),
+        TileTensorLaunch::new(upload_codes(&operands.b_codes, n), words, 1, values(N)),
+        TileTensorLaunch::new(upload_scales(&operands.b_scales, n), words, 1, scales(N)),
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             element,
             1,
@@ -363,9 +361,9 @@ fn launch_f16(
         client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(tensor(zeros(m), m, k), element, 1, rows(M)),
-        TileArgLaunch::new(tensor(zeros(n), n, k), element, 1, rows(N)),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(tensor(zeros(m), m, k), element, 1, rows(M)),
+        TileTensorLaunch::new(tensor(zeros(n), n, k), element, 1, rows(N)),
+        TileTensorLaunch::new(
             c.binding().into_tensor_arg(),
             f32::elem_type_native(),
             1,

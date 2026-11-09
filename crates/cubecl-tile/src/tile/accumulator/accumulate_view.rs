@@ -69,7 +69,7 @@ impl<'a, E: Numeric, V: Size, C: Coordinates + 'a> AccumulateView<'a, E, V, C> {
         #[comptime] monoid: Monoid,
         #[comptime] init_from: InitFrom,
     ) -> Self {
-        comptime!(write.admits(split_share, monoid, "AccumulateView"));
+        write.admits(split_share, monoid, "AccumulateView");
         AccumulateView::<'a, E, V, C> {
             values,
             units,

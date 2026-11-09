@@ -548,6 +548,13 @@ impl Expression {
             Expression::Reference { inner } => {
                 if let Some(as_const) = inner.as_const(context) {
                     quote![&#as_const]
+                } else if let Expression::FieldAccess { .. } = **inner {
+                    // A field of a cube type is either an expand value, whose reference is the
+                    // value itself, or a `#[cube(comptime)]` host value, which has no expand form:
+                    // a plain borrow is right for both, so `&self.place.space` reads a comptime
+                    // field without `comptime!(...clone())`.
+                    let inner = inner.to_tokens(context);
+                    quote![&#inner]
                 } else {
                     let inner = inner.to_tokens(context);
                     quote![#inner.__expand_ref_method(scope)]

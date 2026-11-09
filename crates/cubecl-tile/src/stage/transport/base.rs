@@ -125,7 +125,7 @@ impl Memory {
     /// Cooperative cyclic copy of `src` into `self`, whole lines at `self`'s width.
     /// The caller must `sync_cube`, or `sync_plane` for a stage a plane owns, between this fill
     /// and its readers.
-    pub(crate) fn fill_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: Space) {
+    pub(crate) fn fill_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: &Space) {
         let size!(W) = comptime!(self.store.vector_size);
         // A gathered stage records where it read from: nothing in the staged window says which
         // taps took the boundary value.
@@ -144,7 +144,7 @@ impl Memory {
                 packing: self.store.packing,
                 width: self.store.vector_size,
                 gathered: !self.projection.is_direct(),
-                overlaps: self.projection.composition() == Composition::Overlapping,
+                overlaps: self.projection.composition() != Composition::Disjoint,
                 masks: self.access.overhang.masks(),
                 addressed,
                 delivery: self.access.delivery,
@@ -153,20 +153,20 @@ impl Memory {
                 packing: src.store.packing,
                 width: src.store.vector_size,
                 gathered: !src.projection.is_direct(),
-                overlaps: src.projection.composition() == Composition::Overlapping,
+                overlaps: src.projection.composition() != Composition::Disjoint,
                 masks: src.access.overhang.masks(),
                 addressed: src_addressed,
                 delivery: src.access.delivery,
             },
             &self.access,
-            &space
+            space
         ));
         match comptime!(transport) {
             TransportKind::Packed => {
                 let size!(WP) = comptime!(self.store.packing.physical(self.store.vector_size));
-                self.fill_straight::<u32, WP>(src, comptime!(space.clone()));
+                self.fill_straight::<u32, WP>(src, space);
             }
-            TransportKind::Straight => self.fill_straight::<T, W>(src, comptime!(space.clone())),
+            TransportKind::Straight => self.fill_straight::<T, W>(src, space),
             TransportKind::Scanned(scan) => self.fill_scanned::<T, W>(src, comptime!(scan)),
         }
     }

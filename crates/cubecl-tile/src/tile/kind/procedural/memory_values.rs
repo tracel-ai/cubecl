@@ -49,7 +49,7 @@ impl MemoryValues {
     pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Sequence<u32>) -> T {
         let mut at = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(axes.len()) {
+        for p in 0..axes.len() {
             at.push(*coordinates.index(p));
         }
         self.read_at::<T>(axes, &at)
@@ -64,7 +64,10 @@ impl MemoryValues {
         let define!(Stored) = self.element;
         let logical = comptime!(self.memory.projection.logical_axes().to_vec());
         let mut position = Coords::<u32>::new();
-        #[allow(clippy::needless_range_loop)]
+        #[allow(
+            clippy::needless_range_loop,
+            reason = "an unrolled loop over a comptime range; `p` also reads the window's origin"
+        )]
         #[unroll]
         for p in 0..logical.len() {
             let axis = comptime!(logical[p]);

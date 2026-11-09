@@ -4,13 +4,8 @@
 //! narrower output through a cast, as a relay's last turn copies it.
 
 use super::{Form, implied};
-use crate::support::{HostData, HostDataType, StridedLayout, TestInput, ValidationResult};
-use cubecl::{
-    features::AtomicUsage,
-    ir::{ElemType, Type},
-    prelude::*,
-    zspace::shape,
-};
+use crate::support::{HostData, HostDataType, StridedLayout, TestInput, hands_off_between_cubes};
+use cubecl::{ir::ElemType, prelude::*, zspace::shape};
 use cubecl_tile::kind::Write;
 use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch};
 use cubecl_tile::*;
@@ -36,7 +31,7 @@ const PITCH: usize = 32;
 /// `out` written with `input`, as the destination's write says: replaced or added atomically.
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
-    input: &TileArg<'_>,
+    input: &TileTensor<'_>,
     out: &O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -44,11 +39,12 @@ fn store<E: Float, V: Size, O: Destination>(
     let src = input.tile(&space);
     let mut dst = O::tile::<E, V>(out, &space);
     dst.copy_from(&src);
+    O::finish::<E>(out);
 }
 
 /// `out` written with `input` cast to the output's element.
 #[cube(launch)]
-fn store_cast(input: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn store_cast(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
     let mut dst = out.tile(&space);
     dst.copy_cast_from(&src);
@@ -202,10 +198,10 @@ fn a_memory_window_lands_in_a_narrower_output_through_a_cast() {
 /// casts the sum into the `f16` output.
 #[cube(launch)]
 fn relayed_split_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    carry: &TileArg<'_>,
-    out: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    carry: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     turns: &[Atomic<u32>],
     space: Partitioning,
 ) {
@@ -235,23 +231,6 @@ fn relayed_split_matmul(
     relay.take();
     acc.drained_into(&c);
     relay.pass(&mut out);
-}
-
-/// Whether this device hands one cube's writes to another within a dispatch and stores and adds
-/// `u32`s atomically, the two things the relay needs; reported rather than silently passed.
-pub(super) fn relays(client: &cubecl::client::Client) -> bool {
-    let hands_off = client.properties().features.device_memory_scope;
-    let usage = client
-        .properties()
-        .atomic_type_usage(Type::atomic(ElemType::UInt(cubecl::ir::UIntKind::U32)));
-    let counts = usage.contains(AtomicUsage::LoadStore) && usage.contains(AtomicUsage::Add);
-    if !(hands_off && counts) {
-        ValidationResult::Skipped(
-            "device has no device-scope storage sync or no u32 atomic store and add".to_string(),
-        )
-        .enforce();
-    }
-    hands_off && counts
 }
 
 /// `a · b` over an `m × n` output of `8 × 8` boxes, `K` split across `splits` cubes a box, run
@@ -306,25 +285,25 @@ fn run_relayed_split(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,
                 TileSpec::direct(&[M, K]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,
                 TileSpec::direct(&[K, N]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 carry.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,
                 TileSpec::direct(&[M, N]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 out.clone().binding().into_tensor_arg(),
                 f16_ty,
                 1,
@@ -356,7 +335,7 @@ fn assert_relayed(got: &HostData, (m, n, k): (usize, usize, usize), what: &str) 
 #[test]
 fn a_relay_sums_every_run_of_a_split_contraction() {
     let client = cubecl::test_device().client();
-    if !relays(&client) {
+    if !hands_off_between_cubes(&client) {
         return;
     }
     let dims = (16usize, 16usize, 64usize);
@@ -372,7 +351,7 @@ fn a_relay_sums_every_run_of_a_split_contraction() {
 #[test]
 fn a_cube_whose_run_is_empty_takes_no_turn() {
     let client = cubecl::test_device().client();
-    if !relays(&client) {
+    if !hands_off_between_cubes(&client) {
         return;
     }
     let dims = (8usize, 16usize, 40usize);
@@ -385,7 +364,7 @@ fn a_cube_whose_run_is_empty_takes_no_turn() {
 #[test]
 fn a_relay_runs_again_on_the_counters_it_left() {
     let client = cubecl::test_device().client();
-    if !relays(&client) {
+    if !hands_off_between_cubes(&client) {
         return;
     }
     let dims = (16usize, 8usize, 32usize);

@@ -11,7 +11,7 @@ use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
     Axis, Delivery, Extent, Field, Geometry, Launcher, LineMisfit, Packing, Projection, Refusal,
-    Space, Storage, StoragePartitioning, TileArgLaunch, TileSpec, VectorTile,
+    Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
 };
 
 /// Typestate marker: the operand's axes are not yet stated.
@@ -270,9 +270,12 @@ impl<'a> Arg<'a, Labelled> {
         let stored_tiles = partitioning
             .as_ref()
             .map_or_else(Vec::new, |storage| storage.tiles().to_vec());
-        let tiles = partitioning
+        // A staggered buffer reads back as its dense statement: its strides say where a run ends.
+        let dense_run = geometry.dense_run();
+        let mut tiles = partitioning
             .map(|storage| storage.contiguous_tiles(&geometry.extents(&labels)))
             .unwrap_or_default();
+        tiles.retain(|tile| tile.iter().map(|&(_, extent)| extent).product::<usize>() <= dense_run);
         // Each level's window along the operand's axes, outermost first: the extent this launch
         // cuts it to, and whether the kernel hands it down dynamic. A level that cuts an axis gives
         // it its tile; one that does not passes the window above it down.
@@ -331,13 +334,13 @@ pub struct Bound {
 }
 
 impl Bound {
-    /// The operand as the kernel's [`TileArg`](crate::TileArg) launch argument.
-    pub fn arg(self) -> TileArgLaunch {
+    /// The operand as the kernel's [`TileTensor`](crate::TileTensor) launch argument.
+    pub fn arg(self) -> TileTensorLaunch {
         let width = self.bound_width();
         let (tensor, element) = self
             .tensor
             .expect("Bound::arg: this operand was built over geometry alone and has no tensor");
-        TileArgLaunch::new(tensor, element, width, self.spec)
+        TileTensorLaunch::new(tensor, element, width, self.spec)
     }
 
     /// The tensor argument itself; panics for an operand built over geometry alone.
