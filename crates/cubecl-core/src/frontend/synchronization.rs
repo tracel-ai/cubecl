@@ -115,20 +115,22 @@ pub mod sync_system {
     }
 }
 
-/// A memory fence of this unit at `scope`. Unlike the `sync_*` functions it is not a barrier: no
-/// unit waits for another, and it orders only this unit's own accesses, so it is valid in
-/// divergent code. A [`Release`](MemoryOrder::Release) before an atomic flag store and an
-/// [`Acquire`](MemoryOrder::Acquire) after the atomic flag load hand plain accesses off through
-/// the flag. At [`Unit`](SyncScope::Unit) scope it orders nothing, and WGSL and Metal refuse it.
-pub fn fence(order: MemoryOrder, scope: SyncScope) {
-    let _ = (order, scope);
+/// One unit's memory fence at `sync`: no barrier, so no unit waits for another and it is valid in
+/// divergent code. A hand-off through it needs an atomic flag whose access scope (see
+/// [`Atomic::load_at`] and [`Atomic::store_at`]) covers both units. At [`Unit`](SyncScope::Unit)
+/// scope it emits nothing.
+#[allow(unused_variables)]
+pub fn fence(order: MemoryOrder, sync: SyncScope) {
+    unexpanded!()
 }
 
 pub mod fence {
     use super::*;
 
     pub fn expand(scope: &Scope, order: MemoryOrder, sync: SyncScope) {
-        scope.register(&FenceOp::new(scope.ctx_mut(), order, sync));
+        if sync != SyncScope::Unit {
+            scope.register(&FenceOp::new(scope.ctx_mut(), order, sync));
+        }
     }
 }
 

@@ -239,24 +239,21 @@ fn a_peer_buffer_is_promised_nothing() {
 /// invalidation, both at system scope and with no barrier.
 #[test]
 fn a_unit_fence_is_a_cache_operation_without_a_barrier() {
+    let line_of = |asm: &str, op: &str| {
+        asm.lines()
+            .position(|line| line.contains(op) && line.contains("scope:SCOPE_SYS"))
+            .unwrap_or_else(|| panic!("{op} at system scope:\n{asm}"))
+    };
     let send = asm_of(fence_send_kernel(SyncScope::System), "gfx1201");
-    let write_back = send
-        .find("global_wb scope:SCOPE_SYS")
-        .unwrap_or_else(|| panic!("{send}"));
-    let flag = send
-        .lines()
-        .position(|line| line.contains("global_store_b32") && line.contains("scope:SCOPE_SYS"))
-        .unwrap_or_else(|| panic!("the flag store at system scope:\n{send}"));
-    let flag_at: usize = send.lines().take(flag).map(|line| line.len() + 1).sum();
-    assert!(
-        write_back < flag_at,
-        "the flag follows the release:\n{send}"
-    );
+    let write_back = line_of(&send, "global_wb");
+    let flag = line_of(&send, "global_store_b32");
+    assert!(write_back < flag, "the flag follows the release:\n{send}");
     assert!(!send.contains("s_barrier"), "{send}");
 
     let poll = asm_of(fence_poll_kernel(SyncScope::System), "gfx1201");
-    assert!(poll.contains("global_load_b32"), "{poll}");
-    assert!(poll.contains("global_inv scope:SCOPE_SYS"), "{poll}");
+    let load = line_of(&poll, "global_load_b32");
+    let invalidate = line_of(&poll, "global_inv");
+    assert!(load < invalidate, "the acquire follows the load:\n{poll}");
     assert!(!poll.contains("s_barrier"), "{poll}");
 }
 
@@ -285,11 +282,16 @@ fn a_unit_fence_lowers_to_the_syncscope_of_its_scope() {
             ),
         }
         let ir = module_of(fence_poll_kernel(sync), &GfxArch::parse("gfx1201")).ir;
-        if let Some(name) = name {
-            assert!(
+        match name {
+            Some(name) => assert!(
                 ir.contains(&format!("fence {name}acquire")),
                 "{sync:?}:\n{ir}"
-            );
+            ),
+            None => assert!(
+                !ir.lines()
+                    .any(|line| line.trim_start().starts_with("fence ")),
+                "{sync:?}:\n{ir}"
+            ),
         }
     }
 }

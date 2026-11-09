@@ -86,7 +86,7 @@ impl LowerOp for SyncAsyncProxyOp {
 }
 
 /// LLVM's `fence` at the target's name for the scope; a scope a target has no name for takes the
-/// next wider one it has. At unit scope there is nothing to order.
+/// next wider one it has.
 #[op_interface_impl]
 impl LowerOp for FenceOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
@@ -98,7 +98,7 @@ impl LowerOp for FenceOp {
         };
         let named = |name: &str| SyncScopeAttr::NamedScope(name.into());
         let sync_scope = match (ctx.target(), self.scope(ctx).0) {
-            (_, SyncScope::Unit) => return vec![],
+            (_, SyncScope::Unit) => unreachable!("a unit fence is dropped at expansion"),
             (_, SyncScope::System) | (LlvmTarget::Cpu, _) => SyncScopeAttr::System,
             #[cfg(feature = "amdgpu")]
             (LlvmTarget::AmdGpu, SyncScope::Plane) => named("wavefront"),

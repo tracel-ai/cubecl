@@ -9,23 +9,24 @@ use crate::{CustomCapabilitiesOp, ops::to_spirv_dialect::ToSpirvDialectOp};
 
 // A barrier at the device's memory scope needs the capability the Vulkan memory model gates that
 // scope behind, as a device-scope atomic does; nothing declares it for a kernel with no such atomic.
+fn memory_scope_capabilities(scope: Scope) -> Vec<Capability> {
+    match scope {
+        Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
+        _ => vec![],
+    }
+}
+
 #[op_interface_impl]
 impl CustomCapabilitiesOp for ControlBarrierOp {
     fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability> {
-        match self.get_attr_memory(ctx).0 {
-            Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
-            _ => vec![],
-        }
+        memory_scope_capabilities(self.get_attr_memory(ctx).0)
     }
 }
 
 #[op_interface_impl]
 impl CustomCapabilitiesOp for MemoryBarrierOp {
     fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability> {
-        match self.get_attr_memory(ctx).0 {
-            Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
-            _ => vec![],
-        }
+        memory_scope_capabilities(self.get_attr_memory(ctx).0)
     }
 }
 
@@ -105,19 +106,15 @@ impl ToSpirvDialectOp for FenceOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let sync = self.scope(ctx).0;
-        let scope = match sync {
-            SyncScope::Unit => {
-                rewriter.erase_operation(ctx, self.get_operation());
-                return Ok(());
-            }
+        let scope = match self.scope(ctx).0 {
             SyncScope::Plane => Scope::Subgroup,
             SyncScope::Cube => Scope::Workgroup,
             // No memory is shared with another device, so the system is the device.
             SyncScope::Device | SyncScope::System => Scope::Device,
+            SyncScope::Unit => unreachable!("a unit fence is dropped at expansion"),
         };
-        // Under the Vulkan memory model availability and visibility operations are what carry
-        // plain writes to another unit; SPIR-V allows each only with the matching order.
+        // Availability and visibility operations carry non-private accesses to another unit, as
+        // at a `SyncOp` of device scope; SPIR-V allows each only with the matching order.
         let order = match self.order(ctx).0 {
             MemoryOrder::Acquire => MemorySemantics::ACQUIRE | MemorySemantics::MAKE_VISIBLE,
             MemoryOrder::Release => MemorySemantics::RELEASE | MemorySemantics::MAKE_AVAILABLE,

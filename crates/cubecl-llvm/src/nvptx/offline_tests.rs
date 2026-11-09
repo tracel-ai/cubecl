@@ -772,7 +772,10 @@ fn a_unit_fence_is_a_system_fence_without_a_barrier() {
         .find("st.relaxed.sys.global")
         .unwrap_or_else(|| panic!("{send}"));
     assert!(fence < flag, "the flag follows the release:\n{send}");
-    assert!(!send.contains("bar.sync"), "{send}");
+    assert!(
+        !send.contains("bar.sync") && !send.contains("barrier.sync"),
+        "{send}"
+    );
 
     let poll = ptx_of(fence_poll_kernel(SyncScope::System), 80);
     let load = poll
@@ -782,7 +785,10 @@ fn a_unit_fence_is_a_system_fence_without_a_barrier() {
         .find("fence.acq_rel.sys")
         .unwrap_or_else(|| panic!("{poll}"));
     assert!(load < fence, "the acquire follows the load:\n{poll}");
-    assert!(!poll.contains("bar.sync"), "{poll}");
+    assert!(
+        !poll.contains("bar.sync") && !poll.contains("barrier.sync"),
+        "{poll}"
+    );
 }
 
 /// Each scope is the PTX fence of that scope, and a unit's own scope emits no fence.

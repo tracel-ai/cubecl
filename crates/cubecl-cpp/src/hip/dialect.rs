@@ -60,11 +60,11 @@ hip_op!(FenceOp, |op, ctx| {
         MemoryOrder::AcqRel => "__ATOMIC_ACQ_REL",
     };
     let scope = match op.scope(ctx).0 {
-        SyncScope::Unit => return String::new(),
         SyncScope::Plane => "wavefront",
         SyncScope::Cube => "workgroup",
         SyncScope::Device => "agent",
         SyncScope::System => "",
+        SyncScope::Unit => unreachable!("a unit fence is dropped at expansion"),
     };
     format!("__builtin_amdgcn_fence({order}, \"{scope}\");\n")
 });

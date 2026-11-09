@@ -392,9 +392,8 @@ fn fence_produce(data: &mut Peer<[u32]>, flag: &mut Peer<[Atomic<u32>]>, token: 
     flag[i].store(token);
 }
 
-/// Reads the data early into `early`, so the load cannot be hoisted or merged with the one after
-/// the fence, then spins on this unit's flag, acquires and reads what the producer unit wrote
-/// into `out`. `seen` tells a consumer that gave up from one that read stale data.
+/// Reads the data once before the flag into `early`, so only the acquire keeps the read after it
+/// from reusing that value. `seen` tells a consumer that gave up from one that read stale data.
 #[cube(launch)]
 fn fence_consume(
     data: &Peer<[u32]>,

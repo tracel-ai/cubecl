@@ -82,10 +82,10 @@ cuda_op!(SyncOp, |op, ctx| {
 // own accesses are ordered at the block's scope for the plane and the cube alike.
 cuda_op!(FenceOp, |op, ctx| {
     match op.scope(ctx).0 {
-        SyncScope::Unit => "",
         SyncScope::Plane | SyncScope::Cube => "__threadfence_block();\n",
         SyncScope::Device => "__threadfence();\n",
         SyncScope::System => "__threadfence_system();\n",
+        SyncScope::Unit => unreachable!("a unit fence is dropped at expansion"),
     }
     .into()
 });
