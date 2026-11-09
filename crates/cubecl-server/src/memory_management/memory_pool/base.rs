@@ -85,7 +85,7 @@ impl PageMapping {
 /// The methods that take a storage are for callers holding the pool's own
 /// type; the rest can be reached through `dyn MemoryPool`, which is how a
 /// location is resolved to whichever pool it names.
-pub(crate) trait MemoryPool {
+pub trait MemoryPool {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
 
@@ -230,7 +230,7 @@ pub(crate) trait MemoryPool {
 
 #[derive(Debug)]
 /// Slice of data with its associated storage.
-pub(crate) struct Slice {
+pub struct Slice {
     pub storage: StorageHandle,
     pub handle: ManagedMemoryHandle,
     pub padding: u64,
