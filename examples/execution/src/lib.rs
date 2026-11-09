@@ -54,7 +54,7 @@ fn scale<F: Float, N: Size>(
     for offset in 0..vectors_per_unit {
         let index = first + offset;
         if index < input.len() {
-            output[index] = input[index] * Vector::new(F::new(comptime!(factor as f32)));
+            output[index] = input[index] * Vector::new(F::new(comptime!(factor as f64)));
         }
     }
 }
@@ -319,7 +319,7 @@ impl std::fmt::Display for Summary {
         } = self.0;
         write!(
             f,
-            "kernels {}/{} ({} compiled, {} loaded, {} failed) · tunes {}/{} ({} measured, {} failed)",
+            "kernels {}/{} ({} compiled, {} loaded, {} failed) · tunes {}/{} ({} measured, {} loaded, {} failed)",
             compilation.settled(),
             compilation.registered,
             compilation.compiled,
@@ -328,6 +328,7 @@ impl std::fmt::Display for Summary {
             autotune.settled(),
             autotune.registered,
             autotune.measured,
+            autotune.loaded,
             autotune.failed,
         )
     }

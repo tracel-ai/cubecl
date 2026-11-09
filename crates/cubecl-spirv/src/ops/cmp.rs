@@ -43,9 +43,11 @@ impl crate::lower::LowerOp for cmp::FClampNanOp {
 
 binop_to_spirv_dialect!(cmp::IEqualOp => ops::IEqualOp);
 binop_to_spirv_dialect!(cmp::FEqualOp => ops::FOrdEqualOp);
+binop_to_spirv_dialect!(cmp::BoolEqualOp => ops::LogicalEqualOp);
 
 binop_to_spirv_dialect!(cmp::INotEqualOp => ops::INotEqualOp);
 binop_to_spirv_dialect!(cmp::FNotEqualOp => ops::FOrdNotEqualOp);
+binop_to_spirv_dialect!(cmp::BoolNotEqualOp => ops::LogicalNotEqualOp);
 
 binop_to_spirv_dialect!(cmp::SGreaterThanOp => ops::SGreaterThanOp);
 binop_to_spirv_dialect!(cmp::UGreaterThanOp => ops::UGreaterThanOp);

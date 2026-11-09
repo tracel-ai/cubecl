@@ -27,27 +27,36 @@ impl ue8m0 {
 
     /// Constructs a [`ue8m0`] value from a 32-bit floating point value.
     ///
-    /// This operation is lossy. If the 32-bit value is too large to fit, ±∞ will result. NaN values
-    /// are preserved. Subnormal values that are too tiny to be represented will result in ±0. All
-    /// other values are truncated and rounded to the nearest representable value.
+    /// Rounds up to a power of two, as a scale is stored: values past the range saturate to its
+    /// ends, a value at or below zero becomes the minimum, and NaN stays NaN.
     #[inline]
     #[must_use]
-    #[cfg(feature = "float4")]
-    pub fn from_f32(value: f32) -> ue8m0 {
+    pub const fn from_f32(value: f32) -> ue8m0 {
         Self::from_f64(value as f64)
     }
 
     /// Constructs a [`ue8m0`] value from a 64-bit floating point value.
     ///
-    /// This operation is lossy. If the 64-bit value is to large to fit, ±∞ will result. NaN values
-    /// are preserved. 64-bit subnormal values are too tiny to be represented and result in ±0.
-    /// Exponents that underflow the minimum exponent will result in subnormals or ±0. All other
-    /// values are truncated and rounded to the nearest representable value.
+    /// Rounds up to a power of two, as a scale is stored: values past the range saturate to its
+    /// ends, a value at or below zero becomes the minimum, and NaN stays NaN.
     #[inline]
     #[must_use]
-    #[cfg(feature = "float4")]
-    pub fn from_f64(value: f64) -> ue8m0 {
-        ue8m0(float4::E8M0::from_f64(value).to_bits())
+    pub const fn from_f64(value: f64) -> ue8m0 {
+        if value.is_nan() {
+            return ue8m0(0xff);
+        }
+        if value <= 0.0 {
+            return Self::MIN;
+        }
+        let bits = value.to_bits();
+        let exponent = ((bits >> 52) & 0x7ff) as i32 - 1023;
+        // The base-2 log rounded up: the exponent, plus one unless the value is a power of two.
+        let log2_up = exponent + (bits & ((1 << 52) - 1) != 0) as i32;
+        match log2_up + 127 {
+            biased if biased < 0 => Self::MIN,
+            biased if biased > 0xfe => Self::MAX,
+            biased => ue8m0(biased as u8),
+        }
     }
 
     /// Converts a [`ue8m0`] into the underlying bit representation.
@@ -62,8 +71,7 @@ impl ue8m0 {
     /// This conversion is lossless as all values can be represented exactly in [`f32`].
     #[inline]
     #[must_use]
-    #[cfg(feature = "float4")]
-    pub fn to_f32(self) -> f32 {
+    pub const fn to_f32(self) -> f32 {
         self.to_f64() as f32
     }
 
@@ -72,9 +80,12 @@ impl ue8m0 {
     /// This conversion is lossless as all values can be represented exactly in [`f64`].
     #[inline]
     #[must_use]
-    #[cfg(feature = "float4")]
-    pub fn to_f64(self) -> f64 {
-        float4::E8M0::from_bits(self.0).to_f64()
+    pub const fn to_f64(self) -> f64 {
+        match self.0 {
+            0xff => f64::NAN,
+            // 2^(code - 127), a normal f64 whatever the code.
+            code => f64::from_bits((code as u64 + 1023 - 127) << 52),
+        }
     }
 }
 
@@ -84,7 +95,6 @@ impl Display for ue8m0 {
     }
 }
 
-#[cfg(feature = "float4")]
 mod numeric {
     use num_traits::{NumCast, ToPrimitive};
 
@@ -177,5 +187,38 @@ mod numeric {
         fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
             Some(Self::from_f32(n.to_f32()?))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_converts_to_its_value_and_back() {
+        for code in 0..=0xfeu8 {
+            let value = ue8m0::from_bits(code).to_f32();
+            assert_eq!(
+                ue8m0::from_f32(value).to_bits(),
+                code,
+                "{code:#x} is {value:e}"
+            );
+        }
+        assert!(ue8m0::from_bits(0xff).to_f32().is_nan());
+    }
+
+    #[test]
+    fn a_value_between_powers_of_two_rounds_up() {
+        assert_eq!(ue8m0::from_f32(3.0).to_f32(), 4.0);
+        assert_eq!(ue8m0::from_f64(1.0 + f64::EPSILON).to_f64(), 2.0);
+        assert_eq!(ue8m0::from_f64(4.0 * (1.0 + f64::EPSILON)).to_f64(), 8.0);
+        let above_min = ue8m0::MIN.to_f64() * (1.0 + f64::EPSILON);
+        assert_eq!(ue8m0::from_f64(above_min).to_bits(), 1);
+        assert_eq!(ue8m0::from_f32(-1.0), ue8m0::MIN);
+    }
+
+    #[test]
+    fn nan_is_the_all_ones_code() {
+        assert_eq!(ue8m0::from_f32(f32::NAN).to_bits(), 0xff);
     }
 }

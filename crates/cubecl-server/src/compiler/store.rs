@@ -93,6 +93,21 @@ impl KernelCacheKey {
             build_id,
         }
     }
+
+    /// Create a key from an artifact id (kernel and variant) and the current build ID.
+    pub fn from_artifact_id<V: core::hash::Hash>(
+        id: &super::ArtifactId<V>,
+        build_id: StableHash,
+    ) -> Self {
+        use core::hash::Hash;
+        let mut hasher = StableHasher::new();
+        id.kernel.stable_hash().hash(&mut hasher);
+        id.variant.hash(&mut hasher);
+        Self {
+            id: hasher.finalize(),
+            build_id,
+        }
+    }
 }
 
 /// What an [`ArtifactStore`] kept by kernel and by source names its two maps,
@@ -151,12 +166,54 @@ impl<A: StoreValue> ArtifactStore<A> {
         self.by_kernel.is_some()
     }
 
+    /// Whether the compilation store is enabled for this backend.
+    pub fn is_enabled(&self) -> bool {
+        self.by_kernel.is_some()
+    }
+
     /// Takes the artifact kept for `kernel` out of the store, to be loaded.
     pub fn take(&mut self, kernel: &KernelId) -> Option<A> {
         let key = KernelCacheKey::new(kernel, self.build_id);
         let artifact = self.by_kernel.as_mut()?.remove(&key)?;
         log::trace!("Using the compilation store");
         Some(artifact)
+    }
+
+    /// Takes the artifact kept for `id` (kernel and variant) out of the store, to be loaded.
+    pub fn take_variant<V: core::hash::Hash>(&mut self, id: &super::ArtifactId<V>) -> Option<A> {
+        let key = KernelCacheKey::from_artifact_id(id, self.build_id);
+        let artifact = self.by_kernel.as_mut()?.remove(&key)?;
+        log::trace!("Using the compilation store for variant");
+        Some(artifact)
+    }
+
+    /// Stores `artifact` under `id` (kernel and variant).
+    pub fn store_variant<V: core::hash::Hash>(
+        &mut self,
+        id: &super::ArtifactId<V>,
+        artifact: A,
+    ) -> bool {
+        let Some(by_kernel) = self.by_kernel.as_mut() else {
+            return false;
+        };
+        let key = KernelCacheKey::from_artifact_id(id, self.build_id);
+        store_compiled(by_kernel, key, artifact)
+    }
+
+    /// Purges a corrupted or invalid entry for `kernel`.
+    pub fn purge(&mut self, kernel: &KernelId) {
+        if let Some(by_kernel) = self.by_kernel.as_mut() {
+            let key = KernelCacheKey::new(kernel, self.build_id);
+            by_kernel.purge_key(&key);
+        }
+    }
+
+    /// Purges a corrupted or invalid entry for `id` (kernel and variant).
+    pub fn purge_variant<V: core::hash::Hash>(&mut self, id: &super::ArtifactId<V>) {
+        if let Some(by_kernel) = self.by_kernel.as_mut() {
+            let key = KernelCacheKey::from_artifact_id(id, self.build_id);
+            by_kernel.purge_key(&key);
+        }
     }
 
     /// The artifact another kernel finalized from `source`, for

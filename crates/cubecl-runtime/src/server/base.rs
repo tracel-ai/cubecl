@@ -12,14 +12,11 @@ use crate::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
     poison::DevicePoison,
-    server::{BufferBinding, KernelResource},
+    server::{BufferBinding, KernelResource, PeerBinding},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
 use core::{
     fmt::{Debug, Display},
     hash::{BuildHasher, Hash},
@@ -30,7 +27,7 @@ use cubecl_common::{
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashSet;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::RwLock;
@@ -98,6 +95,12 @@ impl From<&ServerError> for ProfileError {
     }
 }
 
+impl From<ServerError> for ProfileError {
+    fn from(error: ServerError) -> Self {
+        ProfileError::Server(Box::new(error))
+    }
+}
+
 impl core::fmt::Debug for ProfileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{self}"))
@@ -135,18 +138,25 @@ pub struct ServerUtilities {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Box<dyn MemoryLayoutPolicy>,
-    /// Whether the server can move data to a peer server of the same runtime
-    /// directly, without a round trip through the host: the device transport
-    /// `Client::has_device_transport` reports. Off unless the backend turns it
-    /// on at init.
-    pub server_comm_enabled: bool,
+    /// The runtime's transport between its devices without the host, when it has one.
+    pub device_transport: Option<DeviceTransport>,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// Whether kernels on this device can address the memory of another device of the runtime,
+    /// asked of the device once per pair.
+    pub peer_access: RwLock<HashMap<DeviceId, bool>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
+}
+
+/// A runtime's transport between its devices, which moves any buffer as bytes.
+#[derive(Debug, Clone)]
+pub struct DeviceTransport {
+    /// The element types it reduces.
+    pub reduces: BTreeSet<ElemType>,
 }
 
 /// Defines how the memory layout is determined.
@@ -214,9 +224,10 @@ impl ServerUtilities {
             #[cfg(feature = "profile-tracy")]
             epoch_time: cubecl_environment::time::Instant::now(),
             layout_policy: Box::new(allocator),
-            server_comm_enabled: false,
+            device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
 
@@ -351,12 +362,22 @@ pub enum Collective {
     CommInit,
     /// Reducing a buffer across a group of devices.
     AllReduce,
+    /// Concatenating every device's buffer, in rank order, on every device.
+    AllGather,
+    /// Reducing a buffer across a group of devices, each keeping its rank's chunk.
+    ReduceScatter,
+    /// Copying one device's buffer to every device.
+    Broadcast,
+    /// Sending each device the chunk of every buffer that matches its rank.
+    AllToAll,
     /// Sending a buffer to a peer device.
     Send,
     /// Receiving a buffer from a peer device.
     Recv,
     /// Waiting for queued collectives to finish.
     SyncCollective,
+    /// Letting kernels on other devices bind a device's memory.
+    PeerAccess,
 }
 
 impl Display for Collective {
@@ -364,11 +385,64 @@ impl Display for Collective {
         f.write_str(match self {
             Self::CommInit => "comm_init",
             Self::AllReduce => "all_reduce",
+            Self::AllGather => "all_gather",
+            Self::ReduceScatter => "reduce_scatter",
+            Self::Broadcast => "broadcast",
+            Self::AllToAll => "all_to_all",
             Self::Send => "send",
             Self::Recv => "recv",
             Self::SyncCollective => "sync_collective",
+            Self::PeerAccess => "peer_access",
         })
     }
+}
+
+/// Which of a collective's buffers a check is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectiveBuffer {
+    /// What a member contributes.
+    Source,
+    /// Where a member's result lands.
+    Destination,
+}
+
+impl Display for CollectiveBuffer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Source => "source",
+            Self::Destination => "destination",
+        })
+    }
+}
+
+impl CollectiveBuffer {
+    /// Refuses a collective whose buffer `binding` holds other than `needed` bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] when the sizes differ.
+    pub fn expect_size(self, binding: &BufferBinding, needed: u64) -> Result<(), ServerError> {
+        let size = binding.size_in_used();
+        match size == needed {
+            true => Ok(()),
+            false => Err(ServerError::Generic {
+                reason: alloc::format!(
+                    "the collective's {self} holds {size} bytes where it needs {needed}"
+                ),
+                backtrace: BackTrace::capture(),
+            }),
+        }
+    }
+}
+
+/// When a device's compute stream waits for a collective it queued.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeWait {
+    /// At the next `sync_collective`, so compute keeps running meanwhile. The caller keeps the
+    /// buffers alive until then: one released earlier can be reused while the collective reads it.
+    AtSync,
+    /// Before anything queued after it, so its buffers are released and its result read in order.
+    Now,
 }
 
 /// Error that can happen asynchronously while executing registered kernels.
@@ -830,6 +904,20 @@ pub trait Server:
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
 
+    /// Enable collecting timestamps from the next kernel launched on the
+    /// stream, for a window that holds one launch.
+    ///
+    /// A window opened where the stream is also holds the host preparing that
+    /// launch, which an idle device counts as device time. A backend that can
+    /// stamp the launch itself overrides this; the default opens the window
+    /// where the stream is, as [`start_profile`](Self::start_profile) does.
+    fn start_profile_at_launch(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<ProfilingToken, ServerError> {
+        self.start_profile(stream_id)
+    }
+
     /// Disable collecting timestamps.
     fn end_profile(
         &mut self,
@@ -892,12 +980,34 @@ impl From<Vec<DeviceId>> for CommunicationId {
     }
 }
 
+impl CommunicationId {
+    /// The communicator transfers between `a` and `b` go through. It is not the one an
+    /// `all_reduce` over the same two devices uses, so neither waits in line behind the other.
+    pub fn transfers_between(a: DeviceId, b: DeviceId) -> Self {
+        let mut devices = [a, b];
+        devices.sort();
+        CommunicationId {
+            id: FixedState::default().hash_one((devices, "transfers")),
+        }
+    }
+}
+
 /// Different reduce operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReduceOperation {
     /// Sum.
     Sum,
     /// Mean.
     Mean,
+}
+
+/// How a collective reduces its members' elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reduction {
+    /// The elements' type.
+    pub dtype: ElemType,
+    /// How they combine.
+    pub op: ReduceOperation,
 }
 
 /// Defines functions for optimized data transfer between servers, supporting custom communication
@@ -913,7 +1023,9 @@ pub enum ReduceOperation {
 /// and taint the destination on the way out when the operation fails (as a
 /// failed [`launch`](Server::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a
-/// destination that reads back clean when nothing wrote it.
+/// destination that reads back clean when nothing wrote it. A part that fails leaves the
+/// group's other members waiting in it, so the device then refuses every later collective over
+/// that group rather than pair it with theirs.
 ///
 /// The default methods are for a runtime with no transport between its devices:
 /// each returns [`ServerError::NoDeviceTransport`] before touching any buffer, so
@@ -962,10 +1074,10 @@ pub trait ServerCommunication {
     ///
     /// * `src` - The data to be reduced.
     /// * `dst` - Where to write the result.
-    /// * `dtype` - The element type of the data being reduced
+    /// * `reduction` - The elements' type and how they combine.
     /// * `stream_id` - The data's stream id.
-    /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
     /// * `device_ids` - The list of device ids from which to `all_reduce`.
+    /// * `wait` - When the compute stream waits for it.
     ///
     /// # Returns
     ///
@@ -979,12 +1091,81 @@ pub trait ServerCommunication {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
+        reduction: Reduction,
         stream_id: StreamId,
-        op: ReduceOperation,
         device_ids: Vec<DeviceId>,
+        wait: ComputeWait,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllReduce))
+    }
+
+    /// Writes every rank's `src`, concatenated in rank order, to `dst`, which holds one `src` per
+    /// rank of `device_ids`.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn all_gather(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        Err(ServerError::no_device_transport(Collective::AllGather))
+    }
+
+    /// Reduces every rank's `src` and writes this rank's chunk of the result to `dst`, `src`
+    /// holding one `dst` per rank of `device_ids`.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn reduce_scatter(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        reduction: Reduction,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        Err(ServerError::no_device_transport(Collective::ReduceScatter))
+    }
+
+    /// Writes `root`'s `src` to `dst` on every rank of `device_ids`. Only `root` has a `src`.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn broadcast(
+        &mut self,
+        src: Option<BufferBinding>,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        Err(ServerError::no_device_transport(Collective::Broadcast))
+    }
+
+    /// Sends chunk `r` of `src` to rank `r` and writes the chunk received from rank `r` to chunk
+    /// `r` of `dst`, both holding one chunk per rank of `device_ids`.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn all_to_all(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        Err(ServerError::no_device_transport(Collective::AllToAll))
     }
 
     /// Sends data from this server to a destination server.
@@ -992,7 +1173,6 @@ pub trait ServerCommunication {
     /// # Arguments
     ///
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
-    /// * `dtype` - The element type of the data being sent.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
     ///
@@ -1017,7 +1197,6 @@ pub trait ServerCommunication {
     fn send(
         &mut self,
         desc: CopyDescriptor,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
@@ -1029,7 +1208,6 @@ pub trait ServerCommunication {
     /// # Arguments
     ///
     /// * `handle` - The handle in which the received data is written.
-    /// * `dtype` - The element type of the data being sent.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
     ///
@@ -1044,12 +1222,47 @@ pub trait ServerCommunication {
     fn recv(
         &mut self,
         handle: Handle,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
+
+    /// Whether kernels on this device can bind memory of `peer`, another
+    /// device of the same runtime.
+    ///
+    /// The default answers `false`.
+    #[allow(unused_variables)]
+    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+        false
+    }
+
+    /// The device address of the first byte of the allocation `binding`
+    /// names, for kernels on other devices to bind.
+    ///
+    /// The caller keeps the allocation bound for as long as it hands the
+    /// address out, which keeps it in place.
+    ///
+    /// # Errors
+    ///
+    /// The failure the buffer carries, so a peer never reads bytes a failed
+    /// launch left unwritten, and a binding that names no live allocation.
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
+        Err(ServerError::no_device_transport(Collective::PeerAccess))
+    }
+
+    /// A kernel on another device finished enqueuing the writes it makes to
+    /// `written`, buffers of this device: the failure that stopped it, or
+    /// `None` when it was enqueued.
+    ///
+    /// A failure taints them as a failed launch here would, so a read fails
+    /// on the cause, and an enqueued write releases a failure they carried.
+    /// The default does nothing: a runtime without peer access never shares
+    /// a buffer.
+    #[allow(unused_variables)]
+    fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -1459,12 +1672,56 @@ impl KernelArguments {
         self
     }
 
-    /// The buffers this launch was given.
+    /// The buffers of this device this launch was given. Memory of other
+    /// devices is left out: no stream here orders it, and no failure here
+    /// taints it.
     pub fn buffers(&self) -> impl Iterator<Item = &BufferBinding> {
-        self.resources.iter().map(|resource| match resource {
-            KernelResource::Buffer(binding) => binding,
-            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        self.resources
+            .iter()
+            .filter_map(KernelResource::local_binding)
+    }
+
+    /// The memory of other devices this launch binds.
+    pub fn peers(&self) -> impl Iterator<Item = &PeerBinding> {
+        self.resources.iter().filter_map(|resource| match resource {
+            KernelResource::Peer(peer) => Some(peer),
+            _ => None,
         })
+    }
+
+    /// The memory of other devices this launch reads, by the same fallback
+    /// chain as [`buffers_read`](Self::buffers_read).
+    pub fn peers_read<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.peers_where(io, BufferIOAttr::is_readable)
+    }
+
+    /// The memory of other devices this launch writes, by the same fallback
+    /// chain as [`buffers_written`](Self::buffers_written).
+    pub fn peers_written<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.peers_where(io, BufferIOAttr::is_writable)
+    }
+
+    fn peers_where<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+        mode: fn(&BufferIOAttr) -> bool,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.resources
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, resource)| {
+                let KernelResource::Peer(peer) = resource else {
+                    return None;
+                };
+                let used = self.io_attr(io, index).as_ref().map(mode).unwrap_or(true);
+                used.then_some(peer)
+            })
     }
 
     /// The memory this launch was given.
@@ -1489,9 +1746,11 @@ impl KernelArguments {
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
-        self.buffers()
+        self.resources
+            .iter()
             .enumerate()
-            .filter_map(move |(index, binding)| {
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
                 let written = self
                     .io_attr(io, index)
                     .map(|io| io.is_writable())
@@ -1513,9 +1772,11 @@ impl KernelArguments {
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
-        self.buffers()
+        self.resources
+            .iter()
             .enumerate()
-            .filter_map(move |(index, binding)| {
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
                 let read = self
                     .io_attr(io, index)
                     .map(|io| io.is_readable())
@@ -1553,17 +1814,33 @@ impl MetadataBindingInfo {
     }
 }
 
-/// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug)]
-pub struct CopyDescriptor {
-    /// Binding for the memory resource
-    pub handle: BufferBinding,
+/// A buffer and the layout of a copy to or from it.
+///
+/// A copy queued at the call holds a [`BufferBinding`]: its stream orders it before any later
+/// in-place write. A copy deferred past the call holds the [`Handle`], so [`Handle::can_mut`]
+/// stays false until it runs.
+#[derive(new, Clone, Debug)]
+pub struct CopyDescriptor<B = BufferBinding> {
+    /// The memory resource
+    pub handle: B,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
     pub strides: Strides,
     /// Size of each element in the resource
     pub elem_size: usize,
+}
+
+impl CopyDescriptor<Handle> {
+    /// The same read, holding only a binding of the buffer.
+    pub fn binding(self) -> CopyDescriptor {
+        CopyDescriptor {
+            handle: self.handle.binding(),
+            shape: self.shape,
+            strides: self.strides,
+            elem_size: self.elem_size,
+        }
+    }
 }
 
 /// A tensor map used with TMA ops

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::compiler::CompilationError;
 use crate::id::KernelId;
+#[cfg(feature = "std")]
 use cubecl_environment::backtrace::BackTrace;
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).

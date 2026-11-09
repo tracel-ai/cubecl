@@ -3,17 +3,17 @@ use core::{
     cell::RefCell,
     hash::{BuildHasher, Hash, Hasher},
     marker::PhantomData,
-    ops::BitOrAssign,
+    ops::{BitOr, BitOrAssign},
 };
 
 use alloc::{boxed::Box, collections::VecDeque, rc::Rc, vec::Vec};
-use cubecl_environment::collections::HashMap;
 use cubecl_ir::prelude::*;
 use downcast_rs::{Downcast, impl_downcast};
 use foldhash::fast::FixedState;
 use pliron::{
     basic_block::BasicBlock,
     graph::HasLabel,
+    irbuild::inserter::OpInsertionPoint,
     linked_list::{ContainsLinkedList, LinkedList},
     operation::OpDbg,
     printable::Printable,
@@ -30,6 +30,7 @@ pub mod dense;
 pub mod pre;
 pub mod sccp;
 pub mod sparse;
+pub mod speculatability;
 pub mod value_dependents;
 pub mod value_numbering;
 pub mod value_uniformity;
@@ -40,6 +41,17 @@ pub type SmallPtrVec<T> = SmallVec<[T; 8]>;
 pub enum ChangeResult {
     Changed,
     Unchanged,
+}
+
+impl BitOr for ChangeResult {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        if matches!(rhs, ChangeResult::Changed) {
+            ChangeResult::Changed
+        } else {
+            self
+        }
+    }
 }
 
 impl BitOrAssign for ChangeResult {
@@ -115,11 +127,14 @@ mod solver {
         }
     }
 
-    type AnalysisStates = HashMap<u64, States>;
-    type States = HashMap<TypeId, StateEntry>;
+    type AnalysisStates = IMap<(u64, TypeId), StateEntry>;
     type StateEntry = Rc<RefCell<dyn PrintableState>>;
 
     pub struct DataflowSolver {
+        root: Option<Ptr<Operation>>,
+        /// Analyses that have been given to `load` but may still be in the pre-load phase.
+        preloaded_analyses: Vec<TypeId>,
+        unloaded_analyses: Vec<TypeId>,
         child_analyses: IMap<TypeId, Box<dyn DataflowAnalysis>>,
         worklist: RefCell<VecDeque<SolverWorkItem>>,
         anchor_hash: FixedState,
@@ -132,6 +147,9 @@ mod solver {
     impl DataflowSolver {
         pub fn new(config: SolverConfig) -> Self {
             Self {
+                root: Default::default(),
+                preloaded_analyses: Default::default(),
+                unloaded_analyses: Default::default(),
                 child_analyses: Default::default(),
                 worklist: Default::default(),
                 anchor_hash: Default::default(),
@@ -158,10 +176,8 @@ mod solver {
         pub fn get_or_create<T: AnalysisState>(&self, anchor: T::Anchor) -> ReadRef<'_, T> {
             let anchor_hash = self.hash_anchor(&anchor);
             let mut states = self.analysis_states.borrow_mut();
-            let state = states.entry(anchor_hash).or_default();
-            let id = TypeId::of::<T>();
-            let state = state
-                .entry(id)
+            let state = states
+                .entry((anchor_hash, TypeId::of::<T>()))
                 .or_insert_with(|| Rc::new(RefCell::new(T::create(anchor))))
                 .clone();
             ReadRef {
@@ -173,10 +189,8 @@ mod solver {
         pub fn get_or_create_mut<T: AnalysisState>(&self, anchor: T::Anchor) -> WriteRef<'_, T> {
             let anchor_hash = self.hash_anchor(&anchor);
             let mut states = self.analysis_states.borrow_mut();
-            let state = states.entry(anchor_hash).or_default();
-            let id = TypeId::of::<T>();
-            let state = state
-                .entry(id)
+            let state = states
+                .entry((anchor_hash, TypeId::of::<T>()))
                 .or_insert_with(|| Rc::new(RefCell::new(T::create(anchor))))
                 .clone();
             WriteRef {
@@ -201,7 +215,7 @@ mod solver {
         pub fn lookup_state<T: AnalysisState>(&self, anchor: T::Anchor) -> Option<ReadRef<'_, T>> {
             let anchor_hash = self.hash_anchor(&anchor);
             let states = self.analysis_states.borrow();
-            let state = states.get(&anchor_hash)?.get(&TypeId::of::<T>())?.clone();
+            let state = states.get(&(anchor_hash, TypeId::of::<T>()))?.clone();
             Some(ReadRef {
                 value: state,
                 _ty: PhantomData,
@@ -211,25 +225,43 @@ mod solver {
         pub fn states_of_type<T: AnalysisState>(&self) -> Vec<ReadRef<'_, T>> {
             let states = self.analysis_states.borrow();
             states
-                .values()
-                .flat_map(|it| it.get(&TypeId::of::<T>()))
-                .map(|state| ReadRef {
+                .iter()
+                .filter(|((_, t), _)| t == &TypeId::of::<T>())
+                .map(|(_, state)| ReadRef {
                     value: state.clone(),
                     _ty: PhantomData,
                 })
                 .collect()
+        }
+
+        pub fn clear_states_of_type<T: AnalysisState>(&mut self) {
+            let mut states = self.analysis_states.borrow_mut();
+            states.retain(|(_, t), _| t != &TypeId::of::<T>());
         }
     }
 
     impl DataflowSolver {
         pub fn load<A: DataflowAnalysis>(&mut self, analysis: A) {
             let key = TypeId::of::<A>();
-            let existing = self.child_analyses.insert(key, Box::new(analysis));
-            assert!(
-                existing.is_none(),
-                "Tried loading {} twice",
-                type_name::<A>()
-            )
+            // `on_load` is called before actually loading, because we generally want to initialize
+            // dependencies before their dependents to ensure as much state can be propagated during
+            // the first initialization pass as possible.
+            // However, we also need to track which analyses have been registered to allow resolving
+            // cyclic dependencies. So there's a separate list of analyses that have been passed to
+            // load but not yet loaded and treat them as present in `ensure_loaded`.
+            self.preloaded_analyses.push(key);
+            analysis.on_load(self);
+            self.child_analyses.insert(key, Box::new(analysis));
+        }
+
+        pub fn is_loaded<A: DataflowAnalysis>(&self) -> bool {
+            self.preloaded_analyses.contains(&TypeId::of::<A>())
+        }
+
+        pub fn ensure_loaded<A: DataflowAnalysis>(&mut self, analysis: impl FnOnce() -> A) {
+            if !self.is_loaded::<A>() {
+                self.load(analysis());
+            }
         }
 
         pub fn require_loaded<A: DataflowAnalysis>(&self) -> Result<()> {
@@ -242,6 +274,15 @@ mod solver {
             Ok(())
         }
 
+        pub fn loaded_analyses(&self) -> &[TypeId] {
+            &self.preloaded_analyses
+        }
+
+        pub fn unload<A: DataflowAnalysis>(&mut self) {
+            let key = TypeId::of::<A>();
+            self.unloaded_analyses.push(key);
+        }
+
         pub fn initialize_and_run(&mut self, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
             self.initialize_filtered_and_run(ctx, root, |_| true)
         }
@@ -252,6 +293,8 @@ mod solver {
             root: Ptr<Operation>,
             should_initialize: impl Fn(&dyn DataflowAnalysis) -> bool,
         ) -> Result<()> {
+            self.root = Some(root);
+
             let is_interprocedural = self.config.is_interprocedural;
             if is_interprocedural && !root.impls::<dyn SymbolTableInterface>(ctx) {
                 self.config.is_interprocedural = false;
@@ -262,7 +305,9 @@ mod solver {
 
             // Initialize equivalent lattice anchors.
             for analysis in child_analyses.values() {
-                if !should_initialize(&**analysis) {
+                if !should_initialize(&**analysis)
+                    || self.unloaded_analyses.contains(&analysis.type_id())
+                {
                     continue;
                 }
                 analysis.initialize_equivalent_lattice_anchor(self, ctx, root);
@@ -270,7 +315,13 @@ mod solver {
 
             // Initialize the analyses.
             for analysis in child_analyses.values_mut() {
+                if !should_initialize(&**analysis)
+                    || self.unloaded_analyses.contains(&analysis.type_id())
+                {
+                    continue;
+                }
                 if let Err(err) = analysis.initialize(self, ctx, root) {
+                    self.root = None;
                     self.child_analyses = child_analyses;
                     self.config.is_interprocedural = is_interprocedural;
                     return Err(err);
@@ -283,13 +334,18 @@ mod solver {
                 let mut worklist = self.worklist.borrow_mut();
                 worklist.pop_front()
             } {
+                if self.unloaded_analyses.contains(&analysis) {
+                    continue;
+                }
                 let analysis = self.child_analyses.get(&analysis).expect("Should exist");
                 if let Err(err) = analysis.visit(self, ctx, point) {
+                    self.root = None;
                     self.config.is_interprocedural = is_interprocedural;
                     return Err(err);
                 }
             }
 
+            self.root = None;
             self.config.is_interprocedural = is_interprocedural;
             Ok(())
         }
@@ -304,6 +360,10 @@ mod solver {
 
         pub fn config(&self) -> &SolverConfig {
             &self.config
+        }
+
+        pub fn root(&self) -> Option<Ptr<Operation>> {
+            self.root
         }
 
         pub fn is_equivalent<T: AnalysisState>(
@@ -337,11 +397,8 @@ mod solver {
             {
                 let _indent = state.indent();
                 let states = self.analysis_states.borrow();
-                let mut entries = states
-                    .values()
-                    .flat_map(|states| states.iter())
-                    .collect::<Vec<_>>();
-                entries.sort_by_key(|it| it.0);
+                let mut entries = states.iter().collect::<Vec<_>>();
+                entries.sort_by_key(|((_, t), _)| t);
 
                 for (_, entry) in entries {
                     write!(f, "{}", indented_nl(state))?;
@@ -359,6 +416,16 @@ pub enum ProgramPoint {
     Operation(Ptr<Operation>),
     BeforeOpInBlock(Ptr<BasicBlock>, Ptr<Operation>),
     EndOfBlock(Ptr<BasicBlock>),
+}
+
+impl From<ProgramPoint> for OpInsertionPoint {
+    fn from(val: ProgramPoint) -> Self {
+        match val {
+            ProgramPoint::Operation(_) => OpInsertionPoint::Unset,
+            ProgramPoint::BeforeOpInBlock(_, op) => OpInsertionPoint::BeforeOperation(op),
+            ProgramPoint::EndOfBlock(block) => OpInsertionPoint::AtBlockEnd(block),
+        }
+    }
 }
 
 impl Printable for ProgramPoint {
@@ -481,6 +548,11 @@ pub trait AnalysisState: PrintableState + Sized + 'static {
 }
 
 pub trait DataflowAnalysis: Downcast {
+    /// Called before loading an analysis, to load dependency analyses
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
+
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {

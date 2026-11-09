@@ -16,7 +16,7 @@ use syn::{
     punctuated::Punctuated, visit_mut::VisitMut,
 };
 
-use super::desugar::Desugar;
+use super::{desugar::Desugar, harness::HarnessGate};
 
 #[derive(Default, FromMeta, Clone)]
 pub(crate) struct KernelArgs {
@@ -30,6 +30,8 @@ pub(crate) struct KernelArgs {
     pub create_dummy_kernel: Flag,
     /// Generate expansion only, for expanding existing types
     pub expand_only: Flag,
+    /// Generate a harness, gated by `cfg(test)` unless another gate is given.
+    pub harness: Option<HarnessGate>,
     pub cluster_dim: Option<Expr>,
     pub src_file: Option<LitStr>,
     /// Base traits for a split expand trait
@@ -63,6 +65,18 @@ pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
 impl KernelArgs {
     pub fn is_launch(&self) -> bool {
         self.launch.is_present() || self.launch_unchecked.is_present()
+    }
+
+    /// Whether the expansion records source locations. The kernel settings decide at run time
+    /// whether they are kept.
+    pub fn captures_locations(&self) -> bool {
+        self.debug_symbols.is_present() || !self.no_debug_symbols.is_present()
+    }
+
+    /// Whether the kernel asks for full debug data, whatever the cargo profile.
+    pub fn forces_full_debug_info(&self) -> bool {
+        self.debug_symbols.is_present()
+            || (cfg!(debug_symbols) && !self.no_debug_symbols.is_present())
     }
 }
 
@@ -358,8 +372,7 @@ impl KernelFn {
         full_name: String,
         args: &KernelArgs,
     ) -> syn::Result<Self> {
-        let cfg_debug = cfg!(debug_symbols) && !args.no_debug_symbols.is_present();
-        let debug_symbols = cfg_debug || args.debug_symbols.is_present();
+        let debug_symbols = args.captures_locations();
 
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig, args)?;
@@ -412,6 +425,7 @@ impl KernelFn {
                 let stmt = Statement::Expression {
                     expression: Box::new(expression),
                     terminated: false,
+                    span: None,
                 };
                 mappings.push(stmt);
             }

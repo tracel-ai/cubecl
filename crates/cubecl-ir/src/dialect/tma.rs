@@ -96,7 +96,8 @@ impl MemoryEffectsOp for TmaLoadOp {
 
 impl Verify for TmaLoadOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let barrier_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
         let dest_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
 
@@ -202,7 +203,8 @@ impl MemoryEffectsOp for TmaLoadIm2colOp {
 
 impl Verify for TmaLoadIm2colOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let barrier_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
         let dest_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
 
@@ -281,7 +283,8 @@ impl MemoryEffectsOp for TmaStoreOp {
 
 impl Verify for TmaStoreOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let src_ty = self.source(ctx).get_type(ctx).as_ptr(ctx);
 
         if src_ty.address_space != AddressSpace::Shared {
@@ -303,12 +306,16 @@ impl Verify for TmaStoreOp {
 #[result_ty(none)]
 pub struct CommitGroupOp {}
 
+/// Waits until at most `max_pending` bulk async-groups are still running, their writes to
+/// global memory performed.
 #[cube_op(name = "tma.wait_group")]
 #[result_ty(none)]
 pub struct WaitGroupOp {
     pub max_pending: IndexAttr,
 }
 
+/// Waits until at most `max_pending` bulk async-groups are still reading their shared memory
+/// sources.
 #[cube_op(name = "tma.wait_group_read")]
 #[result_ty(none)]
 pub struct WaitGroupReadOp {

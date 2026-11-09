@@ -56,8 +56,8 @@ impl InsertSummary {
 /// Where the entries of a single namespace are kept, and written to.
 ///
 /// A storage is bound to one namespace at construction (a `/`-separated name
-/// such as `autotune/0.11.0/cuda-0/matmul`) and addresses entries by their
-/// serialized key bytes.
+/// such as `autotune/0.11.0/layout-v1/cuda_ptx-sm89_NVIDIA-L4_par58/matmul`)
+/// and addresses entries by their serialized key bytes.
 ///
 /// This is the only thing read at runtime. Bundles are an import format: they
 /// fill a storage once through [`crate::bundle::import`] and are never
@@ -336,12 +336,21 @@ pub struct NamespaceSummary {
 pub fn namespaces() -> Vec<String> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::summary()
-                .into_iter()
-                .map(|summary| summary.namespace)
-                .collect()
+            super::database::namespaces()
         } else {
             Vec::new()
+        }
+    }
+}
+
+/// Deletes every namespace in `namespaces`, compared as bytes, that the active environment holds
+/// durably. Nothing without a durable backend, for the reason [`namespaces`] gives.
+pub fn purge_range(namespaces: core::ops::Range<&str>) {
+    cfg_if::cfg_if! {
+        if #[cfg(any(native_cache, browser_cache))] {
+            super::database::purge_range(namespaces)
+        } else {
+            let _ = namespaces;
         }
     }
 }
@@ -355,7 +364,7 @@ pub fn namespaces() -> Vec<String> {
 pub fn open(namespace: &str) -> Box<dyn Storage> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            match super::turso::open(namespace) {
+            match super::database::open(namespace) {
                 Ok(storage) => storage,
                 // Isolate the memory fallback per environment, so a switch after
                 // the database failed to open doesn't serve the previous

@@ -36,9 +36,58 @@ wgsl_op_with_out!(CastOp; |op, ctx| {
     fmt_cast_to(ctx, op.input(ctx), op.result_type(ctx))
 });
 wgsl_op_with_out!(ReinterpretCastOp; |op, ctx| {
-    let ty = op.result_type(ctx).to_wgsl(ctx);
-    format!("bitcast<{ty}>({})", op.input(ctx).name(ctx))
+    let to = op.result_type(ctx);
+    if let Some(cast) = fmt_f16_pair_reinterpret(ctx, op.input(ctx), to) {
+        return cast;
+    }
+    format!("bitcast<{}>({})", to.to_wgsl(ctx), op.input(ctx).name(ctx))
 });
+
+/// A reinterpret between 32-bit lanes and twice as many `f16` lanes, through `unpack2x16float`
+/// and `pack2x16float`: naga types a `bitcast` that changes the lane count as its input's shape,
+/// so `bitcast<vec2<f16>>(u32)` reads back as an `f32` scalar and fails validation once indexed.
+/// The `f16` to `f32` round trip is exact.
+fn fmt_f16_pair_reinterpret(ctx: &Context, value: Value, to: TypeHandle) -> Option<String> {
+    let from = value.get_type(ctx);
+    let (from_size, to_size) = (from.vector_size(ctx), to.vector_size(ctx));
+    let (from_elem, to_elem) = (from.scalar_ty(ctx), to.scalar_ty(ctx));
+    let name = value.name(ctx);
+    let lane = |size: usize, i: usize| {
+        if size > 1 {
+            format!("{name}[{i}]")
+        } else {
+            name.to_string()
+        }
+    };
+    let join = |ty: TypeHandle, parts: Vec<String>| {
+        if parts.len() > 1 {
+            format!("{}({})", ty.to_wgsl(ctx), parts.join(", "))
+        } else {
+            parts.concat()
+        }
+    };
+
+    if to_elem.is_float16(ctx) && !from_elem.is_float16(ctx) && to_size == 2 * from_size {
+        let parts = (0..from_size)
+            .map(|i| {
+                let word = lane(from_size, i);
+                format!("vec2<f16>(unpack2x16float(bitcast<u32>({word})))")
+            })
+            .collect();
+        return Some(join(to, parts));
+    }
+    if from_elem.is_float16(ctx) && !to_elem.is_float16(ctx) && from_size == 2 * to_size {
+        let elem = to_elem.to_wgsl(ctx);
+        let parts = (0..to_size)
+            .map(|i| {
+                let (lo, hi) = (lane(from_size, 2 * i), lane(from_size, 2 * i + 1));
+                format!("bitcast<{elem}>(pack2x16float(vec2<f32>(f32({lo}), f32({hi}))))")
+            })
+            .collect();
+        return Some(join(to, parts));
+    }
+    None
+}
 
 wgsl_op_with_out!(SelectOp; |op, ctx| {
     let t = op.true_value(ctx).name(ctx);
@@ -103,12 +152,27 @@ impl AttrToWgsl for FloatAttr {
         // Format through f64 so finite f16/f32 values are represented exactly.
         // The rounded APFloat spelling of f32::MAX exceeds the valid f32 range.
         let value = float.value_to_f64(self.val);
-        let val = if value.is_finite() {
-            format!("{value:?}")
+        let ty = self.ty.to_wgsl(ctx);
+        if value.is_finite() {
+            format!("{ty}({value:?})")
         } else {
-            float.value_to_string(self.val)
-        };
-        format!("{}({val})", self.ty.to_wgsl(ctx))
+            non_finite_literal(&ty, value)
+        }
+    }
+}
+
+/// `value`, an infinity or a NaN, as an expression of the float type `ty`: WGSL spells neither, so
+/// its bits are cast. An `f16`'s are half of a `u32`, read back out of the pair; an `f64` widens
+/// the `f32`.
+fn non_finite_literal(ty: &str, value: f64) -> String {
+    let single = (value as f32).to_bits();
+    match ty {
+        "f16" => format!(
+            "bitcast<vec2<f16>>({:#x}u).x",
+            half::f16::from_f64(value).to_bits()
+        ),
+        "f64" => format!("f64(bitcast<f32>({single:#x}u))"),
+        _ => format!("bitcast<f32>({single:#x}u)"),
     }
 }
 
@@ -180,7 +244,7 @@ fn unroll_bool_and<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) && rhs.extract(i));
+        out.insert(i, lhs.extract(i) & rhs.extract(i));
     }
     out
 }
@@ -194,7 +258,7 @@ fn unroll_bool_or<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) || rhs.extract(i));
+        out.insert(i, lhs.extract(i) | rhs.extract(i));
     }
     out
 }
@@ -202,6 +266,29 @@ fn unroll_bool_or<T: Scalar, N: Size>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WGSL spells no infinity or NaN: each is its type's bits, cast.
+    #[test]
+    fn non_finite_literals_are_cast_bits() {
+        let ctx = Context::new();
+        let literal =
+            |ty: TypeHandle, value: f64| FloatAttr::from_f64(&ctx, ty, value).to_wgsl(&ctx);
+        let f32_ty = Float32Type::get(&ctx).to_handle();
+        assert_eq!(literal(f32_ty, f64::INFINITY), "bitcast<f32>(0x7f800000u)");
+        assert_eq!(
+            literal(f32_ty, f64::NEG_INFINITY),
+            "bitcast<f32>(0xff800000u)"
+        );
+        assert_eq!(
+            non_finite_literal("f16", f64::INFINITY),
+            "bitcast<vec2<f16>>(0x7c00u).x"
+        );
+        assert_eq!(
+            non_finite_literal("f64", f64::NEG_INFINITY),
+            "f64(bitcast<f32>(0xff800000u))"
+        );
+        assert!(literal(f32_ty, f64::NAN).starts_with("bitcast<f32>(0x7fc"));
+    }
 
     #[test]
     fn f32_boundary_literals_preserve_value() {

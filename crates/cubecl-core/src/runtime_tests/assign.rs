@@ -6,7 +6,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn kernel_assign<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
-        let item = F::new(5f32);
+        let item = F::new(5.0);
         output[0] = item;
     }
 }
@@ -14,7 +14,7 @@ pub fn kernel_assign<F: Float>(output: &mut [F]) {
 #[cube(launch)]
 pub fn kernel_assign_one_tuple<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
-        let item = (F::new(5f32),);
+        let item = (F::new(5.0),);
         output[0] = item.0;
     }
 }
@@ -22,14 +22,14 @@ pub fn kernel_assign_one_tuple<F: Float>(output: &mut [F]) {
 #[cube(launch)]
 pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
-        output[0] = Vector::new(F::new(5f32));
-        output[0] += Vector::new(F::new(1f32));
+        output[0] = Vector::new(F::new(5.0));
+        output[0] += Vector::new(F::new(1.0));
     }
 }
 
 #[cube(launch)]
 pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
-    let mut vector = Vector::new(F::new(1f32));
+    let mut vector = Vector::new(F::new(1.0));
 
     if UNIT_POS == 0 {
         #[unroll]
@@ -44,7 +44,7 @@ pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut [Vector<F, N>]) 
 #[cube(launch)]
 pub fn kernel_assign_ref<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
-        let mut value = F::new(1f32);
+        let mut value = F::new(1.0);
         assign_ref::<F>(&mut value);
         output[0] = value;
     }
@@ -52,7 +52,7 @@ pub fn kernel_assign_ref<F: Float>(output: &mut [F]) {
 
 #[cube]
 fn assign_ref<F: Float>(value: &mut F) {
-    *value = F::new(5f32);
+    *value = F::new(5.0);
 }
 
 #[cube(launch)]

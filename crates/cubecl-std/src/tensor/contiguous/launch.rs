@@ -1,4 +1,4 @@
-use crate::tensor::{TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref};
+use crate::tensor::{TensorHandle, copy_gpu_ref, try_launch_copy_perpendicular};
 use cubecl_core::{client::Client, ir::ElemType, prelude::TensorBinding};
 
 /// Make a jit tensor contiguous.
@@ -35,16 +35,15 @@ pub fn into_contiguous_pitched(
 pub fn copy_into(client: &Client, input: TensorBinding, output: TensorBinding, dtype: ElemType) {
     let rank = input.strides.len();
 
-    // It's normally faster on all devices, but since it doesn't parallelize on an axis, it
-    // might be worst on GPU. Should tune at some point.
-    let is_cpu = client.properties().hardware.num_cpu_cores.is_some();
     // The perpendicular kernel reads the input at the output's coordinates, so it only
     // expresses a change of layout. A reshape keeping the rank would otherwise reach it and
     // index the input out of bounds.
     let same_shape = input.shape == output.shape;
-    if input.strides[rank - 1] != 1 && is_cpu && same_shape {
-        launch_copy_perpendicular_ref(client, input, output, dtype);
-    } else {
+    if input.strides[rank - 1] == 1 || !same_shape {
+        return copy_gpu_ref(client, input, output, dtype);
+    }
+
+    if !try_launch_copy_perpendicular(client, &input, &output, dtype) {
         copy_gpu_ref(client, input, output, dtype);
-    };
+    }
 }

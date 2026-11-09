@@ -88,7 +88,7 @@ const ACCUMULATION_STEPS: usize = 256;
 
 pub fn test_accumulations<R: Runtime, F: Float + CubeElement>(client: Client) {
     let steps = ACCUMULATION_STEPS;
-    let total = F::new(steps as f32);
+    let total = F::new(steps as f64);
     assert_eq!(accumulated::<F>(&client, 0.0, 1.0, steps), total);
     assert_eq!(
         accumulated_through_a_copy::<F>(&client, 0.0, 1.0, steps),
@@ -101,7 +101,7 @@ pub fn test_accumulations<R: Runtime, F: Float + CubeElement>(client: Client) {
 }
 
 /// `a * b / c`, written as one expression.
-pub fn product_over<F: Float + CubeElement>(client: &Client, operands: [f32; 3]) -> F {
+pub fn product_over<F: Float + CubeElement>(client: &Client, operands: [f64; 3]) -> F {
     run(
         client,
         &operands.map(|x| F::new(x)),
@@ -121,7 +121,7 @@ pub fn product_over<F: Float + CubeElement>(client: &Client, operands: [f32; 3])
 /// `product_over`, with the product bound by `let` before it is divided.
 pub fn product_over_through_a_let<F: Float + CubeElement>(
     client: &Client,
-    operands: [f32; 3],
+    operands: [f64; 3],
 ) -> F {
     run(
         client,
@@ -142,7 +142,7 @@ pub fn product_over_through_a_let<F: Float + CubeElement>(
 /// `product_over`, with the product bound by `let mut` before it is divided.
 pub fn product_over_through_a_let_mut<F: Float + CubeElement>(
     client: &Client,
-    operands: [f32; 3],
+    operands: [f64; 3],
 ) -> F {
     run(
         client,
@@ -162,7 +162,7 @@ pub fn product_over_through_a_let_mut<F: Float + CubeElement>(
 
 /// `product_over` through a variable the product is stored into under an `if`, then read twice:
 /// once stored as it is and once divided, which is what is returned.
-pub fn product_on_a_branch<F: Float + CubeElement>(client: &Client, operands: [f32; 3]) -> F {
+pub fn product_on_a_branch<F: Float + CubeElement>(client: &Client, operands: [f64; 3]) -> F {
     run(
         client,
         &operands.map(|x| F::new(x)),
@@ -183,8 +183,8 @@ pub fn product_on_a_branch<F: Float + CubeElement>(client: &Client, operands: [f
 /// `start` plus `steps` of `step`, carried around a loop.
 pub fn accumulated<F: Float + CubeElement>(
     client: &Client,
-    start: f32,
-    step: f32,
+    start: f64,
+    step: f64,
     steps: usize,
 ) -> F {
     run(
@@ -207,8 +207,8 @@ pub fn accumulated<F: Float + CubeElement>(
 /// `accumulated`, with the total passing through a second local on its way around the loop.
 pub fn accumulated_through_a_copy<F: Float + CubeElement>(
     client: &Client,
-    start: f32,
-    step: f32,
+    start: f64,
+    step: f64,
     steps: usize,
 ) -> F {
     run(
@@ -231,8 +231,8 @@ pub fn accumulated_through_a_copy<F: Float + CubeElement>(
 /// `accumulated`, in every lane of a vector of `LANES`.
 pub fn accumulated_vector<F: Float + CubeElement>(
     client: &Client,
-    start: f32,
-    step: f32,
+    start: f64,
+    step: f64,
     steps: usize,
 ) -> [F; LANES] {
     let mut input = [F::new(start); 2 * LANES];

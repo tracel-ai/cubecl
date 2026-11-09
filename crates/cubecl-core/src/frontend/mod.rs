@@ -2,7 +2,10 @@ pub mod asm;
 pub mod barrier;
 pub mod branch;
 pub mod cmma;
+pub mod iter;
+mod pending;
 pub mod synchronization;
+pub mod wgmma;
 
 /// Module containing compile-time information about the current runtime.
 pub mod comptime;
@@ -14,6 +17,7 @@ mod const_expand;
 mod container;
 mod debug;
 mod element;
+mod harness;
 mod indexation;
 mod list;
 mod operation;
@@ -36,10 +40,15 @@ pub use const_expand::*;
 pub use container::*;
 pub use debug::*;
 pub use element::*;
+pub use harness::*;
 pub use indexation::*;
+pub use iter::{
+    IndexedIteratorExpand, IntoIteratorExpand, IntoNumericExpand, IterArg, IteratorExpand,
+};
 pub use list::*;
 pub use operation::*;
 pub use options::*;
+pub use pending::{Pending, PendingExpand, PendingValue};
 pub use plane::*;
 pub use ranges::*;
 pub use runtime_option::*;

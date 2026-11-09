@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
-use cubecl_common::hash::StableHasher;
+use cubecl_common::hash::{StableHash, StableHasher};
 
 use alloc::format;
 
@@ -45,6 +45,9 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
 /// tunables it is given: `()` for tunables built by [`Tunable::new`], named and nothing more.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     tunables: Vec<Tunable<K, F, Output, Id>>,
+    /// The low half of the [checksum](Self::compute_checksum), kept in step with `tunables`: every
+    /// launch looks its tuner up by it.
+    checksum: u64,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
@@ -55,14 +58,17 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
     /// Create a tunable set from a key generator and an input generator.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
-        Self {
+        let mut set = Self {
             tunables: Default::default(),
+            checksum: 0,
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
             bounds_gen: None,
             eviction: None,
             short_circuit: true,
-        }
+        };
+        set.checksum = set.names_hash() as u64;
+        set
     }
 
     /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`](super::CloneInputGenerator): benchmarks run
@@ -84,6 +90,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Register a tunable with this tunable set.
     pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
+        self.checksum = self.names_hash() as u64;
         self
     }
 
@@ -137,11 +144,21 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
     /// set of tunable names changes.
     pub fn compute_checksum(&self) -> String {
-        let mut checksum = String::new();
+        format!("{:x}", self.names_hash())
+    }
+
+    /// The low half of the [checksum](Self::compute_checksum), without hashing the names again.
+    pub(crate) fn checksum(&self) -> u64 {
+        self.checksum
+    }
+
+    fn names_hash(&self) -> StableHash {
+        // Each name is hashed with its own terminator, so `["a", "bc"]` and `["abc"]` differ.
+        let mut hasher = StableHasher::new();
         for tune in &self.tunables {
-            checksum += &tune.function.name;
+            tune.function.name.hash(&mut hasher);
         }
-        format!("{:x}", StableHasher::hash_one(&checksum))
+        hasher.finalize()
     }
 
     /// Generate a key from a set of inputs

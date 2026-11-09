@@ -23,13 +23,12 @@ amd = []
 default = ["serde"]
 nvidia = []
 
-serde = ["dep:serde", "hashbrown/serde"]
+serde = ["dep:serde", "hashbrown/serde", "cubecl-common/serde"]
 spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
 cubecl-common = { workspace = true, features = [
-    "fp4",
     "fp8",
     "hash",
 ] }
@@ -59,3 +58,6 @@ variadics_please = { workspace = true }
 
 hashbrown = { workspace = true }
 portable-atomic = { workspace = true }
+
+[dev-dependencies]
+ciborium = { workspace = true, features = ["std"] }

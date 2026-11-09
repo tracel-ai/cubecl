@@ -6,7 +6,7 @@ mod opened;
 mod source;
 
 #[cfg(amdgpu_busy_percent)]
-mod amdgpu_busy_percent;
+mod amdgpu_sysfs;
 #[cfg(intel_idle_residency)]
 mod intel_idle_residency;
 #[cfg(nvml)]
@@ -21,3 +21,5 @@ mod gpu_engine_instance;
 mod io_accelerator;
 
 pub use card_counters::CardCounters;
+#[cfg(io_accelerator)]
+pub use io_accelerator::gpu_core_count;

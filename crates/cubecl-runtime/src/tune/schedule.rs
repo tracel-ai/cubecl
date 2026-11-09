@@ -10,7 +10,7 @@ use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
 use crate::tune::patience::PatienceTable;
-use crate::tune::sampler::SampleSet;
+use crate::tune::sampler::{SampleSet, measured};
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
     TunePlan,
@@ -51,6 +51,11 @@ pub(crate) struct Schedule<'i> {
     pub(crate) limit: Option<Duration>,
     pub(crate) short_circuit: bool,
     pub(crate) track_steps: bool,
+    /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the first window a
+    /// round a short circuit may end compiles ahead of measuring.
+    ///
+    /// [`CompilationConfig::parallelism`]: crate::config::compilation::CompilationConfig::parallelism
+    pub(crate) compile_parallelism: usize,
     /// What runs before every measured sample, when the set registered one.
     pub(crate) evictor: Option<Box<Evictor<'i>>>,
 }
@@ -122,6 +127,7 @@ impl Schedule<'_> {
     {
         let (min_samples, max_samples) = self.config.samples();
 
+        let patient = !batch.patience.is_empty();
         let mut patience = PatienceTable::new(&batch);
         let mut candidates: Vec<Candidate> = batch
             .entries
@@ -130,6 +136,7 @@ impl Schedule<'_> {
             .collect();
 
         let mut short_circuit = None;
+        let mut compiled = 0;
 
         // First pass: one warmup and one sample each, resolved inline so a candidate that
         // already hits the limit ends the batch before the remaining kernels are ever compiled.
@@ -141,10 +148,22 @@ impl Schedule<'_> {
             }
 
             let launched = self.track_steps.then(Instant::now);
+            if slot >= compiled {
+                let window = self.compile_window(candidates.len(), patient, compiled == 0);
+                compiled = (slot + window).min(candidates.len());
+                let ahead = candidates[slot..compiled]
+                    .iter_mut()
+                    .enumerate()
+                    .filter(|(offset, _)| !patience.skips(slot + offset))
+                    .map(|(_, candidate)| candidate);
+                compile_together(ahead, autotunables, &inputs, client);
+            }
+            // A candidate that rejected the problem while compiling is out of the round already.
             let operation = autotunables[candidates[slot].index];
-            let hit = self
-                .first_pass(operation, &inputs, client, &mut candidates[slot])
-                .await;
+            let hit = candidates[slot].live
+                && self
+                    .first_pass(operation, &inputs, client, &mut candidates[slot])
+                    .await;
 
             if let Some(launched) = launched {
                 candidates[slot].elapsed += launched.elapsed();
@@ -222,11 +241,11 @@ impl Schedule<'_> {
             .await;
 
             for (slot, (ticks, waited)) in slots.into_iter().zip(resolved) {
-                match ticks {
-                    Some(ticks) => candidates[slot].samples.push(ticks.duration()),
-                    // An unmeasured sample disqualifies its candidate rather
-                    // than being recorded as a zero, which would be the fastest
-                    // sample in the round and would short-circuit on it.
+                match measured(ticks) {
+                    Some(duration) => candidates[slot].samples.push(duration),
+                    // A sample that is no time disqualifies its candidate rather than being
+                    // recorded as a zero, which would be the fastest sample in the round and
+                    // would short-circuit on it.
                     None => {
                         let name = candidates[slot].name.to_string();
                         candidates[slot].fail(AutotuneError::NotMeasured { name });
@@ -304,6 +323,26 @@ impl Schedule<'_> {
         }
     }
 
+    /// How many of a batch of `len` candidates the first pass compiles together before measuring
+    /// the next of them, `first` where it has compiled none yet: the whole batch where it
+    /// measures every candidate. Where a short circuit may end it early, as many as compile at
+    /// once first, so a round that stops at its first candidates compiles at most a batch of
+    /// kernels it never runs, then the rest of the batch at once: a round its first window did
+    /// not end rarely ends on the next, and compiling window after window waits on each
+    /// window's slowest kernel, then on its measurements, with the compiler idle, which costs a
+    /// round its limit never stops about twice the compile time of one batch. A `patient` batch,
+    /// one where a group's patience may skip the rest of its members, compiles each candidate
+    /// only once it is reached: a member its group skips is never compiled.
+    fn compile_window(&self, len: usize, patient: bool, first: bool) -> usize {
+        let bounded = self.limit.is_some() && self.short_circuit;
+        match (patient, bounded && first) {
+            (true, _) => 1,
+            (false, true) => self.compile_parallelism,
+            (false, false) => len,
+        }
+        .max(1)
+    }
+
     /// Warm up a candidate and take its first sample, confirming on the spot if it already
     /// looks close enough to peak throughput. Returns whether the batch can stop here.
     async fn first_pass<'a, F: TuneInputs, Out: AutotuneOutput>(
@@ -357,9 +396,9 @@ impl Schedule<'_> {
         match operation.sample_once(inputs.clone(), client, self.evictor.as_deref_mut()) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
-                match profile.resolve().await {
-                    Some(ticks) => {
-                        candidate.samples.push(ticks.duration());
+                match measured(profile.resolve().await) {
+                    Some(duration) => {
+                        candidate.samples.push(duration);
                         true
                     }
                     None => {
@@ -472,9 +511,12 @@ impl Schedule<'_> {
                 // dead tune poisons every stream sharing it, and the decided
                 // kernel executes for real right after — if it truly cannot
                 // run, that failure surfaces there, exactly as a measured
-                // winner's would. Only launch failures and manual skips say
-                // the kernel itself is unusable; when nothing else remains,
-                // there is genuinely no kernel to run.
+                // winner's would. Only launch failures, manual skips and
+                // rejections — a candidate whose own function returned an
+                // error, so nothing ran — say the kernel itself is unusable:
+                // deciding a rejection would run it for real and fail the same
+                // way. When nothing else remains, there is genuinely no kernel
+                // to run.
                 let executed_unmeasured = results.iter().position(|result| {
                     matches!(
                         &result.outcome,
@@ -590,6 +632,35 @@ impl Candidate {
     }
 }
 
+/// Compile the kernels of `candidates` in one batch, on as many threads as compile at once,
+/// rather than each inside its own warmup, one after another.
+///
+/// Each runs once on this stream with its launches discarded, which queues the kernels they reach
+/// ([`LaunchMode::Queue`](crate::execution::LaunchMode::Queue)); the queue then compiles together.
+/// Only this stream discards, so another thread's launches still run. A candidate that rejects
+/// the problem queues nothing and keeps its rejection, as its warmup would have reported it: it is
+/// never a kernel to fall back on. One whose kernel fails to compile reports it at its warmup.
+fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
+    candidates: impl Iterator<Item = &'c mut Candidate>,
+    autotunables: &[&TuneFn<F, Out>],
+    inputs: &<F as TuneInputs>::At<'a>,
+    client: &Client,
+) where
+    <F as TuneInputs>::At<'a>: Clone,
+{
+    let queuing =
+        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
+    for candidate in candidates {
+        if let Err(rejection @ AutotuneError::Rejected { .. }) =
+            autotunables[candidate.index].execute(inputs.clone())
+        {
+            candidate.fail(rejection);
+        }
+    }
+    core::mem::drop(queuing);
+    client.compile_queued();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,6 +675,7 @@ mod tests {
             limit: None,
             short_circuit: false,
             track_steps: false,
+            compile_parallelism: 1,
             evictor: None,
         }
     }
@@ -622,6 +694,21 @@ mod tests {
             .filter(|c| c.live)
             .map(|c| c.index)
             .collect()
+    }
+
+    #[test]
+    fn a_bounded_round_compiles_one_window_then_the_rest() {
+        let bounded = Schedule {
+            limit: Some(Duration::from_micros(10)),
+            short_circuit: true,
+            compile_parallelism: 8,
+            ..schedule(1.5)
+        };
+        assert_eq!(bounded.compile_window(100, false, true), 8);
+        assert_eq!(bounded.compile_window(100, false, false), 100);
+        assert_eq!(bounded.compile_window(100, true, true), 1);
+        assert_eq!(bounded.compile_window(100, true, false), 1);
+        assert_eq!(schedule(1.5).compile_window(100, false, true), 100);
     }
 
     #[test]

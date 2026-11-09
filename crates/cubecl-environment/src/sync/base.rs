@@ -39,7 +39,7 @@ pub use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering
 ///
 /// [Mutex] wrapper to make `spin::Mutex` API compatible with `std::sync::Mutex` to swap
 #[derive(Debug, Default)]
-pub struct Mutex<T> {
+pub struct Mutex<T: ?Sized> {
     inner: MutexImported<T>,
 }
 
@@ -49,27 +49,6 @@ impl<T> Mutex<T> {
     pub const fn new(value: T) -> Self {
         Self {
             inner: MutexImported::new(value),
-        }
-    }
-
-    /// Locks the mutex blocking the current thread until it is able to do so.
-    ///
-    /// Locking cannot fail, so no `Result` is returned. A poisoned lock is
-    /// recovered rather than reported: a panic under a guard must not turn
-    /// every later lock into a panic, matching the unwind behavior of the spin
-    /// implementation used off-std.
-    #[inline(always)]
-    pub fn lock(&self) -> MutexGuard<'_, T> {
-        #[cfg(not(feature = "std"))]
-        {
-            self.inner.lock()
-        }
-
-        #[cfg(feature = "std")]
-        {
-            self.inner
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 
@@ -91,12 +70,35 @@ impl<T> Mutex<T> {
     }
 }
 
+impl<T: ?Sized> Mutex<T> {
+    /// Locks the mutex blocking the current thread until it is able to do so.
+    ///
+    /// Locking cannot fail, so no `Result` is returned. A poisoned lock is
+    /// recovered rather than reported: a panic under a guard must not turn
+    /// every later lock into a panic, matching the unwind behavior of the spin
+    /// implementation used off-std.
+    #[inline(always)]
+    pub fn lock(&self) -> MutexGuard<'_, T> {
+        #[cfg(not(feature = "std"))]
+        {
+            self.inner.lock()
+        }
+
+        #[cfg(feature = "std")]
+        {
+            self.inner
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        }
+    }
+}
+
 /// A reader-writer lock which is exclusively locked for writing or shared for reading.
 /// This reader-writer lock will block threads waiting for the lock to become available.
 /// The lock can also be statically initialized or created via a [`RwLock::new`]
 /// [`RwLock`] wrapper to make `spin::RwLock` API compatible with `std::sync::RwLock` to swap
 #[derive(Debug)]
-pub struct RwLock<T> {
+pub struct RwLock<T: ?Sized> {
     inner: RwLockImported<T>,
 }
 
@@ -108,7 +110,9 @@ impl<T> RwLock<T> {
             inner: RwLockImported::new(value),
         }
     }
+}
 
+impl<T: ?Sized> RwLock<T> {
     /// Locks this rwlock with shared read access, blocking the current thread
     /// until it can be acquired.
     ///
@@ -244,5 +248,21 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(*lock.read(), 0);
+    }
+
+    #[test]
+    fn a_mutex_locks_a_trait_object() {
+        let mutex: Arc<Mutex<dyn Iterator<Item = u32> + Send>> = Arc::new(Mutex::new(0..3));
+
+        assert_eq!(mutex.lock().next(), Some(0));
+        assert_eq!(mutex.lock().next(), Some(1));
+    }
+
+    #[test]
+    fn an_rwlock_locks_a_trait_object() {
+        let lock: Arc<RwLock<dyn Iterator<Item = u32> + Send + Sync>> = Arc::new(RwLock::new(0..3));
+
+        assert_eq!(lock.write().next(), Some(0));
+        assert_eq!(lock.read().size_hint(), (2, Some(2)));
     }
 }

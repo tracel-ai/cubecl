@@ -6,6 +6,8 @@ use std::sync::Arc;
 use cubecl_core::server::LaunchError;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_llvm::{PlironCompiler, PlironOptions};
+#[cfg(compilation_cache)]
+use cubecl_server::compiler::ArtifactStore;
 use cubecl_server::compiler::{
     ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording, CompilationTarget,
 };
@@ -13,6 +15,8 @@ use cubecl_server::kernel::{CompiledKernel, CubeKernel};
 use cubecl_server::logging::ServerLogger;
 
 use crate::CpuCompiler;
+#[cfg(compilation_cache)]
+use crate::compute::cache::CpuCacheEntry;
 use crate::compute::cpu_kernel::CpuCompiledKernel;
 
 /// The alignment, in bytes, every buffer of a launch is known to start on.
@@ -22,22 +26,19 @@ use crate::compute::cpu_kernel::CpuCompiledKernel;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferAlignment(pub u32);
 
-/// Compiles kernels for the CPU and loads them.
-///
-/// Both halves of the compilation are this one type: there is no compilation
-/// store, and loading a JIT engine is handing it over.
-#[derive(Debug)]
-pub(crate) struct CpuKernelCompiler {
+/// The compiler half that lowers kernels and may run on worker threads.
+#[derive(Debug, Clone)]
+pub struct CpuArtifactCompiler {
     options: PlironOptions,
 }
 
-impl CpuKernelCompiler {
-    pub(crate) fn new(options: PlironOptions) -> Self {
+impl CpuArtifactCompiler {
+    pub fn new(options: PlironOptions) -> Self {
         Self { options }
     }
 }
 
-impl ArtifactCompiler for CpuKernelCompiler {
+impl ArtifactCompiler for CpuArtifactCompiler {
     type Variant = BufferAlignment;
     type Lowered = CompiledKernel<PlironCompiler>;
     type Artifact = Arc<CompiledKernel<PlironCompiler>>;
@@ -80,39 +81,144 @@ impl ArtifactCompiler for CpuKernelCompiler {
     }
 }
 
+/// Compiles kernels for the CPU and loads them.
+#[derive(Debug)]
+pub struct CpuKernelCompiler {
+    compiler: CpuArtifactCompiler,
+    #[cfg(compilation_cache)]
+    store: ArtifactStore<CpuCacheEntry>,
+}
+
+impl CpuKernelCompiler {
+    pub fn new(
+        options: PlironOptions,
+        #[cfg(compilation_cache)] store: ArtifactStore<CpuCacheEntry>,
+    ) -> Self {
+        #[cfg(compilation_cache)]
+        let mut options = options;
+        #[cfg(compilation_cache)]
+        {
+            options.keep_object = store.is_enabled();
+        }
+        Self {
+            compiler: CpuArtifactCompiler::new(options),
+            #[cfg(compilation_cache)]
+            store,
+        }
+    }
+}
+
 impl CompilationTarget for CpuKernelCompiler {
-    type Compiler = Self;
+    type Compiler = CpuArtifactCompiler;
     type Loaded = CpuCompiledKernel;
 
-    fn compiler(&self) -> &Self {
-        self
+    fn compiler(&self) -> &Self::Compiler {
+        &self.compiler
     }
 
     fn persists(&self) -> bool {
-        false
+        #[cfg(compilation_cache)]
+        {
+            self.store.persists()
+        }
+        #[cfg(not(compilation_cache))]
+        {
+            false
+        }
     }
 
     fn stored(
         &mut self,
-        _id: &ArtifactId<BufferAlignment>,
-    ) -> Option<<Self as ArtifactCompiler>::Artifact> {
-        None
+        id: &ArtifactId<BufferAlignment>,
+    ) -> Option<<Self::Compiler as ArtifactCompiler>::Artifact> {
+        #[cfg(compilation_cache)]
+        {
+            let entry = self.store.take_variant(id)?;
+
+            let requirements = cubecl_llvm::KernelRequirements {
+                needs_parallelism: entry.needs_parallelism,
+                shared_memories: entry.shared_memories.clone().into(),
+            };
+
+            match cubecl_llvm::PlironEngine::from_object(
+                &entry.object,
+                &entry.entrypoint_name,
+                requirements,
+                entry.io.clone().unwrap_or_default(),
+            ) {
+                Ok(engine) => {
+                    log::trace!("Using the compilation store for CPU kernel {:?}", id.kernel);
+                    let compiled = CompiledKernel {
+                        entrypoint_name: entry.entrypoint_name.clone(),
+                        debug_name: None,
+                        source: String::new(),
+                        repr: Some(cubecl_llvm::PlironArtifact::Jit(engine)),
+                        cube_dim: entry.cube_dim,
+                        io: entry.io.clone(),
+                        debug_info: None,
+                    };
+                    Some(Arc::new(compiled))
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Corrupted or invalid CPU cache entry for kernel {:?}: {err}. Purging entry and recompiling.",
+                        id.kernel
+                    );
+                    self.store.purge_variant(id);
+                    None
+                }
+            }
+        }
+        #[cfg(not(compilation_cache))]
+        {
+            let _ = id;
+            None
+        }
     }
 
     fn load(
         &mut self,
         _id: &ArtifactId<BufferAlignment>,
-        artifact: &<Self as ArtifactCompiler>::Artifact,
+        artifact: &<Self::Compiler as ArtifactCompiler>::Artifact,
     ) -> Result<CpuCompiledKernel, CompilationError> {
         Ok(CpuCompiledKernel::new(artifact.clone()))
     }
 
     fn store(
         &mut self,
-        _id: &ArtifactId<BufferAlignment>,
-        _artifact: <Self as ArtifactCompiler>::Artifact,
+        id: &ArtifactId<BufferAlignment>,
+        artifact: <Self::Compiler as ArtifactCompiler>::Artifact,
         _source: Option<&str>,
     ) -> bool {
-        false
+        #[cfg(compilation_cache)]
+        {
+            if !self.store.is_enabled() {
+                return false;
+            }
+
+            let Some(cubecl_llvm::PlironArtifact::Jit(engine)) = artifact.repr.as_ref() else {
+                return false;
+            };
+
+            let Some(object) = engine.take_object_bytes() else {
+                return false;
+            };
+
+            let entry = CpuCacheEntry {
+                object,
+                entrypoint_name: artifact.entrypoint_name.clone(),
+                cube_dim: artifact.cube_dim,
+                io: artifact.io.clone(),
+                shared_memories: (&engine.requirements().shared_memories).into(),
+                needs_parallelism: engine.requirements().needs_parallelism,
+            };
+
+            self.store.store_variant(id, entry)
+        }
+        #[cfg(not(compilation_cache))]
+        {
+            let _ = (id, artifact);
+            false
+        }
     }
 }

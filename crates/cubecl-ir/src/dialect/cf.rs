@@ -28,7 +28,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    NoMemoryEffect,
+    NoMemoryEffect, Pure,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     prelude::*,
     types::scalar::BoolType,
@@ -97,7 +97,7 @@ impl BranchOp {
     verifier = "succ"
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, NSuccsInterface<2>)]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(Pure)]
 pub struct BranchConditionalOp;
 impl BranchConditionalOp {
     /// Create a new [`BranchConditionalOp`].
@@ -266,7 +266,7 @@ impl BranchOpInterface for BranchConditionalOp {
     attributes = (cf_switch_case_values: IntegerVecAttr)
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(Pure)]
 pub struct SwitchOp;
 
 #[op_interface_impl]
@@ -556,11 +556,9 @@ pub enum SwitchOpVerifyErr {
 
 impl Verify for SwitchOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
-
         let op = &*self.get_operation().deref(ctx);
         if op.get_num_successors() < 1 {
-            verify_err!(loc.clone(), SwitchOpVerifyErr::DefaultDestErr)?;
+            verify_err!(op.loc(), SwitchOpVerifyErr::DefaultDestErr)?;
         }
 
         Ok(())

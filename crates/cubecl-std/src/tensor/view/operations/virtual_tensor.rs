@@ -130,7 +130,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         _scope: &Scope,
         _shared_memory: &SliceExpand<Vector<T, N>>,
         _pos: <Coords1d as CubeType>::ExpandType,
-    ) {
+    ) -> PendingExpand<()> {
         unimplemented!("Not a tensor map");
     }
 }

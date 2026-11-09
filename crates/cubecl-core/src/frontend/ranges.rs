@@ -8,8 +8,8 @@ use cubecl::prelude::*;
 
 #[derive_expand(CubeType)]
 pub struct Range<Idx: Scalar> {
-    start: Idx,
-    end: Idx,
+    pub(crate) start: Idx,
+    pub(crate) end: Idx,
 }
 
 impl<Idx: Scalar> RangeExpand<Idx> {
@@ -104,8 +104,8 @@ impl IntoSliceIndices for RangeFullExpand {
 
 #[derive_expand(CubeType)]
 pub struct RangeInclusive<Idx: Scalar> {
-    start: Idx,
-    last: Idx,
+    pub(crate) start: Idx,
+    pub(crate) last: Idx,
 }
 
 impl<Idx: Scalar> RangeInclusiveExpand<Idx> {
@@ -294,8 +294,8 @@ pub(crate) trait IntoSliceIndices {
 }
 
 macro_rules! impl_slice_ranges {
-    ($ty: ty, $range: ty) => {
-        impl<E: CubePrimitive> IndexExpand<$range> for $ty {
+    ([$($generics:tt)*] $ty: ty, $range: ty) => {
+        impl<$($generics)*> IndexExpand<$range> for $ty {
             type Output = SliceExpand<E>;
 
             fn __expand_index_method(&self, scope: &Scope, index: $range) -> &Self::Output {
@@ -304,7 +304,7 @@ macro_rules! impl_slice_ranges {
             }
         }
 
-        impl<E: CubePrimitive> IndexMutExpand<$range> for $ty {
+        impl<$($generics)*> IndexMutExpand<$range> for $ty {
             fn __expand_index_mut_method(
                 &mut self,
                 scope: &Scope,
@@ -315,13 +315,13 @@ macro_rules! impl_slice_ranges {
             }
         }
     };
-    ($ty: ty) => {
-        impl_slice_ranges!($ty, RangeExpand<usize>);
-        impl_slice_ranges!($ty, RangeFromExpand<usize>);
-        impl_slice_ranges!($ty, RangeFullExpand);
-        impl_slice_ranges!($ty, RangeInclusiveExpand<usize>);
-        impl_slice_ranges!($ty, RangeToExpand<usize>);
-        impl_slice_ranges!($ty, RangeToInclusiveExpand<usize>);
+    ([$($generics:tt)*] $ty: ty) => {
+        impl_slice_ranges!([$($generics)*] $ty, RangeExpand<usize>);
+        impl_slice_ranges!([$($generics)*] $ty, RangeFromExpand<usize>);
+        impl_slice_ranges!([$($generics)*] $ty, RangeFullExpand);
+        impl_slice_ranges!([$($generics)*] $ty, RangeInclusiveExpand<usize>);
+        impl_slice_ranges!([$($generics)*] $ty, RangeToExpand<usize>);
+        impl_slice_ranges!([$($generics)*] $ty, RangeToInclusiveExpand<usize>);
     };
 }
 pub(crate) use impl_slice_ranges;
@@ -344,17 +344,21 @@ fn iter_expand_unroll<I: Int>(
         .expect("Only constant end can be unrolled.")
         .as_i64();
 
+    let body_scope = scope.unrolled_loop_child();
     if inclusive {
         for i in start..=end {
             let val = I::from_int(i);
-            body(scope, val.into())
+            scope.update_flags_before_unrolled_iteration(&body_scope);
+            body(&body_scope, val.into());
         }
     } else {
         for i in start..end {
             let val = I::from_int(i);
-            body(scope, val.into())
+            scope.update_flags_before_unrolled_iteration(&body_scope);
+            body(&body_scope, val.into());
         }
     }
+    scope.finalize_unrolled_loop(&body_scope);
 }
 
 fn iter_expand<I: Int>(
@@ -385,7 +389,7 @@ fn iter_expand<I: Int>(
     child.terminate_yield();
 
     register_range_loop::<I>(scope, &range_loop, &child);
-    scope.set_may_return(&[child]);
+    scope.update_flags_after_loop(&[child]);
 }
 
 pub struct SteppedRangeExpand<I: Int> {
@@ -416,7 +420,7 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
         body(&child, i.into());
 
         register_range_loop::<I>(scope, &range_loop, &child);
-        scope.set_may_return(&[child]);
+        scope.update_flags_after_loop(&[child]);
     }
 
     fn expand_unroll(
@@ -443,32 +447,38 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
             .expect("Only constant step can be unrolled.")
             .as_i128();
 
+        let body_scope = scope.unrolled_loop_child();
         match (self.inclusive, step.is_negative()) {
             (true, true) => {
                 for i in (end..=start).rev().step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
+                    body(&body_scope, val.into());
                 }
             }
             (true, false) => {
                 for i in (start..=end).step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
+                    body(&body_scope, val.into());
                 }
             }
             (false, true) => {
                 for i in (end..start).rev().step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
+                    body(&body_scope, val.into());
                 }
             }
             (false, false) => {
                 for i in (start..end).step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
+                    body(&body_scope, val.into());
                 }
             }
         }
+        scope.finalize_unrolled_loop(&body_scope);
     }
 
     fn const_len(&self) -> Option<usize> {

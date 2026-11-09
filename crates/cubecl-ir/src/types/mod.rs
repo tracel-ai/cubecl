@@ -20,11 +20,15 @@ pub mod barrier;
 pub mod cuda;
 pub mod fp8;
 pub mod matrix;
+pub mod pending;
 pub mod scalar;
 pub mod spirv;
 
 pub use fp8::Fp8Format;
-pub use matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape};
+pub use matrix::{
+    LdMatrixForm, MatrixIdent, MatrixLayout, MatrixMoveTransposition, MatrixScope, MatrixShape,
+    StMatrixForm,
+};
 
 #[pliron_type(
     name = "vector.vector",

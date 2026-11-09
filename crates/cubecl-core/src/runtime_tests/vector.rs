@@ -9,7 +9,7 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 pub fn kernel_vector_index<F: Float, N: Size>(output: &mut [F]) {
     if UNIT_POS == 0 {
-        let vector = Vector::<F, N>::new(F::new(5f32));
+        let vector = Vector::<F, N>::new(F::new(5.0));
         #[unroll]
         for i in 0..4 {
             output[i] = vector.extract(i);
@@ -49,7 +49,7 @@ pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: Client) {
 pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = RuntimeCell::<Vector<F, N>>::new(output[0]);
-        vector.insert(0usize, F::new(5f32));
+        vector.insert(0usize, F::new(5.0));
         output[0] = vector.consume();
     }
 }
@@ -240,11 +240,59 @@ pub fn test_vector_extract_dynamic<R: Runtime, F: Float + CubeElement>(client: C
     }
 }
 
+/// A dynamic lane of a vector in shared memory, past its first element and written before a
+/// barrier: a target reading the lane alone out of memory must find it at the element's place.
+#[cube(launch_unchecked)]
+pub fn kernel_vector_extract_dynamic_shared<F: Float, N: Size>(
+    input: &[Vector<F, N>],
+    index: &[u32],
+    output: &mut [F],
+) {
+    let mut stage = Shared::new_slice(2usize);
+    if UNIT_POS == 0 {
+        stage[0] = Vector::new(F::new(0.0));
+        stage[1] = input[0];
+    }
+    sync_cube();
+    if UNIT_POS == 0 {
+        output[0] = stage[1].extract_dynamic(usize::cast_from(index[0]));
+    }
+}
+
+pub fn test_vector_extract_dynamic_shared<R: Runtime, F: Float + CubeElement>(client: Client) {
+    let vector_size = 4usize;
+    let data = (0..vector_size as i64)
+        .map(|x| F::from_int(x + 1))
+        .collect::<Vec<_>>();
+    let input = client.create_from_slice(F::as_bytes(&data));
+
+    for lane in 0..vector_size {
+        let index = client.create_from_slice(u32::as_bytes(&[lane as u32]));
+        let output = client.create_from_slice(F::as_bytes(&[F::new(0.0)]));
+        unsafe {
+            kernel_vector_extract_dynamic_shared::launch_unchecked::<F>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                vector_size,
+                BufferArg::from_raw_parts(input.clone(), 1),
+                BufferArg::from_raw_parts(index, 1),
+                BufferArg::from_raw_parts(output.clone(), 1),
+            )
+        }
+
+        let actual = client.read_one_unchecked(output);
+        let actual = F::from_bytes(&actual);
+
+        assert_eq!(actual[0], data[lane], "lane {lane}");
+    }
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_vector_insert_dynamic<F: Float, N: Size>(index: &[u32], output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = output[0];
-        vector.insert_dynamic(usize::cast_from(index[0]), F::new(5f32));
+        vector.insert_dynamic(usize::cast_from(index[0]), F::new(5.0));
         output[0] = vector;
     }
 }
@@ -279,7 +327,7 @@ pub fn test_vector_insert_dynamic<R: Runtime, F: Float + CubeElement>(client: Cl
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     let mut smem1 = Shared::new_slice(8usize);
-    smem1[0] = Vector::new(F::new(42f32));
+    smem1[0] = Vector::new(F::new(42.0));
     output[0] = smem1[0];
 }
 
@@ -401,6 +449,15 @@ macro_rules! testgen_vector {
         fn test_vector_extract_dynamic() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::vector::test_vector_extract_dynamic::<
+                TestRuntime,
+                FloatType,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_vector_extract_dynamic_shared() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::vector::test_vector_extract_dynamic_shared::<
                 TestRuntime,
                 FloatType,
             >(client);

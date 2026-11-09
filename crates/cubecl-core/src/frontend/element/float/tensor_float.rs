@@ -22,15 +22,16 @@ impl CubePrimitive for tf32 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        TFloat32Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         tf32::from_f64(value)
+    }
+}
+impl ConstantTyped for tf32 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        TFloat32Type::get(scope.ctx()).into()
     }
 }
 
@@ -85,7 +86,7 @@ impl Float for tf32 {
 
     const RADIX: u32 = 2;
 
-    fn new(val: f32) -> Self {
-        tf32::from_f32(val)
+    fn new(val: f64) -> Self {
+        tf32::from_f64(val)
     }
 }

@@ -143,7 +143,12 @@ pub trait FailureStore {
     /// Each binding is resolved to the manager of the stream it was created
     /// on, which may not be the stream that failed — that is the point: the
     /// fact lands on the memory, wherever it lives.
-    fn taint<'a>(&mut self, error: ServerError, written: impl Iterator<Item = &'a BufferBinding>) {
+    fn taint<'a>(
+        &mut self,
+        error: ServerError,
+        written: impl Iterator<Item = &'a BufferBinding> + Clone,
+    ) {
+        tell_peers(written.clone(), Some(&error));
         let (pool, failures) = self.split();
         base::taint(pool, error, written, &mut failures.graph);
     }
@@ -151,7 +156,8 @@ pub trait FailureStore {
     /// Release the failure on every allocation in `written`: work that writes
     /// them has been enqueued, so a read of one is no longer reading bytes
     /// nothing wrote.
-    fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding>) {
+    fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding> + Clone) {
+        tell_peers(written.clone(), None);
         let (pool, failures) = self.split();
         base::written(pool, written, &mut failures.graph);
     }
@@ -190,6 +196,7 @@ pub trait FailureStore {
             },
         );
         base::taint_with(pool, found.failure, written.iter(), &mut failures.graph);
+        tell_peers(written.iter(), Some(&found.error));
         written.clear();
         failures.scratch = written;
     }
@@ -242,6 +249,7 @@ pub trait FailureStore {
         match error {
             None => self.written(written.iter()),
             Some(error) => {
+                tell_peers(written.iter(), Some(error));
                 let (_, failures) = self.split();
                 failures.logger.log_failure(error);
                 if let Some(provisional) = provisional {
@@ -257,5 +265,20 @@ pub trait FailureStore {
         }
         written.clear();
         failures.scratch = written;
+    }
+}
+
+/// Tell the kernels on other devices that bind any of `written` how the work
+/// writing it here ended: a buffer shared with peers carries the failure that
+/// stopped that work, so a peer kernel reading it does not run on stale bytes,
+/// and drops it again once work writing it was enqueued.
+fn tell_peers<'a>(written: impl Iterator<Item = &'a BufferBinding>, error: Option<&ServerError>) {
+    for peer in written.filter_map(|binding| binding.peer.as_ref()) {
+        match error {
+            Some(error) => peer.fail(error.clone()),
+            None => {
+                peer.repair();
+            }
+        }
     }
 }

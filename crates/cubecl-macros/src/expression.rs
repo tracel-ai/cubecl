@@ -1,14 +1,14 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
-    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
     PathSegment, QSelf, Token, Type,
 };
 
 use crate::{
     operator::Operator,
     parse::asm::AsmExpression,
-    scope::{Context, ManagedVar, Scope},
+    scope::{ClosureScope, Context, ManagedVar, Scope},
     statement::Statement,
 };
 
@@ -64,12 +64,17 @@ pub enum Expression {
         params: Vec<Pat>,
         body: Box<Expression>,
         scope: Scope,
+        has_early_return: bool,
+        span: Span,
     },
     Cast {
         from: Box<Expression>,
         to: Type,
     },
-    Break,
+    Break {
+        closure_scope: ClosureScope,
+        span: Span,
+    },
     /// Tokens not relevant to parsing
     Verbatim {
         tokens: TokenStream,
@@ -87,8 +92,15 @@ pub enum Expression {
         args: TokenStream,
     },
     Asm(AsmExpression),
-    Continue(Span),
-    Return(Span),
+    Continue {
+        closure_scope: ClosureScope,
+        span: Span,
+    },
+    Return {
+        closure_scope: ClosureScope,
+        value: Option<Box<Expression>>,
+        span: Span,
+    },
     ForLoop {
         range: Box<Expression>,
         unroll: Option<Box<Expression>>,
@@ -142,7 +154,7 @@ pub enum Expression {
     },
     ArrayInit {
         init: Box<Expression>,
-        len: Box<Expression>,
+        len: Box<Expr>,
     },
     Reference {
         inner: Box<Expression>,
@@ -161,6 +173,7 @@ pub enum Expression {
         expr: Box<Expression>,
         arms: Vec<MatchArm>,
         default: Option<MatchArm>,
+        has_value: bool,
     },
     Match {
         // True implies that discriminants are matched at comptime,
@@ -189,7 +202,10 @@ pub enum Expression {
         ident: Ident,
         tokens: TokenStream,
     },
-    Terminate,
+    Terminate {
+        closure_scope: ClosureScope,
+        span: Span,
+    },
     AssertConstant {
         inner: Box<Expression>,
     },
@@ -205,6 +221,8 @@ pub struct MatchArm {
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
+    /// The source span of `ret`, for its debug location.
+    pub ret_span: Option<Span>,
 }
 
 impl Expression {

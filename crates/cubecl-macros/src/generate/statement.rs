@@ -1,5 +1,5 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{Token, Type, spanned::Spanned};
 
 use crate::{
@@ -10,10 +10,23 @@ use crate::{
     statement::{DefineKind, Statement},
 };
 
+/// Names the value of the variable `var` as `name` when its type implements `CubeDebug`. A value
+/// of any other type, for example a comptime enum, keeps no name, so it needs no `CubeDebug`.
+pub fn name_debug_var(name: &str, var: &TokenStream) -> TokenStream {
+    let debug_var = frontend_type("DebugVar");
+    let named = frontend_type("DebugVarNamed");
+    let unnamed = frontend_type("DebugVarUnnamed");
+    quote! {{
+        use #named as _;
+        use #unnamed as _;
+        (&#debug_var(&#var)).debug_var(scope, #name);
+    }}
+}
+
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
-            Statement::Local { variable, init } => {
+            Statement::Local { variable, init, .. } => {
                 let name = &variable.name;
                 let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
                 let mutable = variable.is_mut_owned.then(|| quote![mut]);
@@ -60,10 +73,13 @@ impl Statement {
                     if is_mut || !is_const {
                         let name_str = name.to_string();
                         let init_var = if context.debug_symbols {
-                            let debug_var = frontend_type("debug_var_expand");
+                            let var = quote![__cube_var];
+                            let name_var = name_debug_var(&name_str, &var);
 
                             quote![
-                                #debug_var(scope, #name_str, #init)
+                                let #var #ty = #init;
+                                #name_var
+                                #var
                             ]
                         } else {
                             quote![#init]
@@ -88,20 +104,25 @@ impl Statement {
                     DefineKind::Type => prelude_type("define_scalar"),
                     DefineKind::Size => prelude_type("define_size"),
                 };
+                // A definition, of a type or a size, lasts to the end of its block.
+                let definition = format_ident!("__{}_definition", name.to_string().to_lowercase());
                 let register = match kind {
-                    DefineKind::Size => quote![register_size],
-                    DefineKind::Type => quote![register_type],
+                    DefineKind::Size => {
+                        quote![let #definition = scope.define_size::<#name>(#value);]
+                    }
+                    DefineKind::Type => {
+                        quote![let #definition = scope.define_type::<#name>(#value);]
+                    }
                 };
                 quote! {
                     #define_func!(#name);
-                    {
-                        scope.#register::<#name>(#value);
-                    }
+                    #register
                 }
             }
             Statement::Expression {
                 expression,
                 terminated,
+                ..
             } => {
                 let terminator = terminated.then(|| Token![;](Span::call_site()));
                 if let Some(as_const) = expression.as_const(context) {

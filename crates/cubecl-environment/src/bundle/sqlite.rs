@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use crate::bytes::Bytes;
 use crate::future::block_on;
 use crate::persistence::NamespaceSummary;
-use crate::persistence::turso::{self as database, SCHEMA_VERSION, SCHEMA_VERSION_KEY, connect};
+use crate::persistence::database::{self, SCHEMA_VERSION, SCHEMA_VERSION_KEY, connect};
+use crate::persistence::sql::{self, Opening, SqlError};
 
-use super::export::storage_error;
 use super::{Bundle, BundleError, BundleManifest};
 
 /// The bytes every `SQLite` file starts with.
@@ -24,7 +24,7 @@ const MAGIC: &[u8; 16] = b"SQLite format 3\0";
 ///
 #[derive(Debug)]
 pub struct SqliteBundle {
-    database: turso::Database,
+    database: sql::Database,
     manifest: BundleManifest,
     path: PathBuf,
 }
@@ -50,9 +50,8 @@ impl SqliteBundle {
             BundleError::Storage(std::format!("bundle path {path:?} is not valid UTF-8"))
         })?;
 
-        let database = block_on(turso::Builder::new_local(location).read_only(true).build())
-            .map_err(storage_error)?;
-        let connection = connect(&database).map_err(storage_error)?;
+        let database = block_on(sql::Database::open(location, Opening::ReadOnly))?;
+        let connection = connect(&database)?;
 
         // "Not a bundle" is a narrow condition: a database without a `meta`
         // table, or with no version in it. Anything else — a locked, corrupt,
@@ -92,7 +91,7 @@ impl SqliteBundle {
     fn read<T>(
         &self,
         name: &str,
-        read: impl FnOnce(&turso::Connection) -> Result<T, turso::Error>,
+        read: impl FnOnce(&sql::Connection) -> Result<T, SqlError>,
     ) -> Option<T> {
         connect(&self.database)
             .and_then(|connection| read(&connection))
@@ -104,46 +103,46 @@ impl SqliteBundle {
 impl Bundle for SqliteBundle {
     fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
         self.read("read", |connection| {
-            let mut rows = block_on(connection.query(
+            let mut value = None;
+            connection.query(
                 "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2",
-                (namespace, key.to_vec()),
-            ))?;
-            let Some(row) = block_on(rows.next())? else {
-                return Ok(None);
-            };
-            // A database row is materialized by the engine, so there is
-            // nothing to serve a zero-copy window into.
-            let value: Vec<u8> = row.get(0)?;
-            Ok(Some(Bytes::from_bytes_vec(value)))
+                &[namespace.into(), key.into()],
+                &mut |row| {
+                    // A database row is materialized by the engine, so there
+                    // is nothing to serve a zero-copy window into.
+                    value = Some(Bytes::from_bytes_vec(row.blob(0)?));
+                    Ok::<_, SqlError>(())
+                },
+            )?;
+            Ok(value)
         })
         .flatten()
     }
 
     fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.read("scan", |connection| {
-            let mut rows = block_on(connection.query(
+            connection.query(
                 "SELECT key, value FROM entries WHERE namespace = ?1",
-                (namespace,),
-            ))?;
-            while let Some(row) = block_on(rows.next())? {
-                let key: Vec<u8> = row.get(0)?;
-                let value: Vec<u8> = row.get(1)?;
-                visit(&key, &value);
-            }
-            Ok(())
+                &[namespace.into()],
+                &mut |row| {
+                    visit(&row.blob(0)?, &row.blob(1)?);
+                    Ok::<_, SqlError>(())
+                },
+            )
         });
     }
 
     fn namespaces(&self) -> Vec<String> {
         self.read("list", |connection| {
-            let mut rows = block_on(connection.query(
-                "SELECT DISTINCT namespace FROM entries ORDER BY namespace",
-                (),
-            ))?;
             let mut namespaces = Vec::new();
-            while let Some(row) = block_on(rows.next())? {
-                namespaces.push(row.get::<String>(0)?);
-            }
+            connection.query(
+                "SELECT DISTINCT namespace FROM entries ORDER BY namespace",
+                &[],
+                &mut |row| {
+                    namespaces.push(row.text(0)?);
+                    Ok::<_, SqlError>(())
+                },
+            )?;
             Ok(namespaces)
         })
         .unwrap_or_default()
@@ -157,7 +156,7 @@ impl Bundle for SqliteBundle {
 /// Whether `err` means "this file is not a cubecl bundle" rather than a genuine
 /// database failure: a database without the `meta` table fails with a "no such
 /// table" message.
-pub(super) fn missing_meta(err: turso::Error) -> BundleError {
+pub(super) fn missing_meta(err: SqlError) -> BundleError {
     let message = err.to_string();
     if message.contains("no such table") {
         BundleError::NotABundle

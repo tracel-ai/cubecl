@@ -158,7 +158,7 @@ fn cleared<N: Size>(above: Vector<bool, N>) -> Vector<u32, N> {
 
 /// What a code placed as an `f16` near the bottom of its range, its sign, exponent and mantissa
 /// moved onto the `f16`'s own, is short of its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
-pub const E2M1_F16_LIFT: f32 = 16384.0;
+pub const E2M1_F16_LIFT: f64 = 16384.0;
 
 /// The `f16` pair two codes name, from a word holding one code in its low nibble and the other
 /// sixteen bits up.

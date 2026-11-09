@@ -196,7 +196,7 @@ impl StoreOptions {
 /// environment stays put. Stores on an explicit or absent storage are not
 /// bound and never reset.
 pub struct Store<K, V> {
-    entries: HashMap<K, V>,
+    entries: HashMap<K, MemoryEntry<V>>,
     /// Keys this process interacted with without the map holding their value:
     /// [`CacheOption::Lazy`] inserts (which drop the value rather than retain
     /// megabytes of compiled artifacts never read again) and
@@ -274,7 +274,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             return None;
         }
 
-        self.entries.get(key)
+        self.entries.get(key).map(MemoryEntry::value)
     }
 
     /// Fetch an item, reading it from the storage on the first lookup of a
@@ -288,10 +288,10 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             && !self.entries.contains_key(key)
             && let Some(value) = self.fetch(key)
         {
-            self.entries.insert(key.clone(), value);
+            self.entries.insert(key.clone(), MemoryEntry::Stored(value));
         }
 
-        self.entries.get_mut(key)
+        self.entries.get_mut(key).map(MemoryEntry::value_mut)
     }
 
     /// Take an item out of memory, reading through to the storage on a lazy
@@ -299,27 +299,24 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     ///
     /// The storage is untouched — deleting durably is
     /// [`purge_key`](Store::purge_key). The key stays
-    /// [`known`](StoreError::DuplicatedKey) to the store. This is the read
+    /// [`known`](StoreError::DuplicatedKey) to the store, unless the storage
+    /// refused its value: nothing durable backs that key, so it is forgotten
+    /// and a later insert is a fresh one. This is the read
     /// for a value consumed once per process — a compiled kernel about to be
     /// loaded — because nothing is cloned and nothing stays memoized.
     pub fn remove(&mut self, key: &K) -> Option<V> {
         self.reset_if_stale();
 
-        let value = match self.entries.remove(key) {
-            Some(value) => Some(value),
-            None => match self.cache {
-                CacheOption::Eager => None,
-                CacheOption::Lazy => self.fetch(key),
-            },
-        };
+        let entry = self.take(key);
 
-        // Only when durable: for a purely in-memory store the entry is simply
-        // gone, and reinserting the key is a fresh insert.
-        if value.is_some() && self.storage.is_some() {
+        // Only when durable: for a purely in-memory store, or an entry the
+        // storage refused, the entry is simply gone, and reinserting the key
+        // is a fresh insert.
+        if self.storage.is_some() && entry.as_ref().is_some_and(MemoryEntry::is_stored) {
             self.known.insert(key.clone());
         }
 
-        value
+        entry.map(MemoryEntry::into_value)
     }
 
     /// Insert a new item into the store.
@@ -330,6 +327,10 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     ///   left untouched — [`StoreError::DuplicatedKey`] when this process
     ///   wrote or read it, [`StoreError::KeyOutOfSync`] when another process
     ///   sharing the environment got there first. Both are routine, not bugs.
+    /// - The storage refuses the write: [`StoreError::Backend`]. An eager
+    ///   store still serves the value for the rest of the run, and reinserting
+    ///   it retries the write. A lazy store drops it, as it drops every value
+    ///   it writes.
     ///
     /// The exception is an entry that came from a bundle: the storage lets a
     /// locally computed value replace it, so a stale bundle can never wedge
@@ -338,19 +339,30 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.reset_if_stale();
 
         let known = match self.entries.get(&key) {
-            Some(existing) if existing == &value => return Ok(()),
-            existing => existing.is_some() || self.known.contains(&key),
+            Some(MemoryEntry::Stored(existing)) if existing == &value => return Ok(()),
+            Some(MemoryEntry::Stored(_)) => true,
+            // Only memory holds the value, so only memory arbitrates.
+            Some(MemoryEntry::Unwritten(existing)) if existing != &value => {
+                return Err(StoreError::DuplicatedKey {
+                    value_previous: existing.clone(),
+                    value_updated: value,
+                    key,
+                });
+            }
+            // The same value again retries the write. The storage never took
+            // it, so the key is as fresh as it was before the refusal.
+            Some(MemoryEntry::Unwritten(_)) | None => self.known.contains(&key),
         };
 
         let Some(storage) = self.storage.as_deref() else {
             return match self.entries.get(&key) {
                 Some(existing) => Err(StoreError::DuplicatedKey {
-                    value_previous: existing.clone(),
+                    value_previous: existing.value().clone(),
                     value_updated: value,
                     key,
                 }),
                 None => {
-                    self.entries.insert(key, value);
+                    self.entries.insert(key, MemoryEntry::Stored(value));
                     Ok(())
                 }
             };
@@ -364,12 +376,22 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                 self.record(key, value);
                 Ok(())
             }
-            Written::Failed(error) => Err(StoreError::Backend { key, error }),
+            Written::Failed(error) => {
+                // An eager store is read from memory alone, so dropping the
+                // value would make every later lookup miss and recompute it.
+                // A lazy store drops what it writes anyway.
+                if matches!(self.cache, CacheOption::Eager) {
+                    self.entries
+                        .insert(key.clone(), MemoryEntry::Unwritten(value));
+                }
+                Err(StoreError::Backend { key, error })
+            }
             Written::Conflict(existing) => {
                 // A later read must serve the durable value, so the eager map
                 // memoizes it; the clone only happens on this cold path.
                 if matches!(self.cache, CacheOption::Eager) {
-                    self.entries.insert(key.clone(), existing.clone());
+                    self.entries
+                        .insert(key.clone(), MemoryEntry::Stored(existing.clone()));
                 } else {
                     self.known.insert(key.clone());
                 }
@@ -404,13 +426,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     pub fn purge_key(&mut self, key: &K) -> Option<V> {
         self.reset_if_stale();
 
-        let value = match self.entries.remove(key) {
-            Some(value) => Some(value),
-            None => match self.cache {
-                CacheOption::Eager => None,
-                CacheOption::Lazy => self.fetch(key),
-            },
-        };
+        let value = self.take(key).map(MemoryEntry::into_value);
 
         // A purged key is a fresh key, and the storage is asked regardless of
         // what memory held: another process may have written it since.
@@ -427,12 +443,18 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// `clear` is to [`purge`](Store::purge) what [`remove`](Store::remove)
     /// is to [`purge_key`](Store::purge_key): the in-memory half only. On an
     /// eager store the entries come back on the next [`sync`](Store::sync);
-    /// the keys stay known, exactly as with `remove`.
+    /// the keys stay known, exactly as with `remove`. Entries the storage
+    /// refused are forgotten instead, since no sync can bring them back.
     pub fn clear(&mut self) {
         self.reset_if_stale();
 
         if self.storage.is_some() {
-            self.known.extend(self.entries.drain().map(|(key, _)| key));
+            self.known.extend(
+                self.entries
+                    .drain()
+                    .filter(|(_, entry)| entry.is_stored())
+                    .map(|(key, _)| key),
+            );
         } else {
             self.entries.clear();
         }
@@ -482,7 +504,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
 
         storage.scan(&mut |key, value| {
             if let Some((key, value)) = decode_entry::<K, V>(key, value) {
-                entries.insert(key, value);
+                // A durable value replaces one the storage refused earlier.
+                entries.insert(key, MemoryEntry::Stored(value));
             }
         });
     }
@@ -499,8 +522,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.reset_if_stale();
 
         let Some(storage) = self.storage.as_deref() else {
-            for (key, value) in self.entries.iter() {
-                func(key.clone(), value.clone());
+            for (key, entry) in self.entries.iter() {
+                func(key.clone(), entry.value().clone());
             }
             return;
         };
@@ -518,8 +541,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             return;
         }
 
-        for (key, value) in self.entries.iter() {
-            func(key, value);
+        for (key, entry) in self.entries.iter() {
+            func(key, entry.value());
         }
     }
 
@@ -537,6 +560,18 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.len() == 0
     }
 
+    /// Takes an entry out of memory, reading through to the storage on a
+    /// lazy store.
+    fn take(&mut self, key: &K) -> Option<MemoryEntry<V>> {
+        match self.entries.remove(key) {
+            Some(entry) => Some(entry),
+            None => match self.cache {
+                CacheOption::Eager => None,
+                CacheOption::Lazy => self.fetch(key).map(MemoryEntry::Stored),
+            },
+        }
+    }
+
     /// One entry read straight from the storage.
     fn fetch(&self, key: &K) -> Option<V> {
         let bytes = self.storage.as_deref()?.get(&encode(key))?;
@@ -547,7 +582,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     fn record(&mut self, key: K, value: V) {
         match self.cache {
             CacheOption::Eager => {
-                self.entries.insert(key, value);
+                self.entries.insert(key, MemoryEntry::Stored(value));
             }
             // The value is dropped rather than memoized: freshly compiled
             // artifacts are typically never read again by this process.
@@ -619,6 +654,40 @@ impl<K: StoreKey, V: StoreValue> Display for Store<K, V> {
             ),
             _ => write!(f, "in-memory ({} entries)", self.len()),
         }
+    }
+}
+
+/// A value a [`Store`] holds in memory, and whether its storage holds it too.
+enum MemoryEntry<V> {
+    /// The store accepted the value: its storage holds it, or it has none.
+    Stored(V),
+    /// The storage refused the value, so only memory holds it. An eager store
+    /// keeps serving it rather than recompute it on every lookup, and a
+    /// reinsert retries the write.
+    Unwritten(V),
+}
+
+impl<V> MemoryEntry<V> {
+    fn value(&self) -> &V {
+        match self {
+            Self::Stored(value) | Self::Unwritten(value) => value,
+        }
+    }
+
+    fn value_mut(&mut self) -> &mut V {
+        match self {
+            Self::Stored(value) | Self::Unwritten(value) => value,
+        }
+    }
+
+    fn into_value(self) -> V {
+        match self {
+            Self::Stored(value) | Self::Unwritten(value) => value,
+        }
+    }
+
+    fn is_stored(&self) -> bool {
+        matches!(self, Self::Stored(_))
     }
 }
 

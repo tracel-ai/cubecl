@@ -29,6 +29,10 @@ impl AllocationController for WgpuAllocController {
         AllocationProperty::Pinned
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        false
+    }
+
     // A mapped wgpu staging buffer is always host-resident: the policy never forces a copy here.
     unsafe fn memory_mut(
         &mut self,

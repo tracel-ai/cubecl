@@ -54,7 +54,7 @@ impl<F: Float + CubeElement> Benchmark for ReductionBench<F> {
 fn reduce_matrix<F: Float, N: Size>(input: &Tensor<Vector<F, N>>, output: &mut Tensor<F>) {
     let row = UNIT_POS_X as usize;
     let offset = row * input.stride(0) / N::value();
-    let mut acc = Vector::<F, N>::new(F::new(0.0f32));
+    let mut acc = Vector::<F, N>::new(F::new(0.0));
     for i in 0..input.shape(1) / N::value() {
         acc += input[offset + i];
     }

@@ -1,33 +1,39 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, frontend::fma, ir::ElemType};
-use cubecl_runtime::throughput::KernelConfig;
+use cubecl_runtime::throughput::{KernelConfig, ThroughputError};
 
-use crate::throughput::LaunchConfig;
+use crate::throughput::{LaunchConfig, verify::verify};
 
-pub fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> KernelConfig {
+pub fn build_kernel(
+    client: &Client,
+    dtype: ElemType,
+    config: LaunchConfig,
+) -> Result<KernelConfig, ThroughputError> {
     let client = client.clone();
 
     let use_fma = matches!(dtype, ElemType::Float(_));
+    let out = client.empty(config.vector_size * dtype.size());
 
+    let (verifier, written) = (client.clone(), out.clone());
     let sample = Box::new(move |iterations: usize| {
         let start = cubecl_common::profile::Instant::now();
         unsafe {
-            let out = client.empty(config.vector_size * dtype.size());
-
             compute_direct_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(config.cube_count as u32, 1, 1),
                 config.cube_dim,
                 config.vector_size,
-                BufferArg::from_raw_parts(out, 1),
+                BufferArg::from_raw_parts(out.clone(), 1),
                 iterations,
                 use_fma,
                 dtype,
             )
         };
+        // A failure is not this sync's to report: `verify` asked the output.
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
+    verify(&verifier, &sample, &written)?;
 
     // `CHAINS` independent accumulators per lane, each retiring one fma (two flops) or one mul.
     let ops_per_chain = if use_fma { 2 } else { 1 };
@@ -37,11 +43,11 @@ pub fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> K
         * config.cube_dim.num_elems() as usize
         * config.vector_size;
 
-    KernelConfig {
+    Ok(KernelConfig {
         sample,
         ops_count,
         min_iterations: 1,
-    }
+    })
 }
 
 /// Independent accumulator chains per lane to hide arithmetic latency.

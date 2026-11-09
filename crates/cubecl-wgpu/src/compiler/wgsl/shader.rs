@@ -30,6 +30,7 @@ use pliron::{
 #[cfg(target_family = "wasm")]
 use crate::compiler::wgsl::builtin::BuiltIn;
 use crate::compiler::wgsl::{
+    KernelInfo,
     builtin::{ATTR_BUILTIN, BuiltInAttr},
     to_wgsl::{OpExtWgsl, OpToWgsl, TypeExtWgsl, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
@@ -255,7 +256,8 @@ fn func_to_wgsl(ctx: &Context, op: &FuncOp) -> core::result::Result<String, fmt:
     let mut sig = String::new();
     let f = &mut sig;
     if let Some(entry) = op.get_entrypoint_abi(ctx) {
-        let (x, y, z) = entry.cube_dim.into();
+        let layout = ctx.aux_ty::<KernelInfo>().layout;
+        let (x, y, z) = layout.workgroup_size(entry.cube_dim).into();
         writeln!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
     }
     let name = op.get_symbol_name(ctx);

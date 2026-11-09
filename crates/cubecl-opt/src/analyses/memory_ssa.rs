@@ -1,4 +1,4 @@
-use core::{cell::RefMut, fmt};
+use core::{fmt, hash::Hash};
 
 use alloc::{
     collections::VecDeque,
@@ -7,7 +7,7 @@ use alloc::{
 };
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
-    dialect::RegionPtrExt,
+    dialect::{RegionPtrExt, UniquedExt},
     interfaces::{
         control_flow::CallableOpInterface,
         memory_slot::{
@@ -20,6 +20,7 @@ use cubecl_ir::{
 };
 use derive_more::From;
 use derive_new::new;
+use hashbrown::Equivalent;
 use itertools::Itertools;
 use pliron::{
     basic_block::BasicBlock,
@@ -31,12 +32,20 @@ use pliron::{
     operation::OpDbg,
     printable::{self, Printable, fmt_indented_newline},
     region::Region,
+    symbol_table::SymbolTableCollection,
+    uniqued_any::Uniqued,
     utils::table::*,
     value::DefiningEntity,
 };
+use smallvec::SmallVec;
 
 use crate::analyses::{
     alias_analysis::{AliasAnalysis, AliasAnalysisStack},
+    dataflow_solver::{
+        DataflowSolver, ProgramPoint, SolverConfig,
+        dead_code::{DeadCodeAnalysis, PredecessorState},
+        sccp::DummySparseConstantPropagation,
+    },
     dominance::DomFrontierCalculator,
 };
 
@@ -45,6 +54,8 @@ type RegionMemoryEffectsMap = IMap<Ptr<Region>, MemoryEffectsMap>;
 type DefiningBlocks = IMap<Ptr<Region>, SmallSet<Ptr<BasicBlock>, 16>>;
 
 type RegionSet = SmallSet<Ptr<Region>, 32>;
+
+pub type CallgraphPhiInputs = SmallMap<Ptr<Operation>, MemoryValue, 2>;
 
 #[derive(Default)]
 struct RegionMemoryInfo {
@@ -62,6 +73,8 @@ struct MemorySSAInfo {
 struct MemoryOpAnalyzer<'a> {
     root: Ptr<Operation>,
     dom_info: &'a mut DomInfo,
+    solver: &'a DataflowSolver,
+    symbol_table: &'a mut SymbolTableCollection,
 }
 
 fn effect_is_def(effect: &MemoryEffect) -> bool {
@@ -93,6 +106,8 @@ impl MemoryOpAnalyzer<'_> {
             defining_blocks: &'a mut DefiningBlocks,
             regions_with_direct_def: &'a mut RegionSet,
             regions_with_direct_use: &'a mut RegionSet,
+            solver: &'a DataflowSolver,
+            symbol_table: &'a mut SymbolTableCollection,
         }
 
         walk_region(
@@ -102,6 +117,8 @@ impl MemoryOpAnalyzer<'_> {
                 defining_blocks,
                 &mut regions_with_direct_def,
                 &mut regions_with_direct_use,
+                self.solver,
+                self.symbol_table,
             ),
             &WALKCONFIG_ANY,
             root_region,
@@ -113,6 +130,22 @@ impl MemoryOpAnalyzer<'_> {
                 let region = op.deref(ctx).get_parent_region(ctx).unwrap();
                 if op.deref(ctx).num_regions() > 0 {
                     // Region ops are processed separately
+                } else if let Some(call) = op.cast::<dyn CallOpInterface>(ctx)
+                    && let Some(callable) = resolve_callable(state.symbol_table, ctx, &*call)
+                    && let Some(callable) = callable.cast::<dyn CallableOpInterface>(ctx)
+                {
+                    let point = ProgramPoint::after_op(ctx, op);
+                    let region_effects = state.user_to_effects.entry(region).or_default();
+                    let preds = state.solver.lookup_state::<PredecessorState>(point);
+                    if preds.is_none_or(|preds| !preds.deref().all_predecessors_known())
+                        || callable.callable_region(ctx).is_none()
+                    {
+                        region_effects.insert(op, NodeMemoryEffects::Opaque);
+                    }
+                    state.regions_with_direct_use.insert(region);
+                    state.regions_with_direct_def.insert(region);
+                    let def_blocks = state.defining_blocks.entry(region).or_default();
+                    def_blocks.insert(block);
                 } else if let Some(mem_effects) = op_cast::<dyn MemoryEffectsOp>(&*op.dyn_op(ctx)) {
                     let effects = mem_effects.memory_effects(ctx);
                     if effects.is_empty() {
@@ -205,6 +238,19 @@ impl MemoryOpAnalyzer<'_> {
         }
 
         info
+    }
+}
+
+fn resolve_callable(
+    symbol_table: &mut SymbolTableCollection,
+    ctx: &Context,
+    call: &dyn CallOpInterface,
+) -> Option<Ptr<Operation>> {
+    match call.callee(ctx) {
+        CallOpCallable::Direct(symbol) => symbol_table
+            .lookup_symbol_in_nearest_table(ctx, call.get_operation(), &symbol)
+            .map(|it| it.get_operation()),
+        CallOpCallable::Indirect(value) => value.defining_op(),
     }
 }
 
@@ -304,12 +350,46 @@ impl Printable for MemoryRegionPhi {
     }
 }
 
+#[derive(new)]
+pub struct MemoryCallPhi {
+    pub inputs: CallgraphPhiInputs,
+    pub result: MemoryValue,
+}
+
+impl Printable for MemoryCallPhi {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let MemoryCallPhi { inputs, result } = self;
+        let mut inputs = inputs
+            .iter()
+            .map(|(pred, value)| format!("{{{} -> {value}}}", OpDbg { op: *pred, ctx }));
+        write!(f, "{result} = MemoryCallPhi({})", inputs.join(", "))
+    }
+}
+
+#[derive(new)]
+pub struct MemoryCalleePhi {
+    pub inputs: CallgraphPhiInputs,
+    pub result: MemoryValue,
+}
+
+impl Printable for MemoryCalleePhi {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let MemoryCalleePhi { inputs, result } = self;
+        let mut inputs = inputs
+            .iter()
+            .map(|(pred, value)| format!("{{{} -> {value}}}", OpDbg { op: *pred, ctx }));
+        write!(f, "{result} = MemoryCalleePhi({})", inputs.join(", "))
+    }
+}
+
 #[derive(From)]
 pub enum MemorySSANode {
     Def(MemoryDef),
     Use(MemoryUse),
     Phi(MemoryPhi),
     RegionPhi(MemoryRegionPhi),
+    CallPhi(MemoryCallPhi),
+    CalleePhi(MemoryCalleePhi),
 }
 
 impl MemorySSANode {
@@ -317,7 +397,10 @@ impl MemorySSANode {
         match self {
             MemorySSANode::Def(def) => Some(def.input),
             MemorySSANode::Use(r#use) => Some(r#use.input),
-            MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) => None,
+            MemorySSANode::Phi(_)
+            | MemorySSANode::RegionPhi(_)
+            | MemorySSANode::CallPhi(_)
+            | MemorySSANode::CalleePhi(_) => None,
         }
     }
 }
@@ -334,6 +417,8 @@ impl Printable for MemorySSANode {
             MemorySSANode::Use(r#use) => r#use.fmt(ctx, state, f),
             MemorySSANode::Phi(phi) => phi.fmt(ctx, state, f),
             MemorySSANode::RegionPhi(phi) => phi.fmt(ctx, state, f),
+            MemorySSANode::CallPhi(phi) => phi.fmt(ctx, state, f),
+            MemorySSANode::CalleePhi(phi) => phi.fmt(ctx, state, f),
         }
     }
 }
@@ -344,41 +429,37 @@ fn print_effects(ctx: &Context, effects: &NodeMemoryEffects) -> String {
 }
 
 struct MemorySSAGraphBuilder<'a> {
-    root: Ptr<Operation>,
-    live_on_entry: MemoryValue,
+    solver: &'a DataflowSolver,
+    live_on_entry: HMap<Ptr<Region>, MemoryValue>,
 
     ctx: &'a mut MemorySSAContext,
-    reaching_defs: HMap<Ptr<Operation>, MemoryValue>,
+    reaching_defs: HashMap<Ptr<Operation>, MemoryValue>,
     reaching_at_block_end: HMap<Ptr<BasicBlock>, MemoryValue>,
     reaching_at_region_entry: HMap<Ptr<Region>, MemoryValue>,
 
     nodes: HashMap<DefiningEntity, MemorySSANode>,
     pending_phis: ISet<(Ptr<BasicBlock>, MemoryValue)>,
+    pending_call_phis: ISet<(Ptr<Operation>, MemoryValue)>,
+    pending_callee_phis: ISet<(Ptr<Operation>, MemoryValue)>,
 
-    dom_info: &'a mut DomInfo,
     info: MemorySSAInfo,
 
     visited_blocks: HSet<Ptr<BasicBlock>>,
 }
 
 impl<'a> MemorySSAGraphBuilder<'a> {
-    fn new(
-        ctx: &'a mut MemorySSAContext,
-        root: Ptr<Operation>,
-        dom_info: &'a mut DomInfo,
-        info: MemorySSAInfo,
-    ) -> Self {
-        let live_on_entry = MemoryValue::LIVE_ON_ENTRY;
+    fn new(ctx: &'a mut MemorySSAContext, solver: &'a DataflowSolver) -> Self {
         Self {
-            root,
-            live_on_entry,
+            solver,
+            live_on_entry: Default::default(),
             reaching_defs: Default::default(),
             reaching_at_block_end: Default::default(),
             reaching_at_region_entry: Default::default(),
             nodes: Default::default(),
             pending_phis: Default::default(),
-            dom_info,
-            info,
+            pending_call_phis: Default::default(),
+            pending_callee_phis: Default::default(),
+            info: Default::default(),
             visited_blocks: Default::default(),
             ctx,
         }
@@ -389,6 +470,7 @@ impl<'a> MemorySSAGraphBuilder<'a> {
         ctx: &Context,
         block: Ptr<BasicBlock>,
         mut reaching_def: MemoryValue,
+        dom_info: &mut DomInfo,
     ) -> MemoryValue {
         if self.visited_blocks.contains(&block) {
             panic!("analyze_block was called twice on one block");
@@ -411,6 +493,11 @@ impl<'a> MemorySSAGraphBuilder<'a> {
                     let node = MemoryUse::new(reaching_def, effects);
                     self.nodes.insert(DefiningEntity::Op(op), node.into());
                 }
+            } else if op.impls::<dyn CallOpInterface>(ctx) {
+                self.reaching_defs.insert(op, reaching_def);
+                let phi_result = self.ctx.new_value_at_op(op);
+                self.pending_call_phis.insert((op, phi_result));
+                reaching_def = phi_result;
             }
 
             let op_obj = op.dyn_op(ctx);
@@ -447,7 +534,7 @@ impl<'a> MemorySSAGraphBuilder<'a> {
                             if !self.info.regions_to_traverse.contains_key(&region) {
                                 continue;
                             }
-                            self.analyze_region(ctx, region, reaching_def);
+                            self.analyze_region(ctx, region, reaching_def, dom_info);
                         }
 
                         reaching_def =
@@ -463,7 +550,7 @@ impl<'a> MemorySSAGraphBuilder<'a> {
                             if !self.info.regions_to_traverse.contains_key(&region) {
                                 continue;
                             }
-                            self.analyze_region(ctx, region, reaching_def);
+                            self.analyze_region(ctx, region, reaching_def, dom_info);
                         }
 
                         reaching_def = self.opaque_at(reaching_def, DefiningEntity::Op(op));
@@ -473,6 +560,9 @@ impl<'a> MemorySSAGraphBuilder<'a> {
         }
 
         self.reaching_at_block_end.insert(block, reaching_def);
+        if let Some(term) = block.deref(ctx).get_terminator(ctx) {
+            self.reaching_defs.insert(term, reaching_def);
+        }
 
         reaching_def
     }
@@ -525,7 +615,14 @@ impl<'a> MemorySSAGraphBuilder<'a> {
         }
     }
 
-    fn analyze_region(&mut self, ctx: &Context, region: Ptr<Region>, reaching_def: MemoryValue) {
+    fn analyze_region(
+        &mut self,
+        ctx: &Context,
+        region: Ptr<Region>,
+        reaching_def: MemoryValue,
+        dom_info: &mut DomInfo,
+    ) {
+        self.live_on_entry.insert(region, reaching_def);
         if region.is_empty(ctx) {
             return;
         }
@@ -542,8 +639,8 @@ impl<'a> MemorySSAGraphBuilder<'a> {
                 reaching_def = phi_result;
             }
 
-            reaching_def = self.analyze_block(ctx, block, reaching_def);
-            let dom_tree = self.dom_info.get_dom_tree(ctx, region);
+            reaching_def = self.analyze_block(ctx, block, reaching_def, dom_info);
+            let dom_tree = dom_info.get_dom_tree(ctx, region);
 
             for child in dom_tree.children(&block) {
                 dfs_stack.push_back((child, reaching_def));
@@ -558,8 +655,9 @@ impl<'a> MemorySSAGraphBuilder<'a> {
             let mut inputs = SmallMap::new();
             for r#use in merge_point.uses(ctx) {
                 let user_block = r#use.user_op().deref(ctx).get_parent_block().unwrap();
+                let user_region = user_block.deref(ctx).get_parent_region().unwrap();
                 let reaching_def = self.reaching_at_block_end.get(&user_block).copied();
-                let reaching_def = reaching_def.unwrap_or(self.live_on_entry);
+                let reaching_def = reaching_def.unwrap_or(self.live_on_entry[&user_region]);
 
                 inputs.insert(user_block, reaching_def);
             }
@@ -570,18 +668,69 @@ impl<'a> MemorySSAGraphBuilder<'a> {
         }
     }
 
-    fn analyze_root(&mut self, ctx: &Context) {
-        let root_region = self.root.deref(ctx).get_region(0);
+    fn analyze_callable(
+        &mut self,
+        ctx: &Context,
+        callable_region: Ptr<Region>,
+        dom_info: &mut DomInfo,
+        info: MemorySSAInfo,
+    ) {
+        self.info = info;
+
+        let callable_op = callable_region.deref(ctx).get_parent_op();
+        let callable_point = ProgramPoint::after_op(ctx, callable_op);
+        let predecessors = self.solver.lookup_state::<PredecessorState>(callable_point);
+
+        let live_on_entry = if let Some(predecessors) = predecessors
+            && predecessors.deref().all_predecessors_known()
+        {
+            let phi_result = self.ctx.new_value_at_op(callable_op);
+            self.pending_callee_phis.insert((callable_op, phi_result));
+            phi_result
+        } else {
+            self.ctx.new_value_at_entry()
+        };
+
         // Build MemorySSA recursively through nested regions. The initial reaching
         // memory definition is the live-on-entry value.
         //
         // Nested region operations are finalized as their surrounding operations are
         // processed, after the region bodies have established their reaching memory
         // definitions.
-        self.analyze_region(ctx, root_region, self.live_on_entry);
+        self.analyze_region(ctx, callable_region, live_on_entry, dom_info);
 
         // Finally, connect merge points to their predecessor's reaching definitions.
         self.link_merge_points(ctx);
+    }
+
+    fn link_call_predecessors(&mut self, ctx: &Context) {
+        for (merge_point, result) in self.pending_call_phis.drain(..) {
+            let mut inputs = SmallMap::new();
+            let point = ProgramPoint::after_op(ctx, merge_point);
+            let predecessors = self.solver.lookup_state::<PredecessorState>(point).unwrap();
+
+            for predecessor in predecessors.deref().known_predecessors() {
+                inputs.insert(*predecessor, self.reaching_defs[predecessor]);
+            }
+
+            let node = MemoryCallPhi::new(inputs, result);
+            self.nodes
+                .insert(DefiningEntity::Op(merge_point), node.into());
+        }
+
+        for (merge_point, result) in self.pending_callee_phis.drain(..) {
+            let mut inputs = SmallMap::new();
+            let point = ProgramPoint::after_op(ctx, merge_point);
+            let predecessors = self.solver.lookup_state::<PredecessorState>(point).unwrap();
+
+            for predecessor in predecessors.deref().known_predecessors() {
+                inputs.insert(*predecessor, self.reaching_defs[predecessor]);
+            }
+
+            let node = MemoryCalleePhi::new(inputs, result);
+            self.nodes
+                .insert(DefiningEntity::Op(merge_point), node.into());
+        }
     }
 }
 
@@ -599,28 +748,6 @@ impl MemorySSA {
             nodes: Default::default(),
             analysis_stack: AliasAnalysisStack::default(),
         }
-    }
-
-    pub fn get_for_nearest_root<'a>(
-        ctx: &Context,
-        analyses: &'a mut AnalysisManager,
-        op: Ptr<Operation>,
-    ) -> Result<RefMut<'a, Self>> {
-        let root = find_memory_ssa_root(ctx, op).expect("Not contained in a callable");
-        analyses.get_analysis_mut(root, ctx)
-    }
-}
-
-/// Given an `op`, finds the corresponding `MemorySSA` root. `MemorySSA` is an intra-prodcedural
-/// analysis, so we look for the nearest [`CallableOpInterface`]
-pub fn find_memory_ssa_root(ctx: &Context, op: Ptr<Operation>) -> Option<Ptr<Operation>> {
-    let mut cur = op;
-    loop {
-        if cur.impls::<dyn CallableOpInterface>(ctx) {
-            return Some(cur);
-        }
-        let parent_op = cur.deref(ctx).get_parent_op(ctx)?;
-        cur = parent_op;
     }
 }
 
@@ -660,7 +787,6 @@ fn print_block(
     write!(f, "{}:", block.label(ctx))?;
     {
         let _indent = state.indent();
-
         for op in block.deref(ctx).iter(ctx) {
             print_op(ctx, state, nodes, op, f)?;
         }
@@ -683,12 +809,10 @@ fn print_op(
     fmt_indented_newline(state, f)?;
     write!(f, "{};", OpDbg { op, ctx }.to_string().trim())?;
     if op.deref(ctx).num_regions() > 0 {
-        {
-            let _indent = state.indent();
-            for region in op.deref(ctx).regions() {
-                for block in region.deref(ctx).iter(ctx) {
-                    print_block(ctx, state, nodes, block, f)?;
-                }
+        let _indent = state.indent();
+        for region in op.deref(ctx).regions() {
+            for block in region.deref(ctx).iter(ctx) {
+                print_block(ctx, state, nodes, block, f)?;
             }
         }
     }
@@ -715,6 +839,7 @@ impl MemorySSA {
         effects: &'a [MemoryEffect],
     ) -> MemorySSAWalker<'a> {
         MemorySSAWalker {
+            is_interprocedural: true,
             stop_at_phi: false,
             effects,
             start_value: value,
@@ -741,7 +866,7 @@ impl MemorySSA {
                 continue;
             }
             let effects = r#use.effects(ctx);
-            let walker = self.walker(ctx, r#use.input, &effects);
+            let mut walker = self.walker(ctx, r#use.input, &effects);
             let clobbering_access = walker.next_clobbering_def();
             let mut new_use = MemoryUse::new(clobbering_access, r#use.effects);
             new_use.is_optimized = true;
@@ -761,7 +886,7 @@ impl MemorySSA {
             return Some(r#use.input);
         }
         let effects = r#use.effects(ctx);
-        let walker = self.walker(ctx, r#use.input, &effects);
+        let mut walker = self.walker(ctx, r#use.input, &effects);
         let clobbering_access = walker.next_clobbering_def();
         let mut new_use = MemoryUse::new(clobbering_access, r#use.effects);
         new_use.is_optimized = true;
@@ -769,26 +894,29 @@ impl MemorySSA {
         Some(clobbering_access)
     }
 
-    pub fn op_memory_def(&mut self, op: Ptr<Operation>) -> Option<MemoryValue> {
+    pub fn op_memory_def(&self, op: Ptr<Operation>) -> Option<MemoryValue> {
         self.memory_def(DefiningEntity::Op(op))
     }
 
-    pub fn block_memory_def(&mut self, block: Ptr<BasicBlock>) -> Option<MemoryValue> {
+    pub fn block_memory_def(&self, block: Ptr<BasicBlock>) -> Option<MemoryValue> {
         self.memory_def(DefiningEntity::Block(block))
     }
 
-    pub fn memory_def(&mut self, defining: DefiningEntity) -> Option<MemoryValue> {
+    pub fn memory_def(&self, defining: DefiningEntity) -> Option<MemoryValue> {
         let node = self.nodes.get(&defining)?;
         match node {
             MemorySSANode::Def(def) => Some(def.result),
             MemorySSANode::Use(_) => None,
             MemorySSANode::Phi(phi) => Some(phi.result),
             MemorySSANode::RegionPhi(phi) => Some(phi.result),
+            MemorySSANode::CallPhi(phi) => Some(phi.result),
+            MemorySSANode::CalleePhi(phi) => Some(phi.result),
         }
     }
 }
 
 pub struct MemorySSAWalker<'a> {
+    is_interprocedural: bool,
     stop_at_phi: bool,
     effects: &'a [MemoryEffect],
     start_value: MemoryValue,
@@ -796,64 +924,118 @@ pub struct MemorySSAWalker<'a> {
     memory_ssa: &'a MemorySSA,
 }
 
-type VisitedSet = SmallSet<MemoryValue, 8>;
+// Modifying the call stack is the cold path, copying is the hot path. So unique it to make copying cheap.
+type CallStack = Uniqued<SmallVec<[Ptr<Operation>; 8]>>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Clone, Debug)]
+struct VisitedSet {
+    set: SmallVec<[(MemoryValue, CallStack); 4]>,
+}
+
+impl VisitedSet {
+    fn insert(&mut self, value: MemoryValue, stack: CallStack) {
+        if !self.contains(&value, &stack) {
+            self.set.push((value, stack));
+        }
+    }
+
+    fn contains(&self, value: &MemoryValue, stack: &CallStack) -> bool {
+        self.set.iter().any(|(v, s)| v == value && s == stack)
+    }
+}
+
+#[derive(Hash)]
+struct ExploredKey<'a>(&'a MemoryValue, &'a CallStack);
+
+impl Equivalent<(MemoryValue, CallStack)> for ExploredKey<'_> {
+    fn equivalent(&self, key: &(MemoryValue, CallStack)) -> bool {
+        &key.0 == self.0 && &key.1 == self.1
+    }
+}
+
+#[derive(Default, Debug)]
+struct ExploredMap {
+    map: HashMap<(MemoryValue, CallStack), ExploredResult>,
+}
+
+impl ExploredMap {
+    fn insert(&mut self, value: MemoryValue, stack: CallStack, result: ExploredResult) {
+        self.map.insert((value, stack), result);
+    }
+
+    fn get(&self, value: &MemoryValue, stack: &CallStack) -> Option<&ExploredResult> {
+        self.map.get(&ExploredKey(value, stack))
+    }
+}
+
+#[derive(Debug, Clone)]
 enum TraversalResult {
-    Value(MemoryValue),
+    Value(MemoryValue, CallStack),
     Cycle,
 }
 
+#[derive(Debug, Clone)]
 enum ExploredResult {
-    Advance(MemoryValue),
-    Clobber,
+    Advance(MemoryValue, CallStack),
+    Clobber(MemoryValue),
     Cycle,
 }
 
 /// One walk on the explicit stack of [`MemorySSAWalker::next_clobbering_def_impl`].
+#[derive(Debug)]
 struct WalkFrame {
     state: WalkState,
     visited: VisitedSet,
+    call_stack: CallStack,
 }
 
 /// Where a walk stands.
+#[derive(Debug)]
 enum WalkState {
     /// Walking up from this value.
     Walking(MemoryValue),
     /// Stopped at a phi, waiting on its inputs' sub-walks.
     AtPhi(PhiWalk),
+    /// Stopped at a call, waiting on its callee's sub-walks.
+    AtCall(PhiWalk),
     /// Done, with this result.
     Settled(TraversalResult),
 }
 
 impl WalkFrame {
-    fn new(start: MemoryValue, visited: VisitedSet) -> Self {
+    fn new(start: MemoryValue, visited: VisitedSet, call_stack: CallStack) -> Self {
         Self {
             state: WalkState::Walking(start),
             visited,
+            call_stack,
         }
     }
 
     /// Takes the result of the sub-walk from the phi's latest input. A cycle is dropped, since
     /// cycles only happen on paths without clobbers; two inputs reaching different clobbers make
     /// the phi itself the clobber.
-    fn take_input_result(
-        &mut self,
-        result: TraversalResult,
-        explored: &mut HashMap<MemoryValue, ExploredResult>,
-    ) {
-        let WalkState::AtPhi(phi) = &mut self.state else {
+    fn take_input_result(&mut self, result: TraversalResult, explored: &mut ExploredMap) {
+        let (WalkState::AtPhi(phi) | WalkState::AtCall(phi)) = &mut self.state else {
             unreachable!("a sub-walk only runs for a phi");
         };
-        let TraversalResult::Value(value) = result else {
+        let TraversalResult::Value(value, call_stack) = result else {
             return;
         };
-        match phi.agreed {
-            None => phi.agreed = Some(value),
-            Some(agreed) if agreed == value => {}
-            Some(_) => {
-                explored.insert(phi.value, ExploredResult::Clobber);
-                self.state = WalkState::Settled(TraversalResult::Value(phi.value));
+        match &phi.agreed {
+            // Unwind causes the traversal result to have the call itself as the result, which would
+            // lead to self-referential phis if not checked. A self-referential phi should be treated
+            // as if there is no agreement.
+            None if value != phi.value || call_stack != self.call_stack => {
+                phi.agreed = Some((value, call_stack))
+            }
+            Some(agreed) if agreed == &(value, call_stack) => {}
+            _ => {
+                explored.insert(
+                    phi.value,
+                    self.call_stack,
+                    ExploredResult::Clobber(phi.value),
+                );
+                self.state = WalkState::Settled(TraversalResult::Value(phi.value, self.call_stack));
             }
         }
     }
@@ -861,10 +1043,11 @@ impl WalkFrame {
 
 /// A phi being resolved: which of its inputs has been walked, and the clobber the walked ones
 /// agree on.
+#[derive(Debug)]
 struct PhiWalk {
     value: MemoryValue,
     next: usize,
-    agreed: Option<MemoryValue>,
+    agreed: Option<(MemoryValue, CallStack)>,
 }
 
 impl PhiWalk {
@@ -881,10 +1064,11 @@ impl PhiWalk {
         &mut self,
         memory_ssa: &MemorySSA,
         visited: &VisitedSet,
+        call_stack: &CallStack,
     ) -> Option<MemoryValue> {
         while let Some(input) = self.next_input(memory_ssa) {
             self.next += 1;
-            if !visited.contains(&input) {
+            if !visited.contains(&input, call_stack) {
                 return Some(input);
             }
         }
@@ -897,19 +1081,29 @@ impl PhiWalk {
             MemorySSANode::RegionPhi(phi) => {
                 phi.inputs.iter().nth(self.next).map(|(_, value)| *value)
             }
-            MemorySSANode::Def(_) | MemorySSANode::Use(_) => None,
+            MemorySSANode::CallPhi(phi) => {
+                phi.inputs.iter().nth(self.next).map(|(_, value)| *value)
+            }
+            // Callee phi is not a real phi - it gets narrowed to a single source based on the call stack
+            MemorySSANode::Def(_) | MemorySSANode::Use(_) | MemorySSANode::CalleePhi(_) => None,
         }
     }
 
     /// Every input walked: the clobber they agree on, or a cycle if none reached one.
-    fn resolve(&self, explored: &mut HashMap<MemoryValue, ExploredResult>) -> WalkState {
-        match self.agreed {
-            Some(value) => {
-                explored.insert(self.value, ExploredResult::Advance(value));
-                WalkState::Walking(value)
+    fn resolve(&self, call_stack: &mut CallStack, explored: &mut ExploredMap) -> WalkState {
+        match &self.agreed {
+            Some((value, agreed_call_stack)) => {
+                explored.insert(
+                    self.value,
+                    *call_stack,
+                    ExploredResult::Advance(*value, *agreed_call_stack),
+                );
+
+                *call_stack = *agreed_call_stack;
+                WalkState::Walking(*value)
             }
             None => {
-                explored.insert(self.value, ExploredResult::Cycle);
+                explored.insert(self.value, *call_stack, ExploredResult::Cycle);
                 WalkState::Settled(TraversalResult::Cycle)
             }
         }
@@ -920,6 +1114,8 @@ impl PhiWalk {
 enum WalkStep {
     /// A sub-walk from this phi input.
     Descend(MemoryValue),
+    /// A sub-walk from this call
+    EnterCall(MemoryValue, Ptr<Operation>),
     /// Nothing: the frame is done.
     Return(TraversalResult),
 }
@@ -929,9 +1125,14 @@ impl<'a> MemorySSAWalker<'a> {
         self.stop_at_phi = true;
     }
 
-    pub fn next_clobbering_def(&self) -> MemoryValue {
-        match self.next_clobbering_def_impl(&mut HashMap::new(), SmallSet::new()) {
-            TraversalResult::Value(value) => value,
+    pub fn next_clobbering_def(&mut self) -> MemoryValue {
+        let call_stack = Uniqued::new(self.ctx, Default::default());
+        match self.next_clobbering_def_impl(
+            &mut ExploredMap::default(),
+            call_stack,
+            VisitedSet::default(),
+        ) {
+            TraversalResult::Value(value, _) => value,
             TraversalResult::Cycle => self.start_value,
         }
     }
@@ -942,17 +1143,27 @@ impl<'a> MemorySSAWalker<'a> {
     /// rather than the call stack: a kernel with many rolled loops chains phis deep enough to
     /// overflow the thread compiling it.
     fn next_clobbering_def_impl(
-        &self,
-        explored: &mut HashMap<MemoryValue, ExploredResult>,
+        &mut self,
+        explored: &mut ExploredMap,
+        call_stack: CallStack,
         visited: VisitedSet,
     ) -> TraversalResult {
-        let mut stack = vec![WalkFrame::new(self.start_value, visited)];
+        let mut stack = vec![WalkFrame::new(self.start_value, visited, call_stack)];
         loop {
             let frame = stack.last_mut().expect("the root frame is popped last");
             match self.advance(frame, explored) {
+                WalkStep::EnterCall(value, call) => {
+                    let visited = frame.visited.clone();
+                    let call_stack = frame.call_stack.map(self.ctx, |mut call_stack| {
+                        call_stack.push(call);
+                        call_stack
+                    });
+                    stack.push(WalkFrame::new(value, visited, call_stack));
+                }
                 WalkStep::Descend(value) => {
                     let visited = frame.visited.clone();
-                    stack.push(WalkFrame::new(value, visited));
+                    let call_stack = frame.call_stack;
+                    stack.push(WalkFrame::new(value, visited, call_stack));
                 }
                 WalkStep::Return(result) => {
                     stack.pop();
@@ -966,42 +1177,52 @@ impl<'a> MemorySSAWalker<'a> {
     }
 
     /// Runs `frame` until it finishes or needs the result of a phi input's sub-walk.
-    fn advance(
-        &self,
-        frame: &mut WalkFrame,
-        explored: &mut HashMap<MemoryValue, ExploredResult>,
-    ) -> WalkStep {
+    fn advance(&mut self, frame: &mut WalkFrame, explored: &mut ExploredMap) -> WalkStep {
         loop {
             match &mut frame.state {
                 WalkState::Walking(value) => {
-                    frame.state = self.step(*value, &mut frame.visited, explored);
+                    frame.state =
+                        self.step(*value, &mut frame.visited, &mut frame.call_stack, explored);
                 }
-                WalkState::AtPhi(phi) => {
-                    match phi.next_unvisited(self.memory_ssa, &frame.visited) {
-                        Some(input) => return WalkStep::Descend(input),
-                        None => frame.state = phi.resolve(explored),
+                WalkState::AtCall(phi) => {
+                    let call_op = phi.value.defining_op().expect("Calls are always ops");
+                    match phi.next_unvisited(self.memory_ssa, &frame.visited, &frame.call_stack) {
+                        Some(input) => return WalkStep::EnterCall(input, call_op),
+                        None => frame.state = phi.resolve(&mut frame.call_stack, explored),
                     }
                 }
-                WalkState::Settled(result) => return WalkStep::Return(*result),
+                WalkState::AtPhi(phi) => {
+                    match phi.next_unvisited(self.memory_ssa, &frame.visited, &frame.call_stack) {
+                        Some(input) => return WalkStep::Descend(input),
+                        None => frame.state = phi.resolve(&mut frame.call_stack, explored),
+                    }
+                }
+                WalkState::Settled(result) => return WalkStep::Return(result.clone()),
             }
         }
     }
 
     /// One step up from `value`.
     fn step(
-        &self,
+        &mut self,
         value: MemoryValue,
         visited: &mut VisitedSet,
-        explored: &mut HashMap<MemoryValue, ExploredResult>,
+        call_stack: &mut CallStack,
+        explored: &mut ExploredMap,
     ) -> WalkState {
         let Some(node) = self.memory_ssa.node_for_value(value) else {
-            return WalkState::Settled(TraversalResult::Value(value));
+            return WalkState::Settled(TraversalResult::Value(value, *call_stack));
         };
-        visited.insert(value);
-        if let Some(next) = explored.get(&value) {
+        visited.insert(value, *call_stack);
+        if let Some(next) = explored.get(&value, call_stack) {
             return match next {
-                ExploredResult::Advance(next) => WalkState::Walking(*next),
-                ExploredResult::Clobber => WalkState::Settled(TraversalResult::Value(value)),
+                ExploredResult::Advance(value, stack) => {
+                    *call_stack = *stack;
+                    WalkState::Walking(*value)
+                }
+                ExploredResult::Clobber(value) => {
+                    WalkState::Settled(TraversalResult::Value(*value, *call_stack))
+                }
                 ExploredResult::Cycle => WalkState::Settled(TraversalResult::Cycle),
             };
         }
@@ -1013,39 +1234,113 @@ impl<'a> MemorySSAWalker<'a> {
                         .analysis_stack
                         .mod_ref(self.ctx, self.effects, &effects);
                 if mod_ref.contains_mod() {
-                    explored.insert(value, ExploredResult::Clobber);
-                    WalkState::Settled(TraversalResult::Value(value))
+                    self.settle_clobber(value, call_stack, explored)
                 } else {
-                    explored.insert(value, ExploredResult::Advance(def.input));
+                    explored.insert(
+                        value,
+                        *call_stack,
+                        ExploredResult::Advance(def.input, *call_stack),
+                    );
                     WalkState::Walking(def.input)
                 }
             }
             MemorySSANode::Use(r#use) => {
-                explored.insert(value, ExploredResult::Advance(r#use.input));
+                explored.insert(
+                    value,
+                    *call_stack,
+                    ExploredResult::Advance(r#use.input, *call_stack),
+                );
                 WalkState::Walking(r#use.input)
             }
+            MemorySSANode::CallPhi(_) | MemorySSANode::CalleePhi(_)
+                if self.stop_at_phi || !self.is_interprocedural =>
+            {
+                self.settle_clobber(value, call_stack, explored)
+            }
             MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) if self.stop_at_phi => {
-                explored.insert(value, ExploredResult::Clobber);
-                WalkState::Settled(TraversalResult::Value(value))
+                self.settle_clobber(value, call_stack, explored)
+            }
+            MemorySSANode::CallPhi(_) => WalkState::AtCall(PhiWalk::new(value)),
+            MemorySSANode::CalleePhi(_) if call_stack.get(self.ctx).is_empty() => {
+                WalkState::Settled(TraversalResult::Value(value, *call_stack))
+            }
+            MemorySSANode::CalleePhi(phi) => {
+                let call = call_stack.update(self.ctx, |it| it.pop().unwrap());
+                let Some(taken) = phi.inputs.get(&call) else {
+                    panic!("Call stack is corrupted, current caller is not a predecessor of callee")
+                };
+                WalkState::Walking(*taken)
             }
             MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) => {
                 WalkState::AtPhi(PhiWalk::new(value))
             }
         }
     }
+
+    fn settle_clobber(
+        &mut self,
+        value: MemoryValue,
+        call_stack: &mut CallStack,
+        explored: &mut ExploredMap,
+    ) -> WalkState {
+        // Clobber in nested function is too complex to deal with downstream, so unwind the stack
+        // and use the call itself as a clobber.
+        if let Some(&root_call) = call_stack.get(self.ctx).first() {
+            let root_value = self.memory_ssa.op_memory_def(root_call).unwrap();
+            let clobber = ExploredResult::Clobber(root_value);
+            explored.insert(value, *call_stack, clobber.clone());
+            while let Some(call) = call_stack.update(self.ctx, |it| it.pop()) {
+                let call_value = self.memory_ssa.op_memory_def(call).unwrap();
+                explored.insert(call_value, *call_stack, clobber.clone());
+            }
+            return WalkState::Settled(TraversalResult::Value(
+                root_value,
+                CallStack::new(self.ctx, Default::default()),
+            ));
+        }
+
+        explored.insert(value, *call_stack, ExploredResult::Clobber(value));
+        WalkState::Settled(TraversalResult::Value(value, *call_stack))
+    }
 }
 
-pub fn memory_ssa(ctx: &Context, root: Ptr<Operation>, dom_info: &mut DomInfo) -> MemorySSA {
-    let info = MemoryOpAnalyzer::new(root, dom_info).compute_info(ctx);
+pub fn memory_ssa(
+    ctx: &Context,
+    root: Ptr<Operation>,
+    dom_info: &mut DomInfo,
+) -> Result<MemorySSA> {
+    let symbol_table = &mut SymbolTableCollection::default();
     let graph_ctx = &mut MemorySSAContext::default();
-    let mut graph_builder = MemorySSAGraphBuilder::new(graph_ctx, root, dom_info, info);
-    graph_builder.analyze_root(ctx);
 
-    MemorySSA {
+    let mut solver = DataflowSolver::new(SolverConfig::default());
+    solver.load(DummySparseConstantPropagation);
+    solver.load(DeadCodeAnalysis::default());
+    solver.initialize_and_run(ctx, root)?;
+
+    let mut graph_builder = MemorySSAGraphBuilder::new(graph_ctx, &solver);
+
+    visit_all_ops_with_interface::<dyn CallableOpInterface, _>(
+        ctx,
+        &mut (symbol_table, dom_info, &solver, &mut graph_builder),
+        root,
+        |ctx, (symbol_table, dom_info, solver, graph_builder), callable| {
+            let Some(callable_region) = callable.callable_region(ctx) else {
+                return;
+            };
+            let callable_op = callable.get_operation();
+            let info = MemoryOpAnalyzer::new(callable_op, dom_info, solver, symbol_table)
+                .compute_info(ctx);
+            graph_builder.analyze_callable(ctx, callable_region, dom_info, info);
+        },
+    );
+
+    graph_builder.link_call_predecessors(ctx);
+
+    Ok(MemorySSA {
         root,
         nodes: graph_builder.nodes,
         analysis_stack: Default::default(),
-    }
+    })
 }
 
 #[pass_name]
@@ -1055,6 +1350,6 @@ impl Analysis for MemorySSA {
         Self: Sized,
     {
         let mut dom_info = analyses.get_analysis_mut::<DomInfo>(op, ctx)?;
-        Ok(memory_ssa(ctx, op, &mut dom_info))
+        memory_ssa(ctx, op, &mut dom_info)
     }
 }

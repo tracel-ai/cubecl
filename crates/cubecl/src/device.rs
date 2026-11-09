@@ -9,7 +9,6 @@
 //! what fails.
 
 use cubecl_core::client::Client;
-#[cfg(any_runtime)]
 use cubecl_core::device::Device as DeviceIdentity;
 use cubecl_core::zspace::{Shape, Strides};
 #[cfg(any_runtime)]
@@ -20,7 +19,10 @@ pub use cubecl_runtime::device::{
     AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
 };
 
-pub use cubecl_runtime::runtime::{DeviceUtilization, UtilizationUnavailable};
+pub use cubecl_runtime::runtime::{
+    DeviceDescription, DeviceKind, DevicePower, DeviceTemperature, DeviceUtilization,
+    UtilizationUnavailable,
+};
 
 /// A device of any runtime.
 ///
@@ -334,7 +336,7 @@ impl Device {
             Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::client(device),
             #[cfg(feature = "hip")]
             Self::Hip(ref device) => cubecl_hip::HipRuntime::client(device),
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal(ref device) => cubecl_metal::MetalRuntime::client(device),
             #[cfg(feature = "wgpu")]
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::client(device),
@@ -359,7 +361,7 @@ impl Device {
             Self::Cuda(_) => cubecl_cuda::CudaRuntime::can_read_tensor(shape, strides),
             #[cfg(feature = "hip")]
             Self::Hip(_) => cubecl_hip::HipRuntime::can_read_tensor(shape, strides),
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal(_) => cubecl_metal::MetalRuntime::can_read_tensor(shape, strides),
             #[cfg(feature = "wgpu")]
             Self::Wgpu(_) => <cubecl_wgpu::WgpuRuntime>::can_read_tensor(shape, strides),
@@ -411,7 +413,7 @@ impl Device {
                 .into_iter()
                 .map(|id| Self::Hip(DeviceIdentity::from_id(id))),
         );
-        #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
         devices.extend(
             cubecl_metal::MetalRuntime::enumerate_all_devices()
                 .into_iter()
@@ -471,7 +473,7 @@ impl Device {
             Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::utilization(device),
             #[cfg(feature = "hip")]
             Self::Hip(ref device) => cubecl_hip::HipRuntime::utilization(device),
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal(ref device) => cubecl_metal::MetalRuntime::utilization(device),
             #[cfg(feature = "wgpu")]
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::utilization(device),
@@ -481,6 +483,97 @@ impl Device {
             // the process down.
             #[allow(unreachable_patterns)]
             _ => Err(UtilizationUnavailable::RuntimeNotLinked),
+        }
+    }
+
+    /// The current temperature of this device. Creates a client if needed.
+    ///
+    /// Returns a [`NoSuchReading`](UtilizationUnavailable::NoSuchReading) error on devices
+    /// that don't report temperature.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// if let Ok(temperature) = Device::default().temperature() {
+    ///     println!("{} °C", temperature.celsius);
+    /// }
+    /// ```
+    pub fn temperature(&self) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::temperature(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::temperature(device),
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::temperature(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::temperature(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::temperature(device),
+            #[allow(unreachable_patterns)]
+            _ => Err(UtilizationUnavailable::RuntimeNotLinked),
+        }
+    }
+
+    /// The power usage of this device, in Watt. Creates a client if needed.
+    ///
+    /// Returns a [`NoSuchReading`](UtilizationUnavailable::NoSuchReading) error on devices
+    /// that don't report their power usage.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// if let Ok(power) = Device::default().power() {
+    ///     println!("{} W", power.watts);
+    /// }
+    /// ```
+    pub fn power(&self) -> Result<DevicePower, UtilizationUnavailable> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::power(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::power(device),
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::power(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::power(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::power(device),
+            #[allow(unreachable_patterns)]
+            _ => Err(UtilizationUnavailable::RuntimeNotLinked),
+        }
+    }
+
+    /// Description of this device (name, kind, memory, card, architecture, driver) read from
+    /// the driver without starting a server on it, so it costs no context and no device memory.
+    ///
+    /// Returns `None` when the machine has no such device, the device is the runtime's "you
+    /// choose" device, the runtime describes nothing without a server, or the build does not
+    /// link the runtime.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// for device in Device::enumerate_all() {
+    ///     if let Some(description) = device.description() {
+    ///         println!("{} ({:?})", description.name, description.kind);
+    ///     }
+    /// }
+    /// ```
+    pub fn description(&self) -> Option<DeviceDescription> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::description(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::description(device),
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::description(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::description(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::description(device),
+            #[allow(unreachable_patterns)]
+            _ => None,
         }
     }
 
@@ -534,7 +627,7 @@ const LINKED: &[RuntimeId] = &[
     RuntimeId::Cuda,
     #[cfg(feature = "hip")]
     RuntimeId::Hip,
-    #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+    #[cfg(all(feature = "metal", target_vendor = "apple"))]
     RuntimeId::Metal,
     #[cfg(feature = "wgpu")]
     RuntimeId::Wgpu,
@@ -550,7 +643,7 @@ impl RuntimeId {
             Self::Cuda => true,
             #[cfg(feature = "hip")]
             Self::Hip => true,
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal => true,
             #[cfg(feature = "wgpu")]
             Self::Wgpu => true,
@@ -570,7 +663,7 @@ impl RuntimeId {
             Self::Cuda => cubecl_cuda::CudaRuntime::enumerate_devices_like(device_id),
             #[cfg(feature = "hip")]
             Self::Hip => cubecl_hip::HipRuntime::enumerate_devices_like(device_id),
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal => cubecl_metal::MetalRuntime::enumerate_devices_like(device_id),
             #[cfg(feature = "wgpu")]
             Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::enumerate_devices_like(device_id),
@@ -591,7 +684,7 @@ impl RuntimeId {
             Self::Cuda => cubecl_cuda::CudaRuntime::find_device(device_id),
             #[cfg(feature = "hip")]
             Self::Hip => cubecl_hip::HipRuntime::find_device(device_id),
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal => cubecl_metal::MetalRuntime::find_device(device_id),
             #[cfg(feature = "wgpu")]
             Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::find_device(device_id),
@@ -614,7 +707,7 @@ impl RuntimeId {
             Self::Cuda => cubecl_cuda::CudaRuntime::is_available(),
             #[cfg(feature = "hip")]
             Self::Hip => cubecl_hip::HipRuntime::is_available(),
-            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Self::Metal => cubecl_metal::MetalRuntime::is_available(),
             #[cfg(feature = "wgpu")]
             Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::is_available(),
@@ -702,11 +795,21 @@ impl Device {
     }
 }
 
+/// A build that links no runtime has nothing to probe, so its default names the
+/// CPU's device, the walk's last stop. Like any device of a runtime the build
+/// left out, it is a value only: asking it for a client fails.
+#[cfg(not(any_runtime))]
+impl Default for Device {
+    fn default() -> Self {
+        Self::Cpu(CpuDevice)
+    }
+}
+
 /// What lets this stand in wherever a runtime's own device type did: burn's
 /// backends take a device through this trait, and are handed this one.
 ///
-/// Only where a runtime is linked, since the trait asks for a default.
-#[cfg(any_runtime)]
+/// An identity needs no runtime, so a crate that names devices without
+/// running anything builds without one.
 impl DeviceIdentity for Device {
     fn from_id(device_id: DeviceId) -> Self {
         Self::from_id(device_id)

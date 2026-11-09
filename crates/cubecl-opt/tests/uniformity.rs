@@ -1,7 +1,6 @@
 use cubecl_ir::{
-    ident,
     interfaces::uniformity::Uniformity,
-    prelude::{IRNode, SingleBlockRegionInterface},
+    prelude::{IRNode, OperationPtrExt},
     rewrite::{WALKCONFIG_ANY, visit_all_values},
 };
 use cubecl_opt::{
@@ -32,11 +31,9 @@ fn run_uniformity_on_text(ctx: &mut Context, input: &str) -> Result<(ModuleOp, D
     let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
 
     verify_operation(op, ctx)?;
-    let module = ModuleOp::new(ctx, ident("module"));
-    op.insert_at_front(module.get_body(ctx, 0), ctx);
 
-    let solver = uniformity_solver(module.get_operation(), ctx)?;
-    Ok((module, solver))
+    let solver = uniformity_solver(op, ctx)?;
+    Ok((op.as_op::<ModuleOp>(ctx).unwrap(), solver))
 }
 
 #[track_caller]
@@ -100,11 +97,14 @@ fn assert_block_uniformity(solver: &DataflowSolver, block: Ptr<BasicBlock>, expe
 fn kernel(content: &str) -> String {
     format!(
         r#"
-    builtin.func @f: builtin.function <() -> ()>
-        [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {{
-      ^entry():
-        {content}
-        branch.return
+    builtin.module @module {{
+        ^module_block():
+        builtin.func @f: builtin.function <() -> ()>
+            [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {{
+        ^entry():
+            {content}
+            branch.return
+        }}
     }}
   "#
     )

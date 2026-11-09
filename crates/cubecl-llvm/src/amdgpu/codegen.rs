@@ -11,17 +11,24 @@ use crate::{
     shared::{
         AmdGpuModule,
         buffer_params::{AtomicReads, annotate_buffer_params},
+        debug_info::{check_debug_info, convert_module},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
+use cubecl_core::{
+    codegen::KernelDump,
+    ir::{
+        amd::GfxArch,
+        settings::{DebugInfo, Dim3},
+    },
+};
 use cubecl_environment::bytes::Bytes;
 use llvm_sys::{
     LLVMAtomicRMWBinOp,
-    target_machine::{LLVMCodeGenFileType, LLVMRelocMode},
+    target_machine::{LLVMCodeGenFileType, LLVMCodeModel, LLVMRelocMode},
 };
-use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
+use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext};
 use std::{
     ffi::{CStr, CString},
     sync::Once,
@@ -70,6 +77,8 @@ pub struct AmdGpuEntry {
     pub io: Vec<BufferIOAttr>,
     /// The global buffers the kernel's atomics read.
     pub atomic_reads: AtomicReads,
+    /// The bindings of buffers in memory shared with peers.
+    pub peers: Vec<usize>,
 }
 
 pub fn emit_code_object(
@@ -78,24 +87,24 @@ pub fn emit_code_object(
     entrypoint: &str,
     arch: &GfxArch,
     entry: AmdGpuEntry,
+    debug_info: DebugInfo,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
 
     set_data_layout(ctx, module, DATA_LAYOUT.to_string());
     let converted =
-        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
+        convert_module(ctx, &llvm_ctx, module, debug_info, true).map_err(|err| err.to_string())?;
 
     let module = LlvmModule::new(&converted.to_string())?;
+    check_debug_info(&module, entrypoint, debug_info);
     finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
-    let (object, asm) = compile(module, arch, Assembly::wanted())?;
+    let dump = KernelDump::new(entrypoint);
+    let (object, asm) = compile(module, arch, Assembly::wanted(&dump))?;
 
-    #[cfg(feature = "pliron-dump")]
-    if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
-        let _ = std::fs::write(dir.join("amdgpu.ll"), &ir);
-        if let Some(asm) = &asm {
-            let _ = std::fs::write(dir.join("amdgpu.s"), asm);
-        }
+    dump.write("amdgpu.ll", || &ir);
+    if let Some(asm) = &asm {
+        dump.write("amdgpu.s", || asm);
     }
 
     let code_object = Bytes::from_bytes_vec(link_relocatable(&object, entrypoint)?);
@@ -118,9 +127,9 @@ pub(crate) enum Assembly {
 }
 
 impl Assembly {
-    /// `Keep` when `CUBECL_DEBUG_PLIRON` asks for the dumps.
-    fn wanted() -> Self {
-        if std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
+    /// `Keep` when the kernel is dumped.
+    fn wanted(dump: &KernelDump) -> Self {
+        if dump.is_enabled() {
             Assembly::Keep
         } else {
             Assembly::Skip
@@ -140,7 +149,10 @@ fn finalize(
     entry: &AmdGpuEntry,
 ) -> Result<(), String> {
     let cube_dim = entry.cube_dim;
-    let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
+    // `reqd_work_group_size` fixes the size, and LLVM's verifier requires the flat range to be
+    // exactly its product.
+    let units = cube_dim.num_elems();
+    let flat_work_group_size = format!("{units},{units}");
     let mut attributes = vec![
         ("target-cpu", arch.name()),
         ("amdgpu-flat-work-group-size", &flat_work_group_size),
@@ -157,7 +169,15 @@ fn finalize(
     entry_fn.set_calling_convention(AMDGPU_KERNEL_CC);
     entry_fn.add_attributes(&attributes);
     require_work_group_size(&entry_fn, cube_dim);
-    annotate_buffer_params(&entry_fn, &entry.io, &entry.atomic_reads, METADATA_PARAMS);
+    // AMDGPU has no tensor maps.
+    annotate_buffer_params(
+        &entry_fn,
+        &entry.io,
+        &entry.atomic_reads,
+        &entry.peers,
+        &[],
+        METADATA_PARAMS,
+    );
     mark_atomics_device_local(&entry_fn);
     module.add_module_flag("amdhsa_code_object_version", CODE_OBJECT_VERSION);
     Ok(())
@@ -176,10 +196,13 @@ fn require_work_group_size(entry: &EntryFunction<'_>, cube_dim: Dim3) {
 /// What every atomic here may assume about the memory it touches, as the metadata the AMDGPU
 /// backend reads.
 ///
-/// Kernel buffers are device allocations: coarse-grained, and never another device's memory,
-/// so no atomic has to stay correct against a concurrent host or peer access. Without saying
-/// so, the backend expands float atomics to CAS loops on the parts whose native instruction
-/// is not coherent for fine-grained memory (RDNA3, CDNA2). An f32 add also ignores the
+/// Kernel buffers are device allocations: coarse-grained, and another device's memory only
+/// when a kernel binds a buffer a peer shared, so no device-scope atomic has to stay correct
+/// against a concurrent host or peer access. Without saying so, the backend expands float
+/// atomics to CAS loops on the parts whose native instruction is not coherent for fine-grained
+/// memory (RDNA3, CDNA2). An atomic on a `Peer` buffer synchronizes at system scope, which is how
+/// one reaching another device's memory is told apart, so it makes no such promise. An f32 add
+/// also ignores the
 /// denormal mode, where the native instruction flushes, which is the trade NVRTC's
 /// `atomicAdd(float*)` makes and the NVPTX target makes too.
 const DEVICE_LOCAL_ATOMIC: [&str; 2] = ["amdgpu.no.fine.grained.memory", "amdgpu.no.remote.memory"];
@@ -190,8 +213,10 @@ fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
         let Some(op) = inst.atomic_rmw_op() else {
             continue;
         };
-        for kind in DEVICE_LOCAL_ATOMIC {
-            entry.set_flag_metadata(&inst, kind);
+        if !inst.is_system_scope() {
+            for kind in DEVICE_LOCAL_ATOMIC {
+                entry.set_flag_metadata(&inst, kind);
+            }
         }
         if op == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
             entry.set_flag_metadata(&inst, DENORMAL_AGNOSTIC_ATOMIC);
@@ -214,12 +239,13 @@ fn compile(
         cpu: arch.name(),
         features: &features,
         reloc: LLVMRelocMode::LLVMRelocPIC,
+        code_model: LLVMCodeModel::LLVMCodeModelDefault,
     })?;
     machine.set_data_layout(&module);
 
     // SAFETY: the module is live, stamped with the AMDGPU triple and layout.
     unsafe { lower_to_device_libs(module.raw(), arch)? };
-    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+    module.run_passes(PASS_PIPELINE, &machine)?;
 
     // Emission consumes a module, so the assembly comes from a copy.
     let asm = if assembly == Assembly::Keep {
@@ -306,6 +332,11 @@ entry:
         );
         assert!(
             finalized.contains("amdhsa_code_object_version"),
+            "{finalized}"
+        );
+        // `reqd_work_group_size` fixes the size, so the flat range is exactly its product.
+        assert!(
+            finalized.contains(r#""amdgpu-flat-work-group-size"="64,64""#),
             "{finalized}"
         );
     }
@@ -590,6 +621,7 @@ entry:
             shared_memory_size: 0,
             io: io.to_vec(),
             atomic_reads,
+            peers: Vec::new(),
         };
         finalize(&module, entrypoint, arch, &entry)?;
         Ok(module.print())

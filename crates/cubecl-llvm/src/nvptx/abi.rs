@@ -1,16 +1,17 @@
 //! PTX kernel arguments.
 
 use crate::{
-    nvptx::builtins::NvptxSpecialRegisters,
+    nvptx::{address::NvptxSpace, builtins::NvptxSpecialRegisters},
     prelude::*,
     shared::{
         builtins::InsertGpuBuiltinsPass,
         metadata::{CtxGridConstants, rebuild_func_type},
+        native_decode::NativeDecode,
     },
 };
-use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
-
-const GLOBAL_ADDRESS_SPACE: u32 = 1;
+use cubecl_core::ir::attributes::ATTR_TENSOR_MAP_BINDING;
+use cubecl_core::ir::nvidia::SmArch;
+use cubecl_opt::passes::{alloc_shared_memory::AllocateSharedMemoryBlockPass, pre::SSCMPre};
 
 #[derive(Debug, Default)]
 pub struct PtxKernelParams;
@@ -39,11 +40,19 @@ impl EntryArgLayout for PtxKernelParams {
             buffers.iter().map(|(i, p, _)| (*i, *p)).collect::<Vec<_>>()
         );
 
-        let global_ptr = LlvmPointerType::get(ctx, GLOBAL_ADDRESS_SPACE).into();
+        let global_ptr = NvptxSpace::Global.pointer_ty(ctx);
+        // A tensor map is passed by value, so its parameter is the generic address of the
+        // copy in the parameter space.
+        let generic_ptr = NvptxSpace::Generic.pointer_ty(ctx);
         let entry = func.get_entry_block(ctx);
         for (arg_idx, _, _) in buffers {
             let arg = entry.deref(ctx).get_argument(*arg_idx);
-            arg.set_type(ctx, global_ptr);
+            let ty = if func.has_arg_attr(ctx, *arg_idx, &ATTR_TENSOR_MAP_BINDING) {
+                generic_ptr
+            } else {
+                global_ptr
+            };
+            arg.set_type(ctx, ty);
         }
         // By-value metadata stays in the generic address space.
         let last = entry.deref(ctx).get_num_arguments() - 1;
@@ -62,6 +71,8 @@ impl EntryArgLayout for PtxKernelParams {
 pub struct NvptxLowering {
     /// Device warp width.
     pub plane_dim: u32,
+    /// The device compiled for.
+    pub arch: SmArch,
 }
 
 impl TargetLowering for NvptxLowering {
@@ -78,5 +89,13 @@ impl TargetLowering for NvptxLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(PtxKernelParams)
+    }
+
+    fn pre(&self, passes: &mut OpPass<ModuleOp, Passes>) {
+        passes.add_pass(SSCMPre);
+    }
+
+    fn native_decodes(&self) -> &'static [NativeDecode] {
+        crate::nvptx::native_decode::native_decodes(&self.arch)
     }
 }

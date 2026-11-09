@@ -1,3 +1,4 @@
+pub mod barrier;
 pub mod math;
 pub mod synchronization;
 pub mod transcendental;

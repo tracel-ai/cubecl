@@ -531,7 +531,7 @@ mod impls {
         ///
         /// [default value]: Default::default
         /// [`parse`]: str::parse
-        /// [`FromStr`]: crate::str::FromStr
+        /// [`FromStr`]: core::str::FromStr
         pub fn unwrap_or_default(self) -> T
         where
             T: Default + IntoRuntime,

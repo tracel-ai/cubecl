@@ -30,8 +30,8 @@ pub fn round_up_to_dtype<F: Float>(scale: F, #[comptime] dtype: ScaleDtype) -> F
 ///
 /// Kept apart from [`step_up`] because both of `ue8m0`'s ends need clamping before the shared
 /// stepping means anything — its bottom, 2^-127, is subnormal in f32, and it has no zero for a
-/// fully-zero block to calibrate to. Mirrors the host's `round_up_to_power_of_two`, and the two
-/// have to keep agreeing or a tensor quantized on one backend reconstructs differently on another.
+/// fully-zero block to calibrate to. Mirrors the host's `ue8m0::from_f32`, and the two have to
+/// keep agreeing or a tensor quantized on one backend reconstructs differently on another.
 #[cube]
 fn step_up_to_power_of_two(scale: f32) -> f32 {
     let min = comptime!(ScaleDtype::UE8M0_MIN);
@@ -52,17 +52,17 @@ fn step_up(scale: f32, #[comptime] dtype: ScaleDtype) -> f32 {
     // maximum a conversion gives an infinity, and every value scaled by it then reconstructs wrong.
     // Both paths below work on the f32 bit pattern rather than the storage type, because the
     // narrowing conversion that would replace them is one the WGSL path leaves unrounded.
-    let grid = comptime!(dtype.f32_grid());
-    let max = comptime!(dtype.max_representable());
+    let grid = dtype.f32_grid();
+    let max = dtype.max_representable();
 
     if scale >= max {
         max
-    } else if comptime!(grid.subnormals.is_some()) {
-        let subnormals = comptime!(grid.subnormals.unwrap());
-        let spacing = comptime!(subnormals.spacing);
+    } else if grid.subnormals.is_some() {
+        let subnormals = grid.subnormals.unwrap();
+        let spacing = subnormals.spacing;
 
         // Below the minimum normal the spacing stops halving, so the answer is a count of steps.
-        if scale < comptime!(subnormals.min_normal) {
+        if scale < subnormals.min_normal {
             f32::ceil(scale / spacing) * spacing
         } else {
             round_up_on_grid(scale, grid)
@@ -79,6 +79,6 @@ fn step_up(scale: f32, #[comptime] dtype: ScaleDtype) -> f32 {
 #[cube]
 fn round_up_on_grid(scale: f32, #[comptime] grid: F32Grid) -> f32 {
     let bits = u32::reinterpret(scale);
-    let up_bits = (bits + comptime!(grid.round_up_bias())) & comptime!(grid.truncate_mask());
+    let up_bits = (bits + grid.round_up_bias()) & grid.truncate_mask();
     f32::reinterpret(up_bits)
 }

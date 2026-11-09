@@ -80,9 +80,11 @@ impl Assign {
         let fields = struct_.fields.iter().enumerate().map(|(i, field)| {
             let index = Index::from(i);
             match &field.ident {
+                Some(name) if field.comptime.is_present() => quote![#name: self.#name.clone()],
                 Some(name) => {
                     quote![#name: self.#name.init_mut(scope)]
                 }
+                None if field.comptime.is_present() => quote![self.#index.clone()],
                 None => quote![self.#index.init_mut(scope)],
             }
         });
@@ -230,6 +232,7 @@ impl Assign {
 
     fn where_clause(&self, trait_: &Path) -> Option<WhereClause> {
         let cube_type = prelude_type("CubeType");
+        let into_expand = prelude_type("IntoExpand");
 
         let fields: Vec<_> = match &self.data {
             Data::Enum(variants) => variants
@@ -244,11 +247,12 @@ impl Assign {
                 .cloned()
                 .collect(),
         };
-        bounded_where_clause(
-            &self.generics,
-            fields,
-            |param| quote!(<#param as #cube_type>::ExpandType: #trait_),
-        )
+        bounded_where_clause(&self.generics, fields, |param| {
+            let expand_type = quote!(<#param as #cube_type>::ExpandType);
+            // Preserve CubeType's equality explicitly: RuntimeAssign's IntoExpand
+            // supertrait can otherwise shadow it when resolving init_mut's result.
+            quote!(#expand_type: #trait_ + #into_expand<Expand = #expand_type>)
+        })
     }
 }
 

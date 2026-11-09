@@ -36,7 +36,7 @@ where
         child.terminate_yield();
 
         register_range_loop::<usize>(scope, &range_loop, &child);
-        scope.set_may_return(&[child]);
+        scope.update_flags_after_loop(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {

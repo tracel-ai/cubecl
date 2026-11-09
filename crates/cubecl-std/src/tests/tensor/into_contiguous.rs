@@ -1,7 +1,33 @@
 use cubecl_core::CubeElement;
 use cubecl_runtime::runtime::Runtime;
 
-use crate::tensor::{TensorHandle, copy_into, into_contiguous_packed};
+use crate::tensor::{TensorHandle, copy_into, into_contiguous, into_contiguous_packed};
+
+/// Materializing windows must preserve row starts that are not aligned to the window width.
+pub fn test_into_contiguous_unfold_unaligned_rows<R: Runtime>(device: &R::Device) {
+    let client = R::client(device);
+    let dtype = u32::cube_type();
+
+    for (row_len, width, expected) in [
+        (5, 2, vec![0, 1, 2, 3, 5, 6, 7, 8]),
+        (
+            10,
+            4,
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17],
+        ),
+    ] {
+        let storage: Vec<u32> = (0..2 * row_len as u32).collect();
+        let handle = client.create_from_slice(u32::as_bytes(&storage));
+        let input = TensorHandle::new(handle, [2, 2, width], [row_len, width, 1], dtype);
+        let output = into_contiguous(&client, input.binding(), dtype);
+        let bytes = client.read_one_unchecked_tensor(output.handle.clone().copy_descriptor(
+            output.shape().clone(),
+            output.strides().clone(),
+            size_of::<u32>(),
+        ));
+        assert_eq!(u32::from_bytes(&bytes), expected, "row length {row_len}");
+    }
+}
 
 /// Contiguous, row-major strides for the given shape.
 fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
@@ -234,6 +260,10 @@ fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
 ) {
     let client = R::client(device);
     let dtype = E::cube_type();
+    // WGSL has no `u8`.
+    if !client.properties().supports_type(dtype) {
+        return;
+    }
     let base_strides = contiguous_strides(base_shape);
     let num_elems: usize = base_shape.iter().product();
 
@@ -317,6 +347,30 @@ pub fn test_into_contiguous_permuted_sweep<R: Runtime>(device: &R::Device) {
             run_permuted_case::<R, u8>(device, shape, &perm);
             run_permuted_case::<R, u32>(device, shape, &perm);
         }
+    }
+}
+
+/// Shapes spanning several cubes of the GPU perpendicular kernel, with ragged edges on both
+/// transposed axes and batch axes on either side of them.
+pub fn test_into_contiguous_permuted_blocks<R: Runtime>(device: &R::Device) {
+    let shapes: &[&[usize]] = &[&[68, 100], &[3, 36, 68], &[2, 20, 12, 40]];
+
+    for shape in shapes {
+        for perm in permutations(shape.len()) {
+            run_permuted_case::<R, u8>(device, shape, &perm);
+            run_permuted_case::<R, u32>(device, shape, &perm);
+        }
+    }
+}
+
+/// Layouts at the edges of the perpendicular kernel: an empty tensor, and a size-1 axis with
+/// the same unit stride as the axis that can actually be vectorized.
+pub fn test_into_contiguous_permuted_edges<R: Runtime>(device: &R::Device) {
+    for perm in permutations(2) {
+        run_permuted_case::<R, u32>(device, &[0, 8], &perm);
+    }
+    for perm in permutations(3) {
+        run_permuted_case::<R, u32>(device, &[6, 8, 1], &perm);
     }
 }
 

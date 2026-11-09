@@ -9,6 +9,10 @@ use cubecl_ir::PciVendor;
 pub struct DeviceUtilization {
     /// The percent of the counter's last period the device spent running work, from 0 to 100.
     pub busy_percent: f32,
+    /// The percent of the counter's last period its memory spent reading or writing, from 0
+    /// to 100: how much of its bandwidth was in use. `None` when the counter keeps no such
+    /// figure.
+    pub memory_busy_percent: Option<f32>,
 }
 
 impl DeviceUtilization {
@@ -16,11 +20,49 @@ impl DeviceUtilization {
     pub fn new(busy_percent: f32) -> Self {
         Self {
             busy_percent: busy_percent.clamp(0.0, 100.0),
+            memory_busy_percent: None,
         }
+    }
+
+    /// Add the memory's busy percent, held from 0 to 100.
+    pub fn with_memory_busy_percent(mut self, memory_busy_percent: f32) -> Self {
+        self.memory_busy_percent = Some(memory_busy_percent.clamp(0.0, 100.0));
+        self
     }
 }
 
-/// Why a device's utilization could not be read.
+/// The temperature of the device at the time of reading, from its sensor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct DeviceTemperature {
+    /// The temperature in degrees Celsius.
+    pub celsius: f32,
+}
+
+impl DeviceTemperature {
+    /// A reading of `celsius` degrees.
+    pub fn new(celsius: f32) -> Self {
+        Self { celsius }
+    }
+}
+
+/// The power usage of the device, read by its sensor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct DevicePower {
+    /// The card's power draw, in watts, averaged over the driver's last sample window.
+    pub watts: f32,
+}
+
+impl DevicePower {
+    /// A reading of `watts`.
+    pub fn new(watts: f32) -> Self {
+        Self { watts }
+    }
+}
+
+/// Why a device's utilization, temperature or power could not be read: each comes from the
+/// counter its card's driver or its platform keeps.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum UtilizationUnavailable {
@@ -47,6 +89,8 @@ pub enum UtilizationUnavailable {
     /// The counter was reached and gave no reading. Holds the driver's, the platform's or the
     /// filesystem's message.
     QueryFailed(String),
+    /// The counter that answers for the card keeps no such reading.
+    NoSuchReading,
 }
 
 impl fmt::Display for UtilizationUnavailable {
@@ -73,6 +117,7 @@ impl fmt::Display for UtilizationUnavailable {
                 f.write_str("the counter measures between two readings, and this was the first")
             }
             Self::QueryFailed(message) => write!(f, "the counter gave no reading: {message}"),
+            Self::NoSuchReading => f.write_str("the card's counter keeps no such reading"),
         }
     }
 }
@@ -91,6 +136,17 @@ mod tests {
                 busy_percent
             );
         }
+    }
+
+    #[test]
+    fn the_memory_reading_is_held_to_0_to_100_and_absent_unless_read() {
+        assert_eq!(DeviceUtilization::new(50.0).memory_busy_percent, None);
+        assert_eq!(
+            DeviceUtilization::new(50.0)
+                .with_memory_busy_percent(140.0)
+                .memory_busy_percent,
+            Some(100.0)
+        );
     }
 
     #[test]

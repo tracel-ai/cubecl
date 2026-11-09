@@ -201,7 +201,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
         _scope: &Scope,
         _shared_memory: &SliceExpand<T>,
         _pos: <Coords1d as CubeType>::ExpandType,
-    ) {
+    ) -> PendingExpand<()> {
         unimplemented!("Not a tensor map");
     }
 }
@@ -241,8 +241,8 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for NativeExpand<Box
         scope: &Scope,
         shared_memory: &SliceExpand<T>,
         pos: <Coords1d as CubeType>::ExpandType,
-    ) {
+    ) -> PendingExpand<()> {
         self.deref()
-            .__expand_tensor_map_store_method(scope, shared_memory, pos);
+            .__expand_tensor_map_store_method(scope, shared_memory, pos)
     }
 }

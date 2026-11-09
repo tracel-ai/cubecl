@@ -79,10 +79,11 @@ pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T,
         unexpanded!()
     }
 
-    /// Execute a TMA store into global memory, if the underlying storage supports it.
+    /// Execute a TMA store into global memory, if the underlying storage supports it, and
+    /// return its completion: `shared_memory` may only be written again once it resolves.
     /// Panics if it's unsupported.
     #[allow(unused)]
-    fn tensor_map_store(&self, shared_memory: &[T], pos: C) {
+    fn tensor_map_store(&self, shared_memory: &[T], pos: C) -> Pending<()> {
         unexpanded!()
     }
 }
@@ -208,7 +209,7 @@ impl<T: CubePrimitive, C: Coordinates, V: ViewOperationsMutExpand<T, C> + ?Sized
         scope: &Scope,
         shared_memory: &SliceExpand<T>,
         pos: C::ExpandType,
-    ) {
-        (**self).__expand_tensor_map_store_method(scope, shared_memory, pos);
+    ) -> PendingExpand<()> {
+        (**self).__expand_tensor_map_store_method(scope, shared_memory, pos)
     }
 }

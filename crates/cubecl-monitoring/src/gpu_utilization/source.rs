@@ -16,7 +16,7 @@ pub enum UtilizationSource {
     #[cfg(nvml)]
     Nvml(PciAddress),
     #[cfg(amdgpu_busy_percent)]
-    AmdgpuBusyPercentFile(PciAddress),
+    AmdgpuSysfsFiles(PciAddress),
     #[cfg(intel_idle_residency)]
     IntelIdleResidencyFiles(PciAddress),
     #[cfg(gpu_engine_counters)]
@@ -41,7 +41,7 @@ impl UtilizationSource {
             #[cfg(nvml)]
             Some(PciVendor::Nvidia) => Self::Nvml,
             #[cfg(amdgpu_busy_percent)]
-            Some(PciVendor::Amd) => Self::AmdgpuBusyPercentFile,
+            Some(PciVendor::Amd) => Self::AmdgpuSysfsFiles,
             #[cfg(intel_idle_residency)]
             Some(PciVendor::Intel) => Self::IntelIdleResidencyFiles,
             vendor => return Self::Unavailable(UtilizationUnavailable::NoCounterForCard(vendor)),
@@ -107,7 +107,7 @@ mod tests {
             );
             assert_eq!(
                 source_of(Some(PciVendor::Amd), Some(ADDRESS)),
-                UtilizationSource::AmdgpuBusyPercentFile(ADDRESS)
+                UtilizationSource::AmdgpuSysfsFiles(ADDRESS)
             );
             assert_eq!(
                 source_of(Some(PciVendor::Intel), Some(ADDRESS)),

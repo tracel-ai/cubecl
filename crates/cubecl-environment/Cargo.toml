@@ -24,10 +24,15 @@ shared-bytes = ["dep:bytes"]
 persistence = [
     "std",
     "dep:turso",
+    "dep:branches",
     "dep:web-sys",
     "dep:js-sys",
     "dep:wasm-bindgen",
 ]
+# Persistence on SQLite, through rusqlite, instead of Turso for the native
+# files; the browser stays on Turso. Turso is still compiled natively, since
+# features only add up, but opens nothing there.
+rusqlite = ["persistence", "dep:rusqlite"]
 default = ["std"]
 std = [
     "rand/std",
@@ -64,6 +69,7 @@ serde_bytes = { workspace = true, features = ["alloc"] }
 # Persistence
 bytes = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
+branches = { workspace = true, optional = true }
 ciborium = { workspace = true }
 # The bundle manifest is JSON on every target: the flat format exists for the
 # ones the `cache` feature can't reach.
@@ -118,6 +124,7 @@ spin = { workspace = true, features = [
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Only ever used to resolve a cache root, which needs a file system.
 etcetera = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, default-features = false, features = [
     "rt",
 ] }

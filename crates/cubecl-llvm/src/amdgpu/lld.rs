@@ -1,20 +1,15 @@
 //! AMDGPU code object linking.
 
+use crate::shared::llvm_options::reset_by;
 use std::{
     ffi::{CString, c_char},
     path::Path,
-    sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 unsafe extern "C" {
     fn cubecl_lld_elf_link(argv: *const *const c_char, argc: usize) -> bool;
 }
-
-/// LLD uses global state and requires serialized access.
-static LLD_LOCK: Mutex<()> = Mutex::new(());
 
 /// Unique identifiers for temporary directories.
 static CALL_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -43,11 +38,9 @@ fn link_in(dir: &Path, object: &[u8], name: &str) -> Result<Vec<u8>, String> {
     ];
     let argv: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
 
-    let ok = {
-        let _guard = LLD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // SAFETY: `args` owns the strings and outlives `argv`, which outlives the call.
-        unsafe { cubecl_lld_elf_link(argv.as_ptr(), argv.len()) }
-    };
+    // LLD uses global state and requires serialized access, which `reset_by` gives.
+    // SAFETY: `args` owns the strings and outlives `argv`, which outlives the call.
+    let ok = reset_by(|| unsafe { cubecl_lld_elf_link(argv.as_ptr(), argv.len()) });
 
     if ok {
         std::fs::read(&out_path).map_err(|e| format!("read code object: {e}"))

@@ -1,0 +1,56 @@
+[package]
+authors = ["Nathaniel Simard (@nathanielsimard)"]
+categories = ["science", "development-tools"]
+description = "Reads a CubeCL environment file back: what it holds, how each autotune key was decided, where a build's time went, and which candidates earn their place."
+edition.workspace = true
+keywords = ["gpu", "autotune", "cache"]
+license.workspace = true
+name = "cubecl-inspect"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-inspect"
+version.workspace = true
+
+[features]
+# The binary is mostly used as a browser, so it ships with one; a library
+# user renders the reports and leaves it off.
+default = ["tui"]
+# `tui`: the reports in a terminal browser, re-read as the file changes.
+tui = ["dep:ansi-to-tui", "dep:ratatui"]
+
+[[bin]]
+name = "cubecl-inspect"
+path = "src/main.rs"
+# The binary's front door is the browser.
+required-features = ["tui"]
+
+[dependencies]
+# The browser shows each report in its painted form, the one a terminal
+# reads, so the two are styled in one place: the report's roles.
+ansi-to-tui = { version = "8", default-features = false, optional = true }
+# Decodes the stored autotune keys generically: serde's CBOR carries field
+# names, so any tuner's key renders without its type.
+ciborium = { workspace = true, features = ["std"] }
+clap = { workspace = true, features = ["derive"] }
+# The stable hash a kernel's artifact is keyed by.
+cubecl-common = { workspace = true }
+# The database, its summary, the bundle manifest and the records.
+cubecl-environment = { workspace = true, features = ["persistence"] }
+# Where environments live: the runtime's configuration, read from the
+# `cubecl.toml` or `burn.toml` above the working directory, roots them.
+cubecl-runtime = { workspace = true, features = ["std", "persistence"] }
+# The persisted autotune values and the build records, decoded as the
+# runtime wrote them.
+cubecl-server = { workspace = true, features = ["std", "persistence"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache"], optional = true }
+# Orders the cubecl versions a file's autotune tables are written under, a
+# pre-release before its release.
+semver = "1"
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json = { workspace = true, features = ["std"] }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

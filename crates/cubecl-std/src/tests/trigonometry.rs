@@ -1,82 +1,43 @@
+use approx::assert_abs_diff_eq;
 use core::f32::consts::{PI, TAU};
-use cubecl::prelude::*;
-use cubecl_core as cubecl;
 use cubecl_runtime::runtime::Runtime;
 
 use crate::trigonometry::*;
 
-#[cube(launch_unchecked)]
-fn kernel_to_degrees(input: &[f32], output: &mut [f32]) {
-    if (UNIT_POS as usize) < input.len() {
-        output[UNIT_POS as usize] = to_degrees::<f32>(input[UNIT_POS as usize]);
-    }
-}
+pub fn test_to_degrees<R: Runtime>() {
+    let cases = [
+        (0.0, 0.0),
+        (PI / 6.0, 30.0),
+        (PI / 4.0, 45.0),
+        (PI / 2.0, 90.0),
+        (PI, 180.0),
+        (TAU, 360.0),
+    ];
 
-pub fn test_to_degrees<R: Runtime>(client: Client) {
-    let input_data = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
-    let expected = [0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
-
-    let input = client.create_from_slice(f32::as_bytes(&input_data));
-    let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
-
-    unsafe {
-        kernel_to_degrees::launch_unchecked(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(input_data.len() as u32),
-            BufferArg::from_raw_parts(input, input_data.len()),
-            BufferArg::from_raw_parts(output.clone(), input_data.len()),
-        )
-    }
-
-    let actual = client.read_one_unchecked(output);
-    let actual = f32::from_bytes(&actual);
-
-    for (i, (&expected_val, &actual_val)) in expected.iter().zip(actual.iter()).enumerate() {
-        assert!(
-            (expected_val - actual_val).abs() < 1e-5,
-            "Test {} failed: expected {}, got {}",
-            i,
-            expected_val,
-            actual_val
+    for (input, expected) in cases {
+        assert_abs_diff_eq!(
+            to_degrees::harness::<R, f32>(input),
+            expected,
+            epsilon = 1e-5
         );
     }
 }
 
-#[cube(launch_unchecked)]
-fn kernel_to_radians(input: &[f32], output: &mut [f32]) {
-    if (UNIT_POS as usize) < input.len() {
-        output[UNIT_POS as usize] = to_radians::<f32>(input[UNIT_POS as usize]);
-    }
-}
+pub fn test_to_radians<R: Runtime>() {
+    let cases = [
+        (0.0, 0.0),
+        (30.0, PI / 6.0),
+        (45.0, PI / 4.0),
+        (90.0, PI / 2.0),
+        (180.0, PI),
+        (360.0, TAU),
+    ];
 
-pub fn test_to_radians<R: Runtime>(client: Client) {
-    let input_data = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
-    let expected = [0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
-
-    let input = client.create_from_slice(f32::as_bytes(&input_data));
-    let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
-
-    unsafe {
-        kernel_to_radians::launch_unchecked(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(input_data.len() as u32),
-            BufferArg::from_raw_parts(input, input_data.len()),
-            BufferArg::from_raw_parts(output.clone(), input_data.len()),
-        )
-    }
-
-    let actual = client.read_one_unchecked(output);
-    let actual = f32::from_bytes(&actual);
-
-    for (i, (&expected_val, &actual_val)) in expected.iter().zip(actual.iter()).enumerate() {
-        assert!(
-            (expected_val - actual_val).abs() < 1e-5,
-            "Test {} failed: expected {}, got {}",
-            i,
-            expected_val,
-            actual_val
+    for (input, expected) in cases {
+        assert_abs_diff_eq!(
+            to_radians::harness::<R, f32>(input),
+            expected,
+            epsilon = 1e-5
         );
     }
 }
@@ -90,14 +51,12 @@ macro_rules! testgen_trigonometry {
 
             #[$crate::tests::test_log::test]
             fn test_to_degrees_conversion() {
-                let client = TestRuntime::client(&Default::default());
-                test_to_degrees::<TestRuntime>(client);
+                test_to_degrees::<TestRuntime>();
             }
 
             #[$crate::tests::test_log::test]
             fn test_to_radians_conversion() {
-                let client = TestRuntime::client(&Default::default());
-                test_to_radians::<TestRuntime>(client);
+                test_to_radians::<TestRuntime>();
             }
         }
     };

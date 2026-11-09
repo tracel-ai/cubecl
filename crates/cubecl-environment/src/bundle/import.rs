@@ -1,8 +1,11 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use alloc::boxed::Box;
+use core::convert::Infallible;
+
 use crate::bytes::Bytes;
-use crate::persistence::{InsertSummary, Origin, storage};
+use crate::persistence::{InsertSummary, Origin, Storage, storage};
 
 use super::Bundle;
 
@@ -13,6 +16,17 @@ use super::Bundle;
 /// otherwise block every other writer 10k times. The batch is buffered in
 /// memory, so it is bounded rather than "the whole bundle".
 const BATCH: usize = 1024;
+
+/// How many bytes of keys and values one storage transaction carries at most,
+/// whatever [`BATCH`] allows.
+///
+/// A transaction's pages sit in the write-ahead log until it commits, and the
+/// log index the engine shares between processes holds 262,144 frames, about
+/// 1 GiB of 4 KiB pages. A transaction past that can never be checkpointed:
+/// the index is marked overflowed and every later transaction on the file
+/// fails as busy. A compiled kernel runs to hundreds of kilobytes, so a batch
+/// of [`BATCH`] of them passes it alone; this keeps each one far below.
+const BATCH_BYTES: usize = 64 * 1024 * 1024;
 
 /// What an [`import`] copied.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -44,12 +58,31 @@ pub struct ImportReport {
 /// [`environment::activate`](crate::environment::activate) beforehand to
 /// target another one.
 pub fn import(bundle: &dyn Bundle) -> ImportReport {
+    let opened: Result<_, Infallible> =
+        import_into(bundle, |namespace| Ok(storage::open(namespace)));
+    let Ok(report) = opened;
+    report
+}
+
+/// Copies every entry of `bundle` into the storage `open` answers for each of
+/// its namespaces, under the rules of [`import`]: what an environment that is
+/// not the active one is filled through.
+///
+/// # Errors
+///
+/// The first error `open` answers. The namespaces imported before it stay
+/// imported, which is harmless: importing again skips them.
+pub(crate) fn import_into<E>(
+    bundle: &dyn Bundle,
+    open: impl Fn(&str) -> Result<Box<dyn Storage>, E>,
+) -> Result<ImportReport, E> {
     let mut report = ImportReport::default();
 
     for namespace in bundle.namespaces() {
-        let target = storage::open(&namespace);
+        let target = open(&namespace)?;
 
         let mut batch: Vec<(Bytes, Bytes)> = Vec::with_capacity(BATCH);
+        let mut batch_bytes = 0;
         let mut total = InsertSummary::default();
         let commit = |batch: &mut Vec<(Bytes, Bytes)>, total: &mut InsertSummary| {
             if batch.is_empty() {
@@ -63,12 +96,14 @@ pub fn import(bundle: &dyn Bundle) -> ImportReport {
         };
 
         bundle.scan(&namespace, &mut |key, value| {
+            batch_bytes += key.len() + value.len();
             batch.push((
                 Bytes::from_bytes_vec(key.to_vec()),
                 Bytes::from_bytes_vec(value.to_vec()),
             ));
-            if batch.len() == BATCH {
+            if batch.len() == BATCH || batch_bytes >= BATCH_BYTES {
                 commit(&mut batch, &mut total);
+                batch_bytes = 0;
             }
         });
         commit(&mut batch, &mut total);
@@ -93,5 +128,5 @@ pub fn import(bundle: &dyn Bundle) -> ImportReport {
         report.skipped,
     );
 
-    report
+    Ok(report)
 }

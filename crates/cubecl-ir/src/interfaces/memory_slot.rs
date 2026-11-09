@@ -71,6 +71,13 @@ impl MemoryValue {
             MemoryDefiningEntity::LiveOnEntry => None,
         }
     }
+
+    pub fn defining_op(&self) -> Option<Ptr<Operation>> {
+        match self.defining_entity()? {
+            DefiningEntity::Op(op) => Some(op),
+            DefiningEntity::Block(_) => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -94,6 +101,14 @@ impl MemorySSAContext {
             defining_entity: MemoryDefiningEntity::Op(op),
         }
     }
+
+    pub fn new_value_at_entry(&mut self) -> MemoryValue {
+        self.last_idx += 1;
+        MemoryValue {
+            val_uid: self.last_idx,
+            defining_entity: MemoryDefiningEntity::LiveOnEntry,
+        }
+    }
 }
 
 /// Different from `RegionPredecessor` because terminators don't actually matter for memory SSA
@@ -115,6 +130,7 @@ impl Printable for MemoryRegionPredecessor {
 }
 
 pub type RegionMemoryPhiInputs = SmallMap<MemoryRegionPredecessor, MemoryValue, 2>;
+
 pub enum RegionMemoryValue {
     Forward(MemoryValue),
     RegionPhi(RegionMemoryPhiInputs),
@@ -138,7 +154,8 @@ pub trait PromotableRegionOpInterface {
     /// Called before descending into nested regions.
     /// `reaching_def` is the value in `slot` on entry to this op.
     /// Populate `regions_to_process` with the reaching def each region starts with.
-    /// You may mutate the op in place, but do NOT delete ops or touch terminators.
+    /// You may mutate the op in place, but do NOT delete ops, move them to another block, or
+    /// touch terminators.
     fn setup_promotion(
         &self,
         ctx: &mut Context,
@@ -150,8 +167,8 @@ pub trait PromotableRegionOpInterface {
 
     /// Called after reaching defs are computed for all regions, but before
     /// blocking uses are removed. Returns the new reaching def at the op's exit.
-    /// Mutation is allowed, but you must not change control flow or add ops that
-    /// interact with the slot's value.
+    /// Mutation is allowed, but you must not change control flow, move ops to another
+    /// block, or add ops that interact with the slot's value.
     fn finalize_promotion(
         &self,
         ctx: &mut Context,

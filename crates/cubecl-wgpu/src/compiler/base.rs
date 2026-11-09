@@ -10,7 +10,7 @@ use cubecl_core::{
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, TargetProperties};
 use cubecl_server::compiler::CompilationError;
 use derive_more::derive::From;
 use thiserror::Error;
@@ -182,6 +182,26 @@ impl Compiler for AutoCompiler {
 }
 
 impl WgpuCompiler for AutoCompiler {
+    fn limit_properties(&self, properties: &mut DeviceProperties) {
+        match self {
+            AutoCompiler::Wgsl(compiler) => compiler.limit_properties(properties),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(compiler) => compiler.limit_properties(properties),
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(compiler) => compiler.limit_properties(properties),
+        }
+    }
+
+    fn target_properties(&self) -> TargetProperties {
+        match self {
+            AutoCompiler::Wgsl(compiler) => compiler.target_properties(),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(compiler) => compiler.target_properties(),
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(compiler) => compiler.target_properties(),
+        }
+    }
+
     #[cfg(feature = "msl")]
     fn validate_runtime(
         backend: wgpu::Backend,
@@ -263,6 +283,14 @@ impl WgpuCompiler for AutoCompiler {
 }
 
 impl WgpuCompiler for WgslCompiler {
+    /// A cube whose kernel reads its plane ids launches as one row along `x`
+    /// ([`WorkgroupLayout::Flat`](wgsl::builtin::WorkgroupLayout::Flat)), and the properties
+    /// cannot depend on the kernel, so every cube holds no more units than that row does.
+    fn limit_properties(&self, properties: &mut DeviceProperties) {
+        let hardware = &mut properties.hardware;
+        hardware.max_units_per_cube = hardware.max_units_per_cube.min(hardware.max_cube_dim.0);
+    }
+
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self
     }
@@ -320,6 +348,12 @@ impl WgpuCompiler for MslCompiler {
 
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self::default()
+    }
+
+    fn target_properties(&self) -> TargetProperties {
+        TargetProperties {
+            mma: cubecl_cpp::metal::mma::mma_properties_metal(),
+        }
     }
 
     fn compile_kernel(
@@ -462,6 +496,17 @@ pub trait WgpuCompiler: Compiler<Representation: Send> {
     /// opt into the SPIR-V compiler on Vulkan when the device advertises the required
     /// features).
     fn init(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> Self;
+
+    /// Narrow the device's `properties` to what this compiler's kernels can reach. Most
+    /// compilers reach the device's own limits and leave them as they are.
+    fn limit_properties(&self, _properties: &mut DeviceProperties) {}
+
+    /// What a kernel reads of this compiler's target as it expands: how a manual MMA's
+    /// registers map onto its matrices. Only MSL lowers a manual MMA; the others keep the
+    /// defaults, which nothing reads.
+    fn target_properties(&self) -> TargetProperties {
+        TargetProperties::default()
+    }
 
     /// Validate that the compiled representation fits within the device's resource limits.
     ///

@@ -9,9 +9,13 @@ use cubecl_ir::{
             types::{IntegerType, Signedness},
         },
         dict_key,
+        graph::walkers::{
+            IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
+        },
         irbuild::match_rewrite::apply_match_rewrite,
     },
     prelude::*,
+    settings::Dim3,
     types::VectorType,
 };
 use derive_more::{Display, From};
@@ -168,6 +172,97 @@ fn constant(#[comptime] value: u32) -> u32 {
     value
 }
 
+/// How a kernel's cube is laid out as a WGSL workgroup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkgroupLayout {
+    /// The cube's own `(x, y, z)` shape, read through the hardware's axis builtins.
+    Shaped,
+    /// One row of every unit in the cube. WGSL refuses `subgroup_id` and
+    /// `subgroup_invocation_id` in a workgroup spanning `y` or `z`, so a kernel reading a unit's
+    /// plane or lane runs flat and reads its axes back off its linear position, which is the
+    /// same either way.
+    Flat,
+}
+
+impl WorkgroupLayout {
+    /// The layout of the kernel at `root`, run in cubes of `cube_dim`.
+    pub fn new(ctx: &Context, root: Ptr<Operation>, cube_dim: &Dim3) -> Self {
+        let spans_rows = cube_dim.y > 1 || cube_dim.z > 1;
+        match spans_rows && reads_plane_ids(ctx, root) {
+            true => Self::Flat,
+            false => Self::Shaped,
+        }
+    }
+
+    /// The `@workgroup_size` a cube of `cube_dim` launches with.
+    pub fn workgroup_size(self, cube_dim: Dim3) -> Dim3 {
+        match self {
+            Self::Shaped => cube_dim,
+            Self::Flat => Dim3::new_1d(cube_dim.num_elems()),
+        }
+    }
+}
+
+/// Whether the kernel at `root` reads a unit's plane or its lane in it, the builtins WGSL
+/// only takes in a one-dimensional workgroup.
+fn reads_plane_ids(ctx: &Context, root: Ptr<Operation>) -> bool {
+    let mut reads = false;
+    walk_op(
+        ctx,
+        &mut reads,
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, reads, node| {
+            let IRNode::Operation(op) = node else {
+                return;
+            };
+            *reads |= op.as_op::<ReadBuiltinOp>(ctx).is_some_and(|read| {
+                matches!(
+                    read.builtin(ctx).0,
+                    Builtin::PlanePos | Builtin::UnitPosPlane
+                )
+            });
+        },
+    );
+    reads
+}
+
+/// A unit's position along `x` in a flat cube: its linear position's lowest digit.
+#[cube]
+fn flat_unit_pos_x() -> u32 {
+    UNIT_POS % CUBE_DIM_X
+}
+
+/// A unit's position along `y` in a flat cube: its linear position's middle digit.
+#[cube]
+fn flat_unit_pos_y() -> u32 {
+    (UNIT_POS / CUBE_DIM_X) % CUBE_DIM_Y
+}
+
+/// A unit's position along `z` in a flat cube: its linear position's highest digit.
+#[cube]
+fn flat_unit_pos_z() -> u32 {
+    UNIT_POS / (CUBE_DIM_X * CUBE_DIM_Y)
+}
+
+/// A unit's position in the whole kernel along `x` in a flat cube.
+#[cube]
+fn flat_absolute_pos_x() -> u32 {
+    CUBE_POS_X * CUBE_DIM_X + UNIT_POS_X
+}
+
+/// A unit's position in the whole kernel along `y` in a flat cube.
+#[cube]
+fn flat_absolute_pos_y() -> u32 {
+    CUBE_POS_Y * CUBE_DIM_Y + UNIT_POS_Y
+}
+
+/// A unit's position in the whole kernel along `z` in a flat cube.
+#[cube]
+fn flat_absolute_pos_z() -> u32 {
+    CUBE_POS_Z * CUBE_DIM_Z + UNIT_POS_Z
+}
+
 impl RewriteBuiltins {
     fn lower_builtin(
         &mut self,
@@ -176,7 +271,8 @@ impl RewriteBuiltins {
         func: FuncOp,
         builtin: Builtin,
     ) -> Value {
-        let cube_dim = scope.ctx().aux_ty::<KernelInfo>().cube_dim;
+        let KernelInfo { cube_dim, layout } = *scope.ctx().aux_ty::<KernelInfo>();
+        let flat = layout == WorkgroupLayout::Flat;
         match builtin {
             Builtin::UnitPos if cube_dim.num_elems() == 1 => {
                 constant::expand(scope, 0).value(scope)
@@ -184,6 +280,12 @@ impl RewriteBuiltins {
             Builtin::UnitPosX if cube_dim.x == 1 => constant::expand(scope, 0).value(scope),
             Builtin::UnitPosY if cube_dim.y == 1 => constant::expand(scope, 0).value(scope),
             Builtin::UnitPosZ if cube_dim.z == 1 => constant::expand(scope, 0).value(scope),
+            Builtin::UnitPosX if flat => flat_unit_pos_x::expand(scope).value(scope),
+            Builtin::UnitPosY if flat => flat_unit_pos_y::expand(scope).value(scope),
+            Builtin::UnitPosZ if flat => flat_unit_pos_z::expand(scope).value(scope),
+            Builtin::AbsolutePosX if flat => flat_absolute_pos_x::expand(scope).value(scope),
+            Builtin::AbsolutePosY if flat => flat_absolute_pos_y::expand(scope).value(scope),
+            Builtin::AbsolutePosZ if flat => flat_absolute_pos_z::expand(scope).value(scope),
             Builtin::UnitPos => {
                 self.read_scalar_builtin(scope, ty, func, BuiltIn::LocalInvocationIndex)
             }

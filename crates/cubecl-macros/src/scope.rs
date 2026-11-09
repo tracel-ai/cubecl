@@ -46,14 +46,35 @@ pub const KEYWORDS: [&str; 31] = [
 pub type Scope = usize;
 type ManagedScope = Vec<ManagedVar>;
 
+#[derive(Clone, Copy, Debug)]
+pub enum ClosureScope {
+    Function,
+    Closure,
+    NestedWithoutValue,
+    NestedWithValue,
+}
+
 #[derive(Clone, Debug)]
 pub struct Context {
     pub return_type: Type,
     scopes: Vec<ManagedScope>,
+    closure_scopes: Vec<ClosureScope>,
     level: usize,
     mut_scope_idx: usize,
     pub debug_symbols: bool,
     pub is_intrinsic: bool,
+    /// The debug position (line and column) that the generated code has set at this point, in the
+    /// order it runs. `None` when it is not known, for example after a branch or a closure.
+    pub debug_pos: Option<(usize, usize)>,
+    /// The number of debug positions the generated code sets so far.
+    pub debug_pos_count: usize,
+    /// Flag that the function has an early return, used to avoid setting up return flags when
+    /// they're not necessary
+    pub has_early_return: bool,
+    /// Set while parsing a direct operand of `&&` or `||`: there a `comptime!` block makes the
+    /// operator short-circuit with a branch, while a bare comptime value lets it be a plain `and`,
+    /// so the wrapper changes the kernel and is never redundant.
+    pub in_short_circuit_operand: bool,
 }
 
 impl Context {
@@ -75,10 +96,15 @@ impl Context {
         Self {
             return_type,
             scopes: vec![root_scope],
+            closure_scopes: vec![ClosureScope::Function],
             level: 0,
             mut_scope_idx: 0,
             debug_symbols,
             is_intrinsic,
+            debug_pos: None,
+            debug_pos_count: 0,
+            has_early_return: false,
+            in_short_circuit_operand: false,
         }
     }
 
@@ -125,6 +151,24 @@ impl Context {
         Ok((res, self.scopes.len()))
     }
 
+    pub fn in_closure_scope<T>(
+        &mut self,
+        scope: ClosureScope,
+        with: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.closure_scopes.push(scope);
+        let res = with(self);
+        self.closure_scopes.pop();
+        res
+    }
+
+    pub fn current_closure_scope(&self) -> ClosureScope {
+        *self
+            .closure_scopes
+            .last()
+            .expect("Should have root closure")
+    }
+
     /// Mutable closures (for loops) have different behaviour because outer vars
     /// must be cloned
     pub fn in_fn_mut<T>(&mut self, scope: &Scope, with: impl FnOnce(&mut Self) -> T) -> T {
@@ -134,6 +178,18 @@ impl Context {
         self.level = level;
         self.mut_scope_idx = old_mut_idx;
         res
+    }
+
+    /// Whether `name` is a local the macro already holds as a comptime value, without counting it as
+    /// a use.
+    #[cfg(feature = "warn-redundant-comptime")]
+    pub fn is_const_variable(&self, name: &Ident) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev())
+            .find(|var| name == &var.name)
+            .is_some_and(|var| var.is_const && !var.is_keyword)
     }
 
     pub fn variable(&self, name: &Ident) -> Option<ManagedVar> {

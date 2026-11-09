@@ -21,6 +21,7 @@ pub trait Float:
     + FloatOps
     + ScalarNeg
     + ScalarExp
+    + ScalarExp2
     + ScalarLog
     + ScalarLog1p
     + ScalarExpm1
@@ -45,6 +46,8 @@ pub trait Float:
     + ScalarRhypot
     + ScalarSqrt
     + ScalarInverseSqrt
+    + ScalarCbrt
+    + ScalarInverseCbrt
     + ScalarRound
     + ScalarFloor
     + ScalarCeil
@@ -74,8 +77,8 @@ pub trait Float:
     const NEG_INFINITY: Self;
     const RADIX: u32;
 
-    fn new(val: f32) -> Self;
-    fn __expand_new(scope: &Scope, val: f32) -> <Self as CubeType>::ExpandType {
+    fn new(val: f64) -> Self;
+    fn __expand_new(scope: &Scope, val: f64) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
     }
 }
@@ -133,16 +136,17 @@ macro_rules! impl_float {
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            /// Return the element type to use on GPU
-            fn __expand_as_type(scope: &Scope) -> TypeHandle {
-                <$ty>::get(scope.ctx()).into()
-            }
-
             fn from_const_value(value: ConstantValue) -> Self {
                 let ConstantValue::Float(value) = value else {
                     unreachable!()
                 };
                 $new(value)
+            }
+        }
+
+        impl ConstantTyped for $primitive {
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                <$ty>::get(scope.ctx()).into()
             }
         }
 
@@ -191,8 +195,8 @@ macro_rules! impl_float {
             const NEG_INFINITY: Self = $primitive::NEG_INFINITY;
             const RADIX: u32 = $primitive::RADIX;
 
-            fn new(val: f32) -> Self {
-                $new(val as f64)
+            fn new(val: f64) -> Self {
+                $new(val)
             }
         }
 

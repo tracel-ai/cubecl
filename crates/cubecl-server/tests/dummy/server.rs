@@ -4,7 +4,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
-    AddressType, DeviceIdentity, DeviceProperties, ElemType, HardwareProperties,
+    AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
     MemoryDeviceProperties, TargetProperties, UIntKind, VectorSize,
     features::Features,
     metadata::Info,
@@ -22,8 +22,9 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
+        KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -36,6 +37,16 @@ use std::sync::Arc;
 /// `serial`.
 pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
+
+/// Clears [`REFUSE_PROFILES`] when dropped, so a test that panics while profiles are refused
+/// leaves the next tests a server that profiles.
+pub struct ClearsRefusedProfiles;
+
+impl Drop for ClearsRefusedProfiles {
+    fn drop(&mut self) {
+        REFUSE_PROFILES.store(false, core::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 /// Makes the server behave as a lost device while set: syncs report the poisoning and nothing
 /// can be profiled. Process-wide, so tests that flip it run `serial`.
@@ -68,13 +79,41 @@ pub struct DummyServer<M = ()> {
     failures: ErrorGraph,
 }
 
-/// What a [`DummyServer`]'s marker has to be: nothing but a distinct type.
-pub trait Marker: Send + Sync + core::fmt::Debug + 'static {}
-impl<M: Send + Sync + core::fmt::Debug + 'static> Marker for M {}
+/// What a [`DummyServer`]'s marker has to be: a distinct type, and the transport its runtime
+/// claims between its devices.
+pub trait Marker: Send + Sync + core::fmt::Debug + 'static {
+    fn device_transport() -> Option<DeviceTransport> {
+        None
+    }
+}
+
+impl Marker for () {}
 
 /// A marker for a second dummy runtime, distinct from the default one.
 #[derive(Debug)]
 pub enum Other {}
+
+impl Marker for Other {}
+
+/// A marker for a dummy runtime one test has to itself: tests run in parallel, and a device-wide
+/// reading on a runtime they share counts the buffers of whichever test runs beside it.
+#[derive(Debug)]
+pub enum Isolated {}
+
+impl Marker for Isolated {}
+
+/// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
+/// the checks that refuse it on the caller. Nothing behind it moves data.
+#[derive(Debug)]
+pub enum Transported {}
+
+impl Marker for Transported {
+    fn device_transport() -> Option<DeviceTransport> {
+        Some(DeviceTransport {
+            reduces: [ElemType::Float(FloatKind::F32)].into(),
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct KernelTask {
@@ -270,6 +309,7 @@ impl<M: Marker> Server for DummyServer<M> {
             .map(|res| match res {
                 KernelResource::Buffer(binding) => binding,
                 KernelResource::TensorMap(tensor_map) => tensor_map.binding,
+                KernelResource::Peer(_) => unreachable!("the dummy server shares no memory"),
             })
             .map(|b| {
                 self.memory_management
@@ -407,7 +447,7 @@ impl<M: Marker> DummyServer<M> {
         let logger = Arc::new(ServerLogger::default());
 
         // No graph capture on this backend: nothing updates the captures.
-        let (utilities, _captures) = ServerUtilities::init(
+        let (mut utilities, _captures) = ServerUtilities::init(
             service,
             "dummy",
             props,
@@ -415,6 +455,7 @@ impl<M: Marker> DummyServer<M> {
             logger,
             ContiguousMemoryLayoutPolicy::new(4),
         );
+        utilities.device_transport = M::device_transport();
         let utilities = Arc::new(utilities);
 
         Self {

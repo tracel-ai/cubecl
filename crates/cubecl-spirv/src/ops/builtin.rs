@@ -2,23 +2,23 @@ use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
     Builtin, ContextExt,
     dialect::general::ReadBuiltinOp,
+    ident,
     prelude::{
         AnalysisManager, Context, MatchRewrite, MatchRewriter, OneResultInterface, Operation,
-        OperationPtrExt, PassResult, Ptr, Result, Rewriter, SingleBlockRegionInterface, pass_name,
+        OperationPtrExt, PassResult, Ptr, Result, Rewriter, SingleBlockRegionInterface,
+        op_interface_impl, pass_name,
     },
     rewrite::visit_all_ops_of_type_mut,
-    types::scalar::PoisonType,
 };
 use cubecl_opt::passes::uniformity::{DEVICE_UNIFORM, UniformAttr, op_dyn_uniformity};
-use hashbrown::HashMap;
 use pliron::{
     builtin::{
         attributes::IntegerAttr,
         ops::{ConstantOp, FuncOp, ModuleOp},
         types::{IntegerType, Signedness},
     },
-    dict_key,
-    irbuild::match_rewrite::apply_match_rewrite,
+    identifier::Identifier,
+    irbuild::match_rewrite::{RewriterOrder, apply_match_rewrite},
     op::Op,
     pass::Pass,
     r#type::{TypeHandle, Typed},
@@ -27,16 +27,22 @@ use pliron::{
 };
 use pliron_spirv::{
     attrs::BuiltInAttr,
-    decorations::DecorationInfo,
+    decorations::DecoratableOp,
     ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp},
-    types::{MemberDecorationInfo, PointerType, StructType, VectorType},
+    types::{PointerType, VectorType},
 };
-use rspirv::spirv::{BuiltIn, Decoration, MemoryAccess, StorageClass};
+use rspirv::spirv::{BuiltIn, Capability, MemoryAccess, StorageClass};
 
-use crate::{KernelInfo, decorate_uniform};
+use crate::{CustomCapabilitiesOp, KernelInfo, decorate_uniform};
 
-dict_key!(BUILTINS_NAME, "_spirv_builtins");
+/// The name of the `Input` variable that holds `builtin`.
+fn builtin_var_name(builtin: BuiltIn) -> Identifier {
+    ident(format!("_spirv_builtin_{builtin:?}"))
+}
 
+/// Gives each builtin that a kernel reads its own `Input` variable with a `BuiltIn` decoration.
+/// Vulkan does not allow compute builtins as members of an `Input` block: spirv-val rejects
+/// `BuiltIn SubgroupLocalInvocationId cannot be used as a member decoration`.
 pub struct LowerBuiltinsPass;
 
 #[pass_name]
@@ -51,64 +57,46 @@ impl Pass for LowerBuiltinsPass {
         let module = op.as_op::<ModuleOp>(ctx).expect("Should run on module");
         let module = module.get_body(ctx, 0);
 
-        let mut offsets = HashMap::new();
-
         let mut funcs = vec![];
-
-        visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut funcs, op, |ctx, funcs, func| {
-            let entry = func.get_entry_block(ctx);
-            let dummy_ty = PoisonType::get(ctx).to_handle();
-            let tmp_builtins = AddressOfOp::new(ctx, dummy_ty, BUILTINS_NAME.clone());
-            tmp_builtins.get_operation().insert_at_front(entry, ctx);
-            funcs.push((func, tmp_builtins.get_result(ctx)))
+        visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut funcs, op, |_, funcs, func| {
+            funcs.push(func);
         });
 
-        for (func, struct_val) in funcs.iter().copied() {
+        let mut rewriter = RewriteBuiltins { used: vec![] };
+        for func in funcs {
             let op = func.get_operation();
-            let mut rewriter = RewriteBuiltins {
-                struct_val,
-                offsets: &mut offsets,
-            };
-            res.ir_changed |= apply_match_rewrite(ctx, &mut rewriter, Default::default(), op)?;
+            res.ir_changed |=
+                apply_match_rewrite(ctx, &mut rewriter, RewriterOrder::default(), op)?;
         }
 
-        if offsets.is_empty() {
-            // Just keep builtins struct around with a dummy builtin to make entrypoint logic simpler
-            offsets.insert(BuiltIn::LocalInvocationIndex, 0);
-        }
-
-        let mut used_builtins = offsets.into_iter().collect::<Vec<_>>();
-        used_builtins.sort_by_key(|(_, offset)| *offset);
-
-        let mut field_types = vec![];
-        let mut member_dec = vec![];
-        let type_dec = vec![DecorationInfo::unit(Decoration::Block)];
-
-        for (builtin, id) in used_builtins {
-            let decoration =
-                DecorationInfo::new(Decoration::BuiltIn, Box::new(BuiltInAttr::new(builtin)));
-            field_types.push(builtin_ty(ctx, builtin));
-            member_dec.push(MemberDecorationInfo::new(id, decoration));
-        }
-
-        let builtins_struct =
-            StructType::get(ctx, field_types, vec![], member_dec, type_dec).into();
-        let builtins_struct_ptr =
-            PointerType::get(ctx, builtins_struct, StorageClass::Input).into();
-        let builtins_var = GlobalVariableOp::new(
-            ctx,
-            builtins_struct,
-            StorageClass::Input,
-            BUILTINS_NAME.clone(),
-            None,
-        );
-        builtins_var.get_operation().insert_at_front(module, ctx);
-
-        for (_, struct_val) in funcs.iter() {
-            struct_val.set_type(ctx, builtins_struct_ptr);
+        for builtin in rewriter.used.into_iter().rev() {
+            let ty = builtin_ty(ctx, builtin);
+            let var = GlobalVariableOp::new(
+                ctx,
+                ty,
+                StorageClass::Input,
+                builtin_var_name(builtin),
+                None,
+            );
+            var.set_decoration_built_in(ctx, BuiltInAttr::new(builtin));
+            var.get_operation().insert_at_front(module, ctx);
         }
 
         Ok(res)
+    }
+}
+
+// The capability collection reads ops and types, not decorations, so the variable declares the
+// capability its builtin needs.
+#[op_interface_impl]
+impl CustomCapabilitiesOp for GlobalVariableOp {
+    fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability> {
+        match self.get_decoration_built_in(ctx).map(|builtin| builtin.0) {
+            Some(
+                BuiltIn::SubgroupSize | BuiltIn::SubgroupId | BuiltIn::SubgroupLocalInvocationId,
+            ) => vec![Capability::GroupNonUniform],
+            _ => vec![],
+        }
     }
 }
 
@@ -128,25 +116,24 @@ fn builtin_ty(ctx: &Context, builtin: BuiltIn) -> TypeHandle {
     }
 }
 
-struct RewriteBuiltins<'a> {
-    struct_val: Value,
-    offsets: &'a mut HashMap<BuiltIn, u32>,
+struct RewriteBuiltins {
+    /// The builtins read so far, in the order of the first read.
+    used: Vec<BuiltIn>,
 }
 
-impl RewriteBuiltins<'_> {
-    fn get_offset(&mut self, scope: &Scope, builtin: BuiltIn) -> Value {
-        let value = if let Some(&existing) = self.offsets.get(&builtin) {
-            existing
-        } else {
-            let offset = self.offsets.len() as u32;
-            self.offsets.insert(builtin, offset);
-            offset
-        };
-        const_int32(scope, value)
+impl RewriteBuiltins {
+    /// A pointer to the variable of `builtin`.
+    fn builtin_ptr(&mut self, scope: &Scope, builtin: BuiltIn) -> Value {
+        if !self.used.contains(&builtin) {
+            self.used.push(builtin);
+        }
+        let ctx = scope.ctx_mut();
+        let ptr_ty = PointerType::get(ctx, builtin_ty(ctx, builtin), StorageClass::Input).into();
+        scope.register_with_result(&AddressOfOp::new(ctx, ptr_ty, builtin_var_name(builtin)))
     }
 }
 
-impl MatchRewrite for RewriteBuiltins<'_> {
+impl MatchRewrite for RewriteBuiltins {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op.is_op::<ReadBuiltinOp>(ctx)
     }
@@ -190,7 +177,7 @@ fn constant(#[comptime] value: u32) -> u32 {
     value
 }
 
-impl RewriteBuiltins<'_> {
+impl RewriteBuiltins {
     fn lower_builtin(
         &mut self,
         scope: &Scope,
@@ -279,13 +266,9 @@ impl RewriteBuiltins<'_> {
         builtin: BuiltIn,
         uniformity: Option<UniformAttr>,
     ) -> Value {
+        let ptr = self.builtin_ptr(scope, builtin);
         let ctx = scope.ctx_mut();
-        let offset = self.get_offset(scope, builtin);
-        let ptr_ty = PointerType::get(ctx, ty, StorageClass::Input).to_handle();
-        let access_chain = InBoundsAccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset]);
-        decorate_uniform(ctx, access_chain.get_operation(), Some(DEVICE_UNIFORM));
-        let offset_ptr = scope.register_with_result(&access_chain);
-        let load = LoadOp::new(ctx, ty, offset_ptr, MemoryAccess::NONE, None);
+        let load = LoadOp::new(ctx, ty, ptr, MemoryAccess::NONE, None);
         decorate_uniform(ctx, load.get_operation(), uniformity);
         scope.register_with_result(&load)
     }
@@ -298,13 +281,12 @@ impl RewriteBuiltins<'_> {
         dim: u32,
         uniformity: Option<UniformAttr>,
     ) -> Value {
-        let ctx = scope.ctx_mut();
-        let offset = self.get_offset(scope, builtin);
+        let ptr = self.builtin_ptr(scope, builtin);
         let dim_const = const_int32(scope, dim);
 
+        let ctx = scope.ctx_mut();
         let ptr_ty = PointerType::get(ctx, ty, StorageClass::Input).to_handle();
-        let access_chain =
-            InBoundsAccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset, dim_const]);
+        let access_chain = InBoundsAccessChainOp::new(ctx, ptr_ty, ptr, vec![dim_const]);
         decorate_uniform(ctx, access_chain.get_operation(), Some(DEVICE_UNIFORM));
         let offset_ptr = scope.register_with_result(&access_chain);
         let load = LoadOp::new(ctx, ty, offset_ptr, MemoryAccess::NONE, None);

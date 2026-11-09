@@ -3,20 +3,18 @@ use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        IntKind, MemoryDeviceProperties, PhysicalDevice, RegistryEntryId, TargetProperties, Type,
-        UIntKind,
-        features::{AtomicUsage, Plane, TypeUsage},
+        DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
+        PhysicalDevice, RegistryEntryId, TargetProperties,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
-use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
-    shared::register_wmma_features,
+use cubecl_cpp::metal::mma::mma_properties_metal;
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
 };
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_server::runtime::Runtime;
+use cubecl_server::runtime::{DeviceDescription, DeviceKind, Runtime};
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -27,37 +25,7 @@ pub struct MetalRuntime;
 impl DeviceService for MetalServer {
     fn init(device_id: DeviceId) -> Self {
         let device = MetalDevice::from_id(device_id);
-        let metal_device = match device {
-            MetalDevice::DefaultDevice => {
-                crate::device::default_device().expect("No Metal device found")
-            }
-            MetalDevice::DiscreteGpu(idx) => {
-                let devices = crate::device::all_devices();
-                devices
-                    .into_iter()
-                    .filter(
-                        |d: &objc2::rc::Retained<ProtocolObject<dyn objc2_metal::MTLDevice>>| {
-                            !(**d).hasUnifiedMemory()
-                        },
-                    )
-                    .nth(idx)
-                    .expect("Discrete GPU not found")
-            }
-            MetalDevice::IntegratedGpu(idx) => {
-                let devices = crate::device::all_devices();
-                devices
-                    .into_iter()
-                    .filter(
-                        |d: &objc2::rc::Retained<ProtocolObject<dyn objc2_metal::MTLDevice>>| {
-                            (**d).hasUnifiedMemory()
-                        },
-                    )
-                    .nth(idx)
-                    .expect("Integrated GPU not found")
-            }
-            MetalDevice::Existing(id) => crate::device::get_existing_device(id)
-                .expect("Existing device not found. Use register_device() first."),
-        };
+        let metal_device = resolve(&device).unwrap_or_else(|missing| panic!("{missing}"));
 
         ensure_metal3(&metal_device);
 
@@ -83,6 +51,12 @@ impl DeviceService for MetalServer {
                 let size = (*metal_device).maxThreadsPerThreadgroup();
                 (size.width as u32, size.height as u32, size.depth as u32)
             },
+            // Metal reports no core count; the GPU's driver states it in the I/O Registry.
+            #[cfg(target_os = "macos")]
+            num_streaming_multiprocessors: cubecl_monitoring::gpu_utilization::gpu_core_count(
+                RegistryEntryId::new(metal_device.registryID()),
+            ),
+            #[cfg(not(target_os = "macos"))]
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
@@ -98,9 +72,7 @@ impl DeviceService for MetalServer {
         // `MetalPipelines` builds the same `msl_{name}` namespace from the same
         // string.
         let device_name = metal_device.name().to_string();
-
-        let mut physical = PhysicalDevice::default();
-        physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+        let physical = physical_device(&metal_device);
 
         let mut device_props = DeviceProperties::new(
             Default::default(),
@@ -114,12 +86,11 @@ impl DeviceService for MetalServer {
             },
         );
 
-        register_metal_features(&mut device_props);
+        cubecl_cpp::metal::register_metal_features(&mut device_props);
 
         let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
-        // No graph capture on this backend: nothing updates the captures.
-        let (utilities, _captures) = cubecl_core::server::ServerUtilities::init(
+        let (utilities, captures) = cubecl_core::server::ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "metal",
             device_props.clone(),
@@ -131,7 +102,13 @@ impl DeviceService for MetalServer {
 
         let mem_config = cubecl_core::MemoryConfiguration::default();
 
-        MetalServer::new(metal_device, mem_props.clone(), mem_config, utilities)
+        MetalServer::new(
+            metal_device,
+            mem_props.clone(),
+            mem_config,
+            utilities,
+            captures,
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
@@ -149,7 +126,7 @@ impl Runtime for MetalRuntime {
 
     fn target_properties() -> TargetProperties {
         TargetProperties {
-            mma: Default::default(),
+            mma: mma_properties_metal(),
         }
     }
 
@@ -185,68 +162,63 @@ impl Runtime for MetalRuntime {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
+        let metal_device = resolve(device).ok()?;
+        let kind = match (*metal_device).hasUnifiedMemory() {
+            true => DeviceKind::Integrated,
+            false => DeviceKind::Discrete,
+        };
+        let mut description = DeviceDescription::new(metal_device.name().to_string(), kind);
+        // Metal states no total, only the working set it recommends staying under.
+        description.max_memory = Some((*metal_device).recommendedMaxWorkingSetSize());
+        description.physical = Some(physical_device(&metal_device));
+        Some(description)
     }
 }
 
-/// Register Metal-specific features including types, WMMA, and plane operations
-fn register_metal_features(props: &mut DeviceProperties) {
-    register_types(props);
-    register_wmma(props);
-
-    props.features.alignment = true;
-    // MSL's `threadgroup_barrier(mem_flags::mem_device)` orders device memory at device scope.
-    props.features.device_memory_scope = true;
-    props.features.plane.insert(Plane::Ops);
-    props.features.plane.insert(Plane::Sync);
-    props.features.plane.insert(Plane::NonUniformControlFlow);
+/// The card behind `metal_device`, found by its I/O Registry entry.
+fn physical_device(metal_device: &ProtocolObject<dyn MTLDevice>) -> PhysicalDevice {
+    let mut physical = PhysicalDevice::default();
+    physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+    physical
 }
 
-/// Register supported data types for Metal
-fn register_types(props: &mut DeviceProperties) {
-    props.register_address_type(AddressType::U32);
-    props.register_address_type(AddressType::U64);
-
-    let types = [
-        ElemType::UInt(UIntKind::U8),
-        ElemType::UInt(UIntKind::U16),
-        ElemType::UInt(UIntKind::U32),
-        ElemType::UInt(UIntKind::U64),
-        ElemType::Int(IntKind::I8),
-        ElemType::Int(IntKind::I16),
-        ElemType::Int(IntKind::I32),
-        ElemType::Int(IntKind::I64),
-        ElemType::Float(FloatKind::F16),
-        ElemType::Float(FloatKind::BF16),
-        ElemType::Float(FloatKind::F32),
-        ElemType::Bool,
-    ];
-
-    for ty in types {
-        props.register_type_usage(ty, TypeUsage::all());
+/// The Metal device `device` reports, or why it does not find one: the first
+/// of its class, discrete or integrated (`hasUnifiedMemory`), counted as
+/// `enumerate_devices` counts them.
+fn resolve(
+    device: &MetalDevice,
+) -> Result<objc2::rc::Retained<ProtocolObject<dyn MTLDevice>>, &'static str> {
+    let nth_of_class = |unified: bool, index: usize| {
+        crate::device::all_devices()
+            .into_iter()
+            .filter(|metal_device| (**metal_device).hasUnifiedMemory() == unified)
+            .nth(index)
+    };
+    match *device {
+        MetalDevice::DefaultDevice => {
+            crate::device::default_device().ok_or("No Metal device found")
+        }
+        MetalDevice::DiscreteGpu(index) => {
+            nth_of_class(false, index).ok_or("Discrete GPU not found")
+        }
+        MetalDevice::IntegratedGpu(index) => {
+            nth_of_class(true, index).ok_or("Integrated GPU not found")
+        }
+        MetalDevice::Existing(id) => crate::device::get_existing_device(id)
+            .ok_or("Existing device not found. Use register_device() first."),
     }
-    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
-        props.register_type_usage(
-            ElemType::Float(ty),
-            TypeUsage::Conversion | TypeUsage::Buffer,
-        );
-    }
-
-    // Metal natively supports the full integer atomic set; float atomics are
-    // limited to add + load/store (no native float min/max).
-    for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
-        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
-    }
-    props.register_atomic_type_usage(
-        Type::atomic(ElemType::Float(FloatKind::F32)),
-        AtomicUsage::Add | AtomicUsage::LoadStore,
-    );
-}
-
-/// Register WMMA (`simdgroup_matrix`) features for Metal.
-fn register_wmma(props: &mut DeviceProperties) {
-    let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
-    register_wmma_features(combinations, props);
 }
 
 fn ensure_metal3(device: &ProtocolObject<dyn MTLDevice>) {

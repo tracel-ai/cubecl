@@ -19,8 +19,9 @@ use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
     AnalysisState, ChangeResult, DataflowSolver, SmallPtrVec, SolverWorkItem,
-    dead_code::{Executable, PredecessorState, is_region_or_callable_return},
-    value_uniformity::StrictUniformityLattice,
+    dead_code::{DeadCodeAnalysis, Executable, PredecessorState, is_region_or_callable_return},
+    sparse::SparseForward,
+    value_uniformity::{StrictUniformityLattice, StrictValueUniformity},
 };
 
 use super::{DataflowAnalysis, ProgramPoint};
@@ -146,8 +147,7 @@ impl BlockUniformityAnalysis {
 
         for region in op.regions(ctx) {
             for block in region.deref(ctx).iter(ctx) {
-                let executable = solver
-                    .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into());
+                let executable = solver.get_or_create::<Executable>(block.into());
                 executable.deref().block_content_subscribe::<Self>();
                 let uniformity = solver.get_or_create::<BlockUniformity>(block);
                 uniformity.deref().block_content_subscribe::<Self>();
@@ -209,7 +209,7 @@ impl BlockUniformityAnalysis {
         let successors = branch.successor_regions(ctx, RegionPredecessor::Parent);
         let uniformity = branch.entry_successor_region_uniformity(ctx, &operand_uniformity);
         let successors =
-            Self::filter_successors(solver, ctx, op, successors.into_iter().zip(uniformity));
+            Self::filter_successors(solver, ctx, op, successors.into_iter(), uniformity);
 
         // Const-folded successors inherit uniformity
         if successors.len() == 1 {
@@ -235,15 +235,16 @@ impl BlockUniformityAnalysis {
         solver: &DataflowSolver,
         ctx: &Context,
         op: Ptr<Operation>,
-        successors: impl Iterator<Item = (RegionSuccessor, Uniformity)>,
+        successors: impl Iterator<Item = RegionSuccessor>,
+        uniformity: Uniformity,
     ) -> SmallVec<[(Option<Ptr<BasicBlock>>, Uniformity); 4]> {
         successors
-            .filter_map(|(successor, uniformity)| match successor {
+            .filter_map(|successor| match successor {
                 RegionSuccessor::Region(region) => {
                     let entry = region.deref(ctx).get_entry_block()?;
                     let executable = solver.get_or_create_for::<Self, Executable>(
                         ProgramPoint::after_op(ctx, op),
-                        ProgramPoint::at_block_start(ctx, entry).into(),
+                        entry.into(),
                     );
                     match executable.deref().is_live() {
                         true => Some((Some(entry), uniformity)),
@@ -280,7 +281,7 @@ impl BlockUniformityAnalysis {
         let successors = term.all_successor_regions(ctx);
         let uniformity = term.successor_region_uniformity(ctx, &operand_uniformity);
         let successors =
-            Self::filter_successors(solver, ctx, op, successors.into_iter().zip(uniformity));
+            Self::filter_successors(solver, ctx, op, successors.into_iter(), uniformity);
 
         // Const-folded successors inherit uniformity
         if successors.len() == 1 {
@@ -342,6 +343,11 @@ impl BlockUniformityAnalysis {
 }
 
 impl DataflowAnalysis for BlockUniformityAnalysis {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        solver.ensure_loaded(SparseForward::<StrictValueUniformity>::default);
+    }
+
     fn initialize(
         &mut self,
         solver: &DataflowSolver,
