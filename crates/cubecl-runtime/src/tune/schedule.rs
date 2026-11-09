@@ -650,6 +650,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
 {
     let queuing =
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
+    let gathering = super::gathering::CandidateGathering::new();
     for candidate in candidates {
         if let Err(rejection @ AutotuneError::Rejected { .. }) =
             autotunables[candidate.index].execute(inputs.clone())
@@ -657,6 +658,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
             candidate.fail(rejection);
         }
     }
+    core::mem::drop(gathering);
     core::mem::drop(queuing);
     client.compile_queued();
 }
