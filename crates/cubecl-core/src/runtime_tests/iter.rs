@@ -91,6 +91,7 @@ fn iter_take_skip(input: &[u32], output: &mut [u32]) {
     output[7] = input.iter().skip(1).take(2).rev().len() as u32;
 }
 
+#[allow(clippy::manual_contains, reason = "Exercise iterator any lowering")]
 #[cube(launch)]
 fn iter_any_all(input: &[u32], output: &mut [u32]) {
     let present = 3u32;
@@ -158,6 +159,11 @@ fn iter_signed_range(output: &mut [i32]) {
     output[2] = (low..high).rev().fold(0i32, |accum, x| accum * 10i32 + x);
 }
 
+#[allow(
+    clippy::iter_count,
+    clippy::manual_contains,
+    reason = "Exercise iterator count and any on empty subslices"
+)]
 #[cube(launch)]
 fn iter_subslice(input: &[u32], output: &mut [u32]) {
     let len = input.len();
