@@ -983,7 +983,8 @@ impl Tile {
                     d.fill_from::<S>(src, DeepLoad::Steps)
                 }
                 (TileKind::PlaneTile(d), TileKind::Memory(_)) => {
-                    d.load_window::<S>(src, DeepLoad::Steps)
+                    let row = comptime!(MatrixAxes::edges(&src.place.space).row_split);
+                    d.load_window::<S>(src, DeepLoad::Steps, row)
                 }
                 (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, &held),
                 (TileKind::Memory(d), TileKind::TmaGmem(s)) => s.load_into::<S>(d),
