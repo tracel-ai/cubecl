@@ -29,6 +29,8 @@ use cubecl_common::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::future::DynFut;
+use cubecl_environment::future::block_on;
+use cubecl_environment::future::channel::{Receiver, Sender, bounded};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::RwLock;
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
@@ -1166,20 +1168,15 @@ pub trait ServerCommunication {
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
+    /// * `report` - Tells the peer's [`recv`](Self::recv) whether to post.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     ///
-    /// # Known limitation
-    ///
-    /// Send and recv are posted fire-and-forget on two devices and block for
-    /// each other, so a send that refuses — a source whose writer failed,
-    /// above all — leaves the peer's already-posted recv waiting on its
-    /// communication stream with no way to recall it from here. The refusal
-    /// is still right: completing the send would launder stale bytes onto a
-    /// handle that carries no claim on the other device. Cross-device
-    /// failure propagation needs a design pass of its own.
+    /// An implementation must call [`SendReport::will_post`] before posting: the
+    /// first transfer of a pair connects it, and that waits for the peer's recv.
+    /// One that refuses calls [`SendReport::refused`] and posts nothing.
     ///
     /// # Errors
     ///
@@ -1190,6 +1187,7 @@ pub trait ServerCommunication {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1201,6 +1199,7 @@ pub trait ServerCommunication {
     /// * `handle` - The handle in which the received data is written.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
+    /// * `outcome` - The result of the paired [`send`](Self::send), waited for before anything is posted.
     ///
     /// # Returns
     ///
@@ -1208,13 +1207,15 @@ pub trait ServerCommunication {
     ///
     /// # Errors
     ///
-    /// The default returns [`ServerError::NoDeviceTransport`].
+    /// The send's refusal, which `handle` carries too. The default returns
+    /// [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn recv(
         &mut self,
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
@@ -1254,6 +1255,61 @@ pub trait ServerCommunication {
     /// a buffer.
     #[allow(unused_variables)]
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
+}
+
+/// The result of a [`send`](ServerCommunication::send), for the
+/// [`recv`](ServerCommunication::recv) it is paired with.
+///
+/// A recv posted for a send that refused waits on its device forever, so the
+/// receiving server learns the result before it posts anything.
+#[derive(Debug)]
+pub struct SendOutcome {
+    result: Receiver<Result<(), ServerError>>,
+}
+
+/// The source's side of a [`SendOutcome`].
+#[derive(Debug)]
+pub struct SendReport {
+    result: Sender<Result<(), ServerError>>,
+}
+
+impl SendOutcome {
+    /// A report for the server that sends, and the outcome for the one that receives.
+    pub fn channel() -> (SendReport, Self) {
+        let (sender, receiver) = bounded(1);
+        (SendReport { result: sender }, Self { result: receiver })
+    }
+
+    /// Block until the source's server has reached the send.
+    ///
+    /// # Errors
+    ///
+    /// The send's refusal, or a send dropped before it reported.
+    pub fn wait(self) -> Result<(), ServerError> {
+        block_on(self.result.recv()).unwrap_or_else(|_| {
+            Err(ServerError::Generic {
+                reason: "the paired send was dropped before it reported".into(),
+                backtrace: BackTrace::capture(),
+            })
+        })
+    }
+}
+
+impl SendReport {
+    /// The send is about to be posted, so its recv can be too.
+    pub fn will_post(&self) {
+        self.deliver(Ok(()));
+    }
+
+    /// The send will not be posted, so its recv must not be.
+    pub fn refused(&self, error: ServerError) {
+        self.deliver(Err(error));
+    }
+
+    fn deliver(&self, result: Result<(), ServerError>) {
+        // The channel holds one report, so the first stands.
+        let _ = self.result.try_send(result);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
