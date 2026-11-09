@@ -89,6 +89,7 @@ impl Context {
                 is_const: false,
                 is_mut_owned: false,
                 is_keyword: true,
+                const_shape: ConstShape::Value,
                 use_count: AtomicUsize::new(0).into(),
                 level: 0,
             }
@@ -114,6 +115,7 @@ impl Context {
         ty: Option<Type>,
         is_const: bool,
         is_mut_owned: bool,
+        const_shape: ConstShape,
     ) -> ManagedVar {
         let var = ManagedVar {
             name,
@@ -121,6 +123,7 @@ impl Context {
             is_const,
             is_mut_owned,
             is_keyword: false,
+            const_shape,
             use_count: AtomicUsize::new(0).into(),
             level: self.scopes.len() - 1,
         };
@@ -218,6 +221,9 @@ pub struct ManagedVar {
     pub is_const: bool,
     pub is_mut_owned: bool,
     pub is_keyword: bool,
+    /// The tuples a comptime variable is made of, so an argument can convert it element by
+    /// element. Always [`ConstShape::Value`] for a runtime variable.
+    pub const_shape: ConstShape,
     use_count: Rc<AtomicUsize>,
     level: usize,
 }
@@ -232,14 +238,47 @@ impl ManagedVar {
 
 impl From<KernelParam> for ManagedVar {
     fn from(value: KernelParam) -> Self {
+        let const_shape = if value.is_const {
+            ConstShape::of_type(&value.ty)
+        } else {
+            ConstShape::Value
+        };
         ManagedVar {
             name: value.name,
             ty: Some(value.ty),
             is_const: value.is_const,
             is_keyword: false,
+            const_shape,
             use_count: AtomicUsize::new(0).into(),
             is_mut_owned: value.mutability.is_some(),
             level: 0,
+        }
+    }
+}
+
+/// How a comptime value nests into tuples.
+///
+/// A comptime tuple is a plain Rust tuple, and there is no `From` from a tuple of comptime
+/// values to the tuple of their expand types. Knowing the shape lets an argument be converted one
+/// element at a time instead, so it fits a runtime tuple parameter as well as a comptime one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConstShape {
+    /// Converted as a whole.
+    Value,
+    /// A tuple, converted one element at a time.
+    Tuple(Vec<ConstShape>),
+}
+
+impl ConstShape {
+    /// The shape of a value of type `ty`, as far as its syntax shows.
+    pub fn of_type(ty: &Type) -> Self {
+        match ty {
+            Type::Tuple(tuple) if !tuple.elems.is_empty() => {
+                ConstShape::Tuple(tuple.elems.iter().map(ConstShape::of_type).collect())
+            }
+            Type::Paren(paren) => ConstShape::of_type(&paren.elem),
+            Type::Group(group) => ConstShape::of_type(&group.elem),
+            _ => ConstShape::Value,
         }
     }
 }
