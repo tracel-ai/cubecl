@@ -44,14 +44,15 @@ const UNITS: usize = 2;
 fn launch_plane_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &O::Arg<f32>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for plane in &space {
         plane_product(&plane, &a, &b, &c);
     }
+    O::finish::<f32>(out);
 }
 
 /// `c += a · b`, every plane of every cube its tile: the control.
@@ -59,16 +60,17 @@ fn launch_plane_matmul<O: Destination>(
 fn cube_plane_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &O::Arg<f32>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for cube in &space {
         for plane in cube {
             plane_product(&plane, &a, &b, &c);
         }
     }
+    O::finish::<f32>(out);
 }
 
 /// How many tiles every plane of the launch walks, at the plane's place in the launch: its cube's,
