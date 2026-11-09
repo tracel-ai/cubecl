@@ -2,8 +2,8 @@
 //! stays usable: the failure is the allocation's, not the device's.
 //!
 //! The test fills the device's memory, so it runs only when asked (`--ignored`), and on a discrete
-//! GPU only: elsewhere buffers come out of system memory.
-#![cfg(not(feature = "spirv"))]
+//! GPU only: elsewhere buffers come out of system memory. The browser never fails the allocation.
+#![cfg(not(target_family = "wasm"))]
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

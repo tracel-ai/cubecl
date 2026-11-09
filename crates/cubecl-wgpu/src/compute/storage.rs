@@ -192,17 +192,12 @@ impl WgpuStorage {
     }
 }
 
-/// Creates a buffer, or returns [`IoError::OutOfMemory`] when the device has no room for it.
-///
-/// Native wgpu reports the failure synchronously, to the innermost scope of the calling thread
-/// that filters it, so this scope catches the failure of this buffer and of nothing else. The
-/// buffer it returns then is invalid and is dropped here. The browser reports the failure
-/// asynchronously, possibly after work using the buffer was submitted, so there it is left to the
-/// device's uncaptured-error handler, which poisons the device.
+/// Creates a buffer, or on native returns [`IoError::OutOfMemory`] when the device has no room for it.
 fn create_wgpu_buffer(
     device: &wgpu::Device,
     desc: &wgpu::BufferDescriptor<'_>,
 ) -> Result<wgpu::Buffer, IoError> {
+    // The browser reports the failure asynchronously, to the device's uncaptured-error handler.
     #[cfg(target_family = "wasm")]
     return Ok(device.create_buffer(desc));
 

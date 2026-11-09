@@ -4,10 +4,11 @@
 //! way an illegal address faults a CUDA context. What remains is losing the
 //! device outright — a driver reset, a timeout, a GPU that went away — which
 //! wgpu reports once, through the device-lost callback, and never on the
-//! operations that follow.
+//! operations that follow; and an out-of-memory error no allocation caught,
+//! which reaches the uncaptured-error handler.
 //!
-//! The device is marked poisoned here when the callback fires, shared by every
-//! stream on the device, and every sync point checks it
+//! The device is marked poisoned here when either fires, shared by every
+//! stream on the device, and every sync point checks it.
 
 use core::fmt::Debug;
 #[cfg(not(target_family = "wasm"))]
@@ -64,18 +65,7 @@ impl PoisonWatch {
         poison
     }
 
-    /// What the device's uncaptured-error handler does with `error`.
-    ///
-    /// An out-of-memory error poisons the device. This is the fallback: on
-    /// native, a buffer allocation catches its own out-of-memory error and
-    /// returns it, and the device stays usable. What reaches this handler is
-    /// the browser's error, which arrives asynchronously, possibly after work
-    /// using the buffer was submitted, or one raised outside an allocation,
-    /// such as at submit. Nothing tracks which results read the memory that
-    /// failed, so none of them can be trusted. A panic here is not the run's
-    /// error: in a browser it traps this callback alone, and the run goes on
-    /// and returns those results. The device is poisoned instead, so the run
-    /// fails at its next sync point.
+    /// Poisons the device on an out-of-memory error no allocation caught, and panics on any other.
     fn uncaptured_error(&self, error: wgpu::Error) {
         if self.is_poisoned() {
             log::debug!("error on a poisoned wgpu device: {error}");
