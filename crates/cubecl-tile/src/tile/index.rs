@@ -29,9 +29,7 @@ pub enum Indexing {
     /// key where it starts (`0` for the first): each group's rows packed end to end, the table
     /// their cumulative ends. The operand reads zero past the run, and a walk over its window
     /// along `axis` steps the run alone where the axis is dynamic. A run that ends before it
-    /// starts is empty, and holds nothing to walk. No level above the key's may cut `axis`; the
-    /// key's own level may, its boxes taken inside the run: each sequence's queries end to end,
-    /// keyed by the sequence, the cubes of one sequence each taking a box of its queries.
+    /// starts is empty, and holds nothing to walk. No level at or above the key's may cut `axis`.
     Run(Axis),
 }
 
@@ -96,10 +94,8 @@ impl Indexing {
     }
 
     /// Where in `levels` the table is read: the first level that cuts a key, which must cut them
-    /// all, and below which (for a run, above which) no level cuts the placed axis; `None` where
-    /// no level cuts the keys, which are then one tile, read as the tile is served. A level reads
-    /// the table before it takes its own box, so the level that cuts a run's keys may cut the run
-    /// too: its boxes are taken inside the run its entry places.
+    /// all, and below which (for a run, at or above which) no level cuts the placed axis; `None`
+    /// where no level cuts the keys, which are then one tile, read as the tile is served.
     ///
     /// # Errors
     ///
@@ -121,7 +117,7 @@ impl Indexing {
         let axis = self.axis();
         let placed_by_a_level = match (self, at) {
             (Indexing::Coordinate(_), _) => levels.iter().any(|level| cuts(level, axis)),
-            (Indexing::Run(_), Some(at)) => levels[..at].iter().any(|level| cuts(level, axis)),
+            (Indexing::Run(_), Some(at)) => levels[..=at].iter().any(|level| cuts(level, axis)),
             (Indexing::Run(_), None) => false,
         };
         match placed_by_a_level {
@@ -247,13 +243,6 @@ impl Tile {
         cubecl::unexpanded!()
     }
 
-    /// This tile with its run placed where `step` cuts both the table's keys and the run's axis,
-    /// so the step's box is taken inside the run. Any other tile, or step, as it is: its table is
-    /// read once the step has windowed it ([`indexed_at`](Self::indexed_at)).
-    pub(crate) fn run_placed_at(self, _step: &Step) -> Tile {
-        cubecl::unexpanded!()
-    }
-
     /// This tile with `table` to read where a step cuts its keys.
     #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn with_index(self, _table: IndexTable) -> Tile {
@@ -269,25 +258,6 @@ impl Tile {
 }
 
 impl TileExpand {
-    pub(crate) fn __expand_run_placed_at_method(
-        self,
-        scope: &Scope,
-        step: &StepExpand,
-    ) -> TileExpand {
-        let TileKindExpand::Memory(memory) = &self.kind else {
-            return self;
-        };
-        let ComptimeOptionExpand::Some(table) = &memory.index else {
-            return self;
-        };
-        match table.indexing {
-            Indexing::Run(axis) if step.level.count(axis).is_some() => {
-                self.__expand_indexed_at_method(scope, step)
-            }
-            _ => self,
-        }
-    }
-
     pub(crate) fn __expand_indexed_at_method(self, scope: &Scope, step: &StepExpand) -> TileExpand {
         let TileKindExpand::Memory(memory) = &self.kind else {
             return self;
@@ -669,22 +639,19 @@ mod tests {
         assert_eq!(read, Err(Refusal::IndexedAxisCut(EXPERT)));
     }
 
-    /// A run is placed whole: a level cutting its axis above the key's would have cut a window
-    /// the run has not placed yet. The key's own level reads the entry before it takes its box,
-    /// so it may cut the run; below it, the run is what that level walks.
+    /// A run is placed whole: a level cutting its axis at or above the key's would have cut a
+    /// window the run has not placed yet. Below it, the run is what that level walks.
     #[test]
     fn a_run_cut_before_it_is_placed_is_refused() {
         let group = Level::every(&[(EXPERT, 1)]);
         let above = [rows(2), group.clone()];
-        let below = [group.clone(), rows(2)];
-        let alongside = [Level::every(&[(EXPERT, 1), (M, 2)])];
+        let below = [group, rows(2)];
         let run = Indexing::Run(M);
         assert_eq!(
             run.read_at(&[EXPERT], &above),
             Err(Refusal::IndexedAxisCut(M))
         );
         assert_eq!(run.read_at(&[EXPERT], &below), Ok(Some(0)));
-        assert_eq!(run.read_at(&[EXPERT], &alongside), Ok(Some(0)));
     }
 
     #[test]
