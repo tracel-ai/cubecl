@@ -323,7 +323,7 @@ impl VectorTile {
     }
 }
 
-/// `load.count(&space)`, `load.start(line, &space)`, `load.index(&coords, &space)`: written out by
+/// `load.count(space)`, `load.start(line, space)`, `load.index(&coords, space)`: written out by
 /// hand, since a compile-time value has no kernel-side twin for `#[cube]` to hang a method on.
 impl VectorTile {
     /// How many loads a window spanning `space` holds.

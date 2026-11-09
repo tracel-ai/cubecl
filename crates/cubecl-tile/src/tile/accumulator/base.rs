@@ -144,7 +144,7 @@ impl Tile {
                 }
                 let vector_size = self.vector_size();
                 accumulator_in::<EA>(
-                    comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
+                    &comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
                     lhs,
                     instruction,
                     vector_size,
@@ -166,7 +166,7 @@ impl Tile {
     ) -> Tile {
         let vector_size = self.vector_size();
         accumulator_in::<EA>(
-            comptime!(self.place.clone()),
+            &self.place,
             input,
             comptime!(Instruction::Registers { config }),
             vector_size,
@@ -596,7 +596,7 @@ fn register_accumulator<EA: Numeric>(
         (false, _) => rw,
     });
     accumulator_in::<EA>(
-        comptime!(out.place.clone()),
+        &out.place,
         lhs,
         comptime!(Instruction::Registers { config }),
         width,
@@ -626,7 +626,7 @@ fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
 /// The plane-resident grid an accumulator gathers in, in `form`, at its identity.
 #[cube]
 fn accumulator_in<EA: Numeric>(
-    #[comptime] out: Placement,
+    #[comptime] out: &Placement,
     lhs: &Tile,
     #[comptime] form: Instruction,
     #[comptime] vector_size: usize,
@@ -640,10 +640,10 @@ fn accumulator_in<EA: Numeric>(
          not {accumulation:?}; contract in a register block to sum under another"
     ));
     let mut acc = PlanePartition::mirror::<EA>(
-        out.space.clone(),
+        &out.space,
         comptime!(MatrixAxes::accumulator(&out.space, &lhs.place.space)),
         comptime!(form),
-        comptime!(GridShape::new(&out, &lhs.place.space)),
+        comptime!(GridShape::new(out, &lhs.place.space)),
         vector_size,
         contracted_per_step,
         accumulation,
@@ -695,7 +695,7 @@ impl Tile {
         let place = comptime!(Placement::new(space, depth, levels));
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
-            place.space.clone(),
+            &place.space,
             comptime!(MatrixAxes::accumulator(&place.space, &lhs.place.space)),
             instruction,
             comptime!(GridShape::new(&place, &lhs.place.space)),

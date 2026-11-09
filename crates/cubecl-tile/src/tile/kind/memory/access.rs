@@ -56,7 +56,7 @@ impl Tile {
     ) {
         let space = comptime!(self.place.space.clone());
         self.mem("fetch_from")
-            .fetch_straight(src.mem("fetch_from"), space, fetched);
+            .fetch_straight(src.mem("fetch_from"), &space, fetched);
     }
 
     /// Write what [`fetch_from`](Tile::fetch_from) read into this stage.
@@ -401,7 +401,7 @@ impl Memory {
     /// and every axis of `space` but the last two a single cell. The second-to-last axis then
     /// steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through a
     /// row's cells, so a cell lies its row times the stride plus its column past the first.
-    pub(crate) fn rows_step_by_stride(&self, #[comptime] space: Space) -> comptime_type!(bool) {
+    pub(crate) fn rows_step_by_stride(&self, #[comptime] space: &Space) -> comptime_type!(bool) {
         comptime!({
             let rank = space.rank();
             self.access.storage == WindowStorage::Stored(Storage::Strided)
@@ -578,38 +578,38 @@ impl Memory {
     /// The `i`-th batch matrix of this window over `axes`, through the operand's mapping.
     pub(crate) fn batch_matrix(
         &self,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axes: MatrixAxes,
         i: usize,
     ) -> ProjectedMatrix {
         let bound = self.extent();
-        let load = self.vector_tile(&space);
+        let load = self.vector_tile(space);
         ProjectedMatrix::new(
             TileMatrix::batch(
                 &bound,
-                &space,
+                space,
                 comptime!(self.projection.composition()),
                 comptime!(&load),
                 axes,
                 i,
             ),
-            self.axis_projection(space.clone()),
+            self.axis_projection(space),
         )
     }
 
     /// This window's whole logical box as a `rows x cols` matrix, through the operand's mapping.
     pub(crate) fn whole_matrix(
         &self,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] rows: usize,
         #[comptime] cols: usize,
     ) -> ProjectedMatrix {
         let vector_size = comptime!(self.store.vector_size);
         ProjectedMatrix::new(
-            TileMatrix::whole(&space, vector_size, rows, cols),
+            TileMatrix::whole(space, vector_size, rows, cols),
             axis_projection(
                 comptime!(space),
-                comptime!(self.projection.clone()),
+                &self.projection,
                 self.map.clone(),
                 vector_size,
             ),
@@ -618,10 +618,10 @@ impl Memory {
 
     /// The operand's [`Projection`] applied to this window's logical box: the N-D read surface,
     /// each axis counted in this memory's loads ([`vector_tile`](Memory::vector_tile)).
-    pub(crate) fn axis_projection(&self, #[comptime] space: Space) -> ProjectionInKernel {
-        let load = self.vector_tile(&space);
+    pub(crate) fn axis_projection(&self, #[comptime] space: &Space) -> ProjectionInKernel {
+        let load = self.vector_tile(space);
         ProjectionInKernel::new(
-            Coords::constant(comptime!(load.counts(&space))),
+            Coords::constant(comptime!(load.counts(space))),
             self.map.clone(),
             space.clone(),
             comptime!(self.projection.clone()),
@@ -649,7 +649,7 @@ impl Memory {
         &mut self,
         i: usize,
         #[comptime] axes: MatrixAxes,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) -> MatrixViewMut<'_, Vector<T, W>> {
         // Only an overlapping map aliases a cell under a write.
         comptime!(assert!(
@@ -665,7 +665,7 @@ impl Memory {
         &mut self,
         i: usize,
         #[comptime] axes: MatrixAxes,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] monoid: Monoid,
     ) -> AccumulateView<'_, T, W> {
         let unit_share = comptime!(self.unit_share);
@@ -711,10 +711,10 @@ impl Memory {
     }
 
     /// Window down to the region `step` names, re-boxing the same buffer; `bound` carries through.
-    pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> Memory {
+    pub(crate) fn at(&self, step: &Step, #[comptime] space: &Space) -> Memory {
         let rank = comptime!(self.projection.physical_rank());
         let (origin, extent, advances, map) = if comptime!(self.projection.is_direct()) {
-            self.direct_descent(step, space.clone())
+            self.direct_descent(step, space)
         } else {
             self.gathered_descent(step)
         };
@@ -736,7 +736,7 @@ impl Memory {
                     (0..rank)
                         .map(|p| {
                             let axis = space.axis_at(p);
-                            match step.level.extent_in(&space, axis) {
+                            match step.level.extent_in(space, axis) {
                                 Extent::Dynamic => None,
                                 edge => {
                                     Some(load.loads_in(axis, edge.get(), space.extent_raw(axis)))
@@ -765,7 +765,7 @@ impl Memory {
                         let axis = space.axis_at(p);
                         edges[p].is_none()
                             || (matches!(space.extent_raw(axis), Extent::Static(_))
-                                && !step.level.overhangs(&space, axis))
+                                && !step.level.overhangs(space, axis))
                     });
                 WindowCut::Level { edges, nested }
             }
@@ -788,12 +788,12 @@ impl Memory {
                 overhang: self.access.overhang,
                 write: self.access.write,
                 fill: self.access.fill,
-                storage: self.access.storage.below(step.depth, &step.level, &space),
+                storage: self.access.storage.below(step.depth, &step.level, space),
                 delivery: self.access.delivery,
             }),
-            comptime!(UnitShare::new(&step.level, &space).under(self.unit_share)),
+            comptime!(UnitShare::new(&step.level, space).under(self.unit_share)),
             // Per level: the level's space still has the axis the projection dropped.
-            comptime!(SplitShare::new(&step.level, &step.space, &space).under(self.split_share)),
+            comptime!(SplitShare::new(&step.level, &step.space, space).under(self.split_share)),
         )
     }
 
@@ -801,22 +801,19 @@ impl Memory {
     fn direct_descent(
         &self,
         step: &Step,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) -> (Coords<i32>, Coords<u32>, Coords<u32>, RuntimeMap) {
         let mut origin = Coords::<i32>::new();
         let mut extent = Coords::<u32>::new();
         let mut advances = Coords::<u32>::new();
         let rank = comptime!(self.projection.physical_rank());
-        let load = self.vector_tile(&space);
+        let load = self.vector_tile(space);
 
         #[unroll]
         for p in 0..rank {
             let axis = space.axis_at(p);
             // A whole axis over a dynamic extent carries through unmoved.
-            if comptime!(matches!(
-                step.level.extent_in(&space, axis),
-                Extent::Dynamic
-            )) {
+            if comptime!(matches!(step.level.extent_in(space, axis), Extent::Dynamic)) {
                 origin.push(self.window.origin.at(p));
                 extent.push(self.window.extent.at(p));
                 advances.push(0u32);
@@ -824,7 +821,7 @@ impl Memory {
                 // The edge counts loads: along an axis a load spans, over its extent there.
                 let edge = comptime!(load.loads_in(
                     axis,
-                    step.level.extent_in(&space, axis).get(),
+                    step.level.extent_in(space, axis).get(),
                     space.extent_raw(axis)
                 ));
                 let index = step.coord(axis);
@@ -842,17 +839,11 @@ impl Memory {
                 // difference of the two offsets.
                 let advance = if projection.carriers(coordinate).len() > 1 {
                     let from = from.cast::<u32>();
-                    axis_offset(
-                        projection.clone(),
-                        coordinate,
-                        from.plus(moved),
-                        shape,
-                        strides,
-                    )
-                    .minus(axis_offset(projection, coordinate, from, shape, strides))
+                    axis_offset(&projection, coordinate, from.plus(moved), shape, strides)
+                        .minus(axis_offset(&projection, coordinate, from, shape, strides))
                 } else {
                     index.cast::<u32>().times(axis_offset(
-                        projection,
+                        &projection,
                         coordinate,
                         comptime!(edge as u32).runtime(),
                         shape,
@@ -877,7 +868,7 @@ impl Memory {
         #[unroll]
         for pa in 0..rank {
             let (moved, residue, span) =
-                gathered_axis_descent(comptime!(self.projection.clone()), step, &self.map, w, pa);
+                gathered_axis_descent(&self.projection, step, &self.map, w, pa);
             origin.push(self.window.origin.at(pa).plus(moved.cast::<i32>()));
             residues.push(residue);
             extent.push(span);
@@ -1006,7 +997,7 @@ impl Memory {
         }
 
         let start = self.window_start.plus(coord.times(axis_offset(
-            comptime!(self.layout.projection.clone()),
+            &self.layout.projection,
             comptime!(Axis(at as u8)),
             1u32.runtime(),
             &self.layout.physical_shape,
@@ -1060,7 +1051,7 @@ impl Memory {
         }
 
         let start = self.window_start.plus(from.cast::<u32>().times(axis_offset(
-            comptime!(self.layout.projection.clone()),
+            &self.layout.projection,
             comptime!(Axis(at as u8)),
             1u32.runtime(),
             &self.layout.physical_shape,
@@ -1110,7 +1101,7 @@ impl Memory {
 /// One gathered physical axis's descent: its window move, leftover phase and receptive field.
 #[cube]
 fn gathered_axis_descent(
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
     cut: &Step,
     map: &RuntimeMap,
     #[comptime] vector_size: usize,

@@ -102,7 +102,7 @@ impl Memory {
     ///
     /// The contract is `fill_from`'s either way: a `sync_cube` must still separate the fill from
     /// its readers.
-    pub(crate) fn load_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: Space) {
+    pub(crate) fn load_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: &Space) {
         if comptime!(src.access.delivery == Delivery::AsyncPerUnit) {
             // The wait is the cube's: a stage one plane fills on its own would leave the others'
             // arrivals missing.

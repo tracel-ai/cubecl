@@ -91,15 +91,15 @@ impl Region {
         c1: usize,
     ) -> Region {
         let edges = comptime!(MatrixAxes::edges(&space));
-        Region::cell(depth, space, level, edges, c0, c1)
+        Region::cell(depth, &space, &level, edges, c0, c1)
     }
 
     /// The region one level below the root at coordinates `(c0, c1)` along the first axis of
     /// each of `edges`' two groups under `level`, `0` elsewhere, for a tile at `depth`.
     pub(crate) fn cell(
         #[comptime] depth: usize,
-        #[comptime] space: Space,
-        #[comptime] level: Level,
+        #[comptime] space: &Space,
+        #[comptime] level: &Level,
         #[comptime] edges: MatrixAxes,
         c0: usize,
         c1: usize,
@@ -126,7 +126,7 @@ impl Region {
             comptime!(Path::new(
                 depth,
                 Partitioning::new(space.clone(), Vec::new()),
-                vec![level]
+                vec![level.clone()]
             )),
         )
     }
@@ -143,7 +143,7 @@ impl Region {
 
     /// The box this region covers, as a runtime space.
     pub(crate) fn child(&self) -> Space {
-        Space::with_sizes(comptime!(self.path.child()), self.sizes.clone())
+        Space::with_sizes(&comptime!(self.path.child()), self.sizes.clone())
     }
 
     /// The innermost level's coordinate along `axis`; `0` when the axis is absent.
@@ -167,7 +167,7 @@ impl Region {
     }
 
     /// This path with one more level's coordinates below it.
-    pub(crate) fn below(&self, coords: Coords<u32>, #[comptime] level: Level) -> Region {
+    pub(crate) fn below(&self, coords: Coords<u32>, #[comptime] level: &Level) -> Region {
         let n = comptime!(self.step_coords.len());
         let mut step_coords = Sequence::<Coords<u32>>::new();
         #[unroll]
@@ -178,7 +178,7 @@ impl Region {
         Region::new(
             step_coords,
             self.sizes.clone(),
-            comptime!(self.path.below(level)),
+            comptime!(self.path.below(level.clone())),
         )
     }
 

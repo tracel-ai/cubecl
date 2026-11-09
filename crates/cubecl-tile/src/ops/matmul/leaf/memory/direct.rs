@@ -14,7 +14,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] contracted_per_step: usize,
     #[comptime] config: RegisterBlock,
     #[comptime] semiring: Semiring,
@@ -37,7 +37,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let shape = comptime!(ContractShape::new(
         &lhs.place.space,
         &rhs.place.space,
-        space,
+        space.clone(),
         contracted_per_step,
         lw,
         rw,
@@ -112,7 +112,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
             shape.acc_axes,
         );
         let mut acc_view =
-            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, shape.space.clone(), semiring.add());
+            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, &shape.space, semiring.add());
 
         // Split into an in-bounds body kept in registers and a checked edge body.
         let lhs_check = comptime!(lhs_mat.check);

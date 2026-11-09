@@ -455,7 +455,7 @@ impl FactorExpand {
             .expect("Factor::word_at: the innermost scales are no words of block scales");
         scale
             .clone()
-            .__expand_scale_for_method::<u32>(scope, coords, values, Guard::Checked)
+            .__expand_scale_for_method::<u32>(scope, coords, &values, Guard::Checked)
     }
 
     pub(crate) fn __expand_write_at_method<N: Size>(
@@ -468,7 +468,7 @@ impl FactorExpand {
         let mut scale = self
             .innermost_tile()
             .expect("Factor::write_at: these values carry no scale to write");
-        scale.__expand_write_scales_for_method::<N>(scope, coords, values, scales);
+        scale.__expand_write_scales_for_method::<N>(scope, coords, &values, scales);
     }
 
     pub(crate) fn __expand_calibrate_from_method<F: Float>(
@@ -494,7 +494,7 @@ impl Tile {
     pub(crate) fn write_scales_for<N: Size>(
         &mut self,
         coords: &Coords<u32>,
-        #[comptime] values: Space,
+        #[comptime] values: &Space,
         scales: Vector<f32, N>,
     ) {
         let own = self.scale_coords(coords, values);
@@ -558,7 +558,7 @@ fn scale_for(
 ) -> NativeExpand<f32> {
     scale
         .clone()
-        .__expand_scale_for_method::<f32>(scope, coords, values.clone(), guard)
+        .__expand_scale_for_method::<f32>(scope, coords, values, guard)
 }
 
 /// The all-zero coordinate of `space`: where a scale covering a whole region is read.
