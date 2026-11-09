@@ -32,9 +32,10 @@ pub struct TuneFn<I: TuneInputs, Out> {
 }
 
 impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
-    /// Run the wrapped function on the given inputs.
+    /// Run the wrapped function on the given inputs. What it launches counts
+    /// toward this candidate in a tune open on this thread.
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
-        (self.func)(inputs)
+        crate::launched::running(&self.name, || (self.func)(inputs))
     }
 }
 

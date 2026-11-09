@@ -29,6 +29,7 @@ default = [
 ]
 std = [
     "cubecl-core/std",
+    "cubecl-server/std",
     "cubecl-cpu?/std",
     "cubecl-cuda?/std",
     "cubecl-hip?/std",
@@ -48,6 +49,7 @@ profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
 persistence = [
     "cubecl-runtime/persistence",
+    "cubecl-server/persistence",
     "cubecl-cpu?/persistence",
     "cubecl-cuda?/persistence",
     "cubecl-hip?/persistence",
@@ -103,6 +105,8 @@ cubecl-core = { workspace = true }
 cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true }
 cubecl-runtime = { workspace = true }
+# For `prune`, which reads what the compilers stored beside the autotune answers.
+cubecl-server = { workspace = true }
 cubecl-std = { workspace = true, default-features = true, optional = true }
 cubecl-tile = { workspace = true, optional = true }
 half = { workspace = true }

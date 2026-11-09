@@ -66,6 +66,7 @@ fn measured(name: &str, index: usize, micros: u64) -> AutotuneResult {
                 max: micros,
             },
         }),
+        kernels: Vec::new(),
     }
 }
 
@@ -111,6 +112,7 @@ fn planned(name: &str, index: usize, batch: Option<usize>, priority: i8) -> Plan
 fn failed(error: AutotuneError) -> AutotuneResult {
     AutotuneResult {
         outcome: Err(error),
+        kernels: Vec::new(),
     }
 }
 
