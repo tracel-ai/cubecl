@@ -2850,7 +2850,15 @@ fn a_prune_removes_what_only_a_losing_candidate_launched() {
     // compiler would have stored under each kernel.
     let artifact = |id: u128, build_id: u128| {
         let mut bytes = Vec::new();
-        ciborium::into_writer(&KernelCacheKey { id, build_id }, &mut bytes).unwrap();
+        ciborium::into_writer(
+            &KernelCacheKey {
+                id,
+                variant: 0,
+                build_id,
+            },
+            &mut bytes,
+        )
+        .unwrap();
         bytes
     };
     let build = build_id_hash();

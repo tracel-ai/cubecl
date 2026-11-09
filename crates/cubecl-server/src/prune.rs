@@ -220,6 +220,7 @@ mod tests {
     fn artifact(id: StableHash) -> KernelCacheKey {
         KernelCacheKey {
             id,
+            variant: 0,
             build_id: BUILD,
         }
     }
@@ -251,6 +252,21 @@ mod tests {
 
         assert!(!raced.prunes(&artifact(1), BUILD));
         assert!(!raced.prunes(&artifact(2), BUILD));
+    }
+
+    /// A backend that keeps one kernel's artifacts apart by variant still
+    /// names the kernel itself: each variant goes with the kernel.
+    #[test]
+    fn every_variant_of_a_losers_kernel_is_pruned() {
+        let raced = RacedKernels::new(&[answer(0, vec![measured(0, &[1]), measured(1, &[2])])]);
+        let variant = |id, variant| KernelCacheKey {
+            id,
+            variant,
+            build_id: BUILD,
+        };
+
+        assert!(raced.prunes(&variant(2, 5), BUILD));
+        assert!(!raced.prunes(&variant(1, 5), BUILD));
     }
 
     #[test]
@@ -291,6 +307,7 @@ mod tests {
         assert!(raced.prunes(
             &KernelCacheKey {
                 id: 1,
+                variant: 0,
                 build_id: BUILD + 1,
             },
             BUILD

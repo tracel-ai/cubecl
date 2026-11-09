@@ -93,6 +93,9 @@ pub enum KernelMatch {
 #[derive(Clone, Debug, Serialize)]
 pub struct KernelRow {
     pub id: KernelHash,
+    /// What else decides the artifact for the kernel, zero when nothing does:
+    /// see [`KernelCacheKey::variant`].
+    pub variant: u128,
     pub build: BuildHash,
     /// The kernel's type, in full.
     pub kernel: String,
@@ -193,6 +196,7 @@ impl KernelRow {
     pub fn key(&self) -> KernelCacheKey {
         KernelCacheKey {
             id: self.id.0,
+            variant: self.variant,
             build_id: self.build.0,
         }
     }
@@ -248,6 +252,7 @@ impl KernelReport {
         for trip in trips {
             let row = rows.entry(trip.key).or_insert_with(|| KernelRow {
                 id: KernelHash(trip.key.id),
+                variant: trip.key.variant,
                 build: BuildHash(trip.key.build_id),
                 kernel: trip.kernel.clone(),
                 ir: None,
@@ -345,6 +350,7 @@ mod tests {
     fn row(id: u128, build: u128) -> KernelRow {
         KernelRow {
             id: KernelHash(id),
+            variant: 0,
             build: BuildHash(build),
             kernel: "kernel".to_string(),
             ir: None,

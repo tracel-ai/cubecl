@@ -257,7 +257,11 @@ fn fixture(dir: &Path) -> PathBuf {
                 record: CompilationRecord {
                     kernel: kernel.to_string(),
                     ir: Some(format!("{kernel} ir")),
-                    key: KernelCacheKey { id, build_id: 1 },
+                    key: KernelCacheKey {
+                        id,
+                        variant: 0,
+                        build_id: 1,
+                    },
                     outcome: outcome.0,
                     work: outcome.1,
                     source: None,
@@ -295,6 +299,7 @@ fn fixture(dir: &Path) -> PathBuf {
         "hip/0.11.0/gfx1151",
         &cbor(&KernelCacheKey {
             id: MATMUL,
+            variant: 0,
             build_id: 1,
         }),
         &[0; 64],
@@ -918,6 +923,7 @@ fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
                 ir: None,
                 key: KernelCacheKey {
                     id: MATMUL,
+                    variant: 0,
                     build_id: 2,
                 },
                 outcome: CompilationOutcome::Compiled,
