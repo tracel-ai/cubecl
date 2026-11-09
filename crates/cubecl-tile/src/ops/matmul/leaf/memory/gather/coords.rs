@@ -16,7 +16,7 @@ pub(super) fn cell_read<T: Numeric, W: Size>(
     row: u32,
     col: u32,
     reduce_coords: &Coords<u32>,
-    #[comptime] operand: Space,
+    #[comptime] operand: &Space,
     #[comptime] problem: GatherProblem,
     #[comptime] width: usize,
 ) -> Vector<T, W> {
@@ -38,7 +38,7 @@ pub(super) fn cell_position(
     row: u32,
     col: u32,
     reduce_coords: &Coords<u32>,
-    #[comptime] operand: Space,
+    #[comptime] operand: &Space,
     #[comptime] problem: GatherProblem,
     #[comptime] width: usize,
 ) -> CoordsDyn {
@@ -50,7 +50,7 @@ pub(super) fn cell_position(
         problem.block.column_line_extents(),
     );
     resolve_nd_coords(
-        &operand,
+        operand,
         &problem.block.space,
         &problem.block.reduce,
         &acc_coords,

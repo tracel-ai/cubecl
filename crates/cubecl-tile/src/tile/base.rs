@@ -193,7 +193,7 @@ impl Tile {
     pub fn vector_size(&self) -> comptime_type!(usize) {
         match &self.kind {
             TileKind::Memory(d) => {
-                let load = d.vector_tile(&comptime!(self.place.space.clone()));
+                let load = d.vector_tile(&self.place.space);
                 comptime!(load.along_one_axis("a reader asking Tile::vector_size").1)
             }
             TileKind::Lines(c) => c.line(),
@@ -366,7 +366,7 @@ impl Tile {
     /// ([`Memory::rows_step_by_stride`]).
     pub(crate) fn rows_step_by_stride(&self) -> comptime_type!(bool) {
         match &self.kind {
-            TileKind::Memory(m) => m.rows_step_by_stride(comptime!(self.place.space.clone())),
+            TileKind::Memory(m) => m.rows_step_by_stride(&self.place.space),
             TileKind::Procedural(_)
             | TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -447,9 +447,7 @@ impl Tile {
         #[comptime] factor: usize,
     ) -> T {
         match &self.kind {
-            TileKind::Procedural(data) => {
-                data.read_factor_at::<T>(&pos, factor, comptime!(self.place.space.clone()))
-            }
+            TileKind::Procedural(data) => data.read_factor_at::<T>(&pos, factor, &self.place.space),
             TileKind::Memory(_)
             | TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -590,18 +588,10 @@ impl Tile {
     /// One level down: window this tile to `step`'s box.
     pub(crate) fn at_step(&self, step: &Step) -> Tile {
         let tile_kind = match &self.kind {
-            TileKind::Memory(g) => {
-                TileKind::new_Memory(g.at(step, comptime!(self.place.space.clone())))
-            }
-            TileKind::TmaGmem(t) => {
-                TileKind::new_TmaGmem(t.at(step, comptime!(self.place.space.clone())))
-            }
-            TileKind::Procedural(p) => {
-                TileKind::new_Procedural(p.at(step, comptime!(self.place.space.clone())))
-            }
-            TileKind::Lines(c) => {
-                TileKind::new_Lines(c.at(step, comptime!(self.place.space.clone())))
-            }
+            TileKind::Memory(g) => TileKind::new_Memory(g.at(step, &self.place.space)),
+            TileKind::TmaGmem(t) => TileKind::new_TmaGmem(t.at(step, &self.place.space)),
+            TileKind::Procedural(p) => TileKind::new_Procedural(p.at(step, &self.place.space)),
+            TileKind::Lines(c) => TileKind::new_Lines(c.at(step, &self.place.space)),
             // A plane tile passes through; legal only where the level cuts nothing on m/n.
             TileKind::PlaneTile(t) => {
                 comptime!(assert!(
@@ -611,7 +601,7 @@ impl Tile {
                 ));
                 TileKind::new_PlaneTile(t.clone())
             }
-            TileKind::PlanePartition(p) => p.at_step(step, comptime!(self.place.space.clone())),
+            TileKind::PlanePartition(p) => p.at_step(step, &self.place.space),
         };
         let windowed = Tile {
             kind: tile_kind,
@@ -668,7 +658,7 @@ impl Tile {
 
     /// This tile's own box as a runtime space, dynamic axes sized off its buffer.
     pub(crate) fn runtime_space(&self) -> Space {
-        witnessed_space(comptime!(self.place.space.clone()), self, self, self)
+        witnessed_space(&self.place.space, self, self, self)
     }
 
     /// The regions of the level below this tile over its own box.
@@ -774,7 +764,7 @@ impl Tile {
         let define!(Staged) = self.staged_element(comptime!(None));
         Memory::stage::<Staged>(
             &self.shaped_for(level.clone()),
-            level,
+            &level,
             storage,
             comptime!(None),
             comptime!(StageOwner::CUBE),
@@ -826,14 +816,13 @@ impl Tile {
             walk.depth(),
             walk.parent.path.root_levels(),
         ));
-        let tile =
-            Memory::smem_owned::<T>(place.space.clone(), 1usize, storage, 0usize, 0usize, owner);
-        Tile::new::<T>(tile.kind, place)
+        let tile = Memory::smem_owned::<T>(&place.space, 1usize, storage, 0usize, 0usize, owner);
+        Tile::new::<T>(tile.kind, place.clone())
     }
 
     /// A fresh shared-memory tile over `space`, laid out as `storage`, serving one value a line.
     pub fn shared<T: Numeric>(#[comptime] space: Space, #[comptime] storage: StageStorage) -> Tile {
-        Memory::smem::<T>(space, comptime!(1usize), storage, comptime!(0usize))
+        Memory::smem::<T>(&space, comptime!(1usize), storage, comptime!(0usize))
     }
 
     /// A fresh shared-memory tile over `space`, served `vector_size` wide and filled by `units`
@@ -844,7 +833,7 @@ impl Tile {
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
     ) -> Tile {
-        Memory::smem::<T>(space, vector_size, storage, units)
+        Memory::smem::<T>(&space, vector_size, storage, units)
     }
 
     /// A shared-memory tile over this tile's box, one element a line, its rows dense and in order,
@@ -856,7 +845,7 @@ impl Tile {
         let define!(Served) = self.element;
         let units = self.units();
         Memory::smem_owned::<Served>(
-            comptime!(self.place.space.clone()),
+            &self.place.space,
             1usize,
             comptime!(StageStorage::Strided),
             units,
@@ -975,7 +964,7 @@ impl Tile {
         let held = comptime!(self.place.space.in_order_of(&src.place.space));
         match &src.kind {
             TileKind::PlanePartition(s) => match &mut self.kind {
-                TileKind::Memory(d) => s.fragment().store_window::<S>(d, held),
+                TileKind::Memory(d) => s.fragment().store_window::<S>(d, &held),
                 TileKind::PlaneTile(_)
                 | TileKind::PlanePartition(_)
                 | TileKind::TmaGmem(_)
@@ -995,13 +984,14 @@ impl Tile {
                     d.fill_from::<S>(src, DeepLoad::Steps)
                 }
                 (TileKind::PlaneTile(d), TileKind::Memory(_)) => {
-                    d.load_window::<S>(src, DeepLoad::Steps)
+                    let row = comptime!(MatrixAxes::edges(&src.place.space).row_split);
+                    d.load_window::<S>(src, DeepLoad::Steps, row)
                 }
-                (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, held),
+                (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, &held),
                 (TileKind::Memory(d), TileKind::TmaGmem(s)) => s.load_into::<S>(d),
                 (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<S>(s),
-                (TileKind::Memory(d), TileKind::Memory(s)) => d.load_from::<S>(s, space),
-                (TileKind::Memory(d), TileKind::Procedural(s)) => d.fill_procedural::<S>(s, space),
+                (TileKind::Memory(d), TileKind::Memory(s)) => d.load_from::<S>(s, &space),
+                (TileKind::Memory(d), TileKind::Procedural(s)) => d.fill_procedural::<S>(s, &space),
                 (TileKind::PlaneTile(_), TileKind::PlaneTile(_)) => {
                     panic!("Tile::copy_from: plane tile to plane tile cast not wired")
                 }
@@ -1040,16 +1030,16 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         match (&mut self.kind, &src.kind) {
             (TileKind::Memory(d), TileKind::PlaneTile(s)) => {
-                s.store_cast_window::<Source, Served>(d, held)
+                s.store_cast_window::<Source, Served>(d, &held)
             }
             (TileKind::Memory(d), TileKind::PlanePartition(s)) => {
-                s.fragment().store_cast_window::<Source, Served>(d, held)
+                s.fragment().store_cast_window::<Source, Served>(d, &held)
             }
             // A window its holder shares is filled by the holder's units, whoever filled the
             // buffer it windows: a plane's window of the cube's scratch is the plane's.
             (TileKind::Memory(d), TileKind::Memory(s)) => d
                 .filled_by(holder)
-                .fill_cast_from::<Served, Source>(s, space),
+                .fill_cast_from::<Served, Source>(s, &space),
             _ => panic!(
                 "Tile::copy_cast_from: a fragment or a memory window stores into memory; nothing \
                  else casts"
@@ -1075,9 +1065,9 @@ impl Tile {
     pub(crate) fn add_from_scratch<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
         let space = comptime!(self.place.space.clone());
         match (&mut self.kind, &src.kind) {
-            (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.add_from_scratch::<R, S>(d, space),
+            (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.add_from_scratch::<R, S>(d, &space),
             (TileKind::Memory(d), TileKind::PlanePartition(s)) => {
-                s.fragment().add_from_scratch::<R, S>(d, space)
+                s.fragment().add_from_scratch::<R, S>(d, &space)
             }
             _ => panic!("Tile::add_from_scratch: a spilled plane tile adds into memory"),
         }
@@ -1170,7 +1160,7 @@ impl TileExpand {
 /// `space` with each [`Dynamic`](crate::Extent) axis sized by the first of `a`, `b`, `c` that
 /// [`witnesses`](Tile::witnesses) it.
 #[cube]
-pub(crate) fn witnessed_space(#[comptime] space: Space, a: &Tile, b: &Tile, c: &Tile) -> Space {
+pub(crate) fn witnessed_space(#[comptime] space: &Space, a: &Tile, b: &Tile, c: &Tile) -> Space {
     let mut sizes = Sequence::<usize>::new();
     if !space.is_static() {
         #[unroll]
@@ -1682,7 +1672,7 @@ impl Tile {
     pub(crate) fn scale_for<S: Numeric>(
         &self,
         coords: &Coords<u32>,
-        #[comptime] values: Space,
+        #[comptime] values: &Space,
         #[comptime] guard: Guard,
     ) -> S {
         let own = self.scale_coords(coords, values);
@@ -1694,7 +1684,7 @@ impl Tile {
     pub(crate) fn scale_coords(
         &self,
         coords: &Coords<u32>,
-        #[comptime] values: Space,
+        #[comptime] values: &Space,
     ) -> Coords<u32> {
         let rank = comptime!(self.place.space.rank());
         let projection = self.projection();

@@ -79,15 +79,9 @@ impl Walk {
         // A level distributed over a scope reaches the IR as one `tile.level` op.
         let (counts, positions, scales) = match level.coverage().scope() {
             Some(_) => intrinsic!(|scope| LevelOp::trace(scope, |scope| {
-                Walk::__expand_tiles_of(
-                    scope,
-                    host.clone(),
-                    level.clone(),
-                    distributes.clone(),
-                    &grid,
-                )
+                Walk::__expand_tiles_of(scope, &host, &level, distributes.clone(), &grid)
             })),
-            None => Walk::tiles_of(host.clone(), level.clone(), distributes.clone(), &grid),
+            None => Walk::tiles_of(&host, &level, distributes.clone(), &grid),
         };
 
         // Computed whole, not accumulated, so a static walk can unroll.
@@ -113,8 +107,8 @@ impl Walk {
 
     /// `(counts, positions, scales)` of this instance at `level`.
     fn tiles_of(
-        #[comptime] host: Space,
-        #[comptime] level: Level,
+        #[comptime] host: &Space,
+        #[comptime] level: &Level,
         #[comptime] distributes: Vec<AxisDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
@@ -128,11 +122,11 @@ impl Walk {
     /// one tile this plane's or unit's place in the launch names, past the last for one past the
     /// last tile, which the binding masks; every tile of the others.
     fn spanning_launch(
-        #[comptime] host: Space,
-        #[comptime] level: Level,
+        #[comptime] host: &Space,
+        #[comptime] level: &Level,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        let (positions, counts) = launch_tiles(host.clone(), level, grid);
+        let (positions, counts) = launch_tiles(host, level, grid);
         let mut scales = Coords::<usize>::new();
         #[unroll]
         for _ in 0..host.rank() {
@@ -145,8 +139,8 @@ impl Walk {
     /// grid's cubes, each axis as `distributes` says.
     #[allow(clippy::needless_range_loop)]
     fn dealt(
-        #[comptime] host: Space,
-        #[comptime] level: Level,
+        #[comptime] host: &Space,
+        #[comptime] level: &Level,
         #[comptime] distributes: Vec<AxisDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
@@ -167,7 +161,7 @@ impl Walk {
                 AxisDistribution::Walked => instances.push(1usize),
             }
         }
-        let swizzled = swizzled_positions(host.clone(), level.clone(), &instances);
+        let swizzled = swizzled_positions(host, level, &instances);
 
         let mut counts = Coords::<usize>::new();
         let mut positions = Coords::<usize>::new();
@@ -310,8 +304,7 @@ impl Walk {
     /// The `i`-th region of the walk.
     pub fn region(&self, i: usize) -> Region {
         let idx = self.base.plus(i);
-        self.parent
-            .below(self.resolve(idx), comptime!(self.level.clone()))
+        self.parent.below(self.resolve(idx), &self.level)
     }
 
     /// The planes below this walk's regions, each once, at its first step ([`Region::planes`]):

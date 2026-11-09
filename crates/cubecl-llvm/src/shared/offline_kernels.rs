@@ -182,6 +182,10 @@ pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
 
 /// Fills a local array with a counter kept in a variable, so the index is carried from turn to
 /// turn rather than being the loop's own counter.
+#[allow(
+    clippy::explicit_counter_loop,
+    reason = "Exercise a loop-carried counter separate from the loop index"
+)]
 #[cube(launch)]
 fn counted_walk(input: &[f32], output: &mut [f32]) {
     let mut values = Array::<f32>::new(256usize);

@@ -117,17 +117,17 @@ impl AxisSlices {
         let recipe = bias.recipe();
         match &mut self.kind {
             AxisSlicesKind::Registers(block) => {
-                block.scale_add_along::<E>(scale, recipe, self.space.clone())
+                block.scale_add_along::<E>(scale, recipe, &self.space)
             }
             AxisSlicesKind::Window(window) => {
-                window.scale_add_along::<E>(scale, recipe, self.space.clone(), self.axis)
+                window.scale_add_along::<E>(scale, recipe, &self.space, self.axis)
             }
             AxisSlicesKind::Fragments(partition) => {
-                partition.scale_add_along::<E>(scale, recipe, self.space.clone())
+                partition.scale_add_along::<E>(scale, recipe, &self.space)
             }
             AxisSlicesKind::Fragment(tile) => {
                 let mut fragment = tile.manual_fragment();
-                fragment.scale_add_along::<E>(scale, recipe, self.space.clone(), (0usize, 0usize))
+                fragment.scale_add_along::<E>(scale, recipe, &self.space, (0usize, 0usize))
             }
         }
     }
@@ -137,7 +137,7 @@ impl AxisSlices {
         match &self.kind {
             AxisSlicesKind::Registers(block) => block.maxima_along::<E>(seed),
             AxisSlicesKind::Window(window) => {
-                window.maxima_along::<E>(seed, self.space.clone(), self.axis)
+                window.maxima_along::<E>(seed, &self.space, self.axis)
             }
             AxisSlicesKind::Fragments(partition) => partition.maxima_along::<E>(seed),
             AxisSlicesKind::Fragment(tile) => tile.manual_fragment().maxima_along(seed),
@@ -151,7 +151,7 @@ impl AxisSlices {
         match &mut self.kind {
             AxisSlicesKind::Registers(block) => block.exp2_scaled_minus_along::<E>(scale, offsets),
             AxisSlicesKind::Window(window) => {
-                window.exp2_scaled_minus_along::<E>(scale, offsets, self.space.clone(), self.axis)
+                window.exp2_scaled_minus_along::<E>(scale, offsets, &self.space, self.axis)
             }
             AxisSlicesKind::Fragments(partition) => {
                 partition.exp2_scaled_minus_along::<E>(scale, offsets)
@@ -167,7 +167,7 @@ impl AxisSlices {
     pub(crate) fn sums<E: Float>(&self) -> Array<E> {
         match &self.kind {
             AxisSlicesKind::Registers(block) => block.sums_along::<E>(),
-            AxisSlicesKind::Window(window) => window.sums_along::<E>(self.space.clone(), self.axis),
+            AxisSlicesKind::Window(window) => window.sums_along::<E>(&self.space, self.axis),
             AxisSlicesKind::Fragments(partition) => partition.sums_along::<E>(),
             AxisSlicesKind::Fragment(tile) => tile.manual_fragment().sums_along(),
         }
@@ -179,7 +179,7 @@ impl AxisSlices {
         match &mut self.kind {
             AxisSlicesKind::Registers(block) => block.mul_along::<E>(factors, 0usize),
             AxisSlicesKind::Window(window) => {
-                window.mul_along::<E>(factors, self.space.clone(), self.axis)
+                window.mul_along::<E>(factors, &self.space, self.axis)
             }
             AxisSlicesKind::Fragments(partition) => partition.mul_along::<E>(factors),
             AxisSlicesKind::Fragment(tile) => tile.mul_along(factors, 0usize),
@@ -203,21 +203,21 @@ impl AxisSlices {
                 scale,
                 recipe,
                 &logsumexp.cells::<E>(count),
-                self.space.clone(),
+                &self.space,
                 broadcast,
             ),
             AxisSlicesKind::Window(window) => window.probabilities_along::<E>(
                 scale,
                 recipe,
                 &logsumexp.cells::<E>(count),
-                self.space.clone(),
+                &self.space,
                 broadcast,
             ),
             AxisSlicesKind::Fragments(partition) => partition.probabilities_along::<E>(
                 scale,
                 recipe,
                 logsumexp.mem("AxisSlices::probabilities"),
-                self.space.clone(),
+                &self.space,
                 broadcast,
             ),
             AxisSlicesKind::Fragment(tile) => {
@@ -226,7 +226,7 @@ impl AxisSlices {
                     scale,
                     recipe,
                     logsumexp.mem("AxisSlices::probabilities"),
-                    self.space.clone(),
+                    &self.space,
                     broadcast,
                     (0usize, 0usize),
                 )
@@ -259,7 +259,7 @@ impl AxisSlices {
                 .softmax_gradient_along::<E>(
                     probabilities,
                     &delta.cells::<E>(count),
-                    self.space.clone(),
+                    &self.space,
                     broadcast,
                 ),
             (AxisSlicesKind::Fragments(partition), AxisSlicesKind::Fragments(probabilities)) => {

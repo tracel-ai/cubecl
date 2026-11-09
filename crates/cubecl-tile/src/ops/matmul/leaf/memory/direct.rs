@@ -10,12 +10,11 @@ use crate::*;
 /// The 2-D contraction nest: over each batch matrix, the `mr × nr` accumulator block lives in
 /// registers.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] contracted_per_step: usize,
     #[comptime] config: RegisterBlock,
     #[comptime] semiring: Semiring,
@@ -38,7 +37,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let shape = comptime!(ContractShape::new(
         &lhs.place.space,
         &rhs.place.space,
-        space,
+        space.clone(),
         contracted_per_step,
         lw,
         rw,
@@ -68,7 +67,6 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
 
 /// The nest at fixed line widths: `L` the lhs's, `V` the rhs's and block's, `A` the accumulator's.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Size>(
     acc: &mut Memory,
     lhs: &Tile,
@@ -114,7 +112,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
             shape.acc_axes,
         );
         let mut acc_view =
-            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, shape.space.clone(), semiring.add());
+            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, &shape.space, semiring.add());
 
         // Split into an in-bounds body kept in registers and a checked edge body.
         let lhs_check = comptime!(lhs_mat.check);
@@ -217,7 +215,6 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
 
 /// The nest body, either unrolled in registers or the checked edge fallback.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn body<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Size>(
     acc: &mut AccumulateView<'_, E, A>,
     lhs: &MatrixView<'_, Vector<EL, L>>,

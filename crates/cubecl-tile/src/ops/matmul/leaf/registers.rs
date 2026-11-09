@@ -7,7 +7,6 @@ use crate::*;
 /// `c += lhs · rhs` over the block, one line of the contraction at a time, each factor times its
 /// scales.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size>(
     lhs: &MatrixView<'_, Vector<EL, L>>,
     lhs_scales: &FactorReader,
@@ -145,7 +144,6 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
 /// multiplies that sum, one product a cell rather than one a value, since a run lies inside one
 /// scale.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size>(
     lhs: &MatrixView<'_, Vector<EL, L>>,
     lhs_scales: &FactorReader,

@@ -16,10 +16,10 @@ impl CmmaData {
         &self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
-        let a_read = comptime!(FragmentRead::new(Side::Lhs, &lhs.place.space, &out));
-        let b_read = comptime!(FragmentRead::new(Side::Rhs, &rhs.place.space, &out));
+        let a_read = comptime!(FragmentRead::new(Side::Lhs, &lhs.place.space, out));
+        let b_read = comptime!(FragmentRead::new(Side::Rhs, &rhs.place.space, out));
         cmma::execute(
             &lhs.cmma_fragment::<EL>(MatrixIdent::A, a_read),
             &rhs.cmma_fragment::<ER>(MatrixIdent::B, b_read),
@@ -113,8 +113,8 @@ impl Tile {
         let packing = self.packing();
         let shared = self.is_shared();
         if comptime!(scaled || !packing.as_stored() || !shared) {
-            let landing = self.landed::<E>(read.side, read.out.clone());
-            landing.load_into(frag, read.out.clone());
+            let landing = self.landed::<E>(read.side, &read.out);
+            landing.load_into(frag, &read.out);
             // The landing is this region's until every unit's load has read it.
             sync_plane();
         } else {
@@ -149,7 +149,7 @@ impl Tile {
     pub(crate) fn landed_for<S: Numeric>(
         &self,
         #[comptime] side: Side,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
         #[comptime] instruction: Instruction,
     ) -> Tile {
         let scaled = self.quantized();
@@ -166,12 +166,12 @@ impl Tile {
     pub(crate) fn landed<S: Numeric>(
         &self,
         #[comptime] side: Side,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) -> Tile {
         let space = comptime!(self.place.space.clone());
         let units = self.units();
         let planes = comptime!(plane_windows(&space, &self.place.levels));
-        let (stage, mut window) = Memory::landing::<S>(space.clone(), units, planes);
+        let (stage, mut window) = Memory::landing::<S>(&space, units, planes);
         let landing = Tile::new::<S>(stage.kind, comptime!(self.place.clone()));
 
         // A load is read whole, a tile of several axes included, and landed a run of its finest
@@ -181,7 +181,7 @@ impl Tile {
         let size!(SW) = sw;
         let size!(RUN) = run;
         let view = self.nd_packed::<S, SW>(comptime!(Guard::Checked));
-        let acc_axes = comptime!(accumulator_axes(side, &out, &space));
+        let acc_axes = comptime!(accumulator_axes(side, out, &space));
         let scales = self.reader(
             comptime!(MatrixAxes::trailing(&space)),
             0usize,
@@ -234,8 +234,8 @@ impl Tile {
 #[cube]
 impl Tile {
     /// This landing loaded into `frag`, dense over the window's axes.
-    pub(crate) fn load_into<E: Numeric>(&self, frag: &mut Matrix<E>, #[comptime] out: Space) {
-        let cols = comptime!(landed_cols(&self.place.space, &out) as u32);
+    pub(crate) fn load_into<E: Numeric>(&self, frag: &mut Matrix<E>, #[comptime] out: &Space) {
+        let cols = comptime!(landed_cols(&self.place.space, out) as u32);
         match &self.kind {
             TileKind::Memory(m) => {
                 comptime!(assert!(

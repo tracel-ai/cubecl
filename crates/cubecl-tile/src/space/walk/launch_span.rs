@@ -12,8 +12,8 @@ use crate::{
 /// tile. `grid` is the tiles along each axis.
 #[cube]
 pub(crate) fn launch_tiles(
-    #[comptime] space: Space,
-    #[comptime] level: Level,
+    #[comptime] space: &Space,
+    #[comptime] level: &Level,
     grid: &Coords<usize>,
 ) -> (Coords<usize>, Coords<usize>) {
     let order = level

@@ -141,7 +141,7 @@ impl<'a> Relay<'a> {
         for p in 0..space.space().rank() {
             let axis = space.space().axis_at(p);
             if level.distributes(axis) {
-                let radix = Self::radix(partitioning, level.clone(), p);
+                let radix = Self::radix(partitioning, &level, p);
                 let position = match p == split {
                     true => 0usize.runtime(),
                     false => walk.position_at(p),
@@ -162,7 +162,7 @@ impl<'a> Relay<'a> {
             Some(Count::AllAcross(workers)) => workers,
             _ => unreachable!("Relay::split names an axis spread across cubes"),
         });
-        let grid = Self::grid(partitioning, level.clone(), split);
+        let grid = Self::grid(partitioning, &level, split);
         match level.cut(axis).spread {
             Spread::Contiguous => {
                 let run = grid
@@ -177,7 +177,11 @@ impl<'a> Relay<'a> {
 
     /// The instances the cube level distributes axis `p` to: its workers where spread across them,
     /// its tile count otherwise.
-    fn radix(partitioning: &Partitioning, #[comptime] level: Level, #[comptime] p: usize) -> usize {
+    fn radix(
+        partitioning: &Partitioning,
+        #[comptime] level: &Level,
+        #[comptime] p: usize,
+    ) -> usize {
         let axis = comptime!(partitioning.space().axis_at(p));
         match level.count(axis) {
             Some(Count::AllAcross(workers)) => workers.runtime(),
@@ -186,7 +190,7 @@ impl<'a> Relay<'a> {
     }
 
     /// The tiles the cube level cuts axis `p` into.
-    fn grid(partitioning: &Partitioning, #[comptime] level: Level, #[comptime] p: usize) -> usize {
+    fn grid(partitioning: &Partitioning, #[comptime] level: &Level, #[comptime] p: usize) -> usize {
         let axis = comptime!(partitioning.space().axis_at(p));
         match level.grid(axis) {
             GridCount::Const(n) => n.runtime(),

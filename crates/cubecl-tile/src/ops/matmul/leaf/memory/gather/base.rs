@@ -234,7 +234,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] contracted_per_step: usize,
     #[comptime] config: RegisterBlock,
     #[comptime] semiring: Semiring,
@@ -263,7 +263,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
         ContractShape::new(
             &lhs.place.space,
             &rhs.place.space,
-            space,
+            space.clone(),
             contracted_per_step,
             lw,
             rw,

@@ -71,7 +71,7 @@ fn buffer_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::gathered(tensor, space.space().clone(), spec, coefficients, offsets)
+    GlobalOperand::gathered(tensor, space.space(), spec, coefficients, offsets)
         .tile::<E>(space.levels().to_vec())
 }
 
