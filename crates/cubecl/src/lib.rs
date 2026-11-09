@@ -67,10 +67,6 @@ pub use cubecl_environment::records;
 /// kernels it compiles and the tunes it measures, its launches discarded.
 pub use cubecl_runtime::execution;
 
-/// Removing from an environment what this build's work never launched: the
-/// kernels only an autotune race launched, those another build compiled, and
-/// the build records a caller does not keep.
-#[cfg(compilation_cache)]
 pub use cubecl_server::prune;
 
 /// Watching what the runtime runs: the launch observer, and the profiling

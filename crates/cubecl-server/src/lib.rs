@@ -60,9 +60,8 @@ pub mod device_events;
 /// Compiler trait, and the compilation caches in front of one.
 pub mod compiler;
 
-/// Removing from an environment what this build's work never launched.
-#[cfg(compilation_cache)]
 pub mod prune;
+
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
 
