@@ -32,9 +32,7 @@ impl LowerOp for SyncOp {
             // The units of the cube meet, as at a cube barrier, and what each wrote to storage is
             // visible to every cube of the device, as what other cubes published is visible to it.
             SyncScope::Device => match target {
-                LlvmTarget::Cpu => {
-                    panic!("Device wide synchronization is not supported by the CPU runtime")
-                }
+                LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
                 #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_storage(scope),
                 #[cfg(feature = "nvptx")]
@@ -42,9 +40,7 @@ impl LowerOp for SyncOp {
             },
             // The same, with the release and acquire reaching the host and peer devices.
             SyncScope::System => match target {
-                LlvmTarget::Cpu => {
-                    panic!("System wide synchronization is not supported by the CPU runtime")
-                }
+                LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
                 #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_system(scope),
                 #[cfg(feature = "nvptx")]
