@@ -1,8 +1,9 @@
 use crate::records::{EnvironmentRecords, SessionRecords, TuneIndex};
 use crate::report::{
     AutotuneReport, AutotuneTable, CandidateReport, Comparison, DiffSide, EnvironmentDiff,
-    KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, KeyOrder, MemorySnapshots,
-    NamespaceRoot, Overview, SessionRow, StoredArtifacts, Summary, Timeline, TunedKey,
+    KernelInstance, KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, KeyOrder,
+    MemorySnapshots, NamespaceRoot, Overview, SessionRow, StoredArtifacts, Summary, Timeline,
+    TunedKey,
 };
 use crate::{EnvironmentFile, InspectError};
 use cubecl_environment::bundle::BundleManifest;
@@ -105,8 +106,8 @@ impl Inspector {
         }
     }
 
-    /// The compilation store's artifacts, by the entry naming them: every
-    /// namespace that is not a measurement, read as a compilation store.
+    /// The compilation store's artifacts, by the instance each is of: every
+    /// namespace a compiler keeps its artifacts under.
     fn stored_artifacts(&self) -> StoredArtifacts {
         let mut stored = StoredArtifacts::new();
         for namespace in self.file.database().namespaces() {
@@ -115,7 +116,7 @@ impl Inspector {
             }
             self.file.database().scan(&namespace, &mut |key, value| {
                 if let Ok(key) = ciborium::from_reader::<KernelCacheKey, _>(key) {
-                    stored.insert(key, value.len() as u64);
+                    *stored.entry(KernelInstance::from(key)).or_default() += value.len() as u64;
                 }
             });
         }
