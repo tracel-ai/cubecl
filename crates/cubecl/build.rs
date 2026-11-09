@@ -10,15 +10,6 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(test_runtime_hip)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_metal)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_wgpu)");
-    println!("cargo:rustc-check-cfg=cfg(compilation_cache)");
-
-    // `cubecl-server`'s alias of the same name: compiled kernels persist on a
-    // native filesystem only, and so only there is there anything to prune.
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let native = ["windows", "linux", "macos", "android"].contains(&target_os.as_str());
-    if cfg!(feature = "persistence") && cfg!(feature = "std") && native {
-        println!("cargo:rustc-cfg=compilation_cache");
-    }
 
     let map = BTreeMap::from([
         ("cpu", cfg!(feature = "cpu")),
