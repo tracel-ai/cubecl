@@ -2769,7 +2769,7 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
 fn a_prune_keeps_what_the_work_loaded() {
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_environment::persistence::{Database, Namespace, Origin};
-    use cubecl_server::compiler::{KernelCacheKey, WorkLaunchStore, build_id_hash};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore, build_id_hash};
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -2798,13 +2798,14 @@ fn a_prune_keeps_what_the_work_loaded() {
         artifact(race, 0, build),
         artifact(work, 0, build ^ 1),
     ];
+    let artifacts = Namespace::scoped(ArtifactRoot::Cpu.as_str(), "fingerprint");
     for key in &stored {
-        database.insert("dummy/artifacts", key, b"binary", Origin::Local);
+        database.insert(artifacts.as_str(), key, b"binary", Origin::Local);
     }
-    let launched = |build_id: u128| {
-        Namespace::scoped(WorkLaunchStore::ROOT, WorkLaunchStore::build_path(build_id))
-    };
-    let (this_build, other_build) = (launched(build), launched(build ^ 1));
+    let (this_build, other_build) = (
+        WorkLaunchStore::namespace(build),
+        WorkLaunchStore::namespace(build ^ 1),
+    );
     database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
     database.insert(
         other_build.as_str(),
@@ -2837,7 +2838,7 @@ fn a_prune_keeps_what_the_work_loaded() {
             .any(|namespace| namespace == other_build.as_str()),
         "another build's launches go with its kernels"
     );
-    let present = |key: &[u8]| database.get("dummy/artifacts", key).is_some();
+    let present = |key: &[u8]| database.get(artifacts.as_str(), key).is_some();
     assert!(
         present(&stored[0]) && present(&stored[1]),
         "the work's kernel, in each variant"
@@ -2850,6 +2851,46 @@ fn a_prune_keeps_what_the_work_loaded() {
         .filter(|namespace| namespace.starts_with("autotune/"))
         .count();
     assert_eq!(autotune, 1, "the answer stays");
+}
+
+/// An application keeps its data in the environment beside the compilers',
+/// and a prune reads only the compilers' namespaces: an entry of its own that
+/// happens to decode as another build's kernel key survives.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_leaves_an_applications_entries_alone() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::compiler::{KernelCacheKey, build_id_hash};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    // Opens the active environment's database, created by the first store.
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let tuner: cubecl_server::tune::Tuner<String> =
+        cubecl_server::tune::Tuner::new("application", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    let database = Database::open_active().unwrap();
+    let lookalike = cbor(&KernelCacheKey {
+        id: 1,
+        variant: 0,
+        build_id: build_id_hash() ^ 1,
+    });
+    let namespace = "my-application/0.1.0/settings";
+    database.insert(namespace, b"setting", &lookalike, Origin::Local);
+    database.insert(namespace, &lookalike, b"value", Origin::Local);
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!(pruned.kernels.removed, 0, "{pruned:?}");
+    assert!(database.get(namespace, b"setting").is_some());
+    assert!(database.get(namespace, &lookalike).is_some());
 }
 
 /// `value` encoded as a store encodes it: CBOR.

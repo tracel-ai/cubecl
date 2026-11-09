@@ -1,11 +1,10 @@
 //! The kernels the work launched, recorded per build.
 
-use super::{build_id_hash, compilation_store};
+use super::{build_id_hash, persistent_store};
 use crate::id::KernelId;
-use alloc::string::String;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::collections::HashSet;
-use cubecl_environment::persistence::Store;
+use cubecl_environment::persistence::{Namespace, Store};
 
 /// The kernels the work launched in the active environment, by the stable
 /// hash of their id, kept per build: what an environment's prune keeps of this
@@ -34,9 +33,9 @@ impl WorkLaunchStore {
     /// build.
     pub const ROOT: &'static str = "launched";
 
-    /// The path under [`ROOT`](Self::ROOT) of the records of `build`.
-    pub fn build_path(build: StableHash) -> String {
-        alloc::format!("{build:032x}")
+    /// The namespace the kernels `build`'s work launched are recorded under.
+    pub fn namespace(build: StableHash) -> Namespace {
+        Namespace::scoped(Self::ROOT, alloc::format!("{build:032x}"))
     }
 
     /// The records of this build in the active environment when `bound` — the
@@ -44,7 +43,7 @@ impl WorkLaunchStore {
     /// otherwise, or when compilation caching is disabled.
     pub fn new(bound: bool) -> Self {
         let store = match bound {
-            true => compilation_store(Self::ROOT, Self::build_path(build_id_hash())),
+            true => persistent_store(Self::namespace(build_id_hash())),
             false => None,
         };
         Self {

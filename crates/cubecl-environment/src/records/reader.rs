@@ -1,4 +1,4 @@
-use super::{ROOT, Record, SESSIONS, Session, SessionId, Stamped};
+use super::{EVERY_LAYOUT, ROOT, Record, SESSIONS, Session, SessionId, Stamped};
 use crate::bytes::Bytes;
 use crate::environment::{PruneTally, RecordPruning};
 use crate::persistence::{Database, encode};
@@ -133,6 +133,5 @@ struct RecordSize {
 /// Whether `namespace` holds records or sessions, of this layout or an earlier
 /// one.
 fn holds_records(namespace: &str) -> bool {
-    let root = ROOT.split('/').next().unwrap_or(ROOT);
-    namespace.split('/').next() == Some(root)
+    namespace.split('/').next() == Some(EVERY_LAYOUT)
 }

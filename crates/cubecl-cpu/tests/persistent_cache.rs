@@ -11,7 +11,7 @@ use cubecl_environment::persistence::{Database, Store};
 use cubecl_environment::records::{self, RecordLevel, Records, RecordsConfig};
 use cubecl_llvm::PlironEngine;
 use cubecl_server::compiler::{
-    CompilationOutcome, CompilationRecord, KernelCacheKey, compilation_store,
+    ArtifactRoot, CompilationOutcome, CompilationRecord, KernelCacheKey, compilation_store,
 };
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationConfig};
 use std::sync::Mutex;
@@ -104,7 +104,7 @@ fn test_cold_vs_warm_launch() {
 
     // Verify stored object can be warm loaded and retains 0 object bytes
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(entries.len(), 1);
@@ -208,7 +208,7 @@ fn test_alignment_key_isolation() {
 
     // Assert both variants generated separate store entries in the storage
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(
@@ -258,7 +258,7 @@ fn test_corrupted_store_recovery() {
 
     // Open store and poison the entry with malformed bytes
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(entries.len(), 1);
@@ -295,7 +295,7 @@ fn test_corrupted_store_recovery() {
 
     // Assert that the store entry was rewritten with valid object bytes
     let mut store_after: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries_after = Vec::new();
     store_after.scan(|k, v| entries_after.push((k, v)));
     assert_eq!(entries_after.len(), 1);
@@ -343,7 +343,7 @@ fn test_object_bytes_not_retained() {
 
     // Inspect the entry written by store()
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(entries.len(), 1);
@@ -445,7 +445,7 @@ fn a_prune_keeps_only_the_kernel_the_work_launched() {
             if namespace.starts_with(WorkLaunchStore::ROOT) {
                 work.push(ciborium::from_reader::<u128, _>(key).unwrap());
             } else if namespace.starts_with("cpu")
-                && let Some(artifact) = KernelCacheKey::of_entry(key, value)
+                && let Some(artifact) = KernelCacheKey::from_entry(key, value)
             {
                 stored.push(artifact.id);
                 variants.push(artifact.variant);
