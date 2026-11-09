@@ -33,7 +33,7 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
-# Reads the stored autotune answers and kernel keys a prune decides by.
+# Reads the kernel keys and the work's launches a prune decides by.
 ciborium = { workspace = true, features = ["std"], optional = true }
 cfg-if = { workspace = true }
 cubecl-common = { workspace = true, features = [

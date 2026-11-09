@@ -373,10 +373,10 @@ fn test_object_bytes_not_retained() {
 
 /// A tune on the CPU runtime races both candidates, storing each one's kernel
 /// under the variant the runtime compiles it in; the work then runs the pick.
-/// A prune keeps the kernel the work loaded and removes the one only the race
-/// did.
+/// A prune keeps the kernel the work launched and removes the one only the
+/// race did.
 #[test]
-fn a_prune_keeps_only_the_kernel_the_work_loaded() {
+fn a_prune_keeps_only_the_kernel_the_work_launched() {
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_server::compiler::WorkLaunchStore;
     use cubecl_server::prune::Prune;
@@ -439,15 +439,26 @@ fn a_prune_keeps_only_the_kernel_the_work_loaded() {
     let database = Database::open_active().unwrap();
     let mut work = Vec::new();
     let mut stored = Vec::new();
+    let mut variants = Vec::new();
     for namespace in database.namespaces() {
         database.scan(&namespace, &mut |key, value| {
             if namespace.starts_with(WorkLaunchStore::ROOT) {
                 work.push(ciborium::from_reader::<u128, _>(key).unwrap());
-            } else if namespace.starts_with("cpu") {
-                stored.extend(KernelCacheKey::of_entry(key, value).map(|artifact| artifact.id));
+            } else if namespace.starts_with("cpu")
+                && let Some(artifact) = KernelCacheKey::of_entry(key, value)
+            {
+                stored.push(artifact.id);
+                variants.push(artifact.variant);
             }
         });
     }
-    assert_eq!(work.len(), 1, "the work loaded one kernel");
-    assert_eq!(stored, work, "what is stored is the kernel the work loaded");
+    assert_eq!(work.len(), 1, "the work launched one kernel");
+    assert_eq!(
+        stored, work,
+        "what is stored is the kernel the work launched"
+    );
+    assert!(
+        variants.iter().all(|variant| *variant != 0),
+        "stored in the variant it compiles in"
+    );
 }
