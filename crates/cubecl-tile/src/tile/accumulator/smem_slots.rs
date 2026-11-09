@@ -64,7 +64,7 @@ impl Tile {
 
         let units = self.units();
         let source = Memory::smem_backed::<Served>(
-            space,
+            &space,
             width,
             comptime!(FillUnits::cube(units)),
             Backing::new_ReadCall(RawCall::of::<Served>(
@@ -101,7 +101,7 @@ impl<A: Numeric> SmemSlotsAccumulation<A> {
         let slot = comptime!(form.cells() * width);
         let units = self.like.units();
         let sink = Memory::smem_backed::<A>(
-            space,
+            &space,
             width,
             comptime!(FillUnits::cube(units)),
             Backing::new_WriteCall(RawCall::of::<A>(

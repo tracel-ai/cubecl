@@ -14,7 +14,7 @@ impl Memory {
         &mut self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axis: Axis,
     ) {
         let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
@@ -25,7 +25,7 @@ impl Memory {
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;
-                let cell = bias.value_at::<E>(i as u32, s as u32, space.clone());
+                let cell = bias.value_at::<E>(i as u32, s as u32, space);
                 view.write(
                     at,
                     Vector::cast_from(view.read(at).extract(0usize) * scale + cell),
@@ -40,7 +40,7 @@ impl Memory {
     pub(crate) fn maxima_along<E: Float>(
         &self,
         seed: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axis: Axis,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
@@ -66,7 +66,7 @@ impl Memory {
         &mut self,
         scale: E,
         offsets: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axis: Axis,
     ) {
         let (count, length) = comptime!((space.slices_along(axis), space.extent(axis)));
@@ -91,7 +91,7 @@ impl Memory {
     /// Each slice's sum over this window over `space`, `axis` its innermost.
     pub(crate) fn sums_along<E: Float>(
         &self,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axis: Axis,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
@@ -115,7 +115,7 @@ impl Memory {
     pub(crate) fn mul_along<E: Float>(
         &mut self,
         factors: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axis: Axis,
     ) {
         let (length, cells) = comptime!((space.extent(axis), space.cells()));
@@ -135,7 +135,7 @@ impl Memory {
         scale: E,
         bias: &Procedural,
         logsumexp: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
     ) {
         let (slices, length) = comptime!((
@@ -152,7 +152,7 @@ impl Memory {
             while s < length {
                 let at = i * length + s;
                 let score = view.read(at).extract(0usize) * scale
-                    + bias.value_at::<E>(i as u32, s as u32, space.clone());
+                    + bias.value_at::<E>(i as u32, s as u32, space);
                 let probability =
                     AxisSlices::exp_minus_cell::<E>(score, logsumexp[first + s * step]);
                 view.write(at, Vector::cast_from(probability));
@@ -168,7 +168,7 @@ impl Memory {
         &mut self,
         probabilities: &Memory,
         delta: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
     ) {
         let (slices, length) = comptime!((

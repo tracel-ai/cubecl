@@ -404,7 +404,7 @@ impl MmaData {
     }
 
     /// Drain this (accumulator) fragment into `mem`'s window, `space` being the window's.
-    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: Space) {
+    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: &Space) {
         self.store_cast_window::<T, T>(mem, space)
     }
 
@@ -412,7 +412,7 @@ impl MmaData {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let m = comptime!(self.m);
         let n = comptime!(self.n);
@@ -451,7 +451,7 @@ impl MmaData {
         &mut self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] origin: (usize, usize),
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
@@ -471,7 +471,7 @@ impl MmaData {
                 let cell = bias.value_at::<E>(
                     row + comptime!(row0 as u32),
                     col + comptime!(col0 as u32),
-                    space.clone(),
+                    space,
                 );
                 vector.insert(e, vector.extract(e) * scale + cell);
             }
@@ -487,7 +487,7 @@ impl MmaData {
         scale: E,
         bias: &Procedural,
         logsumexp: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
         #[comptime] origin: (usize, usize),
     ) {
@@ -509,7 +509,7 @@ impl MmaData {
                     MatrixIdent::Accumulator,
                 );
                 let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
-                let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space.clone());
+                let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
                 vector.insert(e, AxisSlices::exp_minus_cell::<E>(score, held));
@@ -1147,13 +1147,13 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     fragment: &Array<Vector<T, NA>>,
     def: &MmaDefinition<A, B, CD>,
     #[comptime] layout: MatrixLayout,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
 ) {
     let width = comptime!(mem.store.vector_size);
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    let axes = comptime!(MatrixAxes::trailing(&space));
+    let axes = comptime!(MatrixAxes::trailing(space));
 
     if width == 1 {
         let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, axes, space);

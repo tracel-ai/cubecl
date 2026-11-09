@@ -61,12 +61,12 @@ impl WgmmaData {
         &mut self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
         comptime!(assert_operands_fit(
             &lhs.place.space,
             &rhs.place.space,
-            &out,
+            out,
             self.n
         ));
         let (lhs_layout, rhs_layout) =
@@ -104,7 +104,7 @@ impl WgmmaData {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         comptime!(assert!(
             mem.store.vector_size == 1,

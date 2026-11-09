@@ -40,19 +40,12 @@ fn conv_dense_stage_kernel<E: Numeric>(
         let (input, weight, out) = (input.at(&cube), weight.at(&cube), out.at(&cube));
         let acc = out.accumulator::<E>(&input, &weight, instruction, Semiring::SUM_PROD);
         let walk = cube.over(&steps);
-        let mut stages = Stages::smem(
-            &walk,
-            &input,
-            &weight,
-            comptime!(storage.clone()),
-            1usize,
-            None,
-        );
+        let mut stages = Stages::smem(&walk, &input, &weight, storage.clone(), 1usize, None);
         stages.pipelined(walk, |slot, region| {
             let mut acc_r = acc.at(region);
             slot.consume(|i, w| {
                 // A stage taller than one block holds a block per plane, each contracting its own.
-                if comptime!(planes > 1) {
+                if planes > 1 {
                     for plane in region {
                         let mut acc_p = acc_r.at(&plane);
                         acc_p.mma(&i.at(&plane), &w.at(&plane));

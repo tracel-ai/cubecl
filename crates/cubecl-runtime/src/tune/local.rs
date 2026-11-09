@@ -258,7 +258,10 @@ where
                     crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
                 log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
             }
-            return execute_settled(&operations, &key, fastest_index, inputs);
+            return operations
+                .fastest(fastest_index)
+                .execute(inputs)
+                .expect("Should run when selected by autotune.");
         }
 
         // Built after the fast path: a hit logs nothing, so it takes no logger lock.
@@ -273,9 +276,10 @@ where
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => {
-                execute_settled(&operations, &key, fastest_index, inputs)
-            }
+            TuneCacheResult::Hit { fastest_index } => operations
+                .fastest(fastest_index)
+                .execute(inputs)
+                .expect("Should run when selected by autotune."),
             TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
@@ -300,40 +304,6 @@ where
 /// Runs the candidates in the plan's [order](super::TunePlan::order) and hands back the
 /// first output, or every candidate's error when none launches. A candidate that fails to
 /// launch is skipped, as the measurement skips it.
-/// The candidate `key` settled on, run on `inputs`; where it refuses them, the candidates in the
-/// plan's order, the first that launches.
-///
-/// A key stands for every call of its bucket, and its candidates are prepared and timed on one
-/// representative of it: a winner can still refuse a call the representative did not show, as a
-/// launch whose grid grows with a batch the key does not tell apart passes the device's limit.
-/// Every candidate computes the same output, so the call runs the next one that serves it, as a
-/// call does while its key is still tuning.
-///
-/// # Panics
-///
-/// When no candidate launches on `inputs`.
-fn execute_settled<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
-    operations: &TunableSet<AK, I, Out, Id>,
-    key: &AK,
-    fastest_index: usize,
-    inputs: <I as TuneInputs>::At<'a>,
-) -> Out
-where
-    <I as TuneInputs>::At<'a>: Clone,
-{
-    let refused = match operations.fastest(fastest_index).execute(inputs.clone()) {
-        Ok(output) => return output,
-        Err(refused) => refused,
-    };
-    match execute_in_plan_order(operations, key, inputs) {
-        Ok(output) => output,
-        Err(failures) => panic!(
-            "The operation autotune settled on refused this call ({refused:?}), and so did every \
-             other candidate.\n{failures:?}"
-        ),
-    }
-}
-
 fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
@@ -423,37 +393,6 @@ mod tests {
             execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
             Some(2)
         );
-    }
-
-    #[test]
-    fn a_settled_winner_that_refuses_a_call_falls_back_down_the_plan() {
-        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
-        let operations = set()
-            .with(
-                Tunable::<FakeAutotuneKey, (), usize>::new("settled_winner", fails)
-                    .group(&group, |_| 2),
-            )
-            .with(
-                Tunable::<FakeAutotuneKey, (), usize>::new("planned_second", answers(1))
-                    .group(&group, |_| 1),
-            );
-
-        assert_eq!(execute_settled(&operations, &FakeAutotuneKey, 0, ()), 1);
-    }
-
-    #[test]
-    fn a_settled_winner_that_serves_the_call_runs() {
-        let operations = set()
-            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
-                "first",
-                answers(0),
-            ))
-            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
-                "settled_winner",
-                answers(1),
-            ));
-
-        assert_eq!(execute_settled(&operations, &FakeAutotuneKey, 1, ()), 1);
     }
 
     #[test]

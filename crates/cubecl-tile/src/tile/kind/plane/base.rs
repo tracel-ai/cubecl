@@ -199,7 +199,7 @@ impl PlaneTile {
     pub(crate) fn add_from_scratch<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         match self {
             PlaneTile::Cmma(d) => d.add_from_scratch::<T, Out>(mem, space),
@@ -325,13 +325,13 @@ impl PlaneTile {
     }
 
     /// Store this tile into `mem`; `space` is the sink window's.
-    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: Space) {
+    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: &Space) {
         let addressed = mem.store.addressed();
         match self {
             PlaneTile::Cmma(d) => {
                 match comptime!(FragmentDrain::of(&mem.access, addressed, true)) {
                     FragmentDrain::Intrinsic => {
-                        d.store_window::<T>(mem, comptime!(MatrixAxes::edges(&space).row_split))
+                        d.store_window::<T>(mem, comptime!(MatrixAxes::edges(space).row_split))
                     }
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, T>(mem, space),
                 }
@@ -358,7 +358,7 @@ impl PlaneTile {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let addressed = mem.store.addressed();
         match self {
@@ -368,7 +368,7 @@ impl PlaneTile {
                 match comptime!(FragmentDrain::of(&mem.access, addressed, in_place)) {
                     FragmentDrain::Intrinsic => d.store_cast_window::<T, Out>(
                         mem,
-                        comptime!(MatrixAxes::edges(&space).row_split),
+                        comptime!(MatrixAxes::edges(space).row_split),
                     ),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, Out>(mem, space),
                 }
@@ -454,7 +454,7 @@ impl PlanePartition {
 
     /// The `sub_m × sub_n` block of fragments `step` selects, or one fragment if `1 × 1`.
     /// A level that cuts the partition must be walked with comptime coordinates.
-    pub(crate) fn at_step(&self, step: &Step, #[comptime] space: Space) -> TileKind {
+    pub(crate) fn at_step(&self, step: &Step, #[comptime] space: &Space) -> TileKind {
         // A grid of instruction fragments may span a contraction over several axes; a register
         // block's edges are its own, and it reads the window's trailing pair.
         let fragments = match self.frags.index(0usize) {
@@ -462,18 +462,18 @@ impl PlanePartition {
             PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         };
         let edges = comptime!(match fragments {
-            true => grid_axes(&space, (self.rows, self.cols), (self.m_tiles, self.n_tiles)),
-            false => MatrixAxes::edges(&space),
+            true => grid_axes(space, (self.rows, self.cols), (self.m_tiles, self.n_tiles)),
+            false => MatrixAxes::edges(space),
         });
         let a0 = space.axis_at(edges.row_split);
         let a1 = space.axis_at(edges.col_split);
         // A single-tile axis is the constant `0`; a `Dynamic` axis stays runtime (`None`).
-        let mi = if comptime!(step.level.tiles_const(&space, a0) == Some(1)) {
+        let mi = if comptime!(step.level.tiles_const(space, a0) == Some(1)) {
             comptime!(Some(0u64))
         } else {
             step.coord(a0).constant()
         };
-        let ni = if comptime!(step.level.tiles_const(&space, a1) == Some(1)) {
+        let ni = if comptime!(step.level.tiles_const(space, a1) == Some(1)) {
             comptime!(Some(0u64))
         } else {
             step.coord(a1).constant()
@@ -481,7 +481,7 @@ impl PlanePartition {
         match comptime!(mi.zip(ni)) {
             Some((c0, c1)) => {
                 let (sub_m, sub_n) = comptime!({
-                    let (cm, cn) = (step.level.tiles(&space, a0), step.level.tiles(&space, a1));
+                    let (cm, cn) = (step.level.tiles(space, a0), step.level.tiles(space, a1));
                     assert!(
                         self.m_tiles.is_multiple_of(cm) && self.n_tiles.is_multiple_of(cn),
                         "Tile::at: the level's grid must divide the partition"
@@ -498,7 +498,7 @@ impl PlanePartition {
             }
             None => {
                 comptime!(assert!(
-                    !MatrixGrid::new(&step.level, &space).cuts(),
+                    !MatrixGrid::new(&step.level, space).cuts(),
                     "Tile::at: a level that cuts a partition must be walked with compile-time \
                      coordinates (an unrolled walk)"
                 ));
@@ -609,7 +609,7 @@ impl PlanePartition {
     /// An uninitialized plane-resident accumulator partition mirroring `space`'s grid.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mirror<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] axes: MatrixAxes,
         #[comptime] form: Instruction,
         #[comptime] grid: GridShape,
@@ -651,7 +651,7 @@ impl PlanePartition {
             }),
             // A `Dynamic` extent here is never read; fragments were sized from the statement.
             factor: Factor::none(),
-            place: comptime!(Placement::new(space, depth, levels)),
+            place: comptime!(Placement::new(space.clone(), depth, levels)),
             element: elem_type_of::<T>(),
         }
     }
@@ -660,16 +660,16 @@ impl PlanePartition {
     /// `form` names. `m`/`n` are the accumulator fragment's.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn store<T: Numeric>(
-        #[comptime] window: Space,
+        #[comptime] window: &Space,
         #[comptime] form: Instruction,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
         #[comptime] grid: (usize, usize),
         #[comptime] m: usize,
         #[comptime] n: usize,
         #[comptime] depth: usize,
         #[comptime] levels: Vec<Level>,
     ) -> Tile {
-        let edges = comptime!(MatrixAxes::operand(&window, &out));
+        let edges = comptime!(MatrixAxes::operand(window, out));
         let a0 = window.axis_at(edges.row_split);
         let a1 = window.axis_at(edges.col_split);
 
@@ -682,7 +682,7 @@ impl PlanePartition {
                  other is the accumulator's"
             ),
         });
-        let out_edges = comptime!(MatrixAxes::edges(&out));
+        let out_edges = comptime!(MatrixAxes::edges(out));
         let out_rows = out.axis_at(out_edges.row_split);
         let (ident, tiles) = comptime!(if free == out_rows {
             (MatrixIdent::A, grid.0)
@@ -702,9 +702,9 @@ impl PlanePartition {
         );
         // Every axis of the contraction: the edge of the group `contracted` leads.
         let k = comptime!(if contracted == a0 {
-            edges.rows(&window)
+            edges.rows(window)
         } else {
-            edges.cols(&window)
+            edges.cols(window)
         });
         let (e0, e1) = comptime!(if free == a0 {
             (rows_along_free, k)
@@ -737,7 +737,7 @@ impl PlanePartition {
                 held: Scratch::None,
             }),
             factor: Factor::none(),
-            place: comptime!(Placement::new(window, depth, levels)),
+            place: comptime!(Placement::new(window.clone(), depth, levels)),
             element: elem_type_of::<T>(),
         }
     }
@@ -804,9 +804,9 @@ impl PlanePartition {
             assert_block_scaled::<T>(src, scaled_form.unwrap(), ident, m, n, k);
         }
         let mut frags = PlanePartition::store::<T>(
-            comptime!(src.place.space.clone()),
+            &src.place.space,
             comptime!(form),
-            comptime!(acc.place.space.clone()),
+            &acc.place.space,
             comptime!(grid),
             comptime!(m),
             comptime!(n),
@@ -837,7 +837,7 @@ impl PlanePartition {
             // A scaled, packed or global operand loads from its plane's landing, as the direct
             // contraction does: a fragment reads a shared, plain window as it lies.
             let side = comptime!(Side::of(&src.place.space, &acc.place.space));
-            let landing = src.landed::<T>(side, comptime!(acc.place.space.clone()));
+            let landing = src.landed::<T>(side, &acc.place.space);
             frags.copy_from(&landing);
             // The landing is this region's until every unit's load has read it.
             sync_plane();
@@ -869,8 +869,8 @@ impl PlanePartition {
         });
         let first = src.at(&Region::cell(
             comptime!(src.place.depth),
-            comptime!(src.place.space.clone()),
-            level.clone(),
+            &src.place.space,
+            &level,
             edges,
             0usize,
             0usize,
@@ -887,8 +887,8 @@ impl PlanePartition {
                         let mut frag = self.at(mi, ni);
                         let window = src.at(&Region::cell(
                             comptime!(src.place.depth),
-                            comptime!(src.place.space.clone()),
-                            level.clone(),
+                            &src.place.space,
+                            &level,
                             edges,
                             mi,
                             ni,
@@ -924,8 +924,8 @@ impl PlanePartition {
             for pj in 0..pairs.1 {
                 let window = src.at(&Region::cell(
                     comptime!(src.place.depth),
-                    comptime!(src.place.space.clone()),
-                    level.clone(),
+                    &src.place.space,
+                    &level,
                     edges,
                     pi,
                     pj,
@@ -1000,7 +1000,7 @@ impl PlanePartition {
         &self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         #[unroll]
         for mi in 0..self.m_tiles {
@@ -1010,7 +1010,7 @@ impl PlanePartition {
                 fragment.scale_add_along::<E>(
                     scale,
                     bias,
-                    space.clone(),
+                    space,
                     comptime!((mi * self.rows, ni * self.cols)),
                 );
             }
@@ -1062,7 +1062,7 @@ impl PlanePartition {
         scale: E,
         bias: &Procedural,
         logsumexp: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
     ) {
         #[unroll]
@@ -1074,7 +1074,7 @@ impl PlanePartition {
                     scale,
                     bias,
                     logsumexp,
-                    space.clone(),
+                    space,
                     broadcast.clone(),
                     comptime!((mi * self.rows, ni * self.cols)),
                 );
