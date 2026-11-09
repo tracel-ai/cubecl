@@ -47,7 +47,7 @@ impl From<&MetadataBindingInfo> for MetadataLayout {
 pub(crate) struct WgpuPipelines<C> {
     compiler: WgpuArtifactCompiler<C>,
     #[cfg(feature = "spirv")]
-    spirv_store: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
+    spirv_store: Option<Store<KernelCacheKey, cubecl_spirv::SpirvCacheEntry>>,
     /// What the SPIR-V store's keys are scoped by beside the kernel: SPIR-V
     /// compiled for one set of device properties is not valid for another.
     #[cfg(feature = "spirv")]
@@ -61,7 +61,7 @@ impl<C> WgpuPipelines<C> {
     pub fn new(
         compiler: WgpuArtifactCompiler<C>,
         #[cfg(feature = "spirv")] spirv_store: Option<
-            Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>,
+            Store<KernelCacheKey, cubecl_spirv::SpirvCacheEntry>,
         >,
         #[cfg(feature = "spirv")] properties_hash: u64,
     ) -> Self {
@@ -103,9 +103,10 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
         {
             use crate::{AutoRepresentation, CompilerInfo, ParamsTransfer};
 
-            let key = (
-                self.properties_hash,
-                KernelCacheKey::new(&id.kernel, self.build_id),
+            let key = KernelCacheKey::with_variant(
+                &id.kernel,
+                self.properties_hash.into(),
+                self.build_id,
             );
             let entry = self.spirv_store.as_mut()?.remove(&key)?;
             log::trace!("Using SPIR-V cache");
@@ -158,9 +159,10 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
             else {
                 return false;
             };
-            let key = (
-                self.properties_hash,
-                KernelCacheKey::new(&id.kernel, self.build_id),
+            let key = KernelCacheKey::with_variant(
+                &id.kernel,
+                self.properties_hash.into(),
+                self.build_id,
             );
             store_compiled(
                 store,

@@ -79,17 +79,34 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct KernelCacheKey {
-    /// Hash of the [kernel id](KernelId).
+    /// Hash of the [kernel id](KernelId): what a launch of the kernel is
+    /// collected by, so an artifact is known by the launches that load it.
     pub id: StableHash,
+    /// Hash of what else decides the artifact for that kernel: the variant a
+    /// backend compiles it in, the device properties its code is specialized
+    /// for. Zero when the kernel id says everything, and then not written, so
+    /// such a key stays what it was before variants were kept apart.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub variant: StableHash,
     /// Hash of the [build id](buildid::build_id).
     pub build_id: StableHash,
+}
+
+fn is_zero(variant: &StableHash) -> bool {
+    *variant == 0
 }
 
 impl KernelCacheKey {
     /// Create a key from a kernel id and the current build ID.
     pub fn new(id: &KernelId, build_id: StableHash) -> Self {
+        Self::with_variant(id, 0, build_id)
+    }
+
+    /// Create a key for `id` compiled in `variant`, with the current build ID.
+    pub fn with_variant(id: &KernelId, variant: StableHash, build_id: StableHash) -> Self {
         Self {
             id: id.stable_hash(),
+            variant,
             build_id,
         }
     }
@@ -99,14 +116,7 @@ impl KernelCacheKey {
         id: &super::ArtifactId<V>,
         build_id: StableHash,
     ) -> Self {
-        use core::hash::Hash;
-        let mut hasher = StableHasher::new();
-        id.kernel.stable_hash().hash(&mut hasher);
-        id.variant.hash(&mut hasher);
-        Self {
-            id: hasher.finalize(),
-            build_id,
-        }
+        Self::with_variant(&id.kernel, StableHasher::hash_one(&id.variant), build_id)
     }
 }
 
