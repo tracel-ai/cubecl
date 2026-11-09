@@ -184,19 +184,29 @@ such as model weights.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
 
-**Tracing** (`tracing`): what each allocation remembers of the code that asked for it. With
-anything but `disabled`, every pool in a memory report (`Client::memory_report`) lists the
-allocations alive in it (`MemoryPoolReport::allocations`): each one's id, size, padding and
-origin. An origin lives exactly as long as its allocation, so a freed one is never listed.
+**Tracing** (`tracing`): reports the piece of code that caused a new memory allocation. When 
+enabled, every pool in a memory report (`Client::memory_report`) lists
+its live allocations (`MemoryPoolReport::allocations`): its id, size, padding and
+origin. An allocation’s origin is stored with the allocation itself, so a report only ever lists
+memory that is still in use.
 
-- `disabled` (default): nothing is remembered and the reports list no allocations.
-- `labels`: the labels the allocating thread had entered, its name, and the allocation's place in
-  the order allocations were made. Code labels what it allocates with
-  `cubecl_common::allocation_label::AllocationLabel::enter("weights")`; the guard pops the label
-  when it drops, and labels nest.
-- `backtraces`: the labels and the call stack, captured unresolved and resolved only when a
-  report lists the allocation. Capturing costs microseconds per allocation, so it is for a
-  diagnosis. Build with line tables (`debug = "line-tables-only"`) for file and line numbers.
+- `disabled` (default): the reports list no allocations.
+- `labels`: each allocation records the labels that were active (see `AllocationLabel::enter`)
+when it was made, the name of the thread that made it, and a sequence number giving its order
+among all allocations.
+- `backtraces`: same as `labels`, plus the call stack that made the allocation. Capturing a stack 
+costs a few microseconds per allocation, so use this level for debugging, not in normal runs. In
+release builds, enable line tables (`debug = "line-tables-only"`) to get file and line numbers.
+
+To label allocations, create a label around the code that makes them:
+
+```rust
+use cubecl_common::allocation_label::AllocationLabel;
+
+let _label = AllocationLabel::enter("weights");
+let handle = client.create(bytes); // reported under "weights"
+// the label stops applying when `_label` goes out of scope
+```
 
 **Example:**
 
