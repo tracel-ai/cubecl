@@ -1,22 +1,6 @@
-//! Removing from an environment what this build's work never launched.
-//!
-//! A tune races every candidate it measures, at the shape it tunes for, and
-//! each candidate compiles kernels for that shape; the work then launches the
-//! pick's kernels, for every shape it runs. What decides a kernel's fate is
-//! therefore not the tune but the work: the
-//! [loader](crate::compiler::KernelLoader) records each kernel the work
-//! launches ([`WorkLaunchStore`]), whatever shape or variant it was launched
-//! for, and never one only a race launched. A prune keeps what this build
-//! recorded and removes the rest of this build's compiled kernels, every
-//! kernel another build compiled with the records of what its work launched,
-//! and the build records the caller does not keep. The autotune answers stay.
-//!
-//! "Build" is the compiled program, as [`build_id_hash`] names it: a kernel is
-//! stored under the build that compiled it, and another build's is loaded
-//! only where a backend reuses an artifact by its source, as CUDA's and HIP's
-//! do; such a kernel compiles again after a prune. An environment in which
-//! this build's work launched nothing keeps every kernel this build compiled.
+//! A prune by the kernels the work launched, as the loader records them.
 
+use super::Prune;
 use crate::compiler::{KernelCacheKey, NamespaceRoot, WorkLaunchStore, build_id_hash};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -27,28 +11,6 @@ use cubecl_environment::environment::{
 };
 use cubecl_environment::persistence::{Access, Database};
 use cubecl_environment::records::Records;
-
-/// Pruning an environment: removing what this build's work never launched.
-///
-/// A trait rather than a method, because an [`EnvironmentId`] is declared
-/// where the layout of the compilation stores is unknown: this crate reads it.
-pub trait Prune {
-    /// Remove the kernels this build compiled and its work never launched,
-    /// those another build compiled, and the build records `options` does not
-    /// keep. The space they took is reclaimed by the next save, which copies
-    /// what is left.
-    ///
-    /// Prune from the build that runs the environment, once its work has run
-    /// with its tunes settled: a work launch made while a key is still
-    /// untuned runs whichever candidate comes first, and a pruned environment
-    /// keeps that candidate rather than the pick a later tune measures.
-    ///
-    /// # Errors
-    ///
-    /// The environment lives in another process's storage, or its database
-    /// does not open.
-    fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError>;
-}
 
 impl Prune for EnvironmentId {
     fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError> {
