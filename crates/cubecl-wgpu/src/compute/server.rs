@@ -30,9 +30,9 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-#[cfg(feature = "spirv")]
-use cubecl_server::compiler::compilation_store;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
+#[cfg(feature = "spirv")]
+use cubecl_server::compiler::{ArtifactRoot, compilation_store};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
     relocation::{RelocatingStreams, RelocationReason},
@@ -161,7 +161,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             compiler,
             #[cfg(feature = "spirv")]
             compilation_store(
-                "vulkan",
+                ArtifactRoot::Vulkan,
                 format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
             ),
             #[cfg(feature = "spirv")]

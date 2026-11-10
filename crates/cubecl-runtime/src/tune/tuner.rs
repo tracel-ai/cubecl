@@ -490,7 +490,7 @@ impl<K: AutotuneKey> Tuner<K> {
             // Every candidate of the batch runs, so every one of them queues its kernels.
             let mut served = false;
             for index in batch.indices() {
-                served |= autotunables[index].execute(test_inputs.clone()).is_ok();
+                served |= autotunables[index].race(test_inputs.clone()).is_ok();
             }
             if served {
                 break;

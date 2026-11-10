@@ -11,7 +11,7 @@ use cubecl_environment::persistence::{Database, Store};
 use cubecl_environment::records::{self, RecordLevel, Records, RecordsConfig};
 use cubecl_llvm::PlironEngine;
 use cubecl_server::compiler::{
-    CompilationOutcome, CompilationRecord, KernelCacheKey, compilation_store,
+    ArtifactRoot, CompilationOutcome, CompilationRecord, KernelCacheKey, compilation_store,
 };
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationConfig};
 use std::sync::Mutex;
@@ -104,7 +104,7 @@ fn test_cold_vs_warm_launch() {
 
     // Verify stored object can be warm loaded and retains 0 object bytes
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(entries.len(), 1);
@@ -208,7 +208,7 @@ fn test_alignment_key_isolation() {
 
     // Assert both variants generated separate store entries in the storage
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(
@@ -258,7 +258,7 @@ fn test_corrupted_store_recovery() {
 
     // Open store and poison the entry with malformed bytes
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(entries.len(), 1);
@@ -295,7 +295,7 @@ fn test_corrupted_store_recovery() {
 
     // Assert that the store entry was rewritten with valid object bytes
     let mut store_after: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries_after = Vec::new();
     store_after.scan(|k, v| entries_after.push((k, v)));
     assert_eq!(entries_after.len(), 1);
@@ -343,7 +343,7 @@ fn test_object_bytes_not_retained() {
 
     // Inspect the entry written by store()
     let mut store: Store<KernelCacheKey, CpuCacheEntry> =
-        compilation_store("cpu", &fingerprint).expect("store opens");
+        compilation_store(ArtifactRoot::Cpu, &fingerprint).expect("store opens");
     let mut entries = Vec::new();
     store.scan(|k, v| entries.push((k, v)));
     assert_eq!(entries.len(), 1);
@@ -368,5 +368,97 @@ fn test_object_bytes_not_retained() {
     assert!(
         !entry.object.is_empty(),
         "store entry holds the object bytes on disk"
+    );
+}
+
+/// A tune on the CPU runtime races both candidates, storing each one's kernel
+/// under the variant the runtime compiles it in; the work then runs the pick.
+/// A prune keeps the kernel the work launched and removes the one only the
+/// race did.
+#[test]
+fn a_prune_keeps_only_the_kernel_the_work_launched() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_server::compiler::WorkLaunchStore;
+    use cubecl_server::prune::Prune;
+    use cubecl_server::server::Handle;
+    use cubecl_server::tune::{Tunable, TunableSet, TuneCacheResult, Tuner};
+
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempDir::new("prune");
+    let _ = CubeClRuntimeConfig::try_set(CubeClRuntimeConfig {
+        compilation: CompilationConfig {
+            cache: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    cubecl_environment::environment::set_root(&temp.path);
+
+    let client = Client::load::<CpuServer>(DeviceId::new(0, 30));
+    let inputs = (
+        client.clone(),
+        client.create_from_slice(u32::as_bytes(&[42])),
+        client.create_from_slice(u32::as_bytes(&[0])),
+    );
+    type Inputs = (Client, Handle, Handle);
+    // Two candidates, each its own kernel: the comptime scalar is in the id.
+    let adding = |scalar: u32| {
+        move |(client, input, output): Inputs| -> Result<(), String> {
+            add_scalar_kernel::launch(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(1),
+                unsafe { BufferArg::from_raw_parts(output, 1) },
+                unsafe { BufferArg::from_raw_parts(input, 1) },
+                scalar,
+            );
+            Ok(())
+        }
+    };
+    let set = TunableSet::<String, Inputs, ()>::new_cloning_inputs(|_: &Inputs| "add".to_string())
+        .with(Tunable::new("plus_one", adding(1)))
+        .with(Tunable::new("plus_two", adding(2)));
+    let key = "add".to_string();
+    let tuner: Tuner<String> = Tuner::new("pruned", &client.hardware_identity());
+
+    let answer = tuner.check_tune(&key, &inputs, &set, &client, None);
+    let TuneCacheResult::Hit { fastest_index } = answer else {
+        panic!("the tune answers inline: {answer:?}");
+    };
+    set.fastest(fastest_index)
+        .execute(inputs.clone())
+        .expect("the pick runs");
+    // Read back, so the server has loaded the pick's kernel for the work.
+    let _ = client.read_one_unchecked(inputs.2.clone());
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!(pruned.kernels.removed, 1, "{pruned:?}");
+    assert_eq!(pruned.kernels.kept, 1, "{pruned:?}");
+    let database = Database::open_active().unwrap();
+    let mut work = Vec::new();
+    let mut stored = Vec::new();
+    let mut variants = Vec::new();
+    for namespace in database.namespaces() {
+        database.scan(&namespace, &mut |key, value| {
+            if namespace.starts_with(WorkLaunchStore::ROOT) {
+                work.push(ciborium::from_reader::<u128, _>(key).unwrap());
+            } else if namespace.starts_with("cpu")
+                && let Some(artifact) = KernelCacheKey::from_entry(key, value)
+            {
+                stored.push(artifact.id);
+                variants.push(artifact.variant);
+            }
+        });
+    }
+    assert_eq!(work.len(), 1, "the work launched one kernel");
+    assert_eq!(
+        stored, work,
+        "what is stored is the kernel the work launched"
+    );
+    assert!(
+        variants.iter().all(|variant| *variant != 0),
+        "stored in the variant it compiles in"
     );
 }

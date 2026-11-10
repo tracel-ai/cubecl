@@ -8,7 +8,7 @@ use cubecl_core::{ir::settings::DebugInfo, prelude::*};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{
-    ArtifactId, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
+    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
 };
 use cubecl_server::kernel::BufferIOAttr;
 use cudarc::driver::sys::CUfunc_st;
@@ -52,8 +52,8 @@ impl CudaModules {
         Self {
             ptx_store: ArtifactStore::with_sources(
                 StoreNames {
-                    kernels: "cuda",
-                    sources: "cuda-second-line",
+                    kernels: ArtifactRoot::Cuda,
+                    sources: ArtifactRoot::CudaSources,
                 },
                 fingerprint,
             ),

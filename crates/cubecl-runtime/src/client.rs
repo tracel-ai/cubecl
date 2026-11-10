@@ -1392,14 +1392,15 @@ impl Client {
             }
         }
 
-        crate::launched::note(|| kernel.id());
-
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
         let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
         // So is where its kernels count: the device runs it later, and an
         // override closing in between must not change that.
         let issued = crate::execution::IssuedRecorder::new();
+        // And what it is issued for: a race's launch loads a kernel the work
+        // may never pick, and the server records only the work's.
+        let purpose = crate::execution::LaunchPurpose::issued();
 
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
@@ -1431,8 +1432,10 @@ impl Client {
                         None
                     };
 
-                    issued.apply(|| unsafe {
-                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                    purpose.apply(|| {
+                        issued.apply(|| unsafe {
+                            state.launch(kernel, count, bindings, stream_id, launch_mode)
+                        })
                     });
 
                     if let Some(info) = execution_info {
@@ -1466,8 +1469,16 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| {
-                                issued_profiled.apply(|| unsafe {
-                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                purpose.apply(|| {
+                                    issued_profiled.apply(|| unsafe {
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
+                                    })
                                 })
                             })
                             .unwrap_or_resume()
@@ -1492,14 +1503,16 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    issued.apply(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
+                                    purpose.apply(|| {
+                                        issued.apply(|| unsafe {
+                                            state.launch(
+                                                kernel,
+                                                count,
+                                                bindings,
+                                                stream_id,
+                                                launch_mode,
+                                            )
+                                        })
                                     });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);
