@@ -2887,12 +2887,15 @@ fn a_prune_keeps_what_the_work_loaded() {
     tuner.check_tune(&key, &handles, &set, &client, None);
     let database = Database::open_active().unwrap();
 
-    let build = BuildStamp::current().hash;
-    let artifact = |id: u128, variant: u128, build_id: u128| {
+    let build = BuildStamp::current();
+    let other = BuildStamp {
+        hash: build.hash ^ 1,
+    };
+    let artifact = |id: u128, variant: u128, built_by: BuildStamp| {
         cbor(&KernelCacheKey {
             id,
             variant,
-            build_id,
+            built_by,
         })
     };
     let (work, race) = (0x1111_u128, 0x2222_u128);
@@ -2900,7 +2903,7 @@ fn a_prune_keeps_what_the_work_loaded() {
         artifact(work, 0, build),
         artifact(work, 5, build),
         artifact(race, 0, build),
-        artifact(work, 0, build ^ 1),
+        artifact(work, 0, other),
     ];
     let artifacts = Namespace::scoped(ArtifactRoot::Cpu.as_str(), "fingerprint");
     for key in &stored {
@@ -2908,7 +2911,7 @@ fn a_prune_keeps_what_the_work_loaded() {
     }
     let (this_build, other_build) = (
         WorkLaunchStore::namespace(build),
-        WorkLaunchStore::namespace(build ^ 1),
+        WorkLaunchStore::namespace(other),
     );
     database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
     database.insert(
@@ -2998,7 +3001,9 @@ fn a_prune_leaves_an_applications_entries_alone() {
     let lookalike = cbor(&KernelCacheKey {
         id: 1,
         variant: 0,
-        build_id: BuildStamp::current().hash ^ 1,
+        built_by: BuildStamp {
+            hash: BuildStamp::current().hash ^ 1,
+        },
     });
     let namespace = "my-application/0.1.0/settings";
     database.insert(namespace, b"setting", &lookalike, Origin::Local);

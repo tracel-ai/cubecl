@@ -156,7 +156,7 @@ impl CompilationRecording {
             span,
             work: core::time::Duration::ZERO,
             kernel: kernel_id.type_name(),
-            key: KernelCacheKey::new(kernel_id, BuildStamp::current().hash),
+            key: KernelCacheKey::new(kernel_id, BuildStamp::current()),
             ir: None,
             source: None,
         });

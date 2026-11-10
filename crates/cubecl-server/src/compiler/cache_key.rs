@@ -2,6 +2,7 @@
 
 use crate::id::KernelId;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_environment::environment::BuildStamp;
 
 /// Key for an entry in the persistent compilation cache.
 ///
@@ -24,12 +25,13 @@ pub struct KernelCacheKey {
     /// Hash of what else decides the artifact for that kernel: the variant a
     /// backend compiles it in, the device properties its code is specialized
     /// for. Zero when the kernel id says everything; not written then, so such
-    /// a key encodes as `id` and `build_id` alone.
+    /// a key encodes as `id` and `built_by` alone.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub variant: StableHash,
-    /// The [stamp](cubecl_environment::environment::BuildStamp) of the executable that
-    /// compiled the artifact.
-    pub build_id: StableHash,
+    /// The executable that compiled the artifact. Stored under the name
+    /// keys were first written with, so they still decode.
+    #[serde(rename = "build_id")]
+    pub built_by: BuildStamp,
 }
 
 /// Whether a key's variant is the one a kernel id says everything for, which
@@ -39,12 +41,12 @@ fn is_zero(variant: &StableHash) -> bool {
 }
 
 impl KernelCacheKey {
-    /// Create a key from a kernel id and the current build ID.
-    pub fn new(id: &KernelId, build_id: StableHash) -> Self {
+    /// The key of `id`, as the executable `built_by` compiled it.
+    pub fn new(id: &KernelId, built_by: BuildStamp) -> Self {
         Self {
             id: id.stable_hash(),
             variant: 0,
-            build_id,
+            built_by,
         }
     }
 
@@ -53,12 +55,13 @@ impl KernelCacheKey {
         Self { variant, ..self }
     }
 
-    /// Create a key from an artifact id (kernel and variant) and the current build ID.
+    /// The key of an artifact id (kernel and variant), as the executable
+    /// `built_by` compiled it.
     pub fn from_artifact_id<V: core::hash::Hash>(
         id: &super::ArtifactId<V>,
-        build_id: StableHash,
+        built_by: BuildStamp,
     ) -> Self {
-        Self::new(&id.kernel, build_id).in_variant(StableHasher::hash_one(&id.variant))
+        Self::new(&id.kernel, built_by).in_variant(StableHasher::hash_one(&id.variant))
     }
 
     /// The key of the artifact a compilation store's entry is of: the entry's
@@ -78,13 +81,15 @@ mod tests {
 
     /// A key written before variants were stored, and one in the kernel's own
     /// variant, read back as the same key: the variant is written only when
-    /// it says something.
+    /// it says something. The stamp is written as the bare hash under
+    /// `build_id`, as keys always were, so an environment's artifacts still
+    /// load.
     #[test]
     fn a_key_without_a_variant_reads_as_variant_zero() {
         let key = KernelCacheKey {
             id: 1,
             variant: 0,
-            build_id: 2,
+            built_by: BuildStamp { hash: 2 },
         };
         let written = cbor(&key);
         assert_eq!(written, cbor(&Pair { id: 1, build_id: 2 }));

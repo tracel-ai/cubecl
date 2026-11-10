@@ -53,7 +53,7 @@ pub(crate) struct WgpuPipelines<C> {
     #[cfg(feature = "spirv")]
     properties_hash: u64,
     #[cfg(feature = "spirv")]
-    build_id: cubecl_common::hash::StableHash,
+    built_by: cubecl_environment::environment::BuildStamp,
 }
 
 impl<C> WgpuPipelines<C> {
@@ -72,7 +72,7 @@ impl<C> WgpuPipelines<C> {
             #[cfg(feature = "spirv")]
             properties_hash,
             #[cfg(feature = "spirv")]
-            build_id: cubecl_environment::environment::BuildStamp::current().hash,
+            built_by: cubecl_environment::environment::BuildStamp::current(),
         }
     }
 }
@@ -103,7 +103,7 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
         {
             use crate::{AutoRepresentation, CompilerInfo, ParamsTransfer};
 
-            let key = KernelCacheKey::new(&id.kernel, self.build_id)
+            let key = KernelCacheKey::new(&id.kernel, self.built_by)
                 .in_variant(self.properties_hash.into());
             let entry = self.spirv_store.as_mut()?.remove(&key)?;
             log::trace!("Using SPIR-V cache");
@@ -156,7 +156,7 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
             else {
                 return false;
             };
-            let key = KernelCacheKey::new(&id.kernel, self.build_id)
+            let key = KernelCacheKey::new(&id.kernel, self.built_by)
                 .in_variant(self.properties_hash.into());
             store_compiled(
                 store,
