@@ -31,8 +31,14 @@ use crate::sync::{Arc, LazyLock, Mutex};
 
 pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
+mod environment_bundle;
+pub use environment_bundle::*;
+
 mod id;
 pub use id::*;
+
+#[cfg(native_cache)]
+mod scratch_file;
 
 mod prune;
 pub use prune::*;
