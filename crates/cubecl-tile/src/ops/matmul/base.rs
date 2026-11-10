@@ -280,7 +280,7 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(g) => {
                 let mut g = g.clone();
-                g.set_contraction(comptime!(Contraction { block, semiring }));
+                g.set_contraction(comptime!(WindowContraction { block, semiring }));
                 Tile {
                     kind: TileKind::new_Memory(g),
                     factor: self.factor.clone(),
