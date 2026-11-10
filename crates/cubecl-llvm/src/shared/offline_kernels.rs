@@ -39,7 +39,7 @@ pub(crate) fn scale_kernel(address_type: AddressType) -> impl CubeKernel {
     )
 }
 
-/// A buffer record: two coordinates and two indices, 16 bytes.
+/// A buffer struct: two coordinates and two indices, 16 bytes.
 #[derive(CubeType, Clone, Copy)]
 #[repr(C)]
 pub(crate) struct Observation {

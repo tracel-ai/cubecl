@@ -51,7 +51,7 @@ pub fn parse_repr_c(attrs: &[Attribute]) -> syn::Result<bool> {
                 if meta.path().is_ident("packed") {
                     return Err(syn::Error::new_spanned(
                         meta,
-                        "a `#[repr(C)]` cube type can't be `packed`: buffer record fields must be naturally aligned",
+                        "a `#[repr(C)]` cube type can't be `packed`: buffer struct fields must be naturally aligned",
                     ));
                 }
             }

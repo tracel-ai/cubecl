@@ -75,7 +75,7 @@ fn e4m3_decodes_on_the_part_where_it_converts() {
     assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
 }
 
-/// The fields of a buffer record load at constant offsets from one record address, not from an
+/// The fields of a buffer struct load at constant offsets from one struct address, not from an
 /// address of their own each.
 #[test]
 fn struct_fields_load_at_offsets_from_the_struct() {
