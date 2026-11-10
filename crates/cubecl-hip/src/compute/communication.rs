@@ -12,7 +12,7 @@ use std::{
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError},
+    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError, TransportProvider},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
@@ -40,6 +40,7 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
         Ok(version) => {
             log::debug!("RCCL {version} runs collectives and transfers between HIP devices");
             Some(DeviceTransport {
+                provider: TransportProvider::Rccl,
                 reduces: types.filter(|dtype| rccl_dtype(*dtype).is_some()).collect(),
             })
         }
@@ -51,13 +52,13 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
 }
 
 /// Warns once per process, rather than once per device, that `cause` sends transfers between
-/// HIP devices through the host and leaves them no collectives.
+/// HIP devices through the host and runs no collective between them.
 fn warn_host_fallback(cause: impl Display) {
     static WARNED: Once = Once::new();
     WARNED.call_once(|| {
         log::warn!(
             "Transfers between HIP devices go through the host, which is much slower, and \
-             collectives between them are unavailable: {cause}"
+             cubecl runs no collective between them: {cause}"
         );
     });
 }
@@ -129,7 +130,7 @@ impl CollectiveDriver for Hip {
     type UniqueId = UniqueId;
     type DataType = DataType;
 
-    const LIBRARY: &'static str = "RCCL";
+    const LIBRARY: &'static str = TransportProvider::Rccl.name();
 
     fn wait_for(
         stream: StreamSignal<Self>,

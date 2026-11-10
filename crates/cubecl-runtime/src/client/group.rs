@@ -3,9 +3,10 @@
 
 use super::{Client, PEER_ORDER};
 use crate::server::{
-    Collective, CollectiveBuffer, ComputeWait, Handle, Overlap, ReduceOperation, Reduction, Server,
+    Collective, CollectiveBuffer, ComputeWait, DeviceTransport, Handle, Overlap, ReduceOperation,
+    Reduction, Server,
 };
-use alloc::{collections::BTreeSet, vec::Vec};
+use alloc::vec::Vec;
 use cubecl_common::{device::DeviceId, device_handle::DeviceHandle};
 use cubecl_ir::ElemType;
 use thiserror::Error;
@@ -23,7 +24,7 @@ use thiserror::Error;
 pub struct ClientGroup {
     clients: Vec<Client>,
     device_ids: Vec<DeviceId>,
-    reduces: BTreeSet<ElemType>,
+    transport: DeviceTransport,
 }
 
 /// One member's buffers in a collective.
@@ -108,14 +109,16 @@ impl ClientGroup {
             });
         };
         // NCCL refuses a reduction unless every member's device supports it.
-        let mut reduces = transports[0].reduces.clone();
-        for transport in &transports[1..] {
-            reduces.retain(|dtype| transport.reduces.contains(dtype));
+        let mut transport = transports[0].clone();
+        for member in &transports[1..] {
+            transport
+                .reduces
+                .retain(|dtype| member.reduces.contains(dtype));
         }
         Ok(Self {
             clients,
             device_ids,
-            reduces,
+            transport,
         })
     }
 
@@ -124,10 +127,15 @@ impl ClientGroup {
         &self.clients
     }
 
+    /// The transport the members share: what runs it, and the element types every member reduces.
+    pub fn transport(&self) -> &DeviceTransport {
+        &self.transport
+    }
+
     /// Whether the members reduce elements of `dtype` together. Every other collective moves bytes,
     /// whatever their type.
     pub fn reduces(&self, dtype: ElemType) -> bool {
-        self.reduces.contains(&dtype)
+        self.transport.reduces.contains(&dtype)
     }
 
     /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be

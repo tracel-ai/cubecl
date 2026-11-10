@@ -157,8 +157,35 @@ pub struct ServerUtilities {
 /// A runtime's transport between its devices, which moves any buffer as bytes.
 #[derive(Debug, Clone)]
 pub struct DeviceTransport {
+    /// What runs it.
+    pub provider: TransportProvider,
     /// The element types it reduces.
     pub reduces: BTreeSet<ElemType>,
+}
+
+/// What runs a [`DeviceTransport`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportProvider {
+    /// NVIDIA's collective library, on CUDA.
+    Nccl,
+    /// AMD's collective library, on HIP.
+    Rccl,
+}
+
+impl TransportProvider {
+    /// The provider's name, as logs and refusals show it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nccl => "NCCL",
+            Self::Rccl => "RCCL",
+        }
+    }
+}
+
+impl Display for TransportProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Defines how the memory layout is determined.

@@ -13,7 +13,7 @@ use std::{
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError},
+    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError, TransportProvider},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
@@ -80,6 +80,7 @@ impl Nccl {
     /// The transport NCCL gives a device that supports `types`.
     pub fn transport(&self, types: impl Iterator<Item = ElemType>) -> DeviceTransport {
         DeviceTransport {
+            provider: TransportProvider::Nccl,
             reduces: types.filter(|dtype| self.reduces(*dtype)).collect(),
         }
     }
@@ -97,15 +98,15 @@ impl Nccl {
 }
 
 /// Warns once per process, and only where there is more than one CUDA device to move data
-/// between, that `cause` sends transfers between them through the host and leaves them no
-/// collectives.
+/// between, that `cause` sends transfers between them through the host and runs no collective
+/// between them.
 fn warn_host_fallback(cause: impl Display) {
     static WARNED: Once = Once::new();
     WARNED.call_once(|| {
         if CudaRuntime::enumerate_devices(0).len() > 1 {
             log::warn!(
                 "Transfers between CUDA devices go through the host, which is much slower, and \
-                 collectives between them are unavailable: {cause}"
+                 cubecl runs no collective between them: {cause}"
             );
         }
     });
@@ -158,7 +159,7 @@ impl CollectiveDriver for Cuda {
     type UniqueId = cudarc::nccl::sys::ncclUniqueId;
     type DataType = NcclDataType;
 
-    const LIBRARY: &'static str = "NCCL";
+    const LIBRARY: &'static str = TransportProvider::Nccl.name();
 
     fn wait_for(
         stream: StreamSignal<Self>,
