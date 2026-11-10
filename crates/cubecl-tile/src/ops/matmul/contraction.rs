@@ -1,5 +1,6 @@
-//! What a product multiplies and what its sum is for ([`Contraction`]), and the matrix
-//! instruction a device contracts it through ([`Contraction::instruction`]).
+//! What a product multiplies and what its sum is for ([`Contraction`]), the matrix instruction a
+//! device contracts it through ([`Contraction::instruction`]), and the smallest box everything
+//! touching it handles whole ([`Contraction::step`]).
 //!
 //! The choice has one right answer on a device, so it is made here, once, from facts the host
 //! and the kernel both hold, and never raced.
@@ -9,7 +10,7 @@ use core::cmp::Reverse;
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{DeviceProperties, ElemType, TargetProperties};
 
-use crate::{Instruction, MmaIo, MmaOperands};
+use crate::{Axis, Instruction, MmaIo, MmaOperands, Space};
 
 /// What becomes of a sum once its product is contracted: structure the code states where it
 /// opens the sum, never a setting.
@@ -21,14 +22,42 @@ pub enum SumRole {
     InRegisters,
 }
 
-/// One matrix product as the tile layer sees it: the element of each input, the element its sum
-/// is held in, and what becomes of that sum.
+/// One matrix product as the tile layer sees it: its two inputs, the element its sum is held in,
+/// and what becomes of that sum.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Contraction {
-    pub lhs: ElemType,
-    pub rhs: ElemType,
+    pub lhs: Input,
+    pub rhs: Input,
     pub sum: ElemType,
     pub role: SumRole,
+}
+
+/// One input of a product: the element the instruction contracts it in, and, for an input stored
+/// packed, what one read of it brings.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Input {
+    pub element: ElemType,
+    pub packing: Option<PackedReads>,
+}
+
+impl Input {
+    /// An input read as plain values of `element`.
+    pub const fn plain(element: ElemType) -> Self {
+        Self {
+            element,
+            packing: None,
+        }
+    }
+}
+
+/// The boxes one read of a packed input covers, over the product's axes: one read of its values
+/// (NVFP4 rows: two words, sixteen values, down `k`), and one read of its scales over the values
+/// they scale (a word of four scales of sixteen: sixty-four of `k`). Facts of how the input is
+/// stored, the same on every device.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct PackedReads {
+    pub values: [(Axis, usize); 2],
+    pub scales: Option<[(Axis, usize); 2]>,
 }
 
 /// A matrix instruction and the shape of the fragment one call of it contracts.
@@ -81,10 +110,59 @@ impl Contraction {
         transports.into_iter().find_map(|(shapes, instruction)| {
             shapes
                 .iter()
-                .filter(|s| s.a_type == self.lhs && s.b_type == self.rhs && s.cd_type == self.sum)
+                .filter(|s| {
+                    s.a_type == self.lhs.element
+                        && s.b_type == self.rhs.element
+                        && s.cd_type == self.sum
+                })
                 .min_by_key(|s| (Reverse(s.m * s.n * s.k), s.m.abs_diff(s.n), **s))
                 .map(|&shape| Fragment { instruction, shape })
         })
+    }
+
+    /// The smallest box over `axes` (`m`, `n`, `k`) that everything touching this product handles
+    /// whole: one call of its instruction ([`instruction`](Self::instruction)), every read of a
+    /// packed input, of its values and of its scales, and every load of a plain input, a line of
+    /// the device's load width along the axis the other input's reads run along (`k` where the
+    /// other is plain). The leaf a plane's share of the product is cut to; for plain inputs, the
+    /// instruction's fragment. `None` where the device has no instruction for it.
+    ///
+    /// The lhs spans `m` and `k`, the rhs `k` and `n`.
+    pub fn step(
+        &self,
+        device: &DeviceProperties,
+        target: &TargetProperties,
+        [m, n, k]: [Axis; 3],
+    ) -> Option<Space> {
+        let shape = self.instruction(device, target)?.shape;
+        let mut parts = vec![Space::new(&[
+            (m, shape.m as usize),
+            (n, shape.n as usize),
+            (k, shape.k as usize),
+        ])];
+        let inputs = [(&self.lhs, [m, k], &self.rhs), (&self.rhs, [k, n], &self.lhs)];
+        for (input, spans, other) in inputs {
+            match input.packing {
+                Some(reads) => {
+                    parts.push(Space::new(&reads.values));
+                    parts.extend(reads.scales.map(|scales| Space::new(&scales)));
+                }
+                None => {
+                    // The other input's reads run along the axis its values extend over, `k`
+                    // for a plain one, whose loads are lines down `k`.
+                    let along = other
+                        .packing
+                        .and_then(|reads| reads.values.into_iter().find(|&(_, e)| e > 1))
+                        .map_or(k, |(axis, _)| axis);
+                    if spans.contains(&along) {
+                        let bits = input.element.size_bits().max(1);
+                        let line = (device.hardware.load_width as usize / bits).max(1);
+                        parts.push(Space::new(&[(along, line)]));
+                    }
+                }
+            }
+        }
+        Some(Space::covering(&parts.iter().collect::<Vec<_>>()))
     }
 }
 
@@ -103,8 +181,8 @@ mod tests {
 
     fn half(role: SumRole) -> Contraction {
         Contraction {
-            lhs: F16,
-            rhs: F16,
+            lhs: Input::plain(F16),
+            rhs: Input::plain(F16),
             sum: F32,
             role,
         }
@@ -253,8 +331,8 @@ mod tests {
     #[test]
     fn no_instruction_where_none_fits() {
         let other = Contraction {
-            lhs: F32,
-            rhs: F32,
+            lhs: Input::plain(F32),
+            rhs: Input::plain(F32),
             sum: F32,
             role: SumRole::Drained,
         };
@@ -266,5 +344,56 @@ mod tests {
             half(SumRole::Drained).instruction(&uneven, &accumulator_like_a()),
             None
         );
+    }
+
+    const M: Axis = Axis(0);
+    const N: Axis = Axis(1);
+    const K: Axis = Axis(2);
+
+    /// Plain inputs: the step is the instruction's fragment, every line of an input fitting in
+    /// it.
+    #[test]
+    fn a_plain_step_is_the_fragment() {
+        let target = accumulator_like_a();
+        let step = |device| half(SumRole::Drained).step(&device, &target, [M, N, K]);
+        assert_eq!(step(metal()), Some(Space::new(&[(M, 8), (N, 8), (K, 8)])));
+        assert_eq!(step(cuda()), Some(Space::new(&[(M, 16), (N, 16), (K, 16)])));
+    }
+
+    /// NVFP4 rows against an `f16` activation on an `8 × 8 × 8` device: a read of values is
+    /// sixteen of `k`, a read of scales a word of four, sixty-four of `k`, so the step is that
+    /// deep, the `f16` activation loaded eight of `k` at a time eight times.
+    #[test]
+    fn a_packed_step_is_a_word_of_scales_deep() {
+        let nvfp4 = Contraction {
+            rhs: Input {
+                element: F16,
+                packing: Some(PackedReads {
+                    values: [(K, 16), (N, 1)],
+                    scales: Some([(K, 64), (N, 1)]),
+                }),
+            },
+            ..half(SumRole::Drained)
+        };
+        let step = nvfp4.step(&metal(), &accumulator_like_a(), [M, N, K]);
+        assert_eq!(step, Some(Space::new(&[(M, 8), (N, 8), (K, 64)])));
+    }
+
+    /// A plain input whose loads run along an axis it lacks adds nothing: the lhs meets an rhs
+    /// packed along `n` only through the instruction.
+    #[test]
+    fn a_line_along_an_axis_the_input_lacks_adds_nothing() {
+        let along_n = Contraction {
+            rhs: Input {
+                element: F16,
+                packing: Some(PackedReads {
+                    values: [(N, 16), (K, 1)],
+                    scales: None,
+                }),
+            },
+            ..half(SumRole::Drained)
+        };
+        let step = along_n.step(&metal(), &accumulator_like_a(), [M, N, K]);
+        assert_eq!(step, Some(Space::new(&[(M, 8), (N, 16), (K, 8)])));
     }
 }
