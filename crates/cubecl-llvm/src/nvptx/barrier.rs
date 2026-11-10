@@ -18,7 +18,7 @@ use crate::{
 use cubecl_core::ir::{
     dialect::barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, CopyAsyncOp, ExpectTxOp,
-        InitOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
+        InitOp, InvalidateOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
     },
     types::barrier::{BarrierLevel, BarrierType},
 };
@@ -26,6 +26,7 @@ use cubecl_core::ir::{
 // LLVM has no scoped form of `init`; arrivals and transactions use the scoped forms, which
 // take a count.
 const INIT: &str = "llvm.nvvm.mbarrier.init.shared";
+const INVAL: &str = "llvm.nvvm.mbarrier.inval.shared";
 const ARRIVE_COUNT: &str = "llvm.nvvm.mbarrier.arrive.scope.cta.space.cta";
 const EXPECT_TX: &str = "llvm.nvvm.mbarrier.expect.tx.scope.cta.space.cta";
 const BULK_GLOBAL_TO_SHARED: &str = "llvm.nvvm.cp.async.bulk.global.to.shared.cluster";
@@ -124,6 +125,19 @@ pub(crate) fn init(
     if let Barrier::Cube(barrier) = Barrier::new(ctx, rw, info, op.barrier(ctx)) {
         let count = u32_operand(ctx, rw, op.arrival_count(ctx));
         call_void(ctx, rw, INIT, vec![barrier, count]);
+    }
+    rw.erase_operation(ctx, op.get_operation());
+    Ok(())
+}
+
+pub(crate) fn invalidate(
+    op: &InvalidateOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    info: &OperandsInfo,
+) -> Result<()> {
+    if let Barrier::Cube(barrier) = Barrier::new(ctx, rw, info, op.barrier(ctx)) {
+        call_void(ctx, rw, INVAL, vec![barrier]);
     }
     rw.erase_operation(ctx, op.get_operation());
     Ok(())

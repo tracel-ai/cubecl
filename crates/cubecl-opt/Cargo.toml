@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-opt"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-opt"
+rust-version.workspace = true
 version.workspace = true
 
 
