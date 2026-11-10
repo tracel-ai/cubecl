@@ -43,7 +43,10 @@ pub fn build_kernel(
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
                 config.cube_dim,
                 config.vector_size,
-                BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
+                BufferArg::from_raw_parts(
+                    out_handle.clone(),
+                    probe.pool_lines * config.vector_size,
+                ),
                 probe.window_lines,
                 iterations,
                 probe.blocked,

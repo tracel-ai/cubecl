@@ -463,6 +463,123 @@ pub fn test_kernel_dynamic_addressing<R: Runtime>(client: Client, address_type: 
     assert_eq!(actual[0], 5.0);
 }
 
+#[cube(launch)]
+pub fn kernel_buffer_len<N: Size>(input: &[Vector<f32, N>], output: &mut [u32]) {
+    if UNIT_POS == 0 {
+        output[0] = input.len() as u32;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_alias_len(input: &[u32], output: &mut [u32]) {
+    if UNIT_POS == 0 {
+        output[0] = input[0] + output.len() as u32;
+    }
+}
+
+/// The scalars a buffer is declared with, on a handle that holds `HANDLE_SCALARS`.
+const DECLARED_SCALARS: usize = 8;
+const HANDLE_SCALARS: usize = 16;
+
+/// What `buf.len()` reads in a kernel taking vectors of `vector_size`, for a buffer declared
+/// with `declared` scalars on a handle of `HANDLE_SCALARS`.
+fn buffer_len_seen(client: &Client, vector_size: usize, declared: usize) -> u32 {
+    let input = client.create_from_slice(f32::as_bytes(&[1.0; HANDLE_SCALARS]));
+    let output = client.create_from_slice(u32::as_bytes(&[u32::MAX]));
+
+    kernel_buffer_len::launch(
+        client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        vector_size,
+        unsafe { BufferArg::from_raw_parts(input, declared) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+    );
+
+    let actual = client.read_one_unchecked(output);
+    let actual = u32::from_bytes(&actual);
+    assert_eq!(actual.len(), 1, "a failed launch reads back nothing");
+    actual[0]
+}
+
+/// A buffer declared shorter than its handle is as long as declared, counted in the kernel's
+/// vectors. A trailing partial vector is not one of them.
+pub fn test_buffer_len_is_the_declared_length<R: Runtime>(client: Client) {
+    for vector_size in [1, 2, 4] {
+        assert_eq!(
+            buffer_len_seen(&client, vector_size, DECLARED_SCALARS),
+            (DECLARED_SCALARS / vector_size) as u32,
+            "at {vector_size} scalars a vector"
+        );
+    }
+    assert_eq!(
+        buffer_len_seen(&client, 4, 6),
+        1,
+        "6 scalars in vectors of 4"
+    );
+}
+
+/// An alias has no length of its own: the kernel reads the declared length of the buffer it
+/// aliases.
+pub fn test_alias_len_is_the_aliased_length<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(u32::as_bytes(&[100; HANDLE_SCALARS]));
+
+    kernel_alias_len::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), DECLARED_SCALARS) },
+        BufferArg::alias(0, DECLARED_SCALARS),
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = u32::from_bytes(&actual);
+    assert_eq!(
+        actual.len(),
+        HANDLE_SCALARS,
+        "a failed launch reads back nothing"
+    );
+    assert_eq!(actual[0], 100 + DECLARED_SCALARS as u32);
+}
+
+/// The message of the panic `launch` raises, on a thread of its own so that a launch left half
+/// registered leaves nothing behind on the test's thread.
+fn launch_panic(launch: impl FnOnce() + Send + 'static) -> String {
+    let payload = std::thread::spawn(launch)
+        .join()
+        .expect_err("the launch should panic");
+    match payload.downcast::<String>() {
+        Ok(message) => *message,
+        Err(payload) => payload
+            .downcast::<&str>()
+            .map(|message| message.to_string())
+            .unwrap_or_default(),
+    }
+}
+
+/// A declared length past the end of the handle is refused before anything runs.
+pub fn test_buffer_len_beyond_the_handle_panics<R: Runtime>(client: Client) {
+    for vector_size in [1, 4] {
+        let input = client.create_from_slice(f32::as_bytes(&[1.0; HANDLE_SCALARS]));
+        let output = client.create_from_slice(u32::as_bytes(&[0]));
+        let client = client.clone();
+        let message = launch_panic(move || {
+            kernel_buffer_len::launch(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(1),
+                vector_size,
+                unsafe { BufferArg::from_raw_parts(input, HANDLE_SCALARS + 1) },
+                unsafe { BufferArg::from_raw_parts(output, 1) },
+            );
+        });
+        assert!(
+            message.contains("which holds 16 scalars"),
+            "at {vector_size} scalars a vector, got: {message}"
+        );
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_launch {
@@ -586,6 +703,30 @@ macro_rules! testgen_launch_untyped {
         fn test_launch_units_error() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_max_units_error::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_launch_buffer_len_is_the_declared_length() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_buffer_len_is_the_declared_length::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_alias_len_is_the_aliased_length() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_alias_len_is_the_aliased_length::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_buffer_len_beyond_the_handle_panics() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_buffer_len_beyond_the_handle_panics::<
+                TestRuntime,
+            >(client);
         }
     };
 }

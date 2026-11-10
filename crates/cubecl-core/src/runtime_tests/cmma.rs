@@ -404,9 +404,9 @@ pub fn test_simple_1_vectorized<R: Runtime>(client: Client, cube_dimensions: Cub
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             4,
-            BufferArg::from_raw_parts(lhs, 256 / 4),
-            BufferArg::from_raw_parts(rhs, 256 / 4),
-            BufferArg::from_raw_parts(out.clone(), 256 / 4),
+            BufferArg::from_raw_parts(lhs, 256),
+            BufferArg::from_raw_parts(rhs, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -440,13 +440,13 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(client: Client, cube_dimensio
         .map(|i| f16::from_f32(((i - (offset_rhs * vector_size) as i32) % 8) as f32))
         .collect();
 
-    let lhs_len = lhs.len() / vector_size;
-    let rhs_len = rhs.len() / vector_size;
-    let out_len = (256 / vector_size) + offset_out;
+    let lhs_len = lhs.len();
+    let rhs_len = rhs.len();
+    let out_len = 256 + offset_out * vector_size;
 
     let lhs = client.create_from_slice(f16::as_bytes(&lhs));
     let rhs = client.create_from_slice(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * vector_size * out_len);
+    let out = client.empty(core::mem::size_of::<f32>() * out_len);
 
     unsafe {
         kernel_simple_1_vectorized_offset::launch(
@@ -2704,7 +2704,7 @@ fn check_fp4_tile_through_ldmatrix<S: CubeElement + Scalar + NumCast>(
             BufferArg::from_raw_parts(b, 64),
             BufferArg::from_raw_parts(scales_a_handle, 128),
             BufferArg::from_raw_parts(scales_b_handle, 128),
-            BufferArg::from_raw_parts(out.clone(), m * n / 2),
+            BufferArg::from_raw_parts(out.clone(), m * n),
             scales_factor,
         )
     };

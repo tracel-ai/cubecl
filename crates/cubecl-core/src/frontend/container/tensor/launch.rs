@@ -216,14 +216,17 @@ impl TensorArg {
 }
 
 impl TensorArg {
+    /// Convert the argument into a [buffer argument](BufferArg).
+    ///
+    /// The kernel sees the whole handle, as for [`TensorBinding::into_buffer_arg`]. An alias
+    /// sees the buffer it aliases.
     pub fn into_buffer_arg(self) -> BufferArg {
         match self {
             TensorArg::Handle { handle } => {
-                let handle = unsafe {
-                    let size = handle.size();
-                    BufferBinding::from_raw_parts_binding(handle.handle, size)
-                };
-                BufferArg::Handle { handle }
+                let size = handle.size();
+                BufferArg::Handle {
+                    handle: BufferBinding::from_tensor_binding(handle.handle, size),
+                }
             }
             TensorArg::Alias {
                 input_pos, shape, ..
@@ -259,8 +262,14 @@ impl TensorBinding {
         }
     }
     /// Convert the handle into a [buffer argument](BufferArg).
+    ///
+    /// The kernel sees the whole handle, since a strided tensor reaches its memory through its
+    /// strides and not its shape.
     pub fn into_buffer_arg(self) -> BufferArg {
-        unsafe { BufferArg::from_raw_parts_binding(self.handle, self.shape.iter().product()) }
+        let size = self.shape.iter().product();
+        BufferArg::Handle {
+            handle: BufferBinding::from_tensor_binding(self.handle, size),
+        }
     }
 
     /// Create a handle from raw parts.

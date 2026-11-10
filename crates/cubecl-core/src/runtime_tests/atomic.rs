@@ -172,9 +172,9 @@ pub fn test_kernel_atomic_numeric<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_1d(1),
         vector_size,
-        unsafe { BufferArg::from_raw_parts(input_handle, 1) },
+        unsafe { BufferArg::from_raw_parts(input_handle, vector_size) },
         unsafe { BufferArg::from_raw_parts(atomic_handle.clone(), vector_size) },
-        unsafe { BufferArg::from_raw_parts(output_handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(output_handle.clone(), vector_size) },
         op,
     );
 

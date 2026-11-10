@@ -104,7 +104,7 @@ pub fn test_tf32_scalar_and_vector_rounding<R: Runtime>(client: Client) {
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(32),
-            unsafe { BufferArg::from_raw_parts(handle.clone(), values.len() / lanes) },
+            unsafe { BufferArg::from_raw_parts(handle.clone(), values.len()) },
         );
         let bytes = client.read_one(handle).unwrap();
         assert_eq!(f32::from_bytes(&bytes), expected, "width={lanes}");
