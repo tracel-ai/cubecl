@@ -2835,6 +2835,20 @@ fn a_prune_keeps_what_the_work_loaded() {
         b"value",
         Origin::Local,
     );
+    let autotune = || -> Vec<String> {
+        database
+            .namespaces()
+            .into_iter()
+            .filter(|namespace| namespace.starts_with("autotune/"))
+            .collect()
+    };
+    let [answers] = autotune().try_into().unwrap();
+    database.insert(
+        &answers,
+        b"an answer to an older candidate list",
+        b"value",
+        Origin::Local,
+    );
 
     let pruned = EnvironmentId::active()
         .prune(PruneOptions::default())
@@ -2861,12 +2875,13 @@ fn a_prune_keeps_what_the_work_loaded() {
     );
     assert!(!present(&stored[2]), "only a race launched it");
     assert!(!present(&stored[3]), "another build compiled it");
-    let autotune = database
-        .namespaces()
-        .into_iter()
-        .filter(|namespace| namespace.starts_with("autotune/"))
-        .count();
-    assert_eq!(autotune, 1, "the answer stays");
+    assert_eq!(autotune(), [answers.clone()], "the answers stay");
+    assert!(
+        database
+            .get(&answers, b"an answer to an older candidate list")
+            .is_some(),
+        "an answer no tuner reads any more stays too"
+    );
 }
 
 /// An application keeps its data in the environment beside the compilers',
