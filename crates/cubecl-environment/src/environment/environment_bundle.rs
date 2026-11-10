@@ -15,12 +15,29 @@ pub struct EnvironmentBundle {
 }
 
 /// How an environment is saved into a bundle.
+///
+/// Built with [`new`](Self::new) and a setter per option, so an option added
+/// later breaks no caller.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct SaveOptions {
     /// The name the bundle's manifest gives it, for a person reading it back:
     /// the environment's own name when unset.
     #[serde(default)]
     pub name: Option<String>,
+}
+
+impl SaveOptions {
+    /// The default save: the bundle carries the environment's name.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Name the bundle `name` in its manifest.
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
 }
 
 #[cfg(native_cache)]
