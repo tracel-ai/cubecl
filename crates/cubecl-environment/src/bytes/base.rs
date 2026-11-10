@@ -29,6 +29,17 @@ pub struct Bytes {
     len: usize,
 }
 
+/// Where bytes read lazily from a file lie in it: the file, and the offset
+/// their first byte is read from. They span [`Bytes::len`] bytes from there.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileWindow<'a> {
+    /// The file.
+    pub path: &'a std::path::Path,
+    /// The offset of the first byte, from the file's start.
+    pub offset: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The kind of allocation behind the [Bytes] type.
 pub enum AllocationProperty {
@@ -159,6 +170,16 @@ pub trait AllocationController {
     /// Duplicates the current allocation with a clone on write strategy if the allocation
     /// controller supports it.
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
+        None
+    }
+
+    /// The file the allocation is read from, while it still is: `None` once its content is
+    /// in memory, where it may have been written since, and for every allocation not read
+    /// from a file.
+    ///
+    /// This query must not materialize storage.
+    #[cfg(feature = "std")]
+    fn file(&self) -> Option<FileWindow<'_>> {
         None
     }
 
@@ -378,6 +399,14 @@ impl Bytes {
             controller: Box::new(controller),
             len: size as usize,
         }
+    }
+
+    /// The file these bytes are read from, while they still are: bytes made
+    /// [from a file](Self::from_file) and not yet read into memory. A reader
+    /// that understands the file opens it in place rather than copy it.
+    #[cfg(feature = "std")]
+    pub fn file(&self) -> Option<FileWindow<'_>> {
+        self.controller.file()
     }
 
     /// Creates bytes from a shared [`bytes::Bytes`] buffer (zero-copy).

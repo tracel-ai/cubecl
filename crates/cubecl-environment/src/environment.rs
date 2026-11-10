@@ -31,6 +31,9 @@ use crate::sync::{Arc, LazyLock, Mutex};
 
 pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
+mod build_stamp;
+pub use build_stamp::*;
+
 mod environment_bundle;
 pub use environment_bundle::*;
 
@@ -42,6 +45,9 @@ mod scratch_file;
 
 mod prune;
 pub use prune::*;
+
+mod summary;
+pub use summary::*;
 
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";

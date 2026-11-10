@@ -20,4 +20,4 @@ pub use store::*;
 pub use target::*;
 pub use work_launch::*;
 
-pub use cubecl_environment::persistence::{ArtifactRoot, NamespaceRoot};
+pub use cubecl_environment::persistence::{ArtifactRoot, NamespaceContent, NamespaceRoot};

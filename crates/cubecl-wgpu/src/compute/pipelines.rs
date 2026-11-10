@@ -72,7 +72,7 @@ impl<C> WgpuPipelines<C> {
             #[cfg(feature = "spirv")]
             properties_hash,
             #[cfg(feature = "spirv")]
-            build_id: cubecl_server::compiler::build_id_hash(),
+            build_id: cubecl_environment::environment::BuildStamp::current().hash,
         }
     }
 }
