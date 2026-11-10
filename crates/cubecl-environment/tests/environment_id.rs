@@ -338,11 +338,7 @@ fn a_saved_bundle_reads_back_its_name_stamp_and_summary() {
     // The manifest keeps whole seconds.
     let before = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
 
-    let saved = built
-        .save(SaveOptions {
-            name: Some("H100 Linux".into()),
-        })
-        .unwrap();
+    let saved = built.save(SaveOptions::new().name("H100 Linux")).unwrap();
     let file = root.path().join("saved.cubecl");
     std::fs::write(&file, &*saved.bytes).unwrap();
     let opened = EnvironmentBundle::open(&file).unwrap();
