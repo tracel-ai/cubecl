@@ -17,7 +17,7 @@ impl<'a> NamespaceRoot<'a> {
     }
 
     /// Whether the namespace is one a compiler keeps its artifacts under,
-    /// as [`compilation_store`](super::compilation_store) opens them. Only
+    /// as a backend's compilation store opens them. Only
     /// those: an application keeps its own data in the same environment, and
     /// nothing that reads artifacts may mistake an entry of it for one.
     pub fn holds_artifacts(self) -> bool {
@@ -26,7 +26,7 @@ impl<'a> NamespaceRoot<'a> {
 }
 
 /// The root of each namespace a compiler keeps artifacts under: the one list
-/// [`compilation_store`](super::compilation_store) opens a store from and
+/// a backend's compilation store opens a store from and
 /// [`NamespaceRoot::holds_artifacts`] tells those namespaces apart by. A
 /// backend that keeps artifacts adds its root here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
