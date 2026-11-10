@@ -61,9 +61,10 @@ fn reduce_scaled_in_registers(
 }
 
 /// Packed signed 4-bit weights, `rows × blocks · inside`, each block of `inside` columns of a row
-/// under its own scale, reduced along the columns into memory or into registers.
-fn check_reduce_under_scales(registers: bool) {
-    let (rows, blocks, inside) = (4, 4, 8);
+/// under its own scale, reduced along the columns into memory or into registers, a leaf
+/// `leaf_blocks` blocks long: a line a block.
+fn check_reduce_under_scales(registers: bool, blocks: usize, leaf_blocks: usize) {
+    let (rows, inside) = (4, 8);
     let cols = blocks * inside;
     let field = QuantValue::Q4S;
     let bits = field.size_bits();
@@ -99,7 +100,7 @@ fn check_reduce_under_scales(registers: bool) {
         &client,
         Partitioning::new(
             Space::new(&[(ROW, rows), (C, 1), (CB, blocks), (CI, inside)]),
-            Levels::leaf(&[(ROW, rows), (C, 1), (CB, 1), (CI, inside)])
+            Levels::leaf(&[(ROW, rows), (C, 1), (CB, leaf_blocks), (CI, inside)])
                 .walk_every(&[CB])
                 .build(),
         ),
@@ -178,10 +179,17 @@ fn check_reduce_under_scales(registers: bool) {
 
 #[test]
 fn a_reduction_into_memory_reads_its_values_under_their_scales() {
-    check_reduce_under_scales(false);
+    check_reduce_under_scales(false, 4, 1);
 }
 
 #[test]
 fn a_reduction_in_registers_reads_its_values_under_their_scales() {
-    check_reduce_under_scales(true);
+    check_reduce_under_scales(true, 4, 1);
+}
+
+/// A leaf of 32 lines, past the walk the leaf unrolls, sums the same rolled.
+#[test]
+fn a_long_leaf_reads_its_values_under_their_scales_rolled() {
+    check_reduce_under_scales(false, 64, 32);
+    check_reduce_under_scales(true, 64, 32);
 }

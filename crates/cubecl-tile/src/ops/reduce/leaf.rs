@@ -228,6 +228,9 @@ fn value_coords(
     out
 }
 
+/// Lines a reduce leaf's walk unrolls up to, so its loads are in flight together.
+const UNROLLED_LINES: usize = 16;
+
 /// [`element`]'s line path: one read serves `contracted_per_step` values.
 #[cube]
 fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
@@ -244,10 +247,13 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
     #[comptime] monoid: Monoid,
 ) -> Acc {
     let mut acc_vec = Vector::<Acc, V>::cast_from(Monoid::identity::<Acc>(monoid));
-    #[unroll]
-    for p in 0..(layout.kc / contracted_per_step) {
+    let lines = comptime!(layout.kc / contracted_per_step);
+    // Unrolled, every line's load is issued before the first is summed; a rolled loop waits on
+    // each. A walk longer than the budget stays rolled rather than grow the kernel without end.
+    #[unroll(lines <= UNROLLED_LINES)]
+    for p in 0..lines {
         let reduce_coords = Coords::constant(layout.reduce_extents.clone())
-            .unravel(comptime!((p * contracted_per_step) as u32));
+            .unravel((p * comptime!(contracted_per_step)).cast::<u32>());
 
         let in_coords = resolve_nd_coords(
             in_space,
