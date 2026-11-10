@@ -2737,38 +2737,6 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     );
 }
 
-/// A launch is collected while a collection is open — the kernel a replay has
-/// to keep — and only then.
-#[test_log::test]
-#[serial_test::serial]
-fn a_launch_is_collected_while_a_collection_is_open() {
-    use cubecl_server::launched::LaunchedKernels;
-
-    let client = test_client(&DummyDevice);
-    let launch = || {
-        let lhs = client.create_from_slice(&[0, 1, 2]);
-        let rhs = client.create_from_slice(&[4, 4, 4]);
-        let out = client.empty(3);
-        let kernel = KernelTask::new(DummyElementwiseAddition);
-        let id = cubecl_server::kernel::KernelMetadata::id(&kernel);
-        client.launch(
-            Box::new(kernel),
-            CubeCount::Static(1, 1, 1),
-            KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.binding()]),
-        );
-        id
-    };
-
-    let collection = LaunchedKernels::new();
-    let id = launch();
-    let launched = collection.finish();
-    assert!(launched.contains(&id.stable_hash()));
-
-    let collection = LaunchedKernels::new();
-    let launched = collection.finish();
-    assert!(launched.is_empty(), "a new collection starts empty");
-}
-
 /// A round that measures nothing falls back on a candidate that ran, never on one that rejected
 /// the problem: the first candidate's function rejects it, then profiles stop, so the correct
 /// `add` runs but is not timed. Deciding the rejection would run it for real and fail the same
@@ -2803,4 +2771,147 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
     drop(refusing);
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// A prune keeps this build's kernels its work launched, every variant of
+/// them, and removes those only a race launched, those another build compiled
+/// with the records of what its work launched, and the build records; the
+/// autotune answers stay. The launches are written here as the loader records
+/// them: what this tests is the prune, the recording being the runtimes'.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_keeps_what_the_work_loaded() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::persistence::{Database, Namespace, Origin};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore, build_id_hash};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    // Opens the active environment's database, created by the first store.
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let tuner: cubecl_server::tune::Tuner<String> =
+        cubecl_server::tune::Tuner::new("pruned", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    let database = Database::open_active().unwrap();
+
+    let build = build_id_hash();
+    let artifact = |id: u128, variant: u128, build_id: u128| {
+        cbor(&KernelCacheKey {
+            id,
+            variant,
+            build_id,
+        })
+    };
+    let (work, race) = (0x1111_u128, 0x2222_u128);
+    let stored = [
+        artifact(work, 0, build),
+        artifact(work, 5, build),
+        artifact(race, 0, build),
+        artifact(work, 0, build ^ 1),
+    ];
+    let artifacts = Namespace::scoped(ArtifactRoot::Cpu.as_str(), "fingerprint");
+    for key in &stored {
+        database.insert(artifacts.as_str(), key, b"binary", Origin::Local);
+    }
+    let (this_build, other_build) = (
+        WorkLaunchStore::namespace(build),
+        WorkLaunchStore::namespace(build ^ 1),
+    );
+    database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
+    database.insert(
+        other_build.as_str(),
+        &cbor(&race),
+        &cbor(&()),
+        Origin::Local,
+    );
+    database.insert(
+        cubecl_environment::records::ROOT,
+        b"record",
+        b"value",
+        Origin::Local,
+    );
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!((pruned.kernels.kept, pruned.kernels.removed), (2, 2));
+    assert!(pruned.records.removed > 0 && pruned.records.kept == 0);
+    let namespaces = database.namespaces();
+    assert!(
+        namespaces
+            .iter()
+            .any(|namespace| namespace == this_build.as_str())
+    );
+    assert!(
+        !namespaces
+            .iter()
+            .any(|namespace| namespace == other_build.as_str()),
+        "another build's launches go with its kernels"
+    );
+    let present = |key: &[u8]| database.get(artifacts.as_str(), key).is_some();
+    assert!(
+        present(&stored[0]) && present(&stored[1]),
+        "the work's kernel, in each variant"
+    );
+    assert!(!present(&stored[2]), "only a race launched it");
+    assert!(!present(&stored[3]), "another build compiled it");
+    let autotune = database
+        .namespaces()
+        .into_iter()
+        .filter(|namespace| namespace.starts_with("autotune/"))
+        .count();
+    assert_eq!(autotune, 1, "the answer stays");
+}
+
+/// An application keeps its data in the environment beside the compilers',
+/// and a prune reads only the compilers' namespaces: an entry of its own that
+/// happens to decode as another build's kernel key survives.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_leaves_an_applications_entries_alone() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::compiler::{KernelCacheKey, build_id_hash};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    // Opens the active environment's database, created by the first store.
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let tuner: cubecl_server::tune::Tuner<String> =
+        cubecl_server::tune::Tuner::new("application", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    let database = Database::open_active().unwrap();
+    let lookalike = cbor(&KernelCacheKey {
+        id: 1,
+        variant: 0,
+        build_id: build_id_hash() ^ 1,
+    });
+    let namespace = "my-application/0.1.0/settings";
+    database.insert(namespace, b"setting", &lookalike, Origin::Local);
+    database.insert(namespace, &lookalike, b"value", Origin::Local);
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!(pruned.kernels.removed, 0, "{pruned:?}");
+    assert!(database.get(namespace, b"setting").is_some());
+    assert!(database.get(namespace, &lookalike).is_some());
+}
+
+/// `value` encoded as a store encodes it: CBOR.
+#[cfg(all(feature = "std", persistence))]
+fn cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).unwrap();
+    bytes
 }
