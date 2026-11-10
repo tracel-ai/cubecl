@@ -7,7 +7,7 @@
 use core::cmp::Reverse;
 
 use cubecl::ir::features::{MmaConfig, Plane};
-use cubecl::ir::{DeviceProperties, ElemType, MmaProperties, TargetProperties};
+use cubecl::ir::{DeviceProperties, ElemType, TargetProperties};
 
 use crate::{Instruction, MmaIo, MmaOperands};
 
@@ -38,16 +38,6 @@ pub struct Fragment {
     pub shape: MmaConfig,
 }
 
-/// The two ways a plane reaches a device's matrix instruction.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Transport {
-    /// The vendor's fragment API (`wmma`, `simdgroup_matrix`): the fragment's registers are
-    /// hidden.
-    Cmma,
-    /// This crate's own transport over the matrix intrinsics: each unit holds known cells.
-    Mma,
-}
-
 impl Contraction {
     /// The matrix instruction `device` contracts this product through, compiling for `target`,
     /// and the fragment one call contracts. `None` where the device offers none for these
@@ -57,92 +47,45 @@ impl Contraction {
     /// - A sum kept in registers, on a target that lays `A` out like its accumulator: `mma` first,
     ///   so the sum is the next product's `A` where it lies.
     /// - Otherwise `cmma` first.
-    /// - Within a transport, the shape contracting the most per call, then the squarest.
+    /// - Within a transport, the shape contracting the most per call, then the squarest: a square
+    ///   shape reads an input laid along `k` as well as one laid along `n`.
     pub fn instruction(
         &self,
         device: &DeviceProperties,
         target: &TargetProperties,
     ) -> Option<Fragment> {
-        if !planes_of_one_width(device) {
+        let hardware = &device.hardware;
+        let planes_of_one_width = device.features.plane.contains(Plane::Ops)
+            && hardware.plane_size_min == hardware.plane_size_max;
+        if !planes_of_one_width {
             return None;
         }
-        self.transports(target).into_iter().find_map(|transport| {
-            transport.largest(device, self).map(|shape| Fragment {
-                instruction: transport.instruction(),
-                shape,
-            })
-        })
-    }
 
-    /// The transports in the order this product tries them.
-    fn transports(&self, target: &TargetProperties) -> [Transport; 2] {
-        let in_registers = self.role == SumRole::InRegisters && accumulator_as_a(&target.mma);
-        match in_registers {
-            true => [Transport::Mma, Transport::Cmma],
-            false => [Transport::Cmma, Transport::Mma],
-        }
-    }
-
-    /// Whether `shape` multiplies these inputs into this sum.
-    fn takes(&self, shape: &MmaConfig) -> bool {
-        shape.a_type == self.lhs && shape.b_type == self.rhs && shape.cd_type == self.sum
-    }
-}
-
-impl Transport {
-    /// The shape of this transport `device` offers for `contraction` that contracts the most per
-    /// call.
-    fn largest(self, device: &DeviceProperties, contraction: &Contraction) -> Option<MmaConfig> {
-        let offered = match self {
-            Transport::Cmma => &device.features.matmul.cmma,
-            Transport::Mma => &device.features.matmul.mma,
-        };
-        offered
-            .iter()
-            .filter(|shape| contraction.takes(shape))
-            .copied()
-            .min_by_key(size_rank)
-    }
-
-    fn instruction(self) -> Instruction {
-        match self {
-            Transport::Cmma => Instruction::Cmma,
-            Transport::Mma => Instruction::Mma {
+        let layout = &target.mma;
+        let accumulator_is_next_a = layout.register_layout_a == layout.register_layout_acc
+            && layout.register_duplication_a == layout.register_duplication_acc;
+        let offered = &device.features.matmul;
+        let cmma = (&offered.cmma, Instruction::Cmma);
+        let mma = (
+            &offered.mma,
+            Instruction::Mma {
                 io: MmaIo::default(),
                 operands: MmaOperands::Plain,
             },
-        }
+        );
+        let transports = match self.role == SumRole::InRegisters && accumulator_is_next_a {
+            true => [mma, cmma],
+            false => [cmma, mma],
+        };
+
+        transports.into_iter().find_map(|(shapes, instruction)| {
+            shapes
+                .iter()
+                .filter(|s| s.a_type == self.lhs && s.b_type == self.rhs && s.cd_type == self.sum)
+                .min_by_key(|s| (Reverse(s.m * s.n * s.k), s.m.abs_diff(s.n), **s))
+                .map(|&shape| Fragment { instruction, shape })
+        })
     }
-}
-
-/// Whether `mma` lays an `A`'s cells where it lays an accumulator's, each held as often: then a
-/// sum contracted again is its next product's `A` in the same registers.
-fn accumulator_as_a(mma: &MmaProperties) -> bool {
-    mma.register_layout_a == mma.register_layout_acc
-        && mma.register_duplication_a == mma.register_duplication_acc
-}
-
-/// Whether `device`'s planes run plane operations at one width, which a fragment is laid over.
-fn planes_of_one_width(device: &DeviceProperties) -> bool {
-    let hardware = &device.hardware;
-    device.features.plane.contains(Plane::Ops)
-        && hardware.plane_size_min == hardware.plane_size_max
-}
-
-/// The order shapes are preferred in, first the least: the most contracted per call, then the
-/// squarest (a square shape reads an input laid along `k` as well as one laid along `n`), then
-/// the shape itself, so every shape has its own place.
-#[allow(clippy::type_complexity)]
-fn size_rank(shape: &MmaConfig) -> (Reverse<u64>, u32, u32, u32, u32, MmaConfig) {
-    let (m, n, k) = (shape.m, shape.n, shape.k);
-    (
-        Reverse(u64::from(m) * u64::from(n) * u64::from(k)),
-        m.abs_diff(n),
-        m,
-        n,
-        k,
-        *shape,
-    )
 }
 
 #[cfg(test)]
