@@ -32,7 +32,13 @@ mod reading {
     use std::path::Path;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    impl EnvironmentBundle {
+    /// What a saved bundle says of itself, read without loading it.
+    ///
+    /// A trait rather than methods of [`EnvironmentBundle`], as cubecl-server's
+    /// `Prune` is for an environment: a layer
+    /// that carries the bundle under its own name reads it under its own
+    /// error, and an inherent method of the same name would shadow its read.
+    pub trait ReadBundle: Sized {
         /// The bundle saved at `path`.
         ///
         /// Its bytes are read from the file when something uses them, and the
@@ -43,7 +49,40 @@ mod reading {
         /// # Errors
         ///
         /// The file cannot be read.
-        pub fn read(path: impl AsRef<Path>) -> Result<Self, EnvironmentError> {
+        fn read(path: impl AsRef<Path>) -> Result<Self, EnvironmentError>;
+
+        /// The name the bundle's manifest gives it.
+        ///
+        /// # Errors
+        ///
+        /// The bytes are not a bundle, or do not read.
+        fn name(&self) -> Result<String, EnvironmentError>;
+
+        /// The executable that saved the bundle, when its manifest names one:
+        /// equal to [`BuildStamp::current`] when this executable did.
+        ///
+        /// # Errors
+        ///
+        /// The bytes are not a bundle, or do not read.
+        fn saved_by(&self) -> Result<Option<BuildStamp>, EnvironmentError>;
+
+        /// When the bundle was saved, when its manifest says.
+        ///
+        /// # Errors
+        ///
+        /// The bytes are not a bundle, or do not read.
+        fn saved_at(&self) -> Result<Option<SystemTime>, EnvironmentError>;
+
+        /// What the bundle holds, counted.
+        ///
+        /// # Errors
+        ///
+        /// The bytes are not a bundle, or do not read.
+        fn summary(&self) -> Result<EnvironmentSummary, EnvironmentError>;
+    }
+
+    impl ReadBundle for EnvironmentBundle {
+        fn read(path: impl AsRef<Path>) -> Result<Self, EnvironmentError> {
             let path = path.as_ref();
             let size = std::fs::metadata(path)
                 .map_err(EnvironmentError::storage)?
@@ -53,68 +92,53 @@ mod reading {
             })
         }
 
-        /// The name the bundle's manifest gives it.
-        ///
-        /// # Errors
-        ///
-        /// The bytes are not a bundle, or do not read.
-        pub fn name(&self) -> Result<String, EnvironmentError> {
-            self.open(|bundle| bundle.manifest().name.clone())
+        fn name(&self) -> Result<String, EnvironmentError> {
+            open(self, |bundle| bundle.manifest().name.clone())
         }
 
-        /// The executable that saved the bundle, when its manifest names one:
-        /// equal to [`BuildStamp::current`] when this executable did.
-        ///
-        /// # Errors
-        ///
-        /// The bytes are not a bundle, or do not read.
-        pub fn saved_by(&self) -> Result<Option<BuildStamp>, EnvironmentError> {
-            self.open(|bundle| bundle.manifest().saved_by)
+        fn saved_by(&self) -> Result<Option<BuildStamp>, EnvironmentError> {
+            open(self, |bundle| bundle.manifest().saved_by)
         }
 
-        /// When the bundle was saved, when its manifest says.
-        ///
-        /// # Errors
-        ///
-        /// The bytes are not a bundle, or do not read.
-        pub fn saved_at(&self) -> Result<Option<SystemTime>, EnvironmentError> {
-            self.open(|bundle| {
+        fn saved_at(&self) -> Result<Option<SystemTime>, EnvironmentError> {
+            open(self, |bundle| {
                 let seconds = bundle.manifest().created_unix_secs?;
                 UNIX_EPOCH.checked_add(Duration::from_secs(seconds))
             })
         }
 
-        /// What the bundle holds, counted.
-        ///
-        /// # Errors
-        ///
-        /// The bytes are not a bundle, or do not read.
-        pub fn summary(&self) -> Result<EnvironmentSummary, EnvironmentError> {
-            self.open(|bundle| EnvironmentSummary::new(&bundle.summary()))
-        }
-
-        /// Opens the bundle and answers what `read` takes from it: in place
-        /// when the bytes are still the whole of a file, else from a scratch
-        /// copy, since the database engine reads files only.
-        fn open<T>(&self, read: impl FnOnce(&SqliteBundle) -> T) -> Result<T, EnvironmentError> {
-            if let Some(file) = self.file() {
-                let bundle = SqliteBundle::open(file).map_err(EnvironmentError::storage)?;
-                return Ok(read(&bundle));
-            }
-            let scratch = ScratchFile::new(&std::env::temp_dir().join("cubecl-bundle"));
-            std::fs::write(scratch.path(), &*self.bytes).map_err(EnvironmentError::storage)?;
-            // Declared after the scratch file, so closed before it is deleted.
-            let bundle = SqliteBundle::open(scratch.path()).map_err(EnvironmentError::storage)?;
-            Ok(read(&bundle))
-        }
-
-        /// The file the bytes are, whole, while they are still read from it.
-        fn file(&self) -> Option<&Path> {
-            let window = self.bytes.file()?;
-            let whole = window.offset == 0
-                && std::fs::metadata(window.path)
-                    .is_ok_and(|file| file.len() == self.bytes.len() as u64);
-            whole.then_some(window.path)
+        fn summary(&self) -> Result<EnvironmentSummary, EnvironmentError> {
+            open(self, |bundle| EnvironmentSummary::new(&bundle.summary()))
         }
     }
+
+    /// Opens `bundle` and answers what `read` takes from it: in place when its
+    /// bytes are still the whole of a file, else from a scratch copy, since
+    /// the database engine reads files only.
+    fn open<T>(
+        bundle: &EnvironmentBundle,
+        read: impl FnOnce(&SqliteBundle) -> T,
+    ) -> Result<T, EnvironmentError> {
+        if let Some(file) = whole_file(bundle) {
+            let opened = SqliteBundle::open(file).map_err(EnvironmentError::storage)?;
+            return Ok(read(&opened));
+        }
+        let scratch = ScratchFile::new(&std::env::temp_dir().join("cubecl-bundle"));
+        std::fs::write(scratch.path(), &*bundle.bytes).map_err(EnvironmentError::storage)?;
+        // Declared after the scratch file, so closed before it is deleted.
+        let opened = SqliteBundle::open(scratch.path()).map_err(EnvironmentError::storage)?;
+        Ok(read(&opened))
+    }
+
+    /// The file `bundle`'s bytes are, whole, while they are still read from it.
+    fn whole_file(bundle: &EnvironmentBundle) -> Option<&Path> {
+        let window = bundle.bytes.file()?;
+        let whole = window.offset == 0
+            && std::fs::metadata(window.path)
+                .is_ok_and(|file| file.len() == bundle.bytes.len() as u64);
+        whole.then_some(window.path)
+    }
 }
+
+#[cfg(native_cache)]
+pub use reading::ReadBundle;

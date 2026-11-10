@@ -3,7 +3,7 @@
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
     self, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
-    EnvironmentSummary, SaveOptions,
+    EnvironmentSummary, ReadBundle, SaveOptions,
 };
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
