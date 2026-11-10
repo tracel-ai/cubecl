@@ -29,17 +29,6 @@ pub struct Bytes {
     len: usize,
 }
 
-/// Where bytes read lazily from a file lie in it: the file, and the offset
-/// their first byte is read from. They span [`Bytes::len`] bytes from there.
-#[cfg(feature = "std")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FileWindow<'a> {
-    /// The file.
-    pub path: &'a std::path::Path,
-    /// The offset of the first byte, from the file's start.
-    pub offset: u64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The kind of allocation behind the [Bytes] type.
 pub enum AllocationProperty {
@@ -177,9 +166,11 @@ pub trait AllocationController {
     /// in memory, where it may have been written since, and for every allocation not read
     /// from a file.
     ///
-    /// This query must not materialize storage.
+    /// This query must not materialize storage. Its answer is a type only this crate names,
+    /// so only this crate's file allocation answers it.
     #[cfg(feature = "std")]
-    fn file(&self) -> Option<FileWindow<'_>> {
+    #[doc(hidden)]
+    fn file(&self) -> Option<crate::bytes::file::FileWindow<'_>> {
         None
     }
 
@@ -401,11 +392,28 @@ impl Bytes {
         }
     }
 
+    /// The `size` bytes of `file`, opened at `path`, read from the open file
+    /// when first used: a file renamed over `path` meanwhile is not the one
+    /// read.
+    #[cfg(native_cache)]
+    pub(crate) fn from_opened_file(
+        file: std::fs::File,
+        path: std::path::PathBuf,
+        size: u64,
+    ) -> Self {
+        let controller = crate::bytes::file::FileAllocationController::opened(file, path, size);
+
+        Self {
+            controller: Box::new(controller),
+            len: size as usize,
+        }
+    }
+
     /// The file these bytes are read from, while they still are: bytes made
-    /// [from a file](Self::from_file) and not yet read into memory. A reader
-    /// that understands the file opens it in place rather than copy it.
-    #[cfg(feature = "std")]
-    pub fn file(&self) -> Option<FileWindow<'_>> {
+    /// from a file and not yet read into memory. A reader that understands
+    /// the file opens it in place rather than copy it.
+    #[cfg(native_cache)]
+    pub(crate) fn file(&self) -> Option<crate::bytes::file::FileWindow<'_>> {
         self.controller.file()
     }
 

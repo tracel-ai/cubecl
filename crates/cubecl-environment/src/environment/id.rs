@@ -87,7 +87,8 @@ impl core::error::Error for EnvironmentError {}
 
 impl EnvironmentError {
     /// The storage refused a read or a write, for the reason `error` gives.
-    pub fn storage(error: impl ToString) -> Self {
+    #[cfg_attr(not(native_cache), allow(dead_code))]
+    pub(crate) fn storage(error: impl ToString) -> Self {
         Self::Storage {
             reason: error.to_string(),
         }
@@ -98,10 +99,12 @@ impl EnvironmentError {
 mod storage {
     use super::*;
     use crate::bundle::{BundleFormat, ExportOptions, SqliteBundle, export, import_into};
-    use crate::bytes::Bytes;
+    use crate::bytes::{Bytes, Reader};
     use crate::environment::scratch_file::ScratchFile;
-    use crate::environment::{EnvironmentSummary, SaveOptions};
-    use crate::environment::{activate, active, file_name, load, path, root, sanitize};
+    use crate::environment::{
+        EnvironmentSummary, SaveOptions, activate, active, active_namespaces, file_name, load,
+        path, root, sanitize,
+    };
     use crate::persistence::database::same_file;
     use crate::persistence::{Access, Database, DatabaseStorage, Storage};
     use crate::sync::LazyLock;
@@ -114,15 +117,16 @@ mod storage {
 
     impl EnvironmentId {
         /// The environment active in this process: the file mounted by
-        /// [`load`](super::super::load), named after it, or the named one.
+        /// [`load`](crate::environment::load), named after it, or the named one.
         pub fn active() -> Self {
             let location = path();
             let named = active();
-            let name = match location == root().join(file_name(&named)) {
-                true => named.to_string(),
-                false => location
+            let name = if location == root().join(file_name(&named)) {
+                named.to_string()
+            } else {
+                location
                     .file_stem()
-                    .map_or_else(|| named.to_string(), |stem| stem.to_string_lossy().into()),
+                    .map_or_else(|| named.to_string(), |stem| stem.to_string_lossy().into())
             };
             Self::local(name, &location)
         }
@@ -157,14 +161,14 @@ mod storage {
             let source = incoming.open(&scratch)?;
             id.open(Access::ReadWrite)?
                 .replace_with(source.as_ref())
-                .map_err(|reason| EnvironmentError::Storage { reason })?;
+                .map_err(EnvironmentError::storage)?;
             Ok(id)
         }
 
         /// Makes this the active environment of the process, answering the one
-        /// it replaces; see [`activate`](super::super::activate). An
+        /// it replaces; see [`activate`](crate::environment::activate). An
         /// environment outside the current root, or one that was mounted, is
-        /// mounted again with [`load`](super::super::load).
+        /// mounted again with [`load`](crate::environment::load).
         ///
         /// # Errors
         ///
@@ -172,9 +176,10 @@ mod storage {
         pub fn activate(&self) -> Result<Self, EnvironmentError> {
             self.check_local()?;
             let previous = Self::active();
-            match self.path() == root().join(file_name(&self.name)) {
-                true => activate(&self.name),
-                false => load(self.path()),
+            if self.path() == root().join(file_name(&self.name)) {
+                activate(&self.name);
+            } else {
+                load(self.path());
             }
             Ok(previous)
         }
@@ -214,7 +219,7 @@ mod storage {
             // are few.
             let open = |namespace: &str| -> Result<Box<dyn Storage>, EnvironmentError> {
                 let database = Database::open_at(&path, Access::ReadWrite)
-                    .map_err(|reason| EnvironmentError::Storage { reason })?;
+                    .map_err(EnvironmentError::storage)?;
                 Ok(Box::new(DatabaseStorage::new(
                     database,
                     namespace.to_string(),
@@ -259,14 +264,17 @@ mod storage {
         /// # Errors
         ///
         /// The environment lives in another process's storage, or its
-        /// database does not open.
+        /// database does not open or refuses the count.
         pub fn summary(&self) -> Result<EnvironmentSummary, EnvironmentError> {
             self.check_local()?;
-            let namespaces = match same_file(&path(), &self.path()) {
-                true => super::super::namespaces(),
-                false => self.open(Access::ReadOnly)?.summary(),
+            let namespaces = if same_file(&path(), &self.path()) {
+                active_namespaces()
+            } else {
+                self.open(Access::ReadOnly)?.summary()
             };
-            Ok(EnvironmentSummary::new(&namespaces))
+            Ok(EnvironmentSummary::new(
+                &namespaces.map_err(EnvironmentError::storage)?,
+            ))
         }
 
         fn local(name: String, location: &Path) -> Self {
@@ -278,11 +286,12 @@ mod storage {
         }
 
         fn check_local(&self) -> Result<(), EnvironmentError> {
-            match self.storage == *STORAGE {
-                true => Ok(()),
-                false => Err(EnvironmentError::IncompatibleStorage {
+            if self.storage == *STORAGE {
+                Ok(())
+            } else {
+                Err(EnvironmentError::IncompatibleStorage {
                     name: self.name.clone(),
-                }),
+                })
             }
         }
 
@@ -300,8 +309,7 @@ mod storage {
         }
 
         fn open(&self, access: Access) -> Result<Database, EnvironmentError> {
-            Database::open_at(&self.path(), access)
-                .map_err(|reason| EnvironmentError::Storage { reason })
+            Database::open_at(&self.path(), access).map_err(EnvironmentError::storage)
         }
 
         fn path(&self) -> PathBuf {
@@ -339,9 +347,10 @@ mod storage {
                 EnvironmentOrigin::Empty => Self::Nothing,
                 EnvironmentOrigin::Fork(source) => {
                     source.check_local()?;
-                    match same_file(&source.path(), &target.path()) {
-                        true => Self::Itself,
-                        false => Self::Fork(source),
+                    if same_file(&source.path(), &target.path()) {
+                        Self::Itself
+                    } else {
+                        Self::Fork(source)
                     }
                 }
                 EnvironmentOrigin::Bundle(bundle) => Self::Bundle(bundle),
@@ -356,14 +365,17 @@ mod storage {
                 Self::Nothing | Self::Itself => None,
                 Self::Fork(source) => Some(source.open(Access::ReadOnly)?),
                 Self::Bundle(bundle) => {
-                    std::fs::write(scratch.path(), &*bundle.bytes)
+                    let bytes = bundle
+                        .bytes
+                        .read(Reader::new())
                         .map_err(EnvironmentError::storage)?;
+                    std::fs::write(scratch.path(), bytes).map_err(EnvironmentError::storage)?;
                     // Validates the manifest; the entries are then read as an
                     // environment's, since a bundle file is one.
                     drop(SqliteBundle::open(scratch.path()).map_err(EnvironmentError::storage)?);
                     Some(
                         Database::open_at(scratch.path(), Access::ReadOnly)
-                            .map_err(|reason| EnvironmentError::Storage { reason })?,
+                            .map_err(EnvironmentError::storage)?,
                     )
                 }
             })

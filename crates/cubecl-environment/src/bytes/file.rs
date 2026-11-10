@@ -1,6 +1,6 @@
 use super::{AllocationProperty, file_reads};
 use crate::bytes::{
-    AccessError, AccessPolicy, AllocationController, FileWindow,
+    AccessError, AccessPolicy, AllocationController,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use spin::Once;
@@ -8,11 +8,90 @@ use std::{
     boxed::Box,
     fs::File,
     io::{Read, Seek, SeekFrom},
-    path::PathBuf,
+    path::{Path, PathBuf},
     string::ToString,
-    sync::Arc,
+    sync::{Arc, Mutex, PoisonError},
     vec,
 };
+
+/// Where bytes read lazily from a file lie in it: the file they are read
+/// from, and the offset of their first byte.
+///
+/// Public only to appear in [`AllocationController::file`]; the module is
+/// private, so nothing outside the crate names it, and its fields are the
+/// crate's.
+// Read only by the bundle readers, which the native cache builds.
+#[cfg_attr(not(native_cache), allow(dead_code))]
+pub struct FileWindow<'a> {
+    pub(crate) source: &'a FileSource,
+    pub(crate) offset: u64,
+}
+
+// Read only by the bundle readers, which the native cache builds.
+#[cfg_attr(not(native_cache), allow(dead_code))]
+impl<'a> FileWindow<'a> {
+    /// The file to open in place, when the window is the whole of the one at
+    /// its path, `len` bytes long, and that file is the one the bytes are
+    /// read from. A file opened and held proves it is still the one at its
+    /// path only where the platform says which file a path names (Unix);
+    /// elsewhere it answers `None`, and the caller reads the bytes instead.
+    pub(crate) fn whole_file(&self, len: u64) -> Option<&'a Path> {
+        if self.offset != 0 {
+            return None;
+        }
+        let at_path = std::fs::metadata(self.source.path()).ok()?;
+        let whole = match self.source {
+            FileSource::Path(_) => at_path.len() == len,
+            FileSource::Opened { file, .. } => {
+                let held = file
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .metadata()
+                    .ok()?;
+                held.len() == len && same_file(&held, &at_path)
+            }
+        };
+        whole.then(|| self.source.path())
+    }
+}
+
+/// What a file allocation reads its bytes from.
+// Read only by the bundle readers, which the native cache builds.
+#[cfg_attr(not(native_cache), allow(dead_code))]
+pub(crate) enum FileSource {
+    /// The file at a path, opened at each read: whatever file is there then.
+    Path(PathBuf),
+    /// A file opened once and held, beside the path it was opened at: a file
+    /// later renamed over the path, or the path removed, leaves the bytes
+    /// read from this one.
+    Opened {
+        /// Where the file was opened, which the reads are counted under.
+        path: PathBuf,
+        /// Locked for each read, since a read seeks it.
+        file: Mutex<File>,
+    },
+}
+
+impl FileSource {
+    /// The path the file was given at.
+    fn path(&self) -> &Path {
+        match self {
+            Self::Path(path) | Self::Opened { path, .. } => path,
+        }
+    }
+
+    /// Fills `buf` from the file, starting `offset` bytes in.
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        match self {
+            Self::Path(path) => read_at(&mut File::open(path)?, offset, buf),
+            Self::Opened { file, .. } => read_at(
+                &mut file.lock().unwrap_or_else(PoisonError::into_inner),
+                offset,
+                buf,
+            ),
+        }
+    }
+}
 
 /// The allocation is managed on a file.
 ///
@@ -25,7 +104,7 @@ use std::{
 /// Because of that mechanism, dereferencing [`crate::bytes::Bytes`] isn't cost-free when using the
 /// file allocator, since it's going to trigger a copy from the file system to an in-memory buffer.
 pub(crate) struct FileAllocationController {
-    file: Arc<PathBuf>,
+    source: Arc<FileSource>,
     size: u64,
     offset: u64,
     controller: Once<Box<dyn AllocationController>>,
@@ -33,12 +112,24 @@ pub(crate) struct FileAllocationController {
 
 impl FileAllocationController {
     pub fn new<P: Into<PathBuf>>(file: P, size: u64, offset: u64) -> Self {
-        Self::from_path_buf(Arc::new(file.into()), size, offset)
+        Self::from_source(Arc::new(FileSource::Path(file.into())), size, offset)
     }
 
-    fn from_path_buf(file: Arc<PathBuf>, size: u64, offset: u64) -> Self {
+    /// The `size` bytes of `file`, opened at `path`, from its start; read
+    /// from the open file, whatever is at `path` by then.
+    // Read only by the bundle readers, which the native cache builds.
+    #[cfg_attr(not(native_cache), allow(dead_code))]
+    pub fn opened(file: File, path: PathBuf, size: u64) -> Self {
+        let source = FileSource::Opened {
+            path,
+            file: Mutex::new(file),
+        };
+        Self::from_source(Arc::new(source), size, 0)
+    }
+
+    fn from_source(source: Arc<FileSource>, size: u64, offset: u64) -> Self {
         Self {
-            file,
+            source,
             size,
             controller: Once::new(),
             offset,
@@ -61,14 +152,11 @@ impl FileAllocationController {
 
         let controller = self.controller.try_call_once(
             || -> Result<Box<dyn AllocationController>, AccessError> {
-                let mut file =
-                    File::open(self.file.as_ref()).map_err(|e| AccessError::Read(e.to_string()))?;
                 let mut buf = vec![0u8; self.size as usize];
-                file.seek(SeekFrom::Start(self.offset))
+                self.source
+                    .read_at(self.offset, &mut buf)
                     .map_err(|e| AccessError::Read(e.to_string()))?;
-                file.read_exact(&mut buf)
-                    .map_err(|e| AccessError::Read(e.to_string()))?;
-                file_reads::count(&self.file, self.size);
+                file_reads::count(self.source.path(), self.size);
 
                 Ok(Box::new(NativeAllocationController::from_elems(buf)))
             },
@@ -94,9 +182,9 @@ impl AllocationController for FileAllocationController {
         }
 
         let left =
-            FileAllocationController::from_path_buf(self.file.clone(), offset as u64, self.offset);
-        let right = FileAllocationController::from_path_buf(
-            self.file.clone(),
+            FileAllocationController::from_source(self.source.clone(), offset as u64, self.offset);
+        let right = FileAllocationController::from_source(
+            self.source.clone(),
             self.size - offset as u64,
             self.offset + offset as u64,
         );
@@ -115,8 +203,8 @@ impl AllocationController for FileAllocationController {
             return None;
         }
 
-        Some(Box::new(FileAllocationController::from_path_buf(
-            self.file.clone(),
+        Some(Box::new(FileAllocationController::from_source(
+            self.source.clone(),
             (end - start) as u64,
             self.offset + start as u64,
         )))
@@ -159,13 +247,13 @@ impl AllocationController for FileAllocationController {
             return None;
         }
 
-        let controller = Self::new(self.file.as_ref(), self.size, self.offset);
+        let controller = Self::from_source(self.source.clone(), self.size, self.offset);
         Some(Box::new(controller))
     }
 
     fn file(&self) -> Option<FileWindow<'_>> {
-        (!self.controller.is_completed()).then(|| FileWindow {
-            path: self.file.as_path(),
+        (!self.controller.is_completed()).then_some(FileWindow {
+            source: &self.source,
             offset: self.offset,
         })
     }
@@ -186,11 +274,35 @@ impl AllocationController for FileAllocationController {
             return;
         }
 
-        let mut file = File::open(self.file.as_ref()).unwrap();
-        file.seek(SeekFrom::Start(self.offset)).unwrap();
-        file.read_exact(buf).unwrap();
-        file_reads::count(&self.file, buf.len() as u64);
+        self.source
+            .read_at(self.offset, buf)
+            .expect("file: host access failed");
+        file_reads::count(self.source.path(), buf.len() as u64);
     }
+}
+
+/// Fills `buf` from `file`, starting `offset` bytes in.
+fn read_at(file: &mut File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(buf)
+}
+
+/// Whether two files' metadata are of one file.
+#[cfg(unix)]
+// Read only by the bundle readers, which the native cache builds.
+#[cfg_attr(not(native_cache), allow(dead_code))]
+fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    (a.dev(), a.ino()) == (b.dev(), b.ino())
+}
+
+/// A platform whose std does not say which file a path names: never proven
+/// the same.
+#[cfg(not(unix))]
+// Read only by the bundle readers, which the native cache builds.
+#[cfg_attr(not(native_cache), allow(dead_code))]
+fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
+    false
 }
 
 #[cfg(test)]

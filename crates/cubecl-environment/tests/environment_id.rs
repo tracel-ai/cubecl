@@ -3,7 +3,7 @@
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
     self, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
-    EnvironmentSummary, ReadBundle, SaveOptions,
+    EnvironmentSummary, SaveOptions,
 };
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
@@ -345,20 +345,28 @@ fn a_saved_bundle_reads_back_its_name_stamp_and_summary() {
         .unwrap();
     let file = root.path().join("saved.cubecl");
     std::fs::write(&file, &*saved.bytes).unwrap();
-    let read = EnvironmentBundle::read(&file).unwrap();
+    let opened = EnvironmentBundle::open(&file).unwrap();
 
-    for bundle in [&saved, &read] {
-        assert_eq!(bundle.name().unwrap(), "H100 Linux");
-        assert_eq!(bundle.saved_by().unwrap(), Some(BuildStamp::current()));
-        assert_eq!(bundle.summary().unwrap(), PLANTED);
-        let saved_at = bundle.saved_at().unwrap().unwrap();
+    for bundle in [&saved, &opened] {
+        let description = bundle.read_description().unwrap();
+        assert_eq!(description.name, "H100 Linux");
+        assert_eq!(description.saved_by, Some(BuildStamp::current()));
+        assert_eq!(description.summary, PLANTED);
+        let saved_at = description.saved_at.unwrap();
         assert!(before <= saved_at && saved_at <= std::time::SystemTime::now());
     }
-    assert!(
-        read.bytes.file().is_some(),
-        "reading the file's name and counts left it unread"
-    );
-    assert_eq!(&*read.bytes, &*saved.bytes);
+    assert_eq!(&*opened.bytes, &*saved.bytes);
+}
+
+/// A bundle file that is not there fails to open, as every other environment
+/// call fails, rather than at its first use.
+#[test]
+fn a_missing_bundle_file_fails_to_open() {
+    let root = tempfile::tempdir().unwrap();
+
+    let opened = EnvironmentBundle::open(root.path().join("missing.cubecl"));
+
+    assert!(matches!(opened, Err(EnvironmentError::Storage { .. })));
 }
 
 /// A bundle saved without a name carries its environment's.
@@ -371,7 +379,7 @@ fn a_bundle_saved_without_a_name_carries_its_environments() {
 
     let saved = built.save(SaveOptions::default()).unwrap();
 
-    assert_eq!(saved.name().unwrap(), "built");
+    assert_eq!(saved.read_description().unwrap().name, "built");
 }
 
 /// An environment is counted as it stands, active or not, without saving it.
@@ -396,9 +404,10 @@ fn bytes_that_are_no_bundle_do_not_read() {
         bytes: Bytes::from_bytes_vec(b"not a bundle".to_vec()),
     };
 
-    assert!(bundle.name().is_err());
-    assert!(bundle.saved_by().is_err());
-    assert!(bundle.summary().is_err());
+    assert!(matches!(
+        bundle.read_description(),
+        Err(EnvironmentError::Storage { .. })
+    ));
 }
 
 /// What [`plant`] writes, counted.

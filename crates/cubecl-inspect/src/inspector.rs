@@ -186,10 +186,12 @@ impl Inspector {
             path: self.file.path().to_path_buf(),
             file_bytes: std::fs::metadata(self.file.path()).map_or(0, |meta| meta.len()),
             manifest: BundleManifest::new(self.file.database()).ok(),
+            // A count the database refuses lists nothing; the database logs why.
             namespaces: self
                 .file
                 .database()
                 .summary()
+                .unwrap_or_default()
                 .into_iter()
                 .map(Into::into)
                 .collect(),

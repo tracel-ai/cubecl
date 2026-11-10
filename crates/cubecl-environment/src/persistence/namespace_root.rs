@@ -12,7 +12,8 @@ pub enum NamespaceContent {
     /// Compiled kernels, one per entry.
     Kernels,
     /// A compiler's map from a source to the kernel that first finalized it:
-    /// each entry names a kernel and is none.
+    /// each entry names a kernel stored under the compiler's own root, and is
+    /// not a kernel itself.
     KernelSources,
     /// The answers autotune measured, one per key and candidate list.
     AutotuneAnswers,
