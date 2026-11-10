@@ -61,7 +61,7 @@ pub(crate) fn launch_tiles(
     }
     let at = block_coords(block, &blocks, named.len(), order.block_order());
 
-    let capped = comptime!(order.cap().is_some());
+    let capped = order.cap().is_some();
     comptime!(assert!(
         !capped || (order.one_block_a_cube() && named.len() == 1),
         "launch_tiles: a capped launch's cubes take a block each, along the level's one axis"
@@ -89,7 +89,7 @@ pub(crate) fn launch_tiles(
                 let within = local.divided_by(inner.runtime()).remainder(along.runtime());
                 let tile = at.at(i).times(along.runtime()).plus(within);
                 positions.push(tile);
-                if comptime!(capped) {
+                if capped {
                     // A launch's planes apart: every cube's block, a tile a plane.
                     let stride = CUBE_COUNT.times(along.runtime());
                     let first = tile.min_with(grid.at(p));

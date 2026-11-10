@@ -215,8 +215,8 @@ fn value_coords(
     #[unroll]
     for p in 0..operand.rank() {
         let axis = operand.axis_at(p);
-        let coord = if comptime!(acc.contains(axis)) {
-            acc_coords.at(comptime!(acc.position(axis)))
+        let coord = if acc.contains(axis) {
+            acc_coords.at(acc.position(axis))
         } else {
             match comptime!(reduce.iter().position(|&r| r == axis)) {
                 Some(pos) => reduce_coords.at(comptime!(pos)),
@@ -247,7 +247,7 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
     #[comptime] monoid: Monoid,
 ) -> Acc {
     let mut acc_vec = Vector::<Acc, V>::cast_from(Monoid::identity::<Acc>(monoid));
-    let lines = comptime!(layout.kc / contracted_per_step);
+    let lines = layout.kc / contracted_per_step;
     // Unrolled, every line's load is issued before the first is summed; a rolled loop waits on
     // each. A walk longer than the budget stays rolled rather than grow the kernel without end.
     #[unroll(lines <= UNROLLED_LINES)]
@@ -270,8 +270,8 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
         // A line lies under one scale (a scaled operand's lines never straddle one), read at
         // its first value; values the tile carries no scales for are read as they are.
         let scaled = comptime!(factor.scaled());
-        if comptime!(scaled || placed) {
-            let scale = if comptime!(scaled) {
+        if scaled || placed {
+            let scale = if scaled {
                 let at = value_coords(
                     in_space,
                     acc_space,
@@ -279,7 +279,7 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
                     acc_coords,
                     &reduce_coords,
                 );
-                factor.at_coords(&at, comptime!(in_space.clone()), comptime!(Guard::Checked)) * lift
+                factor.at_coords(&at, in_space.clone(), comptime!(Guard::Checked)) * lift
             } else {
                 lift
             };
@@ -377,10 +377,9 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             );
             in_cast
                 * Acc::cast_from(
-                    factor.at_coords(&at, comptime!(in_space.clone()), comptime!(Guard::Checked))
-                        * lift,
+                    factor.at_coords(&at, in_space.clone(), comptime!(Guard::Checked)) * lift,
                 )
-        } else if comptime!(placed) {
+        } else if placed {
             in_cast * Acc::cast_from(lift)
         } else {
             in_cast
