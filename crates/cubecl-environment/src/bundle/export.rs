@@ -4,6 +4,7 @@ use std::string::{String, ToString};
 use std::vec::Vec;
 
 use crate::bytes::Bytes;
+use crate::environment::BuildStamp;
 use crate::future::block_on;
 use crate::persistence::database::{self, connect};
 use crate::persistence::sql::{self, Behavior, Opening, Transaction};
@@ -98,6 +99,7 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
             .ok()
             .map(|elapsed| elapsed.as_secs()),
         environments: resolve_environments(&options.environments),
+        saved_by: Some(BuildStamp::current()),
     };
 
     let sources: Vec<PathBuf> = cache_roots

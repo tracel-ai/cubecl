@@ -5,7 +5,28 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NamespaceRoot<'a>(&'a str);
 
+/// What the entries of a namespace are, read off its [root](NamespaceRoot):
+/// what counting an environment tells apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NamespaceContent {
+    /// Compiled kernels, one per entry.
+    Kernels,
+    /// A compiler's map from a source to the kernel that first finalized it:
+    /// each entry names a kernel and is none.
+    KernelSources,
+    /// The answers autotune measured, one per key and candidate list.
+    AutotuneAnswers,
+    /// How the environment was built.
+    Records,
+    /// Anything else: the throughput measurements, the work's launches, an
+    /// application's own data.
+    Other,
+}
+
 impl<'a> NamespaceRoot<'a> {
+    /// The root every autotune table is stored under.
+    pub const AUTOTUNE: &'static str = "autotune";
+
     /// The root of `namespace`.
     pub fn new(namespace: &'a str) -> Self {
         Self(namespace.split('/').next().unwrap_or_default())
@@ -21,7 +42,25 @@ impl<'a> NamespaceRoot<'a> {
     /// those: an application keeps its own data in the same environment, and
     /// nothing that reads artifacts may mistake an entry of it for one.
     pub fn holds_artifacts(self) -> bool {
-        ArtifactRoot::ALL.iter().any(|root| root.as_str() == self.0)
+        matches!(
+            self.content(),
+            NamespaceContent::Kernels | NamespaceContent::KernelSources
+        )
+    }
+
+    /// What the namespace's entries are.
+    pub fn content(self) -> NamespaceContent {
+        if let Some(root) = ArtifactRoot::ALL
+            .iter()
+            .find(|root| root.as_str() == self.0)
+        {
+            return root.content();
+        }
+        match self.0 {
+            Self::AUTOTUNE => NamespaceContent::AutotuneAnswers,
+            crate::records::EVERY_LAYOUT => NamespaceContent::Records,
+            _ => NamespaceContent::Other,
+        }
     }
 }
 
@@ -71,6 +110,16 @@ impl ArtifactRoot {
             Self::HipSources => "hip-second-line",
             Self::Metal => "metal",
             Self::Vulkan => "vulkan",
+        }
+    }
+
+    /// What the namespaces under the root hold.
+    pub fn content(self) -> NamespaceContent {
+        match self {
+            Self::CudaSources | Self::HipSources => NamespaceContent::KernelSources,
+            Self::Cpu | Self::Cuda | Self::Hip | Self::Metal | Self::Vulkan => {
+                NamespaceContent::Kernels
+            }
         }
     }
 }

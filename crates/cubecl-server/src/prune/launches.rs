@@ -1,11 +1,12 @@
 //! A prune by the kernels the work launched, as the loader records them.
 
 use super::Prune;
-use crate::compiler::{KernelCacheKey, NamespaceRoot, WorkLaunchStore, build_id_hash};
+use crate::compiler::{KernelCacheKey, NamespaceRoot, WorkLaunchStore};
 use alloc::string::String;
 use alloc::vec::Vec;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::collections::{HashMap, HashSet};
+use cubecl_environment::environment::BuildStamp;
 use cubecl_environment::environment::{
     EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned,
 };
@@ -15,7 +16,7 @@ use cubecl_environment::records::Records;
 impl Prune for EnvironmentId {
     fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError> {
         let database = self.database(Access::ReadWrite)?;
-        let launches = WorkLaunches::read(&database, build_id_hash());
+        let launches = WorkLaunches::read(&database, BuildStamp::current().hash);
         let kernels = launches.prune(&database);
         let records = Records::new(&database).retain(options.records);
         Ok(Pruned { kernels, records })

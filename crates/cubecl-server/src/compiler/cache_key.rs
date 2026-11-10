@@ -27,7 +27,8 @@ pub struct KernelCacheKey {
     /// a key encodes as `id` and `build_id` alone.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub variant: StableHash,
-    /// Hash of the [build id](buildid::build_id).
+    /// The [stamp](cubecl_environment::environment::BuildStamp) of the executable that
+    /// compiled the artifact.
     pub build_id: StableHash,
 }
 

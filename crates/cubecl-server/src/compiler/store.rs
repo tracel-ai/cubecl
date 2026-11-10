@@ -3,17 +3,10 @@
 use super::{ArtifactRoot, KernelCacheKey};
 use crate::id::KernelId;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_environment::environment::BuildStamp;
 #[cfg(compilation_cache)]
 use cubecl_environment::persistence::{CacheOption, StoreOptions};
 use cubecl_environment::persistence::{Namespace, Store, StoreKey, StoreValue};
-
-/// Platform-specific build identifier, changes on rebuild
-pub type BuildId = Option<&'static [u8]>;
-
-/// Pre-hashed build ID
-pub fn build_id_hash() -> StableHash {
-    StableHasher::hash_one(&buildid::build_id())
-}
 
 /// A store for compiled artifacts under `root`, or `None` when compilation
 /// caching is disabled or the target has nowhere durable to put them.
@@ -112,7 +105,7 @@ impl<A: StoreValue> ArtifactStore<A> {
         Self {
             by_kernel: compilation_store(root, fingerprint),
             by_source: None,
-            build_id: build_id_hash(),
+            build_id: BuildStamp::current().hash,
         }
     }
 
@@ -127,7 +120,7 @@ impl<A: StoreValue> ArtifactStore<A> {
         Self {
             by_kernel,
             by_source,
-            build_id: build_id_hash(),
+            build_id: BuildStamp::current().hash,
         }
     }
 
@@ -257,7 +250,7 @@ mod tests {
         ArtifactStore {
             by_kernel: Some(lazy("kernels")),
             by_source: Some(lazy("sources")),
-            build_id: build_id_hash(),
+            build_id: BuildStamp::current().hash,
         }
     }
 

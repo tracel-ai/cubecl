@@ -159,7 +159,7 @@ pub enum TuneCacheResult {
 }
 
 /// The root of every tuner's table namespace.
-pub const ROOT: &str = "autotune";
+pub const ROOT: &str = cubecl_environment::persistence::NamespaceRoot::AUTOTUNE;
 
 /// What the segment numbering a table layout starts with, as in `layout-v1`.
 pub const LAYOUT_PREFIX: &str = "layout-v";

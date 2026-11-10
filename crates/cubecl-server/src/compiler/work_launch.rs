@@ -1,8 +1,9 @@
 //! The kernels the work launched, recorded per build.
 
-use super::{build_id_hash, persistent_store};
+use super::persistent_store;
 use crate::id::KernelId;
 use cubecl_common::hash::StableHash;
+use cubecl_environment::environment::BuildStamp;
 use cubecl_environment::persistence::{Namespace, Store};
 
 /// The kernels the work launched in the active environment, by the stable
@@ -38,7 +39,7 @@ impl WorkLaunchStore {
     /// compilation caching is disabled or the target has nowhere durable to
     /// put them.
     pub(crate) fn new() -> Option<Self> {
-        persistent_store(Self::namespace(build_id_hash())).map(|store| Self { store })
+        persistent_store(Self::namespace(BuildStamp::current().hash)).map(|store| Self { store })
     }
 
     /// Record that the work launched `kernel`. A storage that refuses the

@@ -107,6 +107,10 @@ pub struct BundleManifest {
     /// The environments the bundle was captured on, informational in v1.
     #[serde(default, rename = "environments")]
     pub environments: Vec<EnvironmentInfo>,
+    /// The executable that exported the bundle, which tells a reader whether
+    /// its own build saved it; `None` when the manifest names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_by: Option<crate::environment::BuildStamp>,
 }
 
 /// Description of one environment a bundle was captured on. Informational:

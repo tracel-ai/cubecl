@@ -3,7 +3,8 @@
 use crate::id::KernelId;
 use cubecl_environment::records::{Record, RecordEffect, RecordLevel, Span};
 
-use super::{KernelCacheKey, build_id_hash};
+use super::KernelCacheKey;
+use cubecl_environment::environment::BuildStamp;
 
 /// One kernel's trip through a backend's compilation path, as the environment
 /// records it: compiled fresh, loaded from the compilation store, or rekeyed
@@ -155,7 +156,7 @@ impl CompilationRecording {
             span,
             work: core::time::Duration::ZERO,
             kernel: kernel_id.type_name(),
-            key: KernelCacheKey::new(kernel_id, build_id_hash()),
+            key: KernelCacheKey::new(kernel_id, BuildStamp::current().hash),
             ir: None,
             source: None,
         });
