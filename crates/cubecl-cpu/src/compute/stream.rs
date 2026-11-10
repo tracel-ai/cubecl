@@ -138,7 +138,8 @@ impl CpuStream {
         match task {
             ScheduleTask::Write { data, mut buffer } => {
                 self.submit();
-                buffer.resource_mut().write().copy_from_slice(&data);
+                // The server refused data longer than the binding, so it fits.
+                buffer.resource_mut().write()[..data.len()].copy_from_slice(&data);
             }
             ScheduleTask::Execute {
                 pliron_engine,
