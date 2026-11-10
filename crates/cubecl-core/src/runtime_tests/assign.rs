@@ -59,7 +59,7 @@ fn assign_ref<F: Float>(value: &mut F) {
 fn assign_mut_expression(output: &mut [u32]) {
     let thread_idx = UNIT_POS as usize;
     let num_threads = CUBE_DIM as usize;
-    let mut step = 256 / 2usize;
+    let mut step = (256 / 2usize).runtime();
 
     while step > 0 {
         for pos in range_stepped(thread_idx, step, num_threads) {
@@ -84,11 +84,10 @@ fn kernel_compound_assign_runtime_word(
     output[0] = word;
 }
 
-/// A comptime binding stays plain Rust: each compound assignment changes it while the kernel
-/// expands. A runtime binding takes both comptime and runtime values.
+/// Every compound assignment onto a runtime binding, with comptime and runtime values.
 #[cube(launch)]
 fn kernel_compound_assign_kinds(input: &[u32], output: &mut [u32], #[comptime] step: u32) {
-    let mut offset = step;
+    let mut offset = step.runtime();
     offset += step;
     offset *= 3;
     offset -= 1;

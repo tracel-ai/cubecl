@@ -93,26 +93,20 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() => {
-                // Neither side goes through `IntoExpand`: a comptime target stays plain Rust and
-                // is changed in place, and a comptime value keeps its type, so the target's
-                // kind picks the operation. A comptime target with a runtime value is a type error.
-                // The call carries the user's span, so a type error points at the assignment.
+                // The target doesn't go through `IntoExpand`: a comptime target would become a
+                // temporary that takes the update and is dropped. It stays plain Rust, which no
+                // compound assignment accepts, so the kernel is rejected at compile time. Only the
+                // method name carries the user's span, so the error points at the assignment.
                 let op = format_ident!("__expand_{}_method", operator.op_name(), span = *span);
                 let mut operands = Operands::new(context);
                 let left = operands.track(context, |context| left.to_tokens(context));
-                let right = operands.track(context, |context| {
-                    right
-                        .as_const(context)
-                        .unwrap_or_else(|| right.to_tokens(context))
-                });
-                let value = match operands.position(context, *span) {
-                    Some(position) => quote_spanned! {*span=> (_value, #position).0},
-                    None => quote_spanned! {*span=> _value},
-                };
-                let call = quote_spanned! {*span=> #left.#op(scope, #value)};
+                let right =
+                    operands.track(context, |context| into_expand(right.to_tokens(context)));
+                let right = then_position(right, operands.position(context, *span));
+                // The value first: it may read the target, which the call borrows mutably.
                 quote! {{
                     let _value = #right;
-                    #call
+                    #left.#op(scope, _value)
                 }}
             }
             Expression::Binary {
