@@ -89,6 +89,54 @@ impl Drop for AllocationLabel {
     }
 }
 
+/// One thread's labels, carried to the thread that does work on its behalf.
+///
+/// A device runs a caller's work on a thread of its own, so the memory that
+/// work allocates would otherwise carry that thread's labels, not the
+/// caller's. Taken with [`current`](Self::current) where the work is handed
+/// over, and [applied](Self::apply) around it where it runs.
+pub struct AllocationLabelStack {
+    /// Without `std` no label is kept, so none is ever applied.
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
+    labels: Vec<Arc<str>>,
+}
+
+impl AllocationLabelStack {
+    /// This thread's labels, outermost first; empty when recording is off.
+    pub fn current() -> Self {
+        Self {
+            labels: AllocationLabel::current(),
+        }
+    }
+
+    /// Run `work` with this thread's stack replaced by these labels, then put
+    /// the thread's own back, even if `work` panics. Replaced rather than
+    /// added to, so work run on the thread that handed it over keeps the
+    /// labels it already had, not two copies of them. While recording is off,
+    /// `work` just runs.
+    pub fn apply<R>(self, work: impl FnOnce() -> R) -> R {
+        #[cfg(feature = "std")]
+        if is_recording() {
+            let _restore = Restore(Some(STACK.with(|stack| stack.replace(self.labels))));
+            return work();
+        }
+        work()
+    }
+}
+
+/// Puts a thread's own labels back once the work run under carried ones ends.
+#[cfg(feature = "std")]
+struct Restore(Option<Vec<Arc<str>>>);
+
+#[cfg(feature = "std")]
+impl Drop for Restore {
+    fn drop(&mut self) {
+        if let Some(own) = self.0.take() {
+            STACK.with(|stack| *stack.borrow_mut() = own);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
@@ -120,6 +168,33 @@ mod tests {
             assert_eq!(AllocationLabel::current().len(), 1);
         }
         assert!(AllocationLabel::current().is_empty());
+
+        carried_labels_replace_the_running_thread_s_own_while_the_work_runs();
         set_recording(false);
+    }
+
+    /// Part of the one test above: recording is on.
+    fn carried_labels_replace_the_running_thread_s_own_while_the_work_runs() {
+        let caller = {
+            let _model = AllocationLabel::push("model");
+            let _step = AllocationLabel::push("step 3");
+            AllocationLabelStack::current()
+        };
+        let seen = std::thread::spawn(move || {
+            let _own = AllocationLabel::push("worker");
+            let during = caller.apply(AllocationLabel::current);
+            (during, AllocationLabel::current())
+        })
+        .join()
+        .unwrap();
+
+        let names = |labels: &[Arc<str>]| {
+            labels
+                .iter()
+                .map(|l| alloc::string::String::from(&**l))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&seen.0), ["model", "step 3"]);
+        assert_eq!(names(&seen.1), ["worker"]);
     }
 }

@@ -2,6 +2,7 @@ mod base;
 
 pub use base::*;
 
+use crate::allocation_label::AllocationLabelStack;
 use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle, ServiceId};
 use core::any::Any;
 
@@ -146,12 +147,16 @@ impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
         task: T,
     ) -> Result<R, CallError> {
         let cast = self.cast;
-        self.handle.submit_blocking(move |state| task(cast(state)))
+        let labels = AllocationLabelStack::current();
+        self.handle
+            .submit_blocking(move |state| labels.apply(|| task(cast(state))))
     }
 
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let cast = self.cast;
-        self.handle.submit(move |state| task(cast(state)))
+        let labels = AllocationLabelStack::current();
+        self.handle
+            .submit(move |state| labels.apply(|| task(cast(state))))
     }
 
     /// Runs `task` without waiting for it, so calls to several devices can run at once.
@@ -160,7 +165,9 @@ impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
         task: T,
     ) -> SpawnedCall<R> {
         let cast = self.cast;
-        self.handle.spawn(move |state| task(cast(state)))
+        let labels = AllocationLabelStack::current();
+        self.handle
+            .spawn(move |state| labels.apply(|| task(cast(state))))
     }
 
     pub fn flush_queue(&self) {
@@ -168,7 +175,8 @@ impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
     }
 
     pub fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
-        self.handle.exclusive(task)
+        let labels = AllocationLabelStack::current();
+        self.handle.exclusive(move || labels.apply(task))
     }
 
     /// Stops the background runner threads for `device_id`, blocking until they
