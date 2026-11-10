@@ -4,8 +4,11 @@
 //! The bookkeeping around them is the shared [`Collectives`](cubecl_server::command::Collectives),
 //! and the server's half the shared [`CollectiveServer`](cubecl_server::command::CollectiveServer).
 
-use core::ffi::c_int;
-use std::{collections::HashMap, sync::OnceLock};
+use core::{ffi::c_int, fmt::Display};
+use std::{
+    collections::HashMap,
+    sync::{Once, OnceLock},
+};
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
@@ -29,7 +32,7 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
     let rccl = match Rccl::get() {
         Ok(rccl) => rccl,
         Err(reason) => {
-            log::debug!("no RCCL, so transfers between HIP devices go through the host: {reason}");
+            warn_host_fallback(reason);
             return None;
         }
     };
@@ -41,13 +44,22 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
             })
         }
         Err(err) => {
-            log::warn!(
-                "RCCL loaded but gave no version, so transfers between HIP devices go through \
-                 the host: {err}"
-            );
+            warn_host_fallback(format_args!("RCCL loaded but gave no version: {err}"));
             None
         }
     }
+}
+
+/// Warns once per process, rather than once per device, that `cause` sends transfers between
+/// HIP devices through the host and leaves them no collectives.
+fn warn_host_fallback(cause: impl Display) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        log::warn!(
+            "Transfers between HIP devices go through the host, which is much slower, and \
+             collectives between them are unavailable: {cause}"
+        );
+    });
 }
 
 /// The RCCL data type for `dtype`.

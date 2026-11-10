@@ -5,8 +5,11 @@
 //! rank in one is — is the shared
 //! [`Collectives`](cubecl_server::command::Collectives)'.
 
-use core::ffi::c_int;
-use std::{collections::HashMap, sync::OnceLock};
+use core::{ffi::c_int, fmt::Display};
+use std::{
+    collections::HashMap,
+    sync::{Once, OnceLock},
+};
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
@@ -14,10 +17,14 @@ use cubecl_core::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
-use cubecl_server::command::{CollectiveDriver, Elements, StreamSignal};
+use cubecl_server::{
+    command::{CollectiveDriver, Elements, StreamSignal},
+    runtime::Runtime,
+};
 use cudarc::nccl::sys::ncclDataType_t as NcclDataType;
 use std::mem::MaybeUninit;
 
+use crate::CudaRuntime;
 use crate::compute::driver::Cuda;
 use crate::compute::events::Fence;
 use crate::compute::storage::gpu::GpuResource;
@@ -55,6 +62,7 @@ impl Nccl {
     pub fn new(arch_version: u32) -> Option<Self> {
         // SAFETY: the call only tries to `dlopen` each candidate name.
         if !unsafe { cudarc::nccl::sys::is_culib_present() } {
+            warn_host_fallback("NCCL is not installed");
             return None;
         }
         match cudarc::nccl::result::get_nccl_version() {
@@ -63,9 +71,7 @@ impl Nccl {
                 arch_version,
             }),
             Err(err) => {
-                log::warn!(
-                    "NCCL loaded but gave no version, so transfers go through the host: {err:?}"
-                );
+                warn_host_fallback(format_args!("NCCL loaded but gave no version: {err:?}"));
                 None
             }
         }
@@ -88,6 +94,21 @@ impl Nccl {
             dtype => nccl_dtype(dtype).is_some(),
         }
     }
+}
+
+/// Warns once per process, and only where there is more than one CUDA device to move data
+/// between, that `cause` sends transfers between them through the host and leaves them no
+/// collectives.
+fn warn_host_fallback(cause: impl Display) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        if CudaRuntime::enumerate_devices(0).len() > 1 {
+            log::warn!(
+                "Transfers between CUDA devices go through the host, which is much slower, and \
+                 collectives between them are unavailable: {cause}"
+            );
+        }
+    });
 }
 
 /// The NCCL data type for `dtype`.
