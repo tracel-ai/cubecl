@@ -42,8 +42,8 @@ impl Portion {
 
     /// The regions the portion touches, as a walk: for a kernel that walks them as it would a
     /// level's own tiles, where each instance holds whole regions.
-    pub fn regions(&self) -> Walk {
-        self.regions.clone()
+    pub fn regions(self) -> Walk {
+        self.regions
     }
 
     /// The `i`-th region the portion touches, in the level's flat index: one for every region of
