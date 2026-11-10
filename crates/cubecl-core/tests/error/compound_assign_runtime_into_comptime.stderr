@@ -1,0 +1,45 @@
+error[E0277]: a runtime `NativeExpand<u32>` can't change the comptime `u32`
+  --> tests/error/compound_assign_runtime_into_comptime.rs:15:9
+   |
+15 |         word ^= perm[0];
+   |         ^^^^ this binding is comptime
+   |
+   = help: the trait `ComptimeOperand<u32>` is not implemented for `NativeExpand<u32>`
+   = note: a comptime binding is plain Rust: it changes while the kernel expands, not when it runs
+   = note: make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`
+help: `NativeExpand<T>` implements trait `cubecl_core::frontend::BitXorAssignExpand<Rhs>`
+  --> src/frontend/operation/binary.rs
+   |
+   |             impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>] for NativeExpand<T> {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `cubecl_core::frontend::BitXorAssignExpand`
+...
+   |             impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>]<T> for NativeExpand<T> {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `cubecl_core::frontend::BitXorAssignExpand<T>`
+...
+   | define_core_assign_binop!(BitXorAssign, BitXor, bitxor_assign, bitxor, ^=);
+   | -------------------------------------------------------------------------- in this macro invocation
+   = note: required for `u32` to implement `cubecl_core::frontend::BitXorAssignExpand<NativeExpand<u32>>`
+   = note: this error originates in the macro `define_core_assign_binop` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: a runtime `NativeExpand<u32>` can't change the comptime `u32`
+  --> tests/error/compound_assign_runtime_into_comptime.rs:17:5
+   |
+17 |     word += perm[1];
+   |     ^^^^ this binding is comptime
+   |
+   = help: the trait `ComptimeOperand<u32>` is not implemented for `NativeExpand<u32>`
+   = note: a comptime binding is plain Rust: it changes while the kernel expands, not when it runs
+   = note: make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`
+help: `NativeExpand<T>` implements trait `cubecl_core::frontend::AddAssignExpand<Rhs>`
+  --> src/frontend/operation/binary.rs
+   |
+   |             impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>] for NativeExpand<T> {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `cubecl_core::frontend::AddAssignExpand`
+...
+   |             impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>]<T> for NativeExpand<T> {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `cubecl_core::frontend::AddAssignExpand<T>`
+...
+   | define_core_assign_binop!(AddAssign, Add, add_assign, add, +=);
+   | -------------------------------------------------------------- in this macro invocation
+   = note: required for `u32` to implement `cubecl_core::frontend::AddAssignExpand<NativeExpand<u32>>`
+   = note: this error originates in the macro `define_core_assign_binop` (in Nightly builds, run with -Z macro-backtrace for more info)

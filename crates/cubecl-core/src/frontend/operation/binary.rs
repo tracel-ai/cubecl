@@ -399,8 +399,29 @@ macro_rules! impl_core_binop {
         }
     };
 }
+
+/// A value that a compound assignment can apply to a comptime `T`.
+///
+/// A comptime target is plain Rust, so only a comptime value can change it. A runtime value has
+/// nowhere to go, so the kernel is rejected rather than silently dropping the update.
+#[diagnostic::on_unimplemented(
+    message = "a runtime `{Self}` can't change the comptime `{T}`",
+    label = "this binding is comptime",
+    note = "a comptime binding is plain Rust: it changes while the kernel expands, not when it runs",
+    note = "make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`"
+)]
+pub trait ComptimeOperand<T> {
+    fn into_comptime(self) -> T;
+}
+
+impl<T: CubePrimitive> ComptimeOperand<T> for T {
+    fn into_comptime(self) -> T {
+        self
+    }
+}
+
 macro_rules! define_core_assign_binop {
-    ($trait: ident, $base_trait: ident, $method: ident, $base_method: ident) => {
+    ($trait: ident, $base_trait: ident, $method: ident, $base_method: ident, $op: tt) => {
         paste::paste! {
             pub trait [<Cube $trait>]: $trait + CubePrimitive<Scalar: [<$base_trait NativeExpand>]>
                 + CubeType<ExpandType: [<$trait Expand>]> + Sized {
@@ -413,14 +434,29 @@ macro_rules! define_core_assign_binop {
                 }
             }
 
-            pub trait [<$trait Expand>] {
-                fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: Self);
+            /// Compound assignment in a kernel.
+            ///
+            /// A runtime target takes a runtime or a comptime value. A comptime target is plain
+            /// Rust and takes only a comptime value, see [`ComptimeOperand`].
+            pub trait [<$trait Expand>]<Rhs = Self> {
+                fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: Rhs);
             }
 
             impl<T: $trait + [<Cube $base_trait>]> [<Cube $trait>] for T {}
             impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: Self) {
                     assign_binop_expand(scope, self, rhs, T::Scalar::[<__expand_native_ $base_method>]);
+                }
+            }
+            impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>]<T> for NativeExpand<T> {
+                fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: T) {
+                    let rhs = rhs.__expand_runtime_method(scope);
+                    self.[<__expand_ $method _method>](scope, rhs);
+                }
+            }
+            impl<T: $trait + [<Cube $base_trait>], Rhs: ComptimeOperand<T>> [<$trait Expand>]<Rhs> for T {
+                fn [<__expand_ $method _method>](&mut self, _scope: &Scope, rhs: Rhs) {
+                    *self $op rhs.into_comptime();
                 }
             }
         }
@@ -450,11 +486,11 @@ impl_core_binop!(i8, i16, i32, i64, isize; Rem, rem, SRemOp);
 impl_core_binop!(u8, u16, u32, u64, usize; Rem, rem, URemOp);
 impl_core_binop!(f16, bf16, f32, flex32, tf32, f64; Rem, rem, FRemOp);
 
-define_core_assign_binop!(AddAssign, Add, add_assign, add);
-define_core_assign_binop!(SubAssign, Sub, sub_assign, sub);
-define_core_assign_binop!(MulAssign, Mul, mul_assign, mul);
-define_core_assign_binop!(DivAssign, Div, div_assign, div);
-define_core_assign_binop!(RemAssign, Rem, rem_assign, rem);
+define_core_assign_binop!(AddAssign, Add, add_assign, add, +=);
+define_core_assign_binop!(SubAssign, Sub, sub_assign, sub, -=);
+define_core_assign_binop!(MulAssign, Mul, mul_assign, mul, *=);
+define_core_assign_binop!(DivAssign, Div, div_assign, div, /=);
+define_core_assign_binop!(RemAssign, Rem, rem_assign, rem, %=);
 
 define_core_binop!(BitAnd, bitand);
 define_core_binop!(BitOr, bitor);
@@ -468,11 +504,11 @@ impl_core_binop!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize; BitXor, bit
 impl_core_binop!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize; Shl, shl, ShiftLeftOp);
 impl_core_binop!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize; Shr, shr, ShiftRightOp);
 
-define_core_assign_binop!(BitAndAssign, BitAnd, bitand_assign, bitand);
-define_core_assign_binop!(BitOrAssign, BitOr, bitor_assign, bitor);
-define_core_assign_binop!(BitXorAssign, BitXor, bitxor_assign, bitxor);
-define_core_assign_binop!(ShlAssign, Shl, shl_assign, shl);
-define_core_assign_binop!(ShrAssign, Shr, shr_assign, shr);
+define_core_assign_binop!(BitAndAssign, BitAnd, bitand_assign, bitand, &=);
+define_core_assign_binop!(BitOrAssign, BitOr, bitor_assign, bitor, |=);
+define_core_assign_binop!(BitXorAssign, BitXor, bitxor_assign, bitxor, ^=);
+define_core_assign_binop!(ShlAssign, Shl, shl_assign, shl, <<=);
+define_core_assign_binop!(ShrAssign, Shr, shr_assign, shr, >>=);
 
 impl BitAndNativeExpand for bool {
     fn __expand_native_bitand(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {

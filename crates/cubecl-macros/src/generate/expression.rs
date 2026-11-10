@@ -93,19 +93,26 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() => {
-                let op = format_ident!("__expand_{}_method", operator.op_name());
+                // Neither side goes through `IntoExpand`: a comptime target stays plain Rust and
+                // is changed in place, and a comptime value keeps its type, so the target's
+                // kind picks the operation. A comptime target with a runtime value is a type error.
+                // The call carries the user's span, so a type error points at the assignment.
+                let op = format_ident!("__expand_{}_method", operator.op_name(), span = *span);
                 let mut operands = Operands::new(context);
-                let left = operands.track(context, |context| into_expand(left.to_tokens(context)));
-                let right =
-                    operands.track(context, |context| into_expand(right.to_tokens(context)));
-                let rhs = match operator.is_cmp() {
-                    true => quote![&#right],
-                    false => quote![#right],
+                let left = operands.track(context, |context| left.to_tokens(context));
+                let right = operands.track(context, |context| {
+                    right
+                        .as_const(context)
+                        .unwrap_or_else(|| right.to_tokens(context))
+                });
+                let value = match operands.position(context, *span) {
+                    Some(position) => quote_spanned! {*span=> (_value, #position).0},
+                    None => quote_spanned! {*span=> _value},
                 };
-                let value = then_position(quote![_value], operands.position(context, *span));
+                let call = quote_spanned! {*span=> #left.#op(scope, #value)};
                 quote! {{
-                    let _value = #rhs;
-                    #left.#op(scope, #value)
+                    let _value = #right;
+                    #call
                 }}
             }
             Expression::Binary {
