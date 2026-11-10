@@ -140,8 +140,9 @@ type OriginVisitor<'a> = dyn FnMut(&[u8], &[u8], Origin) + 'a;
 pub enum Access {
     /// Read and never written: not migrated, not checkpointed, and refused
     /// unless the file is an environment at this build's schema version.
-    /// Safe to point at a file another process is writing, and at one in a
-    /// directory nobody may write.
+    /// Safe to point at a file another process is writing. Standalone files
+    /// need no writable directory; a live shared Turso WAL requires write
+    /// access to its existing coordination sidecar even for readers.
     ///
     /// The engine keeps one database object per file for the whole process,
     /// configured by the first open: while a read-only handle lives, every
@@ -929,12 +930,17 @@ enum LogRecovery {
     NotNeeded,
     /// Another process has the file open, and its log is that process's to
     /// restart.
+    #[cfg(not(all(windows, turso_engine)))]
     HeldElsewhere,
+    /// Recovery could not complete safely; every cache file stays in place.
+    #[cfg(all(windows, turso_engine))]
+    Deferred,
     /// The log was folded into the file and restarted.
     Restarted,
     /// The log could not be folded in: the file and its log were moved
     /// aside, so the database opens empty, and is filled again from the
     /// saved environment.
+    #[cfg(not(all(windows, turso_engine)))]
     SetAside,
 }
 
@@ -943,11 +949,11 @@ enum LogRecovery {
 /// leaves, or one past the 262,144 frames turso indexes between processes,
 /// on which every read fails as `database is locked` until the log restarts.
 ///
-/// The file is opened for this process alone, which turso refuses while
-/// another process has it open, and which needs no index between processes:
-/// the log is then folded in and truncated, and the index file beside it
-/// (`-tshm`) removed, so the next open builds it again from an empty log.
-/// A log that can't be folded in has the file set aside instead.
+/// Windows uses a coordinated checkpoint: Turso's process-local mode does
+/// not exclude shared IOCP owners. The coordination file is retained even
+/// after success, and an unsuccessful checkpoint leaves every file intact.
+/// A log already beyond the shared index's capacity may need offline recovery.
+/// Other platforms retain the process-local recovery path below.
 #[cfg(native_cache)]
 async fn recover_long_log(location: &str) -> LogRecovery {
     if sql::INDEXED_LOG_FRAMES.is_none() {
@@ -961,6 +967,39 @@ async fn recover_long_log(location: &str) -> LogRecovery {
         return LogRecovery::NotNeeded;
     }
 
+    recover_log(location, frames).await
+}
+
+/// Keep IOCP readers and writers in one coordination domain for the entire
+/// checkpoint. Neither completion nor failure proves exclusive file ownership.
+#[cfg(all(native_cache, windows, turso_engine))]
+async fn recover_log(location: &str, frames: u64) -> LogRecovery {
+    let restarted = match sql::Database::open(location, Opening::Shared).await {
+        Ok(database) => connect(&database).and_then(|connection| connection.checkpoint()),
+        Err(err) => Err(err),
+    };
+    match restarted {
+        Ok(true) => {
+            log::info!(
+                "cubecl cache: restarted the shared log of {location}, which held {frames} frames"
+            );
+            LogRecovery::Restarted
+        }
+        outcome => {
+            let reason = match outcome {
+                Err(err) => err.to_string(),
+                _ => "the checkpoint did not complete".to_string(),
+            };
+            log::debug!(
+                "cubecl cache: leaving the log of {location} ({frames} frames) intact: {reason}"
+            );
+            LogRecovery::Deferred
+        }
+    }
+}
+
+#[cfg(all(native_cache, not(all(windows, turso_engine))))]
+async fn recover_log(location: &str, frames: u64) -> LogRecovery {
     let restarted = match sql::Database::open(location, Opening::ProcessLocal).await {
         Ok(database) => connect(&database).and_then(|connection| connection.checkpoint()),
         Err(err @ SqlError::HeldByAnotherProcess(_)) => {
@@ -996,7 +1035,7 @@ async fn recover_long_log(location: &str) -> LogRecovery {
 
 /// Moves the database at `location` and the files beside it to
 /// `<location>.stale-<seconds>`, saying so.
-#[cfg(native_cache)]
+#[cfg(all(native_cache, not(all(windows, turso_engine))))]
 fn set_aside(location: &str, frames: u64, reason: &str) {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2209,3 +2248,13 @@ mod tests {
         assert!(log_frames(&path) < 1_000, "{} frames", log_frames(&path));
     }
 }
+
+#[cfg(all(
+    test,
+    native_cache,
+    turso_engine,
+    any(unix, windows),
+    target_pointer_width = "64",
+    not(miri)
+))]
+mod process_tests;
