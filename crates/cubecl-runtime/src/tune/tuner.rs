@@ -292,7 +292,10 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
+        // A key reached by candidates that only gather kernels would measure on the outputs of
+        // discarded launches.
+        let compiling = ProcessMode::current() == ProcessMode::CompileOnly
+            || super::gathering::CandidateGathering::active();
         #[cfg(persistence)]
         let checksum;
 
