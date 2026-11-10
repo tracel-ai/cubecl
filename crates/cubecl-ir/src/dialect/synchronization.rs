@@ -54,6 +54,34 @@ impl Synchronizes for SyncOp {
     }
 }
 
+/// Which accesses a [`FenceOp`] orders.
+#[format]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum MemoryOrder {
+    /// Later accesses of this unit see what another unit released before the store this unit's
+    /// earlier load read.
+    Acquire,
+    /// Every earlier access of this unit is ordered before any later store of it.
+    Release,
+    /// Both.
+    AcqRel,
+}
+
+#[pliron_attr(name = "cube.memory_order", format = "$0", verifier = "succ")]
+#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash)]
+pub struct MemoryOrderAttr(pub MemoryOrder);
+
+/// A memory fence of one unit at `scope`, with no barrier: unlike a [`SyncOp`], no unit waits for
+/// another, so it orders only this unit's own accesses and is valid in divergent code. It never
+/// carries [`SyncScope::Unit`]: the `fence` function drops it at expansion.
+#[cube_op(name = "sync.fence")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct FenceOp {
+    pub order: MemoryOrderAttr,
+    pub scope: SyncScopeAttr,
+}
+
 /// A plane barrier that also orders storage memory: the units of the plane meet, as at a
 /// [`SyncOp`] at [`Plane`](SyncScope::Plane) scope, and every write one of them made to storage
 /// before it is visible to the others after it. A plane barrier alone orders shared memory only.
