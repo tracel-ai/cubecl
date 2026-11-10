@@ -43,6 +43,7 @@ mod handler {
 
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
 
+    #[cfg(not(miri))]
     unsafe extern "C" {
         /// The C library's, which every target with threads and `std` links.
         fn atexit(handler: extern "C" fn()) -> core::ffi::c_int;
@@ -67,7 +68,15 @@ mod handler {
             close,
         });
         drop(services);
+        register_exit_handler();
+    }
 
+    /// Miri cannot call `atexit`, so under it no exit handler closes the services.
+    #[cfg(miri)]
+    fn register_exit_handler() {}
+
+    #[cfg(not(miri))]
+    fn register_exit_handler() {
         // Registered again for each new service: exit handlers run newest first, so the latest
         // one runs ahead of the teardown of every library loaded before this service started,
         // whichever runtime started first. Only the first to run finds services to close.
@@ -81,6 +90,7 @@ mod handler {
         }
     }
 
+    #[cfg(not(miri))]
     extern "C" fn close_on_exit() {
         close_services();
     }
