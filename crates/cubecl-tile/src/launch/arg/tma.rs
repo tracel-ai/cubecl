@@ -60,7 +60,7 @@ impl TileTensorLaunch {
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
-        Self::folded(tensor_map, TileSpec::direct(axes), extents, coordinates)
+        Self::with_coordinates(tensor_map, TileSpec::direct(axes), extents, coordinates)
     }
 
     /// [`tensor_map_folded`](Self::tensor_map_folded) over an operand read through `projection`,
@@ -72,17 +72,17 @@ impl TileTensorLaunch {
     /// # Panics
     ///
     /// As [`tensor_map_folded`](Self::tensor_map_folded).
-    pub fn tensor_map_folded_through(
+    pub fn tensor_map_with_coordinates_through(
         tensor_map: TensorMapArg<Tiled>,
         projection: Projection,
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
-        Self::folded(tensor_map, TileSpec::new(projection), extents, coordinates)
+        Self::with_coordinates(tensor_map, TileSpec::new(projection), extents, coordinates)
     }
 
-    /// The body both folded descriptors share, over `spec`'s logical axes.
-    fn folded(
+    /// The body both descriptors with coordinates share, over `spec`'s logical axes.
+    fn with_coordinates(
         tensor_map: TensorMapArg<Tiled>,
         spec: TileSpec,
         extents: &[u32],

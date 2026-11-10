@@ -35,7 +35,7 @@ pub(crate) struct TmaData {
     pub(crate) width: usize,
     /// How the operand's logical axes lie in what the descriptor moves: direct, or a gather's,
     /// whose stage is the compacted window it reads
-    /// ([`TileTensorLaunch::tensor_map_folded_through`]).
+    /// ([`TileTensorLaunch::tensor_map_with_coordinates_through`]).
     #[cube(comptime)]
     pub(crate) projection: Projection,
 }
