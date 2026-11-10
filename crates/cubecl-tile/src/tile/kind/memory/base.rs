@@ -44,7 +44,7 @@ pub(crate) struct Memory {
     /// How a contraction into this window runs ([`Tile::accumulating`](crate::Tile::accumulating));
     /// `None` until stated.
     #[cube(comptime)]
-    pub(crate) contraction: Option<Contraction>,
+    pub(crate) contraction: Option<WindowContraction>,
     /// Where this tile's cells sit in the buffer they were filled from; `Some` only for a gathered
     /// stage.
     pub(crate) source_window: ComptimeOption<SourceWindow>,
@@ -58,7 +58,7 @@ pub(crate) struct Memory {
 /// How a contraction into a memory window runs: the register block a unit's share is tiled into,
 /// and the semiring it sums under.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct Contraction {
+pub(crate) struct WindowContraction {
     pub(crate) block: RegisterBlock,
     pub(crate) semiring: Semiring,
 }
@@ -122,7 +122,7 @@ impl Memory {
 
     /// How a contraction into this window runs, as stated with
     /// [`Tile::accumulating`](crate::Tile::accumulating). Refuses a window never stated.
-    pub(crate) fn stated_contraction(&self) -> comptime_type!(Contraction) {
+    pub(crate) fn stated_contraction(&self) -> comptime_type!(WindowContraction) {
         comptime!(self.contraction.unwrap_or_else(|| panic!(
             "Tile::mma: a memory window contracts under the register block and semiring it is \
              stated with; state them with Tile::accumulating(block, semiring)"

@@ -699,10 +699,11 @@ impl Expression {
                     .collect::<Option<Vec<_>>>();
 
                 if let Some(mut cases) = cases {
+                    let match_value = Ident::new("__match_value", Span::mixed_site());
                     let discriminants = arms.iter().enumerate().map(|(i, (pat, _))| {
                         let name = variant_name(pat).expect("Already checked");
                         let ident = format_ident!("_disc_{i}");
-                        quote![let #ident = #expr.discriminant_of_value(#name);]
+                        quote![let #ident = #match_value.discriminant_of_value(#name);]
                     });
 
                     // Needed so type inference can actually work
@@ -712,8 +713,10 @@ impl Expression {
                         .map(|(disc, block)| quote![.case(scope, #disc, |scope, value| #block)]);
                     quote! {
                         {
+                            // The scrutinee may be a call, so it is expanded once.
+                            let #match_value = #expr;
                             #(#discriminants)*
-                            #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
+                            #branch::#match_(scope, #match_value, #disc0, |scope, value| #block0)
                                 #(#cases)*
                                 #default
                                 .finish(scope)
@@ -753,6 +756,8 @@ impl Expression {
                 let if_expand = prelude_type("if_expand");
                 let if_else_expand = prelude_type("if_else_expand");
                 let if_else_expr_expand = prelude_type("if_else_expr_expand");
+                let into_runtime = prelude_type("IntoRuntime");
+                let value = Ident::new("__if_let_value", Span::mixed_site());
 
                 if let Some(name) = name {
                     let expr = expr
@@ -761,14 +766,17 @@ impl Expression {
 
                     let (pat, block) = arm.to_tokens(context, true, false);
 
-                    let block = match inner_pat(&pat) {
-                        Some(inner) => {
+                    // Expanded once, as in a match. Only a pattern that binds the value consumes
+                    // it.
+                    let (bind_value, block) = match inner_pat(&pat) {
+                        Some(inner) => (
+                            quote![let #value = #expr;],
                             quote! {{
-                                let #inner = #expr.runtime_value();
+                                let #inner = #value.runtime_value();
                                 #block
-                            }}
-                        }
-                        None => block,
+                            }},
+                        ),
+                        None => (quote![let #value = &#expr;], block),
                     };
 
                     let expand = match else_branch {
@@ -788,8 +796,12 @@ impl Expression {
                     };
 
                     quote! {{
-                        let __disc = #expr.discriminant_of_value(#name).into_runtime(scope);
-                        let __cond = #expr.discriminant().__expand_eq_method(scope, __disc);
+                        #bind_value
+                        let __disc = #into_runtime::__expand_runtime_method(
+                            #value.discriminant_of_value(#name),
+                            scope,
+                        );
+                        let __cond = #value.discriminant().__expand_eq_method(scope, &__disc);
 
                         #expand
                     }}
