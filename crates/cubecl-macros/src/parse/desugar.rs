@@ -2,8 +2,8 @@ use std::mem::take;
 
 use quote::{format_ident, quote, quote_spanned};
 use syn::{
-    Index, Local, LocalInit, Pat, PatIdent, PatSlice, PatStruct, PatTuple, PatTupleStruct, Stmt,
-    parse_quote,
+    Expr, Index, Local, LocalInit, Pat, PatIdent, PatSlice, PatStruct, PatTuple, PatTupleStruct,
+    Stmt, parse_quote,
     spanned::Spanned,
     visit_mut::{self, VisitMut},
 };
@@ -82,7 +82,17 @@ fn desugar_tuple_destructure(
     id: usize,
 ) -> Vec<Stmt> {
     let init_ident = format_ident!("__tuple_destructure_init_{id}");
-    let fields = fields.into_iter().enumerate().map(|(i, pat)| {
+    let fields = fields.into_iter().collect::<Vec<_>>();
+    let literal_elems = literal_tuple_elems(&init.expr, &fields);
+    let fields = fields.iter().enumerate().map(|(i, pat)| {
+        // A tuple of literals stays a comptime value, so a `mut` binding of one of its fields
+        // would have no variable to write to. Binding the literal itself is equivalent because
+        // literals neither read other bindings nor have effects to reorder.
+        if let Some(literal) = literal_elems.as_ref().and_then(|elems| elems[i].as_ref()) {
+            return quote_spanned! {pat.span()=>
+                let #pat = #literal;
+            };
+        }
         let member = Index::from(i);
         quote_spanned! {pat.span()=>
             let #pat = #init_ident.#member;
@@ -93,6 +103,31 @@ fn desugar_tuple_destructure(
     parse_quote! {
         #init
         #(#fields)*
+    }
+}
+
+/// For a tuple expression matching `fields` one to one, its literal elements by position.
+fn literal_tuple_elems(init: &Expr, fields: &[Pat]) -> Option<Vec<Option<Expr>>> {
+    let Expr::Tuple(tuple) = init else {
+        return None;
+    };
+    if tuple.elems.len() != fields.len() || fields.iter().any(|pat| matches!(pat, Pat::Rest(_))) {
+        return None;
+    }
+    Some(
+        tuple
+            .elems
+            .iter()
+            .map(|elem| is_literal(elem).then(|| elem.clone()))
+            .collect(),
+    )
+}
+
+fn is_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(_) => true,
+        Expr::Tuple(tuple) => tuple.elems.iter().all(is_literal),
+        _ => false,
     }
 }
 

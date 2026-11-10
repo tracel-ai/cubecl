@@ -268,6 +268,95 @@ fn run<F: CubeElement>(
 }
 
 #[allow(missing_docs)]
+#[cube(launch_unchecked)]
+pub fn kernel_tuple_mut_literals(output: &mut [u32], steps: u32) {
+    let (mut sum, mut count) = (0u32, 0u32);
+    for i in 0..steps {
+        sum += i;
+        count += 1;
+    }
+    output[0] = sum;
+    output[1] = count;
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_tuple_mut_nested_and_mixed(output: &mut [u32], steps: u32) {
+    let (mut sum, (mut count, mut seeded)) = (1u32, (2u32, steps));
+    for i in 0..steps {
+        sum += i;
+        count += 1;
+        seeded += 1;
+    }
+    output[0] = sum;
+    output[1] = count;
+    output[2] = seeded;
+
+    let (mut first, (mut second, third)) = (1u32, (2u32, 3u32));
+    first += 1;
+    second += 1;
+    output[3] = first + second + third;
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_tuple_swap(output: &mut [u32], left: u32, right: u32) {
+    let a = left;
+    let b = right;
+    let (mut a, mut b) = (b, a);
+    a += 1;
+    b += 2;
+    output[0] = a;
+    output[1] = b;
+}
+
+/// `let` tuple patterns: mutable bindings need variables of their own, and the initializer is
+/// evaluated before any binding exists, so `(b, a)` swaps.
+pub fn test_tuple_mut_locals<R: Runtime>(client: Client) {
+    let dim = CubeDim::new_1d(1);
+    assert_eq!(
+        tuple_outputs(&client, 2, |output| unsafe {
+            kernel_tuple_mut_literals::launch_unchecked(
+                &client,
+                CubeCount::new_single(),
+                dim,
+                output,
+                4,
+            )
+        }),
+        [6, 4]
+    );
+    assert_eq!(
+        tuple_outputs(&client, 4, |output| unsafe {
+            kernel_tuple_mut_nested_and_mixed::launch_unchecked(
+                &client,
+                CubeCount::new_single(),
+                dim,
+                output,
+                4,
+            )
+        }),
+        [7, 6, 8, 8]
+    );
+    assert_eq!(
+        tuple_outputs(&client, 2, |output| unsafe {
+            kernel_tuple_swap::launch_unchecked(
+                &client,
+                CubeCount::new_single(),
+                dim,
+                output,
+                10,
+                20,
+            )
+        }),
+        [21, 12]
+    );
+}
+
+fn tuple_outputs(client: &Client, outputs: usize, launch: impl FnOnce(BufferArg)) -> Vec<u32> {
+    let output = client.empty(outputs * core::mem::size_of::<u32>());
+    launch(unsafe { BufferArg::from_raw_parts(output.clone(), outputs) });
+    u32::from_bytes(&client.read_one_unchecked(output)).to_vec()
+}
+
 #[macro_export]
 macro_rules! testgen_arithmetic_chains {
     () => {
@@ -288,6 +377,14 @@ macro_rules! testgen_arithmetic_chains {
                 TestRuntime,
                 FloatType,
             >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_arithmetic_chain_tuple_mut_locals() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::arithmetic_chains::test_tuple_mut_locals::<TestRuntime>(
+                client,
+            );
         }
     };
 }
