@@ -66,7 +66,7 @@ fn staged_k_walk<EA: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let mut acc = match comptime!(leaf) {
+    let mut acc = match leaf {
         Leaf::Mma => c.accumulator::<EA>(
             &a,
             &b,

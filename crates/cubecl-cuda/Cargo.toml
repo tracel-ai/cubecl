@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-cuda"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda"
+rust-version.workspace = true
 version.workspace = true
 
 

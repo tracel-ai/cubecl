@@ -194,7 +194,7 @@ impl MmaData {
         register_block_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
         register_block_scaled_sizes(&def, ident);
-        let fragment = match comptime!(ident) {
+        let fragment = match ident {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
                 Raw::<Registers<NLB>>::of::<LhsCodes>(Array::new(
                     def.vectors_per_lane(MatrixIdent::A),
@@ -830,7 +830,7 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     match method {
         LoadMethod::Manual => {
             let size!(W) = src.vector_size();
-            if comptime!(strided) {
+            if strided {
                 load_strided::<T, W, N, A, B, CD>(
                     src, fragment, def, ident, layout, edges, k_offset,
                 )
@@ -905,7 +905,7 @@ fn load_deep<T: Numeric, N: Size>(
     #[comptime] shape: (usize, usize, usize),
     #[comptime] load: DeepLoad,
 ) {
-    match comptime!(load) {
+    match load {
         DeepLoad::Steps => load_in_steps(src, fragment, ident, layout, io, shape),
         DeepLoad::LaneRuns => load_lane_runs(src, fragment, ident, layout, shape),
     }
@@ -947,13 +947,13 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     match &src.kind {
         TileKind::Memory(m) => {
             let stride = m.row_stride_at(rank - 2);
-            let view = if comptime!(transposed) {
+            let view = if transposed {
                 src.fragment_matrix_packed::<T, W>(cols, rows)
             } else {
                 src.fragment_matrix_packed::<T, W>(rows, cols)
             };
             let (first_row, first_col) = along_k(0u32, 0u32, ident, k_offset);
-            let (first_line_row, first_cell) = if comptime!(transposed) {
+            let (first_line_row, first_cell) = if transposed {
                 (first_col, first_row)
             } else {
                 (first_row, first_col)
@@ -966,15 +966,11 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
             #[unroll]
             for i in 0..num_vectors {
                 let mut vector = Vector::empty();
-                if comptime!(whole_vectors) {
+                if whole_vectors {
                     let vectors = step.with_vector_size::<N>();
                     let (row, col) =
                         def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
-                    let (line_row, cell) = if comptime!(transposed) {
-                        (col, row)
-                    } else {
-                        (row, col)
-                    };
+                    let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                     vector = vectors
                         [((line_row * stride + cell) / comptime!(vector_size as u32)) as usize];
                 } else {
@@ -986,11 +982,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
                             comptime!((i * vector_size + e) as u32),
                             ident,
                         );
-                        let (line_row, cell) = if comptime!(transposed) {
-                            (col, row)
-                        } else {
-                            (row, col)
-                        };
+                        let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                         vector.insert(
                             e,
                             cells[(line_row * stride + cell) as usize].extract(0usize),
@@ -1048,7 +1040,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
          it, which a manual fragment load cannot read from inside the line; serve the operand at \
          most {line_edge} wide"
     ));
-    let view = if comptime!(transposed) {
+    let view = if transposed {
         src.fragment_matrix_packed::<T, W>(cols, rows)
     } else {
         src.fragment_matrix_packed::<T, W>(rows, cols)
@@ -1063,14 +1055,10 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     #[unroll]
     for i in 0..num_vectors {
         let mut vector = Vector::empty();
-        if comptime!(along_lines) {
+        if along_lines {
             let (row, col) = def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
             let (row, col) = along_k(row, col, ident, k_offset);
-            let (line_row, cell) = if comptime!(transposed) {
-                (col, row)
-            } else {
-                (row, col)
-            };
+            let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
             // A register vector lies along the lines, so its cells share the row or column a
             // short window cuts.
             let covered = !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
@@ -1106,11 +1094,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 let elem_idx = i * vector_size + e;
                 let (row, col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
                 let (row, col) = along_k(row, col, ident, k_offset);
-                let (line_row, cell) = if comptime!(transposed) {
-                    (col, row)
-                } else {
-                    (row, col)
-                };
+                let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
                 if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
                     let line = view.read((line_row, cell / comptime!(width as u32)));
@@ -1164,7 +1148,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
                 let elem_idx = i * vector_size + e;
                 let (row, col) =
                     def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
-                let at = match comptime!(layout) {
+                let at = match layout {
                     MatrixLayout::RowMajor => (row, col),
                     MatrixLayout::ColMajor => (col, row),
                     MatrixLayout::Undefined => {

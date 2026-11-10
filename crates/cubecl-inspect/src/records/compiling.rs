@@ -147,7 +147,11 @@ mod tests {
             stamp: stamp(start),
             record: CompilationRecord {
                 kernel: "kernel".into(),
-                key: KernelCacheKey { id: 0, build_id: 0 },
+                key: KernelCacheKey {
+                    id: 0,
+                    variant: 0,
+                    build_id: 0,
+                },
                 ir: None,
                 outcome: CompilationOutcome::Compiled,
                 work: Duration::from_secs(work),

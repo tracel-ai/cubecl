@@ -334,11 +334,7 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
                     comptime!((i * per_register * per_element) as u32),
                     ident,
                 );
-                let (window_row, window_col) = if comptime!(transposed) {
-                    (col, row)
-                } else {
-                    (row, col)
-                };
+                let (window_row, window_col) = if transposed { (col, row) } else { (row, col) };
                 let at =
                     TileMatrix::value_coords(window_row, window_col, 0usize, &space, axes, 1usize);
                 // The window's columns run along `k` whichever its layout.
@@ -416,7 +412,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
         ident,
     );
     // The window's rows are the served axis whichever its layout, its words along `k`.
-    let (window_row, window_col) = if comptime!(transposed) {
+    let (window_row, window_col) = if transposed {
         (col + row_in_matrix, row)
     } else {
         (row + row_in_matrix, col)

@@ -1054,6 +1054,7 @@ dependencies = [
  "cubecl-ir",
  "cubecl-metal",
  "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "cubecl-tile",
  "cubecl-wgpu",
@@ -1145,6 +1146,7 @@ name = "cubecl-cpu"
 version = "0.12.0-pre.2"
 dependencies = [
  "bytemuck",
+ "ciborium",
  "crossbeam-utils",
  "cubecl-common",
  "cubecl-core",
@@ -1477,6 +1479,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
+ "ciborium",
  "cubecl-common",
  "cubecl-environment",
  "cubecl-ir",

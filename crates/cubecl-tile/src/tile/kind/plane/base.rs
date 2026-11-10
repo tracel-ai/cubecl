@@ -70,7 +70,7 @@ impl PlaneTile {
         #[comptime] contracted_per_step: usize,
         #[comptime] accumulation: Accumulation,
     ) -> PlaneTile {
-        match comptime!(form) {
+        match form {
             Instruction::Cmma => PlaneTile::new_Cmma(CmmaData::alloc::<T>(
                 MatrixIdent::Accumulator,
                 m,
@@ -111,7 +111,7 @@ impl PlaneTile {
         #[comptime] k: usize,
         #[comptime] layout: MatrixLayout,
     ) -> PlaneTile {
-        match comptime!(form) {
+        match form {
             Instruction::Cmma => PlaneTile::new_Cmma(CmmaData::alloc::<T>(ident, m, n, k, layout)),
             Instruction::Mma { io, operands } => {
                 PlaneTile::new_Mma(MmaData::operand::<T>(ident, m, n, k, layout, io, operands))
@@ -756,7 +756,7 @@ impl PlanePartition {
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
-            | TileKind::Lines(_) => match comptime!(instruction) {
+            | TileKind::Lines(_) => match instruction {
                 // A warpgroup MMA reads the window itself, through a descriptor.
                 Instruction::Registers { .. } | Instruction::Wgmma => src.clone(),
                 Instruction::Cmma | Instruction::Mma { .. } => {
@@ -796,7 +796,7 @@ impl PlanePartition {
             Instruction::Cmma | Instruction::Registers { .. } | Instruction::Wgmma => None,
         });
         let block_scaled = scaled_form.is_some();
-        if comptime!(block_scaled) {
+        if block_scaled {
             let ident = comptime!(match Side::of(&src.place.space, &acc.place.space) {
                 Side::Lhs => MatrixIdent::A,
                 Side::Rhs => MatrixIdent::B,
@@ -813,7 +813,7 @@ impl PlanePartition {
             comptime!(src.place.depth),
             comptime!(src.place.levels.clone()),
         );
-        let lane_runs = match comptime!(form) {
+        let lane_runs = match form {
             Instruction::Mma { .. } => lane_run_steps::<T>(m, n, k),
             Instruction::Cmma | Instruction::Registers { .. } | Instruction::Wgmma => {
                 comptime!(1usize)

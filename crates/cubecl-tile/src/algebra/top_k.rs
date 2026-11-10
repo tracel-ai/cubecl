@@ -71,7 +71,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
             nan = any_lane::<N>(nan_lanes::<E, N>(value));
         }
         if nan {
-            if comptime!(unrolled) {
+            if unrolled {
                 self.walk_turning(value, index, monoid);
             } else {
                 self.walk_in_full_order(value, index, monoid, false);
@@ -343,7 +343,7 @@ fn takes_the_slot<E: Numeric, N: Size>(
     index: Vector<u32, N>,
     #[comptime] monoid: Monoid,
 ) -> Vector<bool, N> {
-    let better = match comptime!(monoid) {
+    let better = match monoid {
         Monoid::Max => kept.less_than(&value),
         _ => kept.greater_than(&value),
     };
@@ -409,7 +409,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                 share
             }
         );
-        match comptime!(share) {
+        match share {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane | UnitShare::Group { .. } => {
                 let k = K::value();

@@ -653,7 +653,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     let gathering = super::gathering::CandidateGathering::new();
     for candidate in candidates {
         if let Err(rejection @ AutotuneError::Rejected { .. }) =
-            autotunables[candidate.index].execute(inputs.clone())
+            autotunables[candidate.index].race(inputs.clone())
         {
             candidate.fail(rejection);
         }

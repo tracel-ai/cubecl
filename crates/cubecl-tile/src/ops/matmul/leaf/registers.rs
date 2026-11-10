@@ -40,7 +40,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
     let fixed = along_k || (component_fanout && lw > 1) || lw == 1;
 
     for line in 0..lines {
-        if comptime!(along_k) {
+        if along_k {
             rank1_update::<E, EL, L, ER, V, RL>(
                 lhs,
                 lhs_scales,
@@ -60,7 +60,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
                 unroll,
                 semiring,
             );
-        } else if comptime!(fixed) {
+        } else if fixed {
             #[unroll]
             for unit in 0..lw {
                 rank1_update::<E, EL, L, ER, V, RL>(
@@ -163,7 +163,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
     #[comptime] unroll: bool,
     #[comptime] semiring: Semiring,
 ) {
-    if comptime!(along_k) {
+    if along_k {
         let cell = V::value();
         comptime!(assert!(
             cell == contracted_per_step || cell == 1,
@@ -190,7 +190,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                     j * contracted_per_step,
                     comptime!(Packing::Plain),
                 );
-                let values = if comptime!(scale_sum) {
+                let values = if scale_sum {
                     values
                 } else {
                     rhs_scales.apply::<E, L>(values, pos)
@@ -198,7 +198,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                 #[unroll(unroll)]
                 for i in 0..mr {
                     let at = i * nr + n;
-                    if comptime!(summed) {
+                    if summed {
                         let mut sum =
                             Vector::<E, V>::cast_from(Monoid::identity::<E>(semiring.add()));
                         #[unroll]
@@ -209,7 +209,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                                 sum,
                             );
                         }
-                        if comptime!(scale_sum) {
+                        if scale_sum {
                             sum = rhs_scales.apply::<E, V>(sum, pos);
                         }
                         c[at] = semiring.add().combine::<Vector<E, V>>(c[at], sum);
@@ -297,7 +297,7 @@ pub(crate) fn seed<E: Numeric, V: Size, A: Size>(
                 #[unroll]
                 for l in 0..spread {
                     let col = base.plus(comptime!(l as u32));
-                    let live = if comptime!(guard) {
+                    let live = if guard {
                         col < comptime!(cols as u32)
                     } else {
                         true.runtime()
@@ -361,7 +361,7 @@ pub(crate) fn commit<E: Numeric, V: Size, A: Size>(
                 #[unroll]
                 for l in 0..spread {
                     let col = base.plus(comptime!(l as u32));
-                    let live = if comptime!(guard) {
+                    let live = if guard {
                         col < comptime!(cols as u32)
                     } else {
                         true.runtime()

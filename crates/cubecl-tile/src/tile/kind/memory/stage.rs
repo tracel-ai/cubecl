@@ -193,7 +193,7 @@ impl Memory {
     ) -> Tile {
         let size!(W) = vector_size;
         let cells = form.cells();
-        let smem = match comptime!(owner) {
+        let smem = match owner {
             StageOwner::Cube { .. } => {
                 if alignment > 0 {
                     Shared::<[Vector<T, W>]>::new_aligned_slice(cells, alignment)
