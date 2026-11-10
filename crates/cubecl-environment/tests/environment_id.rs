@@ -326,7 +326,7 @@ fn an_id_keeps_its_environment() {
 }
 
 /// A saved bundle says what it is without being loaded: the name it was saved
-/// under, the executable that saved it, and what it holds, whether it is read
+/// under, when and by which executable, and what it holds, whether it is read
 /// from the file it was written to or held in memory.
 #[test]
 #[serial_test::serial]
@@ -335,6 +335,8 @@ fn a_saved_bundle_reads_back_its_name_stamp_and_summary() {
     let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
     plant(&built);
     environment::activate(environment::DEFAULT);
+    // The manifest keeps whole seconds.
+    let before = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
 
     let saved = built
         .save(SaveOptions {
@@ -349,6 +351,8 @@ fn a_saved_bundle_reads_back_its_name_stamp_and_summary() {
         assert_eq!(bundle.name().unwrap(), "H100 Linux");
         assert_eq!(bundle.saved_by().unwrap(), Some(BuildStamp::current()));
         assert_eq!(bundle.summary().unwrap(), PLANTED);
+        let saved_at = bundle.saved_at().unwrap().unwrap();
+        assert!(before <= saved_at && saved_at <= std::time::SystemTime::now());
     }
     assert!(
         read.bytes.file().is_some(),
