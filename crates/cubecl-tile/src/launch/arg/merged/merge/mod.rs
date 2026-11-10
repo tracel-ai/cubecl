@@ -1,4 +1,4 @@
-//! How the lines a routine stores become the output.
+//! How the vectors a routine stores become the output.
 
 pub(crate) mod base;
 

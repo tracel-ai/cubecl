@@ -1,5 +1,5 @@
 //! The write-only outputs a [`Merged`](super::Merged) destination hands out: one stores through the
-//! stage, the other hands each line to the merge.
+//! stage, the other hands each vector to the merge.
 
 use core::marker::PhantomData;
 
@@ -11,17 +11,17 @@ use cubecl_std::tensor::{
 };
 
 use super::merge::Merge;
-use super::stage::{LineAt, LineStage};
+use super::stage::{VectorAt, VectorStage};
 
-/// The output buffer's `N` wide lines, each stored through the stage `S`.
-struct StageStore<E: Numeric, N: Size, S: LineStage> {
+/// The output buffer's `N` wide vectors, each stored through the stage `S`.
+struct StagedOutput<E: Numeric, N: Size, S: VectorStage> {
     out: <Tensor<E> as CubeType>::ExpandType,
     stage: <S::Arg<E> as CubeType>::ExpandType,
     row_stride: NativeExpand<usize>,
-    _width: PhantomData<fn() -> (N, S)>,
+    _vector_size: PhantomData<fn() -> (N, S)>,
 }
 
-impl<E: Numeric, N: Size, S: LineStage> StageStore<E, N, S> {
+impl<E: Numeric, N: Size, S: VectorStage> StagedOutput<E, N, S> {
     fn new(
         out: &<Tensor<E> as CubeType>::ExpandType,
         stage: &<S::Arg<E> as CubeType>::ExpandType,
@@ -31,21 +31,25 @@ impl<E: Numeric, N: Size, S: LineStage> StageStore<E, N, S> {
             out: ExpandTypeClone::clone_unchecked(out),
             stage: ExpandTypeClone::clone_unchecked(stage),
             row_stride,
-            _width: PhantomData,
+            _vector_size: PhantomData,
         }
     }
 }
 
-impl<E: Numeric, N: Size, S: LineStage> ErasedTensorOperationsExpand<E> for StageStore<E, N, S> {
+impl<E: Numeric, N: Size, S: VectorStage> ErasedTensorOperationsExpand<E>
+    for StagedOutput<E, N, S>
+{
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
         <N as Size>::__expand_value(scope)
     }
 
-    // The buffer's lines, not the tensor's: a pitched buffer holds lines past its shape's product.
+    // `__expand_lines_method` and `__expand_write_line_method` are cubecl-std's names for the erased
+    // tensor traits. The buffer's vectors, not the tensor's: a pitched buffer holds vectors past
+    // its shape's product.
     fn __expand_lines_method(&self, scope: &Scope) -> NativeExpand<usize> {
         let scalars = self.out.__expand_buffer_len_method(scope);
-        let width = <N as Size>::__expand_value(scope).__expand_runtime_method(scope);
-        scalars.__expand_div_method(scope, width)
+        let vector_size = <N as Size>::__expand_value(scope).__expand_runtime_method(scope);
+        scalars.__expand_div_method(scope, vector_size)
     }
 
     fn __expand_write_line_method(
@@ -54,7 +58,7 @@ impl<E: Numeric, N: Size, S: LineStage> ErasedTensorOperationsExpand<E> for Stag
         index: NativeExpand<usize>,
         value: ExpandValue,
     ) {
-        store_line::expand::<E, N, S>(
+        store_vector::expand::<E, N, S>(
             scope,
             &mut self.out,
             &self.stage,
@@ -65,38 +69,38 @@ impl<E: Numeric, N: Size, S: LineStage> ErasedTensorOperationsExpand<E> for Stag
     }
 }
 
-impl<E: Numeric, N: Size, S: LineStage> WritesLines<E> for StageStore<E, N, S> {}
+impl<E: Numeric, N: Size, S: VectorStage> WritesLines<E> for StagedOutput<E, N, S> {}
 
-/// Each line handed to the merge `M`, which writes out through `lines`.
-struct MergeFeed<E: Numeric, N: Size, M: Merge> {
+/// Each vector handed to the merge `M`, which writes out through `out`.
+struct MergeInput<E: Numeric, N: Size, M: Merge> {
     merge: <M::Arg<E> as CubeType>::ExpandType,
     walk: <M::Walk as CubeType>::ExpandType,
-    lines: ErasedTensorExpand<E, WriteOnly>,
-    _width: PhantomData<fn() -> (N, M)>,
+    out: ErasedTensorExpand<E, WriteOnly>,
+    _vector_size: PhantomData<fn() -> (N, M)>,
 }
 
-impl<E: Numeric, N: Size, M: Merge> MergeFeed<E, N, M> {
+impl<E: Numeric, N: Size, M: Merge> MergeInput<E, N, M> {
     fn new(
         merge: &<M::Arg<E> as CubeType>::ExpandType,
         walk: &<M::Walk as CubeType>::ExpandType,
-        lines: &ErasedTensorExpand<E, WriteOnly>,
+        out: &ErasedTensorExpand<E, WriteOnly>,
     ) -> Self {
         Self {
             merge: ExpandTypeClone::clone_unchecked(merge),
             walk: ExpandTypeClone::clone_unchecked(walk),
-            lines: lines.clone(),
-            _width: PhantomData,
+            out: out.clone(),
+            _vector_size: PhantomData,
         }
     }
 }
 
-impl<E: Numeric, N: Size, M: Merge> ErasedTensorOperationsExpand<E> for MergeFeed<E, N, M> {
+impl<E: Numeric, N: Size, M: Merge> ErasedTensorOperationsExpand<E> for MergeInput<E, N, M> {
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
         <N as Size>::__expand_value(scope)
     }
 
     fn __expand_lines_method(&self, scope: &Scope) -> NativeExpand<usize> {
-        self.lines.__expand_len_method(scope)
+        self.out.__expand_len_method(scope)
     }
 
     fn __expand_write_line_method(
@@ -105,22 +109,22 @@ impl<E: Numeric, N: Size, M: Merge> ErasedTensorOperationsExpand<E> for MergeFee
         index: NativeExpand<usize>,
         value: ExpandValue,
     ) {
-        M::__expand_line::<E, N>(
+        M::__expand_vector::<E, N>(
             scope,
             &self.merge,
             &self.walk,
-            &mut self.lines,
+            &mut self.out,
             index,
             value.into(),
         );
     }
 }
 
-impl<E: Numeric, N: Size, M: Merge> WritesLines<E> for MergeFeed<E, N, M> {}
+impl<E: Numeric, N: Size, M: Merge> WritesLines<E> for MergeInput<E, N, M> {}
 
 // `N` is read by the expansion, which is where a `Size` has a value.
 #[allow(clippy::extra_unused_type_parameters)]
-pub(super) fn stage_lines<E: Numeric, N: Size, S: LineStage>(
+pub(super) fn staged_output<E: Numeric, N: Size, S: VectorStage>(
     _out: &Tensor<E>,
     _stage: &S::Arg<E>,
     _row_stride: usize,
@@ -128,25 +132,25 @@ pub(super) fn stage_lines<E: Numeric, N: Size, S: LineStage>(
     unexpanded!()
 }
 
-/// The output's lines, each stored through the stage `S`.
-pub(super) mod stage_lines {
+/// The output's vectors, each stored through the stage `S`.
+pub(super) mod staged_output {
     use super::*;
 
-    pub fn expand<E: Numeric, N: Size, S: LineStage>(
+    pub fn expand<E: Numeric, N: Size, S: VectorStage>(
         _scope: &Scope,
         out: &<Tensor<E> as CubeType>::ExpandType,
         stage: &<S::Arg<E> as CubeType>::ExpandType,
         row_stride: NativeExpand<usize>,
     ) -> ErasedTensorExpand<E, WriteOnly> {
-        ErasedTensorExpand::new(StageStore::<E, N, S>::new(out, stage, row_stride))
+        ErasedTensorExpand::new(StagedOutput::<E, N, S>::new(out, stage, row_stride))
     }
 }
 
-/// Line `index` of the output buffer: `N` cells of one row, which the host's width choice
+/// Vector `index` of the output buffer: `N` cells of one row, which the host's vector size choice
 /// guarantees by dividing the row, placed by the row stride. Stored a cell at a time, since a
 /// scalar buffer cannot be viewed as vectors on every backend.
 #[cube]
-fn store_line<E: Numeric, N: Size, S: LineStage>(
+fn store_vector<E: Numeric, N: Size, S: VectorStage>(
     out: &mut Tensor<E>,
     stage: &S::Arg<E>,
     row_stride: usize,
@@ -154,8 +158,8 @@ fn store_line<E: Numeric, N: Size, S: LineStage>(
     value: Vector<E, N>,
 ) {
     let first = index * N::value();
-    let at = LineAt::new(first, row_stride);
-    let stored = S::line::<E, N>(stage, &at, value);
+    let at = VectorAt::new(first, row_stride);
+    let stored = S::vector::<E, N>(stage, &at, value);
     #[unroll]
     for lane in 0..N::value() {
         out[first + lane] = stored.extract(lane);
@@ -164,24 +168,24 @@ fn store_line<E: Numeric, N: Size, S: LineStage>(
 
 // `N` is read by the expansion, which is where a `Size` has a value.
 #[allow(clippy::extra_unused_type_parameters)]
-pub(super) fn merge_lines<E: Numeric, N: Size, M: Merge>(
+pub(super) fn merge_input<E: Numeric, N: Size, M: Merge>(
     _merge: &M::Arg<E>,
     _walk: &M::Walk,
-    _lines: &ErasedTensor<E, WriteOnly>,
+    _out: &ErasedTensor<E, WriteOnly>,
 ) -> ErasedTensor<E, WriteOnly> {
     unexpanded!()
 }
 
-/// Lines handed to the merge `M`, which writes out through `lines`.
-pub(super) mod merge_lines {
+/// Vectors handed to the merge `M`, which writes out through `out`.
+pub(super) mod merge_input {
     use super::*;
 
     pub fn expand<E: Numeric, N: Size, M: Merge>(
         _scope: &Scope,
         merge: &<M::Arg<E> as CubeType>::ExpandType,
         walk: &<M::Walk as CubeType>::ExpandType,
-        lines: &ErasedTensorExpand<E, WriteOnly>,
+        out: &ErasedTensorExpand<E, WriteOnly>,
     ) -> ErasedTensorExpand<E, WriteOnly> {
-        ErasedTensorExpand::new(MergeFeed::<E, N, M>::new(merge, walk, lines))
+        ErasedTensorExpand::new(MergeInput::<E, N, M>::new(merge, walk, out))
     }
 }

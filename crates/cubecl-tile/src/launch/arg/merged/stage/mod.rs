@@ -1,5 +1,5 @@
-//! What happens to each line a merge writes out.
+//! What happens to each vector a merge writes out.
 
 pub(crate) mod base;
 
-pub use base::{LineAt, LineStage, LineStageLaunch};
+pub use base::{VectorAt, VectorStage, VectorStageLaunch};

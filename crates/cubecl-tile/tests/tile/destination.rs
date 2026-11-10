@@ -28,8 +28,8 @@ use cubecl::{
 };
 use cubecl_tile::kind::{GlobalOperand, Write};
 use cubecl_tile::launch::{
-    Buffered, Destination, DestinationLaunch, LineAt, LineStage, LineStageLaunch, Merged,
-    MergedOperand, Unbound,
+    Buffered, Destination, DestinationLaunch, Merged, MergedOperand, Unbound, VectorAt,
+    VectorStage, VectorStageLaunch,
 };
 use cubecl_tile::layout::RuntimeGeometry;
 use cubecl_tile::*;
@@ -68,11 +68,11 @@ impl Destination for Doubled {
         let sink = doubling_sink::<E, V>(arg.values);
         // Read at expansion, not as a Rust constant: a launch-time `Size` has no `value()` until
         // the kernel is being defined.
-        let width = V::value();
+        let vector_size = V::value();
         GlobalOperand::sink::<E>(
             sink,
             geometry,
-            width,
+            vector_size,
             comptime!(partitioning.space().clone()),
             comptime!(arg.spec.clone()),
             Write::Replace,
@@ -105,7 +105,7 @@ impl DestinationLaunch for Doubled {
     }
 }
 
-/// The write-only erased tensor over `values`, doubling each line of `N` it is handed.
+/// The write-only erased tensor over `values`, doubling each vector of `N` it is handed.
 #[allow(clippy::extra_unused_type_parameters)]
 fn doubling_sink<E: Numeric, N: Size>(_values: &Tensor<E>) -> ErasedTensor<E, WriteOnly> {
     unexpanded!()
@@ -139,8 +139,8 @@ impl<E: Numeric, N: Size> ErasedTensorOperationsExpand<E> for Doubling<E, N> {
 
     fn __expand_lines_method(&self, scope: &Scope) -> NativeExpand<usize> {
         let scalars = self.values.__expand_len_method(scope);
-        let width = <N as Size>::__expand_value(scope).__expand_runtime_method(scope);
-        scalars.__expand_div_method(scope, width)
+        let vector_size = <N as Size>::__expand_value(scope).__expand_runtime_method(scope);
+        scalars.__expand_div_method(scope, vector_size)
     }
 
     fn __expand_write_line_method(
@@ -155,7 +155,7 @@ impl<E: Numeric, N: Size> ErasedTensorOperationsExpand<E> for Doubling<E, N> {
 
 impl<E: Numeric, N: Size> WritesLines<E> for Doubling<E, N> {}
 
-/// One line, doubled, at the line's own offset: `N` scalars.
+/// One vector, doubled, at the vector's own offset: `N` scalars.
 #[cube]
 fn store_doubled<E: Numeric, N: Size>(values: &mut Tensor<E>, index: usize, value: Vector<E, N>) {
     let doubled = value + value;
@@ -174,13 +174,13 @@ const ROW: Axis = Axis(0);
 const COL: Axis = Axis(1);
 const ROWS: usize = 4;
 const COLS: usize = 6;
-/// Two values a line, so the sink is handed lines rather than scalars.
-const WIDTH: usize = 2;
+/// Two values a vector, so the sink is handed vectors rather than scalars.
+const VECTOR_SIZE: usize = 2;
 
 /// One kernel for every destination: the launch picks `O`.
 ///
-/// The source is bound rather than procedural: a recipe is evaluated once per *line*, so at a
-/// width of two both values of a line would be one, and a store a line off would go unseen.
+/// The source is bound rather than procedural: a recipe is evaluated once per *vector*, so at a
+/// vector size of two both values of a vector would be one, and a store a vector off would go unseen.
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
     input: &TileTensor<'_>,
@@ -200,7 +200,7 @@ fn store_space() -> Launcher {
         &cubecl::test_device().client(),
         Partitioning::new(
             Space::new(&[(ROW, ROWS), (COL, COLS)]),
-            Levels::leaf(&[(ROW, 2), (COL, 3 * WIDTH)])
+            Levels::leaf(&[(ROW, 2), (COL, 3 * VECTOR_SIZE)])
                 .walk_every(&[ROW, COL])
                 .build(),
         ),
@@ -220,7 +220,7 @@ fn run_store(sink: bool) -> HostData {
     let src = launcher
         .arg(input.binding(), dtype)
         .axes(&[ROW, COL])
-        .vectorize(WIDTH)
+        .vectorize(VECTOR_SIZE)
         .build()
         .unwrap();
     let output = TestInput::builder(client.clone(), shape![ROWS, COLS])
@@ -233,7 +233,7 @@ fn run_store(sink: bool) -> HostData {
             let derived = launcher
                 .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
                 .axes(&[ROW, COL])
-                .vectorize(WIDTH)
+                .vectorize(VECTOR_SIZE)
                 .build_spec()
                 .unwrap();
             let operand = DoubledOperand {
@@ -244,7 +244,7 @@ fn run_store(sink: bool) -> HostData {
                 &client,
                 count,
                 dim,
-                WIDTH,
+                VECTOR_SIZE,
                 src.arg(),
                 Doubled::arg(operand),
                 launcher.partitioning_arg(),
@@ -255,14 +255,14 @@ fn run_store(sink: bool) -> HostData {
             let bound = launcher
                 .arg(output.clone().binding(), dtype)
                 .axes(&[ROW, COL])
-                .vectorize(WIDTH)
+                .vectorize(VECTOR_SIZE)
                 .build()
                 .unwrap();
             store::launch::<Buffered>(
                 &client,
                 count,
                 dim,
-                WIDTH,
+                VECTOR_SIZE,
                 src.arg(),
                 Buffered::arg((bound, Write::Replace)),
                 launcher.partitioning_arg(),
@@ -527,7 +527,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
     let src = launcher
         .arg(input.binding(), dtype)
         .axes(&[ROW, COL])
-        .vectorize(WIDTH)
+        .vectorize(VECTOR_SIZE)
         .build()
         .unwrap();
     let output = TestInput::builder(client.clone(), shape![ROWS, COLS])
@@ -537,7 +537,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
     let derived = launcher
         .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
         .axes(&[ROW, COL])
-        .vectorize(WIDTH)
+        .vectorize(VECTOR_SIZE)
         .build_spec()
         .unwrap();
     let arrivals = client.create_from_slice(u32::as_bytes(&[0u32]));
@@ -554,7 +554,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
         &client,
         CubeCount::Static(x + extra, y, z),
         dim,
-        WIDTH,
+        VECTOR_SIZE,
         src.arg(),
         out,
         launcher.partitioning_arg(),
@@ -592,26 +592,26 @@ fn every_unit_reaches_finish_and_the_last_cube_totals() {
 }
 
 // ===========================================================================
-// Lines merged, then staged
+// Vectors merged, then staged
 // ===========================================================================
 
-/// Adds `100 * row + column` of the line's first cell to each line.
+/// Adds `100 * row + column` of the vector's first cell to each vector.
 struct AddPlace;
 
 #[cube]
-impl LineStage for AddPlace {
+impl VectorStage for AddPlace {
     type Arg<E: Numeric> = ();
 
-    fn line<E: Numeric, N: Size>(
+    fn vector<E: Numeric, N: Size>(
         _arg: &Self::Arg<E>,
-        at: &LineAt,
+        at: &VectorAt,
         value: Vector<E, N>,
     ) -> Vector<E, N> {
         value + Vector::new(E::cast_from(at.row() * 100 + at.column()))
     }
 }
 
-impl LineStageLaunch for AddPlace {
+impl VectorStageLaunch for AddPlace {
     type Operand = ();
 
     fn arg<E: Numeric>(_operand: ()) {}
@@ -640,7 +640,7 @@ const BOX_COLS: usize = 4;
 const PITCH: usize = 8;
 
 /// The input `row * COLS + col` stored into a pitched output through `Merged<(), S>`.
-fn store_pitched<S: LineStageLaunch>(stage: S::Operand) -> Vec<f32> {
+fn store_pitched<S: VectorStageLaunch>(stage: S::Operand) -> Vec<f32> {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
     let launcher = implied(
@@ -660,13 +660,13 @@ fn store_pitched<S: LineStageLaunch>(stage: S::Operand) -> Vec<f32> {
     let src = launcher
         .arg(input.binding(), dtype)
         .axes(&[ROW, COL])
-        .vectorize(WIDTH)
+        .vectorize(VECTOR_SIZE)
         .build()
         .unwrap();
     let sink = launcher
         .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
         .axes(&[ROW, COL])
-        .vectorize(WIDTH)
+        .vectorize(VECTOR_SIZE)
         .build_spec()
         .unwrap();
     let pitched = client.empty(ROWS * PITCH * size_of::<f32>());
@@ -680,7 +680,7 @@ fn store_pitched<S: LineStageLaunch>(stage: S::Operand) -> Vec<f32> {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        WIDTH,
+        VECTOR_SIZE,
         src.arg(),
         Merged::<(), S>::arg(MergedOperand {
             out: out.into_tensor_arg(),
@@ -694,7 +694,7 @@ fn store_pitched<S: LineStageLaunch>(stage: S::Operand) -> Vec<f32> {
     f32::from_bytes(&client.read_one_unchecked(pitched)).to_vec()
 }
 
-/// The identity merge and stage store each line unchanged, placed by the output's row stride.
+/// The identity merge and stage store each vector unchanged, placed by the output's row stride.
 #[test]
 fn the_identity_destination_stores_into_a_pitched_output() {
     let stored = store_pitched::<()>(());
@@ -709,7 +709,7 @@ fn the_identity_destination_stores_into_a_pitched_output() {
     }
 }
 
-/// The pitched rows are placed by their stride, and a stage sees each line's row and column
+/// The pitched rows are placed by their stride, and a stage sees each vector's row and column
 /// within the logical output, not within the buffer. Composed stages run in turn.
 #[test]
 fn stages_see_each_line_once_with_its_place() {
@@ -720,8 +720,8 @@ fn stages_see_each_line_once_with_its_place() {
         for row in 0..ROWS {
             for col in 0..COLS {
                 let value = (row * COLS + col) as f32;
-                let line_start = col - col % WIDTH;
-                let want = value + copies as f32 * (row * 100 + line_start) as f32;
+                let vector_start = col - col % VECTOR_SIZE;
+                let want = value + copies as f32 * (row * 100 + vector_start) as f32;
                 assert_eq!(
                     stored[row * PITCH + col],
                     want,
