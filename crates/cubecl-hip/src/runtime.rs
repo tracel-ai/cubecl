@@ -7,7 +7,6 @@ use core::ffi::c_int;
 
 use cubecl_common::{
     device::{Device, DeviceService},
-    device_handle::DeviceHandle,
     profile::TimingMethod,
 };
 #[cfg(windows)]
@@ -245,7 +244,7 @@ impl DeviceService for HipServer {
         }
         let options = RuntimeOptions::default();
 
-        let server = HipServer::new(
+        HipServer::new(
             hip_ctx,
             mem_properties,
             options.memory_config,
@@ -253,12 +252,7 @@ impl DeviceService for HipServer {
             probe.integrated,
             utilities,
             captures,
-        );
-        // HIP frees its runtime in its library's exit teardown, while other threads may still
-        // call into it through this server. Asked once HIP is loaded and the device set up, so
-        // the close runs ahead of that teardown.
-        DeviceHandle::<HipServer>::close_at_exit(device_id);
-        server
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

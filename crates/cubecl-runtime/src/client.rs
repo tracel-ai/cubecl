@@ -250,6 +250,7 @@ impl Client {
     ) -> Result<Self, cubecl_common::device_handle::ServiceCreationError> {
         let utilities = Server::utilities(&server);
         let context = DeviceHandle::<S>::insert(device_id, server)?.seen_as(as_server::<S>);
+        Self::close_at_exit::<S>(device_id);
 
         Ok(Self {
             device: context,
@@ -269,6 +270,7 @@ impl Client {
             .utilities()
             .downcast::<ServerUtilities>()
             .expect("Can downcast to `ServerUtilities`");
+        Self::close_at_exit::<S>(device_id);
 
         Self {
             device: context,
@@ -276,6 +278,20 @@ impl Client {
             stream_id: None,
             load_peer: Self::load::<S>,
         }
+    }
+
+    /// Runs the work queued on the server before the process exits, ahead of the exit teardown
+    /// of the libraries the server calls into.
+    ///
+    /// Work still queued when `main` returns would otherwise run during that teardown: a kernel
+    /// compile in LLVM while its statics are destroyed, or a call into a driver that has already
+    /// freed itself. Every runtime asks, once its server is up and its libraries loaded, so they
+    /// all exit the same way.
+    fn close_at_exit<S: ServerStorage>(device_id: DeviceId) {
+        #[cfg(multi_threading)]
+        DeviceHandle::<S>::close_at_exit(device_id);
+        #[cfg(not(multi_threading))]
+        let _ = device_id;
     }
 
     fn stream_id(&self) -> StreamId {

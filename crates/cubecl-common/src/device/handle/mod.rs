@@ -102,9 +102,9 @@ impl<S: DeviceService, I: DeviceHandleSpec> DeviceHandle<S, I> {
     ///
     /// On Linux with glibc the close runs as the main thread exits, before any exit handler.
     /// Elsewhere, and for an exit from another thread, it runs from an exit handler registered
-    /// by the first call, ahead of the teardown registered before it: a runtime calls this once
-    /// its library is loaded and the device set up. Once the process is exiting, no service is
-    /// started on any device.
+    /// by each new service, ahead of the teardown registered before it: a runtime calls this
+    /// once its library is loaded and the device set up. Once the process is exiting, no
+    /// service is started on any device.
     #[cfg(multi_threading)]
     pub fn close_at_exit(device_id: DeviceId) {
         exit::close_at_exit(device_id, core::any::TypeId::of::<S>(), Self::close);
