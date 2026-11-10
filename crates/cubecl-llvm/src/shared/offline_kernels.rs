@@ -50,18 +50,18 @@ pub(crate) struct Observation {
 }
 
 #[cube(launch)]
-fn record_fields(obs: &[Observation], output: &mut [f32]) {
+fn struct_fields(obs: &[Observation], output: &mut [f32]) {
     let o = obs[ABSOLUTE_POS];
     output[ABSOLUTE_POS] = o.x + o.y + f32::cast_from(o.cam + o.point);
 }
 
-pub(crate) fn record_fields_kernel() -> impl CubeKernel {
+pub(crate) fn struct_fields_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(64),
         ExecutionMode::Unchecked,
         AddressType::U32,
     );
-    record_fields::RecordFields::new(
+    struct_fields::StructFields::new(
         settings,
         device_properties(32),
         Arc::new(TargetProperties::default()),

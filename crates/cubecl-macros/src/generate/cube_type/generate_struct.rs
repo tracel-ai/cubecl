@@ -26,7 +26,7 @@ impl CubeTypeStruct {
             let deref_impl = self.deref_expand();
             let cube_type_impl = self.cube_type_impl();
             let expand_type_impl = self.expand_type_impl();
-            let record_impl = self.repr_c.then(|| self.runtime_struct_impl());
+            let struct_impl = self.repr_c.then(|| self.runtime_struct_impl());
 
             quote! {
                 #expand_ty
@@ -34,13 +34,13 @@ impl CubeTypeStruct {
                 #deref_impl
                 #cube_type_impl
                 #expand_type_impl
-                #record_impl
+                #struct_impl
             }
         }
     }
 
-    /// For a `#[repr(C)]` struct: a buffer record. Each field is a place at its `offset_of!`
-    /// word offset, so `&[Self]` is a kernel argument and `buf[i].field` reads one field.
+    /// For a `#[repr(C)]` struct: a buffer struct. Generates a getter for the runtime struct type,
+    /// and a method to initialize the destructured field places.
     fn runtime_struct_impl(&self) -> TokenStream {
         let shareable = prelude_type("HostShareable");
         let const_typed = prelude_type("ConstantTyped");

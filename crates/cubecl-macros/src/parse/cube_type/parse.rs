@@ -19,7 +19,7 @@ impl FromDeriveInput for CubeType {
                     && let Some(field) = data.fields.iter().find(|f| f.comptime.is_present())
                 {
                     return Err(darling::Error::custom(
-                        "a `#[repr(C)]` cube type is a buffer record and can't have comptime fields",
+                        "a `#[repr(C)]` cube type is a buffer struct and can't have comptime fields",
                     )
                     .with_span(&field.ident));
                 }

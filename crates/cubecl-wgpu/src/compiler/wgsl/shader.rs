@@ -291,7 +291,6 @@ impl Pass for DeclareStructTypesPass {
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let module = op.as_op::<ModuleOp>(ctx).expect("Should be run on module");
-        // Deduplicate by type name because some types are semantic only (i.e. tf32 is the same as f32)
         let mut structs = ISet::default();
 
         visit_all_values(ctx, &mut structs, op, |ctx, structs, val| {

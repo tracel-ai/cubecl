@@ -190,7 +190,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_remainder!();
         cubecl_core::testgen_native_array!();
-        cubecl_core::testgen_record!();
+        cubecl_core::testgen_structs!();
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();

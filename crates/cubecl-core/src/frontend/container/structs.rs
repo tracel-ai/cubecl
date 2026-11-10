@@ -1,10 +1,3 @@
-//! Buffers of `#[repr(C)]` structs ("records").
-//!
-//! A buffer of records `T` is a runtime array of `array<u32, size_of::<T>() / 4>`. Indexing it
-//! gives a pointer to one record; each field is a pointer at a constant word offset from it,
-//! cast to the field's type. The offsets come from `core::mem::offset_of!`, so the host and the
-//! kernel share the layout `rustc` chose for the `#[repr(C)]` struct.
-
 use cubecl_ir::{
     ExpandValue,
     dialect::memory::StructFieldOp,
@@ -16,9 +9,16 @@ use pliron::r#type::Typed;
 use crate::prelude::*;
 
 /// A value that has a consistent representation between host and GPU.
-/// Implemented for most primitives, but not `usize`, `isize` and `bool` which have a target-specific
-/// representation. Also implemented for types that are made up of shareable types and have a
-/// GPU-compatible layout (`repr(C)`).
+/// Implemented for most primitives, for Rust arrays, and for types that are made up of
+/// shareable types and have a GPU-compatible layout (`repr(C)`). Packed structs are not supported
+/// because backends don't have universal support.
+///
+/// ## Notable exceptions
+/// * [`bool`] cannot be shared because its size and layout is not defined on all device targets
+/// * [`usize`] and [`isize`] cannot be shared because their size can differ from the native host address size
+/// * [`Vector<T, N>`] and [`Array<T>`] cannot be shared because they do not have a constant size on the host.
+/// * [`Complex<T>`](num_complex::Complex) cannot be shared because its alignment differs from the host in CUDA
+///
 #[diagnostic::on_unimplemented(
     message = "`{Self}` can't be shared between CPU and GPU",
     note = "shareable types are are floats, ints, arrays, or #[repr(C)] structs containing shareable fields"

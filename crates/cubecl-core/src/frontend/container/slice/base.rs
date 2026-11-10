@@ -591,8 +591,7 @@ impl<E: SliceElement> SliceExpand<E> {
 
 /// A type that can be the element of a buffer, the `T` of a kernel argument `&[T]`.
 ///
-/// Implemented for every [`CubePrimitive`], and by `#[derive(CubeType)]` for `#[repr(C)]`
-/// structs (see [`RecordField`]).
+/// Implemented for every [`CubePrimitive`], constant sized arrays, and [`HostShareable`] structs.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` can't be an element in a slice",
     note = "slice elements are floats, ints, arrays, vectors, or #[repr(C)] structs deriving CubeType"
