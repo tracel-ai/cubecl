@@ -3,6 +3,7 @@ use crate::{
     dialect::memory::StoreOp,
     interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
     rewrite::op_insertion_point_in_block,
+    settings::FloatContraction,
 };
 use alloc::{boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
 use core::{
@@ -206,6 +207,13 @@ pub trait ContextExt {
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
+    /// Whether the kernel lets float multiply-adds fuse: allowed unless the kernel said
+    /// otherwise.
+    fn float_contraction(&self) -> FloatContraction {
+        self.try_aux_ty::<FloatContraction>()
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 impl ContextExt for Context {

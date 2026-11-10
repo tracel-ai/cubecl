@@ -441,6 +441,9 @@ impl Launch {
             if let Some(cluster_dim) = &self.args.cluster_dim {
                 settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
             }
+            if self.args.no_contraction.is_present() {
+                settings.extend(quote![.no_contraction()]);
+            }
 
             quote! {
                 #[doc = #kernel_doc]
@@ -485,6 +488,7 @@ impl Launch {
                             .cube_dim(self.settings.cube_dim.clone())
                             .mode(self.settings.execution_mode)
                             .debug_info(self.settings.debug_info)
+                            .float_contraction(self.settings.float_contraction)
                             .info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init
@@ -531,6 +535,9 @@ impl Launch {
         }
         if let Some(cluster_dim) = &self.args.cluster_dim {
             settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
+        }
+        if self.args.no_contraction.is_present() {
+            settings.extend(quote![.no_contraction()]);
         }
 
         let generics = &self.kernel_generics;

@@ -12,7 +12,7 @@ use cubecl_common::{
 };
 use cubecl_ir::{
     AddressType,
-    settings::{DebugInfo, Dim3, ExecutionMode},
+    settings::{DebugInfo, Dim3, ExecutionMode, FloatContraction},
 };
 use derive_more::{Eq, PartialEq};
 
@@ -99,6 +99,8 @@ pub struct KernelId {
     pub mode: ExecutionMode,
     /// The debug data of this kernel, after the configuration lowered it.
     pub debug_info: DebugInfo,
+    /// Whether float multiply-adds may be fused in this kernel.
+    pub float_contraction: FloatContraction,
     pub(crate) info: Option<Info>,
 }
 
@@ -113,6 +115,10 @@ impl Hash for KernelId {
         if self.debug_info != DebugInfo::None {
             self.debug_info.hash(state);
         }
+        // A kernel that allows contraction keeps the hash it had before the setting existed.
+        if self.float_contraction != FloatContraction::Allowed {
+            self.float_contraction.hash(state);
+        }
     }
 }
 
@@ -125,6 +131,7 @@ impl core::fmt::Debug for KernelId {
         debug_str.field("cube_dim", &self.cube_dim);
         debug_str.field("mode", &self.mode);
         debug_str.field("debug_info", &self.debug_info);
+        debug_str.field("float_contraction", &self.float_contraction);
         match &self.info {
             Some(info) => debug_str.field("info", info),
             None => debug_str.field("info", &self.info),
@@ -173,6 +180,7 @@ impl KernelId {
             mode: ExecutionMode::Checked,
             address_type: Default::default(),
             debug_info: DebugInfo::None,
+            float_contraction: FloatContraction::Allowed,
         }
     }
 
@@ -184,9 +192,13 @@ impl KernelId {
             "{}-{}-{:?}-{:?}-{:?}",
             self.type_name, self.address_type, self.cube_dim, self.mode, self.info
         );
-        match self.debug_info {
+        let format = match self.debug_info {
             DebugInfo::None => format,
             level => format!("{format}-{level:?}"),
+        };
+        match self.float_contraction {
+            FloatContraction::Allowed => format,
+            contraction => format!("{format}-{contraction:?}"),
         }
     }
 
@@ -203,6 +215,9 @@ impl KernelId {
         // A kernel without debug data keeps its entry point name and cache key.
         if self.debug_info != DebugInfo::None {
             self.debug_info.hash(&mut hasher);
+        }
+        if self.float_contraction != FloatContraction::Allowed {
+            self.float_contraction.hash(&mut hasher);
         }
 
         hasher.finalize()
@@ -236,6 +251,13 @@ impl KernelId {
     #[must_use]
     pub fn debug_info(mut self, requested: DebugInfo) -> Self {
         self.debug_info = crate::config::compilation::effective_debug_info(requested);
+        self
+    }
+
+    /// Set whether float multiply-adds may be fused, which changes the compiled kernel.
+    #[must_use]
+    pub fn float_contraction(mut self, contraction: FloatContraction) -> Self {
+        self.float_contraction = contraction;
         self
     }
 

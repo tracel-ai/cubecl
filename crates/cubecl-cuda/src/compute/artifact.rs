@@ -9,7 +9,7 @@ use cubecl_core::{
     prelude::*,
 };
 use cubecl_cpp::cuda::arch::CudaArchitecture;
-use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::{formatter::format_cpp, shared::signature::forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{
     ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording,
@@ -298,6 +298,9 @@ impl CudaArtifactCompiler {
         if cccl_include_path.exists() {
             options.push(&cccl_include_option);
         }
+        // NVRTC fuses multiply-adds by default, whatever the source's pragma says.
+        let contraction = forbids_contraction(source).then_some("--fmad=false");
+        options.extend(contraction);
 
         // SAFETY: Calling NVRTC FFI to create, compile, and extract PTX from a program.
         // The `CString` source is null-terminated and outlives the program. On compilation
@@ -322,6 +325,7 @@ impl CudaArtifactCompiler {
                     if cccl_include_path.exists() {
                         fallback_opts.push(&cccl_include_option);
                     }
+                    fallback_opts.extend(contraction);
                     let fallback_prog =
                         cudarc::nvrtc::result::create_program(c_source.as_c_str(), None).map_err(
                             |err| CompilationError::Generic {

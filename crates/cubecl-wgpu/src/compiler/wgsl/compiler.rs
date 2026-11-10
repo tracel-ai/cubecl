@@ -34,6 +34,7 @@ use cubecl_ir::{
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, Pass, Passes},
     rewrite::{CanonicalizePass, LowerOpsPass, SimplifyOpsPass},
     settings::Dim3,
+    settings::FloatContraction,
 };
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
@@ -107,6 +108,15 @@ impl WgslCompiler {
                 reason,
                 backtrace: BackTrace::capture(),
             });
+        }
+
+        if value.settings.float_contraction == FloatContraction::Off {
+            log::warn!(
+                "[{}] WGSL cannot keep the driver from fusing multiply-adds: the kernel's own \
+                 products are kept apart, but the driver may still contract them. Use the \
+                 SPIR-V or MSL compiler for a kernel that must round every operation",
+                value.settings.kernel_name
+            );
         }
 
         let dump = KernelDump::new(&value.settings.kernel_name);

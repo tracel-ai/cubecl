@@ -26,6 +26,8 @@ pub(crate) struct KernelArgs {
     // Force override because macro hygiene can cause weird issues
     pub no_debug_symbols: Flag,
     pub fast_math: Option<Expr>,
+    /// Round every float product and sum on its own, fusing no multiply-add.
+    pub no_contraction: Flag,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
     /// Generate expansion only, for expanding existing types
