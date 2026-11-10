@@ -30,6 +30,7 @@ mod reading {
     use crate::environment::scratch_file::ScratchFile;
     use crate::environment::{BuildStamp, EnvironmentError, EnvironmentSummary};
     use std::path::Path;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     impl EnvironmentBundle {
         /// The bundle saved at `path`.
@@ -69,6 +70,18 @@ mod reading {
         /// The bytes are not a bundle, or do not read.
         pub fn saved_by(&self) -> Result<Option<BuildStamp>, EnvironmentError> {
             self.open(|bundle| bundle.manifest().saved_by)
+        }
+
+        /// When the bundle was saved, when its manifest says.
+        ///
+        /// # Errors
+        ///
+        /// The bytes are not a bundle, or do not read.
+        pub fn saved_at(&self) -> Result<Option<SystemTime>, EnvironmentError> {
+            self.open(|bundle| {
+                let seconds = bundle.manifest().created_unix_secs?;
+                UNIX_EPOCH.checked_add(Duration::from_secs(seconds))
+            })
         }
 
         /// What the bundle holds, counted.
