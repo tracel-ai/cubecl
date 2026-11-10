@@ -2966,7 +2966,7 @@ fn a_prune_keeps_what_the_work_loaded() {
     );
     assert!(!present(&stored[2]), "only a race launched it");
     assert!(!present(&stored[3]), "another build compiled it");
-    assert_eq!(autotune(), [answers.clone()], "the answers stay");
+    assert_eq!(autotune(), std::slice::from_ref(&answers), "the answers stay");
     assert!(
         database
             .get(&answers, b"an answer to an older candidate list")
