@@ -132,12 +132,7 @@ impl Walk {
         #[comptime] level: Level,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
-        let (positions, counts) = launch_tiles(host.clone(), level, grid);
-        let mut scales = Coords::<usize>::new();
-        #[unroll]
-        for _ in 0..host.rank() {
-            scales.push(1usize);
-        }
+        let (positions, counts, scales) = launch_tiles(host.clone(), level, grid);
         (counts, positions, scales)
     }
 
