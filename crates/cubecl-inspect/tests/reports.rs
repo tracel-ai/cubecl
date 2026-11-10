@@ -2,6 +2,7 @@
 //! no device, no runtime, only the stored bytes.
 
 use cubecl_environment::bundle::{BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
+use cubecl_environment::environment::BuildStamp;
 use cubecl_environment::persistence::{Access, Database, Origin};
 use cubecl_environment::records::{self, MarkRecord, Record, Session, SessionId, Stamp, Stamped};
 use cubecl_environment::stream::StreamId;
@@ -258,7 +259,7 @@ fn fixture(dir: &Path) -> PathBuf {
                     key: KernelCacheKey {
                         id,
                         variant: 0,
-                        build_id: 1,
+                        built_by: BuildStamp { hash: 1 },
                     },
                     outcome: outcome.0,
                     work: outcome.1,
@@ -298,7 +299,7 @@ fn fixture(dir: &Path) -> PathBuf {
         &cbor(&KernelCacheKey {
             id: MATMUL,
             variant: 0,
-            build_id: 1,
+            built_by: BuildStamp { hash: 1 },
         }),
         &[0; 64],
         Origin::Local,
@@ -923,7 +924,7 @@ fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
                 key: KernelCacheKey {
                     id: MATMUL,
                     variant: 0,
-                    build_id: 2,
+                    built_by: BuildStamp { hash: 2 },
                 },
                 outcome: CompilationOutcome::Compiled,
                 work: Duration::from_millis(90),

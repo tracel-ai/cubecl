@@ -16,7 +16,7 @@ use cubecl_environment::records::Records;
 impl Prune for EnvironmentId {
     fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError> {
         let database = self.database(Access::ReadWrite)?;
-        let launches = WorkLaunches::read(&database, BuildStamp::current().hash);
+        let launches = WorkLaunches::read(&database, BuildStamp::current());
         let kernels = launches.prune(&database);
         let records = Records::new(&database).retain(options.records);
         Ok(Pruned { kernels, records })
@@ -52,7 +52,7 @@ impl ArtifactFate {
 #[derive(Debug)]
 struct WorkLaunches {
     /// The build this program is.
-    build: StableHash,
+    build: BuildStamp,
     /// The kernels recorded, `None` when this build's work launched none here.
     launched: Option<HashSet<StableHash>>,
     /// The namespaces recording other builds' launches, removed with those
@@ -62,7 +62,7 @@ struct WorkLaunches {
 
 impl WorkLaunches {
     /// What `database` recorded of the work of `build`.
-    fn read(database: &Database, build: StableHash) -> Self {
+    fn read(database: &Database, build: BuildStamp) -> Self {
         let this_build = WorkLaunchStore::namespace(build);
         let mut launched = HashSet::default();
         let mut other_builds = Vec::new();
@@ -89,7 +89,7 @@ impl WorkLaunches {
 
     /// What the records say of `artifact`.
     fn fate(&self, artifact: &KernelCacheKey) -> ArtifactFate {
-        if artifact.build_id != self.build {
+        if artifact.built_by != self.build {
             return ArtifactFate::OtherBuild;
         }
         match &self.launched {
@@ -144,7 +144,7 @@ impl WorkLaunches {
 mod tests {
     use super::*;
 
-    const BUILD: StableHash = 7;
+    const BUILD: BuildStamp = BuildStamp { hash: 7 };
 
     fn launches(launched: Option<&[StableHash]>) -> WorkLaunches {
         WorkLaunches {
@@ -158,7 +158,7 @@ mod tests {
         KernelCacheKey {
             id,
             variant: 0,
-            build_id: BUILD,
+            built_by: BUILD,
         }
     }
 
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn another_builds_kernel_goes_even_when_the_work_launched_it() {
         let other = KernelCacheKey {
-            build_id: BUILD + 1,
+            built_by: BuildStamp { hash: 8 },
             ..artifact(1)
         };
         let fate = launches(Some(&[1])).fate(&other);
