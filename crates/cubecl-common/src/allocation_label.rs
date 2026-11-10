@@ -94,7 +94,9 @@ impl Drop for AllocationLabel {
 /// A device runs a caller's work on a thread of its own, so the memory that
 /// work allocates would otherwise carry that thread's labels, not the
 /// caller's. Taken with [`current`](Self::current) where the work is handed
-/// over, and [applied](Self::apply) around it where it runs.
+/// over, and [applied](Self::apply) around it where it runs, as often as the
+/// work runs.
+#[derive(Clone, Default, Debug)]
 pub struct AllocationLabelStack {
     /// Without `std` no label is kept, so none is ever applied.
     #[cfg_attr(not(feature = "std"), allow(dead_code))]
@@ -114,10 +116,11 @@ impl AllocationLabelStack {
     /// added to, so work run on the thread that handed it over keeps the
     /// labels it already had, not two copies of them. While recording is off,
     /// `work` just runs.
-    pub fn apply<R>(self, work: impl FnOnce() -> R) -> R {
+    pub fn apply<R>(&self, work: impl FnOnce() -> R) -> R {
         #[cfg(feature = "std")]
         if is_recording() {
-            let _restore = Restore(Some(STACK.with(|stack| stack.replace(self.labels))));
+            let carried = self.labels.clone();
+            let _restore = Restore(Some(STACK.with(|stack| stack.replace(carried))));
             return work();
         }
         work()
