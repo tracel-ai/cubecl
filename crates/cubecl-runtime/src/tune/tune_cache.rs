@@ -5,7 +5,7 @@ use cubecl_common::device::ServiceId;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
-use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Namespace, NamespaceRoot, Store, StoreOptions};
 #[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,7 @@ use cubecl_environment::collections::HashMap;
 
 /// Bumped when tables are named another way.
 #[cfg(persistence)]
-static TABLES: NamespaceVersion = NamespaceVersion::new(ROOT, LAYOUT_PREFIX, 1);
+static TABLES: NamespaceVersion = NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 1);
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
@@ -157,9 +157,6 @@ pub enum TuneCacheResult {
     /// No operation is found yet.
     Miss,
 }
-
-/// The root of every tuner's table namespace.
-pub const ROOT: &str = cubecl_environment::persistence::NamespaceRoot::AUTOTUNE;
 
 /// What the segment numbering a table layout starts with, as in `layout-v1`.
 pub const LAYOUT_PREFIX: &str = "layout-v";
