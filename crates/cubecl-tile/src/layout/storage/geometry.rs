@@ -311,6 +311,16 @@ impl RuntimeGeometry {
         geometry
     }
 
+    /// How far physical dim `dim` runs.
+    pub fn extent(&self, #[comptime] dim: usize) -> usize {
+        self.shape.at(dim) as usize
+    }
+
+    /// The scalar stride that steps physical dim `dim`.
+    pub fn stride(&self, #[comptime] dim: usize) -> usize {
+        self.strides.at(dim) as usize
+    }
+
     /// One physical dim, coarsest first: how far it runs, and the scalar stride that steps it.
     pub fn push(&mut self, extent: u32, stride: u32) {
         self.shape.push(extent);

@@ -21,9 +21,16 @@ use cubecl::ir::{ExpandValue, VectorSize};
 use cubecl::std::tensor::{
     ErasedTensor, ErasedTensorExpand, ErasedTensorOperationsExpand, WriteOnly, WritesLines,
 };
-use cubecl::{prelude::*, unexpanded, zspace::shape};
+use cubecl::{
+    prelude::*,
+    unexpanded,
+    zspace::{Tiling, shape},
+};
 use cubecl_tile::kind::{GlobalOperand, Write};
-use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch, Unbound};
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, LineAt, LineStage, LineStageLaunch, Merged,
+    MergedOperand, Unbound,
+};
 use cubecl_tile::layout::RuntimeGeometry;
 use cubecl_tile::*;
 
@@ -581,5 +588,146 @@ fn every_unit_reaches_finish_and_the_last_cube_totals() {
         }
         assert_eq!(arrived, units, "{extra} extra cubes: units that finished");
         assert_eq!(total, want, "{extra} extra cubes: the total");
+    }
+}
+
+// ===========================================================================
+// Lines merged, then staged
+// ===========================================================================
+
+/// Adds `100 * row + column` of the line's first cell to each line.
+struct AddPlace;
+
+#[cube]
+impl LineStage for AddPlace {
+    type Arg<E: Numeric> = ();
+
+    fn line<E: Numeric, N: Size>(
+        _arg: &Self::Arg<E>,
+        at: &LineAt,
+        value: Vector<E, N>,
+    ) -> Vector<E, N> {
+        value + Vector::new(E::cast_from(at.row() * 100 + at.column()))
+    }
+}
+
+impl LineStageLaunch for AddPlace {
+    type Operand = ();
+
+    fn arg<E: Numeric>(_operand: ()) {}
+}
+
+/// Each cube copies its box of the input into the destination.
+#[cube(launch)]
+fn store_boxes<E: Float, V: Size, O: Destination>(
+    input: &TileTensor<'_>,
+    out: &O::Arg<E>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
+    let src = input.tile(&space);
+    let dst = O::tile::<E, V>(out, &space);
+    for cube in &space {
+        let mut boxed = dst.at(&cube);
+        boxed.copy_from(&src.at(&cube));
+    }
+    O::finish::<E>(out);
+}
+
+/// Boxes of two rows by four columns: the six columns end inside the second box of each row.
+const BOX_COLS: usize = 4;
+/// The row stride of the pitched output, past its six columns.
+const PITCH: usize = 8;
+
+/// The input `row * COLS + col` stored into a pitched output through `Merged<(), S>`.
+fn store_pitched<S: LineStageLaunch>(stage: S::Operand) -> Vec<f32> {
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(ROW, ROWS), (COL, COLS)]),
+            Levels::leaf(&[(ROW, 2), (COL, BOX_COLS)])
+                .cubes(&[ROW, COL])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let input = TestInput::builder(client.clone(), shape![ROWS, COLS])
+        .dtype(dtype)
+        .arange()
+        .generate_without_host_data();
+    let src = launcher
+        .arg(input.binding(), dtype)
+        .axes(&[ROW, COL])
+        .vectorize(WIDTH)
+        .build()
+        .unwrap();
+    let sink = launcher
+        .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
+        .axes(&[ROW, COL])
+        .vectorize(WIDTH)
+        .build_spec()
+        .unwrap();
+    let pitched = client.empty(ROWS * PITCH * size_of::<f32>());
+    let out = TensorBinding {
+        handle: pitched.clone().binding(),
+        strides: [PITCH, 1].into(),
+        shape: [ROWS, COLS].into(),
+        tiling: Tiling::UNTILED,
+    };
+    store_boxes::launch::<Merged<(), S>>(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        WIDTH,
+        src.arg(),
+        Merged::<(), S>::arg(MergedOperand {
+            out: out.into_tensor_arg(),
+            merge: (),
+            stage,
+            sink,
+        }),
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    f32::from_bytes(&client.read_one_unchecked(pitched)).to_vec()
+}
+
+/// The identity merge and stage store each line unchanged, placed by the output's row stride.
+#[test]
+fn the_identity_destination_stores_into_a_pitched_output() {
+    let stored = store_pitched::<()>(());
+    for row in 0..ROWS {
+        for col in 0..COLS {
+            assert_eq!(
+                stored[row * PITCH + col],
+                (row * COLS + col) as f32,
+                "wrong at [{row}, {col}]"
+            );
+        }
+    }
+}
+
+/// The pitched rows are placed by their stride, and a stage sees each line's row and column
+/// within the logical output, not within the buffer. Composed stages run in turn.
+#[test]
+fn stages_see_each_line_once_with_its_place() {
+    for (copies, stored) in [
+        (1, store_pitched::<AddPlace>(())),
+        (2, store_pitched::<(AddPlace, AddPlace)>(((), ()))),
+    ] {
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                let value = (row * COLS + col) as f32;
+                let line_start = col - col % WIDTH;
+                let want = value + copies as f32 * (row * 100 + line_start) as f32;
+                assert_eq!(
+                    stored[row * PITCH + col],
+                    want,
+                    "{copies} stage(s) wrong at [{row}, {col}]"
+                );
+            }
+        }
     }
 }
