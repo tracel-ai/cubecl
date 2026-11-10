@@ -613,6 +613,18 @@ fn a_tensor_map_is_a_grid_constant_parameter() {
     assert!(rest.contains("noalias"), "{rest}");
 }
 
+/// A cube barrier's end lowers to `mbarrier.inval`, ahead of the `init` that reuses its memory.
+#[test]
+fn an_ended_cube_barrier_is_invalidated_before_it_is_initialized_again() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::barrier_ended_then_reused_kernel(),
+        90,
+    );
+    let inval = ptx.find("mbarrier.inval.shared").expect(&ptx);
+    let reinit = ptx.rfind("mbarrier.init.shared").expect(&ptx);
+    assert!(inval < reinit, "{ptx}");
+}
+
 /// A tiled load completes on the barrier as a transaction: the units expect its bytes, arrive,
 /// and spin until the phase completes.
 #[test]

@@ -229,6 +229,23 @@ impl Meeting {
         }
     }
 
+    /// End the rendezvous once its walk is over: a barrier pair is invalidated, so a ring built in
+    /// the same shared memory afterwards, as a ring built in a loop is, initializes new barriers
+    /// rather than reinitializing ones whose phases have moved, whose waits may then never
+    /// complete. Every unit of the cube meets first, so none still waits on them.
+    pub(crate) fn end(&self) {
+        match self {
+            Meeting::Barrier { full, empty, .. } => {
+                sync_cube();
+                if UNIT_POS == 0 {
+                    full.invalidate();
+                    empty.invalidate();
+                }
+            }
+            Meeting::Cube | Meeting::Plane => {}
+        }
+    }
+
     /// Publish the slot's last fill where no later fill will ([`Slot::publish`]).
     pub(crate) fn publish(&self) {
         match self {
