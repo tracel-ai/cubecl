@@ -152,7 +152,10 @@ impl<C: SliceElement> LaunchArg for [C] {
     type CompilationArg = BufferCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
-        let elem_size = launcher.with_scope(|scope| C::__expand_buffer_elem(scope).size);
+        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
+        if elem_size == 0 {
+            panic!("Can't register zero-sized type");
+        }
         let inplace = match &arg {
             BufferArg::Handle { .. } => None,
             BufferArg::Alias { input_pos, .. } => Some(*input_pos),
@@ -165,7 +168,7 @@ impl<C: SliceElement> LaunchArg for [C] {
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<[C]> {
         let buffer = match arg.inplace {
             Some(id) => builder.inplace(id),
-            None => builder.buffer(C::__expand_buffer_elem(&builder.scope).ty),
+            None => builder.buffer(C::__expand_as_type(&builder.scope)),
         };
         let scope = &builder.scope;
         let len = expand_buffer_length_native(scope, buffer);

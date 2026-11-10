@@ -364,6 +364,62 @@ fn indexed_ptr_ty(ctx: &Context, base: &Value) -> TypeHandle {
     PointerType::get(ctx, value_ty, address_space).into()
 }
 
+#[cube_op(
+    name = "memory.field",
+    format = "$0 `[` attr($field, $IndexAttr) `] : ` type($0)"
+)]
+#[result_ty(argument)]
+#[op_interfaces(OperandNOfType<0, PointerType>, ResultNOfType<0, PointerType>, TrivialOp)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct StructFieldOp {
+    pub base: Value,
+    pub field: IndexAttr,
+}
+
+#[op_interface_impl]
+impl AliasingOp for StructFieldOp {
+    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+        Some(self.base(ctx))
+    }
+}
+
+#[op_interface_impl]
+impl DestructurableAccessorOpInterface for StructFieldOp {
+    fn can_rewire(
+        &self,
+        ctx: &Context,
+        value: &DestructurableValueSlot,
+        used_indices: &mut SmallSet<AttrObj, 8>,
+        must_be_safely_used: &mut Vec<ValueSlot>,
+    ) -> bool {
+        if self.base(ctx) != value.slot.value {
+            return false;
+        }
+        let field = self.field(ctx).0;
+        let attr = index_attr(field);
+        let elem_ty = value.subelement_types[&attr];
+        used_indices.insert(attr);
+
+        let used_slot = ValueSlot::new(self.get_result(ctx), elem_ty);
+        must_be_safely_used.push(used_slot);
+        true
+    }
+
+    fn rewire(
+        &self,
+        ctx: &mut Context,
+        _value: &DestructurableValueSlot,
+        subvalues: &HMap<AttrObj, ValueSlot>,
+        rewriter: &mut PassRewriter,
+    ) -> DeletionKind {
+        let field = self.field(ctx).0;
+        let index_attr = index_attr(field);
+        let new_slot = &subvalues[&index_attr];
+        rewriter.replace_value_uses_with(ctx, self.get_result(ctx), new_slot.value);
+        DeletionKind::Delete
+    }
+}
+
 #[derive(Error, Debug)]
 #[error("Register Promotion: Allocation info provided is not related to this operation")]
 pub struct UnrelatedAllocInfo;

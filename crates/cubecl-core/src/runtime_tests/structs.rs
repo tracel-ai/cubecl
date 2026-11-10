@@ -63,6 +63,13 @@ pub struct Tagged<F: Float> {
     pub tag: u32,
 }
 
+#[derive(CubeType, Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+pub struct ArrayRecord {
+    pub values: [u32; 2],
+    pub tag: u32,
+}
+
 #[cube(launch)]
 pub fn record_read(obs: &[Obs], out: &mut [f32]) {
     let i = UNIT_POS as usize;
@@ -104,7 +111,7 @@ pub fn record_len(obs: &[Obs], out: &mut [u32]) {
 }
 
 #[cube(launch)]
-pub fn record_generic<F: Float + RecordField>(input: &[Tagged<F>], out: &mut [F]) {
+pub fn record_generic<F: Float + HostShareable>(input: &[Tagged<F>], out: &mut [F]) {
     let i = UNIT_POS as usize;
     out[i] = input[i].value * F::cast_from(input[i].tag);
 }
@@ -153,6 +160,21 @@ pub fn record_forms(input: &[Cam], output: &mut [Cam]) {
     let mut c = output[i];
     c.f *= 0.5;
     output[i] = c;
+}
+
+#[allow(unconditional_panic)]
+#[cube(launch)]
+pub fn record_array_field_index(input: &[ArrayRecord], out: &mut [u32]) {
+    let i = UNIT_POS as usize;
+    out[2 * i] = input[i].tag;
+    out[2 * i + 1] = input[i].values[i];
+}
+
+#[allow(unconditional_panic)]
+#[cube(launch)]
+pub fn record_array_field_assign(records: &mut [ArrayRecord]) {
+    let i = UNIT_POS as usize;
+    records[i].values[i] = 100 + UNIT_POS;
 }
 
 /// The bytes of `records`. `T` must have no padding.
@@ -281,11 +303,6 @@ pub fn test_record_padded<R: Runtime>(client: Client) {
     {
         return;
     }
-    // WGSL has no pointer casts, so its record fields are 4 bytes; the WGSL compiler test
-    // `an_8_byte_record_field_is_refused` checks the refusal.
-    if client.name().starts_with("wgpu<wgsl") {
-        return;
-    }
     let records = [Padded { a: 1.5, b: 2.25 }, Padded { a: -1.0, b: 1e10 }];
     // Field by field: the padding bytes of `Padded` are not initialized.
     let mut bytes = vec![0u8; size_of_val(&records)];
@@ -409,65 +426,141 @@ pub fn test_record_forms<R: Runtime>(client: Client) {
     assert_eq!(actual, expected);
 }
 
+pub fn test_record_array_field_index<R: Runtime>(client: Client) {
+    let records = [
+        ArrayRecord {
+            values: [17, 19],
+            tag: 1,
+        },
+        ArrayRecord {
+            values: [23, 29],
+            tag: 2,
+        },
+    ];
+    let input = client.create_from_slice(bytes_of(&records));
+    let output = client.empty(4 * size_of::<u32>());
+
+    record_array_field_index::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(2),
+        unsafe { BufferArg::from_raw_parts(input, 2) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), 4) },
+    );
+
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(u32::from_bytes(&actual), &[1, 17, 2, 29]);
+}
+
+pub fn test_record_array_field_assign<R: Runtime>(client: Client) {
+    let records = [
+        ArrayRecord {
+            values: [17, 19],
+            tag: 1,
+        },
+        ArrayRecord {
+            values: [23, 29],
+            tag: 2,
+        },
+    ];
+    let buffer = client.create_from_slice(bytes_of(&records));
+
+    record_array_field_assign::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(2),
+        unsafe { BufferArg::from_raw_parts(buffer.clone(), 2) },
+    );
+
+    let actual = records_from::<ArrayRecord>(&client.read_one_unchecked(buffer));
+    let expected = [
+        ArrayRecord {
+            values: [100, 19],
+            tag: 1,
+        },
+        ArrayRecord {
+            values: [23, 101],
+            tag: 2,
+        },
+    ];
+    assert_eq!(actual, expected);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_record {
     () => {
-        mod record {
+        mod structs {
             use super::*;
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_read() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_read::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_read::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_write_field() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_write_field::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_write_field::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_forms() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_forms::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_forms::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_refs() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_refs::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_refs::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_copy() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_copy::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_copy::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_nested() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_nested::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_nested::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_padded() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_padded::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_padded::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_len() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_len::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_len::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_record_generic() {
                 let client = TestRuntime::client(&Default::default());
-                $crate::runtime_tests::record::test_record_generic::<TestRuntime>(client);
+                $crate::runtime_tests::structs::test_record_generic::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_record_array_field_index() {
+                let client = TestRuntime::client(&Default::default());
+                $crate::runtime_tests::structs::test_record_array_field_index::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_record_array_field_assign() {
+                let client = TestRuntime::client(&Default::default());
+                $crate::runtime_tests::structs::test_record_array_field_assign::<TestRuntime>(
+                    client,
+                );
             }
         }
     };

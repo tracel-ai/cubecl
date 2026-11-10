@@ -21,9 +21,9 @@ use cubecl_runtime::client::Client;
 
 use crate::{
     frontend::{
-        ConstantTyped, Cos, CosNativeExpand, Exp, ExpNativeExpand, Log, LogNativeExpand, Powf,
-        PowfNativeExpand, ScalarArgSettings, Sin, SinNativeExpand, Sqrt, SqrtNativeExpand, Tanh,
-        TanhNativeExpand,
+        ConstantTyped, Cos, CosNativeExpand, Exp, ExpNativeExpand, HostShareable, Log,
+        LogNativeExpand, Powf, PowfNativeExpand, ScalarArgSettings, Sin, SinNativeExpand, Sqrt,
+        SqrtNativeExpand, Tanh, TanhNativeExpand,
         operation::{
             AddNativeExpand, DivNativeExpand, MulNativeExpand, NegNativeExpand,
             PartialEqNativeExpand, SubNativeExpand, binary_expand, unary_expand,
@@ -213,6 +213,12 @@ macro_rules! impl_complex {
                     unreachable!("expected complex constant")
                 };
                 <$primitive>::new(re as $float, im as $float)
+            }
+        }
+
+        impl HostShareable for $primitive {
+            fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+                field_ptr.into()
             }
         }
 

@@ -62,3 +62,25 @@ pub(crate) fn bounded_where_clause<T: RuntimeField>(
 
     Some(where_clause)
 }
+
+pub(crate) fn fields_where_clause<T: RuntimeField>(
+    generics: &Generics,
+    runtime_fields: impl IntoIterator<Item = T>,
+    bound: impl Fn(&Type) -> TokenStream,
+) -> Option<WhereClause> {
+    let mut generics = generics.clone();
+
+    let fields = runtime_fields.into_iter().collect::<Vec<_>>();
+    if fields.is_empty() {
+        return generics.where_clause;
+    }
+
+    let where_clause = generics.make_where_clause();
+
+    for field in fields {
+        let bound = bound(&field.ty());
+        where_clause.predicates.push(parse_quote!(#bound));
+    }
+
+    generics.where_clause
+}

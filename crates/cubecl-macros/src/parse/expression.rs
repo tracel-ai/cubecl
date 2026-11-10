@@ -478,7 +478,7 @@ impl Expression {
             // Skip deref and always use mutable index
             Expr::Index(ExprIndex { expr, index, .. }) => {
                 let index = Self::from_expr(*index, context)?;
-                let expr = Self::from_expr(*expr, context)?;
+                let expr = Self::from_expr_lhs(*expr, context)?;
                 Ok(Expression::IndexMut {
                     expr: Box::new(expr),
                     index: Box::new(index),

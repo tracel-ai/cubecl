@@ -15,8 +15,8 @@ macro_rules! requires_subgroups {
         $(#[cfg(target_family = "wasm")]
         #[op_interface_impl]
         impl RequiresFeatureOp for $ty {
-            fn required_feature(&self, _ctx: &Context) -> String {
-                "subgroups".into()
+            fn required_feature(&self, _ctx: &Context) -> Vec<String> {
+                vec!["subgroups".into()]
             }
         })*
     };

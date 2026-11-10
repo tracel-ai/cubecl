@@ -41,11 +41,19 @@ pub fn parse_repr_c(attrs: &[Attribute]) -> syn::Result<bool> {
         for meta in metas {
             if meta.path().is_ident("C") {
                 repr_c = true;
-            } else if meta.path().is_ident("packed") {
-                return Err(syn::Error::new_spanned(
-                    meta,
-                    "a `#[repr(C)]` cube type can't be `packed`: buffer record fields must be naturally aligned",
-                ));
+            }
+        }
+    }
+    if repr_c {
+        for attr in attrs.iter().filter(|attr| attr.path().is_ident("repr")) {
+            let metas = attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
+            for meta in metas {
+                if meta.path().is_ident("packed") {
+                    return Err(syn::Error::new_spanned(
+                        meta,
+                        "a `#[repr(C)]` cube type can't be `packed`: buffer record fields must be naturally aligned",
+                    ));
+                }
             }
         }
     }

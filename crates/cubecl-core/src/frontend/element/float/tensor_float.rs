@@ -29,6 +29,11 @@ impl CubePrimitive for tf32 {
         tf32::from_f64(value)
     }
 }
+impl HostShareable for tf32 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}
 impl ConstantTyped for tf32 {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         TFloat32Type::get(scope.ctx()).into()

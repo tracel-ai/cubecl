@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::{Generics, Ident, Type, Visibility, WhereClause, parse_quote};
 
 use crate::{
-    generate::bounded_where_clause,
+    generate::{bounded_where_clause, fields_where_clause},
     parse::cube_type::{CubeTypeStruct, TypeField},
     paths::{core_path, prelude_type},
 };
@@ -26,7 +26,7 @@ impl CubeTypeStruct {
             let deref_impl = self.deref_expand();
             let cube_type_impl = self.cube_type_impl();
             let expand_type_impl = self.expand_type_impl();
-            let record_impl = self.repr_c.then(|| self.record_impl());
+            let record_impl = self.repr_c.then(|| self.runtime_struct_impl());
 
             quote! {
                 #expand_ty
@@ -41,49 +41,64 @@ impl CubeTypeStruct {
 
     /// For a `#[repr(C)]` struct: a buffer record. Each field is a place at its `offset_of!`
     /// word offset, so `&[Self]` is a kernel argument and `buf[i].field` reads one field.
-    fn record_impl(&self) -> TokenStream {
-        let record_field = prelude_type("RecordField");
+    fn runtime_struct_impl(&self) -> TokenStream {
+        let shareable = prelude_type("HostShareable");
+        let const_typed = prelude_type("ConstantTyped");
         let slice_element = prelude_type("SliceElement");
-        let buffer_elem = prelude_type("BufferElem");
-        let elem_ptr = prelude_type("ElemPtr");
+        let value = prelude_type("ExpandValue");
         let scope = prelude_type("Scope");
+        let type_handle = prelude_type("TypeHandle");
+        let field_ptr = prelude_type("__field_ptr");
+        let struct_ty = prelude_type("__struct_ty");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;
+
         let (generics, generic_names, _) = self.generics.split_for_impl();
-        let where_clause = bounded_where_clause(
+        let where_clause = fields_where_clause(
             &self.generics,
             self.fields.clone(),
-            |ty| quote![#ty: #record_field + 'static],
+            |ty| quote![for<'a> #ty: #shareable + #const_typed + 'static],
         );
-        let fields = self.fields.iter().map(|field| {
+
+        let type_fields = self.fields.iter().map(|field| {
+            let ident = field.ident.as_ref().unwrap();
+            let ty = &field.ty;
+            quote! {(
+                <#ty as #const_typed>::__expand_as_type(scope),
+                core::mem::offset_of!(Self, #ident)
+            )}
+        });
+        let expand_fields = self.fields.iter().enumerate().map(|(idx, field)| {
             let ident = field.ident.as_ref().unwrap();
             let ty = &field.ty;
             quote! {
-                #ident: <#ty as #record_field>::__expand_record_field(
+                #ident: <#ty as #shareable>::__expand_runtime_place(
                     scope,
-                    rec,
-                    word + ::core::mem::offset_of!(Self, #ident) / 4,
+                    #field_ptr::<#ty>(scope, field_ptr, #idx),
                 )
             }
         });
 
         quote! {
-            impl #generics #record_field for #name #generic_names #where_clause {
-                fn __expand_record_field(scope: &#scope, rec: #elem_ptr, word: usize) -> Self::ExpandType {
+            impl #generics #const_typed for #name #generic_names #where_clause {
+                fn __expand_as_type(scope: &#scope) -> #type_handle {
+                    let fields = [#(#type_fields),*];
+                    #struct_ty::<Self>(scope, &fields)
+                }
+            }
+
+            impl #generics #shareable for #name #generic_names #where_clause {
+                fn __expand_runtime_place(scope: &#scope, field_ptr: #value) -> Self::ExpandType {
                     #name_expand {
-                        #(#fields),*
+                        #(#expand_fields),*
                     }
                 }
             }
 
             impl #generics #slice_element for #name #generic_names #where_clause {
-                fn __expand_buffer_elem(scope: &#scope) -> #buffer_elem {
-                    #buffer_elem::record(scope, ::core::mem::size_of::<Self>())
-                }
-
-                fn __expand_place(scope: &#scope, elem: #elem_ptr) -> Self::ExpandType {
-                    <Self as #record_field>::__expand_record_field(scope, elem, 0)
+                fn __expand_place(scope: &#scope, elem: #value) -> Self::ExpandType {
+                    <Self as #shareable>::__expand_runtime_place(scope, elem)
                 }
             }
         }

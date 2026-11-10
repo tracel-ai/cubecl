@@ -211,9 +211,9 @@ impl Expression {
                 let index =
                     operands.track(context, |context| into_expand(index.to_tokens(context)));
                 let index = then_position(index, operands.position(context, *span));
-                quote! {{
+                quote! {
                     #expr.__expand_index_method(scope, #index)
-                }}
+                }
             }
             Expression::IndexMut { expr, index, span } => {
                 let mut operands = Operands::new(context);
@@ -221,9 +221,9 @@ impl Expression {
                 let index =
                     operands.track(context, |context| into_expand(index.to_tokens(context)));
                 let index = then_position(index, operands.position(context, *span));
-                quote! {{
+                quote! {
                     #expr.__expand_index_mut_method(scope, #index)
-                }}
+                }
             }
             Expression::FunctionCall {
                 func,

@@ -11,6 +11,8 @@ use cubecl_ir::{
     ident,
     interfaces::TypedExt,
     prelude::*,
+    typed_vec_attr,
+    types::StructType,
 };
 use hashbrown::HashSet;
 use itertools::Itertools;
@@ -25,6 +27,7 @@ use pliron::{
     identifier::Identifier,
     irbuild::listener::DummyListener,
     linked_list::ContainsLinkedList,
+    utils::table::ISet,
 };
 
 #[cfg(target_family = "wasm")]
@@ -167,7 +170,7 @@ wgsl_op!(EnableOp, |op, ctx| {
 #[op_interface]
 pub trait RequiresFeatureOp {
     verify_op_succ!();
-    fn required_feature(&self, ctx: &Context) -> String;
+    fn required_feature(&self, ctx: &Context) -> Vec<String>;
 }
 
 pub struct EnableFeaturesPass;
@@ -194,7 +197,7 @@ impl Pass for EnableFeaturesPass {
             &mut feats,
             op,
             |ctx, feats, op| {
-                feats.insert(op.required_feature(ctx));
+                feats.extend(op.required_feature(ctx));
             },
         );
         // Browser WebGPU requires a subgroup enable directive for builtins too.
@@ -223,6 +226,120 @@ impl Pass for EnableFeaturesPass {
             enable.get_operation().insert_at_front(module_body, ctx);
         }
         Ok(res)
+    }
+}
+
+#[format]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct StructField {
+    ty: TypeHandle,
+    size: u64,
+}
+
+typed_vec_attr!(StructField, "wgsl.fields", StructFieldsAttr);
+
+#[cube_op(
+    name = "wgsl.declare_struct",
+    format = "attr($fields, $StructFieldsAttr)"
+)]
+#[result_ty(none)]
+pub struct DeclareStructOp {
+    name: IdentifierAttr,
+    fields: StructFieldsAttr,
+}
+
+#[op_interface_impl]
+impl RequiresFeatureOp for DeclareStructOp {
+    fn required_feature(&self, ctx: &Context) -> Vec<String> {
+        self.fields(ctx)
+            .0
+            .iter()
+            .filter_map(|field| {
+                if let Some(ty) = field.ty.try_get_scalar_elem_ty(ctx)
+                    && ty.is_float16(ctx)
+                {
+                    return Some("f16".to_string());
+                }
+                None
+            })
+            .collect()
+    }
+}
+
+wgsl_op!(DeclareStructOp, |op, ctx| {
+    let name = op.name(ctx);
+    let fields = op.fields(ctx);
+    let fields = fields.0.iter().enumerate();
+    let fields = fields
+        .map(|(i, field)| {
+            let ty = field.ty.to_wgsl(ctx);
+            format!("  @size({}) _{i}: {ty},", field.size)
+        })
+        .join("\n");
+    format!("struct {} {{\n{fields}\n}};\n", name.as_ref())
+});
+
+#[derive(Default)]
+pub struct DeclareStructTypesPass;
+
+#[pass_name]
+impl Pass for DeclareStructTypesPass {
+    fn run(
+        &mut self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let module = op.as_op::<ModuleOp>(ctx).expect("Should be run on module");
+        // Deduplicate by type name because some types are semantic only (i.e. tf32 is the same as f32)
+        let mut structs = ISet::default();
+
+        visit_all_values(ctx, &mut structs, op, |ctx, structs, val| {
+            visit_structs_nested(ctx, val, structs);
+        });
+
+        let mut res = PassResult::default();
+        for r#struct in structs {
+            let (name, fields) = {
+                let r#struct = r#struct.deref(ctx);
+                let name = format!("Struct_{:x}", r#struct.stable_hash());
+                let fields = r#struct
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, field)| field.ty.size(ctx) > 0)
+                    .map(|(i, field)| {
+                        let next_offs = r#struct.fields.get(i + 1).map(|it| it.offset);
+                        let next_offs = next_offs.unwrap_or(r#struct.size);
+                        let size = next_offs - field.offset;
+                        StructField { size, ty: field.ty }
+                    });
+                (name, fields.collect())
+            };
+            let decl = DeclareStructOp::new(ctx, ident(name), StructFieldsAttr(fields));
+            decl.get_operation()
+                .insert_at_front(module.get_body(ctx, 0), ctx);
+            res.ir_changed |= IRStatus::Changed;
+        }
+        Ok(res)
+    }
+}
+
+fn visit_structs_nested(
+    ctx: &Context,
+    val: impl Typed,
+    structs: &mut ISet<TypedHandle<StructType>>,
+) {
+    if let Some(elem) = val.try_get_scalar_elem_ty(ctx)
+        && let Ok(struct_ty) = TypedHandle::<StructType>::from_handle(elem, ctx)
+    {
+        if structs.contains(&struct_ty) {
+            return;
+        }
+        for field in struct_ty.deref(ctx).fields.iter() {
+            visit_structs_nested(ctx, field.ty, structs);
+        }
+        structs.insert(struct_ty);
     }
 }
 

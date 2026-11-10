@@ -18,7 +18,7 @@ use pliron::{
 };
 use pliron_spirv::types::{
     ArrayType as SpirvArrayType, FloatType, PointerType as SpirvPointerType,
-    RuntimeArrayType as SpirvRuntimeArrayType, VectorType as SpirvVectorType,
+    RuntimeArrayType as SpirvRuntimeArrayType, StructType, VectorType as SpirvVectorType,
     khr::CooperativeMatrixType, nv,
 };
 use rspirv::spirv::{
@@ -234,6 +234,23 @@ impl ToSpirvDialectType for MatrixType {
             MatrixIdent::Accumulator => (self.shape.m, self.shape.n, MatrixAccumulatorKHR),
         };
         CooperativeMatrixType::get(ctx, component, scope, rows as u32, cols as u32, use_).into()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for cubecl_ir::types::StructType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        self.to_spirv_ty_explicit_layout(ctx)
+    }
+
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        let field_types = self
+            .fields
+            .iter()
+            .map(|field| ty_to_spirv_dialect_explicit_layout(ctx, field.ty))
+            .collect();
+        let offsets = self.fields.iter().map(|field| field.offset as u32);
+        StructType::get(ctx, field_types, offsets.collect(), vec![], vec![]).to_handle()
     }
 }
 

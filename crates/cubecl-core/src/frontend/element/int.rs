@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, ElemType};
+use cubecl_ir::ConstantValue;
 use pliron::{
     builtin::types::{IntegerType, Signedness},
     r#type::TypeHandle,
@@ -74,6 +74,11 @@ macro_rules! impl_int {
                     unreachable!()
                 };
                 value as $type
+            }
+        }
+        impl HostShareable for $type {
+            fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+                field_ptr.into()
             }
         }
 

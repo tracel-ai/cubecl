@@ -11,7 +11,7 @@ use crate::{
 };
 use cubecl::prelude::*;
 use cubecl_ir::{
-    OpInserter, SliceMetadata, VectorSize,
+    ExpandValue, OpInserter, SliceMetadata, VectorSize,
     attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface},
     dialect::{
         OperationPtrExt, branch::RangeLoopOp, general::ReinterpretCastOp,
@@ -593,39 +593,19 @@ impl<E: SliceElement> SliceExpand<E> {
 ///
 /// Implemented for every [`CubePrimitive`], and by `#[derive(CubeType)]` for `#[repr(C)]`
 /// structs (see [`RecordField`]).
-pub trait SliceElement: CubeType + Sized + 'static {
-    /// The IR type and size of one buffer element.
-    #[doc(hidden)]
-    fn __expand_buffer_elem(scope: &Scope) -> BufferElem;
-
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` can't be an element in a slice",
+    note = "slice elements are floats, ints, arrays, vectors, or #[repr(C)] structs deriving CubeType"
+)]
+pub trait SliceElement: CubeType + ConstantTyped + Sized + 'static {
     /// The place of the element `elem` points to.
     #[doc(hidden)]
-    fn __expand_place(scope: &Scope, elem: ElemPtr) -> Self::ExpandType;
+    fn __expand_place(scope: &Scope, elem: ExpandValue) -> Self::ExpandType;
 }
 
-/// The IR type of one buffer element and its size in bytes.
-#[derive(Clone, Copy)]
-pub struct BufferElem {
-    pub(crate) ty: TypeHandle,
-    pub(crate) size: usize,
-}
-
-/// A pointer to one buffer element.
-#[derive(Clone, Copy)]
-pub struct ElemPtr {
-    pub(crate) ptr: Value,
-}
-
-impl<P: CubePrimitive> SliceElement for P {
-    fn __expand_buffer_elem(scope: &Scope) -> BufferElem {
-        BufferElem {
-            ty: P::__expand_as_type(scope),
-            size: P::__expand_size(scope),
-        }
-    }
-
-    fn __expand_place(_scope: &Scope, elem: ElemPtr) -> NativeExpand<P> {
-        elem.ptr.into()
+impl<P: NativeCubeType + ConstantTyped + 'static> SliceElement for P {
+    fn __expand_place(_scope: &Scope, elem: ExpandValue) -> NativeExpand<P> {
+        elem.into()
     }
 }
 
@@ -846,13 +826,11 @@ fn elem_ptr<E: SliceElement>(
     slice: &SliceExpand<E>,
     index: NativeExpand<usize>,
     checked: bool,
-) -> ElemPtr {
+) -> Value {
     let list = slice.__extract_list(scope);
     let offset = slice.__extract_offset(scope);
     let index = offset.__expand_add_method(scope, index).read_value(scope);
-    ElemPtr {
-        ptr: index_expand(scope, list, index, checked),
-    }
+    index_expand(scope, list, index, checked)
 }
 
 mod read_offset {
@@ -865,7 +843,7 @@ mod read_offset {
         checked: bool,
     ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
         let elem = elem_ptr(scope, slice, index, checked);
-        scope.create_kernel_ref(E::__expand_place(scope, elem))
+        scope.create_kernel_ref(E::__expand_place(scope, elem.into()))
     }
 }
 
@@ -879,6 +857,6 @@ mod write_offset {
         checked: bool,
     ) -> &'a mut E::ExpandType {
         let elem = elem_ptr(scope, slice, index, checked);
-        scope.create_kernel_ref(E::__expand_place(scope, elem))
+        scope.create_kernel_ref(E::__expand_place(scope, elem.into()))
     }
 }
