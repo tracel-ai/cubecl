@@ -474,9 +474,13 @@ impl Database {
         });
     }
 
-    /// Entry count and total size per namespace, for reporting.
-    pub fn summary(&self) -> Vec<NamespaceSummary> {
-        self.run("summarize", "", summarize).unwrap_or_default()
+    /// Entry count and total size per namespace.
+    ///
+    /// # Errors
+    ///
+    /// The database refused the count, in its words.
+    pub fn summary(&self) -> Result<Vec<NamespaceSummary>, String> {
+        self.run("summarize", "", summarize)
     }
 
     /// Whether the file was last left [standalone](Self::into_standalone): a
@@ -1166,11 +1170,13 @@ pub(crate) fn meta_set(
 }
 
 /// Entry count and total size per namespace of the active environment's
-/// database, for reporting. Empty when the database isn't open.
-pub(crate) fn summary() -> Vec<NamespaceSummary> {
-    Database::open_active()
-        .map(|database| database.summary())
-        .unwrap_or_default()
+/// database. Empty when the database isn't open.
+///
+/// # Errors
+///
+/// The database opened and refused the count, in its words.
+pub(crate) fn summary() -> Result<Vec<NamespaceSummary>, String> {
+    Database::open_active().map_or_else(|| Ok(Vec::new()), |database| database.summary())
 }
 
 /// The names of every namespace of the active environment's database. Empty
@@ -1628,6 +1634,20 @@ mod tests {
         );
     }
 
+    /// A count the database refuses is an error, never an empty count: an
+    /// environment's summary must not read a broken file as an empty one.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_count_the_database_refuses_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = Database::open_at(&dir.path().join("broken.db"), Access::ReadWrite).unwrap();
+        database
+            .with_connection(|connection| connection.execute("DROP TABLE entries", &[]))
+            .unwrap();
+
+        assert!(database.summary().is_err());
+    }
+
     /// A file opened at its path, whichever environment is active, holds what
     /// was written to it with where each entry came from; read-only, it is
     /// read as it is, and making it standalone leaves a file a reader opens
@@ -1665,7 +1685,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            read.summary(),
+            read.summary().unwrap(),
             vec![NamespaceSummary {
                 namespace: "kernels".to_string(),
                 entries: 2,
@@ -1936,7 +1956,7 @@ mod tests {
         target.replace_with(Some(&source)).unwrap();
 
         assert_eq!(log_frames(&path), 0);
-        assert_eq!(target.summary()[0].entries, 40 * 16);
+        assert_eq!(target.summary().unwrap()[0].entries, 40 * 16);
     }
 
     /// The frames the log of the database at `path` holds since it last
@@ -1989,7 +2009,7 @@ mod tests {
             most <= 2 * (COPY_BATCH_BYTES as u64 / 4096) + 1_000,
             "the log held {most} frames at once"
         );
-        assert_eq!(target.summary()[0].entries, 256 * 16);
+        assert_eq!(target.summary().unwrap()[0].entries, 256 * 16);
     }
 
     /// A long log that a read held open keeps from restarting refuses a

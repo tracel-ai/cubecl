@@ -284,7 +284,7 @@ fn a_bundle_file_summarizes_its_namespaces() {
 
     let expected = cubecl_environment::environment::namespaces();
     let bundle = SqliteBundle::open(&bundle_path).unwrap();
-    assert_eq!(bundle.summary(), expected);
+    assert_eq!(bundle.summary().unwrap(), expected);
 }
 
 /// Merging cache roots dedupes on the primary key. The original file-copy
@@ -914,7 +914,7 @@ fn a_shipped_bundle_is_a_single_rollback_journal_file() {
     // cost the engine its own WAL.
     let expected = cubecl_environment::environment::namespaces();
     let opened = SqliteBundle::open(&bundle).unwrap();
-    assert_eq!(opened.summary(), expected);
+    assert_eq!(opened.summary().unwrap(), expected);
 
     // Importing it fills a cold root, which is what a shipped bundle is for.
     let cold = tempfile::tempdir().unwrap();

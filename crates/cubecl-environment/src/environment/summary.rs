@@ -10,11 +10,13 @@ use crate::persistence::{NamespaceContent, NamespaceRoot, NamespaceSummary};
 /// so a remote environment is counted where it lives.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnvironmentSummary {
-    /// The compiled kernels, one per artifact a compiler stored. The entries
-    /// that map a source to a kernel name one and are not counted.
+    /// The compiled kernels, one per artifact a compiler stored. An entry
+    /// that maps a source to a kernel names a kernel counted already, and is
+    /// not counted.
     pub kernels: u64,
-    /// The autotune answers, one per key a tuner stored the fastest candidate
-    /// for.
+    /// The autotune answers, one per key and candidate list a tuner stored
+    /// the fastest candidate for. An environment keeps every answer, so one
+    /// to a list no tuner runs any more still counts.
     pub autotune_answers: u64,
     /// The build records, each one entry.
     pub records: u64,
@@ -42,8 +44,6 @@ impl EnvironmentSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::ArtifactRoot;
-    use alloc::vec::Vec;
 
     /// Each entry counts once, as what its namespace's root says it is: the
     /// artifacts of every compiler as kernels, their source maps as nothing,
@@ -51,11 +51,14 @@ mod tests {
     /// nothing either.
     #[test]
     fn entries_count_by_their_namespace_root() {
-        let mut namespaces = Vec::new();
-        for root in ArtifactRoot::ALL {
-            namespaces.push(namespace(&[root.as_str(), "0.12.0/fingerprint"], 2));
-        }
-        namespaces.extend([
+        let namespaces = [
+            namespace(&["cpu", "0.12.0/fingerprint"], 1),
+            namespace(&["cuda", "0.12.0/fingerprint"], 2),
+            namespace(&["cuda-second-line", "0.12.0/fingerprint"], 23),
+            namespace(&["hip", "0.12.0/fingerprint"], 3),
+            namespace(&["hip-second-line", "0.12.0/fingerprint"], 29),
+            namespace(&["metal", "0.12.0/fingerprint"], 4),
+            namespace(&["vulkan", "0.12.0/fingerprint"], 5),
             namespace(&["autotune", "0.12.0/layout-v1/hardware/matmul"], 5),
             namespace(&["autotune", "0.12.0/layout-v1/hardware/reduce"], 1),
             namespace(&["records", "v1/sessions"], 3),
@@ -64,18 +67,16 @@ mod tests {
             namespace(&["throughput", "0.12.0/probe-v2"], 13),
             namespace(&["my-application", "0.1.0/settings"], 17),
             namespace(&["autotune-notes", "0.1.0"], 19),
-        ]);
+        ];
 
         let summary = EnvironmentSummary::new(&namespaces);
 
-        let sources = 2;
-        let kernels = 2 * ArtifactRoot::ALL.len() as u64 - 2 * sources;
         assert_eq!(
             summary,
             EnvironmentSummary {
-                kernels,
-                autotune_answers: 6,
-                records: 7,
+                kernels: 1 + 2 + 3 + 4 + 5,
+                autotune_answers: 5 + 1,
+                records: 3 + 4,
             }
         );
     }

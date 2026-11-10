@@ -75,7 +75,8 @@ impl<'a> Records<'a> {
     /// The entries of every layout of records, and the bytes they take.
     fn entries(&self) -> RecordSize {
         let mut total = RecordSize::default();
-        for summary in self.database.summary() {
+        // A count the database refuses tallies nothing; the database logs why.
+        for summary in self.database.summary().unwrap_or_default() {
             if holds_records(&summary.namespace) {
                 total.entries += summary.entries;
                 total.bytes += summary.bytes;
