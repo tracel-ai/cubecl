@@ -10,7 +10,7 @@ use core::cmp::Reverse;
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{DeviceProperties, ElemType, TargetProperties};
 
-use crate::{Axis, Instruction, MmaIo, MmaOperands, Space};
+use crate::{Axis, Instruction, MmaIo, MmaOperands, OperandReads, Space};
 
 /// What becomes of a sum once its product is contracted: structure the code states where it
 /// opens the sum, never a setting.
@@ -32,32 +32,23 @@ pub struct Contraction {
     pub role: SumRole,
 }
 
-/// One input of a product: the element the instruction contracts it in, and, for an input stored
-/// packed, what one read of it brings.
+/// One input of a product: the element the instruction contracts it in, and how it is read as
+/// stored ([`OperandReads`]): one value a read for a float input, whole words and words of scales
+/// for a packed one.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Input {
     pub element: ElemType,
-    pub packing: Option<PackedReads>,
+    pub reads: OperandReads,
 }
 
 impl Input {
     /// An input read as plain values of `element`.
-    pub const fn plain(element: ElemType) -> Self {
+    pub fn plain(element: ElemType) -> Self {
         Self {
             element,
-            packing: None,
+            reads: OperandReads::plain(),
         }
     }
-}
-
-/// The boxes one read of a packed input covers, over the product's axes: one read of its values
-/// (NVFP4 rows: two words, sixteen values, down `k`), and one read of its scales over the values
-/// they scale (a word of four scales of sixteen: sixty-four of `k`). Facts of how the input is
-/// stored, the same on every device.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct PackedReads {
-    pub values: [(Axis, usize); 2],
-    pub scales: Option<[(Axis, usize); 2]>,
 }
 
 /// A matrix instruction and the shape of the fragment one call of it contracts.
@@ -140,26 +131,23 @@ impl Contraction {
             (n, shape.n as usize),
             (k, shape.k as usize),
         ])];
-        let inputs = [(&self.lhs, [m, k], &self.rhs), (&self.rhs, [k, n], &self.lhs)];
+        let inputs = [
+            (&self.lhs, [m, k], &self.rhs),
+            (&self.rhs, [k, n], &self.lhs),
+        ];
         for (input, spans, other) in inputs {
-            match input.packing {
-                Some(reads) => {
-                    parts.push(Space::new(&reads.values));
-                    parts.extend(reads.scales.map(|scales| Space::new(&scales)));
-                }
-                None => {
-                    // The other input's reads run along the axis its values extend over, `k`
-                    // for a plain one, whose loads are lines down `k`.
-                    let along = other
-                        .packing
-                        .and_then(|reads| reads.values.into_iter().find(|&(_, e)| e > 1))
-                        .map_or(k, |(axis, _)| axis);
-                    if spans.contains(&along) {
-                        let bits = input.element.size_bits().max(1);
-                        let line = (device.hardware.load_width as usize / bits).max(1);
-                        parts.push(Space::new(&[(along, line)]));
-                    }
-                }
+            if !input.reads.is_plain() {
+                parts.push(input.reads.read_space());
+                parts.extend(input.reads.scale_read_space());
+                continue;
+            }
+            // The other input's reads run along the axis its words extend over, `k` for a plain
+            // one, whose loads are lines down `k`.
+            let along = other.reads.read.axis().unwrap_or(k);
+            if spans.contains(&along) {
+                let bits = input.element.size_bits().max(1);
+                let line = (device.hardware.load_width as usize / bits).max(1);
+                parts.push(Space::new(&[(along, line)]));
             }
         }
         Some(Space::covering(&parts.iter().collect::<Vec<_>>()))
@@ -169,6 +157,7 @@ impl Contraction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MicroTile;
     use cubecl::cmma::MatrixLayout;
     use cubecl::ir::{
         DeviceIdentity, FloatKind, HardwareProperties, MemoryDeviceProperties, VectorSize,
@@ -368,10 +357,7 @@ mod tests {
         let nvfp4 = Contraction {
             rhs: Input {
                 element: F16,
-                packing: Some(PackedReads {
-                    values: [(K, 16), (N, 1)],
-                    scales: Some([(K, 64), (N, 1)]),
-                }),
+                reads: OperandReads::packed(K, 16, K, 16, 4),
             },
             ..half(SumRole::Drained)
         };
@@ -386,10 +372,10 @@ mod tests {
         let along_n = Contraction {
             rhs: Input {
                 element: F16,
-                packing: Some(PackedReads {
-                    values: [(N, 16), (K, 1)],
-                    scales: None,
-                }),
+                reads: OperandReads {
+                    read: MicroTile::along(N, 16),
+                    ..OperandReads::plain()
+                },
             },
             ..half(SumRole::Drained)
         };
