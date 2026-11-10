@@ -32,9 +32,6 @@ mod eviction;
 mod gathering;
 mod input_generator;
 mod key_generator;
-// What a stored answer supersedes.
-#[cfg(persistence)]
-mod list_answers;
 mod local;
 mod log;
 mod operation;
