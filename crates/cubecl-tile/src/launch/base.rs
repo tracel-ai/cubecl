@@ -5,9 +5,7 @@ use std::sync::Arc;
 use cubecl::ir::{ElemType, HardwareProperties, OpaqueType};
 use cubecl::prelude::*;
 
-use crate::{
-    Arg, Axis, Geometry, Partitioning, PartitioningLaunch, Refusal, Space, SpaceLaunch, Unlabelled,
-};
+use crate::{Arg, Axis, Geometry, Partitioning, PartitioningLaunch, Refusal, Space, Unlabelled};
 
 /// How many cubes of how many units the launch runs: stated, or read off the levels.
 #[derive(Clone, Debug)]
@@ -174,19 +172,7 @@ impl Launcher {
 
     /// The kernel's partitioning argument, dynamic extents sized by this launch.
     pub fn partitioning_arg(&self) -> PartitioningLaunch {
-        PartitioningLaunch::new(self.space_arg(), self.partitioning.levels().to_vec())
-    }
-
-    /// The kernel-form space as a kernel argument.
-    fn space_arg(&self) -> SpaceLaunch {
-        let kernel = self.partitioning.space();
-        let mut sizes = SequenceArg::new();
-        if !kernel.is_static() {
-            for axis in kernel.axes() {
-                sizes.push(self.concrete.extent(axis));
-            }
-        }
-        SpaceLaunch::new(kernel.shape().clone(), sizes)
+        self.partitioning.launch_arg(&self.concrete)
     }
 
     /// The axes some tile reaches past the end of, whose accesses are masked.

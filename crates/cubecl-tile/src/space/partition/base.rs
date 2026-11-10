@@ -4,7 +4,7 @@ use cubecl::{prelude::*, unexpanded};
 
 use crate::{
     Axis, ComputeScope, Count, Coverage, CubeAxis, Level, LevelTable, Region, RegionExpand, Space,
-    Walk,
+    SpaceLaunch, Walk,
 };
 
 use super::UnitCube;
@@ -46,6 +46,21 @@ impl Partitioning {
     /// Level `i`, outermost first.
     pub fn level(&self, i: usize) -> Level {
         self.levels[i].clone()
+    }
+
+    /// This kernel-form partitioning as a kernel argument, its dynamic extents sized by the launch's
+    /// `concrete` space.
+    pub(crate) fn launch_arg(&self, concrete: &Space) -> PartitioningLaunch {
+        let mut sizes = SequenceArg::new();
+        if !self.space.is_static() {
+            for axis in self.space.axes() {
+                sizes.push(concrete.extent(axis));
+            }
+        }
+        PartitioningLaunch::new(
+            SpaceLaunch::new(self.space.shape().clone(), sizes),
+            self.levels.clone(),
+        )
     }
 }
 

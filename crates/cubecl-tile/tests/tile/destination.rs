@@ -28,8 +28,8 @@ use cubecl::{
 };
 use cubecl_tile::kind::{GlobalOperand, Write};
 use cubecl_tile::launch::{
-    Buffered, Destination, DestinationLaunch, Merged, MergedOperand, Unbound, VectorAt,
-    VectorStage, VectorStageLaunch,
+    Buffered, Destination, DestinationLaunch, Merged, MergedOperand, ReducedRows, RowReduction,
+    RowReductionScratch, RowScale, Unbound, VectorAt, VectorStage, VectorStageLaunch,
 };
 use cubecl_tile::layout::RuntimeGeometry;
 use cubecl_tile::*;
@@ -712,7 +712,7 @@ fn the_identity_destination_stores_into_a_pitched_output() {
 /// The pitched rows are placed by their stride, and a stage sees each vector's row and column
 /// within the logical output, not within the buffer. Composed stages run in turn.
 #[test]
-fn stages_see_each_line_once_with_its_place() {
+fn stages_see_each_vector_once_with_its_place() {
     for (copies, stored) in [
         (1, store_pitched::<AddPlace>(())),
         (2, store_pitched::<(AddPlace, AddPlace)>(((), ()))),
@@ -730,4 +730,162 @@ fn stages_see_each_line_once_with_its_place() {
             }
         }
     }
+}
+
+// ===========================================================================
+// Rows reduced across the cubes sharing them
+// ===========================================================================
+
+/// The row's plain sum.
+struct RowTotal;
+
+#[cube]
+impl RowReduction for RowTotal {
+    type Param = ();
+
+    fn cells<E: Numeric, N: Size>(value: Vector<E, N>) -> Vector<f32, N> {
+        Vector::<f32, N>::cast_from(value)
+    }
+
+    fn of_sum(sum: f32, _param: &()) -> f32 {
+        sum
+    }
+}
+
+/// The input `row * COLS + col` stored into a pitched output through [`ReducedRows`] twice, then
+/// through the stage [`RowScale`] by the row values, in boxes of `box_rows` by `box_cols`: the
+/// pitched rows and the scaled rows, or `None` where a row is split between cubes and they cannot
+/// hand each other their parts.
+fn run_reduced_rows(box_rows: usize, box_cols: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+    let client = cubecl::test_device().client();
+    if box_cols < COLS && !hands_off_between_cubes(&client) {
+        return None;
+    }
+    let dtype = f32::elem_type_native();
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(ROW, ROWS), (COL, COLS)]),
+            Levels::leaf(&[(ROW, box_rows), (COL, box_cols)])
+                .cubes(&[ROW, COL])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let input = TestInput::builder(client.clone(), shape![ROWS, COLS])
+        .dtype(dtype)
+        .arange()
+        .generate_without_host_data();
+    let src = || {
+        launcher
+            .arg(input.clone().binding(), dtype)
+            .axes(&[ROW, COL])
+            .vectorize(VECTOR_SIZE)
+            .build()
+            .unwrap()
+    };
+    let sink = || {
+        launcher
+            .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
+            .axes(&[ROW, COL])
+            .vectorize(VECTOR_SIZE)
+            .build_spec()
+            .unwrap()
+    };
+    let buffers = RowReductionScratch::new(&launcher, &sink()).unwrap();
+    let pitched = client.empty(ROWS * PITCH * size_of::<f32>());
+    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    // Twice: the second launch finds the counters the first left at zero.
+    for _ in 0..2 {
+        let out = TensorBinding {
+            handle: pitched.clone().binding(),
+            strides: [PITCH, 1].into(),
+            shape: [ROWS, COLS].into(),
+            tiling: Tiling::UNTILED,
+        };
+        store_boxes::launch::<Merged<ReducedRows<RowTotal>, ()>>(
+            &client,
+            count.clone(),
+            dim,
+            VECTOR_SIZE,
+            src().arg(),
+            Merged::<ReducedRows<RowTotal>, ()>::arg(MergedOperand {
+                out: out.into_tensor_arg(),
+                merge: (buffers.clone(), ()),
+                stage: (),
+                sink: sink(),
+            }),
+            launcher.partitioning_arg(),
+            dtype,
+        );
+    }
+    let scaled = client.empty(ROWS * COLS * size_of::<f32>());
+    let out = TensorBinding {
+        handle: scaled.clone().binding(),
+        strides: [COLS, 1].into(),
+        shape: [ROWS, COLS].into(),
+        tiling: Tiling::UNTILED,
+    };
+    store_boxes::launch::<Merged<(), RowScale>>(
+        &client,
+        count,
+        dim,
+        VECTOR_SIZE,
+        src().arg(),
+        Merged::<(), RowScale>::arg(MergedOperand {
+            out: out.into_tensor_arg(),
+            merge: (),
+            stage: buffers.values().clone(),
+            sink: sink(),
+        }),
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    let read = |handle| f32::from_bytes(&client.read_one_unchecked(handle)).to_vec();
+    Some((read(pitched), read(scaled)))
+}
+
+/// Every row's reduction is checked against its plain sum: the pitched rows are placed by their
+/// stride, the scaled store multiplies each cell by its row's sum, and the counters a launch leaves
+/// let the next one merge again.
+fn check_reduced_rows(box_rows: usize, box_cols: usize) {
+    let Some((pitched, scaled)) = run_reduced_rows(box_rows, box_cols) else {
+        return;
+    };
+    for row in 0..ROWS {
+        let sum: f32 = (0..COLS).map(|col| (row * COLS + col) as f32).sum();
+        for col in 0..COLS {
+            let value = (row * COLS + col) as f32;
+            assert_eq!(
+                pitched[row * PITCH + col],
+                value,
+                "boxes {box_rows}x{box_cols}: the pitched store is wrong at [{row}, {col}]"
+            );
+            assert_eq!(
+                scaled[row * COLS + col],
+                value * sum,
+                "boxes {box_rows}x{box_cols}: the row scale is wrong at [{row}, {col}]"
+            );
+        }
+    }
+}
+
+/// A row split between cubes, its last box cut short by the output's edge, is reduced once and
+/// whole.
+#[test]
+fn rows_are_reduced_across_the_cubes_sharing_them() {
+    check_reduced_rows(2, BOX_COLS);
+}
+
+/// A row held whole by one box needs no hand-off, so this runs on every device.
+#[test]
+fn a_row_held_by_one_box_is_reduced_in_place() {
+    check_reduced_rows(2, COLS);
+}
+
+/// The last row of boxes is cut short by the output's edge: three rows a box leave one.
+#[test]
+fn a_row_box_cut_by_the_edge_is_reduced_whole() {
+    check_reduced_rows(3, BOX_COLS);
+    check_reduced_rows(3, COLS);
 }

@@ -15,7 +15,8 @@ pub use arg::destination::{
 };
 pub use arg::last_arrival::LastArrival;
 pub use arg::merged::{
-    Merge, MergeLaunch, Merged, MergedOperand, VectorAt, VectorStage, VectorStageLaunch,
+    Merge, MergeLaunch, Merged, MergedOperand, ReducedRows, RowReduction, RowReductionScratch,
+    RowScale, RowValues, VectorAt, VectorStage, VectorStageLaunch,
 };
 pub use arg::output::{Output, OutputArgs};
 pub use arg::relay::Relay;
