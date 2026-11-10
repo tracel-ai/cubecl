@@ -115,7 +115,7 @@ impl ArtifactRoot {
     }
 
     /// What the namespaces under the root hold.
-    pub fn content(self) -> NamespaceContent {
+    fn content(self) -> NamespaceContent {
         match self {
             Self::CudaSources | Self::HipSources => NamespaceContent::KernelSources,
             Self::Cpu | Self::Cuda | Self::Hip | Self::Metal | Self::Vulkan => {
