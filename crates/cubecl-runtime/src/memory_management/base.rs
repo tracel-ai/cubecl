@@ -177,7 +177,7 @@ pub struct AllocationReport {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AllocationOriginReport {
     /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
-    /// allocating thread had entered, outermost first.
+    /// allocating thread had pushed, outermost first.
     pub labels: Vec<String>,
     /// The allocating thread's name, when it has one.
     pub thread: Option<String>,

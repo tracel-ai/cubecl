@@ -191,7 +191,7 @@ origin. An allocation’s origin is stored with the allocation itself, so a repo
 memory that is still in use.
 
 - `disabled` (default): the reports list no allocations.
-- `labels`: each allocation records the labels that were active (see `AllocationLabel::enter`)
+- `labels`: each allocation records the labels that were active (see `AllocationLabel::push`)
 when it was made, the name of the thread that made it, and a sequence number giving its order
 among all allocations.
 - `backtraces`: same as `labels`, plus the call stack that made the allocation. Capturing a stack 
@@ -203,7 +203,7 @@ To label allocations, create a label around the code that makes them:
 ```rust
 use cubecl_common::allocation_label::AllocationLabel;
 
-let _label = AllocationLabel::enter("weights");
+let _label = AllocationLabel::push("weights");
 let handle = client.create(bytes); // reported under "weights"
 // the label stops applying when `_label` goes out of scope
 ```

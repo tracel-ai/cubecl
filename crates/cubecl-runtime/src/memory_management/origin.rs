@@ -32,7 +32,7 @@ pub fn memory_tracing() -> MemoryTracing {
 }
 
 /// Pointers to the code that asked for an allocation: the labels the allocating
-/// thread had entered, the thread, the allocation's index in the order origins
+/// thread had pushed, the thread, the allocation's index in the order origins
 /// were captured, and under [`MemoryTracing::Backtraces`] the call stack.
 ///
 /// Captured when a memory handle is created — on the thread that asked for the

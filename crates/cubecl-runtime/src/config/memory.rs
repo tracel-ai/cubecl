@@ -32,7 +32,7 @@ pub enum MemoryTracing {
     #[serde(rename = "disabled")]
     Disabled,
     /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
-    /// allocating thread had entered, the thread's name and the allocation's index in
+    /// allocating thread had pushed, the thread's name and the allocation's index in
     /// the order allocations were made.
     #[serde(rename = "labels")]
     Labels,

@@ -1481,13 +1481,13 @@ mod tests {
         configure_tracing(MemoryTracing::Labels);
         memory.mode(MemoryAllocationMode::Persistent);
         let weights = {
-            let _model = AllocationLabel::enter("model");
-            let _weights = AllocationLabel::enter("weights");
+            let _model = AllocationLabel::push("model");
+            let _weights = AllocationLabel::push("weights");
             memory.reserve(4096, PageUpdate::Allow, failures).unwrap()
         };
         memory.mode(MemoryAllocationMode::Auto);
         let scratch = {
-            let _scratch = AllocationLabel::enter("scratch");
+            let _scratch = AllocationLabel::push("scratch");
             memory.reserve(1024, PageUpdate::Allow, failures).unwrap()
         };
         let report = memory.memory_report();

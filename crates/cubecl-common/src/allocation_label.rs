@@ -1,6 +1,6 @@
 //! Labels pointing to the code that allocates device memory, kept per thread.
 //!
-//! A label is pushed with [`AllocationLabel::enter`] and popped when its
+//! A label is pushed with [`AllocationLabel::push`] and popped when its
 //! guard drops, so labels nest: loading `blocks.3` while loading its
 //! `attention` field reads as `["blocks.3", "attention"]`. The runtime reads
 //! the stack ([`AllocationLabel::current`]) when a memory handle is created and
@@ -48,31 +48,17 @@ pub struct AllocationLabel {
 
 impl AllocationLabel {
     /// Push `label` onto this thread's stack until the guard drops.
-    pub fn enter(label: &str) -> Self {
-        Self::push(|| Arc::from(label))
+    pub fn push(label: &str) -> Self {
+        Self::push_with(|| label.into())
     }
 
-    /// [`enter`](Self::enter) a label built only when recording is on, for a
+    /// [`push`](Self::push) a label built only when recording is on, for a
     /// caller whose label costs a format to build.
-    pub fn enter_with(label: impl FnOnce() -> alloc::string::String) -> Self {
-        Self::push(|| Arc::from(label()))
-    }
-
-    /// The labels this thread has entered, outermost first. Empty when
-    /// recording is off.
-    pub fn current() -> Vec<Arc<str>> {
-        #[cfg(feature = "std")]
-        if is_recording() {
-            return STACK.with(|stack| stack.borrow().clone());
-        }
-        Vec::new()
-    }
-
-    fn push(label: impl FnOnce() -> Arc<str>) -> Self {
+    pub fn push_with(label: impl FnOnce() -> alloc::string::String) -> Self {
         let pushed = is_recording();
         #[cfg(feature = "std")]
         if pushed {
-            let label = label();
+            let label: Arc<str> = Arc::from(label());
             STACK.with(|stack| stack.borrow_mut().push(label));
         }
         #[cfg(not(feature = "std"))]
@@ -81,6 +67,16 @@ impl AllocationLabel {
             pushed,
             _thread_bound: core::marker::PhantomData,
         }
+    }
+
+    /// The labels this thread has pushed, outermost first. Empty when
+    /// recording is off.
+    pub fn current() -> Vec<Arc<str>> {
+        #[cfg(feature = "std")]
+        if is_recording() {
+            return STACK.with(|stack| stack.borrow().clone());
+        }
+        Vec::new()
     }
 }
 
@@ -101,24 +97,24 @@ mod tests {
     fn labels_nest_pop_in_order_and_cost_nothing_while_off() {
         set_recording(false);
         {
-            let _ignored = AllocationLabel::enter("ignored");
+            let _ignored = AllocationLabel::push("ignored");
             assert!(AllocationLabel::current().is_empty());
         }
 
         set_recording(true);
         {
-            let _outer = AllocationLabel::enter("blocks.3");
+            let _outer = AllocationLabel::push("blocks.3");
             {
-                let _inner = AllocationLabel::enter_with(|| "attention".into());
+                let _inner = AllocationLabel::push_with(|| "attention".into());
                 let labels = AllocationLabel::current();
                 let labels: Vec<&str> = labels.iter().map(|label| &**label).collect();
                 assert_eq!(labels, ["blocks.3", "attention"]);
             }
             assert_eq!(AllocationLabel::current().len(), 1);
 
-            // A guard entered while off pops nothing once recording is on.
+            // A guard pushed while off pops nothing once recording is on.
             set_recording(false);
-            let off = AllocationLabel::enter("off");
+            let off = AllocationLabel::push("off");
             set_recording(true);
             drop(off);
             assert_eq!(AllocationLabel::current().len(), 1);
