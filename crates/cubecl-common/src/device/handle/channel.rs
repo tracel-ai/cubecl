@@ -473,6 +473,15 @@ impl ChannelDeviceState {
 
         channels.insert(key, channel.clone());
 
+        // Asked here, once per service, rather than by each handle: started, the service has
+        // loaded its runtime's libraries, so the close runs ahead of their exit teardown.
+        #[cfg(multi_threading)]
+        exit::close_at_exit(
+            device_id,
+            type_id,
+            <ChannelDeviceHandle as DeviceHandleSpec>::close::<S>,
+        );
+
         Ok(channel)
     }
 

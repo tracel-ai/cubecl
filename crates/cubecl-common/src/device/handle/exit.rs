@@ -70,7 +70,7 @@ mod handler {
 
         // Registered again for each new service: exit handlers run newest first, so the latest
         // one runs ahead of the teardown of every library loaded before this service started,
-        // whichever runtime asked first. Only the first to run finds services to close.
+        // whichever runtime started first. Only the first to run finds services to close.
         // SAFETY: `close_on_exit` is a plain function taking nothing, which is what `atexit`
         // takes, and it lives as long as the process.
         if unsafe { atexit(close_on_exit) } != 0 {
