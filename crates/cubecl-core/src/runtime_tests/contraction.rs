@@ -1,4 +1,5 @@
-//! Float contraction: a kernel that turns it off rounds every product and sum on its own.
+//! Float contraction: a kernel that turns it off rounds every product and sum on its own, and
+//! one that allows it fuses the same products at every vector size.
 //!
 //! The operands make the two roundings visible. With `a = b = 1 + 2^-12`, the exact product is
 //! `1 + 2^-11 + 2^-24`, which rounds to `1 + 2^-11` in `f32`. Adding `c = -(1 + 2^-11)` then
@@ -21,6 +22,21 @@ pub fn kernel_mul_add_rounded<N: Size>(
     // Each output reads its own copy of the operands: a product with two uses is never fused.
     output[0] = a[0] * b[0] + c[0];
     output[1] = -c[1] - a[1] * b[1];
+}
+
+/// `a * 1 + c * d`, and `(a * 1) + c * d` with `a` a constant, for which a one-lane kernel
+/// drops the `* 1` or folds the constant product, then fuses `c * d`. A wider vector must fuse
+/// the same product, not the `a * 1` it sees first.
+#[cube(launch_unchecked)]
+pub fn kernel_mul_add_through_folds<N: Size>(
+    a: &[Vector<f32, N>],
+    c: &[Vector<f32, N>],
+    d: &[Vector<f32, N>],
+    output: &mut [Vector<f32, N>],
+) {
+    output[0] = a[0] * Vector::new(1.0f32) + c[0] * d[0];
+    let constant = Vector::<f32, N>::new(-(1.0 + 0.00048828125)) * Vector::new(1.0f32);
+    output[1] = constant + c[1] * d[1];
 }
 
 /// Two vectors of `value`, one per output.
@@ -52,6 +68,50 @@ fn mul_adds(client: &Client, vector_size: usize) -> Vec<f32> {
         )
     };
     f32::from_bytes(&client.read_one_unchecked(output)).to_vec()
+}
+
+/// Both sums of `kernel_mul_add_through_folds` for every lane of a vector of `vector_size`.
+fn mul_adds_through_folds(client: &Client, vector_size: usize) -> Vec<f32> {
+    let factor = 1.0 + 2f32.powi(-12);
+    let addend = -(1.0 + 2f32.powi(-11));
+    let buffer = |values: Vec<f32>| {
+        let len = values.len();
+        let handle = client.create_from_slice(f32::as_bytes(&values));
+        unsafe { BufferArg::from_raw_parts(handle, len) }
+    };
+    let outputs = 2 * vector_size;
+    let output = client.empty(outputs * core::mem::size_of::<f32>());
+    unsafe {
+        kernel_mul_add_through_folds::launch_unchecked(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            vector_size,
+            buffer(operand(addend, vector_size)),
+            buffer(operand(factor, vector_size)),
+            buffer(operand(factor, vector_size)),
+            BufferArg::from_raw_parts(output.clone(), outputs),
+        )
+    };
+    f32::from_bytes(&client.read_one_unchecked(output)).to_vec()
+}
+
+pub fn test_every_vector_size_fuses_the_same_products(client: Client) {
+    let one_lane = mul_adds_through_folds(&client, 1);
+    assert_eq!(one_lane.len(), 2, "the one-lane kernel wrote {one_lane:?}");
+    let expected: Vec<u32> = one_lane
+        .iter()
+        .flat_map(|value| core::iter::repeat_n(value.to_bits(), LANES))
+        .collect();
+    let lanes = mul_adds_through_folds(&client, LANES);
+    assert_eq!(
+        lanes
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+        expected,
+        "{LANES} lanes gave {lanes:?}, one lane {one_lane:?}",
+    );
 }
 
 pub fn test_no_contraction_rounds_each_operation(client: Client) {
@@ -86,6 +146,14 @@ pub fn test_no_contraction_rounds_each_operation(client: Client) {
 macro_rules! testgen_contraction {
     () => {
         use super::*;
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_every_vector_size_fuses_the_same_products() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::contraction::test_every_vector_size_fuses_the_same_products(
+                client,
+            );
+        }
 
         #[$crate::runtime_tests::test_log::test]
         fn test_no_contraction_rounds_each_operation() {
