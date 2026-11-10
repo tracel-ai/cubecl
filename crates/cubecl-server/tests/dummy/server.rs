@@ -28,7 +28,7 @@ use cubecl_server::{
     server::{
         BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
         KernelResource, ProfileError, ProfilingToken, SendOutcome, SendReport, Server,
-        ServerCommunication, ServerError, ServerUtilities,
+        ServerCommunication, ServerError, ServerUtilities, TransportProvider,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -115,6 +115,7 @@ pub enum Transported {}
 impl Marker for Transported {
     fn device_transport() -> Option<DeviceTransport> {
         Some(DeviceTransport {
+            provider: TransportProvider::Nccl,
             reduces: [ElemType::Float(FloatKind::F32)].into(),
         })
     }
