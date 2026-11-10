@@ -56,7 +56,6 @@ serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true }
 
 foldhash = { workspace = true }
-buildid = { workspace = true }
 thiserror = { workspace = true }
 
 futures-util = { workspace = true, default-features = false }

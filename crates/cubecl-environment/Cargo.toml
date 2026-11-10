@@ -144,6 +144,10 @@ web-sys = { workspace = true, optional = true, features = [
 # Default dependency for all targets
 [target.'cfg(not(target_os = "none"))'.dependencies]
 web-time = { workspace = true }
+# What a build stamp is read from and hashed with: an embedded target has no
+# executable to identify.
+buildid = { workspace = true }
+xxhash-rust = { workspace = true, features = ["xxh3"] }
 
 # Only for true no_std / embedded targets
 [target.'cfg(target_os = "none")'.dependencies]

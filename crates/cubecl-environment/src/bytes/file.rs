@@ -1,6 +1,6 @@
 use super::{AllocationProperty, file_reads};
 use crate::bytes::{
-    AccessError, AccessPolicy, AllocationController,
+    AccessError, AccessPolicy, AllocationController, FileWindow,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use spin::Once;
@@ -161,6 +161,13 @@ impl AllocationController for FileAllocationController {
 
         let controller = Self::new(self.file.as_ref(), self.size, self.offset);
         Some(Box::new(controller))
+    }
+
+    fn file(&self) -> Option<FileWindow<'_>> {
+        (!self.controller.is_completed()).then(|| FileWindow {
+            path: self.file.as_path(),
+            offset: self.offset,
+        })
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {

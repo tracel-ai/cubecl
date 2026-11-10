@@ -2,7 +2,8 @@
 
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
-    self, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
+    self, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
+    EnvironmentSummary, SaveOptions,
 };
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
@@ -56,7 +57,7 @@ fn a_saved_environment_replaces_one_created_from_its_bundle() {
     warm(&stale, &[("stale", 2)]);
     environment::activate(environment::DEFAULT);
 
-    let bundle = built.save().unwrap();
+    let bundle = built.save(SaveOptions::default()).unwrap();
     let loaded = EnvironmentId::create("loaded", EnvironmentOrigin::Bundle(bundle)).unwrap();
 
     assert_eq!(read(&loaded, "kernel"), Some(1));
@@ -94,7 +95,9 @@ fn a_merge_keeps_what_the_environment_held_beside_what_it_brings() {
     environment::activate(environment::DEFAULT);
 
     application
-        .merge(EnvironmentOrigin::Bundle(built.save().unwrap()))
+        .merge(EnvironmentOrigin::Bundle(
+            built.save(SaveOptions::default()).unwrap(),
+        ))
         .unwrap();
 
     assert_eq!(read(&application, "kernel"), Some(1));
@@ -176,7 +179,7 @@ fn concurrent_merges_into_one_environment_both_land() {
         let entries: Vec<(String, u32)> = (0..200).map(|i| (format!("{key}-{i}"), i)).collect();
         let entries: Vec<(&str, u32)> = entries.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         warm(&built, &entries);
-        bundles.push(built.save().unwrap());
+        bundles.push(built.save(SaveOptions::default()).unwrap());
     }
     environment::activate(environment::DEFAULT);
     let application = EnvironmentId::create("application", EnvironmentOrigin::Empty).unwrap();
@@ -228,7 +231,9 @@ fn an_environment_of_another_storage_is_refused() {
         matches!(result, Err(EnvironmentError::IncompatibleStorage { .. }))
     };
     assert!(incompatible(foreign.activate().map(|_| ())));
-    assert!(incompatible(foreign.save().map(|_| ())));
+    assert!(incompatible(
+        foreign.save(SaveOptions::default()).map(|_| ())
+    ));
     assert!(incompatible(
         EnvironmentId::create("forked", EnvironmentOrigin::Fork(foreign)).map(|_| ())
     ));
@@ -243,7 +248,7 @@ fn a_bundle_loads_into_a_fresh_root() {
     let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
     warm(&built, &[("kernel", 1)]);
     environment::activate(environment::DEFAULT);
-    let bundle = built.save().unwrap();
+    let bundle = built.save(SaveOptions::default()).unwrap();
 
     environment::set_root(root.path().join("fresh"));
     let loaded = EnvironmentId::create("loaded", EnvironmentOrigin::Bundle(bundle)).unwrap();
@@ -287,7 +292,7 @@ fn an_unreadable_bundle_leaves_the_environment_as_it_was() {
     warm(&kept, &[("kept", 1)]);
     environment::activate(environment::DEFAULT);
 
-    let bytes = built.save().unwrap().bytes;
+    let bytes = built.save(SaveOptions::default()).unwrap().bytes;
     for corrupted in [&bytes[..bytes.len() / 2], &b"not a bundle"[..]] {
         let bundle = EnvironmentBundle {
             bytes: Bytes::from_bytes_vec(corrupted.to_vec()),
@@ -306,7 +311,7 @@ fn an_id_keeps_its_environment() {
     let root = rooted();
     let first = EnvironmentId::create("first", EnvironmentOrigin::Empty).unwrap();
     warm(&first, &[("first", 1)]);
-    let bundle = first.save().unwrap();
+    let bundle = first.save(SaveOptions::default()).unwrap();
 
     environment::set_root(root.path().join("other"));
     assert_eq!(read(&first, "first"), Some(1));
@@ -318,4 +323,105 @@ fn an_id_keeps_its_environment() {
     assert_eq!(mounted.name, "mounted");
     environment::activate(environment::DEFAULT);
     assert_eq!(read(&mounted, "first"), Some(1));
+}
+
+/// A saved bundle says what it is without being loaded: the name it was saved
+/// under, the executable that saved it, and what it holds, whether it is read
+/// from the file it was written to or held in memory.
+#[test]
+#[serial_test::serial]
+fn a_saved_bundle_reads_back_its_name_stamp_and_summary() {
+    let root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    plant(&built);
+    environment::activate(environment::DEFAULT);
+
+    let saved = built
+        .save(SaveOptions {
+            name: Some("H100 Linux".into()),
+        })
+        .unwrap();
+    let file = root.path().join("saved.cubecl");
+    std::fs::write(&file, &*saved.bytes).unwrap();
+    let read = EnvironmentBundle::read(&file).unwrap();
+
+    for bundle in [&saved, &read] {
+        assert_eq!(bundle.name().unwrap(), "H100 Linux");
+        assert_eq!(bundle.saved_by().unwrap(), Some(BuildStamp::current()));
+        assert_eq!(bundle.summary().unwrap(), PLANTED);
+    }
+    assert!(
+        read.bytes.file().is_some(),
+        "reading the file's name and counts left it unread"
+    );
+    assert_eq!(&*read.bytes, &*saved.bytes);
+}
+
+/// A bundle saved without a name carries its environment's.
+#[test]
+#[serial_test::serial]
+fn a_bundle_saved_without_a_name_carries_its_environments() {
+    let _root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    environment::activate(environment::DEFAULT);
+
+    let saved = built.save(SaveOptions::default()).unwrap();
+
+    assert_eq!(saved.name().unwrap(), "built");
+}
+
+/// An environment is counted as it stands, active or not, without saving it.
+#[test]
+#[serial_test::serial]
+fn an_environment_is_counted_as_it_stands() {
+    let _root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    assert_eq!(built.summary().unwrap(), EnvironmentSummary::default());
+
+    plant(&built);
+    assert_eq!(built.summary().unwrap(), PLANTED, "active");
+    environment::activate(environment::DEFAULT);
+    assert_eq!(built.summary().unwrap(), PLANTED, "inactive");
+}
+
+/// Bytes that are no bundle say so, rather than read as an empty one.
+#[test]
+#[serial_test::serial]
+fn bytes_that_are_no_bundle_do_not_read() {
+    let bundle = EnvironmentBundle {
+        bytes: Bytes::from_bytes_vec(b"not a bundle".to_vec()),
+    };
+
+    assert!(bundle.name().is_err());
+    assert!(bundle.saved_by().is_err());
+    assert!(bundle.summary().is_err());
+}
+
+/// What [`plant`] writes, counted.
+const PLANTED: EnvironmentSummary = EnvironmentSummary {
+    kernels: 3,
+    autotune_answers: 2,
+    records: 1,
+};
+
+/// Activates `id` and writes an entry or more under every root a summary
+/// tells apart: compiled kernels, a compiler's source map, autotune answers,
+/// records, the work's launches, and an application's own namespace.
+fn plant(id: &EnvironmentId) {
+    id.activate().unwrap();
+    for (root, entries) in [
+        ("cuda", 2),
+        ("vulkan", 1),
+        ("cuda-second-line", 2),
+        ("autotune", 2),
+        ("records", 1),
+        ("launched", 4),
+        ("my-application", 5),
+    ] {
+        let mut store: Store<String, u32> =
+            Store::new(StoreOptions::new().storage(Namespace::scoped(root, "planted")));
+        for entry in 0..entries {
+            store.insert(format!("{root}-{entry}"), entry).unwrap();
+        }
+    }
 }

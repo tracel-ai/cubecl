@@ -355,6 +355,7 @@ fn fixture(dir: &Path) -> PathBuf {
             devices: vec!["hip-gfx1151".to_string()],
             ..Default::default()
         }],
+        saved_by: None,
     }
     .write_to(&database)
     .expect("writes the manifest");

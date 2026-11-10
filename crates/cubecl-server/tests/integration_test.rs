@@ -2782,9 +2782,10 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_keeps_what_the_work_loaded() {
+    use cubecl_environment::environment::BuildStamp;
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_environment::persistence::{Database, Namespace, Origin};
-    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore, build_id_hash};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore};
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -2798,7 +2799,7 @@ fn a_prune_keeps_what_the_work_loaded() {
     tuner.check_tune(&key, &handles, &set, &client, None);
     let database = Database::open_active().unwrap();
 
-    let build = build_id_hash();
+    let build = BuildStamp::current().hash;
     let artifact = |id: u128, variant: u128, build_id: u128| {
         cbor(&KernelCacheKey {
             id,
@@ -2875,9 +2876,10 @@ fn a_prune_keeps_what_the_work_loaded() {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_leaves_an_applications_entries_alone() {
+    use cubecl_environment::environment::BuildStamp;
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_environment::persistence::{Database, Origin};
-    use cubecl_server::compiler::{KernelCacheKey, build_id_hash};
+    use cubecl_server::compiler::KernelCacheKey;
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -2893,7 +2895,7 @@ fn a_prune_leaves_an_applications_entries_alone() {
     let lookalike = cbor(&KernelCacheKey {
         id: 1,
         variant: 0,
-        build_id: build_id_hash() ^ 1,
+        build_id: BuildStamp::current().hash ^ 1,
     });
     let namespace = "my-application/0.1.0/settings";
     database.insert(namespace, b"setting", &lookalike, Origin::Local);

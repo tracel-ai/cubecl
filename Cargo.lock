@@ -1196,6 +1196,7 @@ dependencies = [
  "async-channel",
  "backtrace",
  "branches",
+ "buildid",
  "bytemuck",
  "bytes",
  "cfg-if",
@@ -1232,6 +1233,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "web-time",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -1475,7 +1477,6 @@ dependencies = [
 name = "cubecl-server"
 version = "0.12.0-pre.2"
 dependencies = [
- "buildid",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",

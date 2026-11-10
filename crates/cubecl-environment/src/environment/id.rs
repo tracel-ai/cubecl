@@ -7,7 +7,7 @@
 //! another process — a server's, reached over the network — is refused rather
 //! than confused with a local one of the same name.
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 use super::EnvironmentBundle;
 
@@ -85,12 +85,22 @@ impl core::fmt::Display for EnvironmentError {
 
 impl core::error::Error for EnvironmentError {}
 
+impl EnvironmentError {
+    /// The storage refused a read or a write, for the reason `error` gives.
+    pub fn storage(error: impl ToString) -> Self {
+        Self::Storage {
+            reason: error.to_string(),
+        }
+    }
+}
+
 #[cfg(native_cache)]
 mod storage {
     use super::*;
     use crate::bundle::{BundleFormat, ExportOptions, SqliteBundle, export, import_into};
     use crate::bytes::Bytes;
     use crate::environment::scratch_file::ScratchFile;
+    use crate::environment::{EnvironmentSummary, SaveOptions};
     use crate::environment::{activate, active, file_name, load, path, root, sanitize};
     use crate::persistence::database::same_file;
     use crate::persistence::{Access, Database, DatabaseStorage, Storage};
@@ -142,7 +152,7 @@ mod storage {
             if let Incoming::Itself = incoming {
                 return Err(EnvironmentError::SelfFork { name: id.name });
             }
-            std::fs::create_dir_all(root()).map_err(storage_error)?;
+            std::fs::create_dir_all(root()).map_err(EnvironmentError::storage)?;
             let scratch = ScratchFile::new(&id.path());
             let source = incoming.open(&scratch)?;
             id.open(Access::ReadWrite)?
@@ -218,25 +228,45 @@ mod storage {
             }
         }
 
-        /// The environment serialized whole.
+        /// The environment serialized whole, under the name `options` gives
+        /// it, and stamped with this executable as the one that saved it.
         ///
         /// # Errors
         ///
         /// The environment lives in another process's storage, or the storage
         /// refused the read.
-        pub fn save(&self) -> Result<EnvironmentBundle, EnvironmentError> {
+        pub fn save(&self, options: SaveOptions) -> Result<EnvironmentBundle, EnvironmentError> {
             self.check_local()?;
             let scratch = ScratchFile::new(&self.path());
             let options = ExportOptions {
-                name: self.name.clone(),
+                name: options.name.unwrap_or_else(|| self.name.clone()),
                 format: BundleFormat::Sqlite,
                 ..Default::default()
             };
-            export(&[self.path()], scratch.path(), &options).map_err(storage_error)?;
-            let saved = std::fs::read(scratch.path()).map_err(storage_error)?;
+            export(&[self.path()], scratch.path(), &options).map_err(EnvironmentError::storage)?;
+            let saved = std::fs::read(scratch.path()).map_err(EnvironmentError::storage)?;
             Ok(EnvironmentBundle {
                 bytes: Bytes::from_bytes_vec(saved),
             })
+        }
+
+        /// What the environment holds now, counted without saving it: cheap
+        /// enough to ask after every step of a build.
+        ///
+        /// The active environment is counted where its stores write, which
+        /// is memory when its database would not open.
+        ///
+        /// # Errors
+        ///
+        /// The environment lives in another process's storage, or its
+        /// database does not open.
+        pub fn summary(&self) -> Result<EnvironmentSummary, EnvironmentError> {
+            self.check_local()?;
+            let namespaces = match same_file(&path(), &self.path()) {
+                true => super::super::namespaces(),
+                false => self.open(Access::ReadOnly)?.summary(),
+            };
+            Ok(EnvironmentSummary::new(&namespaces))
         }
 
         fn local(name: String, location: &Path) -> Self {
@@ -326,22 +356,17 @@ mod storage {
                 Self::Nothing | Self::Itself => None,
                 Self::Fork(source) => Some(source.open(Access::ReadOnly)?),
                 Self::Bundle(bundle) => {
-                    std::fs::write(scratch.path(), &*bundle.bytes).map_err(storage_error)?;
+                    std::fs::write(scratch.path(), &*bundle.bytes)
+                        .map_err(EnvironmentError::storage)?;
                     // Validates the manifest; the entries are then read as an
                     // environment's, since a bundle file is one.
-                    drop(SqliteBundle::open(scratch.path()).map_err(storage_error)?);
+                    drop(SqliteBundle::open(scratch.path()).map_err(EnvironmentError::storage)?);
                     Some(
                         Database::open_at(scratch.path(), Access::ReadOnly)
                             .map_err(|reason| EnvironmentError::Storage { reason })?,
                     )
                 }
             })
-        }
-    }
-
-    fn storage_error(error: impl ToString) -> EnvironmentError {
-        EnvironmentError::Storage {
-            reason: error.to_string(),
         }
     }
 }
