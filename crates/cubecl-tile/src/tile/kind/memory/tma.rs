@@ -33,6 +33,11 @@ pub(crate) struct TmaData {
     /// The cells a line of a stage it fills holds ([`TileTensorLaunch::served_wide`]).
     #[cube(comptime)]
     pub(crate) width: usize,
+    /// How the operand's logical axes lie in what the descriptor moves: direct, or a gather's,
+    /// whose stage is the compacted window it reads
+    /// ([`TileTensorLaunch::tensor_map_folded_through`]).
+    #[cube(comptime)]
+    pub(crate) projection: Projection,
 }
 
 #[cube]
@@ -46,6 +51,7 @@ impl TmaData {
         #[comptime] units: usize,
         #[comptime] packing: Packing,
         #[comptime] width: usize,
+        #[comptime] projection: Projection,
     ) -> TmaData {
         let bound = layout.shape();
         let mut pos = CoordsDyn::new();
@@ -61,6 +67,7 @@ impl TmaData {
             units,
             packing,
             width,
+            projection,
         }
     }
 
@@ -169,6 +176,7 @@ impl TmaData {
             units: self.units,
             packing: self.packing,
             width: self.width,
+            projection: comptime!(self.projection.clone()),
         }
     }
 }

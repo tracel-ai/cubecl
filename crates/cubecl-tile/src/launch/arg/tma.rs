@@ -60,6 +60,35 @@ impl TileTensorLaunch {
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
+        Self::folded(tensor_map, TileSpec::direct(axes), extents, coordinates)
+    }
+
+    /// [`tensor_map_folded`](Self::tensor_map_folded) over an operand read through `projection`,
+    /// its logical axes the tile's, `extents` along each: what a gather of the same buffer reads,
+    /// stated for a descriptor. A stage of it is the compacted window the projection reads (a
+    /// word of scales every few blocks, say), which the engine lands as it lies: the box must be
+    /// that window, row-major.
+    ///
+    /// # Panics
+    ///
+    /// As [`tensor_map_folded`](Self::tensor_map_folded).
+    pub fn tensor_map_folded_through(
+        tensor_map: TensorMapArg<Tiled>,
+        projection: Projection,
+        extents: &[u32],
+        coordinates: TmaCoordinates,
+    ) -> Self {
+        Self::folded(tensor_map, TileSpec::new(projection), extents, coordinates)
+    }
+
+    /// The body both folded descriptors share, over `spec`'s logical axes.
+    fn folded(
+        tensor_map: TensorMapArg<Tiled>,
+        spec: TileSpec,
+        extents: &[u32],
+        coordinates: TmaCoordinates,
+    ) -> Self {
+        let axes = spec.projection.logical_axes().to_vec();
         assert_eq!(
             extents.len(),
             axes.len(),
@@ -81,7 +110,7 @@ impl TileTensorLaunch {
         Self::of_tensor_map(
             tensor_map,
             VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaFoldedLayout>>(layout),
-            TileSpec::direct(axes),
+            spec,
         )
     }
 }

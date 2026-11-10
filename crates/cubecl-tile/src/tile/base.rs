@@ -478,10 +478,8 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(g) => comptime!(g.projection.clone()),
             TileKind::Lines(c) => c.projection(),
-            TileKind::PlaneTile(_)
-            | TileKind::PlanePartition(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_) => {
+            TileKind::TmaGmem(t) => comptime!(t.projection.clone()),
+            TileKind::PlaneTile(_) | TileKind::PlanePartition(_) | TileKind::Procedural(_) => {
                 comptime!(Projection::direct_over(&self.place.space))
             }
         }
