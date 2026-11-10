@@ -31,6 +31,7 @@ mod quantized_decode;
 mod ragged;
 mod recursive;
 mod reduce;
+mod reduce_scaled;
 mod references;
 mod register_attention;
 mod relay;
