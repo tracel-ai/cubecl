@@ -58,7 +58,7 @@ fn warn_host_fallback(cause: impl Display) {
     WARNED.call_once(|| {
         log::warn!(
             "Transfers between HIP devices go through the host, which is much slower, and \
-             cubecl runs no collective between them: {cause}"
+             cubecl runs no collective between them: {cause}. Installing RCCL fixes both."
         );
     });
 }
