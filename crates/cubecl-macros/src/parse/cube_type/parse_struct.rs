@@ -32,7 +32,7 @@ pub struct CubeTypeStruct {
     pub repr_c: bool,
 }
 
-/// Whether `attrs` declare `#[repr(C)]`. A record's fields are read at their `offset_of!`
+/// Whether `attrs` declare `#[repr(C)]`. A struct's fields are read at their `offset_of!`
 /// offsets with natural alignment, so `packed` is an error.
 pub fn parse_repr_c(attrs: &[Attribute]) -> syn::Result<bool> {
     let mut repr_c = false;

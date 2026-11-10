@@ -146,7 +146,7 @@ impl ConvertArgsPass {
 }
 
 fn buffer_ty(ctx: &Context, buffer: Value, io: BufferIOAttr) -> TypeHandle {
-    // The runtime array's own element, which can itself be an array (a buffer of records).
+    // The runtime array's own element, which can itself be an array or struct.
     let ty = {
         let list = buffer.unwrap_ptr(ctx).deref(ctx);
         list.downcast_ref::<cubecl_ir::types::RuntimeArrayType>()

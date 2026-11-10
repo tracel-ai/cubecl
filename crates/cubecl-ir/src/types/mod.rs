@@ -292,9 +292,9 @@ impl AlignedType for StructType {
 }
 
 #[type_interface_impl]
-impl SizedType for StructType {
-    fn size(&self, _: &Context) -> usize {
-        self.size as usize
+impl MaybeSizedType for StructType {
+    fn size(&self, _: &Context) -> Option<usize> {
+        Some(self.size as usize)
     }
 }
 
