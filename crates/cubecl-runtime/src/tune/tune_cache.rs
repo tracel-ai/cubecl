@@ -9,6 +9,8 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 #[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
+#[cfg(persistence)]
+use super::list_answers::{ListAnswers, register_running_list};
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
@@ -132,6 +134,11 @@ pub(crate) struct TuneCache<K> {
     /// persisted: what a [record](super::TuneRecord) names it by.
     #[cfg(persistence)]
     table: String,
+    /// The lists the table holds an answer under, read when this cache first
+    /// stores one: what that answer and every later one supersede. Dropped
+    /// when the environment switches.
+    #[cfg(persistence)]
+    list_answers: Option<ListAnswers<K>>,
     /// The environment generation [`Self::in_memory_cache`] was built under;
     /// see [`cubecl_environment::environment::generation`].
     #[cfg(persistence)]
@@ -207,6 +214,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                     lost: Vec::new(),
                     persistent_cache: None,
                     table,
+                    list_answers: None,
                     generation: cubecl_environment::environment::generation(),
                 };
             }
@@ -224,6 +232,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                         .cache(CacheOption::Lazy),
                 )),
                 table,
+                list_answers: None,
                 generation,
             }
         }
@@ -349,6 +358,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         log::debug!("Environment switched, resetting the autotune cache");
         self.generation = cubecl_environment::environment::generation();
         self.in_memory_cache.clear();
+        self.list_answers = None;
     }
 
     /// The environment generation this cache was built under, or last reset to.
@@ -370,6 +380,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return TuneCacheResult::Miss;
         };
+        register_running_list(&self.table, checksum);
         let stored = PersistentCacheKey {
             key: key.clone(),
             checksum: checksum.into(),
@@ -396,7 +407,9 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Store an answer in the table, and say whether it took it: never when
-    /// the cache is disabled.
+    /// the cache is disabled. A stored answer supersedes the key's answers to
+    /// every list no tuner of this process runs; see
+    /// [`ListAnswers`](super::list_answers::ListAnswers).
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
@@ -407,7 +420,11 @@ impl<K: AutotuneKey> TuneCache<K> {
             return false;
         };
 
-        let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) else {
+        let stored = PersistentCacheKey { key, checksum };
+        let Err(err) = persistent_cache.insert(stored.clone(), value) else {
+            self.list_answers
+                .get_or_insert_with(|| ListAnswers::new(persistent_cache))
+                .supersede(persistent_cache, &self.table, &stored.key, &stored.checksum);
             return true;
         };
         match err {
@@ -430,5 +447,132 @@ impl<K: AutotuneKey> TuneCache<K> {
             ),
         }
         false
+    }
+}
+
+#[cfg(all(test, persistence))]
+mod tests {
+    use super::*;
+    use alloc::boxed::Box;
+    use alloc::string::ToString;
+    use cubecl_environment::persistence::MemoryStorage;
+
+    const KEY: &str = "matmul-64x64";
+    /// Sorts before [`CURRENT`], so a table read in key order meets it first.
+    const STALE: &str = "0000-older-list";
+    const CURRENT: &str = "ffff-current-list";
+
+    /// An answer stored under an older candidate list is never served for
+    /// the current one, even when it sorts first: the lookup asks for the key
+    /// and the list together, and misses until the current list is answered.
+    #[test]
+    fn an_answer_to_an_older_list_is_never_served() {
+        let table = "tune-cache-tests/stale-first";
+        plant(table, KEY, STALE, 1);
+        let mut cache = TuneCache::over(table);
+
+        assert!(matches!(
+            cache.look_up(&KEY.to_string(), CURRENT),
+            TuneCacheResult::Miss
+        ));
+
+        plant(table, KEY, CURRENT, 2);
+        let mut cache = TuneCache::over(table);
+        assert!(matches!(
+            cache.look_up(&KEY.to_string(), CURRENT),
+            TuneCacheResult::Hit { fastest_index: 2 }
+        ));
+    }
+
+    /// An answer stored for a key removes the key's answers to lists no tuner
+    /// of this process runs, so a saved table holds one answer per key and
+    /// list in use; a key nothing tuned again keeps what it had.
+    #[test]
+    fn a_stored_answer_supersedes_its_keys_answers_to_older_lists() {
+        let table = "tune-cache-tests/superseded";
+        plant(table, KEY, STALE, 1);
+        plant(table, "untouched", STALE, 1);
+        let mut cache = TuneCache::over(table);
+        cache.look_up(&KEY.to_string(), CURRENT);
+
+        assert!(cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(2)));
+
+        assert_eq!(
+            stored(table),
+            [pair(KEY, CURRENT), pair("untouched", STALE)]
+        );
+    }
+
+    /// The answers to a list another tuner of this process runs against the
+    /// same table stay: that tuner still reads them, and removing them would
+    /// make the two lists tune the key again in turn, one process after the
+    /// other.
+    #[test]
+    fn an_answer_to_a_list_another_tuner_runs_stays() {
+        let table = "tune-cache-tests/shared";
+        plant(table, KEY, STALE, 1);
+        let mut other = TuneCache::over(table);
+        other.look_up(&KEY.to_string(), STALE);
+        let mut cache = TuneCache::over(table);
+        cache.look_up(&KEY.to_string(), CURRENT);
+
+        assert!(cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(2)));
+
+        assert_eq!(stored(table), [pair(KEY, STALE), pair(KEY, CURRENT)]);
+    }
+
+    impl TuneCache<String> {
+        /// A cache over the in-memory table `table`.
+        fn over(table: &str) -> Self {
+            Self {
+                in_memory_cache: HashMap::new(),
+                lost: Vec::new(),
+                persistent_cache: Some(answers(table)),
+                table: table.into(),
+                list_answers: None,
+                generation: cubecl_environment::environment::generation(),
+            }
+        }
+    }
+
+    /// The store of the in-memory table `table`, read lazily as a tuner's is.
+    fn answers(table: &str) -> Store<PersistentCacheKey<String>, PersistentCacheValue> {
+        Store::new(
+            StoreOptions::new()
+                .storage_with(Box::new(MemoryStorage::new(table)), Namespace::new(table))
+                .cache(CacheOption::Lazy),
+        )
+    }
+
+    /// Stores in `table`, as a tune of `checksum`'s list would, `fastest_index`
+    /// as the answer to `key`.
+    fn plant(table: &str, key: &str, checksum: &str, fastest_index: usize) {
+        answers(table)
+            .insert(pair(key, checksum), answer(fastest_index))
+            .unwrap();
+    }
+
+    fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
+        PersistentCacheKey {
+            key: key.to_string(),
+            checksum: checksum.into(),
+        }
+    }
+
+    fn answer(fastest_index: usize) -> PersistentCacheValue {
+        PersistentCacheValue {
+            fastest_index,
+            results: Vec::new(),
+            bounds: None,
+            limit: None,
+        }
+    }
+
+    /// Every answer `table` holds, by key and list.
+    fn stored(table: &str) -> Vec<PersistentCacheKey<String>> {
+        let mut stored = Vec::new();
+        answers(table).scan(|key, _| stored.push(key));
+        stored.sort_by(|a, b| (&a.key, &a.checksum).cmp(&(&b.key, &b.checksum)));
+        stored
     }
 }
