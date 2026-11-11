@@ -29,6 +29,10 @@ pub enum Refusal {
     WidthNotServed { width: usize, why: LineMisfit },
     /// The innermost axis is served in vector lines but is not provably in bounds.
     UncheckableVectorEdge,
+    /// A storage-tiled operand whose storage tile is the tile of `level`, and which this launch
+    /// overhangs: a window inside one storage tile is read as one unmasked run, so the windows
+    /// past the tensor's end would read storage tiles it does not have.
+    CheckedInsideStorageTile { level: usize },
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
     /// operand's last logical axis at coefficient 1.
     GatherInnermostNotInLines,
@@ -208,6 +212,13 @@ impl Display for Refusal {
                  any extent stated here); serve it at a width dividing its extent or scalar, or \
                  state BoundaryPolicy::Unchecked if the launch proves its vector lines are in \
                  bounds"
+            ),
+            Refusal::CheckedInsideStorageTile { level } => write!(
+                f,
+                "Arg: this storage-tiled operand's storage tile is the tile of level {level}, \
+                 where a window is read as one unmasked run, and the launch overhangs it, so a \
+                 window past the tensor's end would read storage tiles it does not have; tile \
+                 the launch so it divides the operand, or tile it coarser than the storage tile"
             ),
             Refusal::GatherInnermostNotInLines => write!(
                 f,
