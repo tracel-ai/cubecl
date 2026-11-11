@@ -146,7 +146,7 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
-    /// How many [`CommunicationSkip`](crate::benchmark::CommunicationSkip)s hold the device.
+    /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
     pub communication_skips: CommunicationSkips,
     /// Whether kernels on this device can address the memory of another device of the runtime,
     /// asked of the device once per pair.
@@ -156,7 +156,7 @@ pub struct ServerUtilities {
     pub captures: CaptureStatus,
 }
 
-/// How many [`CommunicationSkip`](crate::benchmark::CommunicationSkip)s hold a device, so that
+/// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold a device, so that
 /// nested ones compose.
 #[derive(Debug, Default)]
 pub struct CommunicationSkips {

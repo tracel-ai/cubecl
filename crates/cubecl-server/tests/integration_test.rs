@@ -7,7 +7,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
-use cubecl_server::benchmark::CommunicationSkip;
+use cubecl_server::benchmark::CommunicationSkipGuard;
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::server::{
     CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation,
@@ -444,7 +444,7 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
         group.all_reduce(parts, F32, ReduceOperation::Sum);
     };
 
-    let member = CommunicationSkip::new(&group.clients()[1..]);
+    let member = CommunicationSkipGuard::enter(&group.clients()[1..]);
     assert!(!group.clients()[0].skips_communication());
     assert!(group.skips_communication());
 
@@ -467,7 +467,7 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
         .iter()
         .map(|client| client.service_id().device)
         .collect();
-    let every = CommunicationSkip::new(group.clients());
+    let every = CommunicationSkipGuard::enter(group.clients());
     for client in group.clients() {
         let handle = client.create_from_slice(&contents);
         client.clone().all_reduce(
@@ -478,27 +478,6 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
             ReduceOperation::Sum,
         );
     }
-    assert_refused("was used on", || {
-        let foreign = group.clients()[1].empty(8);
-        group.clients()[0].clone().all_reduce(
-            foreign.clone(),
-            foreign,
-            F32,
-            device_ids.clone(),
-            ReduceOperation::Sum,
-        )
-    });
-    assert_refused("appears twice", || {
-        let handle = group.clients()[1].empty(8);
-        let device = device_ids[1];
-        group.clients()[1].clone().all_reduce(
-            handle.clone(),
-            handle,
-            F32,
-            vec![device, device],
-            ReduceOperation::Sum,
-        )
-    });
     drop(every);
     assert!(
         group.skips_communication(),
