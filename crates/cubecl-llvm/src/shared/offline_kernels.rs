@@ -903,6 +903,41 @@ pub(crate) fn tma_tile_load_kernel() -> impl CubeKernel {
     )
 }
 
+/// Tiles loaded by TMA lap after lap, a constant number of laps, one a lap into one stage, each
+/// summed into the output: the walk of a pipeline's filling plane.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_laps(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let mut sum = 0.0f32;
+
+    for lap in 0..8u32 {
+        let expected = select(UNIT_POS == 0, 32u32 * 16 * 4, 0);
+        if UNIT_POS == 0 {
+            barrier.tma_load_2d(input, stage.as_mut_slice(), 0, (lap * 16) as i32);
+        }
+        let token = barrier.arrive_and_expect_tx(1, expected);
+        barrier.wait(token);
+        sum += stage[UNIT_POS as usize];
+        sync_cube();
+    }
+
+    output[UNIT_POS as usize] = sum;
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_laps_kernel() -> impl CubeKernel {
+    tma_tile_laps::TmaTileLaps::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// A tile stored by TMA from shared memory the units wrote.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]

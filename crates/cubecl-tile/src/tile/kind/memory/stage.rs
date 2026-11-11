@@ -130,7 +130,8 @@ impl Memory {
 
     /// [`smem`](Memory::smem) for a gathered operand: the compacted physical window its sub-tile
     /// reads ([`Compaction`]), still addressed by the operand's own [`Projection`], filled by the
-    /// units of the cube `owner` names.
+    /// units of the cube `owner` names or landed whole by the TMA engine, aligned to `alignment`
+    /// bytes (`0` the element's own).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn smem_gathered<T: Numeric>(
         #[comptime] space: &Space,
@@ -141,6 +142,7 @@ impl Memory {
         map: &RuntimeMap,
         #[comptime] signed: bool,
         #[comptime] boundaries: SmallVec<[Option<Boundary>; Space::MAX_RANK]>,
+        #[comptime] alignment: usize,
         #[comptime] owner: StageOwner,
     ) -> Tile {
         let form = comptime!(StageForm::gathered(
@@ -170,7 +172,7 @@ impl Memory {
             form,
             stage_map,
             ComptimeOption::new_Some(source),
-            comptime!(0usize),
+            alignment,
             comptime!(owner),
         )
     }

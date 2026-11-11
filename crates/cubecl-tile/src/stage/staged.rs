@@ -145,7 +145,8 @@ impl Memory {
                     }
                     None => source_width,
                 });
-                // A TMA-filled stage's buffer must be TMA-aligned; TMA operands are always direct.
+                // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
+                // words a gather reads lands as the compacted window the gather stages.
                 let delivery = operand.delivery();
                 let alignment = comptime!(match delivery.is_tma() {
                     true => Delivery::TMA_STAGE_ALIGNMENT,
@@ -167,6 +168,7 @@ impl Memory {
                         &operand.runtime_map(),
                         operand.window_signed(),
                         operand.window_boundaries(),
+                        alignment,
                         owner,
                     )
                 }

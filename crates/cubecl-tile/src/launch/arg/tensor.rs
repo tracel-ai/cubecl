@@ -110,7 +110,15 @@ fn tensor_map_tile<E: Numeric>(
 ) -> Tile {
     let space = comptime!(partitioning.clone());
     let own = space.space().subspace(spec.axes());
-    let data = TmaData::from_tensor_map(map, layout, own.rank(), spec.units, spec.packing, width);
+    let data = TmaData::from_tensor_map(
+        map,
+        layout,
+        own.rank(),
+        spec.units,
+        spec.packing,
+        width,
+        spec.projection.clone(),
+    );
     Tile::new::<E>(
         TileKind::new_TmaGmem(data),
         comptime!(Placement::root(own.clone(), space.levels().to_vec())),
@@ -482,6 +490,26 @@ impl TileTensorLaunch {
              this is not one"
         );
         Arc::make_mut(&mut self.spec).packing = Packing::Packed {
+            field: field.into(),
+        };
+        self
+    }
+
+    /// This tensor map of `u32` words read as [words](Packing::Words) of `field`, several to a word
+    /// along the axis they scale: what a TMA engine moves of block scales a block-scaled
+    /// instruction takes a word at a time, which a stage holds as they lie.
+    ///
+    /// # Panics
+    ///
+    /// On an argument that is not a tensor map of `u32` words.
+    pub fn words(mut self, field: impl Into<Field>) -> Self {
+        assert!(
+            matches!(self.values, ValuesLaunch::TensorMap { .. })
+                && self.element == u32::elem_type_native(),
+            "TileTensorLaunch::words: a tensor map of u32 words is read as words of scales, and \
+             this is not one"
+        );
+        Arc::make_mut(&mut self.spec).packing = Packing::Words {
             field: field.into(),
         };
         self
