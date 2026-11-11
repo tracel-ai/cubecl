@@ -104,16 +104,13 @@ fn log_host_fallback(cause: impl Display) {
     static WARNED: Once = Once::new();
     WARNED.call_once(|| {
         if CudaRuntime::enumerate_devices(0).len() > 1 {
-            // NCCL does not ship for Windows, where nobody can act on the fallback.
-            let (level, advice) = match cfg!(windows) {
-                true => (log::Level::Info, "NCCL does not run on Windows"),
-                false => (log::Level::Warn, "Installing NCCL fixes both"),
-            };
-            log::log!(
-                level,
-                "Transfers between CUDA devices go through the host, which is much slower, and \
-                 cubecl runs no collective between them: {cause}. {advice}."
-            );
+            const FALLBACK: &str = "Transfers between CUDA devices go through the host, which is \
+                                    much slower, and cubecl runs no collective between them";
+            match cfg!(windows) {
+                // NCCL does not ship for Windows, where nobody can act on the fallback.
+                true => log::info!("{FALLBACK}: NCCL does not run on Windows."),
+                false => log::warn!("{FALLBACK}: {cause}. Installing NCCL fixes both."),
+            }
         }
     });
 }

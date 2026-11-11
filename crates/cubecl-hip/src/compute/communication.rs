@@ -56,16 +56,13 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
 fn log_host_fallback(cause: impl Display) {
     static WARNED: Once = Once::new();
     WARNED.call_once(|| {
-        // RCCL does not ship for Windows, where nobody can act on the fallback.
-        let (level, advice) = match cfg!(windows) {
-            true => (log::Level::Info, "RCCL does not run on Windows"),
-            false => (log::Level::Warn, "Installing RCCL fixes both"),
-        };
-        log::log!(
-            level,
-            "Transfers between HIP devices go through the host, which is much slower, and \
-             cubecl runs no collective between them: {cause}. {advice}."
-        );
+        const FALLBACK: &str = "Transfers between HIP devices go through the host, which is much \
+                                slower, and cubecl runs no collective between them";
+        match cfg!(windows) {
+            // RCCL does not ship for Windows, where nobody can act on the fallback.
+            true => log::info!("{FALLBACK}: RCCL does not run on Windows."),
+            false => log::warn!("{FALLBACK}: {cause}. Installing RCCL fixes both."),
+        }
     });
 }
 
