@@ -129,7 +129,8 @@ impl BlockScaledOperands {
 }
 
 /// What a plane's fragments of one operand load from, as the tile layer sees it while the kernel
-/// expands: the facts [`Instruction::for_plane`] reads.
+/// expands: the facts [`Instruction::for_accumulator`] and
+/// [`Instruction::for_stage_accumulator`] read.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum FragmentSource {
     /// Values of this element, held as they are or decoded by the fill that staged them.
