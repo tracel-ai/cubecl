@@ -753,6 +753,19 @@ fn unit_async_copies_complete_on_the_barrier() {
     }
 }
 
+/// A manual FP8 `mma` lowers to the `m16n8k32` instruction on `e4m3` operands, accumulating in
+/// `f32`, on the parts that have it: Ada's and Blackwell's consumer ones.
+#[test]
+fn an_fp8_mma_is_the_m16n8k32_instruction() {
+    for arch in [89, 120] {
+        let ptx = ptx_of(crate::shared::offline_kernels::fp8_mma_kernel(), arch);
+        assert!(
+            ptx.contains("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32"),
+            "sm_{arch}:\n{ptx}"
+        );
+    }
+}
+
 /// A manual `mma` whose B element differs from A's is refused as a compile error, as the C++
 /// backend's compile of it fails, rather than reaching instruction selection, which aborts.
 #[test]
