@@ -62,7 +62,7 @@ impl Nccl {
     pub fn new(arch_version: u32) -> Option<Self> {
         // SAFETY: the call only tries to `dlopen` each candidate name.
         if !unsafe { cudarc::nccl::sys::is_culib_present() } {
-            warn_host_fallback("NCCL is not installed");
+            log_host_fallback("NCCL is not installed");
             return None;
         }
         match cudarc::nccl::result::get_nccl_version() {
@@ -71,7 +71,7 @@ impl Nccl {
                 arch_version,
             }),
             Err(err) => {
-                warn_host_fallback(format_args!("NCCL loaded but gave no version: {err:?}"));
+                log_host_fallback(format_args!("NCCL loaded but gave no version: {err:?}"));
                 None
             }
         }
@@ -97,16 +97,22 @@ impl Nccl {
     }
 }
 
-/// Warns once per process, and only where there is more than one CUDA device to move data
+/// Logs once per process, and only where there is more than one CUDA device to move data
 /// between, that `cause` sends transfers between them through the host and runs no collective
 /// between them.
-fn warn_host_fallback(cause: impl Display) {
+fn log_host_fallback(cause: impl Display) {
     static WARNED: Once = Once::new();
     WARNED.call_once(|| {
         if CudaRuntime::enumerate_devices(0).len() > 1 {
-            log::warn!(
+            // NCCL does not ship for Windows, where nobody can act on the fallback.
+            let (level, advice) = match cfg!(windows) {
+                true => (log::Level::Info, "NCCL does not run on Windows"),
+                false => (log::Level::Warn, "Installing NCCL fixes both"),
+            };
+            log::log!(
+                level,
                 "Transfers between CUDA devices go through the host, which is much slower, and \
-                 cubecl runs no collective between them: {cause}. Installing NCCL fixes both."
+                 cubecl runs no collective between them: {cause}. {advice}."
             );
         }
     });

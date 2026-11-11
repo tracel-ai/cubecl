@@ -32,7 +32,7 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
     let rccl = match Rccl::get() {
         Ok(rccl) => rccl,
         Err(reason) => {
-            warn_host_fallback(reason);
+            log_host_fallback(reason);
             return None;
         }
     };
@@ -45,20 +45,26 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
             })
         }
         Err(err) => {
-            warn_host_fallback(format_args!("RCCL loaded but gave no version: {err}"));
+            log_host_fallback(format_args!("RCCL loaded but gave no version: {err}"));
             None
         }
     }
 }
 
-/// Warns once per process, rather than once per device, that `cause` sends transfers between
+/// Logs once per process, rather than once per device, that `cause` sends transfers between
 /// HIP devices through the host and runs no collective between them.
-fn warn_host_fallback(cause: impl Display) {
+fn log_host_fallback(cause: impl Display) {
     static WARNED: Once = Once::new();
     WARNED.call_once(|| {
-        log::warn!(
+        // RCCL does not ship for Windows, where nobody can act on the fallback.
+        let (level, advice) = match cfg!(windows) {
+            true => (log::Level::Info, "RCCL does not run on Windows"),
+            false => (log::Level::Warn, "Installing RCCL fixes both"),
+        };
+        log::log!(
+            level,
             "Transfers between HIP devices go through the host, which is much slower, and \
-             cubecl runs no collective between them: {cause}. Installing RCCL fixes both."
+             cubecl runs no collective between them: {cause}. {advice}."
         );
     });
 }
