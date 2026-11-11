@@ -1351,7 +1351,7 @@ impl Tile {
     /// What a plane's fragments of this operand load from: values, codes staged as stored and
     /// decoded as the fragments load them ([`scales_kept_beside`](Tile::scales_kept_beside)), or
     /// packed values a stage fill decodes on the way
-    /// ([`Instruction::for_plane`](crate::Instruction)).
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)).
     pub(crate) fn fragment_source(&self) -> comptime_type!(FragmentSource) {
         unexpanded!()
     }

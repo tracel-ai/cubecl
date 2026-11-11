@@ -141,7 +141,7 @@ impl Tile {
     /// What the planes holding this output sum `lhs · rhs` into under the sum of products,
     /// at the element `EA`, opened at zero, for a sum drained into an output: in the matrix
     /// instruction the device offers for the product, picked as the kernel expands
-    /// ([`Instruction::for_plane`](crate::Instruction)), or the warpgroup MMA where plane groups
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the warpgroup MMA where plane groups
     /// of four hold it.
     pub fn accumulator<EA: Numeric>(
         &self,
@@ -678,7 +678,8 @@ impl Tile {
     /// factor of its element, opened at zero: the accumulator [`Tile::scratch`] would open,
     /// without the memory, for a product contracted again before anything drains it, as an
     /// attention's score. Its instruction is the one that keeps the sum where the next product's
-    /// `A` lies, where the device has one ([`Instruction::for_plane`](crate::Instruction)).
+    /// `A` lies, where the device has one
+    /// ([`Instruction::for_stage_accumulator`](crate::Instruction::for_stage_accumulator)).
     pub fn stage_accumulator<EA: Numeric>(
         walk: &Walk,
         #[comptime] axes: Vec<Axis>,
@@ -725,7 +726,8 @@ impl Tile {
 
 /// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts
 /// through on the device the kernel compiles for, read off the device and its target as the
-/// kernel expands ([`Instruction::for_plane`]).
+/// kernel expands ([`Instruction::for_accumulator`],
+/// [`Instruction::for_stage_accumulator`]).
 #[cube]
 fn plane_instruction<EA: Numeric>(
     #[comptime] out: &Placement,
