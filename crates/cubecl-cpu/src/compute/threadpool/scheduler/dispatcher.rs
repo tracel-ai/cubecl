@@ -9,15 +9,18 @@ use std::{
 
 use crossbeam_utils::CachePadded;
 
+use cubecl_llvm::KernelRequirements;
+
 use crate::compute::{
-    affinity::{CoreId, get_active_cores},
+    affinity::{CoreId, CoreOrder},
     threadpool::{ThreadTask, compute_task::ComputeTask, scheduler::Worker},
 };
 
 pub struct DispatcherScheduler {
-    cores: Vec<CoreId>,
+    cpus: Vec<CoreId>,
     tx: Vec<mpsc::Sender<ComputeTask>>,
     lens: Vec<Arc<CachePadded<AtomicUsize>>>,
+    spread: LaunchSpread,
 }
 
 impl Default for DispatcherScheduler {
@@ -28,26 +31,25 @@ impl Default for DispatcherScheduler {
 
 impl DispatcherScheduler {
     pub fn new() -> Self {
-        let cores: Vec<_> = get_active_cores().collect();
+        let order = CoreOrder::active();
         let mut scheduler = Self {
-            cores,
+            spread: LaunchSpread::new(&order),
+            cpus: order.cpus,
             tx: Vec::new(),
             lens: Vec::new(),
         };
-        // Start with one worker per active core; the pool grows on demand when a
-        // parallel cube needs more units than we currently have workers.
-        let cores = scheduler.cores.len();
-        scheduler.ensure_workers(cores);
+        // One worker per active CPU; a barrier kernel grows the pool past it.
+        scheduler.grow(scheduler.cpus.len());
         scheduler
     }
 
-    /// Spawns workers until at least `n` exist. Overflow workers past the core
-    /// count round-robin over the active cores, so a cube with more units than
-    /// cores still gets one thread per unit — required so the `sync_cube` spin
-    /// barrier never queues two units of the same cube behind each other.
-    pub fn ensure_workers(&mut self, n: usize) {
-        while self.tx.len() < n {
-            let core_id = self.cores[self.tx.len() % self.cores.len()];
+    /// Spawns workers until at least `workers` exist. Overflow workers past the CPU count
+    /// round-robin over the active CPUs, so a cube with more units than CPUs still gets one
+    /// thread per unit, which the `sync_cube` spin barrier needs to never queue two units of a
+    /// cube behind each other.
+    fn grow(&mut self, workers: usize) {
+        while self.tx.len() < workers {
+            let core_id = self.cpus[self.tx.len() % self.cpus.len()];
             let (worker, tx, len) = DispatcherWorker::new();
             worker.spawn_thread(core_id);
             self.tx.push(tx);
@@ -55,28 +57,95 @@ impl DispatcherScheduler {
         }
     }
 
-    pub fn send(&mut self, index: usize, task: ComputeTask) {
-        let target = if task.pliron_engine.requirements().needs_parallelism {
-            // Barrier kernels need one dedicated worker per unit; the caller
-            // grew the pool via `ensure_workers` so `index` is in range.
-            index
+    pub fn send_launch(
+        &mut self,
+        tasks: impl ExactSizeIterator<Item = ComputeTask>,
+        requirements: &KernelRequirements,
+    ) {
+        if requirements.needs_parallelism {
+            self.send_worker_per_unit(tasks);
         } else {
-            // Independent units load-balance onto the least-loaded worker. The
-            // incoming `index` is a unit position that can exceed the worker
-            // count, so never use it directly here.
-            let mut best = 0;
-            let mut min_value = self.lens[0].load(atomic::Ordering::Relaxed);
-            for i in 1..self.lens.len() {
-                let len = self.lens[i].load(atomic::Ordering::Relaxed);
-                if len < min_value {
-                    best = i;
-                    min_value = len;
-                }
-            }
-            best
-        };
-        let _ = self.tx[target].send(task);
-        self.lens[target].fetch_add(1, atomic::Ordering::Relaxed);
+            self.send_spread(tasks);
+        }
+    }
+
+    /// A cube barrier only completes if every unit of the cube is running, so each unit gets a
+    /// worker of its own.
+    fn send_worker_per_unit(&mut self, tasks: impl ExactSizeIterator<Item = ComputeTask>) {
+        self.grow(tasks.len());
+        for (worker, task) in tasks.enumerate() {
+            self.dispatch(worker, task);
+        }
+    }
+
+    fn send_spread(&mut self, tasks: impl Iterator<Item = ComputeTask>) {
+        self.spread.start_launch();
+        for task in tasks {
+            let loads = self
+                .lens
+                .iter()
+                .map(|len| len.load(atomic::Ordering::Relaxed));
+            let worker = self.spread.pick(loads);
+            self.dispatch(worker, task);
+        }
+    }
+
+    fn dispatch(&self, worker: usize, task: ComputeTask) {
+        // Counted before the send, so a worker finishing at once never takes the count below zero.
+        self.lens[worker].fetch_add(1, atomic::Ordering::Relaxed);
+        let _ = self.tx[worker].send(task);
+    }
+}
+
+/// The units of the launch being sent so far, which choose the worker of its next unit.
+///
+/// Each unit runs over every cube, so a launch ends with its busiest physical core. A unit goes
+/// to the core with the fewest units of the launch, then the lowest load, then to the worker on
+/// it with the fewest units of the launch, lowest index first. So a launch with no more units
+/// than physical cores gets a core each even while an earlier launch keeps the primaries busy,
+/// a larger one fills the SMT siblings next, and past one unit per CPU it wraps evenly.
+struct LaunchSpread {
+    /// The physical core of each worker pinned to a distinct CPU, the only ones chosen.
+    core_of: Vec<usize>,
+    units_on_core: Vec<usize>,
+    units_on_worker: Vec<usize>,
+    core_load: Vec<usize>,
+}
+
+impl LaunchSpread {
+    fn new(order: &CoreOrder) -> Self {
+        Self {
+            core_of: order.core_of.clone(),
+            units_on_core: vec![0; order.physical_cores],
+            units_on_worker: vec![0; order.core_of.len()],
+            core_load: vec![0; order.physical_cores],
+        }
+    }
+
+    fn start_launch(&mut self) {
+        self.units_on_core.fill(0);
+        self.units_on_worker.fill(0);
+    }
+
+    /// The worker of the next unit, given the live load of every worker in the pool.
+    fn pick(&mut self, loads: impl Iterator<Item = usize>) -> usize {
+        self.core_load.fill(0);
+        for (worker, load) in loads.enumerate() {
+            self.core_load[self.core_of[worker % self.core_of.len()]] += load;
+        }
+        let worker = (0..self.core_of.len())
+            .min_by_key(|&worker| {
+                let core = self.core_of[worker];
+                (
+                    self.units_on_core[core],
+                    self.core_load[core],
+                    self.units_on_worker[worker],
+                )
+            })
+            .expect("a pool has at least one worker");
+        self.units_on_core[self.core_of[worker]] += 1;
+        self.units_on_worker[worker] += 1;
+        worker
     }
 }
 
@@ -156,5 +225,65 @@ impl Worker for DispatcherWorker {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LaunchSpread;
+    use crate::compute::affinity::CoreOrder;
+
+    /// Four physical cores with two SMT threads each, siblings listed after the primaries.
+    fn smt_spread() -> LaunchSpread {
+        LaunchSpread::new(&CoreOrder {
+            cpus: Vec::new(),
+            core_of: vec![0, 1, 2, 3, 0, 1, 2, 3],
+            physical_cores: 4,
+        })
+    }
+
+    /// Picks the workers of a launch of `units` units, with every load fixed at `loads`.
+    fn launch(spread: &mut LaunchSpread, loads: &[usize], units: usize) -> Vec<usize> {
+        spread.start_launch();
+        (0..units)
+            .map(|_| spread.pick(loads.iter().copied()))
+            .collect()
+    }
+
+    #[test]
+    fn two_units_of_the_launch_never_share_a_physical_core() {
+        // Every load reads zero, as if each unit finished before the next was sent.
+        assert_eq!(launch(&mut smt_spread(), &[0; 8], 4), [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_launch_behind_a_running_one_stays_on_the_primaries() {
+        // The earlier launch holds the primaries while the siblings idle.
+        let loads = [1, 1, 1, 1, 0, 0, 0, 0];
+        assert_eq!(launch(&mut smt_spread(), &loads, 4), [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_busy_physical_core_is_chosen_last_in_the_launch() {
+        let loads = [0, 2, 0, 0, 0, 0, 0, 0];
+        assert_eq!(launch(&mut smt_spread(), &loads, 4), [0, 2, 3, 1]);
+    }
+
+    #[test]
+    fn more_units_than_physical_cores_fill_the_siblings_then_spread_evenly() {
+        let mut spread = smt_spread();
+        assert_eq!(launch(&mut spread, &[0; 8], 8), [0, 1, 2, 3, 4, 5, 6, 7]);
+        let mut units = [0; 8];
+        for worker in launch(&mut spread, &[0; 8], 24) {
+            units[worker] += 1;
+        }
+        assert_eq!(units, [3; 8]);
+    }
+
+    #[test]
+    fn overflow_workers_load_the_core_they_share() {
+        // Worker 8 is a barrier overflow worker pinned beside worker 0.
+        let loads = [0, 0, 0, 0, 0, 0, 0, 0, 1];
+        assert_eq!(launch(&mut smt_spread(), &loads, 4), [1, 2, 3, 0]);
     }
 }

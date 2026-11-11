@@ -28,8 +28,10 @@ impl AsideScheduler {
         Self { tx }
     }
 
-    pub fn send(&mut self, index: usize, task: ComputeTask) {
-        let _ = self.tx[index].send(task);
+    pub fn send_launch(&mut self, tasks: impl Iterator<Item = ComputeTask>) {
+        for (unit, task) in tasks.enumerate() {
+            let _ = self.tx[unit].send(task);
+        }
     }
 }
 

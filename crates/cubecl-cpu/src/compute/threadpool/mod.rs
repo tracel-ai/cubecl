@@ -81,32 +81,18 @@ impl Threadpool {
             .collect();
         let base_data = PlironData::new(buffer_ptrs, info.data, cube_count, keepalive);
 
-        // A cube barrier only completes if every unit of the cube is running, so such a kernel
-        // needs as many workers as the cube has units.
-        if requirements.needs_parallelism {
-            self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
-        }
-
-        let mut i = 0;
-        for unit_pos_x in 0..cube_dim.x {
-            for unit_pos_y in 0..cube_dim.y {
-                for unit_pos_z in 0..cube_dim.z {
-                    let pliron_engine = pliron_engine.clone();
-                    let mut pliron_data = base_data.clone();
-                    pliron_data.set_unit_pos([unit_pos_x, unit_pos_y, unit_pos_z]);
-
-                    let atomic_counter = Arc::clone(atomic_counter);
-                    let compute_task = ComputeTask {
-                        pliron_engine,
-                        pliron_data,
-                        next_counter_step,
-                        atomic_counter,
-                    };
-                    self.scheduler.send(i, compute_task);
-                    i += 1;
-                }
+        let (y, z) = (cube_dim.y, cube_dim.z);
+        let tasks = (0..cube_dim.num_elems()).map(|unit| {
+            let mut pliron_data = base_data.clone();
+            pliron_data.set_unit_pos([unit / (y * z), unit / z % y, unit % z]);
+            ComputeTask {
+                pliron_engine: pliron_engine.clone(),
+                pliron_data,
+                next_counter_step,
+                atomic_counter: Arc::clone(atomic_counter),
             }
-        }
+        });
+        self.scheduler.send_launch(tasks, &requirements);
     }
 }
 

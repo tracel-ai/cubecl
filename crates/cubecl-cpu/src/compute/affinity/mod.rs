@@ -55,29 +55,58 @@ trait ThreadAffinity {
     fn pin_current(cpu: CoreId);
 }
 
-/// The logical CPUs workers are pinned to: one per physical core first, SMT
-/// siblings after, so a launch with up to `physical cores` units gets a whole
-/// core per unit. A CPU whose physical core is unknown counts as its own.
+/// The logical CPUs workers are pinned to, in [`CoreOrder`].
 pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
-    ordered_cores::<Platform>()
+    CoreOrder::active().cpus.into_iter()
 }
 
-/// [`get_active_cores`] over any platform, so the policy is testable on a
-/// made-up topology.
-fn ordered_cores<P: ThreadAffinity>() -> impl Iterator<Item = CoreId> {
-    let cpus = P::active_cpus();
-    let mut primaries = Vec::with_capacity(cpus.len());
-    let mut siblings = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for cpu in cpus {
-        let core = P::physical_core(cpu).unwrap_or(cpu);
-        if seen.insert(core) {
-            primaries.push(cpu);
-        } else {
-            siblings.push(cpu);
+/// The active CPUs in the order workers are pinned to them, with the physical core of each.
+pub struct CoreOrder {
+    /// One CPU per physical core first, SMT siblings after, so a launch with up to
+    /// `physical_cores` units gets a whole core per unit.
+    pub cpus: Vec<CoreId>,
+    /// For each of `cpus`, its physical core, numbered by the position of the core's first CPU
+    /// in `cpus`. A CPU whose physical core is unknown counts as its own.
+    pub core_of: Vec<usize>,
+    /// How many physical cores the CPUs belong to.
+    pub physical_cores: usize,
+}
+
+impl CoreOrder {
+    /// The order of the CPUs this process may run on.
+    pub fn active() -> Self {
+        Self::of::<Platform>()
+    }
+
+    /// The order over any platform, so the policy is testable on a made-up topology.
+    fn of<P: ThreadAffinity>() -> Self {
+        let mut index_of_core = std::collections::HashMap::new();
+        let mut primaries = Vec::new();
+        let mut siblings = Vec::new();
+        for cpu in P::active_cpus() {
+            let core = P::physical_core(cpu).unwrap_or(cpu);
+            let next = index_of_core.len();
+            let index = *index_of_core.entry(core).or_insert(next);
+            if index == next {
+                primaries.push(cpu);
+            } else {
+                siblings.push((cpu, index));
+            }
+        }
+        let physical_cores = primaries.len();
+        let core_of = (0..physical_cores)
+            .chain(siblings.iter().map(|&(_, core)| core))
+            .collect();
+        let cpus = primaries
+            .into_iter()
+            .chain(siblings.into_iter().map(|(cpu, _)| cpu))
+            .collect();
+        Self {
+            cpus,
+            core_of,
+            physical_cores,
         }
     }
-    primaries.into_iter().chain(siblings)
 }
 
 /// Pins the calling thread to `core_id`.
@@ -139,7 +168,10 @@ mod tests {
             fn pin_current(_cpu: CoreId) {}
         }
 
-        assert_eq!(ids(ordered_cores::<Fake>()), [0, 2, 4, 5, 1, 3]);
+        let order = CoreOrder::of::<Fake>();
+        assert_eq!(ids(order.cpus), [0, 2, 4, 5, 1, 3]);
+        assert_eq!(order.core_of, [0, 1, 2, 3, 0, 1]);
+        assert_eq!(order.physical_cores, 4);
     }
 
     #[test]

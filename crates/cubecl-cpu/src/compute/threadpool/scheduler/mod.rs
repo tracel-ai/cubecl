@@ -1,5 +1,7 @@
 use std::thread;
 
+use cubecl_llvm::KernelRequirements;
+
 use crate::compute::{
     affinity::{CoreId, set_for_current},
     threadpool::{
@@ -52,22 +54,16 @@ impl Scheduler {
         }
     }
 
-    pub fn send(&mut self, index: usize, task: ComputeTask) {
+    /// Sends the tasks of one launch, one per unit of the cube, in unit order.
+    pub fn send_launch(
+        &mut self,
+        tasks: impl ExactSizeIterator<Item = ComputeTask>,
+        requirements: &KernelRequirements,
+    ) {
         match self {
-            Scheduler::Naive(naive) => naive.send(index, task),
-            Scheduler::Aside(aside) => aside.send(index, task),
-            Scheduler::Dispatcher(dispatcher) => dispatcher.send(index, task),
-        }
-    }
-
-    /// Grows the pool so it has at least `n` workers, spawning threads as needed.
-    /// Called before dispatching a parallel cube whose unit count exceeds the
-    /// current worker count. Only the `Dispatcher` (the variant the threadpool
-    /// actually builds) grows; the experimental fixed-pool variants no-op.
-    pub fn ensure_workers(&mut self, n: usize) {
-        match self {
-            Scheduler::Naive(_) | Scheduler::Aside(_) => {}
-            Scheduler::Dispatcher(dispatcher) => dispatcher.ensure_workers(n),
+            Scheduler::Naive(naive) => naive.send_launch(tasks),
+            Scheduler::Aside(aside) => aside.send_launch(tasks),
+            Scheduler::Dispatcher(dispatcher) => dispatcher.send_launch(tasks, requirements),
         }
     }
 }
