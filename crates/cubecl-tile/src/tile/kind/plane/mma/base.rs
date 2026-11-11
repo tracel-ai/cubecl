@@ -1046,6 +1046,11 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
         src.fragment_matrix_packed::<T, W>(rows, cols)
     };
     let along_lines = comptime!(vector_layout == layout);
+    // A window that serves its cells as they lie is read where they lie, at the register's width
+    // or a lone cell; one that decodes them as it reads them (packed words, or values under
+    // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
+    let (quantized, packing) = (src.quantized(), src.packing());
+    let as_stored = comptime!(!quantized && packing == Packing::Plain);
     comptime!(assert!(
         !along_lines || vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size),
         "MmaData::load: a {vector_size}-cell register vector neither holds whole {width}-wide \
@@ -1067,6 +1072,14 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, T::from_int(0));
                 }
+            } else if comptime!(width >= vector_size && !as_stored) {
+                // A register vector starts at a multiple of its size, so it stays within `width`.
+                let line = view.read((line_row, cell / comptime!(width as u32)));
+                let start = cell % comptime!(width as u32);
+                #[unroll]
+                for e in 0..vector_size {
+                    vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
+                }
             } else if comptime!(width >= vector_size) {
                 // A register vector starts at a multiple of its size, so it stays within `width`:
                 // the line read at the register's width holds it whole, one load at the unit's
@@ -1079,8 +1092,8 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                         (1u32.runtime(), 1u32.runtime()),
                     )
                     .with_vector_size::<N>();
-                vector = line[((cell % comptime!(width as u32)) / comptime!(vector_size as u32))
-                    as usize];
+                vector = line
+                    [((cell % comptime!(width as u32)) / comptime!(vector_size as u32)) as usize];
             } else {
                 #[unroll]
                 for l in 0..comptime!(vector_size / width) {
@@ -1102,7 +1115,15 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 let (row, col) = along_k(row, col, ident, k_offset);
                 let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
-                if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
+                let covered =
+                    !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
+                if covered && !as_stored {
+                    let line = view.read((line_row, cell / comptime!(width as u32)));
+                    vector.insert(
+                        e,
+                        line.extract_dynamic((cell % comptime!(width as u32)).cast::<usize>()),
+                    );
+                } else if covered {
                     // The cell read alone, at its offset in its line, rather than picked out of
                     // the whole line by the unit's index, which lowers through local memory.
                     let cells = view
