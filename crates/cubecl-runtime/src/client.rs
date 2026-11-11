@@ -6,11 +6,11 @@ use crate::{
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, SendOutcome, Server, ServerError, ServerStorage,
-        ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
+        CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError,
+        ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1058,12 +1058,7 @@ impl Client {
     )]
     pub fn ensure_init_collective(&self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
-        // Two ranks on one device wait on its server thread for each other, forever.
-        if let Some(repeated) = repeated_device(&device_ids) {
-            panic!(
-                "{repeated:?} appears twice among a collective's devices, which need one rank each"
-            );
-        }
+        Self::expect_distinct(&device_ids);
         let comm_id = CommunicationId::from(device_ids.clone());
         if self.utilities.initialized_comms.read().contains(&comm_id) {
             return;
@@ -1098,6 +1093,16 @@ impl Client {
     /// copies through the host and the collectives refuse.
     pub fn has_device_transport(&self) -> bool {
         self.utilities.device_transport.is_some()
+    }
+
+    /// Whether a [`CommunicationSkip`](crate::benchmark::CommunicationSkip) holds the device, so
+    /// its collectives queue nothing.
+    pub fn skips_communication(&self) -> bool {
+        self.utilities.communication_skips.any()
+    }
+
+    pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
+        &self.utilities.communication_skips
     }
 
     /// Panics on the caller when the runtime has no device transport.
@@ -1151,7 +1156,8 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it.
+    /// queueing them stops with it. It queues nothing while this device skips communication,
+    /// whatever its peers do, since reading theirs would load their clients on every call.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1172,6 +1178,13 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
+        if self.skips_communication() {
+            self.expect_collective(collective);
+            Self::expect_distinct(&device_ids);
+            self.expect_local(&src.binding());
+            self.expect_local(&dst.binding());
+            return;
+        }
         self.prepare_collective(collective, device_ids.clone());
         self.queue_all_reduce(
             src,
@@ -1191,11 +1204,25 @@ impl Client {
 
     /// Checks `collective` can run from here, and sets up the group over `device_ids`.
     fn prepare_collective(&self, collective: Collective, device_ids: Vec<DeviceId>) {
+        self.expect_collective(collective);
+        self.ensure_init_collective(device_ids);
+    }
+
+    fn expect_distinct(device_ids: &[DeviceId]) {
+        // Two ranks on one device wait on its server thread for each other, forever.
+        if let Some(repeated) = repeated_device(device_ids) {
+            panic!(
+                "{repeated:?} appears twice among a collective's devices, which need one rank each"
+            );
+        }
+    }
+
+    /// Panics on the caller when `collective` cannot run from here.
+    fn expect_collective(&self, collective: Collective) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `{collective}` with a blocking device handle");
         }
         self.expect_device_transport(collective);
-        self.ensure_init_collective(device_ids);
     }
 
     fn queue_all_reduce(
