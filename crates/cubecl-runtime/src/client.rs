@@ -6,11 +6,11 @@ use crate::{
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, SendOutcome, Server, ServerError, ServerStorage,
-        ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
+        CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError,
+        ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1100,6 +1100,16 @@ impl Client {
         self.utilities.device_transport.is_some()
     }
 
+    /// Whether a [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard) holds the device, so
+    /// its collectives queue nothing.
+    pub fn skips_communication(&self) -> bool {
+        self.utilities.communication_skips.any()
+    }
+
+    pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
+        &self.utilities.communication_skips
+    }
+
     /// Panics on the caller when the runtime has no device transport.
     fn expect_device_transport(&self, operation: Collective) {
         // The server refuses too, but on the device thread, where the channel turns the panic into
@@ -1151,7 +1161,8 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it.
+    /// queueing them stops with it. It queues nothing while this device skips communication,
+    /// whatever its peers do, since reading theirs would load their clients on every call.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1172,6 +1183,9 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
+        if self.skips_communication() {
+            return;
+        }
         self.prepare_collective(collective, device_ids.clone());
         self.queue_all_reduce(
             src,

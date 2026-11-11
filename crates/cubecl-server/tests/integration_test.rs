@@ -7,6 +7,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
+use cubecl_server::benchmark::CommunicationSkipGuard;
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::server::{
     CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation,
@@ -395,6 +396,101 @@ fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
             ReduceOperation::Sum,
         )
     });
+}
+
+#[test_log::test]
+fn a_group_skipping_communication_checks_every_part_and_queues_none() {
+    let clients = [0, 1]
+        .map(|index| Client::load::<DummyServer<CountedTransport>>(DeviceId::new(0, index)))
+        .to_vec();
+    let group = ClientGroup::new(clients).unwrap();
+    let parts = || {
+        group
+            .clients()
+            .iter()
+            .map(|client| collective_parts(client.service_id()))
+            .sum::<usize>()
+    };
+    let contents = [1u8, 2, 3, 4, 5, 6, 7, 8];
+    let in_place = || -> Vec<MemberBuffers> {
+        group
+            .clients()
+            .iter()
+            .map(|client| {
+                let handle = client.create_from_slice(&contents);
+                MemberBuffers {
+                    src: handle.clone(),
+                    dst: handle,
+                }
+            })
+            .collect()
+    };
+    let read = |buffers: &[MemberBuffers]| -> Vec<Vec<u8>> {
+        group
+            .clients()
+            .iter()
+            .zip(buffers)
+            .map(|(client, buffers)| client.read_one(buffers.dst.clone()).unwrap().to_vec())
+            .collect()
+    };
+    let all_reduce = |buffers: &[MemberBuffers]| {
+        let parts = buffers
+            .iter()
+            .map(|buffers| MemberBuffers {
+                src: buffers.src.clone(),
+                dst: buffers.dst.clone(),
+            })
+            .collect();
+        group.all_reduce(parts, F32, ReduceOperation::Sum);
+    };
+
+    let member = CommunicationSkipGuard::enter(&group.clients()[1..]);
+    assert!(!group.clients()[0].skips_communication());
+    assert!(group.skips_communication());
+
+    let reduced = in_place();
+    all_reduce(&reduced);
+    group.all_gather(member_buffers(&group, 8, 16));
+    group.reduce_scatter(member_buffers(&group, 8, 4), F32, ReduceOperation::Sum);
+    group.all_to_all(member_buffers(&group, 8, 8));
+    let root = group.clients()[0].empty(8);
+    let dst = vec![root.clone(), group.clients()[1].empty(8)];
+    group.broadcast(root, dst);
+    for (member, buffers) in group.members().iter().zip(in_place()) {
+        member.all_reduce(buffers, F32, ReduceOperation::Sum);
+    }
+    assert_refused("holds 8 bytes where it needs 16", || {
+        group.all_gather(member_buffers(&group, 8, 8))
+    });
+    let device_ids: Vec<DeviceId> = group
+        .clients()
+        .iter()
+        .map(|client| client.service_id().device)
+        .collect();
+    let every = CommunicationSkipGuard::enter(group.clients());
+    for client in group.clients() {
+        let handle = client.create_from_slice(&contents);
+        client.clone().all_reduce(
+            handle.clone(),
+            handle,
+            F32,
+            device_ids.clone(),
+            ReduceOperation::Sum,
+        );
+    }
+    drop(every);
+    assert!(
+        group.skips_communication(),
+        "the member's own skip still holds"
+    );
+    assert_eq!(read(&reduced), [contents.to_vec(), contents.to_vec()]);
+    assert_eq!(parts(), 0);
+
+    drop(member);
+    let reduced = in_place();
+    all_reduce(&reduced);
+    read(&reduced);
+    assert_eq!(parts(), 2);
 }
 
 /// Two clients of a runtime that claims a transport, so a collective reaches the caller's checks.

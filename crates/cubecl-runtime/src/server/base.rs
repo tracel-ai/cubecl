@@ -32,7 +32,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::future::block_on;
 use cubecl_environment::future::channel::{Receiver, Sender, bounded};
 use cubecl_environment::stream::StreamId;
-use cubecl_environment::sync::RwLock;
+use cubecl_environment::sync::{AtomicUsize, Ordering, RwLock};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
@@ -146,12 +146,36 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
+    pub communication_skips: CommunicationSkips,
     /// Whether kernels on this device can address the memory of another device of the runtime,
     /// asked of the device once per pair.
     pub peer_access: RwLock<HashMap<DeviceId, bool>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
+}
+
+/// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold a device, so that
+/// nested ones compose.
+#[derive(Debug, Default)]
+pub struct CommunicationSkips {
+    held: AtomicUsize,
+}
+
+impl CommunicationSkips {
+    /// Whether any holds the device.
+    pub fn any(&self) -> bool {
+        self.held.load(Ordering::Acquire) > 0
+    }
+
+    pub(crate) fn enter(&self) {
+        self.held.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn leave(&self) {
+        self.held.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// A runtime's transport between its devices, which moves any buffer as bytes.
@@ -256,6 +280,7 @@ impl ServerUtilities {
             device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            communication_skips: CommunicationSkips::default(),
             peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
