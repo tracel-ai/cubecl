@@ -11,7 +11,9 @@ use num_traits::One;
 use pliron::{context::Ptr, operation::Operation};
 
 use crate::{
-    shared::{lowering::LowerOp, scoped_block, shared_op_with_out, ty::TypeExtCPP},
+    shared::{
+        CppValue, lowering::LowerOp, scoped_block, shared_op, shared_op_with_out, ty::TypeExtCPP,
+    },
     target::{CtxTarget, Target},
 };
 
@@ -59,10 +61,34 @@ fn atomic_store<T: Numeric + CubeNeg, N: Size>(
     ptr.exchange_at(value, sync);
 }
 
+/// Whether a store of the atomic `op` is a plain volatile store rather than an exchange: on CUDA,
+/// for the one- and two-byte values `atomicExch` has no overload for. PTX gives `st.volatile` the
+/// semantics of `st.relaxed.sys`, the same rule the atomic load relies on.
+fn stores_volatile(ctx: &Context, op: &AtomicStoreOp) -> bool {
+    ctx.target() == Target::Cuda && op.value(ctx).get_type(ctx).size(ctx) <= 2
+}
+
+shared_op!(AtomicStoreOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    let uint_ty = match op.value(ctx).get_type(ctx).size(ctx) {
+        1 => "uint8_t",
+        2 => "uint16_t",
+        _ => unreachable!("only a one- or two-byte store is left unlowered"),
+    };
+    format!(
+        "*reinterpret_cast<volatile {uint_ty}*>({ptr}) = reinterpret_cast<const {uint_ty}&>({value});\n"
+    )
+});
+
 // The rewrites below build other atomics, which synchronize at the scope the original asked for.
 
 #[op_interface_impl]
 impl LowerOp for AtomicStoreOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        !stores_volatile(ctx, self)
+    }
+
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         define_scalar!(T);
         define_size!(S);
@@ -240,3 +266,62 @@ shared_op_with_out!(AtomicXorOp, |op, ctx| {
     let name = scoped_name(ctx, op.get_operation(), "atomicXor");
     format!("{name}({ptr}, {value})")
 });
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        shared::{CompilationOptions, CppCompiler},
+        target::{Cuda, Hip},
+    };
+    use cubecl_core::{
+        self as cubecl, Compiler,
+        compute::KernelBuilder,
+        ir::{
+            AddressType,
+            settings::{Dim3, ExecutionMode, KernelSettings},
+        },
+        prelude::*,
+    };
+    use half::f16;
+
+    /// A unit's index stored into a 16-bit float atomic.
+    #[cube]
+    fn store_half() {
+        let cells = Shared::<[Atomic<f16>]>::new_slice(32usize);
+        cells[UNIT_POS as usize].store(f16::cast_from(UNIT_POS));
+    }
+
+    fn store_half_kernel() -> KernelDefinition {
+        let builder = KernelBuilder::new(KernelSettings::new(
+            Dim3::new_1d(32),
+            ExecutionMode::Checked,
+            AddressType::U32,
+        ));
+        store_half::expand(&builder.scope);
+        builder.build()
+    }
+
+    /// CUDA has no `atomicExch` for two bytes, so a 16-bit atomic store is a volatile store.
+    #[test]
+    fn a_16_bit_atomic_store_on_cuda_is_a_volatile_store() {
+        let source = CppCompiler::<Cuda>::default()
+            .compile(store_half_kernel(), &CompilationOptions::default())
+            .unwrap()
+            .to_string();
+        assert!(
+            source.contains("reinterpret_cast<volatile uint16_t*>"),
+            "{source}"
+        );
+        assert!(!source.contains("atomicExch"), "{source}");
+    }
+
+    /// HIP keeps the exchange, whose 16-bit overload it has.
+    #[test]
+    fn a_16_bit_atomic_store_on_hip_is_an_exchange() {
+        let source = CppCompiler::<Hip>::default()
+            .compile(store_half_kernel(), &CompilationOptions::default())
+            .unwrap()
+            .to_string();
+        assert!(source.contains("atomicExch"), "{source}");
+    }
+}
