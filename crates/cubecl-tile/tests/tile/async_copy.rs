@@ -6,7 +6,8 @@
 //! A device without the copy engine skips: the async half has nothing to run on.
 
 use crate::support::{
-    HostData, HostDataType, TestInput, TileInput, ValidationResult, assert_equals_approx,
+    HostData, HostDataType, HostDataVec, TestInput, TileInput, ValidationResult,
+    assert_equals_approx,
 };
 use cubecl::{
     bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle, zspace::shape,
@@ -65,6 +66,42 @@ fn ring_matmul(
             }
         });
     });
+}
+
+/// [`ring_matmul`] `rounds` times over, each round building its ring anew and freeing it, as a
+/// kernel that walks several boxes in turn does: `c = rounds · a · b`. The rounds are a loop the
+/// launch does not unroll, so every round's ring stands in the same shared memory.
+#[cube(launch)]
+fn ring_matmul_rounds(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
+    space: Partitioning,
+    rounds: u32,
+    #[comptime] depth: usize,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let mut c = c.tile(&space);
+    c.zero();
+
+    for _ in 0..rounds {
+        let walk = space.walk();
+        let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+        stages.pipelined(walk, |slot, region| {
+            let c_block = c.at(region);
+            slot.consume(|a_s, b_s| {
+                for cell in region {
+                    let mut c_cell = c_block
+                        .at(&cell)
+                        .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
+                }
+            });
+        });
+        stages.free();
+        sync_cube();
+    }
 }
 
 /// Each region of `src` staged by a blocking `copy_from`, then copied out of the stage: the fill
@@ -181,6 +218,72 @@ fn an_async_ring_walk_double_buffered() {
 #[test]
 fn an_async_ring_walk_triple_buffered_over_an_odd_walk() {
     check_ring_matmul(8, 8, 20, 4, 3);
+}
+
+fn ring_matmul_rounds_with(rounds: u32, depth: usize, delivery: Delivery) -> HostData {
+    let client = cubecl::test_device().client();
+    let (m, n, k, block_k, tile) = (8usize, 8usize, 20usize, 4usize, 4usize);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, tile), (N, tile), (K, tile)])
+                .walk(&[(M, m / tile), (N, n / tile), (K, block_k / tile)])
+                .walk_every(&[M, N, K])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+        .tile(&[tile, tile])
+        .arange();
+    let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
+        .tile(&[tile, tile])
+        .arange();
+    let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
+        .tile(&[tile, tile])
+        .uniform(7, -100.0, 100.0);
+
+    ring_matmul_rounds::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        a.bind(&launcher).delivery(delivery).build().unwrap().arg(),
+        b.bind(&launcher).delivery(delivery).build().unwrap().arg(),
+        c.arg(&launcher, 1),
+        launcher.partitioning_arg(),
+        rounds,
+        depth,
+    );
+    HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32)
+}
+
+/// A ring built twice in one kernel, the second in the shared memory the first freed, over a walk
+/// of five regions, so the first ring's barriers end on an odd phase: the second ring meets on
+/// barriers of its own, and the kernel finishes with twice the product. Reinitialized in place
+/// with no end to the first, an `mbarrier` keeps its phase and the second ring's first wait never
+/// completes.
+#[test]
+fn an_async_ring_built_again_in_a_loop_meets_on_new_barriers() {
+    let client = cubecl::test_device().client();
+    if !has_copy_engine(&client) {
+        return;
+    }
+    let (_, once) = TestInput::builder(client, shape![2, 2, 4, 4])
+        .custom(references::tiled_matmul(8, 8, 20, 4))
+        .generate_with_f32_host_data();
+    let HostDataVec::F32(values) = &once.data else {
+        panic!("the reference is f32");
+    };
+    let twice = HostData {
+        data: HostDataVec::F32(values.iter().map(|value| 2.0 * value).collect()),
+        ..once.clone()
+    };
+    for depth in [2, 3] {
+        let [sync, copied] = DELIVERIES.map(|delivery| ring_matmul_rounds_with(2, depth, delivery));
+        assert_equals_approx(&sync, &twice, 1e-3).enforce();
+        assert_equals_approx(&copied, &twice, 1e-3).enforce();
+    }
 }
 
 /// `rows` of a `rows_space`-row space are real; the rest overhang the tensor and read as zero.
