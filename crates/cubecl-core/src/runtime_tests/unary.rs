@@ -1,5 +1,6 @@
 #![allow(clippy::approx_constant)]
 
+use alloc::vec::Vec;
 use core::f64::consts::PI;
 use cubecl_runtime::runtime::Runtime;
 
@@ -974,48 +975,83 @@ test_unary_impl_fixed!(
     ]
 );
 
-pub fn test_expm1_f32<R: Runtime>(client: Client) {
-    #[cube(launch_unchecked)]
-    fn test_function<In: Size, Out: Size>(
-        input: &[Vector<f32, In>],
-        output: &mut [Vector<f32, Out>],
-    ) {
-        if ABSOLUTE_POS < input.len() {
-            output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].exp_m1());
-        }
+#[cube(launch_unchecked)]
+fn expm1_f32_kernel<In: Size, Out: Size>(
+    input: &[Vector<f32, In>],
+    output: &mut [Vector<f32, Out>],
+) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].exp_m1());
     }
+}
 
-    let input = &[0.0f32, 1.0e-7, 10.0, -1.0e-7];
-    let expected = [
-        0.0f32.exp_m1(),
-        1.0e-7f32.exp_m1(),
-        10.0f32.exp_m1(),
-        (-1.0e-7f32).exp_m1(),
+fn run_expm1_f32(client: &Client, input: &[f32], vectorization: usize) -> Vec<f32> {
+    let output_handle = client.empty(core::mem::size_of_val(input));
+    let input_handle = client.create_from_slice(f32::as_bytes(input));
+
+    unsafe {
+        expm1_f32_kernel::launch_unchecked(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d((input.len() / vectorization) as u32),
+            vectorization,
+            vectorization,
+            BufferArg::from_raw_parts(input_handle, input.len()),
+            BufferArg::from_raw_parts(output_handle.clone(), input.len()),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output_handle);
+    f32::from_bytes(&actual).to_vec()
+}
+
+pub fn test_expm1_f32<R: Runtime>(client: Client) {
+    // Both signs, from where `expm1(x) == x` in f32, through the range where `exp(x) - 1`
+    // cancels most of its bits, to values where `exp(x)` is far from one.
+    let input = &[
+        1.0e-7f32, -1.0e-7, 1.5e-5, -1.5e-5, 3.0e-4, -7.0e-4, 1.0e-2, -3.0e-2, 0.25, -0.4, 2.0,
+        -3.0, 10.0, -20.0, 0.75, -0.9,
     ];
 
-    for &(input_vectorization, out_vectorization) in &[(1usize, 1usize), (2, 2), (4, 4)] {
-        let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
-        let input_handle = client.create_from_slice(f32::as_bytes(input));
+    for vectorization in [1usize, 2, 4] {
+        let actual = run_expm1_f32(&client, input, vectorization);
+        for (&x, &actual) in input.iter().zip(actual.iter()) {
+            assert!(
+                ordered_f32_bits(actual).abs_diff(ordered_f32_bits(x.exp_m1())) <= 4,
+                "expm1({x}) with vectorization {vectorization}: actual={actual}, expected={}",
+                x.exp_m1()
+            );
+        }
+    }
+}
 
-        unsafe {
-            test_function::launch_unchecked(
-                &client,
-                CubeCount::Static(1, 1, 1),
-                CubeDim::new_1d((input.len() / input_vectorization) as u32),
-                input_vectorization,
-                out_vectorization,
-                BufferArg::from_raw_parts(input_handle, input.len()),
-                BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
-            )
-        };
+pub fn test_expm1_f32_edges<R: Runtime>(client: Client) {
+    let input = &[
+        0.0f32,
+        -0.0,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+        100.0,
+        -100.0,
+        f32::MIN_POSITIVE,
+    ];
 
-        let actual = client.read_one_unchecked(output_handle);
-        let actual = f32::from_bytes(&actual);
+    for vectorization in [1usize, 2, 4] {
+        let actual = run_expm1_f32(&client, input, vectorization);
 
-        assert_eq!(actual[0], 0.0);
-        assert_f32_ulp_le(actual[1], expected[1], 2);
-        assert_f32_ulp_le(actual[2], expected[2], 2);
-        assert_f32_ulp_le(actual[3], expected[3], 2);
+        assert_eq!(actual[0], 0.0, "expm1(0)");
+        assert_eq!(actual[1], 0.0, "expm1(-0)");
+        assert_eq!(actual[2], f32::INFINITY, "expm1(inf)");
+        assert_eq!(actual[3], -1.0, "expm1(-inf)");
+        assert!(
+            actual[4].is_nan(),
+            "expm1(NaN) should be NaN, got {}",
+            actual[4]
+        );
+        assert_eq!(actual[5], f32::INFINITY, "expm1(100)");
+        assert_eq!(actual[6], -1.0, "expm1(-100)");
+        assert_f32_ulp_le(actual[7], f32::MIN_POSITIVE, 4);
     }
 }
 
@@ -1177,6 +1213,12 @@ macro_rules! testgen_unary {
             fn test_expm1_f32() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::unary::test_expm1_f32::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_expm1_f32_edges() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::unary::test_expm1_f32_edges::<TestRuntime>(client);
             }
         }
     };
