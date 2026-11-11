@@ -56,6 +56,41 @@ mod tests {
         assert_eq!(&*lazy, &[8, 2, 3, 4]);
     }
 
+    /// A write shorter than its binding fills its start and leaves the rest as it was.
+    #[test]
+    fn a_short_write_fills_the_start_of_its_binding() {
+        use cubecl_common::bytes::Bytes;
+
+        let client = TestRuntime::client(&Default::default());
+        let handle = client.create_from_slice(&[9; 8]);
+        client.write(&handle, Bytes::from_bytes_vec(vec![1, 2, 3]));
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+
+        assert_eq!(
+            &*client.read_one_unchecked(handle),
+            &[1, 2, 3, 9, 9, 9, 9, 9]
+        );
+    }
+
+    /// A write longer than its binding is refused, as on CUDA and HIP: the binding is left
+    /// unwritten, so a read of it fails on the refusal.
+    #[test]
+    fn a_write_past_its_binding_fails_its_read() {
+        use cubecl_common::bytes::Bytes;
+
+        let client = TestRuntime::client(&Default::default());
+        let handle = client.create_from_slice(&[9; 8]);
+        client.write(&handle, Bytes::from_bytes_vec(vec![1; 9]));
+        let err = client
+            .read_one(handle)
+            .expect_err("a write past the binding must fail");
+        assert!(
+            err.to_string()
+                .contains("write of 9 bytes exceeds the target buffer of 8 bytes"),
+            "got: {err}"
+        );
+    }
+
     /// Eager reads remain live aliases; shared views report aliasing until their own copy-on-write.
     #[test]
     fn eager_reads_preserve_source_mutability() {

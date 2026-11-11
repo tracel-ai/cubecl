@@ -304,6 +304,19 @@ impl Server for CpuServer {
                         backtrace: BackTrace::capture(),
                     }));
                 }
+                // A write fills the start of its binding. One past its end would land
+                // in whatever pool slice follows, memory no failure ever claimed: the
+                // same refusal as CUDA and HIP.
+                let size = desc.handle.size_in_used();
+                if data.len() as u64 > size {
+                    return Err(ServerError::Io(IoError::Unknown {
+                        description: format!(
+                            "write of {} bytes exceeds the target buffer of {size} bytes",
+                            data.len(),
+                        ),
+                        backtrace: BackTrace::capture(),
+                    }));
+                }
 
                 // The write is registered on the caller, so name the
                 // streams with work queued on the handle as arguments: that

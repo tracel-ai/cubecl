@@ -183,7 +183,7 @@ pub fn prime(
             CubeCount::Static(config.cube_count as u32, 1, 1),
             config.cube_dim,
             config.vector_size,
-            BufferArg::from_raw_parts(handle.clone(), pool_lines),
+            BufferArg::from_raw_parts(handle.clone(), pool_lines * config.vector_size),
             pool_lines,
             dtype,
         );

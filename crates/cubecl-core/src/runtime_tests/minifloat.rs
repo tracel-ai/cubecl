@@ -160,7 +160,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: Client, vector_size:
             vector_size,
             vector_size / 2,
             BufferArg::from_raw_parts(handle1.clone(), num_out),
-            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle2.clone(), num_out / 2),
         )
     };
 
