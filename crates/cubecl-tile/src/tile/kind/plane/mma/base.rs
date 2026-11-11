@@ -1068,13 +1068,19 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                     vector.insert(e, T::from_int(0));
                 }
             } else if comptime!(width >= vector_size) {
-                // A register vector starts at a multiple of its size, so it stays within `width`.
-                let line = view.read((line_row, cell / comptime!(width as u32)));
-                let start = cell % comptime!(width as u32);
-                #[unroll]
-                for e in 0..vector_size {
-                    vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
-                }
+                // A register vector starts at a multiple of its size, so it stays within `width`:
+                // the line read at the register's width holds it whole, one load at the unit's
+                // offset. Picking its cells out of the whole line instead indexes the line's
+                // cells by the unit, which a register vector cannot be, and lowers to a store of
+                // the line to local memory and a load of every cell back.
+                let line = view
+                    .line_slice(
+                        (line_row, cell / comptime!(width as u32)),
+                        (1u32.runtime(), 1u32.runtime()),
+                    )
+                    .with_vector_size::<N>();
+                vector = line[((cell % comptime!(width as u32)) / comptime!(vector_size as u32))
+                    as usize];
             } else {
                 #[unroll]
                 for l in 0..comptime!(vector_size / width) {
@@ -1097,10 +1103,17 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
                 if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
-                    let line = view.read((line_row, cell / comptime!(width as u32)));
+                    // The cell read alone, at its offset in its line, rather than picked out of
+                    // the whole line by the unit's index, which lowers through local memory.
+                    let cells = view
+                        .line_slice(
+                            (line_row, cell / comptime!(width as u32)),
+                            (1u32.runtime(), 1u32.runtime()),
+                        )
+                        .with_vector_size::<Const<1>>();
                     vector.insert(
                         e,
-                        line.extract_dynamic((cell % comptime!(width as u32)).cast::<usize>()),
+                        cells[(cell % comptime!(width as u32)) as usize].extract(0usize),
                     );
                 }
             }
