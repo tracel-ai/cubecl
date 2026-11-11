@@ -12,8 +12,9 @@ use crate::*;
 pub(crate) enum Descent {
     /// `acc` holds one fragment or block, or is a memory window: its instruction runs here.
     Here,
-    /// `acc` is a grid of fragments and the level below steps the contraction: each of its regions
-    /// contracts in turn, through the grid's instruction.
+    /// `acc` is a grid of fragments and the level below steps the contraction, or one cmma
+    /// fragment under a level that does: each of its regions contracts in turn, through the
+    /// grid's instruction.
     Steps(Instruction),
     /// `acc` is a grid of fragments and the level below only moves its cells: each operand's
     /// fragments load once in the instruction's form, then every cell contracts.
@@ -22,20 +23,37 @@ pub(crate) enum Descent {
 
 impl Descent {
     /// The descent into an accumulator placed at `acc`, a grid contracting through `grid`'s
-    /// instruction or `None` where it holds one fragment, from operands spanning `lhs` and `rhs`.
-    pub(crate) fn of(grid: Option<Instruction>, acc: &Placement, lhs: &Space, rhs: &Space) -> Self {
-        let Some(instruction) = grid else {
-            return Descent::Here;
+    /// instruction or `None` where it holds one fragment, a cmma one where `cmma`, from operands
+    /// spanning `lhs` and `rhs`.
+    ///
+    /// A cmma fragment reads its factors no deeper than its instruction, so one fragment under a
+    /// level that walks the contraction steps it: run here, it would ask the device for a
+    /// fragment as deep as the whole walk.
+    pub(crate) fn of(
+        grid: Option<Instruction>,
+        cmma: bool,
+        acc: &Placement,
+        lhs: &Space,
+        rhs: &Space,
+    ) -> Self {
+        let operands = Space::merge(&[lhs, rhs]);
+        let walks_contraction = |level: &Level| {
+            level
+                .axes()
+                .iter()
+                .any(|&axis| operands.contains(axis) && !acc.space.contains(axis))
         };
-        let below = acc.below().first().unwrap_or_else(|| {
+        let below = acc.below();
+        let Some(instruction) = grid else {
+            return match cmma && below.iter().any(walks_contraction) {
+                true => Descent::Steps(Instruction::Cmma),
+                false => Descent::Here,
+            };
+        };
+        let below = below.first().unwrap_or_else(|| {
             panic!("mma: a grid of fragments contracts at a level with its cells below it")
         });
-        let operands = Space::merge(&[lhs, rhs]);
-        let steps_contraction = below
-            .axes()
-            .iter()
-            .any(|&axis| operands.contains(axis) && !acc.space.contains(axis));
-        match steps_contraction {
+        match walks_contraction(below) {
             true => Descent::Steps(instruction),
             false => Descent::Cells(instruction),
         }
@@ -49,15 +67,26 @@ impl Descent {
         match &acc.kind {
             TileKind::PlanePartition(p) => {
                 let grid = p.grid();
+                let cmma = p.is_cmma();
                 comptime!(Descent::of(
                     grid,
+                    cmma,
                     &acc.place,
                     &lhs.place.space,
                     &rhs.place.space
                 ))
             }
-            TileKind::PlaneTile(_)
-            | TileKind::Memory(_)
+            TileKind::PlaneTile(t) => {
+                let cmma = t.is_cmma();
+                comptime!(Descent::of(
+                    None,
+                    cmma,
+                    &acc.place,
+                    &lhs.place.space,
+                    &rhs.place.space
+                ))
+            }
+            TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
             | TileKind::Lines(_) => comptime!(Descent::Here),
@@ -172,19 +201,46 @@ mod tests {
         Placement::new(Space::new(&[(M, 16), (N, 16)]), 0, vec![below])
     }
 
+    /// The descent into a grid of cmma fragments, or of one cmma fragment where `grid` is `None`.
     fn descent(grid: Option<Instruction>, below: Level) -> Descent {
-        let lhs = Space::new(&[(M, 16), (K, 16)]);
-        let rhs = Space::new(&[(K, 16), (N, 16)]);
-        Descent::of(grid, &grid_over(below), &lhs, &rhs)
+        descent_of(grid, true, below)
     }
 
-    /// One fragment runs its instruction where it is called, whatever lies below.
+    fn descent_of(grid: Option<Instruction>, cmma: bool, below: Level) -> Descent {
+        let lhs = Space::new(&[(M, 16), (K, 16)]);
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        Descent::of(grid, cmma, &grid_over(below), &lhs, &rhs)
+    }
+
+    /// One fragment under levels that leave the contraction whole runs its instruction where it
+    /// is called.
     #[test]
     fn one_fragment_contracts_here() {
         let below = Levels::leaf(&[(M, 8), (N, 8)])
             .walk(&[(M, 2), (N, 2)])
             .level();
         assert_eq!(descent(None, below), Descent::Here);
+    }
+
+    /// One cmma fragment under a level that walks `K` steps it: run here, it would load a fragment
+    /// as deep as the whole walk, which a device offering only its instruction's depth (Metal's
+    /// `8x8x8`) cannot compile.
+    #[test]
+    fn one_cmma_fragment_over_the_contraction_steps_it() {
+        let below = Levels::leaf(&[(M, 16), (N, 16), (K, 8)])
+            .walk(&[(K, 2)])
+            .level();
+        assert_eq!(descent(None, below), Descent::Steps(Instruction::Cmma));
+    }
+
+    /// One manual-mma fragment walks a contraction deeper than its instruction itself, so it still
+    /// runs where it is called.
+    #[test]
+    fn one_manual_mma_fragment_over_the_contraction_contracts_here() {
+        let below = Levels::leaf(&[(M, 16), (N, 16), (K, 8)])
+            .walk(&[(K, 2)])
+            .level();
+        assert_eq!(descent_of(None, false, below), Descent::Here);
     }
 
     /// A level that steps only the grid's cells loads each operand's fragments once above it.

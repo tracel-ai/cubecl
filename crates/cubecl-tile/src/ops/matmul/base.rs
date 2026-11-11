@@ -64,7 +64,8 @@ impl Tile {
             match &self.kind {
                 TileKind::PlanePartition(partition) => {
                     let grid = partition.grid();
-                    match comptime!(Descent::of(grid, &self.place, &own, &own)) {
+                    let cmma = partition.is_cmma();
+                    match comptime!(Descent::of(grid, cmma, &self.place, &own, &own)) {
                         Descent::Here => {
                             operand.fragment_for::<Target>(&partition.at(0usize, 0usize), &out)
                         }
