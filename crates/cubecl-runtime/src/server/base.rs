@@ -172,6 +172,30 @@ pub enum TransportProvider {
     Rccl,
 }
 
+impl DeviceTransport {
+    /// The transport `load` gives, or none without calling it when the configuration turns the
+    /// device transport off.
+    pub fn configured(load: impl FnOnce() -> Option<Self>) -> Option<Self> {
+        use crate::config::transport::DeviceTransportMode;
+
+        match CubeClRuntimeConfig::get().transport.device {
+            DeviceTransportMode::Auto => load(),
+            DeviceTransportMode::Off => {
+                static LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    log::info!(
+                        "The device transport is off by configuration (`transport.device` or \
+                         `CUBECL_DEVICE_TRANSPORT`): transfers between devices go through the \
+                         host, and cubecl runs no collective between them"
+                    );
+                }
+                None
+            }
+        }
+    }
+}
+
 impl TransportProvider {
     /// The provider's name, as logs and refusals show it.
     pub const fn name(self) -> &'static str {
