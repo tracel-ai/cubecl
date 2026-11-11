@@ -232,6 +232,9 @@ CubeCL supports several environment variables to override configuration at runti
   from (see [Profiling Kernels](./profiling.md#source-files)). CubeCL searches it first, then the
   working directory and its parents.
 - `CUBECL_SOURCE_CACHE`: Sets `compilation.source_cache` to the given directory.
+- `CUBECL_CUDA_DUMP_PTX`: The `cuda` runtime writes the PTX of each kernel it loads to the given
+  directory, one `<entry point>.ptx` file per kernel. The entry point ends with a hash of the
+  kernel id, so each comptime variant of a kernel gets its own file.
 - `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.
 - `CUBECL_ENVIRONMENT_RECORDS`: Sets `environment.records.level`, how much the
   environment records of its own build.
