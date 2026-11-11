@@ -19,9 +19,9 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Scratch, Semiring, Space,
-    StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
-    ops::{matmul::MmaIo, softmax::OnlineSoftmax},
+    Axis, Levels, Partitioning, RegisterBlock, Scratch, Semiring, Space, StageStorage, Stages,
+    Tile, TileSpec, TileTensor, TileTensorLaunch,
+    ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -112,9 +112,10 @@ fn plane_attention<E: Float>(
             let walk = keys_walk.range(0, blocks);
             let score = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
             let mut p = Tile::scratch::<E>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
+            // The value's sum is opened against what it contracts: the probabilities.
             let acc = out
                 .at(&plane)
-                .accumulator::<f32>(&bias_p, &v_p, Instruction::Cmma, Semiring::SUM_PROD)
+                .accumulator::<f32>(&p, &v_p, Semiring::SUM_PROD)
                 .with_scratch(Scratch::OneTile);
             let mut softmax = OnlineSoftmax::<f32>::along(&score, S);
             // The query spans no key: staged once, before the walk, where the keys are staged.
@@ -125,8 +126,7 @@ fn plane_attention<E: Float>(
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|k_s, v_s| {
-                    let logits =
-                        score.accumulator::<f32>(&q_s, k_s, Instruction::Cmma, Semiring::SUM_PROD);
+                    let logits = score.accumulator::<f32>(&q_s, k_s, Semiring::SUM_PROD);
                     for fragment in stage.walk().routed(V, 0).unrolled() {
                         let mut cell = logits.at(&fragment);
                         cell.mma(&q_s.at(&fragment), &k_s.at(&fragment));
@@ -180,10 +180,6 @@ fn register_plane_attention<E: Float>(
     #[comptime] unbiased: bool,
     #[define(E)] _dtype: ElemType,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::default(),
-        operands: MmaOperands::Plain,
-    });
     let q = q.tile(&space);
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
@@ -211,14 +207,15 @@ fn register_plane_attention<E: Float>(
             let keys_walk = plane.walk();
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
-            let acc =
-                out.at(&plane)
-                    .accumulator::<f32>(&bias_p, &v_p, instruction, Semiring::SUM_PROD);
             let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
             q_s.copy_from(&q_p);
             sync_plane();
-            let logits =
-                Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s, instruction);
+            let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            // The value's sum is opened against what it contracts: the score's own fragments,
+            // whose instruction it keeps.
+            let acc = out
+                .at(&plane)
+                .accumulator::<f32>(&logits, &v_p, Semiring::SUM_PROD);
             let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
             let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
@@ -313,12 +310,10 @@ fn unit_attention(
                 out.at(&unit),
                 bias.at(&unit),
             );
-            let mut acc = out_u.accumulator::<f32>(
+            let mut acc = out_u.register_accumulator::<f32>(
                 &bias_u,
                 &v_u,
-                comptime!(Instruction::Registers {
-                    config: RegisterBlock::new(rows * value)
-                }),
+                comptime!(RegisterBlock::new(rows * value)),
                 Semiring::SUM_PROD,
             );
             let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
@@ -329,12 +324,10 @@ fn unit_attention(
                     v_u.at(&step),
                     bias_u.at(&step),
                 );
-                let mut score = bias_s.accumulator::<f32>(
+                let mut score = bias_s.register_accumulator::<f32>(
                     &q_s,
                     &k_s,
-                    comptime!(Instruction::Registers {
-                        config: RegisterBlock::new(rows * block_keys)
-                    }),
+                    comptime!(RegisterBlock::new(rows * block_keys)),
                     Semiring::SUM_PROD,
                 );
                 score.mma(&q_s, &k_s);

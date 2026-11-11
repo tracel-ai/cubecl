@@ -2,7 +2,6 @@
 //! the `row × col` matrix, leading axes as a batch, and contracts `K`.
 
 pub(crate) mod base;
-pub(crate) mod contraction;
 pub(crate) mod descent;
 pub(crate) mod instruction;
 pub(crate) mod leaf;

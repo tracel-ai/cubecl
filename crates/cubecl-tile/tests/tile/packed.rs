@@ -20,7 +20,6 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3, e5m2};
 
 use crate::tile::uncut;
-use cubecl_tile::Instruction;
 use cubecl_tile::kind::Field;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
@@ -314,14 +313,8 @@ fn packed_one_row_product<E: Numeric>(
         let w = w.at(&cube);
         let c = c.at(&cube);
         // The accumulator lives in registers across the whole walk and drains once.
-        let acc = c.accumulator::<E>(
-            &x,
-            &values,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &values, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -372,14 +365,8 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
-            &x,
-            &values,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &values, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -405,7 +392,7 @@ fn packed_cmma_rhs<E: Numeric>(
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&x, &w, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
     // The level cuts the columns into two fragments and walks `K`: unrolled, so each region
     // selects its fragment at comptime.
     for region in space.over(&level).unrolled() {
@@ -431,7 +418,7 @@ fn packed_cmma_rhs_dequantized<E: Numeric>(
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&x, &w, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_r = acc.at(&region);
         let w_r = acc_r.dequantized(&w.at(&region), element);
@@ -2041,14 +2028,8 @@ fn packed_one_row_product_unscaled<E: Numeric>(
         let x = x.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
-            &x,
-            &w,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &w, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));

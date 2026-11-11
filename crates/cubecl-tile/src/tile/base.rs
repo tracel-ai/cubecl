@@ -7,6 +7,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 use cubecl::zspace::SmallVec;
 
 use crate::dialect::{CopyOp, DequantizeOp};
+use crate::ops::matmul::instruction::FragmentSource;
 use crate::stage::pipeline::payload::base::{StageOperand, StageSpec, stage_one};
 use crate::*;
 
@@ -1264,10 +1265,11 @@ impl Tile {
         unexpanded!()
     }
 
-    /// This tile without its outer scales that vary only along axes of `space`, and those scales,
-    /// for a sum `instruction` contracts. With `space` the output's, they are the scales the sum
-    /// takes out of every term and applies once ([`scaled`](Tile::scaled)), and the tile left
-    /// carries the ones each term needs.
+    /// This operand of `sum` without its outer scales that vary only along the axes of `sum`'s
+    /// space, and those scales. They are the scales the sum takes out of every term and applies
+    /// once ([`scaled`](Tile::scaled)), and the tile left carries the ones each term needs. Open
+    /// the sum first ([`accumulator`](Tile::accumulator)): what it gives up depends on the
+    /// instruction the sum contracts through.
     ///
     /// Words of block scales always give up the scales above them: the instruction reads the
     /// words undecoded, and holds no other scale. A decoded tile gives them up where the sum is
@@ -1275,7 +1277,7 @@ impl Tile {
     /// in lane runs takes one level of scales; under any other sum they ride the load, which
     /// multiplies by them as it decodes, rather than send the sum through shared memory.
     /// A tile indexing a table gives up none: only its copy decodes it.
-    pub fn factor(&self, _space: Space, _instruction: Instruction) -> (Tile, Factor) {
+    pub fn factor(&self, _sum: &Tile) -> (Tile, Factor) {
         unexpanded!()
     }
 
@@ -1345,6 +1347,13 @@ impl Tile {
 
     /// Whether these values carry scales a stage keeps beside them ([`decodes`](Tile::decodes)).
     pub(crate) fn scales_beside(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
+    /// What a plane's fragments of this operand load from: values, codes read with the scales
+    /// kept beside them, or packed values decoded on the way
+    /// ([`Instruction::for_plane`](crate::Instruction)).
+    pub(crate) fn fragment_source(&self) -> comptime_type!(FragmentSource) {
         unexpanded!()
     }
 
@@ -1458,11 +1467,14 @@ impl TileExpand {
     pub fn __expand_factor_method(
         &self,
         scope: &Scope,
-        space: Space,
-        instruction: Instruction,
+        sum: &TileExpand,
     ) -> (TileExpand, FactorExpand) {
+        let space = sum.place.space.clone();
         let gives_up = !self.looks_up()
-            && (self.factor.staged_beside(scope) || instruction.scales_its_sum_in_place());
+            && (self.factor.staged_beside(scope)
+                || sum
+                    .__expand_sum_instruction_method(scope)
+                    .scales_its_sum_in_place());
         if !gives_up {
             return (self.clone(), FactorExpand::default());
         }
@@ -1527,6 +1539,35 @@ impl TileExpand {
 
     pub(crate) fn __expand_scales_beside_method(&self, scope: &Scope) -> bool {
         !self.looks_up() && self.factor.staged_beside(scope)
+    }
+
+    pub(crate) fn __expand_fragment_source_method(&self, scope: &Scope) -> FragmentSource {
+        match &self.kind {
+            TileKindExpand::PlaneTile(tile) => {
+                return FragmentSource::Fragments(tile.__expand_instruction_method(scope));
+            }
+            TileKindExpand::PlanePartition(partition) => {
+                let first = partition.frags.__expand_index_method(scope, 0usize.into());
+                return FragmentSource::Fragments(first.__expand_instruction_method(scope));
+            }
+            _ => {}
+        }
+        let landed = matches!(&self.kind, TileKindExpand::TmaGmem(_));
+        match self.__expand_packing_method(scope) {
+            Packing::Plain | Packing::Words { .. } if landed => {
+                FragmentSource::Landed(self.element)
+            }
+            Packing::Plain | Packing::Words { .. } => FragmentSource::Values(self.element),
+            Packing::Packed { field } => match field.code() {
+                Some(code) if self.__expand_scales_beside_method(scope) => FragmentSource::Codes {
+                    code,
+                    scales: self
+                        .__expand_innermost_factor_method(scope)
+                        .__expand_word_field_method(scope),
+                },
+                _ => FragmentSource::Decoded,
+            },
+        }
     }
 
     pub fn __expand_scales_kept_beside_method(&self, _scope: &Scope) -> TileExpand {

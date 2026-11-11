@@ -4,7 +4,6 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{prelude::*, zspace::shape};
 use cubecl_tile::layout::{PhysicalAxisMap, Scale};
-use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
@@ -29,7 +28,6 @@ fn conv_dense_stage_kernel<E: Numeric>(
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
     #[comptime] storage: StageStorage,
-    #[comptime] instruction: Instruction,
     #[comptime] planes: usize,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -38,7 +36,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
     let out = out.tile(&space);
     for cube in space.over(&cubes) {
         let (input, weight, out) = (input.at(&cube), weight.at(&cube), out.at(&cube));
-        let acc = out.accumulator::<E>(&input, &weight, instruction, Semiring::SUM_PROD);
+        let acc = out.accumulator::<E>(&input, &weight, Semiring::SUM_PROD);
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &input, &weight, storage.clone(), 1usize, None);
         stages.pipelined(walk, |slot, region| {
@@ -59,6 +57,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
     }
 }
 
+/// Which instruction's shapes the leaf is cut to; the accumulator picks the instruction for it.
 #[derive(Clone, Copy)]
 enum Unit {
     Cmma,
@@ -81,11 +80,9 @@ struct Case {
     grid: bool,
 }
 
-/// The instruction's shape if the device offers it over `f16` summed in `f32`, else a skip.
-fn instruction_shape(
-    unit: Unit,
-    client: &cubecl::client::Client,
-) -> Option<(Instruction, usize, usize, usize)> {
+/// The shape of `unit`'s instruction if the device offers it over `f16` summed in `f32`, else a
+/// skip.
+fn instruction_shape(unit: Unit, client: &cubecl::client::Client) -> Option<(usize, usize, usize)> {
     let (f16_ty, f32_ty) = (f16::elem_type_native(), f32::elem_type_native());
     let features = &client.properties().features.matmul;
     let (configs, wanted): (_, &[(usize, usize, usize)]) = match unit {
@@ -105,20 +102,13 @@ fn instruction_shape(
             .enforce();
         return None;
     };
-    let instruction = match unit {
-        Unit::Cmma => Instruction::Cmma,
-        Unit::Mma => Instruction::Mma {
-            io: MmaIo::manual(),
-            operands: MmaOperands::Plain,
-        },
-    };
-    Some((instruction, m, n, k))
+    Some((m, n, k))
 }
 
 impl Case {
     fn check(&self, unit: Unit) {
         let client = cubecl::test_device().client();
-        let Some((instruction, m, n, k)) = instruction_shape(unit, &client) else {
+        let Some((m, n, k)) = instruction_shape(unit, &client) else {
             return;
         };
         let Case {
@@ -208,7 +198,6 @@ impl Case {
             launcher.partitioning().level(0),
             launcher.partitioning().level(1),
             storage,
-            instruction,
             planes,
             f32_ty,
         );

@@ -2,8 +2,9 @@
 //! values of `k`: NVFP4, contracted through the device's block-scaled instruction, the values and
 //! scales handed to it as they lie rather than decoded first.
 //!
-//! The kernel is the plain staged walk a float product takes, its instruction stating its operands
-//! block-scaled (`MmaOperands::BlockScaled`). A per-tensor factor above the block scales rides an
+//! The kernel is the plain staged walk a float product takes. Its accumulator picks the
+//! block-scaled instruction from its operands: codes under block scales the device reads as
+//! stored. A per-tensor factor above the block scales rides an
 //! operand whose block scales are words of four `e4m3`, which a stage keeps beside the values, so
 //! the factor leaves for the sum. It runs only where the device offers that instruction, and is
 //! held to the reference on codes and scales that are exact in `f32`.
@@ -15,21 +16,11 @@ use cubecl::{
 };
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
-    Axis, BlockScaledOperands, Instruction, Level, Levels, MmaOperands, Partitioning, Projection,
-    Semiring, Space, StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
-    layout::PhysicalAxisMap, ops::matmul::MmaIo,
+    Axis, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages, TileSpec,
+    TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 
 use super::{Form, implied};
-
-/// NVFP4 as the block-scaled instruction takes it: `e2m1` codes two to a byte under an `e4m3`
-/// scale every sixteen of `k`.
-const NVFP4: BlockScaledOperands = BlockScaledOperands {
-    lhs: FloatKind::E2M1x2,
-    rhs: FloatKind::E2M1x2,
-    scales: FloatKind::E4M3,
-    block: 16,
-};
 
 const M: Axis = Axis(0);
 const N: Axis = Axis(1);
@@ -62,13 +53,11 @@ fn block_scaled_matmul<E: Numeric>(
     let mut c = c.tile(&space);
     let a_scales = a_scales.tile(&space);
     let b_scales = b_scales.tile(&space);
+    // Opened on the operands as the instruction reads them, codes under their block scales, so
+    // the device's block-scaled instruction is the one picked.
     let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Mma {
-            io: MmaIo::manual(),
-            operands: MmaOperands::BlockScaled(NVFP4),
-        }),
+        &a.mul(&a_scales).scales_kept_beside(),
+        &b.mul(&b_scales).scales_kept_beside(),
         Semiring::SUM_PROD,
     );
     let walk = space.over(&level);
@@ -97,14 +86,11 @@ fn block_scaled_matmul_under_words<E: Numeric>(
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::manual(),
-        operands: MmaOperands::BlockScaled(NVFP4),
-    });
     let mut c = c.tile(&space);
-    let (a, a_factor) = a.tile(&space).factor(c.space(), instruction);
-    let (b, b_factor) = b.tile(&space).factor(c.space(), instruction);
-    let acc = c.accumulator::<E>(&a, &b, instruction, Semiring::SUM_PROD);
+    let (a, b) = (a.tile(&space), b.tile(&space));
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let (a, a_factor) = a.factor(&acc);
+    let (b, b_factor) = b.factor(&acc);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {

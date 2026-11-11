@@ -287,12 +287,10 @@ fn stream_matmul<E: Numeric>(
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
-        let acc = c_region.accumulator::<E>(
+        let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(REGISTER_BLOCK),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
@@ -332,12 +330,10 @@ fn stream_matmul_staged_rhs<E: Numeric>(
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
-        let acc = c_region.accumulator::<E>(
+        let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(REGISTER_BLOCK),
             Semiring::SUM_PROD,
         );
         let cells = region.over(&inner).range(from, steps);
@@ -377,12 +373,10 @@ fn stream_matmul_prefix<E: Numeric>(
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
-        let acc = c_region.accumulator::<E>(
+        let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(REGISTER_BLOCK),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
@@ -825,12 +819,10 @@ fn merged_stream_matmul(
         let (from, count) = portion.steps(i);
         let merge = slots.last_arrival::<Const<1>>(&space, &portion, i, arrivals);
         let (a_region, b_region) = (a.at(&region), b.at(&region));
-        let acc = merge.tile().accumulator::<f32>(
+        let acc = merge.tile().register_accumulator::<f32>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(REGISTER_BLOCK),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&steps).range(from, count) {
