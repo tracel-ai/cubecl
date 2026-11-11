@@ -137,13 +137,17 @@ pub enum FragmentSource {
     /// Values of this element the TMA engine lands: a box holds no padding, so its rows are
     /// staged swizzled, which this crate's transport reads on distinct banks.
     Landed(ElemType),
-    /// Packed codes staged as they are stored, their block scales kept beside them: read as
-    /// stored by a block-scaled instruction, or decoded as each fragment loads.
+    /// Packed codes staged as they are stored, their block scales kept beside them
+    /// ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)): read as stored by a
+    /// block-scaled instruction, or decoded as each fragment loads, in lane runs.
     Codes {
         code: QuantValue,
         scales: Option<Field>,
     },
-    /// Packed values decoded on their way into the fragments.
+    /// Packed codes staged as they are stored, under no scale the stage keeps: decoded as each
+    /// fragment loads, in lane runs.
+    StoredCodes(QuantValue),
+    /// Packed values a stage fill decodes on their way into the fragments.
     Decoded,
     /// A product already held in fragments of this instruction, contracted again as it lies.
     Fragments(Instruction),
@@ -157,11 +161,14 @@ impl FragmentSource {
         let named = |source: FragmentSource| match source {
             FragmentSource::Values(element) | FragmentSource::Landed(element) => Some(element),
             FragmentSource::Codes { .. }
+            | FragmentSource::StoredCodes(_)
             | FragmentSource::Decoded
             | FragmentSource::Fragments(_) => None,
         };
         match self {
-            FragmentSource::Decoded | FragmentSource::Codes { .. } => named(other),
+            FragmentSource::Decoded
+            | FragmentSource::Codes { .. }
+            | FragmentSource::StoredCodes(_) => named(other),
             _ => named(self),
         }
     }
@@ -273,7 +280,9 @@ impl Instruction {
         let read_by_mma = |source| {
             matches!(
                 source,
-                FragmentSource::Landed(_) | FragmentSource::Codes { .. }
+                FragmentSource::Landed(_)
+                    | FragmentSource::Codes { .. }
+                    | FragmentSource::StoredCodes(_)
             )
         };
         let mma_reads = read_by_mma(lhs) || read_by_mma(rhs);

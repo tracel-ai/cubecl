@@ -1348,8 +1348,9 @@ impl Tile {
         unexpanded!()
     }
 
-    /// What a plane's fragments of this operand load from: values, codes read with the scales
-    /// kept beside them, or packed values decoded on the way
+    /// What a plane's fragments of this operand load from: values, codes staged as stored and
+    /// decoded as the fragments load them ([`scales_kept_beside`](Tile::scales_kept_beside)), or
+    /// packed values a stage fill decodes on the way
     /// ([`Instruction::for_plane`](crate::Instruction)).
     pub(crate) fn fragment_source(&self) -> comptime_type!(FragmentSource) {
         unexpanded!()
@@ -1563,6 +1564,7 @@ impl TileExpand {
                         .__expand_innermost_factor_method(scope)
                         .__expand_word_field_method(scope),
                 },
+                Some(code) if self.factor.is_kept_beside() => FragmentSource::StoredCodes(code),
                 _ => FragmentSource::Decoded,
             },
         }
