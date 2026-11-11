@@ -141,8 +141,8 @@ impl Tile {
     /// What the planes holding this output sum `lhs · rhs` into under the sum of products,
     /// at the element `EA`, opened at zero, for a sum drained into an output: in the matrix
     /// instruction the device offers for the product, picked as the kernel expands
-    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the warpgroup MMA where plane groups
-    /// of four hold it.
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the warpgroup
+    /// MMA where plane groups of four hold it.
     pub fn accumulator<EA: Numeric>(
         &self,
         lhs: &Tile,
