@@ -643,6 +643,16 @@ fn a_tma_load_completes_on_an_mbarrier() {
     assert!(ptx.contains("mbarrier.try_wait.shared::cta.b64"), "{ptx}");
 }
 
+/// A loop that loads a tile by TMA each lap stays a loop, a constant number of laps or not: its one
+/// copy is issued from the loop's body rather than once a lap unrolled.
+#[test]
+fn a_loop_issuing_tma_loads_stays_a_loop() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_laps_kernel(), 90);
+    let copies = ptx.matches("cp.async.bulk.tensor.2d").count();
+    assert_eq!(copies, 1, "the laps are unrolled:\n{ptx}");
+    assert!(loop_body(&ptx).is_some(), "no loop:\n{ptx}");
+}
+
 /// Each store is its own bulk group. The first store's wait lets the second's group run on,
 /// and the second's waits for both.
 #[test]

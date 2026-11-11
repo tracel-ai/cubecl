@@ -49,6 +49,15 @@ impl PlaneTile {
         }
     }
 
+    /// Whether this tile is a cmma fragment, which reads its factors no deeper than its
+    /// instruction.
+    pub(crate) fn is_cmma(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Cmma(_) => comptime!(true),
+            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile contracts through the block-scaled instruction, which reads its factors'
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
@@ -446,10 +455,7 @@ impl PlanePartition {
 
     /// Whether this grid's tiles are cmma fragments, the one form that drains through a scratch.
     pub(crate) fn is_cmma(&self) -> comptime_type!(bool) {
-        match self.frags.index(0usize) {
-            PlaneTile::Cmma(_) => comptime!(true),
-            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
-        }
+        self.frags.index(0usize).is_cmma()
     }
 
     /// The `(mi, ni)` tile (a handle clone); comptime indices only.
