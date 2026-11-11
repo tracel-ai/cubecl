@@ -1,9 +1,9 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_kernel,
+    Wait, bf16_math_kernel, fence_poll_kernel, fence_send_kernel, keep_largest_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
+    scale_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -12,6 +12,7 @@ use crate::{
 };
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, amd::GfxArch};
+use cubecl_core::prelude::{MemoryOrder, SyncScope};
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 
@@ -232,6 +233,81 @@ fn a_peer_buffer_is_promised_nothing() {
         "an atomic of a peer kernel may touch remote memory:\n{}",
         module.ir
     );
+}
+
+/// A release fence before a flag is a write-back of the caches and an acquire after it an
+/// invalidation, both at system scope and with no barrier.
+#[test]
+fn a_unit_fence_is_a_cache_operation_without_a_barrier() {
+    let line_of = |asm: &str, op: &str| {
+        asm.lines()
+            .position(|line| line.contains(op) && line.contains("scope:SCOPE_SYS"))
+            .unwrap_or_else(|| panic!("{op} at system scope:\n{asm}"))
+    };
+    let send = asm_of(
+        fence_send_kernel(MemoryOrder::Release, SyncScope::System),
+        "gfx1201",
+    );
+    let write_back = line_of(&send, "global_wb");
+    let flag = line_of(&send, "global_store_b32");
+    assert!(write_back < flag, "the flag follows the release:\n{send}");
+
+    let poll = asm_of(
+        fence_poll_kernel(MemoryOrder::Acquire, SyncScope::System),
+        "gfx1201",
+    );
+    let load = line_of(&poll, "global_load_b32");
+    let invalidate = line_of(&poll, "global_inv");
+    assert!(load < invalidate, "the acquire follows the load:\n{poll}");
+}
+
+/// Each scope is LLVM's syncscope of that name, unnamed for the system, a unit's own scope emits
+/// no fence, and a fence is never a barrier.
+#[test]
+fn a_unit_fence_lowers_to_the_syncscope_of_its_scope() {
+    let table = [
+        (SyncScope::Unit, None),
+        (SyncScope::Plane, Some("syncscope(\"wavefront\") ")),
+        (SyncScope::Cube, Some("syncscope(\"workgroup\") ")),
+        (SyncScope::Device, Some("syncscope(\"agent\") ")),
+        (SyncScope::System, Some("")),
+    ];
+    fn check(kernel: impl CubeKernel, sync: SyncScope, name: Option<&str>, order: &str) {
+        let module = module_of(kernel, &GfxArch::parse("gfx1201"));
+        let fenced = module
+            .ir
+            .lines()
+            .any(|line| line.trim_start().starts_with("fence "));
+        match name {
+            Some(name) => assert!(
+                module.ir.contains(&format!("fence {name}{order}")),
+                "{sync:?} {order}:\n{}",
+                module.ir
+            ),
+            None => assert!(!fenced, "{sync:?} {order}:\n{}", module.ir),
+        }
+        assert!(!module.ir.contains("s.barrier"), "{}", module.ir);
+    }
+    for (sync, name) in table {
+        check(
+            fence_send_kernel(MemoryOrder::Release, sync),
+            sync,
+            name,
+            "release",
+        );
+        check(
+            fence_poll_kernel(MemoryOrder::Acquire, sync),
+            sync,
+            name,
+            "acquire",
+        );
+        check(
+            fence_send_kernel(MemoryOrder::AcqRel, sync),
+            sync,
+            name,
+            "acq_rel",
+        );
+    }
 }
 
 #[test]

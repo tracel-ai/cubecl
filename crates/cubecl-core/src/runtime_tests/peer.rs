@@ -382,6 +382,93 @@ pub fn test_a_kernel_pulls_data_a_peer_kernel_published<R: Runtime>() {
     }
 }
 
+/// Plain stores released by one unit before its own flag: no barrier anywhere, each unit hands
+/// off only what it wrote.
+#[cube(launch)]
+fn fence_produce(data: &mut Peer<[u32]>, flag: &mut Peer<[Atomic<u32>]>, token: u32) {
+    let i = ABSOLUTE_POS;
+    data[i] = token + i as u32;
+    fence(MemoryOrder::Release, SyncScope::System);
+    flag[i].store(token);
+}
+
+/// Reads the data once before the flag into `early`, so only the acquire keeps the read after it
+/// from reusing that value. `seen` tells a consumer that gave up from one that read stale data.
+#[cube(launch)]
+fn fence_consume(
+    data: &Peer<[u32]>,
+    flag: &mut Peer<[Atomic<u32>]>,
+    out: &mut [u32],
+    early: &mut [u32],
+    seen: &mut [u32],
+    token: u32,
+    spin_limit: u32,
+) {
+    let i = ABSOLUTE_POS;
+    early[i] = data[i];
+    let mut spins = 0u32;
+    let mut arrived = flag[i].load();
+    while arrived != token && spins < spin_limit {
+        spins += 1u32;
+        arrived = flag[i].load();
+    }
+    seen[i] = arrived;
+    fence(MemoryOrder::Acquire, SyncScope::System);
+    out[i] = data[i];
+}
+
+/// One unit's release and acquire hand plain stores across devices through a flag, with no
+/// barrier on either side.
+pub fn test_a_unit_fence_hands_plain_stores_off_through_a_flag<R: Runtime>() {
+    let Some((producer, consumer)) = peers::<R>() else {
+        return;
+    };
+    for token in [7u32, 11, 13] {
+        let data = consumer
+            .share_with_peers(&zeros(&consumer, HANDOFF_LEN))
+            .unwrap();
+        let flag = consumer
+            .share_with_peers(&zeros(&consumer, HANDOFF_LEN))
+            .unwrap();
+        let out = zeros(&consumer, HANDOFF_LEN);
+        let early = zeros(&consumer, HANDOFF_LEN);
+        let seen = zeros(&consumer, HANDOFF_LEN);
+        block_on(consumer.sync()).unwrap();
+
+        fence_consume::launch(
+            &consumer,
+            CubeCount::Static(HANDOFF_CUBES, 1, 1),
+            CubeDim::new_1d(HANDOFF_UNITS),
+            peer_arg(&data, HANDOFF_LEN),
+            peer_arg(&flag, HANDOFF_LEN),
+            unsafe { BufferArg::from_raw_parts(out.clone(), HANDOFF_LEN) },
+            unsafe { BufferArg::from_raw_parts(early.clone(), HANDOFF_LEN) },
+            unsafe { BufferArg::from_raw_parts(seen.clone(), HANDOFF_LEN) },
+            token,
+            SPIN_LIMIT,
+        );
+        fence_produce::launch(
+            &producer,
+            CubeCount::Static(HANDOFF_CUBES, 1, 1),
+            CubeDim::new_1d(HANDOFF_UNITS),
+            peer_arg(&data, HANDOFF_LEN),
+            peer_arg(&flag, HANDOFF_LEN),
+            token,
+        );
+
+        let seen = consumer.read_one(seen).unwrap();
+        assert_eq!(
+            u32::from_bytes(&seen),
+            vec![token; HANDOFF_LEN],
+            "token {token}: the flag each consumer unit saw"
+        );
+        let actual = consumer.read_one(out).unwrap();
+        let expected: Vec<u32> = (0..HANDOFF_LEN as u32).map(|i| token + i).collect();
+        assert_eq!(u32::from_bytes(&actual), expected, "token {token}");
+        block_on(producer.sync()).unwrap();
+    }
+}
+
 fn launch_rejected_into_peer(client: &Client, out: &Handle, reason: &str) {
     unsafe {
         rejected_into_peer::launch_unchecked(
@@ -525,6 +612,13 @@ macro_rules! testgen_peer {
             #[$crate::runtime_tests::test_log::test]
             fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel() {
                 cubecl_core::runtime_tests::peer::test_a_kernel_pushes_data_to_a_waiting_peer_kernel::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_unit_fence_hands_plain_stores_off_through_a_flag() {
+                cubecl_core::runtime_tests::peer::test_a_unit_fence_hands_plain_stores_off_through_a_flag::<
                     TestRuntime,
                 >();
             }

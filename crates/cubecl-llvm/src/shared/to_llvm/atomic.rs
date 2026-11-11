@@ -1,27 +1,14 @@
 use crate::prelude::*;
 use cubecl_core::ir::dialect::{atomic::*, synchronization::SyncScope};
 
-/// The scope an atomic synchronizes at by default: all units of the device, like CUDA's
-/// `atomicAdd` and HIP's agent-scoped atomics. The system scope also orders against the host and
-/// peer devices, and on the GPU targets it selects slower, system-coherent instructions, so only
-/// an atomic that asks for it gets it.
-fn device_scope(ctx: &Context) -> SyncScopeAttr {
-    match ctx.target() {
-        #[cfg(feature = "amdgpu")]
-        LlvmTarget::AmdGpu => SyncScopeAttr::NamedScope("agent".into()),
-        #[cfg(feature = "nvptx")]
-        LlvmTarget::Nvptx => SyncScopeAttr::NamedScope("device".into()),
-        LlvmTarget::Cpu => SyncScopeAttr::System,
-    }
-}
-
-/// The scope the atomic `op` synchronizes at (see [`atomic_scope`]). Scopes narrower than the
-/// device's keep the device's, which is never wrong.
+/// The scope the atomic `op` synchronizes at (see [`atomic_scope`]). A narrower scope than the
+/// device's keeps the device's, which is never wrong, like CUDA's `atomicAdd` and HIP's
+/// agent-scoped atomics. The system scope also orders against the host and peer devices, and on
+/// the GPU targets it selects slower, system-coherent instructions, so only an atomic that asks
+/// for it gets it.
 fn sync_scope(ctx: &Context, op: Ptr<Operation>) -> SyncScopeAttr {
-    match atomic_scope(ctx, op) {
-        SyncScope::System => SyncScopeAttr::System,
-        _ => device_scope(ctx),
-    }
+    ctx.target()
+        .sync_scope(atomic_scope(ctx, op).max(SyncScope::Device))
 }
 
 macro_rules! lower_atomic_rmw {
