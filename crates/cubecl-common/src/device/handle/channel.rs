@@ -120,11 +120,7 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
     }
 
     fn close<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
-        let runner_id = RunnerId {
-            device: device_id,
-            stage: S::stage(),
-        };
-        close_service(runner_id, TypeId::of::<S>())
+        close_service_of::<S>(device_id, Release::Drop)
     }
 }
 
@@ -476,11 +472,7 @@ impl ChannelDeviceState {
         // Asked here, once per service, rather than by each handle: started, the service has
         // loaded its runtime's libraries, so the close runs ahead of their exit teardown.
         #[cfg(multi_threading)]
-        exit::close_at_exit(
-            device_id,
-            type_id,
-            <ChannelDeviceHandle as DeviceHandleSpec>::close::<S>,
-        );
+        exit::close_at_exit(device_id, type_id, close_at_exit::<S>);
 
         Ok(channel)
     }
@@ -611,6 +603,33 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
     wait_for_device_shutdown(device_id);
 }
 
+/// What a close does with the service it takes out of its runner.
+#[derive(Clone, Copy)]
+enum Release {
+    /// Drops it, freeing what it holds.
+    Drop,
+    /// Leaks it. The process is exiting and frees everything anyway, while a drop would run the
+    /// runtime's teardown as its libraries are being torn down too.
+    Leak,
+}
+
+/// Closes `S` on `device_id` as the process exits: the work queued ahead of the close runs,
+/// later calls are refused, and the service is leaked rather than dropped.
+fn close_at_exit<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
+    close_service_of::<S>(device_id, Release::Leak)
+}
+
+fn close_service_of<S: DeviceService>(
+    device_id: DeviceId,
+    release: Release,
+) -> Result<(), ServiceCloseError> {
+    let runner_id = RunnerId {
+        device: device_id,
+        stage: S::stage(),
+    };
+    close_service(runner_id, TypeId::of::<S>(), release)
+}
+
 /// Closes the service `type_id` on `runner_id`, though clients of it remain, waiting up to
 /// [`SHUTDOWN_JOIN_TIMEOUT`] for the runner to reach the close.
 ///
@@ -618,7 +637,11 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
 /// every call queued after it is answered [`CallError::closed`]: no caller is left waiting. The
 /// runner keeps serving its other services, which may belong to another runtime on a colliding
 /// [`DeviceId`]. A runner never started, or already gone, has nothing to close.
-fn close_service(runner_id: RunnerId, type_id: TypeId) -> Result<(), ServiceCloseError> {
+fn close_service(
+    runner_id: RunnerId,
+    type_id: TypeId,
+    release: Release,
+) -> Result<(), ServiceCloseError> {
     let client = match RUNNERS
         .lock()
         .as_ref()
@@ -628,12 +651,12 @@ fn close_service(runner_id: RunnerId, type_id: TypeId) -> Result<(), ServiceClos
         None => return Ok(()),
     };
     if is_device_runner_thread(&runner_id) {
-        return remove_service(type_id);
+        return remove_service(type_id, release);
     }
 
     let (sender, recv) = oneshot::channel();
     let close = move || {
-        let _ = sender.send(remove_service(type_id));
+        let _ = sender.send(remove_service(type_id, release));
     };
     if client.enqueue(close).is_err() {
         return Ok(());
@@ -648,16 +671,19 @@ fn close_service(runner_id: RunnerId, type_id: TypeId) -> Result<(), ServiceClos
     }
 }
 
-/// Takes the service `type_id` out of this runner thread and leaves it closed.
-fn remove_service(type_id: TypeId) -> Result<(), ServiceCloseError> {
+/// Takes the service `type_id` out of this runner thread, leaves it closed, and releases it.
+fn remove_service(type_id: TypeId, release: Release) -> Result<(), ServiceCloseError> {
     let open = STATES.with(|states| match states.try_borrow_mut() {
         Ok(mut map) => Ok(map.insert(type_id, ServiceSlot::Closed)),
         Err(_) => Err(ServiceCloseError::new(
             "a service cannot be closed from inside a call on its own runner".into(),
         )),
     })?;
-    // Dropped once the map is released: dropping a service may call another one on this thread.
-    drop(open);
+    // Released once the map is: dropping a service may call another one on this thread.
+    match release {
+        Release::Drop => drop(open),
+        Release::Leak => core::mem::forget(open),
+    }
     Ok(())
 }
 

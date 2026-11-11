@@ -87,8 +87,8 @@ impl<S: DeviceService, I: DeviceHandleSpec> DeviceHandle<S, I> {
     /// ([`CallError::is_closed`]) instead of reaching the service, and `S` is not started on
     /// the device again. Other services on the same runner keep serving. Only for process
     /// exit, before the runtime under `S` is torn down, when the threads holding handles will
-    /// never drop them. Every service the threaded transport starts is closed this way as the
-    /// process exits, ahead of the exit teardown of the libraries it loaded.
+    /// never drop them. Every service the threaded transport starts is also closed as the process
+    /// exits, ahead of the exit teardown of the libraries it loaded, and leaked rather than dropped.
     ///
     /// # Errors
     ///
