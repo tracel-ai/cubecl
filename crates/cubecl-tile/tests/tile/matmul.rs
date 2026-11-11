@@ -4106,13 +4106,27 @@ fn cmma_matmul_multi_fragment_partition() {
 /// walks the level below it, which steps `K` as well as the cells. Tensor-core only.
 #[test]
 fn cmma_matmul_partition_contracts_in_one_call() {
+    check_cmma_matmul_partition_in_one_call(32, 16);
+}
+
+/// A plane's partition of one fragment contracted in one call steps `K` as a grid does: one
+/// `8x8x8` fragment under a walk of two steps of `K`, never one fragment `16` deep, which a device
+/// offering only `8x8x8` (Metal) fails to compile. Tensor-core only.
+#[test]
+fn cmma_matmul_one_fragment_partition_steps_k() {
+    check_cmma_matmul_partition_in_one_call(16, 8);
+}
+
+/// [`cmma_matmul_partition_in_one_call`] on an `m × m` output, `k = 32` staged `16` at a time,
+/// each plane's partition `part` square, of `8x8x8` fragments.
+fn check_cmma_matmul_partition_in_one_call(m: usize, part: usize) {
     let client = cubecl::test_device().client();
     if !require_cmma_8x8x8_f32(&client) {
         return;
     }
 
-    let (m, n, k) = (32usize, 32usize, 32usize);
-    let (part, i, stage_k) = (16usize, 8usize, 16usize);
+    let (n, k) = (m, 32usize);
+    let (i, stage_k) = (8usize, 16usize);
     let launcher = implied(
         &client,
         Partitioning::new(
