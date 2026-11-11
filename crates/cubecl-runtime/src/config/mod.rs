@@ -19,6 +19,8 @@ pub mod size;
 pub mod streaming;
 /// Throughput config module.
 pub mod throughput;
+/// Device transport config module.
+pub mod transport;
 
 mod base;
 mod logger;

@@ -50,6 +50,7 @@ use cubecl_server::{
     driver::checked,
     logging::ServerLogger,
     runtime::{DeviceDescription, DeviceKind, Runtime},
+    server::DeviceTransport,
 };
 use std::{
     ffi::CStr,
@@ -240,8 +241,9 @@ impl DeviceService for HipServer {
         );
         // Loading RCCL takes most of a second, and a lone device has no peer to use it with.
         if HipRuntime::enumerate_devices(0).len() > 1 {
-            utilities.device_transport =
-                communication::transport(utilities.properties.features.types.elem.keys().copied());
+            utilities.device_transport = DeviceTransport::configured(|| {
+                communication::transport(utilities.properties.features.types.elem.keys().copied())
+            });
         }
         let options = RuntimeOptions::default();
 
