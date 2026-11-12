@@ -106,6 +106,7 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
 
 /// [`keep_largest`] repeated by a loop of 256 turns, whose counter indexes nothing.
 // Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "nvptx")]
 #[allow(clippy::needless_range_loop)]
 #[cube(launch)]
 fn keep_largest_rounds(input: &[f32], output: &mut [f32], #[comptime] k: usize) {
@@ -131,6 +132,7 @@ fn keep_largest_rounds(input: &[f32], output: &mut [f32], #[comptime] k: usize) 
     }
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn keep_largest_rounds_kernel(k: usize) -> impl CubeKernel {
     keep_largest_rounds::KeepLargestRounds::new(
         walk_settings(),
@@ -142,6 +144,7 @@ pub(crate) fn keep_largest_rounds_kernel(k: usize) -> impl CubeKernel {
     )
 }
 
+#[cfg(feature = "nvptx")]
 fn walk_settings() -> KernelSettings {
     KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -153,6 +156,7 @@ fn walk_settings() -> KernelSettings {
 /// A sum carried through a loop of 256 turns around a walk of a local array: the outer loop
 /// carries a value its inner counter does not depend on.
 // Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "nvptx")]
 #[allow(clippy::needless_range_loop)]
 #[cube(launch)]
 fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
@@ -170,6 +174,7 @@ fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
     output[UNIT_POS as usize] = sum;
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
     carried_sum_around_walk::CarriedSumAroundWalk::new(
         walk_settings(),
@@ -182,6 +187,7 @@ pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
 
 /// Fills a local array with a counter kept in a variable, so the index is carried from turn to
 /// turn rather than being the loop's own counter.
+#[cfg(feature = "nvptx")]
 #[allow(
     clippy::explicit_counter_loop,
     reason = "Exercise a loop-carried counter separate from the loop index"
@@ -197,6 +203,7 @@ fn counted_walk(input: &[f32], output: &mut [f32]) {
     output[UNIT_POS as usize] = values[0usize] + values[255usize];
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn counted_walk_kernel() -> impl CubeKernel {
     counted_walk::CountedWalk::new(
         walk_settings(),
@@ -328,6 +335,7 @@ fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
 }
 
 /// [`tally`] counting into a `Peer` buffer, which kernels on other devices reach while it runs.
+#[cfg(feature = "amdgpu")]
 #[cube(launch)]
 fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
     output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
@@ -335,6 +343,7 @@ fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
     tally[0].fetch_add(1u32);
 }
 
+#[cfg(feature = "amdgpu")]
 pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -435,6 +444,7 @@ pub(crate) fn tally_kernel() -> impl CubeKernel {
 /// Walks a column in steps of 32 rows, one row per unit: how a matmul reads its weight along
 /// the reduced axis. A cube starts at its position split by a runtime count, so the start of
 /// every address holds a division by a value only known at launch.
+#[cfg(feature = "nvptx")]
 #[cube(launch)]
 fn strided_walk(
     input: &[f32],
@@ -453,6 +463,7 @@ fn strided_walk(
     output[ABSOLUTE_POS] = sum;
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn strided_walk_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -1119,6 +1130,50 @@ pub(crate) fn mismatched_mma_kernel() -> impl CubeKernel {
         ),
         tma_properties(),
         Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A manual FP8 `mma` of `m16n8k32`: an `e4m3` A by an `e4m3` B into `f32`, four codes to each
+/// of A's four registers and B's two, read from `a` and `b`.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn fp8_mma(
+    a: &[Vector<cubecl_core::e4m3, Const<4>>],
+    b: &[Vector<cubecl_core::e4m3, Const<4>>],
+    output: &mut [f32],
+) {
+    let def = cmma::MmaDefinition::<cubecl_core::e4m3, cubecl_core::e4m3, f32>::new(
+        16usize, 8usize, 32usize,
+    );
+    let mut registers_a = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(4usize);
+    let mut registers_b = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(2usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = a[i];
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = b[i];
+        registers_c[i] = Vector::new(0.0);
+    }
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    output[UNIT_POS as usize] = registers_d[0].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn fp8_mma_kernel() -> impl CubeKernel {
+    fp8_mma::Fp8Mma::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
     )
 }

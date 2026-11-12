@@ -32,7 +32,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::future::block_on;
 use cubecl_environment::future::channel::{Receiver, Sender, bounded};
 use cubecl_environment::stream::StreamId;
-use cubecl_environment::sync::RwLock;
+use cubecl_environment::sync::{AtomicUsize, Ordering, RwLock};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
@@ -109,6 +109,17 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// What kernels on one device can do with another device's memory, ordered by what it allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PeerAccess {
+    /// The peer's memory cannot be bound.
+    None,
+    /// Loads and stores without native atomics.
+    Memory,
+    /// Loads, stores and native atomics.
+    MemoryAndAtomics,
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
@@ -146,12 +157,35 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
-    /// Whether kernels on this device can address the memory of another device of the runtime,
-    /// asked of the device once per pair.
-    pub peer_access: RwLock<HashMap<DeviceId, bool>>,
+    /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
+    pub communication_skips: CommunicationSkips,
+    /// Access to each peer's memory, queried once per device pair.
+    pub peer_access: RwLock<HashMap<DeviceId, PeerAccess>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
+}
+
+/// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold a device, so that
+/// nested ones compose.
+#[derive(Debug, Default)]
+pub struct CommunicationSkips {
+    held: AtomicUsize,
+}
+
+impl CommunicationSkips {
+    /// Whether any holds the device.
+    pub fn any(&self) -> bool {
+        self.held.load(Ordering::Acquire) > 0
+    }
+
+    pub(crate) fn enter(&self) {
+        self.held.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn leave(&self) {
+        self.held.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// A runtime's transport between its devices, which moves any buffer as bytes.
@@ -170,6 +204,30 @@ pub enum TransportProvider {
     Nccl,
     /// AMD's collective library, on HIP.
     Rccl,
+}
+
+impl DeviceTransport {
+    /// The transport `load` gives, or none without calling it when the configuration turns the
+    /// device transport off.
+    pub fn configured(load: impl FnOnce() -> Option<Self>) -> Option<Self> {
+        use crate::config::transport::DeviceTransportMode;
+
+        match CubeClRuntimeConfig::get().transport.device {
+            DeviceTransportMode::Auto => load(),
+            DeviceTransportMode::Off => {
+                static LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    log::info!(
+                        "The device transport is off by configuration (`transport.device` or \
+                         `CUBECL_DEVICE_TRANSPORT`): transfers between devices go through the \
+                         host, and cubecl runs no collective between them"
+                    );
+                }
+                None
+            }
+        }
+    }
 }
 
 impl TransportProvider {
@@ -256,6 +314,7 @@ impl ServerUtilities {
             device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            communication_skips: CommunicationSkips::default(),
             peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
@@ -1247,13 +1306,10 @@ pub trait ServerCommunication {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
 
-    /// Whether kernels on this device can bind memory of `peer`, another
-    /// device of the same runtime.
-    ///
-    /// The default answers `false`.
+    /// Access to memory of `peer` in this runtime, defaulting to [`PeerAccess::None`].
     #[allow(unused_variables)]
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
-        false
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
+        PeerAccess::None
     }
 
     /// The device address of the first byte of the allocation `binding`

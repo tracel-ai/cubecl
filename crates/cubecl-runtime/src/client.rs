@@ -6,11 +6,11 @@ use crate::{
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, SendOutcome, Server, ServerError, ServerStorage,
-        ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
+        CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding, PeerMemory,
+        ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -324,24 +324,26 @@ impl Client {
             service.service == own.service,
             "a peer buffer of {service} was launched on {own}, of another runtime"
         );
+        let access = self.reaches_peer(service.device);
+        let required = peer.required_access();
         assert!(
-            self.reaches_peer(service.device),
-            "{own} cannot address the memory of {:?}: check `can_access_peer` before \
-             launching with a buffer of another device",
+            access >= required,
+            "{own} has {access:?} access to the memory of {:?}, short of the {required:?} \
+             its peer parameter needs: check `peer_access` before launching with a buffer \
+             of another device",
             service.device
         );
         KernelResource::Peer(peer)
     }
 
-    /// Whether kernels here can address the memory of `device`, cached per pair.
-    fn reaches_peer(&self, device: DeviceId) -> bool {
+    fn reaches_peer(&self, device: DeviceId) -> PeerAccess {
         if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
             return *reaches;
         }
         let reaches = self
             .device
-            .submit_blocking(move |server| server.can_access_peer(device))
-            .unwrap_or(false);
+            .submit_blocking(move |server| server.peer_access(device))
+            .unwrap_or(PeerAccess::None);
         self.utilities.peer_access.write().insert(device, reaches);
         reaches
     }
@@ -974,14 +976,14 @@ impl Client {
             });
     }
 
-    /// Whether kernels launched through this client can load, store and run
-    /// atomics on memory `peer` [shared](Self::share_with_peers).
-    pub fn can_access_peer(&self, peer: &Self) -> bool {
+    /// What kernels launched through this client can do with memory `peer`
+    /// [shared](Self::share_with_peers): none for itself or another runtime.
+    pub fn peer_access(&self, peer: &Self) -> PeerAccess {
         let peer_device = peer.device.device_id();
         if peer.service_id().service != self.service_id().service
             || peer_device == self.device.device_id()
         {
-            return false;
+            return PeerAccess::None;
         }
         self.reaches_peer(peer_device)
     }
@@ -1100,6 +1102,16 @@ impl Client {
         self.utilities.device_transport.is_some()
     }
 
+    /// Whether a [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard) holds the device, so
+    /// its collectives queue nothing.
+    pub fn skips_communication(&self) -> bool {
+        self.utilities.communication_skips.any()
+    }
+
+    pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
+        &self.utilities.communication_skips
+    }
+
     /// Panics on the caller when the runtime has no device transport.
     fn expect_device_transport(&self, operation: Collective) {
         // The server refuses too, but on the device thread, where the channel turns the panic into
@@ -1151,7 +1163,8 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it.
+    /// queueing them stops with it. It queues nothing while this device skips communication,
+    /// whatever its peers do, since reading theirs would load their clients on every call.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1172,6 +1185,9 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
+        if self.skips_communication() {
+            return;
+        }
         self.prepare_collective(collective, device_ids.clone());
         self.queue_all_reduce(
             src,

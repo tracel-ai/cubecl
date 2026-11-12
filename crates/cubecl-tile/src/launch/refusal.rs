@@ -4,6 +4,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{MetadataError, Tiling};
 
+use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
 use crate::{Axis, LineMisfit};
 
 /// Why a launch cannot run as described, or an operand cannot be bound to it.
@@ -44,6 +45,8 @@ pub enum Refusal {
     PlanesUnavailable,
     /// The kernel needs one plane width, and the device's varies between `min` and `max`.
     ImprecisePlaneDim { min: u32, max: u32 },
+    /// The gather leaf cannot serve an lhs vectorized along `axis`, for the reason `why`.
+    LhsVectorNotServed { axis: Axis, why: LhsVectorMisfit },
     /// A routine declines a problem it does not serve, for the reason `why`.
     Declined { why: &'static str },
     /// A cube shaped `shape` along x, y and z, past the `most` the device spawns along one of them:
@@ -239,6 +242,9 @@ impl Display for Refusal {
                 f,
                 "the kernel needs one plane width, and the device's varies from {min} to {max}"
             ),
+            Refusal::LhsVectorNotServed { axis, why } => {
+                write!(f, "contract gather: lhs vectorized along {axis:?}: {why}")
+            }
             Refusal::Declined { why } => f.write_str(why),
             Refusal::CubeShapePastDevice { shape, most } => write!(
                 f,

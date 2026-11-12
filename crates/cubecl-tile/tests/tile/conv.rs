@@ -48,7 +48,7 @@ enum Stage {
 /// how they are addressed, and the leaf does the rest. The input's line width, along its fastest
 /// contracted axis, is what the leaf splits into line index and unit; a real width is needed.
 #[cube(launch)]
-fn conv_kernel(
+pub(crate) fn conv_kernel(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
@@ -186,7 +186,7 @@ fn conv_kernel_two_levels_smem(
 
 /// Small integers, so the accumulation is exact in `f32` and the reference can be compared for
 /// equality rather than closeness.
-fn ramp(n: usize, period: usize) -> Vec<f32> {
+pub(crate) fn ramp(n: usize, period: usize) -> Vec<f32> {
     (0..n).map(|i| ((i % period) as f32) - 1.0).collect()
 }
 
@@ -380,8 +380,7 @@ impl Conv1d {
         )
     }
 
-    /// `check_at` with an explicit register block. Kept separate so the fan-out path can be traced
-    /// on the CPU test runtime even though production CPU launches select the flat walk.
+    /// `check_at` with an explicit register block, for a test that varies one of its flags.
     fn check_at_with_block(
         &self,
         tile_oh: usize,
@@ -611,61 +610,6 @@ fn conv1d_padded_underflow_masks_to_zero() {
     }
 }
 
-/// A data backward gathers `grad[o + 1 - r]`: the low taps of the first outputs and the high
-/// rows of the last ones fall outside, though the box's two logical corners land inside.
-#[test]
-fn conv_nd_backward_split_edge() {
-    let (oh, co, rh, ci, in_len) = (8, 4, 3, 2, 7);
-    let launcher = implied(
-        &cubecl::test_device().client(),
-        Partitioning::new(
-            Space::new(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)]),
-            Levels::leaf(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)])
-                .walk_every(&[OH, CO, RH, CI])
-                .build(),
-        ),
-        Form::Static,
-    );
-    let in_spec = TileSpec::new(Projection::new(
-        &[OH, RH, CI],
-        &[
-            PhysicalAxisMap::scaled(&[(OH, Scale::Static(1)), (RH, Scale::Static(-1))]).shifted(1),
-            PhysicalAxisMap::of(CI),
-        ],
-    ))
-    .boundary(BoundaryPolicy::Every(Boundary::Zero));
-    let (got, input, weight) = run(
-        shape![in_len, ci],
-        shape![rh, ci, co],
-        shape![oh, co],
-        in_spec,
-        &[RH, CI, CO],
-        TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
-        launcher,
-        1,
-        SoftwareMatmul::new(64).split_edge(),
-        Stage::InPlace,
-    );
-    for o in 0..oh {
-        for c in 0..co {
-            let mut want = 0.0f32;
-            for r in 0..rh {
-                let h = (o + 1) as isize - r as isize;
-                if (0..in_len as isize).contains(&h) {
-                    for i in 0..ci {
-                        want += input[h as usize * ci + i] * weight[(r * ci + i) * co + c];
-                    }
-                }
-            }
-            assert_eq!(
-                got.get_f32(&[o, c]),
-                want,
-                "backward split edge: ({o}, {c})"
-            );
-        }
-    }
-}
-
 /// Padded 1-D convolution under `Boundary::Clamp`: taps that go past physical bounds read the
 /// edge cell instead of masking to zero.
 #[test]
@@ -834,28 +778,6 @@ fn conv1d_vectorized_input() {
         dilation: 1,
     }
     .check_at(4, 4, 2, false, Stage::InPlace);
-}
-
-/// The GPU specialization uses fixed unit extracts. Exercise that path on the CPU test runtime as
-/// well, even though production CPU launches select the compact flat walk.
-#[test]
-fn conv1d_vectorized_input_fanout() {
-    Conv1d {
-        oh: 8,
-        co: 4,
-        rh: 3,
-        ci: 4,
-        stride: 1,
-        dilation: 1,
-    }
-    .check_at_with_block(
-        4,
-        4,
-        2,
-        false,
-        Stage::InPlace,
-        SoftwareMatmul::new(16).component_fanout(),
-    );
 }
 
 /// Vectorized with stride and dilation both off `1`, so the line split and the affine advance are

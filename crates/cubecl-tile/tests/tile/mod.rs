@@ -12,6 +12,7 @@ mod destination;
 mod distributed;
 mod dynamic_contraction;
 mod erased;
+mod gather;
 mod imperative;
 mod indexed;
 mod lane_runs;

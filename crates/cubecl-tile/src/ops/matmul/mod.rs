@@ -11,4 +11,5 @@ pub(crate) mod software_matmul;
 pub(crate) use descent::Descent;
 pub(crate) use leaf::*;
 
+pub use leaf::memory::gather::base::LhsVectorAxis;
 pub use mma_io::{LoadMethod, MmaIo};

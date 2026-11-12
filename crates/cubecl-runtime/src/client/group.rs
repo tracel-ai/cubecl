@@ -132,6 +132,12 @@ impl ClientGroup {
         &self.transport
     }
 
+    /// Whether any member's device skips communication, which makes every collective over the
+    /// group skip it: a member that queues its part waits on its device for every peer.
+    pub fn skips_communication(&self) -> bool {
+        self.clients.iter().any(Client::skips_communication)
+    }
+
     /// Whether the members reduce elements of `dtype` together. Every other collective moves bytes,
     /// whatever their type.
     pub fn reduces(&self, dtype: ElemType) -> bool {
@@ -342,6 +348,9 @@ impl ClientGroup {
         parts: Vec<Part>,
         mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
     ) {
+        if self.skips_communication() {
+            return;
+        }
         // Outside the lock, which setting the group up takes itself.
         self.clients[0].prepare_collective(collective, self.device_ids.clone());
         let _order = PEER_ORDER.lock();
@@ -399,6 +408,9 @@ impl GroupMember {
     /// queueing theirs wait in it on their devices until it arrives.
     fn exchange(&self, exchange: Exchange, buffers: MemberBuffers) {
         exchange.expect_part(&self.group, self.rank, &buffers);
+        if self.group.skips_communication() {
+            return;
+        }
         let client = &self.group.clients[self.rank];
         exchange.queue(client, buffers, self.group.device_ids.clone());
         client.device.flush_queue();

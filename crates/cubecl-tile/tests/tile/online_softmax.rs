@@ -1163,6 +1163,20 @@ fn plane_attention_split_keys_matches_the_reference() {
     });
 }
 
+/// [`plane_attention_split_keys_matches_the_reference`] on `16 × 16 × 16` fragments, the edge
+/// NVIDIA and AMD devices offer: no other test compiles the planes' merge for them, so a barrier
+/// it lost would show nowhere there. A device without that fragment skips it.
+#[test]
+fn plane_attention_split_keys_matches_the_reference_on_sixteen_wide_fragments() {
+    run::<half::f16>(Case {
+        edge: 16,
+        queries: 32,
+        keys: 256,
+        attended: 256,
+        ..SPLIT_KEYS
+    });
+}
+
 /// A share past the attended keys walks nothing, and its plane still meets the others: every
 /// slice it holds is masked, so it adds nothing to the merged sum.
 #[test]

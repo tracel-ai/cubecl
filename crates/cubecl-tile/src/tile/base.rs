@@ -282,13 +282,46 @@ impl Tile {
         })
     }
 
-    /// The element a stage of this tile holds: the values its fill decodes, at `decoded` or
-    /// [`read_element`](Tile::read_element), or what the tile holds.
+    /// What a stage of this operand holds for a reader that names the element it decodes into,
+    /// where `decoded` is one: its fields decoded by the fill where they lie packed in memory,
+    /// several a word, and carry no scales a stage keeps beside them. A matrix fragment loads a
+    /// stage of values where a stage of words it would pick apart cell by cell. Otherwise, what
+    /// [`stage_element`](Tile::stage_element) says.
+    pub(crate) fn stage_element_for(
+        &self,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> comptime_type!(StageElement) {
+        let staged = self.stage_element();
+        let memory = self.is_memory();
+        let beside = self.scales_beside();
+        comptime!(match (staged, decoded) {
+            (StageElement::Stored, Some(_)) if memory && !beside => StageElement::Decoded,
+            (staged, _) => staged,
+        })
+    }
+
+    /// Whether filling a stage packed as `stage` from these values decodes them: they decode for
+    /// any stage, or lie packed in memory and the stage holds values, as one allocated for a
+    /// reader that names the element it decodes into does
+    /// ([`stage_element_for`](Tile::stage_element_for)).
+    pub(crate) fn decodes_into(&self, #[comptime] stage: Packing) -> comptime_type!(bool) {
+        let staged = self.stage_element();
+        let memory = self.is_memory();
+        comptime!(match staged {
+            StageElement::Decoded => true,
+            StageElement::Stored => memory && !matches!(stage, Packing::Packed { .. }),
+            StageElement::Served => false,
+        })
+    }
+
+    /// The element a stage of this tile holds for a reader that names `decoded`
+    /// ([`stage_element_for`](Tile::stage_element_for)): the values its fill decodes, at
+    /// `decoded` or [`read_element`](Tile::read_element), or what the tile holds.
     pub(crate) fn staged_element(
         &self,
         #[comptime] decoded: Option<ElemType>,
     ) -> comptime_type!(ElemType) {
-        let staged = self.stage_element();
+        let staged = self.stage_element_for(decoded);
         let read = self.read_element();
         comptime!(match staged {
             StageElement::Decoded => decoded.unwrap_or(read),
@@ -767,6 +800,7 @@ impl Tile {
             storage,
             comptime!(None),
             comptime!(StageOwner::CUBE),
+            comptime!(None),
         )
     }
 

@@ -9,8 +9,9 @@ use crate::*;
 pub(crate) enum StageElement {
     /// The values the operand serves, which are what it stores: copied as they lie.
     Served,
-    /// The values the operand serves, decoded by the fill: from scales, a codebook, or packed
-    /// fields as wide as their word, which take the same shared memory staged either way.
+    /// The values the operand serves, decoded by the fill: from scales, a codebook, packed fields
+    /// as wide as their word, which take the same shared memory staged either way, or narrower
+    /// ones for a reader that names the element it decodes them into.
     Decoded,
     /// The stored form, words of several packed fields: copied as they lie.
     Stored,
@@ -55,13 +56,16 @@ impl Memory {
 
     /// Allocate a tile staging one `divide()` sub-tile of `operand`, laid out as `storage` and
     /// served `width` wide where stated, for `owner`: the cube, or each plane a copy of its own,
-    /// which only a plain stage of served values is.
+    /// which only a plain stage of served values is. A reader that names the element it decodes
+    /// into, `decoded`, is staged values where it could be staged words
+    /// ([`stage_element_for`](Tile::stage_element_for)).
     pub(crate) fn stage<S: Numeric>(
         operand: &Tile,
         #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
+        #[comptime] decoded: Option<ElemType>,
     ) -> Tile {
         match storage.clone() {
             // The plane holds the units at the depth of one region of `level`.
@@ -78,7 +82,7 @@ impl Memory {
                     element: elem_type_of::<S>(),
                 }
             }
-            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner),
+            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner, decoded),
         }
     }
 
@@ -89,8 +93,9 @@ impl Memory {
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
+        #[comptime] decoded: Option<ElemType>,
     ) -> Tile {
-        let element = operand.stage_element();
+        let element = operand.stage_element_for(decoded);
         let decodes = comptime!(element == StageElement::Decoded);
         let packing = operand.packing();
         let stage = Memory::stage_memory_as_served::<S>(
