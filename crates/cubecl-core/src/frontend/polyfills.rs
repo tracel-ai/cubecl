@@ -203,6 +203,28 @@ pub fn expand_dp4a_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Valu
     dp4a_polyfill::expand::<SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
 }
 
+/// [`fdot2`]'s two `f32` multiply-adds, where the device has no 16-bit pair dot product: the
+/// second pair's after the first's, as the instruction sums them.
+#[cube]
+fn fdot2_pairs<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>, c: f32) -> f32 {
+    let first = fma(
+        f32::cast_from(a.extract(0usize)),
+        f32::cast_from(b.extract(0usize)),
+        c,
+    );
+    fma(
+        f32::cast_from(a.extract(1usize)),
+        f32::cast_from(b.extract(1usize)),
+        first,
+    )
+}
+
+#[allow(missing_docs)]
+pub fn expand_fdot2_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Value {
+    scope.register_value_type::<ElemA, SizeA>(a);
+    fdot2_pairs::expand::<ElemA, SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
+}
+
 #[cube]
 pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     (input + Vector::one()).ln()

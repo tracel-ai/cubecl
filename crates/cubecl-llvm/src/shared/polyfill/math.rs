@@ -9,15 +9,16 @@ use cubecl_core::{
         cmp::{FClampOp, SClampOp, UClampOp},
         math::{
             ArcCoshOp, ArcSinhOp, ArcTanhOp, CbrtOp, CosOp, DegreesOp, Dp4aOp, ErfOp, ExpOp,
-            Expm1Op, FModFloorOp, HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RcbrtOp, RecipOp,
-            RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, SinOp, TanhOp, UMulHiOp,
+            Expm1Op, FModFloorOp, Fdot2Op, HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RcbrtOp,
+            RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, SinOp, TanhOp, UMulHiOp,
         },
         vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp},
     },
     prelude::{
         polyfills::{
-            cbrt, erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64,
-            expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip, to_degrees, to_radians,
+            cbrt, erf, expand_dp4a_polyfill, expand_fdot2_polyfill, expand_himul_sim,
+            expand_s_himul_64, expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip,
+            to_degrees, to_radians,
         },
         *,
     },
@@ -28,6 +29,29 @@ impl LowerOp for Dp4aOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         vec![expand_dp4a_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
+
+/// `fdot2` as two `f32` multiply-adds, everywhere but AMDGPU, whose instruction it is
+/// (`to_llvm::math`).
+#[op_interface_impl]
+impl LowerOp for Fdot2Op {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        match ctx.target() {
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => false,
+            _ => true,
+        }
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_fdot2_polyfill(
             scope,
             self.a(ctx),
             self.b(ctx),

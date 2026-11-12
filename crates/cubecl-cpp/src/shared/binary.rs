@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
-    frontend::polyfills::{expand_dp4a_polyfill, powi_int},
+    frontend::polyfills::{expand_dp4a_polyfill, expand_fdot2_polyfill, powi_int},
     ir::{
         dialect::{
             bitwise::*,
@@ -39,6 +39,19 @@ impl LowerOp for Dp4aOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         vec![expand_dp4a_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for Fdot2Op {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_fdot2_polyfill(
             scope,
             self.a(ctx),
             self.b(ctx),

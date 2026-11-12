@@ -533,6 +533,43 @@ taken:
         );
     }
 
+    /// `fdot2` lowers to `llvm.amdgcn.fdot2` (`f16` pairs) and `llvm.amdgcn.fdot2.f32.bf16`
+    /// (`bf16` pairs), each one 16-bit pair dot product into `f32` on RDNA.
+    #[test]
+    fn a_pair_dot_is_one_instruction() {
+        let ir = r#"
+define void @k(ptr addrspace(1) %out, ptr addrspace(1) %pairs, float %c) {
+entry:
+  %a = load <2 x half>, ptr addrspace(1) %pairs, align 4
+  %bp = getelementptr <2 x half>, ptr addrspace(1) %pairs, i64 1
+  %b = load <2 x half>, ptr addrspace(1) %bp, align 4
+  %xp = getelementptr <2 x half>, ptr addrspace(1) %pairs, i64 2
+  %x = load <2 x bfloat>, ptr addrspace(1) %xp, align 4
+  %yp = getelementptr <2 x half>, ptr addrspace(1) %pairs, i64 3
+  %y = load <2 x bfloat>, ptr addrspace(1) %yp, align 4
+  %r = call float @llvm.amdgcn.fdot2(<2 x half> %a, <2 x half> %b, float %c, i1 false)
+  %s = call float @llvm.amdgcn.fdot2.f32.bf16(<2 x bfloat> %x, <2 x bfloat> %y, float %r, i1 false)
+  store float %s, ptr addrspace(1) %out, align 4
+  ret void
+}
+declare float @llvm.amdgcn.fdot2(<2 x half>, <2 x half>, float, i1 immarg)
+declare float @llvm.amdgcn.fdot2.f32.bf16(<2 x bfloat>, <2 x bfloat>, float, i1 immarg)
+"#;
+        for name in ["gfx1151", "gfx1100", "gfx1201"] {
+            let arch = GfxArch::parse(name);
+            let io = [BufferIOAttr::WriteOnly, BufferIOAttr::ReadOnly];
+            let finalized =
+                finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &io, AtomicReads::None).unwrap();
+            let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
+            let asm = asm.unwrap();
+            assert!(
+                asm.contains("dot2") && asm.contains("f32_f16"),
+                "{name}, f16:\n{asm}"
+            );
+            assert!(asm.contains("v_dot2_f32_bf16"), "{name}, bf16:\n{asm}");
+        }
+    }
+
     #[test]
     fn a_float_atomic_add_is_the_native_instruction() {
         let ir = r#"

@@ -71,6 +71,19 @@ impl LowerOp for math::Dp4aOp {
 }
 
 #[op_interface_impl]
+impl LowerOp for math::Fdot2Op {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_fdot2_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
+
+#[op_interface_impl]
 impl ToSpirvDialectOp for math::Dp4aOp {
     fn to_spirv_dialect(
         &self,

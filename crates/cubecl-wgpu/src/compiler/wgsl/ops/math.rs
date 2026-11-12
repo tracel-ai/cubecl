@@ -25,6 +25,19 @@ impl LowerOp for Dp4aOp {
     }
 }
 
+#[op_interface_impl]
+impl LowerOp for Fdot2Op {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_fdot2_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
+
 wgsl_op_with_out!(SAbsOp, FAbsOp; |op, ctx| {
     format!("abs({})", op.input(ctx).name(ctx))
 });

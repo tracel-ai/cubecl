@@ -89,6 +89,45 @@ impl ToLLVMDialect for SAbsOp {
     }
 }
 
+/// `fdot2` as AMD's 16-bit pair dot product accumulating in `f32` (`v_dot2_f32_f16`,
+/// `v_dot2_f32_bf16`), unclamped. Reached on AMDGPU alone: every other target lowers it to two
+/// `f32` multiply-adds first (`polyfill::math`).
+#[op_interface_impl]
+impl ToLLVMDialect for Fdot2Op {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let (a, b, c) = (self.a(ctx), self.b(ctx), self.c(ctx));
+        let pair_ty = a.get_type(ctx);
+        let half_ty = pair_ty
+            .deref(ctx)
+            .downcast_ref::<LlvmVectorType>()
+            .map(|vector| vector.elem_type())
+            .expect("fdot2: its operands are pairs");
+        // The operands are LLVM's types by now: a `bf16` pair is `<2 x bfloat>`.
+        let name = match half_ty.deref(ctx).is::<BF16Type>() {
+            true => "llvm.amdgcn.fdot2.f32.bf16",
+            false => "llvm.amdgcn.fdot2",
+        };
+        let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+        let bool_ty = IntegerType::get(ctx, 1, Signedness::Signless);
+        let clamp = insert_bool_const(ctx, rewriter, false);
+        let intrinsic_type = FuncType::get(
+            ctx,
+            res_ty,
+            vec![pair_ty, pair_ty, c.get_type(ctx), bool_ty.into()],
+            false,
+        );
+        let op = llvm::CallIntrinsicOp::new(ctx, name.into(), intrinsic_type, vec![a, b, c, clamp]);
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        Ok(())
+    }
+}
+
 fn int_elem_width(ctx: &Context, ty: TypeHandle) -> u32 {
     let elem_ty = ty
         .deref(ctx)

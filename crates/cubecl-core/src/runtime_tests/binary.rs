@@ -1098,6 +1098,86 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
     assert_eq!(i32::from_bytes(&actual), expected);
 }
 
+#[cube(launch)]
+fn test_fdot2_kernel<F: Float>(a: &[F], b: &[F], c: &[f32], output: &mut [f32]) {
+    if ABSOLUTE_POS < output.len() {
+        let mut x = Vector::<F, Const<2>>::empty();
+        let mut y = Vector::<F, Const<2>>::empty();
+        x.insert(0usize, a[2 * ABSOLUTE_POS]);
+        x.insert(1usize, a[2 * ABSOLUTE_POS + 1]);
+        y.insert(0usize, b[2 * ABSOLUTE_POS]);
+        y.insert(1usize, b[2 * ABSOLUTE_POS + 1]);
+        output[ABSOLUTE_POS] = fdot2(x, y, c[ABSOLUTE_POS]);
+    }
+}
+
+/// `fdot2` of `f16` and `bf16` pairs against the exact sum, which every case holds in `f32`.
+/// Within a few `f32` ulps of the terms' magnitude, not to the bit: AMD's instruction does not
+/// round its sum correctly (gfx1151 reads `-1 + 0.125 · 8 + 64 · 0.5` back as `32.000004`).
+/// The `bf16` cases reach past `f16`'s range, so a pair narrowed through `f16` would read back
+/// infinite.
+pub fn test_fdot2<R: Runtime>(client: Client) {
+    fn run<F: Float + CubeElement>(client: &Client, a: &[F], b: &[F], c: &[f32], expected: &[f32]) {
+        let n = c.len();
+        let output = client.empty(n * size_of::<f32>());
+        test_fdot2_kernel::launch::<F>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(n as u32),
+            unsafe { BufferArg::from_raw_parts(client.create_from_slice(F::as_bytes(a)), 2 * n) },
+            unsafe { BufferArg::from_raw_parts(client.create_from_slice(F::as_bytes(b)), 2 * n) },
+            unsafe { BufferArg::from_raw_parts(client.create_from_slice(f32::as_bytes(c)), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+        let actual = client.read_one_unchecked(output);
+        let actual = f32::from_bytes(&actual);
+        for i in 0..n {
+            let terms = c[i].abs()
+                + (a[2 * i].to_f32().unwrap() * b[2 * i].to_f32().unwrap()).abs()
+                + (a[2 * i + 1].to_f32().unwrap() * b[2 * i + 1].to_f32().unwrap()).abs();
+            let tolerance = 4.0 * f32::EPSILON * terms;
+            assert!(
+                (actual[i] - expected[i]).abs() <= tolerance,
+                "case {i}: {} against {} (tolerance {tolerance})",
+                actual[i],
+                expected[i]
+            );
+        }
+    }
+
+    let f16s = |v: &[f32]| {
+        v.iter()
+            .map(|&x| half::f16::from_f32(x))
+            .collect::<alloc::vec::Vec<_>>()
+    };
+    run(
+        &client,
+        &f16s(&[1.5, -2.0, 0.125, 64.0, -3.0, -0.5]),
+        &f16s(&[0.25, 3.0, 8.0, 0.5, 7.0, 2.0]),
+        &[10.0, -1.0, 0.0],
+        &[4.375, 32.0, -22.0],
+    );
+    let bf16s = |v: &[f32]| {
+        v.iter()
+            .map(|&x| half::bf16::from_f32(x))
+            .collect::<alloc::vec::Vec<_>>()
+    };
+    run(
+        &client,
+        &bf16s(&[1.5, -2.0, 1.0e30, 1.0e-20, -3.0, -0.5]),
+        &bf16s(&[0.25, 3.0, 1.0e-20, 1.0e20, 7.0, 2.0]),
+        &[10.0, -1.0, 0.0],
+        &[
+            4.375,
+            -1.0 + f32::from(half::bf16::from_f32(1.0e30))
+                * f32::from(half::bf16::from_f32(1.0e-20))
+                + f32::from(half::bf16::from_f32(1.0e-20))
+                    * f32::from(half::bf16::from_f32(1.0e20)),
+            -22.0,
+        ],
+    );
+}
+
 /// A runtime operand must not be rewritten through a constant zero or a
 /// reflexive identity. Each of these was a partial fold in the float dialect:
 /// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
@@ -1288,6 +1368,7 @@ macro_rules! testgen_binary_untyped {
 
             add_test!(test_mulhi);
             add_test!(test_dp4a);
+            add_test!(test_fdot2);
             add_test!(test_powi_int);
             add_test!(test_powi_unsigned);
             add_test!(test_powi_negative_near_one);

@@ -834,6 +834,21 @@ impl ExpressionCanonicalize for Dp4aOp {
     }
 }
 
+/// The dot product of two pairs of 16-bit floats, `a.x · b.x + a.y · b.y`, added to an `f32`
+/// accumulator `c`: each product exact in `f32`, the sum rounded in `f32`. `a` and `b` are
+/// vectors of two `f16` or two `bf16`.
+///
+/// Where the device has the instruction (AMD's `v_dot2_f32_f16` / `v_dot2_f32_bf16`) it is one,
+/// two products a cycle; elsewhere two `f32` multiply-adds.
+#[cube_op(name = "math.fdot2")]
+#[result_ty(same_as = c)]
+#[op_traits(Pure, PropagatesUniformity)]
+pub struct Fdot2Op {
+    pub a: Value,
+    pub b: Value,
+    pub c: Value,
+}
+
 fn dp4a_const(a: i32, b: i32, c: i32) -> i32 {
     let byte = |value: i32, shift: u32| ((value as u32 >> shift) as u8) as i8 as i32;
     [0, 8, 16, 24].into_iter().fold(c, |acc, shift| {
