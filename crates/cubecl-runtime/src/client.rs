@@ -3,7 +3,10 @@ use crate::{
     device::HardwareIdentity,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
-    logging::ProfileLevel,
+    logging::{
+        CollectivePath, Communication, ExecutionKind, ExecutionScope, Place, ProfileLevel,
+        StreamRole, TransferRoute,
+    },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
@@ -1184,9 +1187,13 @@ impl Client {
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
         if self.skips_communication() {
+            let _skipped =
+                Self::collective_scope(collective, &device_ids, size, CollectivePath::Skipped);
             return;
         }
         self.prepare_collective(collective, device_ids.clone());
+        let _collective = Self::collective_scope(collective, &device_ids, size, self.native_path());
+        self.issue_part(StreamRole::Collective);
         self.queue_all_reduce(
             src,
             dst,
@@ -1194,6 +1201,42 @@ impl Client {
             device_ids,
             ComputeWait::AtSync,
         );
+    }
+
+    /// Issues `collective` over `members`, `bytes` each, as the parent of what this thread issues
+    /// until the scope drops.
+    fn collective_scope(
+        collective: Collective,
+        members: &[DeviceId],
+        bytes: u64,
+        path: CollectivePath,
+    ) -> ExecutionScope {
+        ExecutionScope::communication(|| Communication::Collective {
+            operation: collective,
+            members: members.to_vec(),
+            bytes,
+            path,
+        })
+    }
+
+    /// How this runtime runs a collective, which only a runtime with a device transport does.
+    fn native_path(&self) -> CollectivePath {
+        let transport = self
+            .utilities
+            .device_transport
+            .as_ref()
+            .expect("checked before the collective was prepared");
+        CollectivePath::Native(transport.provider)
+    }
+
+    /// Issues this device's part of the communication open on this thread, on `stream`.
+    fn issue_part(&self, stream: StreamRole) {
+        crate::logging::issue(|| ExecutionKind::Part {
+            place: Place {
+                device: self.device.device_id(),
+                stream,
+            },
+        });
     }
 
     fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
@@ -1326,10 +1369,17 @@ impl Client {
         );
         let handle_cloned = handle.clone();
         let (report, outcome) = SendOutcome::channel();
+        let _transfer = ExecutionScope::communication(|| Communication::Transfer {
+            from: device_id_src,
+            to: device_id_dst,
+            bytes: src_descriptor.handle.size_in_used(),
+            route: TransferRoute::Device,
+        });
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
+        self.issue_part(StreamRole::Transfer);
         self.device.submit(move |server_src| {
             if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
             {
@@ -1340,6 +1390,7 @@ impl Client {
         // runs at once and waits on this send.
         self.device.flush_queue();
 
+        dst_server.issue_part(StreamRole::Transfer);
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
@@ -1425,19 +1476,23 @@ impl Client {
         // which the caller's own context still exists, and attributing a
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
-        if crate::logging::is_observing() {
-            crate::logging::notify_launch(kernel.name());
-        }
+        let execution = crate::logging::issue(|| ExecutionKind::Kernel {
+            place: Place {
+                device: self.device.device_id(),
+                stream: StreamRole::Compute(stream_id),
+            },
+            name: kernel.name(),
+        });
 
         // An observer asking for timing gets the profiled path even with the
         // profiling logger off — the two are separate readers of the same
         // measurement, and making one depend on the other's configuration
         // would mean a caller could not time launches without also logging
         // them somewhere it did not choose.
-        let observed_timing = timed && crate::logging::timing_wanted();
+        let observed = execution.filter(|_| timed && crate::logging::timing_wanted());
 
         match level {
-            None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
+            None | Some(ProfileLevel::ExecutionOnly) if observed.is_none() => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -1554,8 +1609,10 @@ impl Client {
                 // does not change what the logger writes, and `ExecutionOnly` is
                 // documented as the kernels that ran without their timings, so
                 // it logs the execution and never the profile.
-                if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
-                    crate::logging::notify_profiled(name, profile);
+                if let Some(execution) = &observed
+                    && matches!(level, None | Some(ProfileLevel::ExecutionOnly))
+                {
+                    crate::logging::notify_profiled(execution, profile);
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
@@ -1566,7 +1623,7 @@ impl Client {
                 // The observer is told first because resolving consumes it: the
                 // logger's copy is the one that can be deferred, an observer's
                 // cannot be recovered afterwards.
-                let profile = if observed_timing {
+                let profile = if let Some(execution) = &observed {
                     // The observer asked to keep its measurements and cannot:
                     // the logger reads this one, so the observer is told a
                     // duration and its kernels stop overlapping.
@@ -1574,7 +1631,7 @@ impl Client {
                     // Comes back already resolved rather than measured again:
                     // the logger and the observer are two readers of one
                     // measurement, and a second would not be the same launch.
-                    crate::logging::read_and_notify_timed(name, profile)
+                    crate::logging::read_and_notify_timed(execution, profile)
                 } else {
                     profile
                 };
@@ -2071,6 +2128,14 @@ impl Client {
         let elem_size = src_descriptor.elem_size;
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
+        crate::logging::issue(|| {
+            ExecutionKind::Communication(Communication::Transfer {
+                from: self.device.device_id(),
+                to: dst_server.device.device_id(),
+                bytes: src_descriptor.handle.size_in_used(),
+                route: TransferRoute::Host,
+            })
+        });
 
         let read = self
             .device

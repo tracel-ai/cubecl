@@ -2,6 +2,7 @@
 //! once, or by each member for itself.
 
 use super::{Client, PEER_ORDER};
+use crate::logging::{CollectivePath, StreamRole};
 use crate::server::{
     Collective, CollectiveBuffer, ComputeWait, DeviceTransport, Handle, Overlap, ReduceOperation,
     Reduction, Server,
@@ -208,7 +209,8 @@ impl ClientGroup {
         );
 
         let root_id = self.device_ids[root];
-        self.queue(collective, dst, |member, client, dst, device_ids| {
+        let bytes = src.size_in_used();
+        self.queue(collective, bytes, dst, |member, client, dst, device_ids| {
             let src = (member == root).then(|| src.clone());
             client.queue_broadcast(src, dst, root_id, device_ids)
         });
@@ -254,9 +256,14 @@ impl ClientGroup {
         for (rank, buffers) in buffers.iter().enumerate() {
             exchange.expect_part(self, rank, buffers);
         }
-        self.queue(collective, buffers, |_, client, buffers, device_ids| {
-            exchange.queue(client, buffers, device_ids);
-        });
+        self.queue(
+            collective,
+            src,
+            buffers,
+            |_, client, buffers, device_ids| {
+                exchange.queue(client, buffers, device_ids);
+            },
+        );
     }
 
     fn expect_parts(&self, collective: Collective, parts: usize) {
@@ -345,16 +352,30 @@ impl ClientGroup {
     fn queue<Part>(
         &self,
         collective: Collective,
+        bytes: u64,
         parts: Vec<Part>,
         mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
     ) {
         if self.skips_communication() {
+            let _skipped = Client::collective_scope(
+                collective,
+                &self.device_ids,
+                bytes,
+                CollectivePath::Skipped,
+            );
             return;
         }
         // Outside the lock, which setting the group up takes itself.
         self.clients[0].prepare_collective(collective, self.device_ids.clone());
+        let _collective = Client::collective_scope(
+            collective,
+            &self.device_ids,
+            bytes,
+            CollectivePath::Native(self.transport.provider),
+        );
         let _order = PEER_ORDER.lock();
         for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
+            client.issue_part(StreamRole::Collective);
             queue_part(member, client, part, self.device_ids.clone());
         }
         // A part waits in its client's queue until flushed, and a member blocked reading its
@@ -412,6 +433,7 @@ impl GroupMember {
             return;
         }
         let client = &self.group.clients[self.rank];
+        client.issue_part(StreamRole::Collective);
         exchange.queue(client, buffers, self.group.device_ids.clone());
         client.device.flush_queue();
     }
