@@ -115,7 +115,7 @@ impl WgmmaData {
             mem.store.vector_size
         ));
         let acc = self.acc.downcast::<T>().wait();
-        let unit = ComputeScope::unit(ComputeScope::PLANE_GROUP) as u32;
+        let unit = ComputeScope::unit(ComputeScope::MMA_PLANE_GROUP) as u32;
         let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, comptime!(self.axes), space);
         #[unroll]
         for nth in 0..acc.len() {

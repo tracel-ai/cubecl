@@ -446,7 +446,7 @@ impl PlanePartition {
             PlaneTile::Wgmma(_) => {
                 comptime!(assert!(
                     !several,
-                    "PlanePartition: a plane group holds one plane group accumulator"
+                    "PlanePartition: a plane group holds one accumulator"
                 ));
                 comptime!(None)
             }
