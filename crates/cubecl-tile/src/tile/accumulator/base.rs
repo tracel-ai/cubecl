@@ -545,8 +545,8 @@ impl Tile {
 }
 
 /// Who holds each of the output's tiles at `place`: the narrowest scope a level below it deals them
-/// to, or the one holding `place` where none does. A plane group holding them issues the plane group
-/// MMA, which takes all four of its planes.
+/// to, or the one holding `place` where none does. A plane group holding them issues the plane
+/// group MMA, which takes all four of its planes.
 fn holder(place: &Placement) -> ComputeScope {
     place
         .below()

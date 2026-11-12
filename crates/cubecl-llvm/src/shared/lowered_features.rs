@@ -3,11 +3,11 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and plane group MMA and
-//! Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
-//! consumer picks its algorithm off these properties — cubek's matmul selectors ask for `mma`
-//! before they ask anything else — and an advertisement that cannot be honoured is a launch that
-//! fails rather than one that falls back.
+//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and plane group MMA
+//! and Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than
+//! left to fail at compile time, because a consumer picks its algorithm off these properties —
+//! cubek's matmul selectors ask for `mma` before they ask anything else — and an advertisement that
+//! cannot be honoured is a launch that fails rather than one that falls back.
 //! The CPU runtime builds its properties from what this backend lowers, so it has nothing to
 //! narrow.
 

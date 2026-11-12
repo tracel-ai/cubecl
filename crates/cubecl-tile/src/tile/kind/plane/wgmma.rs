@@ -37,8 +37,8 @@ impl WgmmaData {
     ) -> WgmmaData {
         comptime!(assert!(
             m == PLANE_GROUP_M,
-            "WgmmaData: a plane group MMA computes {PLANE_GROUP_M} rows, and this tile has {m}; give \
-             each plane group a {PLANE_GROUP_M}-row tile"
+            "WgmmaData: a plane group MMA computes {PLANE_GROUP_M} rows, and this tile has {m}; \
+             give each plane group a {PLANE_GROUP_M}-row tile"
         ));
         WgmmaData {
             acc: unsafe {
@@ -75,8 +75,8 @@ impl WgmmaData {
             comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
         comptime!(assert!(
             lhs_layout == MatrixLayout::RowMajor && rhs_layout == MatrixLayout::ColMajor,
-            "WgmmaData::mma: a plane group MMA reads both operands K-major here, the lhs `{{m, k}}` \
-             and the rhs `{{n, k}}`; stage them so"
+            "WgmmaData::mma: a plane group MMA reads both operands K-major here, the lhs \
+             `{{m, k}}` and the rhs `{{n, k}}`; stage them so"
         ));
         let k = comptime!(trailing_extent(&lhs.place.space));
         let elem_size = L::size().comptime();
@@ -150,8 +150,8 @@ fn assert_operands_fit(lhs: &Space, rhs: &Space, out: &Space, n: usize) {
     };
     assert!(
         rows(lhs) == PLANE_GROUP_M && rows(rhs) == n,
-        "WgmmaData::mma: a plane group MMA reads {PLANE_GROUP_M} rows of the lhs and {n} of the rhs, \
-         and these windows hold {} and {}",
+        "WgmmaData::mma: a plane group MMA reads {PLANE_GROUP_M} rows of the lhs and {n} of the \
+         rhs, and these windows hold {} and {}",
         rows(lhs),
         rows(rhs)
     );

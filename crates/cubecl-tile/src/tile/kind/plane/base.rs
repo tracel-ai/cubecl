@@ -178,8 +178,8 @@ impl PlaneTile {
                 m
             }
             PlaneTile::Wgmma(_) => panic!(
-                "PlaneTile::rows_per_unit: a plane group accumulator's slices are not read in place; \
-                 drain it first"
+                "PlaneTile::rows_per_unit: a plane group accumulator's slices are not read in \
+                 place; drain it first"
             ),
         }
     }
@@ -1012,7 +1012,8 @@ impl PlanePartition {
             }
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragments(self.clone()),
             PlaneTile::Wgmma(_) => panic!(
-                "Tile::along: a plane group accumulator's slices are not read in place; drain it first"
+                "Tile::along: a plane group accumulator's slices are not read in place; drain it \
+                 first"
             ),
         }
     }
@@ -1180,7 +1181,8 @@ impl PlaneTile {
             }
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragment(self.clone()),
             PlaneTile::Wgmma(_) => panic!(
-                "Tile::along: a plane group accumulator's slices are not read in place; drain it first"
+                "Tile::along: a plane group accumulator's slices are not read in place; drain it \
+                 first"
             ),
         }
     }

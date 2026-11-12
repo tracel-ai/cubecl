@@ -348,7 +348,8 @@ fn issue<A: Scalar, B: Scalar, CD: Numeric>(
 fn check_covers(scope: &Scope, operand: &str, layout: WgmmaTileLayout, rows: usize, k: usize) {
     if layout.rows < rows || layout.k < k {
         scope.push_error(format!(
-            "a plane group MMA reads {rows} rows and {k} of K of {operand}, but its tile is {} x {}",
+            "a plane group MMA reads {rows} rows and {k} of K of {operand}, but its tile is \
+             {} x {}",
             layout.rows, layout.k
         ));
     }

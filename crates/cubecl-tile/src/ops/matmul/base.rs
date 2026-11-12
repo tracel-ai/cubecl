@@ -128,8 +128,8 @@ impl Tile {
                 "Tile::dequantized: a manual-mma sum decodes its factor as its contraction loads it"
             ),
             PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => panic!(
-                "Tile::dequantized: a register block and a plane group MMA read their operands where \
-                 they lie"
+                "Tile::dequantized: a register block and a plane group MMA read their operands \
+                 where they lie"
             ),
         };
         Tile::new::<T>(
@@ -271,8 +271,8 @@ impl Tile {
 
 #[cube]
 impl Tile {
-    /// This memory window as a contraction's output: each unit's share contracted by `matmul`, summed
-    /// under `semiring`. A plane-resident accumulator states both when it is opened.
+    /// This memory window as a contraction's output: each unit's share contracted by `matmul`,
+    /// summed under `semiring`. A plane-resident accumulator states both when it is opened.
     pub fn accumulating(
         &self,
         #[comptime] matmul: SoftwareMatmul,
