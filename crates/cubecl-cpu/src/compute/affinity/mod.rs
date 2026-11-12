@@ -36,7 +36,7 @@ use fallback::Platform;
 pub struct CoreId(usize);
 
 /// A platform's affinity mechanism; the shared ordering policy on top of it
-/// is [`get_active_cores`].
+/// is [`CoreOrder`].
 trait ThreadAffinity {
     /// The logical CPUs the process may run on, in enumeration order.
     fn active_cpus() -> Vec<CoreId>;
@@ -60,6 +60,13 @@ pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
     CoreOrder::active().cpus.into_iter()
 }
 
+/// How many distinct physical cores the process may run on, at most `limit`
+/// (the quota-aware CPU count, which the affinity mask does not reflect), or
+/// `None` when no CPU's physical core can be read.
+pub fn physical_core_count(limit: usize) -> Option<usize> {
+    CoreOrder::active().physical_core_count(limit)
+}
+
 /// The active CPUs in the order workers are pinned to them, with the physical core of each.
 pub struct CoreOrder {
     /// One CPU per physical core first, SMT siblings after, so a launch with up to
@@ -70,6 +77,8 @@ pub struct CoreOrder {
     pub core_of: Vec<usize>,
     /// How many physical cores the CPUs belong to.
     pub physical_cores: usize,
+    /// Whether the physical core of at least one CPU could be read.
+    pub topology_known: bool,
 }
 
 impl CoreOrder {
@@ -83,8 +92,11 @@ impl CoreOrder {
         let mut index_of_core = std::collections::HashMap::new();
         let mut primaries = Vec::new();
         let mut siblings = Vec::new();
+        let mut topology_known = false;
         for cpu in P::active_cpus() {
-            let core = P::physical_core(cpu).unwrap_or(cpu);
+            let physical = P::physical_core(cpu);
+            topology_known |= physical.is_some();
+            let core = physical.unwrap_or(cpu);
             let next = index_of_core.len();
             let index = *index_of_core.entry(core).or_insert(next);
             if index == next {
@@ -105,7 +117,13 @@ impl CoreOrder {
             cpus,
             core_of,
             physical_cores,
+            topology_known,
         }
+    }
+
+    /// The physical core count clamped to `limit`, or `None` when the topology is unknown.
+    fn physical_core_count(&self, limit: usize) -> Option<usize> {
+        self.topology_known.then(|| self.physical_cores.min(limit))
     }
 }
 
@@ -169,9 +187,48 @@ mod tests {
         }
 
         let order = CoreOrder::of::<Fake>();
-        assert_eq!(ids(order.cpus), [0, 2, 4, 5, 1, 3]);
+        assert_eq!(ids(order.cpus.clone()), [0, 2, 4, 5, 1, 3]);
         assert_eq!(order.core_of, [0, 1, 2, 3, 0, 1]);
         assert_eq!(order.physical_cores, 4);
+        assert_eq!(order.physical_core_count(usize::MAX), Some(4));
+        assert_eq!(order.physical_core_count(3), Some(3));
+    }
+
+    #[test]
+    fn an_unreadable_topology_has_no_physical_core_count() {
+        struct Blind;
+
+        impl ThreadAffinity for Blind {
+            fn active_cpus() -> Vec<CoreId> {
+                (0..4).map(CoreId).collect()
+            }
+
+            fn physical_core(_cpu: CoreId) -> Option<CoreId> {
+                None
+            }
+
+            fn l1d_cache_size() -> Option<usize> {
+                None
+            }
+
+            fn llc_cache_size() -> Option<usize> {
+                None
+            }
+
+            fn pin_current(_cpu: CoreId) {}
+        }
+
+        let order = CoreOrder::of::<Blind>();
+        assert_eq!(order.physical_core_count(usize::MAX), None);
+        assert_eq!(ids(order.cpus), [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn the_platform_physical_core_count_is_within_the_cpu_count() {
+        let cpus = Platform::active_cpus().len();
+        if let Some(count) = physical_core_count(cpus) {
+            assert!((1..=cpus).contains(&count), "{count} of {cpus}");
+        }
     }
 
     #[test]

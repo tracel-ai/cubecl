@@ -29,6 +29,7 @@ pub fn offline_device_properties(plane_dim: u32) -> DeviceProperties {
         num_tensor_cores: None,
         min_tensor_cores_dim: None,
         num_cpu_cores: None,
+        num_cpu_physical_cores: None,
         last_level_cache_size: None,
         max_vector_size: VectorSize::MAX,
         cube_mma_reserved_shared_memory: 0,

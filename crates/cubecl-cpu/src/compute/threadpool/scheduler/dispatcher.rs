@@ -239,6 +239,7 @@ mod tests {
             cpus: Vec::new(),
             core_of: vec![0, 1, 2, 3, 0, 1, 2, 3],
             physical_cores: 4,
+            topology_known: true,
         })
     }
 
