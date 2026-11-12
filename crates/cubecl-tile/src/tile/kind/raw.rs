@@ -1,6 +1,6 @@
 //! Values a tile holds apart from the element their type names, each named again where it is
 //! used: a value of a type naming one element ([`Raw`]: a slice, registers, a tensor map) and an
-//! erased call ([`RawCall`]). A cmma fragment and a warpgroup accumulator need neither: they are
+//! erased call ([`RawCall`]). A cmma fragment and a plane group accumulator need neither: they are
 //! kept at [`Held`] and named again with their own `downcast`.
 use std::marker::PhantomData;
 

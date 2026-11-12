@@ -641,7 +641,7 @@ pub(crate) fn tile_product_kernel<
 
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_product<I: Numeric, A: Numeric>(
+fn plane_group_product<I: Numeric, A: Numeric>(
     lhs: &[I],
     rhs: &[I],
     out: &mut [A],
@@ -700,7 +700,7 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
 /// unroll: each iteration waits for the previous stage's group, while its own runs on.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
+fn plane_group_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
     let layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
         swizzle: wgmma::Swizzle::B128,
@@ -735,7 +735,7 @@ fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
 }
 
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
+pub(crate) fn plane_group_pipeline_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -747,7 +747,7 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
             .iter()
             .copied(),
     );
-    warpgroup_pipeline::WarpgroupPipeline::new(
+    plane_group_pipeline::PlaneGroupPipeline::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -760,7 +760,7 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
 /// A `64 x 16` MMA whose `B` tile holds only 8 rows.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_short_tile(out: &mut [f32]) {
+fn plane_group_short_tile(out: &mut [f32]) {
     let a_layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
         swizzle: wgmma::Swizzle::None,
@@ -781,7 +781,7 @@ fn warpgroup_short_tile(out: &mut [f32]) {
 }
 
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
+pub(crate) fn plane_group_short_tile_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -793,7 +793,7 @@ pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
             .iter()
             .copied(),
     );
-    warpgroup_short_tile::WarpgroupShortTile::new(
+    plane_group_short_tile::PlaneGroupShortTile::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -801,7 +801,7 @@ pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
     )
 }
 
-/// Where [`warpgroup_product`] reads `A` from.
+/// Where [`plane_group_product`] reads `A` from.
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ProductA {
@@ -809,9 +809,9 @@ pub(crate) enum ProductA {
     Registers,
 }
 
-/// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
+/// One plane group MMA of `I` operands accumulating in `A`, `64 x n x k`.
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_product_kernel<
+pub(crate) fn plane_group_product_kernel<
     I: Numeric + cubecl_core::CubeElement,
     A: Numeric + cubecl_core::CubeElement,
 >(
@@ -840,7 +840,7 @@ pub(crate) fn warpgroup_product_kernel<
             n_max: n as u32,
             k: k as u32,
         });
-    warpgroup_product::WarpgroupProduct::<I, A>::new(
+    plane_group_product::PlaneGroupProduct::<I, A>::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -1173,7 +1173,7 @@ pub(crate) enum WaitCase {
     TwoStoresPerIteration,
     /// The stores between a wait and the token it waits on are in a loop that may not run.
     MaybeEmptyInnerLoop,
-    /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
+    /// A plane group MMA group committed after the store, which the store's wait doesn't count.
     OtherKind,
     /// A store whose completion nothing waits on.
     Dropped,

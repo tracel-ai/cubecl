@@ -1,5 +1,5 @@
 //! A compute plane's walk over stages whose reads outlast the consume that issues them
-//! ([`Stages::consume_async`]), a warpgroup MMA's.
+//! ([`Stages::consume_async`]), a plane group MMA's.
 
 use cubecl::prelude::*;
 

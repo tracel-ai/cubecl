@@ -128,7 +128,7 @@ impl Tile {
                 "Tile::dequantized: a manual-mma sum decodes its factor as its contraction loads it"
             ),
             PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => panic!(
-                "Tile::dequantized: a register block and a warpgroup MMA read their operands where \
+                "Tile::dequantized: a register block and a plane group MMA read their operands where \
                  they lie"
             ),
         };
@@ -251,9 +251,9 @@ impl Tile {
 
 #[cube]
 impl Tile {
-    /// Commit the warpgroup MMAs this accumulator issued since its last commit, and return their
+    /// Commit the plane group MMAs this accumulator issued since its last commit, and return their
     /// completion: once it resolves, they are done reading what they read, the stages a walk
-    /// holds for them among it. Only a warpgroup accumulator contracts asynchronously.
+    /// holds for them among it. Only a plane group accumulator contracts asynchronously.
     pub fn commit(&self) -> Pending<()> {
         let define!(Served) = self.element;
         match &self.kind {
@@ -262,9 +262,9 @@ impl Tile {
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
-            | TileKind::Lines(_) => panic!(
-                "Tile::commit: only a plane group's warpgroup accumulator contracts asynchronously"
-            ),
+            | TileKind::Lines(_) => {
+                panic!("Tile::commit: only a plane group's accumulator contracts asynchronously")
+            }
         }
     }
 }

@@ -1,10 +1,12 @@
-//! The warpgroup MMA encoding of a plane group's tile ([`WgmmaData`]): the `64 × n` accumulator
+//! The plane group MMA encoding of a plane group's tile ([`WgmmaData`]): the `64 × n` accumulator
 //! the group's four planes write together, its MMAs reading both operands straight out of shared
 //! memory through matrix descriptors.
 
 use cubecl::cmma::MatrixLayout;
 use cubecl::prelude::*;
-use cubecl::wgmma::{Accumulator, Major, MatrixDescriptor, Swizzle, WARPGROUP_M, WgmmaTileLayout};
+use cubecl::wgmma::{
+    Accumulator, Major, MatrixDescriptor, PLANE_GROUP_M, Swizzle, WgmmaTileLayout,
+};
 
 use crate::ops::matmul::leaf::window_layouts;
 use crate::*;
@@ -26,7 +28,7 @@ pub(crate) struct WgmmaData {
 
 #[cube]
 impl WgmmaData {
-    /// A zeroed `m × n` accumulator, `m` the warpgroup's 64 rows, its rows and columns along
+    /// A zeroed `m × n` accumulator, `m` the plane group's 64 rows, its rows and columns along
     /// `axes`.
     pub(crate) fn new<T: Numeric>(
         #[comptime] m: usize,
@@ -34,9 +36,9 @@ impl WgmmaData {
         #[comptime] axes: MatrixAxes,
     ) -> WgmmaData {
         comptime!(assert!(
-            m == WARPGROUP_M,
-            "WgmmaData: a warpgroup MMA computes {WARPGROUP_M} rows, and this tile has {m}; give \
-             each plane group a {WARPGROUP_M}-row tile"
+            m == PLANE_GROUP_M,
+            "WgmmaData: a plane group MMA computes {PLANE_GROUP_M} rows, and this tile has {m}; give \
+             each plane group a {PLANE_GROUP_M}-row tile"
         ));
         WgmmaData {
             acc: unsafe {
@@ -73,7 +75,7 @@ impl WgmmaData {
             comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
         comptime!(assert!(
             lhs_layout == MatrixLayout::RowMajor && rhs_layout == MatrixLayout::ColMajor,
-            "WgmmaData::mma: a warpgroup MMA reads both operands K-major here, the lhs `{{m, k}}` \
+            "WgmmaData::mma: a plane group MMA reads both operands K-major here, the lhs `{{m, k}}` \
              and the rhs `{{n, k}}`; stage them so"
         ));
         let k = comptime!(trailing_extent(&lhs.place.space));
@@ -83,7 +85,7 @@ impl WgmmaData {
             k.is_multiple_of(k_step),
             "WgmmaData::mma: a window of {k} along k is not a whole number of the MMA's {k_step}"
         ));
-        let a = descriptor::<L>(lhs, WARPGROUP_M, k);
+        let a = descriptor::<L>(lhs, PLANE_GROUP_M, k);
         let b = descriptor::<R>(rhs, comptime!(self.n), k);
         let mut acc = self.acc.downcast::<T>();
         #[unroll]
@@ -113,7 +115,7 @@ impl WgmmaData {
             mem.store.vector_size
         ));
         let acc = self.acc.downcast::<T>().wait();
-        let unit = ComputeScope::unit(ComputeScope::WARPGROUP) as u32;
+        let unit = ComputeScope::unit(ComputeScope::PLANE_GROUP) as u32;
         let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, comptime!(self.axes), space);
         #[unroll]
         for nth in 0..acc.len() {
@@ -125,9 +127,9 @@ impl WgmmaData {
     }
 }
 
-/// Panics unless `lhs` and `rhs` are the windows one warpgroup MMA tile of `n` columns reads into
+/// Panics unless `lhs` and `rhs` are the windows one plane group MMA tile of `n` columns reads into
 /// `out`: one contracted axis, the trailing one of both, which a descriptor steps along; the
-/// lhs's other axes the warpgroup's rows, the rhs's its `n` columns. Where a window starts is
+/// lhs's other axes the plane group's rows, the rhs's its `n` columns. Where a window starts is
 /// known only at run time and is not checked: the descriptor's base address takes it to start a
 /// multiple of the eight rows a swizzle pattern repeats over, as a window cut whole out of its
 /// stage does, being a whole number of its own rows in.
@@ -136,7 +138,7 @@ fn assert_operands_fit(lhs: &Space, rhs: &Space, out: &Space, n: usize) {
     let k = lhs.axis_at(lhs.rank() - 1);
     assert!(
         contracted == [k] && rhs.axis_at(rhs.rank() - 1) == k,
-        "WgmmaData::mma: a warpgroup MMA contracts one axis, the trailing one of both operands; \
+        "WgmmaData::mma: a plane group MMA contracts one axis, the trailing one of both operands; \
          these contract {contracted:?}, the lhs {lhs:?} and the rhs {rhs:?}"
     );
     let rows = |space: &Space| {
@@ -147,8 +149,8 @@ fn assert_operands_fit(lhs: &Space, rhs: &Space, out: &Space, n: usize) {
             .product::<usize>()
     };
     assert!(
-        rows(lhs) == WARPGROUP_M && rows(rhs) == n,
-        "WgmmaData::mma: a warpgroup MMA reads {WARPGROUP_M} rows of the lhs and {n} of the rhs, \
+        rows(lhs) == PLANE_GROUP_M && rows(rhs) == n,
+        "WgmmaData::mma: a plane group MMA reads {PLANE_GROUP_M} rows of the lhs and {n} of the rhs, \
          and these windows hold {} and {}",
         rows(lhs),
         rows(rhs)
@@ -193,7 +195,7 @@ fn descriptor<E: Numeric>(
     MatrixDescriptor::<E>::new(origin, layout)
 }
 
-/// The swizzle a stage keeps its rows in, which a warpgroup MMA reads them under: a swizzled row
+/// The swizzle a stage keeps its rows in, which a plane group MMA reads them under: a swizzled row
 /// a TMA descriptor lands is one swizzle span long, which lies as the MMA's tile does.
 fn stage_swizzle(rows: &RowArrangement) -> Swizzle {
     match rows.tma_swizzle() {
@@ -201,9 +203,9 @@ fn stage_swizzle(rows: &RowArrangement) -> Swizzle {
         Ok(TensorMapSwizzle::B64) => Swizzle::B64,
         Ok(TensorMapSwizzle::B128) => Swizzle::B128,
         Ok(other) => panic!(
-            "WgmmaData: the stage keeps its rows under {other:?}, which no warpgroup MMA reads; \
+            "WgmmaData: the stage keeps its rows under {other:?}, which no plane group MMA reads; \
              stage them RowChunks::Swizzled, one swizzle span a row"
         ),
-        Err(why) => panic!("WgmmaData: a warpgroup MMA cannot read the stage: {why}"),
+        Err(why) => panic!("WgmmaData: a plane group MMA cannot read the stage: {why}"),
     }
 }
