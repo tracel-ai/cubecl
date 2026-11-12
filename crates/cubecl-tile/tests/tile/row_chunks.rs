@@ -1,9 +1,11 @@
 //! A stage whose block rows are swizzled ([`RowChunks::Swizzled`]) or padded
 //! ([`RowChunks::Padded`]) holds the same product as one whose rows lie in order: filled whole,
 //! filled through registers, and read by the instruction the accumulator picks for the leaf: the
-//! manual mma transport (through `ldmatrix` where the device has it, which a swizzled stage always
-//! gets) or, in order or padded, the cmma one where the device offers the leaf's shape — a
-//! row-major rhs and a weight stored `{n, k}` alike. A global window is read manually.
+//! manual mma transport (through `ldmatrix` where the device has it) or, in order or padded, the
+//! cmma one where the device offers the leaf's shape — a row-major rhs and a weight stored
+//! `{n, k}` alike. A swizzled stage only the manual mma reads, so where the accumulator picks cmma
+//! for the leaf (Metal's `8×8×8`) its case reports the test skipped. A global window is read
+//! manually.
 //!
 //! In `f16` (and `bf16` through `ldmatrix`) summed in `f32`, at `16×16×16` where the device offers
 //! it and at the shape it does otherwise (NVIDIA's manual mma is `16×8×16`); a device with no such
@@ -254,6 +256,26 @@ fn check(case: Case) {
     let Some((edge_m, edge_n, edge_k)) = instruction_shape(&client, leaf, input, line_depth) else {
         return;
     };
+    // A drained sum picks its instruction before any stage exists, so where the fragment API offers
+    // the leaf (Metal's `8×8×8`) it reads the stage off a pointer and a stride, which a swizzled
+    // row is not: the kernel refuses as it expands. Reported, not run.
+    let picked = Instruction::for_accumulator(
+        client.properties(),
+        client.target_properties(),
+        space::ComputeScope::Plane,
+        FragmentSource::Values(input),
+        FragmentSource::Values(input),
+        f32::elem_type_native(),
+        [edge_m, edge_n, edge_k],
+    );
+    if chunks == RowChunks::Swizzled && picked == Some(Instruction::Cmma) {
+        ValidationResult::Skipped(format!(
+            "the fragment API reads this device's {edge_m}×{edge_n}×{edge_k} leaf, and no \
+             swizzled stage"
+        ))
+        .enforce();
+        return;
+    }
     let (m, n, k) = (mn, mn, 128usize);
     // A row-major rhs's lines run along `N`, and a fragment narrower than a line starts inside one,
     // which the manual mma load refuses: reported, not run.
