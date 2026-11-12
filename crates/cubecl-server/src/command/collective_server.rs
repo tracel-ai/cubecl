@@ -354,7 +354,7 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        let marks = CommunicationMarks::new(self.profiler(), timing);
+        let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
@@ -491,7 +491,7 @@ fn run<S: CollectiveServer, const N: usize>(
 ) -> Result<(), ServerError> {
     let comm = *server.collectives().get(group)?;
     let comm_stream = server.comm_stream();
-    let marks = CommunicationMarks::new(server.profiler(), timing);
+    let marks = CommunicationMarks::new(server, timing);
 
     let mut command = server.command(stream_id, bindings.iter())?;
     let mut resources = Vec::with_capacity(N);
@@ -535,7 +535,7 @@ fn post_send<S: CollectiveServer>(
     let devices = pair(server.device_id(), device_id_dst);
     let peer = server.collectives().peer_rank(&devices)?;
     let transfers = server.transfer_stream();
-    let marks = CommunicationMarks::new(server.profiler(), timing);
+    let marks = CommunicationMarks::new(server, timing);
 
     // The send reads the source, so it is worth no more than the work that wrote it. Skipping
     // this hands the peer stale bytes on a handle that carries no claim over there: the
@@ -590,7 +590,7 @@ fn receive<S: CollectiveServer>(
     let devices = pair(server.device_id(), device_id_src);
     let peer = server.collectives().peer_rank(&devices)?;
     let size = handle.size_in_used();
-    let marks = CommunicationMarks::new(server.profiler(), timing);
+    let marks = CommunicationMarks::new(server, timing);
 
     // A command on the destination server reserves the memory the incoming
     // data lands in.
@@ -632,11 +632,15 @@ struct CommunicationMarks<A: EventApi> {
 }
 
 impl<A: EventApi> CommunicationMarks<A> {
-    fn new(profiler: &mut EventProfiler<A>, timing: Option<CommunicationTiming>) -> Self {
+    /// The marks `timing` asks for, reaching for `server`'s profiler only when it asks for any.
+    fn new<S: CollectiveServer<Events = A>>(
+        server: &mut S,
+        timing: Option<CommunicationTiming>,
+    ) -> Self {
         let Some(timing) = timing else {
             return Self::untimed();
         };
-        Self::taken(profiler, timing).unwrap_or_else(Self::failed)
+        Self::taken(server.profiler(), timing).unwrap_or_else(Self::failed)
     }
 
     fn taken(
