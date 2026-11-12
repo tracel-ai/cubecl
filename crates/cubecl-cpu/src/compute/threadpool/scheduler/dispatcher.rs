@@ -16,11 +16,19 @@ use crate::compute::{
     threadpool::{ThreadTask, compute_task::ComputeTask, scheduler::Worker},
 };
 
-pub struct DispatcherScheduler {
+/// Starts the worker of one CPU, returning the channel that feeds it and its count of queued
+/// units.
+type SpawnWorker<T> =
+    Box<dyn FnMut(CoreId) -> (mpsc::Sender<T>, Arc<CachePadded<AtomicUsize>>) + Send>;
+
+/// Places the units of a launch on pinned workers. Generic over the unit sent so the placement
+/// can be driven through the real send path with workers a test supplies.
+pub struct DispatcherScheduler<T = ComputeTask> {
     cpus: Vec<CoreId>,
-    tx: Vec<mpsc::Sender<ComputeTask>>,
+    tx: Vec<mpsc::Sender<T>>,
     lens: Vec<Arc<CachePadded<AtomicUsize>>>,
     spread: LaunchSpread,
+    spawn: SpawnWorker<T>,
 }
 
 impl Default for DispatcherScheduler {
@@ -31,12 +39,33 @@ impl Default for DispatcherScheduler {
 
 impl DispatcherScheduler {
     pub fn new() -> Self {
-        let order = CoreOrder::active();
+        Self::with_spawn(
+            CoreOrder::active(),
+            Box::new(|core_id| {
+                let (worker, tx, len) = DispatcherWorker::new();
+                worker.spawn_thread(core_id);
+                (tx, len)
+            }),
+        )
+    }
+
+    pub fn send_launch(
+        &mut self,
+        tasks: impl ExactSizeIterator<Item = ComputeTask>,
+        requirements: &KernelRequirements,
+    ) {
+        self.send(tasks, requirements.needs_parallelism);
+    }
+}
+
+impl<T> DispatcherScheduler<T> {
+    fn with_spawn(order: &CoreOrder, spawn: SpawnWorker<T>) -> Self {
         let mut scheduler = Self {
-            spread: LaunchSpread::new(&order),
-            cpus: order.cpus,
+            spread: LaunchSpread::new(order),
+            cpus: order.cpus.clone(),
             tx: Vec::new(),
             lens: Vec::new(),
+            spawn,
         };
         // One worker per active CPU; a barrier kernel grows the pool past it.
         scheduler.grow(scheduler.cpus.len());
@@ -50,19 +79,14 @@ impl DispatcherScheduler {
     fn grow(&mut self, workers: usize) {
         while self.tx.len() < workers {
             let core_id = self.cpus[self.tx.len() % self.cpus.len()];
-            let (worker, tx, len) = DispatcherWorker::new();
-            worker.spawn_thread(core_id);
+            let (tx, len) = (self.spawn)(core_id);
             self.tx.push(tx);
             self.lens.push(len);
         }
     }
 
-    pub fn send_launch(
-        &mut self,
-        tasks: impl ExactSizeIterator<Item = ComputeTask>,
-        requirements: &KernelRequirements,
-    ) {
-        if requirements.needs_parallelism {
+    fn send(&mut self, tasks: impl ExactSizeIterator<Item = T>, needs_parallelism: bool) {
+        if needs_parallelism {
             self.send_worker_per_unit(tasks);
         } else {
             self.send_spread(tasks);
@@ -71,26 +95,26 @@ impl DispatcherScheduler {
 
     /// A cube barrier only completes if every unit of the cube is running, so each unit gets a
     /// worker of its own.
-    fn send_worker_per_unit(&mut self, tasks: impl ExactSizeIterator<Item = ComputeTask>) {
+    fn send_worker_per_unit(&mut self, tasks: impl ExactSizeIterator<Item = T>) {
         self.grow(tasks.len());
         for (worker, task) in tasks.enumerate() {
             self.dispatch(worker, task);
         }
     }
 
-    fn send_spread(&mut self, tasks: impl Iterator<Item = ComputeTask>) {
-        self.spread.start_launch();
-        for task in tasks {
-            let loads = self
-                .lens
+    fn send_spread(&mut self, tasks: impl Iterator<Item = T>) {
+        self.spread.start_launch(
+            self.lens
                 .iter()
-                .map(|len| len.load(atomic::Ordering::Relaxed));
-            let worker = self.spread.pick(loads);
+                .map(|len| len.load(atomic::Ordering::Relaxed)),
+        );
+        for task in tasks {
+            let worker = self.spread.pick();
             self.dispatch(worker, task);
         }
     }
 
-    fn dispatch(&self, worker: usize, task: ComputeTask) {
+    fn dispatch(&self, worker: usize, task: T) {
         // Counted before the send, so a worker finishing at once never takes the count below zero.
         self.lens[worker].fetch_add(1, atomic::Ordering::Relaxed);
         let _ = self.tx[worker].send(task);
@@ -109,6 +133,8 @@ struct LaunchSpread {
     core_of: Vec<usize>,
     units_on_core: Vec<usize>,
     units_on_worker: Vec<usize>,
+    /// The queued units of each physical core, read once at the start of the launch and
+    /// advanced as the launch places its own units.
     core_load: Vec<usize>,
 }
 
@@ -122,17 +148,18 @@ impl LaunchSpread {
         }
     }
 
-    fn start_launch(&mut self) {
+    /// Starts a launch, given the queued units of every worker in the pool.
+    fn start_launch(&mut self, loads: impl Iterator<Item = usize>) {
         self.units_on_core.fill(0);
         self.units_on_worker.fill(0);
-    }
-
-    /// The worker of the next unit, given the live load of every worker in the pool.
-    fn pick(&mut self, loads: impl Iterator<Item = usize>) -> usize {
         self.core_load.fill(0);
         for (worker, load) in loads.enumerate() {
             self.core_load[self.core_of[worker % self.core_of.len()]] += load;
         }
+    }
+
+    /// The worker of the next unit of the launch.
+    fn pick(&mut self) -> usize {
         let worker = (0..self.core_of.len())
             .min_by_key(|&worker| {
                 let core = self.core_of[worker];
@@ -143,8 +170,10 @@ impl LaunchSpread {
                 )
             })
             .expect("a pool has at least one worker");
-        self.units_on_core[self.core_of[worker]] += 1;
+        let core = self.core_of[worker];
+        self.units_on_core[core] += 1;
         self.units_on_worker[worker] += 1;
+        self.core_load[core] += 1;
         worker
     }
 }
@@ -230,25 +259,29 @@ impl Worker for DispatcherWorker {
 
 #[cfg(test)]
 mod tests {
-    use super::LaunchSpread;
-    use crate::compute::affinity::CoreOrder;
+    use std::sync::{Arc, Mutex};
+
+    use super::{DispatcherScheduler, LaunchSpread};
+    use crate::compute::affinity::{CoreId, CoreOrder};
 
     /// Four physical cores with two SMT threads each, siblings listed after the primaries.
-    fn smt_spread() -> LaunchSpread {
-        LaunchSpread::new(&CoreOrder {
-            cpus: Vec::new(),
+    fn smt_order() -> CoreOrder {
+        CoreOrder {
+            cpus: (0..8).map(CoreId::new_for_test).collect(),
             core_of: vec![0, 1, 2, 3, 0, 1, 2, 3],
             physical_cores: 4,
             topology_known: true,
-        })
+        }
+    }
+
+    fn smt_spread() -> LaunchSpread {
+        LaunchSpread::new(&smt_order())
     }
 
     /// Picks the workers of a launch of `units` units, with every load fixed at `loads`.
     fn launch(spread: &mut LaunchSpread, loads: &[usize], units: usize) -> Vec<usize> {
-        spread.start_launch();
-        (0..units)
-            .map(|_| spread.pick(loads.iter().copied()))
-            .collect()
+        spread.start_launch(loads.iter().copied());
+        (0..units).map(|_| spread.pick()).collect()
     }
 
     #[test]
@@ -286,5 +319,81 @@ mod tests {
         // Worker 8 is a barrier overflow worker pinned beside worker 0.
         let loads = [0, 0, 0, 0, 0, 0, 0, 0, 1];
         assert_eq!(launch(&mut smt_spread(), &loads, 4), [1, 2, 3, 0]);
+    }
+
+    /// A scheduler whose workers are channels the test reads, in place of pinned threads. Each
+    /// worker keeps the unit numbers it received.
+    struct Harness {
+        scheduler: DispatcherScheduler<usize>,
+        inboxes: Arc<Mutex<Vec<std::sync::mpsc::Receiver<usize>>>>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let inboxes = Arc::new(Mutex::new(Vec::new()));
+            let spawned = inboxes.clone();
+            let scheduler = DispatcherScheduler::with_spawn(
+                &smt_order(),
+                Box::new(move |_| {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    spawned.lock().unwrap().push(rx);
+                    (tx, Arc::new(Default::default()))
+                }),
+            );
+            Self { scheduler, inboxes }
+        }
+
+        /// The sorted physical cores of the units received since the last call.
+        fn cores_received(&self) -> Vec<usize> {
+            let order = smt_order();
+            let mut cores: Vec<usize> = self
+                .received()
+                .iter()
+                .enumerate()
+                .flat_map(|(worker, units)| vec![order.core_of[worker]; units.len()])
+                .collect();
+            cores.sort_unstable();
+            cores
+        }
+
+        /// For each worker, the units it received since the last call.
+        fn received(&self) -> Vec<Vec<usize>> {
+            self.inboxes
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|rx| rx.try_iter().collect())
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_launch_of_up_to_the_physical_cores_lands_one_unit_per_core() {
+        let mut harness = Harness::new();
+        harness.scheduler.send(0..4, false);
+        let cores = harness.cores_received();
+        assert_eq!(cores, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_second_launch_behind_the_first_still_takes_a_core_per_unit() {
+        // The first launch's units are never finished, so its workers read as busy.
+        let mut harness = Harness::new();
+        harness.scheduler.send(0..4, false);
+        harness.received();
+        harness.scheduler.send(0..4, false);
+        let cores = harness.cores_received();
+        assert_eq!(cores, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_barrier_launch_gives_worker_i_to_unit_i_and_grows_past_the_cpus() {
+        let mut harness = Harness::new();
+        harness.scheduler.send(0..10, true);
+        let received = harness.received();
+        assert_eq!(received.len(), 10);
+        for (worker, units) in received.iter().enumerate() {
+            assert_eq!(units, &[worker]);
+        }
     }
 }

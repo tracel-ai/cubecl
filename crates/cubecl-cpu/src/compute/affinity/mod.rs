@@ -35,6 +35,14 @@ use fallback::Platform;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CoreId(usize);
 
+#[cfg(test)]
+impl CoreId {
+    /// A made-up CPU number, for tests that never pin a thread to it.
+    pub fn new_for_test(cpu: usize) -> Self {
+        Self(cpu)
+    }
+}
+
 /// A platform's affinity mechanism; the shared ordering policy on top of it
 /// is [`CoreOrder`].
 trait ThreadAffinity {
@@ -57,7 +65,7 @@ trait ThreadAffinity {
 
 /// The logical CPUs workers are pinned to, in [`CoreOrder`].
 pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
-    CoreOrder::active().cpus.into_iter()
+    CoreOrder::active().cpus.iter().copied()
 }
 
 /// How many distinct physical cores the process may run on, at most `limit`
@@ -82,9 +90,10 @@ pub struct CoreOrder {
 }
 
 impl CoreOrder {
-    /// The order of the CPUs this process may run on.
-    pub fn active() -> Self {
-        Self::of::<Platform>()
+    /// The order of the CPUs this process may run on, read once per process.
+    pub fn active() -> &'static Self {
+        static ACTIVE: std::sync::OnceLock<CoreOrder> = std::sync::OnceLock::new();
+        ACTIVE.get_or_init(Self::of::<Platform>)
     }
 
     /// The order over any platform, so the policy is testable on a made-up topology.
