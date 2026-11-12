@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-runtime"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-runtime"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -18,6 +19,8 @@ workspace = true
 [features]
 autotune-checks = []
 persistence = ["std", "cubecl-environment/persistence"]
+# The native caches on SQLite instead of Turso; see `cubecl-environment`.
+rusqlite = ["persistence", "cubecl-environment/rusqlite"]
 channel-cell = []
 channel-mpsc = []
 channel-mutex = []

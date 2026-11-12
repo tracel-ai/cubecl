@@ -146,7 +146,7 @@ impl TmaData {
     /// Window down to `step`: advance the global box origin by each axis's tile offset.
     // The layout is `Copy`, but its expand is an `Arc` that the expansion moves: clone it.
     #[allow(clippy::clone_on_copy)]
-    pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> TmaData {
+    pub(crate) fn at(&self, step: &Step, #[comptime] space: &Space) -> TmaData {
         let mut pos = CoordsDyn::new();
 
         #[unroll]

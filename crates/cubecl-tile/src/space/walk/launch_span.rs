@@ -6,27 +6,27 @@ use crate::{
     ComputeScope, Coords, CubeAxis, CubeOrder, Integer, IntegerExpand, Level, Space, cube_positions,
 };
 
-/// This plane's or unit's tile of `level`, a level spanning the launch, along each axis of
-/// `space`: `(positions, counts)`: along each of the level's axes the tile's index and `1`, an
-/// index past the last for an instance past the last tile; along each other axis `0` and every
-/// tile. `grid` is the tiles along each axis.
+/// This plane's or unit's tiles of `level`, a level spanning the launch, along each axis of
+/// `space`: `(positions, counts, scales)`: along each of the level's axes the first tile's index,
+/// how many it walks and how far apart they lie: one tile, an index past the last for an instance
+/// past the last tile; under a [capped](crate::space::PlaneOrder::capped) order, every tile a
+/// whole launch of planes apart until the last. Along each other axis `0`, every tile, `1`. `grid`
+/// is the tiles along each axis.
 #[cube]
 pub(crate) fn launch_tiles(
-    #[comptime] space: Space,
-    #[comptime] level: Level,
+    #[comptime] space: &Space,
+    #[comptime] level: &Level,
     grid: &Coords<usize>,
-) -> (Coords<usize>, Coords<usize>) {
-    let order = comptime!(
-        level
-            .launch_order()
-            .expect("a level spanning the launch states the order its instances take")
-    );
+) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
+    let order = level
+        .launch_order()
+        .expect("a level spanning the launch states the order its instances take");
     // An instance's place in its cube: a plane's row, or a unit's place among all of its units.
-    let in_cube = match comptime!(level.coverage().scope()) {
+    let in_cube = match level.coverage().scope() {
         Some(ComputeScope::Unit) => UNIT_POS as usize,
         _ => UNIT_POS_Y as usize,
     };
-    let rank = comptime!(space.rank());
+    let rank = space.rank();
     // The level's axes in the order it names them: the first rides fastest across the blocks, as
     // a cube level's `X` does.
     let named = comptime!(
@@ -40,45 +40,45 @@ pub(crate) fn launch_tiles(
     // its `z` is always one.
     let cube = CubeAxis::position(CubeAxis::X)
         .plus(CubeAxis::position(CubeAxis::Y).times(CUBE_COUNT_X as usize));
-    let (block, local) = if comptime!(order.one_block_a_cube()) {
+    let (block, local) = if order.one_block_a_cube() {
         (cube, in_cube)
     } else {
-        let flat = cube
-            .times(comptime!(order.planes_per_cube()).runtime())
-            .plus(in_cube);
-        let planes = comptime!(order.block_planes()).runtime();
+        let flat = cube.times(order.planes_per_cube().runtime()).plus(in_cube);
+        let planes = order.block_planes().runtime();
         (flat.divided_by(planes), flat.remainder(planes))
     };
 
     // Blocks along each named axis, the last one ragged.
     let mut blocks = Coords::<usize>::new();
     #[unroll]
-    for p in comptime!(named.clone()) {
-        let along = comptime!(order.block_along(space.axis_at(p)));
+    for p in named.clone() {
+        let along = order.block_along(space.axis_at(p));
         blocks.push(
             grid.at(p)
-                .plus(comptime!(along - 1).runtime())
+                .plus((along - 1).runtime())
                 .divided_by(along.runtime()),
         );
     }
-    let at = block_coords(
-        block,
-        &blocks,
-        comptime!(named.len()),
-        comptime!(order.block_order()),
-    );
+    let at = block_coords(block, &blocks, named.len(), order.block_order());
 
+    let capped = order.cap().is_some();
+    comptime!(assert!(
+        !capped || (order.one_block_a_cube() && named.len() == 1),
+        "launch_tiles: a capped launch's cubes take a block each, along the level's one axis"
+    ));
     let mut positions = Coords::<usize>::new();
     let mut counts = Coords::<usize>::new();
+    let mut scales = Coords::<usize>::new();
     #[unroll]
     for p in 0..rank {
         match comptime!(named.iter().position(|&q| q == p)) {
             None => {
                 positions.push(0usize);
                 counts.push(grid.at(p));
+                scales.push(1usize);
             }
             Some(i) => {
-                let along = comptime!(order.block_along(space.axis_at(p)));
+                let along = order.block_along(space.axis_at(p));
                 // The last named axis rides fastest within a block, as a plane level's does.
                 let inner = comptime!(
                     named[i + 1..]
@@ -89,11 +89,26 @@ pub(crate) fn launch_tiles(
                 let within = local.divided_by(inner.runtime()).remainder(along.runtime());
                 let tile = at.at(i).times(along.runtime()).plus(within);
                 positions.push(tile);
-                counts.push(1usize);
+                if capped {
+                    // A launch's planes apart: every cube's block, a tile a plane.
+                    let stride = CUBE_COUNT.times(along.runtime());
+                    let first = tile.min_with(grid.at(p));
+                    counts.push(
+                        grid.at(p)
+                            .minus(first)
+                            .plus(stride)
+                            .minus(1usize.runtime())
+                            .divided_by(stride),
+                    );
+                    scales.push(stride);
+                } else {
+                    counts.push(1usize);
+                    scales.push(1usize);
+                }
             }
         }
     }
-    (positions, counts)
+    (positions, counts, scales)
 }
 
 /// Block `block`'s coordinates over `blocks`, `named` axes of them: the first two in `order`, the
@@ -106,11 +121,11 @@ fn block_coords(
     #[comptime] order: CubeOrder,
 ) -> Coords<usize> {
     let mut out = Coords::<usize>::new();
-    if comptime!(named == 1) {
+    if named == 1 {
         out.push(block);
     } else {
         let plane = blocks.at(0).times(blocks.at(1));
-        let first_two = if comptime!(named == 2) {
+        let first_two = if named == 2 {
             block
         } else {
             block.remainder(plane)
@@ -121,7 +136,7 @@ fn block_coords(
         let mut rest = block.divided_by(plane);
         #[unroll]
         for i in 2..named {
-            if comptime!(i + 1 == named) {
+            if i + 1 == named {
                 out.push(rest);
             } else {
                 out.push(rest.remainder(blocks.at(i)));

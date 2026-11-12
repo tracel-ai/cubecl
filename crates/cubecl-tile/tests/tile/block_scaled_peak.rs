@@ -68,7 +68,6 @@ enum ScaleForm {
 
 /// `c = repeats · (a ⊗ sa) · (b ⊗ sb)` per cube, over one stage contracted `repeats` times.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn block_scaled_peak<E: Numeric>(
     a: &TileTensor<'_>,
     a_scales: &TileTensor<'_>,
@@ -121,7 +120,6 @@ fn block_scaled_peak<E: Numeric>(
 /// `c = repeats · a · bᵀ` per cube at `f16`, the same walk through the plain manual-mma
 /// instruction.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn float_peak(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,

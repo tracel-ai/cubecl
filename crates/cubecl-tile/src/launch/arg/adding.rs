@@ -34,11 +34,11 @@ pub(crate) fn adding_tile<E: Numeric, V: Size>(
         adding_sink::<E, V>(lines, first),
         geometry,
         V::value(),
-        comptime!(space.space().clone()),
+        space.space().clone(),
         comptime!(arg.spec.clone()),
         comptime!(Write::Exclusive(Schedule::Sequential)),
     )
-    .tile::<E>(comptime!(space.levels().to_vec()))
+    .tile::<E>(space.levels().to_vec())
 }
 
 /// The erased tensor over the carry that replaces each line written on the `first` turn and adds

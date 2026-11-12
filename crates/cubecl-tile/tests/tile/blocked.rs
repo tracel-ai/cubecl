@@ -77,7 +77,7 @@ fn scaled_matmul(
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => c_region.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_region.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }

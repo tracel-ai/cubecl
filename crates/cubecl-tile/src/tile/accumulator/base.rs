@@ -2,6 +2,7 @@
 
 use cubecl::prelude::*;
 
+use crate::dialect::DrainOp;
 use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
@@ -132,7 +133,7 @@ impl Tile {
         #[comptime] instruction: Instruction,
         #[comptime] semiring: Semiring,
     ) -> Tile {
-        match comptime!(instruction) {
+        match instruction {
             Instruction::Registers { config } => {
                 register_accumulator::<EA>(self, lhs, rhs, config, semiring)
             }
@@ -143,7 +144,7 @@ impl Tile {
                 }
                 let vector_size = self.vector_size();
                 accumulator_in::<EA>(
-                    comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
+                    &comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
                     lhs,
                     instruction,
                     vector_size,
@@ -165,7 +166,7 @@ impl Tile {
     ) -> Tile {
         let vector_size = self.vector_size();
         accumulator_in::<EA>(
-            comptime!(self.place.clone()),
+            &self.place,
             input,
             comptime!(Instruction::Registers { config }),
             vector_size,
@@ -180,24 +181,24 @@ impl Tile {
     /// a drain region by region.
     pub fn with_scratch(self, #[comptime] scratch: Scratch) -> Tile {
         let define!(Served) = self.element;
-        match comptime!(scratch) {
+        match scratch {
             Scratch::None => self,
             _ => match &self.kind {
                 TileKind::PlanePartition(p) => {
                     let (m, n) = p.at(0usize, 0usize).shape();
                     let cells = comptime!(m * n);
                     let tiles = comptime!(p.m_tiles * p.n_tiles);
-                    let slots = comptime!(scratch.slots(tiles));
+                    let slots = scratch.slots(tiles);
                     // Indexed by hardware plane position, not level position: the launch decides
                     // the cube's shape.
                     let planes = comptime!(plane_windows(&self.place.space, &self.place.levels));
-                    let plane = PLANE_POS.cast::<usize>() * comptime!(cells * slots);
-                    let shared = Shared::<[Served]>::new_slice(comptime!(cells * slots * planes));
+                    let plane = PLANE_POS.cast::<usize>() * (cells * slots);
+                    let shared = Shared::<[Served]>::new_slice(cells * slots * planes);
                     // Each fragment carries its own slot, so drain order doesn't matter.
                     let mut frags = Sequence::<PlaneTile>::new();
                     #[unroll]
                     for i in 0..tiles {
-                        let start = plane + comptime!(cells * scratch.slot_of(i, tiles));
+                        let start = plane + (cells * scratch.slot_of(i, tiles));
                         let slot = shared.clone().map(|s| &s[start..start + cells]);
                         frags.push(p.frags.index(i).clone().with_scratch(slot));
                     }
@@ -232,7 +233,20 @@ impl Tile {
     /// Drain this accumulator into `dest`, cast to its element. `self` and `dest` must be
     /// indexed by the same region. A cmma grid opened with no scratch opens one where `dest`
     /// needs its fragments bounced.
+    ///
+    /// It reaches the IR as one `tile.drained_into` op.
     pub fn drained_into(&self, dest: &Tile) {
+        intrinsic!(|scope| DrainOp::trace(scope, |scope| {
+            self.__expand_drain_into_method(scope, dest)
+        }))
+    }
+
+    /// [`drained_into`](Tile::drained_into)'s drain, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_into(&self, dest: &Tile) {
         let define!(Served) = self.element;
         let define!(Out) = dest.element;
         // A sum written out is a sum with its scales applied: multiplied by them once, as it
@@ -245,11 +259,11 @@ impl Tile {
         let bounces = dest.fragments_bounce(in_place);
         if comptime!(unopened && (scaled || bounces)) {
             let opened = self.clone().with_scratch(Scratch::OneTile);
-            opened.drained_into(dest);
-        } else if comptime!(scaled) {
+            opened.drain_into(dest);
+        } else if scaled {
             let mut sum = self.unscaled();
             sum.scale_by::<f32>(self.factor.whole());
-            sum.drained_into(dest);
+            sum.drain_into(dest);
         } else {
             self.drain_as_opened::<Served, Out>(dest);
         }
@@ -582,7 +596,7 @@ fn register_accumulator<EA: Numeric>(
         (false, _) => rw,
     });
     accumulator_in::<EA>(
-        comptime!(out.place.clone()),
+        &out.place,
         lhs,
         comptime!(Instruction::Registers { config }),
         width,
@@ -612,7 +626,7 @@ fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
 /// The plane-resident grid an accumulator gathers in, in `form`, at its identity.
 #[cube]
 fn accumulator_in<EA: Numeric>(
-    #[comptime] out: Placement,
+    #[comptime] out: &Placement,
     lhs: &Tile,
     #[comptime] form: Instruction,
     #[comptime] vector_size: usize,
@@ -626,17 +640,17 @@ fn accumulator_in<EA: Numeric>(
          not {accumulation:?}; contract in a register block to sum under another"
     ));
     let mut acc = PlanePartition::mirror::<EA>(
-        comptime!(out.space.clone()),
+        &out.space,
         comptime!(MatrixAxes::accumulator(&out.space, &lhs.place.space)),
         comptime!(form),
-        comptime!(GridShape::new(&out, &lhs.place.space)),
+        comptime!(GridShape::new(out, &lhs.place.space)),
         vector_size,
         contracted_per_step,
         accumulation,
-        comptime!(out.depth),
-        comptime!(out.levels.clone()),
+        out.depth,
+        out.levels.clone(),
     );
-    acc.init_identity::<EA>(comptime!(accumulation.monoid()));
+    acc.init_identity::<EA>(accumulation.monoid());
     acc
 }
 
@@ -681,17 +695,17 @@ impl Tile {
         let place = comptime!(Placement::new(space, depth, levels));
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
-            comptime!(place.space.clone()),
+            &place.space,
             comptime!(MatrixAxes::accumulator(&place.space, &lhs.place.space)),
             instruction,
             comptime!(GridShape::new(&place, &lhs.place.space)),
             1usize,
             1usize,
             accumulation,
-            comptime!(place.depth),
-            comptime!(place.levels.clone()),
+            place.depth,
+            place.levels.clone(),
         );
-        acc.init_identity::<EA>(comptime!(accumulation.monoid()));
+        acc.init_identity::<EA>(accumulation.monoid());
         acc
     }
 }
@@ -705,7 +719,7 @@ fn drain_below<A: Numeric, O: Numeric>(
     #[comptime] i: usize,
     #[comptime] pass: DrainPass,
 ) {
-    if comptime!(i == levels.len()) {
+    if i == levels.len() {
         drain_leaf::<A, O>(acc, dest, pass);
     } else {
         let level = comptime!(levels[i].clone());
@@ -715,8 +729,8 @@ fn drain_below<A: Numeric, O: Numeric>(
                 drain_below::<A, O>(
                     &acc.at(&region),
                     &dest.at(&region),
-                    comptime!(levels.clone()),
-                    comptime!(i + 1),
+                    levels.clone(),
+                    i + 1,
                     pass,
                 );
             }
@@ -725,8 +739,8 @@ fn drain_below<A: Numeric, O: Numeric>(
                 drain_below::<A, O>(
                     &acc.at(&region),
                     &dest.at(&region),
-                    comptime!(levels.clone()),
-                    comptime!(i + 1),
+                    levels.clone(),
+                    i + 1,
                     pass,
                 );
             }
@@ -749,7 +763,7 @@ fn drain_chunk_below<A: Numeric, O: Numeric>(
     turn: usize,
     #[comptime] chunks: usize,
 ) {
-    if comptime!(i == levels.len()) {
+    if i == levels.len() {
         drain_chunk_leaf::<A, O>(acc, dest, pass, place % chunks == turn);
     } else {
         let level = comptime!(levels[i].clone());
@@ -760,14 +774,14 @@ fn drain_chunk_below<A: Numeric, O: Numeric>(
             for region in dest.over(&level).unrolled() {
                 let mut here = place;
                 #[unroll]
-                for a in 0..comptime!(axes.len()) {
+                for a in 0..axes.len() {
                     here += region.coord(comptime!(axes[a]));
                 }
                 drain_chunk_below::<A, O>(
                     &acc.at(&region),
                     &dest.at(&region),
-                    comptime!(levels.clone()),
-                    comptime!(i + 1),
+                    levels.clone(),
+                    i + 1,
                     pass,
                     here,
                     turn,
@@ -779,8 +793,8 @@ fn drain_chunk_below<A: Numeric, O: Numeric>(
                 drain_chunk_below::<A, O>(
                     &acc.at(&region),
                     &dest.at(&region),
-                    comptime!(levels.clone()),
-                    comptime!(i + 1),
+                    levels.clone(),
+                    i + 1,
                     pass,
                     place,
                     turn,
@@ -800,7 +814,7 @@ fn drain_chunk_leaf<A: Numeric, O: Numeric>(
     #[comptime] pass: DrainPass,
     lands: bool,
 ) {
-    match comptime!(pass) {
+    match pass {
         DrainPass::Copy => {
             if lands {
                 let mut window = dest.clone();
@@ -836,7 +850,7 @@ fn drain_chunk_leaf<A: Numeric, O: Numeric>(
 /// One tile of a drain against the one window it lands in.
 #[cube]
 fn drain_leaf<A: Numeric, O: Numeric>(acc: &Tile, dest: &Tile, #[comptime] pass: DrainPass) {
-    match comptime!(pass) {
+    match pass {
         DrainPass::Copy => {
             let mut window = dest.clone();
             window.copy_cast_from(acc);

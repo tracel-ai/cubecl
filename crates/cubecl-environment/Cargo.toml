@@ -11,6 +11,7 @@ license.workspace = true
 name = "cubecl-environment"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-environment"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -29,6 +30,10 @@ persistence = [
     "dep:js-sys",
     "dep:wasm-bindgen",
 ]
+# Persistence on SQLite, through rusqlite, instead of Turso for the native
+# files; the browser stays on Turso. Turso is still compiled natively, since
+# features only add up, but opens nothing there.
+rusqlite = ["persistence", "dep:rusqlite"]
 default = ["std"]
 std = [
     "rand/std",
@@ -120,6 +125,7 @@ spin = { workspace = true, features = [
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Only ever used to resolve a cache root, which needs a file system.
 etcetera = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, default-features = false, features = [
     "rt",
 ] }

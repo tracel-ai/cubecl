@@ -33,6 +33,17 @@ fn barrier_effects(ptr: Value) -> Vec<MemoryEffect> {
     ]
 }
 
+/// Ends a barrier's lifetime, so its memory may hold a new one: an `mbarrier` must be invalidated
+/// before it is initialized again in place.
+#[cube_op(name = "barrier.invalidate")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct InvalidateOp {
+    // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
+    pub barrier: Value,
+}
+
 #[cube_op(name = "barrier.memcpy_async")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]

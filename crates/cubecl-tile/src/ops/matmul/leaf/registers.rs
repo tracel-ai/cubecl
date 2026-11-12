@@ -7,7 +7,6 @@ use crate::*;
 /// `c += lhs · rhs` over the block, one line of the contraction at a time, each factor times its
 /// scales.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size>(
     lhs: &MatrixView<'_, Vector<EL, L>>,
     lhs_scales: &FactorReader,
@@ -35,13 +34,14 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
         true => contracted_per_step,
         false => lw,
     });
-    let lines = comptime!(kc / width);
-    let tail = comptime!(kc % width);
+    let lines = kc / width;
+    let tail = kc % width;
     // Constant units let the backend merge an `mr`-row fan-out's repeated line reads into one.
-    let fixed = comptime!(along_k || (component_fanout && lw > 1) || lw == 1);
+    let fixed = along_k || (component_fanout && lw > 1) || lw == 1;
 
+    #[unroll(unroll)]
     for line in 0..lines {
-        if comptime!(along_k) {
+        if along_k {
             rank1_update::<E, EL, L, ER, V, RL>(
                 lhs,
                 lhs_scales,
@@ -61,7 +61,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
                 unroll,
                 semiring,
             );
-        } else if comptime!(fixed) {
+        } else if fixed {
             #[unroll]
             for unit in 0..lw {
                 rank1_update::<E, EL, L, ER, V, RL>(
@@ -119,7 +119,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
             rhs_scales,
             c,
             &mut b,
-            comptime!(lines * width + unit),
+            lines * width + unit,
             comptime!(lines) as u32,
             0usize,
             comptime!(Some(unit)),
@@ -145,7 +145,6 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
 /// multiplies that sum, one product a cell rather than one a value, since a run lies inside one
 /// scale.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size>(
     lhs: &MatrixView<'_, Vector<EL, L>>,
     lhs_scales: &FactorReader,
@@ -165,7 +164,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
     #[comptime] unroll: bool,
     #[comptime] semiring: Semiring,
 ) {
-    if comptime!(along_k) {
+    if along_k {
         let cell = V::value();
         comptime!(assert!(
             cell == contracted_per_step || cell == 1,
@@ -180,7 +179,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
             a[i] = lhs_scales.apply::<E, L>(Vector::<E, L>::cast_from(lhs.read(pos)), pos);
         }
         #[unroll(unroll)]
-        for g in 0..comptime!(nr / columns) {
+        for g in 0..(nr / columns) {
             let held = rhs.read((g as u32, k_line));
             #[unroll]
             for j in 0..columns {
@@ -189,10 +188,10 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                 // In `E`, so an integer operand doesn't round the scale or wrap.
                 let values = values_at::<E, ER, RL, L>(
                     held,
-                    comptime!(j * contracted_per_step),
+                    j * contracted_per_step,
                     comptime!(Packing::Plain),
                 );
-                let values = if comptime!(scale_sum) {
+                let values = if scale_sum {
                     values
                 } else {
                     rhs_scales.apply::<E, L>(values, pos)
@@ -200,10 +199,9 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                 #[unroll(unroll)]
                 for i in 0..mr {
                     let at = i * nr + n;
-                    if comptime!(summed) {
-                        let mut sum = Vector::<E, V>::cast_from(Monoid::identity::<E>(comptime!(
-                            semiring.add()
-                        )));
+                    if summed {
+                        let mut sum =
+                            Vector::<E, V>::cast_from(Monoid::identity::<E>(semiring.add()));
                         #[unroll]
                         for v in 0..contracted_per_step {
                             sum = semiring.step::<Vector<E, V>>(
@@ -212,10 +210,10 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                                 sum,
                             );
                         }
-                        if comptime!(scale_sum) {
+                        if scale_sum {
                             sum = rhs_scales.apply::<E, V>(sum, pos);
                         }
-                        c[at] = comptime!(semiring.add()).combine::<Vector<E, V>>(c[at], sum);
+                        c[at] = semiring.add().combine::<Vector<E, V>>(c[at], sum);
                     } else {
                         c[at] = semiring.step::<Vector<E, V>>(
                             Vector::<E, V>::cast_from(a[i]),
@@ -236,10 +234,9 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
         for i in 0..mr {
             let pos = (i as u32, k_line);
             let line = lhs_scales.apply::<E, L>(Vector::<E, L>::cast_from(lhs.read(pos)), pos);
-            let a = if comptime!(fixed.is_some()) {
-                Vector::<E, V>::cast_from(line.extract(comptime!(fixed.unwrap())))
-            } else {
-                Vector::<E, V>::cast_from(line.extract_dynamic(unit))
+            let a = match fixed {
+                Some(fixed) => Vector::<E, V>::cast_from(line.extract(fixed)),
+                None => Vector::<E, V>::cast_from(line.extract_dynamic(unit)),
             };
             #[unroll(unroll)]
             for n in 0..nr {
@@ -295,13 +292,13 @@ pub(crate) fn seed<E: Numeric, V: Size, A: Size>(
     for i in 0..mr {
         #[unroll(unroll)]
         for n in 0..nr {
-            if comptime!(spread > 1) {
+            if spread > 1 {
                 let base = (n as u32).times(comptime!(spread as u32));
                 let mut units = Vector::<E, V>::cast_from(Monoid::identity::<E>(monoid));
                 #[unroll]
                 for l in 0..spread {
                     let col = base.plus(comptime!(l as u32));
-                    let live = if comptime!(guard) {
+                    let live = if guard {
                         col < comptime!(cols as u32)
                     } else {
                         true.runtime()
@@ -313,7 +310,7 @@ pub(crate) fn seed<E: Numeric, V: Size, A: Size>(
                 c[i * nr + n] = units;
             } else {
                 let cell = acc.seed((i as u32, n as u32));
-                if comptime!(contracted_per_step > 1) {
+                if contracted_per_step > 1 {
                     let mut units = Vector::<E, V>::cast_from(Monoid::identity::<E>(monoid));
                     units.insert(0usize, cell.extract(0usize));
                     c[i * nr + n] = units;
@@ -360,12 +357,12 @@ pub(crate) fn commit<E: Numeric, V: Size, A: Size>(
         #[unroll(unroll)]
         for n in 0..nr {
             let cell = c[i * nr + n];
-            if comptime!(spread > 1) {
+            if spread > 1 {
                 let base = (n as u32).times(comptime!(spread as u32));
                 #[unroll]
                 for l in 0..spread {
                     let col = base.plus(comptime!(l as u32));
-                    let live = if comptime!(guard) {
+                    let live = if guard {
                         col < comptime!(cols as u32)
                     } else {
                         true.runtime()
@@ -374,7 +371,7 @@ pub(crate) fn commit<E: Numeric, V: Size, A: Size>(
                         acc.commit((i as u32, col), Vector::<E, A>::cast_from(cell.extract(l)));
                     }
                 }
-            } else if comptime!(contracted_per_step > 1) {
+            } else if contracted_per_step > 1 {
                 let total = Monoid::reduce::<E, V>(cell, contracted_per_step, monoid);
                 acc.commit((i as u32, n as u32), Vector::<E, A>::cast_from(total));
             } else {

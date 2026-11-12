@@ -399,6 +399,25 @@ macro_rules! impl_core_binop {
         }
     };
 }
+
+/// What a compound assignment needs of its target: a runtime binding.
+///
+/// No type implements it. A comptime binding is plain Rust, which the kernel only sees while it
+/// expands: inside a runtime loop or branch the update would happen once, not each time the
+/// kernel runs, and give a silently wrong result. So the kernel is rejected instead.
+#[diagnostic::on_unimplemented(
+    message = "a compound assignment can't change the comptime binding `{Self}`",
+    label = "this binding is comptime",
+    note = "a comptime binding is plain Rust: it would change once while the kernel expands, not each time the kernel runs",
+    note = "make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`",
+    note = "for a change meant to happen while the kernel expands, write `x = comptime!(x + y);`"
+)]
+pub trait RuntimeBinding: private::Sealed {}
+
+mod private {
+    pub trait Sealed {}
+}
+
 macro_rules! define_core_assign_binop {
     ($trait: ident, $base_trait: ident, $method: ident, $base_method: ident) => {
         paste::paste! {
@@ -413,14 +432,22 @@ macro_rules! define_core_assign_binop {
                 }
             }
 
-            pub trait [<$trait Expand>] {
-                fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: Self);
+            /// Compound assignment in a kernel, onto a runtime binding.
+            pub trait [<$trait Expand>]<Rhs = Self> {
+                fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: Rhs);
             }
 
             impl<T: $trait + [<Cube $base_trait>]> [<Cube $trait>] for T {}
             impl<T: $trait + [<Cube $base_trait>]> [<$trait Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method _method>](&mut self, scope: &Scope, rhs: Self) {
                     assign_binop_expand(scope, self, rhs, T::Scalar::[<__expand_native_ $base_method>]);
+                }
+            }
+            /// Never usable, see [`RuntimeBinding`]: it turns a comptime target into an error
+            /// that says why.
+            impl<T: $trait + [<Cube $base_trait>] + RuntimeBinding> [<$trait Expand>]<NativeExpand<T>> for T {
+                fn [<__expand_ $method _method>](&mut self, _scope: &Scope, _rhs: NativeExpand<T>) {
+                    unreachable!("no type is a `RuntimeBinding`")
                 }
             }
         }

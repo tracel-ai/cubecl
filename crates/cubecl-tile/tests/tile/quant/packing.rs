@@ -13,7 +13,7 @@ use cubecl_tile::kind::{Field, pack_line, unpack_line};
 #[allow(clippy::needless_range_loop)]
 #[cube(launch_unchecked)]
 fn round_trip(values: &[f32], out: &mut [f32], #[comptime] field: Field) {
-    let size!(NF) = comptime!(2 * field.per_word());
+    let size!(NF) = 2 * field.per_word();
     let mut line = Vector::<f32, NF>::empty();
     #[unroll]
     for i in 0..NF::value() {

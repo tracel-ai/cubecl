@@ -73,9 +73,9 @@ fn wgmma_walk(
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
         let walk = cube.walk();
-        let mut stages = Stages::smem(&walk, &a, &b, comptime!(storage.clone()), depth, None);
+        let mut stages = Stages::smem(&walk, &a, &b, storage.clone(), depth, None);
         let total = walk.total();
-        let laps = (total + comptime!(depth - 1)) / comptime!(depth);
+        let laps = (total + (depth - 1)) / comptime!(depth);
         match stages.role() {
             Role::Fill => {
                 for lap in 0..laps {

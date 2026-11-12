@@ -149,20 +149,21 @@ impl Layout for TmaFoldedLayout {
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
         let coordinates = comptime!(self.coordinates.clone());
         let mut src = CoordsDyn::new();
+        // Indexed: an unrolled loop walks a comptime list by its positions.
+        #[allow(clippy::needless_range_loop)]
         #[unroll]
-        for d in 0..comptime!(coordinates.dims.len()) {
+        for d in 0..coordinates.dims.len() {
             let terms = comptime!(coordinates.dims[d].clone());
             let mut coordinate = 0u32;
-            // Indexed: an unrolled loop walks a comptime list by its positions.
             #[allow(clippy::needless_range_loop)]
             #[unroll]
-            for t in 0..comptime!(terms.len()) {
+            for t in 0..terms.len() {
                 let term = comptime!(terms[t]);
-                let mut value = pos[comptime!(term.position)] * comptime!(term.scale);
-                if comptime!(term.modulus != 0) {
-                    value %= comptime!(term.modulus);
+                let mut value = pos[term.position] * term.scale;
+                if term.modulus != 0 {
+                    value %= term.modulus;
                 }
-                coordinate += value / comptime!(term.divisor);
+                coordinate += value / term.divisor;
             }
             src.push(coordinate);
         }

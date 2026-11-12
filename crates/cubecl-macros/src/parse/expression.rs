@@ -29,6 +29,15 @@ pub(crate) const PRIMITIVES: &[&str] = &[
 ];
 
 impl Expression {
+    /// Parses the whole condition of an `if` or the whole value of a `match`.
+    pub fn from_branch_selector(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+        let is_comptime = matches!(&expr, Expr::Macro(mac) if mac.mac.path.is_ident("comptime"));
+        let outer = core::mem::replace(&mut context.in_branch_selector, is_comptime);
+        let result = Self::from_expr(expr, context);
+        context.in_branch_selector = outer;
+        result
+    }
+
     pub fn from_expr(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
@@ -43,12 +52,17 @@ impl Expression {
                 let span = binary.span();
                 let operator = parse_binop(&binary.op)?;
 
-                let right = Self::from_expr(*binary.right, context)?;
+                let short_circuits = matches!(binary.op, syn::BinOp::And(_) | syn::BinOp::Or(_));
+                let outer =
+                    core::mem::replace(&mut context.in_short_circuit_operand, short_circuits);
+                let right = Self::from_expr(*binary.right, context);
                 let left = if operator.is_assign() {
-                    Self::from_expr_lhs(*binary.left, context)?
+                    Self::from_expr_lhs(*binary.left, context)
                 } else {
-                    Self::from_expr(*binary.left, context)?
+                    Self::from_expr(*binary.left, context)
                 };
+                context.in_short_circuit_operand = outer;
+                let (right, left) = (right?, left?);
 
                 // `is_const()` doesn't guarantee `as_const()` succeeds (e.g. a compiler
                 // intrinsic), so fall back to runtime instead of unwrapping a `None`.
@@ -299,7 +313,7 @@ impl Expression {
                 }
             }
             Expr::Match(mat) => {
-                let expr = Expression::from_expr(*mat.expr.clone(), context)?;
+                let expr = Expression::from_branch_selector(*mat.expr.clone(), context)?;
                 if expr.is_const() {
                     let mut arms = Vec::new();
 

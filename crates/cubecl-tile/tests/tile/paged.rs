@@ -305,7 +305,7 @@ fn paged_read_sum_kernel<E: Numeric>(
                     let next = space.over(&seq).region((sequence.coord(B) + 1) % SEQUENCES);
                     entry = positions.read_page_entry(&next.over(&block).region(i));
                 } else if comptime!(handing != Handing::Unlisted) {
-                    let source = steps.region(i + comptime!(handing.steps_ahead()));
+                    let source = steps.region(i + handing.steps_ahead());
                     entry = positions.read_page_entry(&source);
                 }
                 let handed = positions.with_page_entry(&entry);

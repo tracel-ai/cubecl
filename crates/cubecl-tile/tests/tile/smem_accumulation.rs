@@ -354,7 +354,7 @@ fn fragment_matmul_into_a_short_window<E: Numeric>(
         let opened =
             c_cube.accumulator::<E>(&a_cube, &b_cube, Instruction::Cmma, Semiring::SUM_PROD);
         // The drain opens the scratch the window needs; a copy is handed one.
-        let mut acc = if comptime!(copies) {
+        let mut acc = if copies {
             opened.with_scratch(Scratch::OneTile)
         } else {
             opened
@@ -378,7 +378,7 @@ fn fragment_matmul_into_a_short_window<E: Numeric>(
                 acc_stage.mma(a_stage, b_stage);
             });
         });
-        if comptime!(copies) {
+        if copies {
             c_cube.copy_from(&acc);
         } else {
             acc.drained_into(&c_cube);

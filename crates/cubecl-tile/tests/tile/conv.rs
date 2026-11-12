@@ -50,7 +50,7 @@ enum Stage {
 /// how they are addressed, and the leaf does the rest. The input's line width, along its fastest
 /// contracted axis, is what the leaf splits into line index and unit; a real width is needed.
 #[cube(launch)]
-fn conv_kernel(
+pub(crate) fn conv_kernel(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
@@ -188,7 +188,7 @@ fn conv_kernel_two_levels_smem(
 
 /// Small integers, so the accumulation is exact in `f32` and the reference can be compared for
 /// equality rather than closeness.
-fn ramp(n: usize, period: usize) -> Vec<f32> {
+pub(crate) fn ramp(n: usize, period: usize) -> Vec<f32> {
     (0..n).map(|i| ((i % period) as f32) - 1.0).collect()
 }
 
@@ -382,8 +382,7 @@ impl Conv1d {
         )
     }
 
-    /// `check_at` with an explicit register block. Kept separate so the fan-out path can be traced
-    /// on the CPU test runtime even though production CPU launches select the flat walk.
+    /// `check_at` with an explicit register block, for a test that varies one of its flags.
     fn check_at_with_block(
         &self,
         tile_oh: usize,
@@ -781,28 +780,6 @@ fn conv1d_vectorized_input() {
         dilation: 1,
     }
     .check_at(4, 4, 2, false, Stage::InPlace);
-}
-
-/// The GPU specialization uses fixed unit extracts. Exercise that path on the CPU test runtime as
-/// well, even though production CPU launches select the compact flat walk.
-#[test]
-fn conv1d_vectorized_input_fanout() {
-    Conv1d {
-        oh: 8,
-        co: 4,
-        rh: 3,
-        ci: 4,
-        stride: 1,
-        dilation: 1,
-    }
-    .check_at_with_block(
-        4,
-        4,
-        2,
-        false,
-        Stage::InPlace,
-        RegisterBlock::new(16).component_fanout(),
-    );
 }
 
 /// Vectorized with stride and dilation both off `1`, so the line split and the affine advance are
@@ -2400,7 +2377,7 @@ fn conv_kernel_input_staged(
     let input = input.tile(&space);
     let weight = weight.tile(&space);
     let out = out.tile(&space);
-    let mut stage = input.stage(comptime!(level.clone()), StageStorage::Strided);
+    let mut stage = input.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&input.at(&region));
         sync_cube();

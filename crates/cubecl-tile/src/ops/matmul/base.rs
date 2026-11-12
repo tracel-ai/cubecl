@@ -4,6 +4,7 @@
 use cubecl::cmma::{MatrixIdent, MatrixLayout};
 use cubecl::prelude::*;
 
+use crate::dialect::MmaOp;
 use crate::ops::matmul::leaf::{FragmentRead, window_layouts};
 use crate::*;
 
@@ -65,7 +66,7 @@ impl Tile {
                     let grid = partition.grid();
                     match comptime!(Descent::of(grid, &self.place, &own, &own)) {
                         Descent::Here => {
-                            operand.fragment_for::<Target>(&partition.at(0usize, 0usize), out)
+                            operand.fragment_for::<Target>(&partition.at(0usize, 0usize), &out)
                         }
                         Descent::Cells(instruction) => PlanePartition::operand::<Target>(
                             operand,
@@ -76,7 +77,7 @@ impl Tile {
                         Descent::Steps(instruction) => match comptime!(instruction) {
                             Instruction::Cmma => {
                                 let side = comptime!(Side::of(&own, &out));
-                                operand.landed::<Target>(side, out)
+                                operand.landed::<Target>(side, &out)
                             }
                             Instruction::Mma { .. }
                             | Instruction::Registers { .. }
@@ -89,7 +90,7 @@ impl Tile {
                         },
                     }
                 }
-                TileKind::PlaneTile(fragment) => operand.fragment_for::<Target>(fragment, out),
+                TileKind::PlaneTile(fragment) => operand.fragment_for::<Target>(fragment, &out),
                 TileKind::Memory(_)
                 | TileKind::TmaGmem(_)
                 | TileKind::Procedural(_)
@@ -103,21 +104,21 @@ impl Tile {
     }
 
     /// This operand as the fragment the one-fragment `acc`'s leaf loads it into, at `T`.
-    fn fragment_for<T: Numeric>(&self, acc: &PlaneTile, #[comptime] out: Space) -> Tile {
+    fn fragment_for<T: Numeric>(&self, acc: &PlaneTile, #[comptime] out: &Space) -> Tile {
         let own = comptime!(self.place.space.clone());
-        let side = comptime!(Side::of(&own, &out));
+        let side = comptime!(Side::of(&own, out));
         let ident = comptime!(match side {
             Side::Lhs => MatrixIdent::A,
             Side::Rhs => MatrixIdent::B,
         });
         let fragment = match acc {
             PlaneTile::Cmma(_) => {
-                let read = comptime!(FragmentRead::new(side, &own, &out));
-                let fragment = self.cmma_fragment::<T>(ident, comptime!(read.clone()));
+                let read = comptime!(FragmentRead::new(side, &own, out));
+                let fragment = self.cmma_fragment::<T>(ident, read.clone());
                 PlaneTile::new_Cmma(CmmaData {
                     fragment: unsafe { fragment.downcast_unchecked::<Held>() },
                     ident,
-                    layout: comptime!(read.layout),
+                    layout: read.layout,
                     shape: comptime!((read.m, read.n)),
                     scratch: ComptimeOption::new_None(),
                 })
@@ -144,10 +145,23 @@ impl Tile {
     /// A manual-mma accumulator takes each factor on the side its axes give it, whichever order
     /// they are handed over in: the one carrying the accumulator's rows fills the instruction's
     /// `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
+    ///
+    /// It reaches the IR as one `tile.mma` op.
     pub fn mma(&mut self, lhs: &Tile, rhs: &Tile) {
+        intrinsic!(|scope| MmaOp::trace(scope, |scope| {
+            self.__expand_contract_method(scope, lhs, rhs)
+        }))
+    }
+
+    /// [`mma`](Tile::mma)'s contraction, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn contract(&mut self, lhs: &Tile, rhs: &Tile) {
         let mma = self.contracts_through_mma();
         let reversed = comptime!(mma && Side::of(&lhs.place.space, &self.place.space) == Side::Rhs);
-        if comptime!(reversed) {
+        if reversed {
             self.mma_in_order(rhs, lhs)
         } else {
             self.mma_in_order(lhs, rhs)
@@ -293,7 +307,7 @@ impl PlaneTile {
         &mut self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
         match self {
             PlaneTile::Cmma(d) => {
@@ -301,7 +315,7 @@ impl PlaneTile {
                     comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
                 let lhs_along_m = read_col_major(lhs, lhs_window);
                 let rhs_along_k = read_col_major(rhs, rhs_window);
-                strided_2d(lhs, rhs, comptime!(out.clone()), lhs_along_m, rhs_along_k);
+                strided_2d(lhs, rhs, out, lhs_along_m, rhs_along_k);
                 d.mma::<E, EL, ER>(lhs, rhs, out)
             }
             PlaneTile::Mma(d) => {
@@ -325,33 +339,19 @@ impl PlaneTile {
                 };
                 let (m, n) = comptime!((d.m, d.n));
                 let k = comptime!(match run {
-                    true => lhs.place.space.contracted_extent(&out),
+                    true => lhs.place.space.contracted_extent(out),
                     false => d.k,
                 });
                 let form = comptime!(d.operands.block_scaled());
-                let block_scaled = comptime!(form.is_some());
+                let block_scaled = form.is_some();
                 // An operand already in fragments was held to the instruction as it loaded
                 // (`PlanePartition::operand`), and a fragment no longer states its storage.
                 let (lhs_in_memory, rhs_in_memory) = (lhs.is_memory(), rhs.is_memory());
                 if comptime!(block_scaled && lhs_in_memory) {
-                    assert_block_scaled::<EL>(
-                        lhs,
-                        comptime!(form.unwrap()),
-                        MatrixIdent::A,
-                        m,
-                        n,
-                        k,
-                    );
+                    assert_block_scaled::<EL>(lhs, form.unwrap(), MatrixIdent::A, m, n, k);
                 }
                 if comptime!(block_scaled && rhs_in_memory) {
-                    assert_block_scaled::<ER>(
-                        rhs,
-                        comptime!(form.unwrap()),
-                        MatrixIdent::B,
-                        m,
-                        n,
-                        k,
-                    );
+                    assert_block_scaled::<ER>(rhs, form.unwrap(), MatrixIdent::B, m, n, k);
                 }
                 let steps = lane_run_steps::<EL>(m, n, k);
                 if comptime!(!block_scaled && steps == 1) {
@@ -389,7 +389,7 @@ impl PlaneTile {
                             .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
                     );
                     // A register block reads its lhs along `k`.
-                    strided_2d(lhs, rhs, comptime!(out.clone()), false, rhs_along_k);
+                    strided_2d(lhs, rhs, out, false, rhs_along_k);
                     d.mma::<E, EL, ER>(lhs, rhs, out)
                 }
             },
@@ -402,22 +402,22 @@ impl PlaneTile {
 fn strided_2d(
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] out: Space,
+    #[comptime] out: &Space,
     #[comptime] lhs_along_m: bool,
     #[comptime] rhs_along_k: bool,
 ) {
     let lhs_gathered = lhs.gathered();
     let rhs_gathered = rhs.gathered();
     let flat = comptime!({
-        let kc = Space::merge(&[&lhs.place.space, &rhs.place.space]).contracted_extent(&out);
-        let axes = MatrixAxes::accumulator(&out, &lhs.place.space);
-        let cols = axes.cols(&out);
+        let kc = Space::merge(&[&lhs.place.space, &rhs.place.space]).contracted_extent(out);
+        let axes = MatrixAxes::accumulator(out, &lhs.place.space);
+        let cols = axes.cols(out);
         let rhs_matrix = if rhs_along_k {
             MatrixAxes::new(&rhs.place.space, cols, kc)
         } else {
             MatrixAxes::new(&rhs.place.space, kc, cols)
         };
-        let rows = axes.rows(&out);
+        let rows = axes.rows(out);
         let lhs_matrix = if lhs_along_m {
             MatrixAxes::new(&lhs.place.space, kc, rows)
         } else {
@@ -458,12 +458,12 @@ fn read_col_major(factor: &Tile, #[comptime] window: MatrixLayout) -> comptime_t
 
 /// Asserts that operands contract their shared axes in the same order.
 #[cube]
-fn flattened_k(lhs: &Tile, rhs: &Tile, #[comptime] out: Space) {
+fn flattened_k(lhs: &Tile, rhs: &Tile, #[comptime] out: &Space) {
     comptime!(assert!(
-        Space::contraction_agrees(&lhs.place.space, &rhs.place.space, &out),
+        Space::contraction_agrees(&lhs.place.space, &rhs.place.space, out),
         "mma: the operands list their contracted axes in different orders ({:?} against {:?}), \
          so their `k` edges do not line up",
-        lhs.place.space.difference(&out),
-        rhs.place.space.difference(&out)
+        lhs.place.space.difference(out),
+        rhs.place.space.difference(out)
     ));
 }

@@ -98,6 +98,11 @@ pub fn test_an_all_to_all_reads_and_writes_at_offsets<R: Runtime>() {
     finish_within_limit(offset_buffers::<R>);
 }
 
+pub fn test_members_queue_their_own_parts_from_their_own_threads<R: Runtime>() {
+    let _collectives = queue_alone();
+    finish_within_limit(members_on_their_own_threads::<R>);
+}
+
 /// Holds every device's collectives for the caller until the guard drops.
 pub fn queue_alone() -> MutexGuard<'static, ()> {
     COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner)
@@ -538,6 +543,78 @@ fn offset_buffers<R: Runtime>() {
 }
 
 /// Gathers `values(member, LEN)` from every member, checking each holds them all in order.
+/// Each member queues its part of all four exchanges from a thread of its own, the last member's
+/// thread first, so no member's part waits on the caller of another's.
+fn members_on_their_own_threads<R: Runtime>() {
+    let Some(group) = group::<R>() else {
+        return;
+    };
+    let members = group.clients().len();
+    let reduced_at =
+        |i: usize, len: usize| -> f32 { (0..members).map(|member| values(member, len)[i]).sum() };
+    let exchanged = |from: usize, to: usize| -> Vec<f32> {
+        values(from, members * LEN)[to * LEN..(to + 1) * LEN].to_vec()
+    };
+    let threads: Vec<_> = group
+        .members()
+        .into_iter()
+        .rev()
+        .map(|member| {
+            let client = group.clients()[member.rank()].clone();
+            std::thread::spawn(move || {
+                let rank = member.rank();
+                let reduced = unwritten(&client, LEN);
+                member.all_reduce(
+                    MemberBuffers {
+                        src: from_values(&client, &values(rank, LEN)),
+                        dst: reduced.clone(),
+                    },
+                    F32,
+                    ReduceOperation::Sum,
+                );
+                let gathered = unwritten(&client, members * LEN);
+                member.all_gather(MemberBuffers {
+                    src: from_values(&client, &values(rank, LEN)),
+                    dst: gathered.clone(),
+                });
+                let scattered = unwritten(&client, LEN);
+                member.reduce_scatter(
+                    MemberBuffers {
+                        src: from_values(&client, &values(rank, members * LEN)),
+                        dst: scattered.clone(),
+                    },
+                    F32,
+                    ReduceOperation::Sum,
+                );
+                let exchanged = unwritten(&client, members * LEN);
+                member.all_to_all(MemberBuffers {
+                    src: from_values(&client, &values(rank, members * LEN)),
+                    dst: exchanged.clone(),
+                });
+                (rank, [reduced, gathered, scattered, exchanged])
+            })
+        })
+        .collect();
+
+    for thread in threads {
+        let (rank, [reduced, gathered, scattered, all_to_all]) = thread.join().unwrap();
+        let client = &group.clients()[rank];
+        let read = |handle: Handle| f32::from_bytes(&client.read_one(handle).unwrap()).to_vec();
+        let sums: Vec<f32> = (0..LEN).map(|i| reduced_at(i, LEN)).collect();
+        assert_eq!(read(reduced), sums, "member {rank}'s all_reduce");
+        let concatenated: Vec<f32> = (0..members).flat_map(|m| values(m, LEN)).collect();
+        assert_eq!(read(gathered), concatenated, "member {rank}'s all_gather");
+        let chunk: Vec<f32> = (rank * LEN..(rank + 1) * LEN)
+            .map(|i| reduced_at(i, members * LEN))
+            .collect();
+        assert_eq!(read(scattered), chunk, "member {rank}'s reduce_scatter");
+        let received: Vec<f32> = (0..members)
+            .flat_map(|from| exchanged(from, rank))
+            .collect();
+        assert_eq!(read(all_to_all), received, "member {rank}'s all_to_all");
+    }
+}
+
 fn gather_every_member(group: &ClientGroup) {
     let members = group.clients().len();
     let buffers: Vec<_> = group
@@ -712,6 +789,13 @@ macro_rules! testgen_collectives {
         #[$crate::runtime_tests::test_log::test]
         fn test_a_group_moves_bytes_no_element_type_divides() {
             cubecl_core::runtime_tests::collectives::test_a_group_moves_bytes_no_element_type_divides::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_members_queue_their_own_parts_from_their_own_threads() {
+            cubecl_core::runtime_tests::collectives::test_members_queue_their_own_parts_from_their_own_threads::<
                 TestRuntime,
             >();
         }

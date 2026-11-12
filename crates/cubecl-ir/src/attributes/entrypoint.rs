@@ -27,7 +27,8 @@ pub struct EntrypointAbiAttr {
 
 dict_key!(
     /// Key for entry point attribute when the operation defines an entry point.
-    ATTR_KEY_ENTRY_POINT, "entry_point"
+    ATTR_KEY_ENTRY_POINT,
+    "entry_point"
 );
 dict_key!(ATTR_BUFFER_BINDING, "buffer_binding");
 dict_key!(ATTR_TENSOR_MAP_BINDING, "tensor_map_binding");
@@ -35,7 +36,8 @@ dict_key!(
     /// Marks a buffer binding in memory shared with the other devices of the runtime: kernels
     /// on them may read and write it while this one runs, so no promise about who writes it or
     /// what it aliases holds, and an atomic on it synchronizes at system scope.
-    ATTR_PEER_BINDING, "peer_binding"
+    ATTR_PEER_BINDING,
+    "peer_binding"
 );
 
 /// What a compiled kernel does with one buffer binding, stamped on the entry

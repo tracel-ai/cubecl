@@ -104,7 +104,7 @@ impl CompilationConfig {
         #[cfg(all(feature = "std", not(target_family = "wasm")))]
         let threads = self
             .parallelism
-            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |cores| cores.get()));
+            .unwrap_or_else(|| cubecl_common::device_handle::ProcessCpus::get().parallelism());
         #[cfg(any(not(feature = "std"), target_family = "wasm"))]
         let threads = 1;
 

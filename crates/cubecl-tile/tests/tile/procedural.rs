@@ -160,7 +160,7 @@ fn phase_kernel<E: Float>(
     #[comptime] launch_ratio: bool,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = if comptime!(launch_ratio) {
+    let source = if launch_ratio {
         affine_plus_phase::<E>(
             comptime!(space.space().clone()),
             SCALE.runtime(),
@@ -279,7 +279,7 @@ fn divided_direct_copy_kernel<E: Float>(
     let region = Region::trailing(
         comptime!(0usize),
         comptime!(space.space().clone()),
-        comptime!(level.clone()),
+        level.clone(),
         0usize,
         0usize,
     );

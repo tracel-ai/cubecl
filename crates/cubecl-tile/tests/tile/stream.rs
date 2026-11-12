@@ -280,7 +280,7 @@ fn stream_matmul<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = out.tile(&space);
-    let portion = space.over(&outer).portion(comptime!(inner.clone()));
+    let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
         let (from, steps) = portion.steps(i);
@@ -296,7 +296,7 @@ fn stream_matmul<E: Numeric>(
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
-            match comptime!(leaf.clone()) {
+            match leaf.clone() {
                 Some(leaf) => {
                     for step in cell.over(&leaf) {
                         contract(&acc, &a_region, &b_region, &step);
@@ -325,7 +325,7 @@ fn stream_matmul_staged_rhs<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = out.tile(&space);
-    let portion = space.over(&outer).portion(comptime!(inner.clone()));
+    let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
         let (from, steps) = portion.steps(i);
@@ -819,7 +819,7 @@ fn merged_stream_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let mut out = out.tile(&space);
-    let portion = space.walk().portion(comptime!(steps.clone()));
+    let portion = space.walk().portion(steps.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
         let (from, count) = portion.steps(i);

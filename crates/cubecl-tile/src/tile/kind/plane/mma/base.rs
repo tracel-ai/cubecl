@@ -188,13 +188,13 @@ impl MmaData {
         #[comptime] io: MmaIo,
         #[comptime] operands: MmaOperands,
     ) -> MmaData {
-        let form = comptime!(operands.block_scaled().expect(
-            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form"
-        ));
+        let form = operands.block_scaled().expect(
+            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form",
+        );
         register_block_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
         register_block_scaled_sizes(&def, ident);
-        let fragment = match comptime!(ident) {
+        let fragment = match ident {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
                 Raw::<Registers<NLB>>::of::<LhsCodes>(Array::new(
                     def.vectors_per_lane(MatrixIdent::A),
@@ -323,7 +323,7 @@ impl MmaData {
                 src,
                 values.at_mut::<LhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                comptime!(form.expect("a block-scaled fragment is held under its form")),
+                form.expect("a block-scaled fragment is held under its form"),
                 MatrixIdent::A,
                 layout,
                 io,
@@ -333,7 +333,7 @@ impl MmaData {
                 src,
                 values.at_mut::<RhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                comptime!(form.expect("a block-scaled fragment is held under its form")),
+                form.expect("a block-scaled fragment is held under its form"),
                 MatrixIdent::B,
                 layout,
                 io,
@@ -404,7 +404,7 @@ impl MmaData {
     }
 
     /// Drain this (accumulator) fragment into `mem`'s window, `space` being the window's.
-    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: Space) {
+    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: &Space) {
         self.store_cast_window::<T, T>(mem, space)
     }
 
@@ -412,7 +412,7 @@ impl MmaData {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let m = comptime!(self.m);
         let n = comptime!(self.n);
@@ -451,7 +451,7 @@ impl MmaData {
         &mut self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] origin: (usize, usize),
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
@@ -471,7 +471,7 @@ impl MmaData {
                 let cell = bias.value_at::<E>(
                     row + comptime!(row0 as u32),
                     col + comptime!(col0 as u32),
-                    comptime!(space.clone()),
+                    space,
                 );
                 vector.insert(e, vector.extract(e) * scale + cell);
             }
@@ -487,14 +487,14 @@ impl MmaData {
         scale: E,
         bias: &Procedural,
         logsumexp: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
         #[comptime] origin: (usize, usize),
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
         let (row0, col0) = comptime!(origin);
-        let (first, per_row, per_col) = comptime!(broadcast.strides());
+        let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = logsumexp.flat::<E, W>();
         let acc = self.acc_registers_mut::<E>();
@@ -509,8 +509,7 @@ impl MmaData {
                     MatrixIdent::Accumulator,
                 );
                 let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
-                let score = vector.extract(e) * scale
-                    + bias.value_at::<E>(row, col, comptime!(space.clone()));
+                let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
                 vector.insert(e, AxisSlices::exp_minus_cell::<E>(score, held));
@@ -532,7 +531,7 @@ impl MmaData {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
         let (row0, col0) = comptime!(origin);
-        let (first, per_row, per_col) = comptime!(broadcast.strides());
+        let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = delta.flat::<E, W>();
         let held = probabilities.acc_registers::<E>();
@@ -645,7 +644,7 @@ impl MmaData {
             let mut value = slots[first + i];
             #[unroll]
             for bit in 0..lane_bits {
-                let mask = comptime!(1u32 << bit);
+                let mask = 1u32 << bit;
                 let (other_row, _) = def.position_of_nth(mask, nth, MatrixIdent::Accumulator);
                 if other_row == row {
                     value = monoid.combine::<E>(value, plane_shuffle_xor(value, mask));
@@ -831,7 +830,7 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     match method {
         LoadMethod::Manual => {
             let size!(W) = src.vector_size();
-            if comptime!(strided) {
+            if strided {
                 load_strided::<T, W, N, A, B, CD>(
                     src, fragment, def, ident, layout, edges, k_offset,
                 )
@@ -906,7 +905,7 @@ fn load_deep<T: Numeric, N: Size>(
     #[comptime] shape: (usize, usize, usize),
     #[comptime] load: DeepLoad,
 ) {
-    match comptime!(load) {
+    match load {
         DeepLoad::Steps => load_in_steps(src, fragment, ident, layout, io, shape),
         DeepLoad::LaneRuns => load_lane_runs(src, fragment, ident, layout, shape),
     }
@@ -947,14 +946,14 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     let whole_vectors = comptime!(vector_layout == layout && served.is_multiple_of(vector_size));
     match &src.kind {
         TileKind::Memory(m) => {
-            let stride = m.row_stride_at(comptime!(rank - 2));
-            let view = if comptime!(transposed) {
+            let stride = m.row_stride_at(rank - 2);
+            let view = if transposed {
                 src.fragment_matrix_packed::<T, W>(cols, rows)
             } else {
                 src.fragment_matrix_packed::<T, W>(rows, cols)
             };
             let (first_row, first_col) = along_k(0u32, 0u32, ident, k_offset);
-            let (first_line_row, first_cell) = if comptime!(transposed) {
+            let (first_line_row, first_cell) = if transposed {
                 (first_col, first_row)
             } else {
                 (first_row, first_col)
@@ -967,15 +966,11 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
             #[unroll]
             for i in 0..num_vectors {
                 let mut vector = Vector::empty();
-                if comptime!(whole_vectors) {
+                if whole_vectors {
                     let vectors = step.with_vector_size::<N>();
                     let (row, col) =
                         def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
-                    let (line_row, cell) = if comptime!(transposed) {
-                        (col, row)
-                    } else {
-                        (row, col)
-                    };
+                    let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                     vector = vectors
                         [((line_row * stride + cell) / comptime!(vector_size as u32)) as usize];
                 } else {
@@ -987,11 +982,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
                             comptime!((i * vector_size + e) as u32),
                             ident,
                         );
-                        let (line_row, cell) = if comptime!(transposed) {
-                            (col, row)
-                        } else {
-                            (row, col)
-                        };
+                        let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                         vector.insert(
                             e,
                             cells[(line_row * stride + cell) as usize].extract(0usize),
@@ -1049,7 +1040,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
          it, which a manual fragment load cannot read from inside the line; serve the operand at \
          most {line_edge} wide"
     ));
-    let view = if comptime!(transposed) {
+    let view = if transposed {
         src.fragment_matrix_packed::<T, W>(cols, rows)
     } else {
         src.fragment_matrix_packed::<T, W>(rows, cols)
@@ -1064,14 +1055,10 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     #[unroll]
     for i in 0..num_vectors {
         let mut vector = Vector::empty();
-        if comptime!(along_lines) {
+        if along_lines {
             let (row, col) = def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
             let (row, col) = along_k(row, col, ident, k_offset);
-            let (line_row, cell) = if comptime!(transposed) {
-                (col, row)
-            } else {
-                (row, col)
-            };
+            let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
             // A register vector lies along the lines, so its cells share the row or column a
             // short window cuts.
             let covered = !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
@@ -1097,7 +1084,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                     ));
                     #[unroll]
                     for e in 0..width {
-                        vector.insert(comptime!(l * width + e), line.extract(e));
+                        vector.insert(l * width + e, line.extract(e));
                     }
                 }
             }
@@ -1107,11 +1094,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 let elem_idx = i * vector_size + e;
                 let (row, col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
                 let (row, col) = along_k(row, col, ident, k_offset);
-                let (line_row, cell) = if comptime!(transposed) {
-                    (col, row)
-                } else {
-                    (row, col)
-                };
+                let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
                 if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
                     let line = view.read((line_row, cell / comptime!(width as u32)));
@@ -1148,15 +1131,15 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     fragment: &Array<Vector<T, NA>>,
     def: &MmaDefinition<A, B, CD>,
     #[comptime] layout: MatrixLayout,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
 ) {
     let width = comptime!(mem.store.vector_size);
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    let axes = comptime!(MatrixAxes::trailing(&space));
+    let axes = comptime!(MatrixAxes::trailing(space));
 
-    if comptime!(width == 1) {
+    if width == 1 {
         let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, axes, space);
         #[unroll]
         for i in 0..num_vectors {
@@ -1165,7 +1148,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
                 let elem_idx = i * vector_size + e;
                 let (row, col) =
                     def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
-                let at = match comptime!(layout) {
+                let at = match layout {
                     MatrixLayout::RowMajor => (row, col),
                     MatrixLayout::ColMajor => (col, row),
                     MatrixLayout::Undefined => {
@@ -1228,7 +1211,7 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         k.is_multiple_of(count),
         "accumulators_as_a: {count} accumulators share the {k} columns of the A operand unevenly"
     ));
-    let width = comptime!(k / count);
+    let width = k / count;
     let acc_def = MmaDefinition::<L, L, L>::new(m, width, width);
     let a_def = MmaDefinition::<L, L, L>::new(m, n, k);
     register_lhs_size::<L>(&a_def);

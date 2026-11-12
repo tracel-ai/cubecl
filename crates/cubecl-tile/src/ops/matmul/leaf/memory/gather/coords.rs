@@ -5,10 +5,11 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::*;
 
-use super::base::GatherProblem;
+use super::base::{GatherProblem, LhsVectorAxis};
 use crate::ops::contraction::{AccCoords, resolve_nd_coords};
+use crate::ops::matmul::leaf::Side;
 
-/// One operand read at accumulator cell `(row, col)` of batch matrix `batch`.
+/// `side` read at accumulator cell `(row, col)` of batch matrix `batch`.
 #[cube]
 pub(super) fn cell_read<T: Numeric, W: Size>(
     view: &Masked<'_, Vector<T, W>, CoordsDyn>,
@@ -16,47 +17,42 @@ pub(super) fn cell_read<T: Numeric, W: Size>(
     row: u32,
     col: u32,
     reduce_coords: &Coords<u32>,
-    #[comptime] operand: Space,
+    #[comptime] side: Side,
     #[comptime] problem: GatherProblem,
-    #[comptime] width: usize,
 ) -> Vector<T, W> {
-    view.read(cell_position(
-        batch,
-        row,
-        col,
-        reduce_coords,
-        operand,
-        problem,
-        width,
-    ))
+    view.read(cell_position(batch, row, col, reduce_coords, side, problem))
 }
 
-/// Resolve one operand's N-D coordinate from an accumulator cell and contracted coordinates.
+/// Resolve one side's N-D coordinate from an accumulator cell and contracted coordinates. A
+/// row-vectorized lhs counts its rows in cells, since each component is a row of its own.
 #[cube]
 pub(super) fn cell_position(
     batch: &Coords<u32>,
     row: u32,
     col: u32,
     reduce_coords: &Coords<u32>,
-    #[comptime] operand: Space,
+    #[comptime] side: Side,
     #[comptime] problem: GatherProblem,
-    #[comptime] width: usize,
 ) -> CoordsDyn {
     let acc_coords = acc_cell_coords(
         batch,
         row,
         col,
-        comptime!(problem.block.row_extents()),
-        comptime!(problem.block.column_line_extents()),
+        problem.block.row_extents(),
+        problem.block.column_line_extents(),
     );
+    let acc_counts = comptime!(match (side, problem.lhs_vector_axis) {
+        (Side::Lhs, LhsVectorAxis::Rows) => AccCoords::Cells,
+        _ => AccCoords::Lines,
+    });
     resolve_nd_coords(
-        &operand,
+        problem.space(side),
         &problem.block.space,
         &problem.block.reduce,
         &acc_coords,
         reduce_coords,
-        width,
-        AccCoords::Lines,
+        problem.width(side),
+        acc_counts,
     )
 }
 
@@ -66,7 +62,7 @@ pub(super) fn offset_last(coords: &CoordsDyn, #[comptime] rank: usize, delta: u3
     let mut out = CoordsDyn::new();
     #[unroll]
     for p in 0..rank {
-        out.push(if comptime!(p == rank - 1) {
+        out.push(if p == rank - 1 {
             coords[p].plus(delta)
         } else {
             coords[p]
@@ -91,16 +87,25 @@ fn acc_cell_coords(
     for p in 0..batch.len() {
         out.push(batch.at(p));
     }
-    let rows = Coords::constant(comptime!(row_extents.clone())).unravel(row);
+    let rows = Coords::constant(row_extents.clone()).unravel(row);
     #[unroll]
     for p in 0..rows.len() {
         out.push(rows.at(p));
     }
-    let cols = Coords::constant(comptime!(col_extents.clone())).unravel(col);
+    let cols = Coords::constant(col_extents.clone()).unravel(col);
     #[unroll]
     for p in 0..cols.len() {
         out.push(cols.at(p));
     }
 
+    out
+}
+
+/// Contracted coordinates of tap `tap_coords` with the fastest axis at `last`.
+#[cube]
+pub(super) fn step_coords(tap_coords: &Coords<u32>, last: u32) -> Coords<u32> {
+    let mut out = Coords::<u32>::new();
+    out.extend(tap_coords);
+    out.push(last);
     out
 }

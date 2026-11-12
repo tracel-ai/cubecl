@@ -11,6 +11,7 @@ license.workspace = true
 name = "cubecl-core"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-core"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -39,6 +40,8 @@ template = []
 tokio = ["cubecl-runtime/tokio"]
 
 tracing = ["dep:tracing", "cubecl-runtime/tracing", "cubecl-ir/tracing"]
+warn-redundant-comptime = ["cubecl-macros/warn-redundant-comptime"]
+warn-redundant-allow = ["cubecl-macros/warn-redundant-allow"]
 
 [dependencies]
 # Runtime Deps

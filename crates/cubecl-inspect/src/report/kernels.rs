@@ -17,9 +17,28 @@ pub struct KernelReport {
     pub unrecorded: u64,
 }
 
-/// The artifacts a file's compilation store holds, by the key naming each,
-/// with their size.
-pub type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
+/// The artifacts a file's compilation store holds, by the instance each is
+/// of, with their size summed over every variant stored.
+pub type StoredArtifacts = BTreeMap<KernelInstance, u64>;
+
+/// One kernel as one build compiled it: what a recorded trip and the
+/// artifacts stored for it are matched by. The variant an artifact is stored
+/// in is not part of it: a trip records the kernel, and a backend stores it in
+/// the variants it compiles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct KernelInstance {
+    pub id: KernelHash,
+    pub build: BuildHash,
+}
+
+impl From<KernelCacheKey> for KernelInstance {
+    fn from(key: KernelCacheKey) -> Self {
+        Self {
+            id: KernelHash(key.id),
+            build: BuildHash(key.build_id),
+        }
+    }
+}
 
 /// A 128-bit hash naming part of a kernel's artifact, written once for every
 /// such hash so they all print, serialize and match alike: twelve hex digits
@@ -189,11 +208,11 @@ impl KernelRow {
         short_name(&self.kernel)
     }
 
-    /// What names the instance's artifact in the store.
-    pub fn key(&self) -> KernelCacheKey {
-        KernelCacheKey {
-            id: self.id.0,
-            build_id: self.build.0,
+    /// The instance the row is of.
+    pub fn instance(&self) -> KernelInstance {
+        KernelInstance {
+            id: self.id,
+            build: self.build,
         }
     }
 }
@@ -244,14 +263,15 @@ impl KernelReport {
         trips: impl IntoIterator<Item = &'a CompilationRecord>,
         stored: &StoredArtifacts,
     ) -> Self {
-        let mut rows = BTreeMap::<KernelCacheKey, KernelRow>::new();
+        let mut rows = BTreeMap::<KernelInstance, KernelRow>::new();
         for trip in trips {
-            let row = rows.entry(trip.key).or_insert_with(|| KernelRow {
-                id: KernelHash(trip.key.id),
-                build: BuildHash(trip.key.build_id),
+            let instance = KernelInstance::from(trip.key);
+            let row = rows.entry(instance).or_insert_with(|| KernelRow {
+                id: instance.id,
+                build: instance.build,
                 kernel: trip.kernel.clone(),
                 ir: None,
-                bytes: stored.get(&trip.key).copied(),
+                bytes: stored.get(&instance).copied(),
                 cost: CompilationCost::default(),
                 source: None,
             });
@@ -304,14 +324,16 @@ impl KernelReport {
                 b.cost
                     .compiling
                     .cmp(&a.cost.compiling)
-                    .then(a.key().cmp(&b.key()))
+                    .then(a.instance().cmp(&b.instance()))
             }),
             KernelOrder::Size => self
                 .kernels
-                .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.key().cmp(&b.key()))),
-            KernelOrder::Name => self
-                .kernels
-                .sort_by(|a, b| a.kernel.cmp(&b.kernel).then(a.key().cmp(&b.key()))),
+                .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.instance().cmp(&b.instance()))),
+            KernelOrder::Name => self.kernels.sort_by(|a, b| {
+                a.kernel
+                    .cmp(&b.kernel)
+                    .then(a.instance().cmp(&b.instance()))
+            }),
         }
     }
 
@@ -324,6 +346,35 @@ impl KernelReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A trip records its kernel in variant zero, and a backend stores the
+    /// artifact in the variant it compiles: the artifact is still the
+    /// kernel's, and sizes its row.
+    #[test]
+    fn an_artifact_stored_in_a_variant_sizes_the_kernel_recorded() {
+        let trip = CompilationRecord {
+            kernel: "kernel".to_string(),
+            key: KernelCacheKey {
+                id: 1,
+                variant: 0,
+                build_id: 2,
+            },
+            ir: None,
+            outcome: CompilationOutcome::Compiled,
+            work: Duration::from_millis(1),
+            source: None,
+        };
+        let in_variant = KernelCacheKey {
+            variant: 5,
+            ..trip.key
+        };
+        let stored = StoredArtifacts::from([(KernelInstance::from(in_variant), 64)]);
+
+        let report = KernelReport::new([&trip], &stored);
+
+        assert_eq!(report.kernels[0].bytes, Some(64));
+        assert_eq!(report.unrecorded, 0);
+    }
 
     /// A prefix that names one kernel twice, once per build, asks for the
     /// build; one that names two kernels asks for more of the id.

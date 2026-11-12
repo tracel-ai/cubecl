@@ -41,7 +41,7 @@ impl Payload<OperandPair> for OperandPair {
         let lhs = if comptime!(refills[0] == Refill::Shared) {
             first.lhs.clone()
         } else {
-            stage_one(&self.lhs, comptime!(spec.clone()))
+            stage_one(&self.lhs, spec.clone())
         };
         let rhs = if comptime!(refills[1] == Refill::Shared) {
             first.rhs.clone()

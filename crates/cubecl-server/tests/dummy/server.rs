@@ -1,5 +1,9 @@
 use super::DummyKernel;
-use cubecl_common::{bytes::Bytes, device::ServiceId, profile::ProfileDuration};
+use cubecl_common::{
+    bytes::Bytes,
+    device::{DeviceId, ServiceId},
+    profile::ProfileDuration,
+};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
@@ -22,15 +26,15 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, ComputeWait, CopyDescriptor, CubeCount, DeviceTransport, Handle,
+        KernelArguments, KernelResource, ProfileError, ProfilingToken, Reduction, SendOutcome,
+        SendReport, Server, ServerCommunication, ServerError, ServerUtilities, TransportProvider,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
 };
 use cubecl_zspace::{Shape, Strides};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Makes `start_profile` fail while set, the way a real server refuses one
 /// inside a graph capture window. Process-wide, so tests that flip it run
@@ -103,16 +107,42 @@ pub enum Isolated {}
 impl Marker for Isolated {}
 
 /// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
-/// the checks that refuse it on the caller. Nothing behind it moves data.
+/// the checks that refuse it on the caller. Nothing behind it moves data: every send refuses, as
+/// one whose source was never written does, so every recv taints its destination.
 #[derive(Debug)]
 pub enum Transported {}
 
 impl Marker for Transported {
     fn device_transport() -> Option<DeviceTransport> {
         Some(DeviceTransport {
+            provider: TransportProvider::Nccl,
             reduces: [ElemType::Float(FloatKind::F32)].into(),
         })
     }
+}
+
+/// A marker for a dummy runtime with [`Transported`]'s transport that one test has to itself, so
+/// the collective parts its devices receive are that test's alone.
+#[derive(Debug)]
+pub enum CountedTransport {}
+
+impl Marker for CountedTransport {
+    fn device_transport() -> Option<DeviceTransport> {
+        Transported::device_transport()
+    }
+}
+
+/// How many collective parts each dummy device has received.
+static COLLECTIVE_PARTS: Mutex<Vec<ServiceId>> = Mutex::new(Vec::new());
+
+/// How many collective parts the dummy device of `service` has received.
+pub fn collective_parts(service: ServiceId) -> usize {
+    COLLECTIVE_PARTS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|received| **received == service)
+        .count()
 }
 
 #[derive(Debug, Clone)]
@@ -165,7 +195,98 @@ impl KernelTask {
     }
 }
 
-impl<M: Marker> ServerCommunication for DummyServer<M> {}
+/// Only a runtime that claims a transport reaches these: the client refuses a transfer on any
+/// other before it is queued. A collective part is counted and moves nothing.
+impl<M: Marker> ServerCommunication for DummyServer<M> {
+    fn comm_init(&mut self, _device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        Ok(())
+    }
+
+    fn all_reduce(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _reduction: Reduction,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+        _wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn all_gather(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn reduce_scatter(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _reduction: Reduction,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn broadcast(
+        &mut self,
+        _src: Option<BufferBinding>,
+        _dst: BufferBinding,
+        _stream_id: StreamId,
+        _root: DeviceId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn all_to_all(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn send(
+        &mut self,
+        _desc: CopyDescriptor,
+        _stream_id: StreamId,
+        _device_id_dst: DeviceId,
+        report: SendReport,
+    ) -> Result<(), ServerError> {
+        let refusal = ServerError::Generic {
+            reason: "the dummy source was never written".into(),
+            backtrace: BackTrace::capture(),
+        };
+        report.refused(refusal.clone());
+        Err(refusal)
+    }
+
+    fn recv(
+        &mut self,
+        handle: Handle,
+        stream_id: StreamId,
+        _device_id_src: DeviceId,
+        outcome: SendOutcome,
+    ) -> Result<(), ServerError> {
+        let zeros = vec![0u8; handle.size() as usize];
+        self.bind_with_data(&zeros, handle.clone(), stream_id);
+        if let Err(error) = outcome.wait() {
+            self.taint(error.clone(), [&handle.binding()].into_iter());
+            return Err(error);
+        }
+        Ok(())
+    }
+}
 
 impl<M: Marker> Server for DummyServer<M> {
     fn logger(&self) -> Arc<ServerLogger> {
@@ -507,6 +628,14 @@ impl<M: Marker> DummyServer<M> {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn count_collective_part(&self) -> Result<(), ServerError> {
+        COLLECTIVE_PARTS
+            .lock()
+            .unwrap()
+            .push(self.utilities.service);
+        Ok(())
+    }
+
     fn bind_with_data(&mut self, data: &[u8], handle: Handle, stream_id: StreamId) {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();

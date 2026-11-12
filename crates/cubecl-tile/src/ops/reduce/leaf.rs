@@ -11,7 +11,7 @@ use crate::*;
 pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
     acc: &mut RegisterData,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     // Drain the block the way it was built to reduce; the partials fit no other operator.
@@ -23,20 +23,31 @@ pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
     ));
 
     let size!(V) = input.vector_size();
-    register_data_body::<Acc, In, V>(acc, input, acc_space, monoid);
+    // A sum reads its input placed: an `e2m1` value decoded without its lift, which the line's
+    // scale carries, one multiply a line rather than one a value.
+    if comptime!(monoid == Monoid::Sum) {
+        let placed = input.placed();
+        let packing = placed.packing();
+        let lift = f32::new(comptime!(packing.lift()));
+        register_data_body::<Acc, In, V>(acc, &placed, acc_space, monoid, lift, true);
+    } else {
+        register_data_body::<Acc, In, V>(acc, input, acc_space, monoid, f32::new(1.0), false);
+    }
 }
 
 #[cube]
 fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
     acc: &mut RegisterData,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
+    lift: f32,
+    #[comptime] placed: bool,
 ) {
     let in_space = comptime!(input.place.space.clone());
     let vw = input.vector_size();
-    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
-    let total_acc = comptime!(layout.total_acc);
+    let layout = comptime!(ReduceLayout::new(&in_space, acc_space));
+    let total_acc = layout.total_acc;
 
     let count = comptime!(acc.mr * acc.nr);
     comptime!(assert!(
@@ -48,8 +59,7 @@ fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
 
     #[unroll]
     for a in 0..total_acc {
-        let acc_coords =
-            Coords::constant(comptime!(layout.acc_extents.clone())).unravel(comptime!(a as u32));
+        let acc_coords = Coords::constant(layout.acc_extents.clone()).unravel(comptime!(a as u32));
 
         let line_idx = comptime!(a / acc.vector_size);
         let component_idx = comptime!(a % acc.vector_size);
@@ -58,9 +68,12 @@ fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
         let curr_val: Acc = element::<Acc, In, V>(
             &in_view,
             &in_space,
-            &acc_space,
+            acc_space,
             &layout,
             &acc_coords,
+            &input.factor,
+            lift,
+            placed,
             vw,
             seed,
             monoid,
@@ -76,24 +89,34 @@ fn register_data_body<Acc: Numeric, In: Numeric, V: Size>(
 pub(crate) fn memory<Acc: Numeric, In: Numeric>(
     acc: &mut Memory,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     let size!(V) = input.vector_size();
-    memory_body::<Acc, In, V>(acc, input, acc_space, monoid);
+    // Read placed under a sum, as [`register_data`] does.
+    if comptime!(monoid == Monoid::Sum) {
+        let placed = input.placed();
+        let packing = placed.packing();
+        let lift = f32::new(comptime!(packing.lift()));
+        memory_body::<Acc, In, V>(acc, &placed, acc_space, monoid, lift, true);
+    } else {
+        memory_body::<Acc, In, V>(acc, input, acc_space, monoid, f32::new(1.0), false);
+    }
 }
 
 #[cube]
 fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
     acc: &mut Memory,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
+    lift: f32,
+    #[comptime] placed: bool,
 ) {
     let in_space = comptime!(input.place.space.clone());
     let vw = input.vector_size();
-    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
-    let total_acc = comptime!(layout.total_acc);
+    let layout = comptime!(ReduceLayout::new(&in_space, acc_space));
+    let total_acc = layout.total_acc;
 
     let ws = comptime!(acc.store.vector_size);
     // Preserve the native store width: retyping it as another vector width cannot lower on WGSL.
@@ -102,7 +125,7 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
         total_acc % ws == 0,
         "reduce: Memory total_acc must be divisible by store.vector_size"
     ));
-    let total_lines = comptime!(total_acc / ws);
+    let total_lines = total_acc / ws;
     let mut acc_view = acc.flat_accumulate::<Acc, W>(monoid);
     let in_view = input.nd_packed::<In, V>(comptime!(Guard::Checked));
 
@@ -113,16 +136,18 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
         #[unroll]
         for component_idx in 0..comptime!(ws) {
             let a = line_idx * comptime!(ws) + comptime!(component_idx);
-            let acc_coords =
-                Coords::constant(comptime!(layout.acc_extents.clone())).unravel(a.cast::<u32>());
+            let acc_coords = Coords::constant(layout.acc_extents.clone()).unravel(a.cast::<u32>());
 
             let seed = seed_vec.extract(comptime!(component_idx));
             let curr_val: Acc = element::<Acc, In, V>(
                 &in_view,
                 &in_space,
-                &acc_space,
+                acc_space,
                 &layout,
                 &acc_coords,
+                &input.factor,
+                lift,
+                placed,
                 vw,
                 seed,
                 monoid,
@@ -143,45 +168,91 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
     #[comptime] acc_space: &Space,
     #[comptime] layout: &ReduceLayout,
     acc_coords: &Coords<u32>,
+    factor: &Factor,
+    lift: f32,
+    #[comptime] placed: bool,
     #[comptime] vw: usize,
     seed: Acc,
     #[comptime] monoid: Monoid,
 ) -> Acc {
-    let contracted_per_step = comptime!(in_space.contracted_per_step(&layout.reduce_axes, vw));
-    if comptime!(contracted_per_step > 1) {
+    let contracted_per_step = in_space.contracted_per_step(&layout.reduce_axes, vw);
+    if contracted_per_step > 1 {
         element_lines::<Acc, In, V>(
             in_view,
             in_space,
             acc_space,
             layout,
             acc_coords,
+            factor,
+            lift,
+            placed,
             contracted_per_step,
             seed,
             monoid,
         )
     } else {
         element_scalars::<Acc, In, V>(
-            in_view, in_space, acc_space, layout, acc_coords, vw, seed, monoid,
+            in_view, in_space, acc_space, layout, acc_coords, factor, lift, placed, vw, seed,
+            monoid,
         )
     }
 }
 
+/// The coordinates, one per axis of `operand`, of the first value a read at `reduce_coords` of
+/// the cell at `acc_coords` brings: what [`resolve_nd_coords`] addresses, in values rather than
+/// lines, which is where a scale is looked up.
+#[cube]
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Axis]` from a `&Vec`.
+#[allow(clippy::ptr_arg)]
+fn value_coords(
+    #[comptime] operand: &Space,
+    #[comptime] acc: &Space,
+    #[comptime] reduce: &Vec<Axis>,
+    acc_coords: &Coords<u32>,
+    reduce_coords: &Coords<u32>,
+) -> Coords<u32> {
+    let mut out = Coords::<u32>::new();
+    #[unroll]
+    for p in 0..operand.rank() {
+        let axis = operand.axis_at(p);
+        let coord = if acc.contains(axis) {
+            acc_coords.at(acc.position(axis))
+        } else {
+            match comptime!(reduce.iter().position(|&r| r == axis)) {
+                Some(pos) => reduce_coords.at(comptime!(pos)),
+                None => 0u32,
+            }
+        };
+        out.push(coord);
+    }
+    out
+}
+
+/// Lines a reduce leaf's walk unrolls up to, so its loads are in flight together.
+const UNROLLED_LINES: usize = 16;
+
 /// [`element`]'s line path: one read serves `contracted_per_step` values.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
     #[comptime] in_space: &Space,
     #[comptime] acc_space: &Space,
     #[comptime] layout: &ReduceLayout,
     acc_coords: &Coords<u32>,
+    factor: &Factor,
+    lift: f32,
+    #[comptime] placed: bool,
     #[comptime] contracted_per_step: usize,
     seed: Acc,
     #[comptime] monoid: Monoid,
 ) -> Acc {
     let mut acc_vec = Vector::<Acc, V>::cast_from(Monoid::identity::<Acc>(monoid));
-    for p in 0..comptime!(layout.kc / contracted_per_step) {
-        let reduce_coords = Coords::constant(comptime!(layout.reduce_extents.clone()))
+    let lines = layout.kc / contracted_per_step;
+    // Unrolled, every line's load is issued before the first is summed; a rolled loop waits on
+    // each. A walk longer than the budget stays rolled rather than grow the kernel without end.
+    #[unroll(lines <= UNROLLED_LINES)]
+    for p in 0..lines {
+        let reduce_coords = Coords::constant(layout.reduce_extents.clone())
             .unravel((p * comptime!(contracted_per_step)).cast::<u32>());
 
         let in_coords = resolve_nd_coords(
@@ -194,8 +265,34 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             AccCoords::Cells,
         );
 
-        let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
-        acc_vec = monoid.combine::<Vector<Acc, V>>(acc_vec, Vector::<Acc, V>::cast_from(in_vec));
+        let in_vec =
+            Vector::<Acc, V>::cast_from(read_or_identity::<In, V>(in_view, in_coords, monoid));
+        // A line lies under one scale (a scaled operand's lines never straddle one), read at
+        // its first value; values the tile carries no scales for are read as they are.
+        let scaled = comptime!(factor.scaled());
+        if scaled || placed {
+            let scale = if scaled {
+                let at = value_coords(
+                    in_space,
+                    acc_space,
+                    &layout.reduce_axes,
+                    acc_coords,
+                    &reduce_coords,
+                );
+                factor.at_coords(&at, in_space.clone(), comptime!(Guard::Checked)) * lift
+            } else {
+                lift
+            };
+            let scale = Vector::<Acc, V>::cast_from(scale);
+            acc_vec = if comptime!(monoid == Monoid::Sum) {
+                // One fused multiply-add a value.
+                Semiring::SUM_PROD.step::<Vector<Acc, V>>(in_vec, scale, acc_vec)
+            } else {
+                monoid.combine::<Vector<Acc, V>>(acc_vec, in_vec * scale)
+            };
+        } else {
+            acc_vec = monoid.combine::<Vector<Acc, V>>(acc_vec, in_vec);
+        }
     }
     monoid.combine::<Acc>(
         seed,
@@ -211,7 +308,7 @@ fn read_or_identity<In: Numeric, V: Size>(
     in_coords: CoordsDyn,
     #[comptime] monoid: Monoid,
 ) -> Vector<In, V> {
-    match comptime!(monoid) {
+    match monoid {
         Monoid::Sum => in_view.read(in_coords),
         Monoid::Prod | Monoid::Max | Monoid::Min => {
             let valid = in_view.is_in_bounds(in_coords.clone());
@@ -226,22 +323,24 @@ fn read_or_identity<In: Numeric, V: Size>(
 
 /// [`element`]'s scalar path: one extract per contracted element.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
     #[comptime] in_space: &Space,
     #[comptime] acc_space: &Space,
     #[comptime] layout: &ReduceLayout,
     acc_coords: &Coords<u32>,
+    factor: &Factor,
+    lift: f32,
+    #[comptime] placed: bool,
     #[comptime] vw: usize,
     seed: Acc,
     #[comptime] monoid: Monoid,
 ) -> Acc {
     let mut curr_val = seed;
-    let kc = comptime!(layout.kc);
+    let kc = layout.kc;
     for p in 0..kc {
         let reduce_coords =
-            Coords::constant(comptime!(layout.reduce_extents.clone())).unravel(p.cast::<u32>());
+            Coords::constant(layout.reduce_extents.clone()).unravel(p.cast::<u32>());
 
         let in_coords = resolve_nd_coords(
             in_space,
@@ -254,7 +353,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
         );
 
         let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
-        let in_val = if comptime!(vw <= 1) {
+        let in_val = if vw <= 1 {
             in_vec.extract(0usize)
         } else {
             let in_component = resolve_reduce_component(
@@ -268,6 +367,23 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             in_vec.extract_dynamic(in_component)
         };
         let in_cast = Acc::cast_from(in_val);
+        let in_cast = if comptime!(factor.scaled()) {
+            let at = value_coords(
+                in_space,
+                acc_space,
+                &layout.reduce_axes,
+                acc_coords,
+                &reduce_coords,
+            );
+            in_cast
+                * Acc::cast_from(
+                    factor.at_coords(&at, in_space.clone(), comptime!(Guard::Checked)) * lift,
+                )
+        } else if placed {
+            in_cast * Acc::cast_from(lift)
+        } else {
+            in_cast
+        };
 
         curr_val = monoid.combine::<Acc>(curr_val, in_cast);
     }
@@ -285,30 +401,28 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
 pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
 ) -> Array<E> {
     let in_space = comptime!(lhs.place.space.clone());
     let vw = lhs.vector_size();
-    let layout = comptime!(ReduceLayout::new(&in_space, &acc_space));
-    let total_acc = comptime!(layout.total_acc);
+    let layout = comptime!(ReduceLayout::new(&in_space, acc_space));
+    let total_acc = layout.total_acc;
     let lhs_view = lhs.nd_packed::<Lhs, V>(comptime!(Guard::Checked));
     let rhs_view = rhs.nd_packed::<Rhs, V>(comptime!(Guard::Checked));
     let whole_lines = comptime!(layout.sums_whole_lines(&in_space, vw));
     let mut cells = Array::<E>::new(total_acc);
     #[unroll]
     for a in 0..total_acc {
-        let acc_coords =
-            Coords::constant(comptime!(layout.acc_extents.clone())).unravel(comptime!(a as u32));
+        let acc_coords = Coords::constant(layout.acc_extents.clone()).unravel(comptime!(a as u32));
         let mut sum = E::from_int(0);
-        if comptime!(whole_lines) {
+        if whole_lines {
             // The innermost run counted in lines: its coordinate is already the line's.
             let line_extents = comptime!(layout.line_extents(vw));
             for p in 0..comptime!(layout.kc / vw) {
-                let reduce_coords =
-                    Coords::constant(comptime!(line_extents.clone())).unravel(p.cast::<u32>());
+                let reduce_coords = Coords::constant(line_extents.clone()).unravel(p.cast::<u32>());
                 let coords = resolve_nd_coords(
                     &in_space,
-                    &acc_space,
+                    acc_space,
                     &layout.reduce_axes,
                     &acc_coords,
                     &reduce_coords,
@@ -322,12 +436,12 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 }
             }
         } else {
-            for p in 0..comptime!(layout.kc) {
-                let reduce_coords = Coords::constant(comptime!(layout.reduce_extents.clone()))
-                    .unravel(p.cast::<u32>());
+            for p in 0..layout.kc {
+                let reduce_coords =
+                    Coords::constant(layout.reduce_extents.clone()).unravel(p.cast::<u32>());
                 let coords = resolve_nd_coords(
                     &in_space,
-                    &acc_space,
+                    acc_space,
                     &layout.reduce_axes,
                     &acc_coords,
                     &reduce_coords,
@@ -336,7 +450,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 );
                 let component = resolve_reduce_component(
                     &in_space,
-                    &acc_space,
+                    acc_space,
                     &layout.reduce_axes,
                     &acc_coords,
                     &reduce_coords,
@@ -417,10 +531,10 @@ fn resolve_reduce_component(
     reduce_coords: &Coords<u32>,
     #[comptime] width: usize,
 ) -> usize {
-    let in_rank = comptime!(in_space.rank());
-    let fastest_axis = comptime!(in_space.axis_at(in_rank - 1));
-    let raw_coord = if comptime!(acc_space.contains(fastest_axis)) {
-        let pos = comptime!(acc_space.position(fastest_axis));
+    let in_rank = in_space.rank();
+    let fastest_axis = in_space.axis_at(in_rank - 1);
+    let raw_coord = if acc_space.contains(fastest_axis) {
+        let pos = acc_space.position(fastest_axis);
         acc_coords.at(comptime!(pos))
     } else {
         let pos = comptime!(reduce_axes.iter().position(|&r| r == fastest_axis).unwrap());
