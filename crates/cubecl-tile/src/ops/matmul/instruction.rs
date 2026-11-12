@@ -10,13 +10,13 @@ use cubecl::quant::scheme::QuantValue;
 
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
-use crate::{ComputeScope, MmaIo, RegisterBlock};
+use crate::{ComputeScope, MmaIo, SoftwareMatmul};
 
-/// What one plane contracts through: a software register block or a hardware fragment form.
+/// What one plane contracts through: a software matmul or a hardware fragment form.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Instruction {
-    /// A register block, run under `config`. Asks nothing of the hardware.
-    Registers { config: RegisterBlock },
+    /// A software matmul, run under `config`. Asks nothing of the hardware.
+    Registers { config: SoftwareMatmul },
     /// The vendor's fragment API: `wmma` on CUDA, rocWMMA on HIP.
     Cmma,
     /// This crate's own fragment transport over the matrix intrinsics, with per-role `io`, over

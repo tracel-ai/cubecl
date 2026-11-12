@@ -16,7 +16,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] problem: GatherProblem,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let matrices = problem.block.matrices();
@@ -133,7 +133,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     acc: &mut AccumulateView<'_, E, A>,
     batch: &Coords<u32>,
     #[comptime] problem: GatherProblem,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] unroll: bool,
     #[comptime] semiring: Semiring,
 ) {

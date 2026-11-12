@@ -271,17 +271,17 @@ impl Tile {
 
 #[cube]
 impl Tile {
-    /// This memory window as a contraction's output: each unit's share tiled into `block`, summed
+    /// This memory window as a contraction's output: each unit's share contracted by `matmul`, summed
     /// under `semiring`. A plane-resident accumulator states both when it is opened.
     pub fn accumulating(
         &self,
-        #[comptime] block: RegisterBlock,
+        #[comptime] matmul: SoftwareMatmul,
         #[comptime] semiring: Semiring,
     ) -> Tile {
         match &self.kind {
             TileKind::Memory(g) => {
                 let mut g = g.clone();
-                g.set_contraction(comptime!(WindowContraction { block, semiring }));
+                g.set_contraction(comptime!(WindowContraction { matmul, semiring }));
                 Tile {
                     kind: TileKind::new_Memory(g),
                     factor: self.factor.clone(),

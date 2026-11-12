@@ -20,7 +20,7 @@ impl RegisterData {
     ) {
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma"));
-        register_block_size(self.vector_size);
+        software_matmul_size(self.vector_size);
         // A load stored across several columns reads as their runs along the contraction.
         let rhs_load = rhs.vector_tile();
         let vw = comptime!(rhs_load.run_length());
@@ -139,7 +139,7 @@ impl RegisterData {
     ) {
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma_block"));
-        register_block_size(self.vector_size);
+        software_matmul_size(self.vector_size);
         comptime!(assert!(
             self.contracted_per_step == 1,
             "RegisterData::mma_block: this block's lines are neighbours along the rhs's columns, \

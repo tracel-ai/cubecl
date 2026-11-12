@@ -251,7 +251,7 @@ const KK: Axis = Axis(4);
 const BB: Axis = Axis(5);
 
 /// The leaf's register block, held fixed across every kernel here.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// One step of the contraction into `acc`'s cell at `region`.
 #[cube]
@@ -290,7 +290,7 @@ fn stream_matmul<E: Numeric>(
         let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(REGISTER_BLOCK),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
@@ -333,7 +333,7 @@ fn stream_matmul_staged_rhs<E: Numeric>(
         let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(REGISTER_BLOCK),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         let cells = region.over(&inner).range(from, steps);
@@ -376,7 +376,7 @@ fn stream_matmul_prefix<E: Numeric>(
         let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(REGISTER_BLOCK),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
@@ -822,7 +822,7 @@ fn merged_stream_matmul(
         let acc = merge.tile().register_accumulator::<f32>(
             &a_region,
             &b_region,
-            comptime!(REGISTER_BLOCK),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&steps).range(from, count) {

@@ -173,7 +173,7 @@ impl Tile {
         &self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] semiring: Semiring,
     ) -> Tile {
         register_accumulator::<EA>(self, lhs, rhs, config, semiring)
@@ -185,7 +185,7 @@ impl Tile {
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] monoid: Monoid,
     ) -> Tile {
         let vector_size = self.vector_size();
@@ -581,7 +581,7 @@ fn register_accumulator<EA: Numeric>(
     out: &Tile,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) -> Tile {
     let lw = lhs.vector_size();

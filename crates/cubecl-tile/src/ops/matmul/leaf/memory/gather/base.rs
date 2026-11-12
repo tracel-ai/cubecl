@@ -236,7 +236,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     rhs: &Tile,
     #[comptime] space: &Space,
     #[comptime] contracted_per_step: usize,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let lw = lhs.vector_size();

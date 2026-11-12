@@ -55,11 +55,11 @@ pub(crate) struct Memory {
     pub(crate) index: ComptimeOption<IndexTable>,
 }
 
-/// How a contraction into a memory window runs: the register block a unit's share is tiled into,
-/// and the semiring it sums under.
+/// How a contraction into a memory window runs: the software matmul a unit's share is contracted
+/// by, and the semiring it sums under.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct WindowContraction {
-    pub(crate) block: RegisterBlock,
+    pub(crate) matmul: SoftwareMatmul,
     pub(crate) semiring: Semiring,
 }
 

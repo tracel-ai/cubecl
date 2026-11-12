@@ -23,7 +23,7 @@ const M: Axis = Axis(0);
 const N: Axis = Axis(1);
 const K: Axis = Axis(2);
 
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// One box per cube, its `K` distributed to the cube's planes, each plane's slice added into shared
 /// memory and the sum stored once.
@@ -48,7 +48,7 @@ fn smem_split_matmul<E: Numeric>(
             let mut partial = sink_plane.register_accumulator::<E>(
                 &a_plane,
                 &b_plane,
-                comptime!(REGISTER_BLOCK),
+                comptime!(SOFTWARE_MATMUL),
                 Semiring::SUM_PROD,
             );
             partial.mma(&a_plane, &b_plane);
@@ -82,7 +82,7 @@ fn smem_cyclic_split_matmul<E: Numeric>(
             let mut partial = c_cube.at(&plane).register_accumulator::<E>(
                 &a_plane,
                 &b_plane,
-                comptime!(REGISTER_BLOCK),
+                comptime!(SOFTWARE_MATMUL),
                 Semiring::SUM_PROD,
             );
             partial.mma(&a_plane, &b_plane);

@@ -38,7 +38,7 @@ const NB: Axis = Axis(4);
 const NI: Axis = Axis(5);
 
 /// The register block every contraction here runs under.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// A packed operand copied into a plain one: the words unpack at the read, and nothing in the
 /// kernel, the spec or the launch mentions a scale.
@@ -67,7 +67,7 @@ fn packed_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -94,7 +94,7 @@ fn nvfp4_shaped_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -261,7 +261,7 @@ fn packed_matmul_rhs(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&x.at(&region), &w.at(&region));
     }
 }
@@ -286,7 +286,7 @@ fn native_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -313,8 +313,12 @@ fn packed_one_row_product<E: Numeric>(
         let w = w.at(&cube);
         let c = c.at(&cube);
         // The accumulator lives in registers across the whole walk and drains once.
-        let acc =
-            c.register_accumulator::<E>(&x, &values, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+        let acc = c.register_accumulator::<E>(
+            &x,
+            &values,
+            comptime!(SOFTWARE_MATMUL),
+            Semiring::SUM_PROD,
+        );
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -341,7 +345,7 @@ fn packed_matmul_byte_scales(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -365,8 +369,12 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc =
-            c.register_accumulator::<E>(&x, &values, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+        let acc = c.register_accumulator::<E>(
+            &x,
+            &values,
+            comptime!(SOFTWARE_MATMUL),
+            Semiring::SUM_PROD,
+        );
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -2029,7 +2037,7 @@ fn packed_one_row_product_unscaled<E: Numeric>(
         let w = w.at(&cube);
         let c = c.at(&cube);
         let acc =
-            c.register_accumulator::<E>(&x, &w, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+            c.register_accumulator::<E>(&x, &w, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
