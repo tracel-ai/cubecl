@@ -337,7 +337,7 @@ impl<'a> Arg<'a, Labelled> {
             let Some(outer) = cuts.next() else {
                 return false;
             };
-            let stored = cuts.last().unwrap_or(outer);
+            let stored = cuts.next_back().unwrap_or(outer);
             let extent = launch.space().extent(axis);
             extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
         })
