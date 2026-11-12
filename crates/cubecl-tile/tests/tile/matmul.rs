@@ -3374,6 +3374,57 @@ fn cmma_matmul_staged_k_walk_transposed_operands() {
     check_cmma_matmul_k_walk_with(16, 1, 1, StageLayout::Strided, Transposed::Both);
 }
 
+/// A plane holding a tile wider than any instruction, its nest stating no instruction: the tile
+/// cuts the plane's `16 × 32` into the calls of the instruction it picks (`8 × 8` cells on Metal),
+/// and the drain lays each cell where it lies.
+#[test]
+fn a_plane_tile_wider_than_its_instruction_is_cut_by_the_tile() {
+    let client = cubecl::test_device().client();
+    if !require_cmma_8x8x8_f32(&client) {
+        return;
+    }
+
+    let (m, n, k) = (16usize, 32usize, 32usize);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, m), (N, n), (K, 8)])
+                .walk_every(&[M, N, K])
+                .build(),
+        ),
+        Form::Static,
+    );
+    for layout in [StageLayout::Strided, StageLayout::Tiled] {
+        for v in [1, 4] {
+            let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+                .untiled()
+                .arange();
+            let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
+                .untiled()
+                .arange();
+            // Poisoned, not zeroed: the kernel zeroes the accumulator.
+            let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
+                .untiled()
+                .uniform(4242, 10., 100.);
+            cmma_matmul_k_walk::launch(
+                &client,
+                launcher.cube_count(),
+                launcher.cube_dim(),
+                a.arg(&launcher, v),
+                b.arg(&launcher, v),
+                c.arg(&launcher, v),
+                launcher.partitioning_arg(),
+                launcher.partitioning().level(0),
+                layout.storage(&launcher),
+                1,
+                f32::elem_type_native(),
+            );
+            assert_matmul_arange(&client, c.handle(), m, n, k);
+        }
+    }
+}
+
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
 /// directly, so the kernel first materializes them in shared memory.
 fn check_cmma_matmul_k_walk(k: usize, depth: usize, v: usize, layout: StageLayout) {
