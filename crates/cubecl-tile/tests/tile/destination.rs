@@ -313,12 +313,7 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = O::tile::<E, Const<1>>(out, &space);
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));

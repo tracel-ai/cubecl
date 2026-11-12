@@ -3,6 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::dialect::DrainOp;
+use crate::ops::matmul::instruction::OpenedBy;
 use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
@@ -124,35 +125,58 @@ pub(crate) fn plane_windows(space: &Space, levels: &[Level]) -> usize {
 /// What an output does with the sum contracted into it: open, scratch and drain an accumulator.
 #[cube]
 impl Tile {
-    /// What one plane sums `lhs · rhs` into under `semiring`, in the form `instruction` names,
-    /// at the element `EA`, opened at the semiring's identity.
+    /// The instruction this sum contracts through: what [`accumulator`](Tile::accumulator) or
+    /// one of its siblings opened it in, the tile layer's pick for the device.
+    pub fn sum_instruction(&self) -> comptime_type!(Instruction) {
+        match &self.kind {
+            TileKind::PlanePartition(p) => p.frags.index(0usize).instruction(),
+            TileKind::PlaneTile(t) => t.instruction(),
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => panic!("Tile::factor: a sum is a tile an accumulator opened"),
+        }
+    }
+
+    /// What the planes holding this output sum `lhs · rhs` into under the sum of products,
+    /// at the element `EA`, opened at zero, for a sum drained into an output: in the matrix
+    /// instruction the device offers for the product, picked as the kernel expands
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the warpgroup
+    /// MMA where plane groups of four hold it.
     pub fn accumulator<EA: Numeric>(
         &self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] instruction: Instruction,
         #[comptime] semiring: Semiring,
     ) -> Tile {
-        match instruction {
-            Instruction::Registers { config } => {
-                register_accumulator::<EA>(self, lhs, rhs, config, semiring)
-            }
-            Instruction::Cmma | Instruction::Mma { .. } | Instruction::Wgmma => {
-                if comptime!(instruction == Instruction::Wgmma) {
-                    comptime!(assert_warpgroups_hold(&self.place));
-                    comptime!(assert_groups_own_their_box(&self.place));
-                }
-                let vector_size = self.vector_size();
-                accumulator_in::<EA>(
-                    &comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
-                    lhs,
-                    instruction,
-                    vector_size,
-                    1usize,
-                    comptime!(Accumulation::Contraction(semiring)),
-                )
-            }
+        let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
+        let instruction =
+            plane_instruction::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
+        if comptime!(instruction == Instruction::Wgmma) {
+            comptime!(assert_groups_own_their_box(&self.place));
         }
+        let vector_size = self.vector_size();
+        accumulator_in::<EA>(
+            &place,
+            lhs,
+            instruction,
+            vector_size,
+            1usize,
+            comptime!(Accumulation::Contraction(semiring)),
+        )
+    }
+
+    /// What this output sums `lhs · rhs` into under `semiring`, at the element `EA`, opened at
+    /// the semiring's identity: a register block run under `config`, each unit holding its own
+    /// cells. Asks nothing of the hardware.
+    pub fn register_accumulator<EA: Numeric>(
+        &self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] config: RegisterBlock,
+        #[comptime] semiring: Semiring,
+    ) -> Tile {
+        register_accumulator::<EA>(self, lhs, rhs, config, semiring)
     }
 
     /// A register block over this tile's grid for a reduction over `input` under `monoid`, at
@@ -520,22 +544,16 @@ impl Tile {
     }
 }
 
-/// Panics unless a warpgroup holds each of the output's tiles: the narrowest scope a level below
-/// `place` deals them to, or the one holding `place` where none does. A warpgroup MMA takes all
-/// four of its planes, so a plane, a unit or another group size would issue it short.
-fn assert_warpgroups_hold(place: &Placement) {
-    let holder = place
+/// Who holds each of the output's tiles at `place`: the narrowest scope a level below it deals them
+/// to, or the one holding `place` where none does. A warpgroup holding them issues the warpgroup
+/// MMA, which takes all four of its planes.
+fn holder(place: &Placement) -> ComputeScope {
+    place
         .below()
         .iter()
         .filter_map(|level| level.coverage().scope())
         .min()
-        .unwrap_or_else(|| place.holder());
-    assert!(
-        holder == ComputeScope::WARPGROUP,
-        "Tile::accumulator: a warpgroup MMA's tile is held by {:?}, its four planes together, \
-         and this one's by {holder:?}; deal the tiles to `plane_groups(4, ..)`",
-        ComputeScope::WARPGROUP
-    );
+        .unwrap_or_else(|| place.holder())
 }
 
 /// Panics where a plane group level splits an axis the output at `place` lacks: each group would
@@ -657,27 +675,27 @@ fn accumulator_in<EA: Numeric>(
 #[cube]
 impl Tile {
     /// A plane-resident accumulator over one region of `walk` along `axes`, summing `lhs` times a
-    /// factor in the matrix instruction `instruction` names, opened at zero: the accumulator
-    /// [`Tile::scratch`] would open, without the memory, for a product contracted again before
-    /// anything drains it, as an attention's score.
+    /// factor of its element, opened at zero: the accumulator [`Tile::scratch`] would open,
+    /// without the memory, for a product contracted again before anything drains it, as an
+    /// attention's score. Its instruction is the one that keeps the sum where the next product's
+    /// `A` lies, where the device has one
+    /// ([`Instruction::for_stage_accumulator`](crate::Instruction::for_stage_accumulator)).
     pub fn stage_accumulator<EA: Numeric>(
         walk: &Walk,
         #[comptime] axes: Vec<Axis>,
         lhs: &Tile,
-        #[comptime] instruction: Instruction,
     ) -> Tile {
         Tile::placed_accumulator::<EA>(
             comptime!(walk.level.child(&walk.space).subspace(&axes)),
             comptime!(walk.depth()),
             comptime!(walk.parent.path.root_levels()),
             lhs,
-            instruction,
         )
     }
 
     /// A plane-resident accumulator over `space`, placed at `depth` of `levels` as
-    /// [`with_levels`](Tile::with_levels) places a tile, summing `lhs` times a factor in
-    /// `instruction`, opened at zero: [`stage_accumulator`](Tile::stage_accumulator) on a grid the
+    /// [`with_levels`](Tile::with_levels) places a tile, summing `lhs` times a factor of its
+    /// element, opened at zero: [`stage_accumulator`](Tile::stage_accumulator) on a grid the
     /// caller states, for a product contracted on its own grid of fragments rather than its walk's,
     /// and contracted again before anything drains it.
     pub fn placed_accumulator<EA: Numeric>(
@@ -685,14 +703,10 @@ impl Tile {
         #[comptime] depth: usize,
         #[comptime] levels: Vec<Level>,
         lhs: &Tile,
-        #[comptime] instruction: Instruction,
     ) -> Tile {
-        comptime!(assert!(
-            !matches!(instruction, Instruction::Registers { .. }),
-            "Tile::placed_accumulator: a register block's accumulator is a unit's, opened on the \
-             output it drains into"
-        ));
         let place = comptime!(Placement::new(space, depth, levels));
+        let instruction =
+            plane_instruction::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
             &place.space,
@@ -708,6 +722,45 @@ impl Tile {
         acc.init_identity::<EA>(accumulation.monoid());
         acc
     }
+}
+
+/// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts
+/// through on the device the kernel compiles for, read off the device and its target as the
+/// kernel expands ([`Instruction::for_accumulator`],
+/// [`Instruction::for_stage_accumulator`]).
+#[cube]
+fn plane_instruction<EA: Numeric>(
+    #[comptime] out: &Placement,
+    lhs: &Tile,
+    rhs: &Tile,
+    #[comptime] opened_by: OpenedBy,
+) -> comptime_type!(Instruction) {
+    let lhs_source = lhs.fragment_source();
+    let rhs_source = rhs.fragment_source();
+    let device = comptime::device_properties().comptime();
+    let target = comptime::target_properties().comptime();
+    let sum = elem_type_of::<EA>();
+    comptime!({
+        let grid = GridShape::new(out, &lhs.place.space);
+        let shape = [grid.m, grid.n, grid.k];
+        Instruction::for_plane(
+            &device,
+            &target,
+            holder(out),
+            lhs_source,
+            rhs_source,
+            sum,
+            shape,
+            opened_by,
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "Tile::accumulator: the device offers no matrix instruction for a {shape:?} \
+                 product of {lhs_source:?} · {rhs_source:?} summed in {sum:?}, or its planes \
+                 have no single width; a plane routine refuses such a device on the host"
+            )
+        })
+    })
 }
 
 /// [`Tile::drained_into`]'s descent over `levels[i..]`, applying `pass` at every leaf.

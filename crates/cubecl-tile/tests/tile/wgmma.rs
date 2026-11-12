@@ -89,8 +89,7 @@ fn wgmma_walk(
                 }
             }
             Role::Compute => {
-                let mut sum =
-                    c.accumulator::<f32>(&a, &b, comptime!(Instruction::Wgmma), Semiring::SUM_PROD);
+                let mut sum = c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD);
                 sum.zero();
                 let mma = GroupMma { sum: sum.clone() };
                 stages.consume_async::<GroupMma>(&walk, &mma);

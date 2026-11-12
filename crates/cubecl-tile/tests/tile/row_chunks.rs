@@ -1,8 +1,11 @@
 //! A stage whose block rows are swizzled ([`RowChunks::Swizzled`]) or padded
 //! ([`RowChunks::Padded`]) holds the same product as one whose rows lie in order: filled whole,
-//! filled through registers, and read by the manual mma transport a cell at a time or through
-//! `ldmatrix` — or, padded, by the cmma one — a row-major rhs and a weight stored `{n, k}` alike.
-//! The `ldmatrix` transport is also held to what it cannot read: a global window, read manually.
+//! filled through registers, and read by the instruction the accumulator picks for the leaf: the
+//! manual mma transport (through `ldmatrix` where the device has it) or, in order or padded, the
+//! cmma one where the device offers the leaf's shape — a row-major rhs and a weight stored
+//! `{n, k}` alike. A swizzled stage only the manual mma reads, so where the accumulator picks cmma
+//! for the leaf (Metal's `8×8×8`) its case reports the test skipped. A global window is read
+//! manually.
 //!
 //! In `f16` (and `bf16` through `ldmatrix`) summed in `f32`, at `16×16×16` where the device offers
 //! it and at the shape it does otherwise (NVIDIA's manual mma is `16×8×16`); a device with no such
@@ -12,7 +15,6 @@
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{ir::ElemType, prelude::*, zspace::shape};
-use cubecl_tile::ops::matmul::{LoadMethod, MmaIo};
 use cubecl_tile::stage::{Prefetch, RowChunks};
 use cubecl_tile::*;
 
@@ -34,20 +36,19 @@ enum Staging {
     Global,
 }
 
-/// Which transport reads a stage's fragments.
+/// Which instruction's shapes the leaf is cut to: the accumulator picks the instruction for that
+/// shape, the stage's arrangement and the device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Leaf {
-    /// The manual mma, each unit computing its own addresses.
+    /// A shape the device offers through the manual mma.
     Mma,
-    /// The vendor's fragment API, rows off a pointer and a stride.
+    /// A shape the device offers through the vendor's fragment API.
     Cmma,
-    /// The manual mma, both operands' fragments handed out by `ldmatrix` from each unit's
-    /// row address: the swizzle applied where the unit addresses its row.
-    MmaLoadMatrix,
 }
 
 /// `c = a · b` over a walk along `K` whose every region is one stage of `outer`'s tile, read a
-/// fragment of `inner` at a time through `leaf`, the stage laid out as `storage`.
+/// fragment of `inner` at a time through the instruction the accumulator picks, the stage laid
+/// out as `storage`.
 #[cube(launch)]
 fn staged_k_walk<EA: Numeric>(
     a: &TileTensor<'_>,
@@ -59,38 +60,13 @@ fn staged_k_walk<EA: Numeric>(
     #[comptime] storage: StageStorage,
     #[comptime] depth: usize,
     #[comptime] schedule: Prefetch,
-    #[comptime] leaf: Leaf,
     #[comptime] staging: Staging,
     #[define(EA)] _sum: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let mut acc = match leaf {
-        Leaf::Mma => c.accumulator::<EA>(
-            &a,
-            &b,
-            comptime!(Instruction::Mma {
-                io: MmaIo::manual(),
-                operands: MmaOperands::Plain,
-            }),
-            Semiring::SUM_PROD,
-        ),
-        Leaf::MmaLoadMatrix => c.accumulator::<EA>(
-            &a,
-            &b,
-            comptime!(Instruction::Mma {
-                io: MmaIo {
-                    lhs_load_method: LoadMethod::LoadMatrix,
-                    rhs_load_method: LoadMethod::LoadMatrix,
-                    ..MmaIo::manual()
-                },
-                operands: MmaOperands::Plain,
-            }),
-            Semiring::SUM_PROD,
-        ),
-        Leaf::Cmma => c.accumulator::<EA>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD),
-    };
+    let mut acc = c.accumulator::<EA>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&outer);
     if comptime!(staging == Staging::Global) {
         for region in walk {
@@ -176,26 +152,21 @@ fn walk_stages(
 /// stages are read by the instruction each device has. A case whose lines run along `K` asks for a
 /// line's depth: a step must start on a line, and NVIDIA lists its `16×8×8` mma before its
 /// `16×8×16` one.
-/// Where `reads_ldmatrix`, the device must also load `input` through `ldmatrix`; a case the
-/// transport reads manually whatever it was asked needs only the mma. Reported rather than silently
-/// passed where the device has neither.
+/// Reported rather than silently passed where the device has none. The manual mma loads through
+/// `ldmatrix` where the device has it for `input`, and addresses each unit's lines itself
+/// otherwise.
 fn instruction_shape(
     client: &cubecl::client::Client,
     leaf: Leaf,
     input: ElemType,
-    reads_ldmatrix: bool,
     line_depth: usize,
 ) -> Option<(usize, usize, usize)> {
     let f32 = f32::elem_type_native();
     let matmul = &client.properties().features.matmul;
     let configs = match leaf {
-        Leaf::Mma | Leaf::MmaLoadMatrix => &matmul.mma,
+        Leaf::Mma => &matmul.mma,
         Leaf::Cmma => &matmul.cmma,
     };
-    if reads_ldmatrix && !matmul.ldmatrix.contains(&input) {
-        ValidationResult::Skipped(format!("device has no {input:?} ldmatrix")).enforce();
-        return None;
-    }
     let shapes: Vec<(usize, usize, usize)> = configs
         .iter()
         .filter(|cfg| cfg.a_type == input && cfg.b_type == input && cfg.cd_type == f32)
@@ -279,19 +250,32 @@ fn check(case: Case) {
         input,
     } = case;
     let client = cubecl::test_device().client();
-    // Where the transport reads through `ldmatrix`: a stage whose lines a 16-byte row holds whole.
-    // A global window or wider lines are read manually whatever the case asked.
-    let reads_ldmatrix = leaf == Leaf::MmaLoadMatrix
-        && staging != Staging::Global
-        && (16 / input.size()).is_multiple_of(v);
     // A `{m, k}` lhs or a `{n, k}` rhs runs its lines along `K`.
     let lines_along_k = !lhs_transposed || transposed;
     let line_depth = if lines_along_k { v } else { 1 };
-    let Some((edge_m, edge_n, edge_k)) =
-        instruction_shape(&client, leaf, input, reads_ldmatrix, line_depth)
-    else {
+    let Some((edge_m, edge_n, edge_k)) = instruction_shape(&client, leaf, input, line_depth) else {
         return;
     };
+    // A drained sum picks its instruction before any stage exists, so where the fragment API offers
+    // the leaf (Metal's `8×8×8`) it reads the stage off a pointer and a stride, which a swizzled
+    // row is not: the kernel refuses as it expands. Reported, not run.
+    let picked = Instruction::for_accumulator(
+        client.properties(),
+        client.target_properties(),
+        space::ComputeScope::Plane,
+        FragmentSource::Values(input),
+        FragmentSource::Values(input),
+        f32::elem_type_native(),
+        [edge_m, edge_n, edge_k],
+    );
+    if chunks == RowChunks::Swizzled && picked == Some(Instruction::Cmma) {
+        ValidationResult::Skipped(format!(
+            "the fragment API reads this device's {edge_m}×{edge_n}×{edge_k} leaf, and no \
+             swizzled stage"
+        ))
+        .enforce();
+        return;
+    }
     let (m, n, k) = (mn, mn, 128usize);
     // A row-major rhs's lines run along `N`, and a fragment narrower than a line starts inside one,
     // which the manual mma load refuses: reported, not run.
@@ -402,7 +386,6 @@ fn check(case: Case) {
         storage,
         depth,
         schedule,
-        leaf,
         staging,
         f32::elem_type_native(),
     );
@@ -577,7 +560,7 @@ fn the_ldmatrix_transport_reads_every_arrangement() {
                     transposed,
                     depth: 2,
                     schedule,
-                    leaf: Leaf::MmaLoadMatrix,
+                    leaf: Leaf::Mma,
                     ..Case::DEFAULT
                 });
             }
@@ -589,17 +572,14 @@ fn the_ldmatrix_transport_reads_every_arrangement() {
 /// arrangement: the manual transport reads the same product.
 #[test]
 fn the_ldmatrix_transport_reads_a_col_major_lhs() {
-    for leaf in [Leaf::Mma, Leaf::MmaLoadMatrix] {
-        for chunks in [RowChunks::InOrder, RowChunks::Swizzled, RowChunks::Padded] {
-            for transposed in [false, true] {
-                check(Case {
-                    chunks,
-                    transposed,
-                    lhs_transposed: true,
-                    leaf,
-                    ..Case::DEFAULT
-                });
-            }
+    for chunks in [RowChunks::InOrder, RowChunks::Swizzled, RowChunks::Padded] {
+        for transposed in [false, true] {
+            check(Case {
+                chunks,
+                transposed,
+                lhs_transposed: true,
+                ..Case::DEFAULT
+            });
         }
     }
 }
@@ -614,21 +594,21 @@ fn the_ldmatrix_transport_reads_blocks_shallow_rows_and_narrow_lines() {
                 chunks,
                 mn: 32,
                 transposed,
-                leaf: Leaf::MmaLoadMatrix,
+                leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
             check(Case {
                 chunks,
                 stage_k: 16,
                 transposed,
-                leaf: Leaf::MmaLoadMatrix,
+                leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
             check(Case {
                 chunks,
                 v: 2,
                 transposed,
-                leaf: Leaf::MmaLoadMatrix,
+                leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
         }
@@ -644,7 +624,7 @@ fn the_ldmatrix_transport_reads_wide_lines_manually() {
             v: 16,
             stage_k: 64,
             transposed: true,
-            leaf: Leaf::MmaLoadMatrix,
+            leaf: Leaf::Mma,
             ..Case::DEFAULT
         });
     }
@@ -662,7 +642,7 @@ fn the_ldmatrix_transport_reads_a_stage_declared_after_another_allocation() {
                 v,
                 transposed,
                 staging: Staging::StageAfterSmallAllocation,
-                leaf: Leaf::MmaLoadMatrix,
+                leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
         }
@@ -677,7 +657,7 @@ fn the_ldmatrix_transport_reads_a_global_window_manually() {
         check(Case {
             transposed,
             staging: Staging::Global,
-            leaf: Leaf::MmaLoadMatrix,
+            leaf: Leaf::Mma,
             ..Case::DEFAULT
         });
     }
@@ -692,7 +672,7 @@ fn the_ldmatrix_transport_reads_bf16() {
                 chunks,
                 transposed,
                 input: ElemType::Float(cubecl::ir::FloatKind::BF16),
-                leaf: Leaf::MmaLoadMatrix,
+                leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
         }

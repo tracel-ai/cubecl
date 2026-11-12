@@ -414,6 +414,23 @@ pub(crate) struct PlanePartition {
 }
 
 #[cube]
+impl PlaneTile {
+    /// The instruction this fragment or block contracts through.
+    #[allow(dead_code)] // Reached through its expand, from `Tile::sum_instruction`.
+    pub(crate) fn instruction(&self) -> comptime_type!(Instruction) {
+        match self {
+            PlaneTile::Cmma(_) => comptime!(Instruction::Cmma),
+            PlaneTile::Mma(d) => comptime!(Instruction::Mma {
+                io: d.io,
+                operands: d.operands,
+            }),
+            PlaneTile::Registers(r) => comptime!(Instruction::Registers { config: r.config }),
+            PlaneTile::Wgmma(_) => comptime!(Instruction::Wgmma),
+        }
+    }
+}
+
+#[cube]
 impl PlanePartition {
     /// The instruction this grid contracts through where it holds several fragments; `None` where
     /// it holds one.

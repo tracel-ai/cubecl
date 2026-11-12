@@ -40,12 +40,10 @@ fn contract<E: Numeric>(
     let a = x.tile(&space);
     let b = w.tile(&space);
     let c = out.tile(&space);
-    let acc = c.accumulator::<E>(
+    let acc = c.register_accumulator::<E>(
         &a,
         &b,
-        comptime!(Instruction::Registers {
-            config: RegisterBlock::new(budget)
-        }),
+        comptime!(RegisterBlock::new(budget)),
         Semiring::SUM_PROD,
     );
     for cube in space {

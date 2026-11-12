@@ -7,12 +7,12 @@ use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     ir::{ElemType, FloatKind},
     prelude::*,
-    quant::scheme::QuantValue,
 };
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
 use super::widths::*;
+use crate::ops::matmul::instruction::code_of;
 use crate::tile::kind::plane::load_matrix::LDMATRIX_ROW_BYTES;
 use crate::*;
 
@@ -172,17 +172,6 @@ fn refuse_unless_block_scaled<T: Numeric>(
             panic!("MmaOperands::BlockScaled: {refusal}");
         }
     });
-}
-
-/// The code a register element of a block-scaled instruction holds: `e2m1x2` two `e2m1`. `None`
-/// for one no stored field holds.
-fn code_of(kind: FloatKind) -> Option<QuantValue> {
-    match kind {
-        FloatKind::E2M1x2 | FloatKind::E2M1 => Some(QuantValue::E2M1),
-        FloatKind::E4M3 => Some(QuantValue::E4M3),
-        FloatKind::E5M2 => Some(QuantValue::E5M2),
-        _ => None,
-    }
 }
 
 /// Codes one register of the block-scaled instruction of `m × n × k` over `form` holds in role

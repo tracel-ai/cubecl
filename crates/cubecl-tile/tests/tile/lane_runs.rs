@@ -23,9 +23,8 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
-    Axis, Instruction, Level, Levels, MmaOperands, Partitioning, Projection, Semiring, Space,
-    StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
-    layout::PhysicalAxisMap, ops::matmul::MmaIo,
+    Axis, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages, TileSpec,
+    TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 use half::f16;
 
@@ -77,7 +76,8 @@ enum First {
     Weight,
 }
 
-/// `c = a · b`, a leaf of `WINDOW` along `k` at a time, through the manual-mma instruction, `b`
+/// `c = a · b`, a leaf of `WINDOW` along `k` at a time, through the manual-mma instruction the
+/// accumulator picks for an operand decoded as it loads, `b`
 /// dequantized at `decoded` into the fragments it meets. An operand under block scales carries
 /// them; a per-tensor scale above them leaves `b` for the sum (`Tile::factor`). Each operand read
 /// straight, or out of a stage in shared memory as `staged` says.
@@ -92,17 +92,16 @@ fn lane_run_matmul(
     #[comptime] decoded: ElemType,
     #[comptime] first: First,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::manual(),
-        operands: MmaOperands::Plain,
-    });
     let a = a.tile(&space);
     let mut c = c.tile(&space);
-    let (b, b_factor) = b.tile(&space).factor(c.space(), instruction);
+    let b = b.tile(&space);
+    // `b` decodes as its fragments load, so the accumulator picks the manual mma, which decodes in
+    // its registers.
     let acc = match first {
-        First::Activation => c.accumulator::<f32>(&a, &b, instruction, Semiring::SUM_PROD),
-        First::Weight => c.accumulator::<f32>(&b, &a, instruction, Semiring::SUM_PROD),
+        First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD),
+        First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SUM_PROD),
     };
+    let (b, b_factor) = b.factor(&acc);
     match staged {
         Staged::Nothing => {
             for region in space.over(&level) {

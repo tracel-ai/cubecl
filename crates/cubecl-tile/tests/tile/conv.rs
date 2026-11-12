@@ -8,7 +8,7 @@
 //! the leaf) is the same machinery matmul runs on.
 #![allow(non_snake_case)]
 
-use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
+use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{
     prelude::*,
     zspace::{Shape, shape},
@@ -19,8 +19,6 @@ use cubecl_tile::layout::Divisor;
 use cubecl_tile::layout::Offset;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::layout::Scale;
-use cubecl_tile::ops::matmul::LoadMethod;
-use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
@@ -1924,158 +1922,6 @@ fn conv2d_staged_mixed_steps() {
             width: None,
         },
     );
-}
-
-// ---- the manual-mma leaf ---------------------------------------------------
-
-/// The resident promote, zero, mma, drain kernel of the matmul tests, with a *gathered* lhs. The
-/// accumulator is sized by the whole contraction (taps times channels), both inputs stage into
-/// smem (the input into its compacted window); the fragment load merges tap and channel into `k`.
-#[cube(launch)]
-fn conv_mma_kernel<E: Numeric>(
-    input: &TileTensor<'_>,
-    weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
-    #[comptime] io: MmaIo,
-    space: Partitioning,
-    #[comptime] level: Level,
-    #[define(E)] _dtype: ElemType,
-) {
-    let input = input.tile(&space);
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    let acc = out.accumulator::<E>(
-        &input,
-        &weight,
-        comptime!(Instruction::Mma {
-            io,
-            operands: MmaOperands::Plain,
-        }),
-        Semiring::SUM_PROD,
-    );
-    // The walk selects fragments by coordinate, so it is unrolled.
-    let walk = space.over(&level).unrolled();
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, 1usize, None);
-    stages.pipelined(walk, |slot, region| {
-        let mut acc_region = acc.at(region);
-        slot.consume(|input, weight| {
-            acc_region.mma(input, weight);
-        });
-    });
-    acc.drained_into(&out);
-}
-
-#[test]
-fn conv1d_mma_leaf() {
-    conv1d_mma_leaf_with(MmaIo::manual());
-}
-
-#[test]
-fn conv1d_mma_leaf_gathered_lhs_ignores_ldmatrix() {
-    conv1d_mma_leaf_with(MmaIo {
-        lhs_load_method: LoadMethod::LoadMatrix,
-        ..MmaIo::manual()
-    });
-}
-
-fn conv1d_mma_leaf_with(io: MmaIo) {
-    let client = cubecl::test_device().client();
-    // The *shape*, not just the feature: a backend can advertise manual mma and offer only
-    // `16x16x16` (gfx1151 does), and running `8x8x8` there is an instruction the hardware does
-    // not have: it reads back zeros, which looks like a leaf bug and is a missing guard.
-    let f32_native = f32::elem_type_native();
-    let offers_8x8x8 = client.properties().features.matmul.mma.iter().any(|c| {
-        c.a_type == f32_native
-            && c.b_type == f32_native
-            && c.cd_type == f32_native
-            && (c.m, c.n, c.k) == (8, 8, 8)
-    });
-    if !offers_8x8x8 {
-        ValidationResult::Skipped("backend offers no 8x8x8 f32 manual mma".to_string()).enforce();
-        return;
-    }
-
-    // `k = rh * ci = 8`, an 8x8x8 instruction, as the matmul mma test uses.
-    let (oh, co, rh, ci) = (8usize, 8usize, 2usize, 4usize);
-    let (stride, dilation) = (1usize, 1usize);
-    let in_len = (oh - 1) * stride + (rh - 1) * dilation + 1;
-
-    let launcher = implied(
-        &client,
-        Partitioning::new(
-            Space::new(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)]),
-            Levels::leaf(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)])
-                .walk_every(&[OH, CO, RH, CI])
-                .build(),
-        ),
-        Form::Static,
-    );
-
-    let in_spec = TileSpec::new(Projection::new(
-        &[OH, RH, CI],
-        &[
-            PhysicalAxisMap::affine(&[(OH, stride), (RH, dilation)]),
-            PhysicalAxisMap::of(CI),
-        ],
-    ));
-
-    let f32_ty = f32::elem_type_native();
-    let in_data = ramp(in_len * ci, 7);
-    let w_data = ramp(rh * ci * co, 5);
-
-    let (in_handle, _) = TestInput::builder(client.clone(), shape![in_len, ci])
-        .dtype(f32_ty)
-        .custom(in_data.clone())
-        .generate_with_f32_host_data();
-    let (w_handle, _) = TestInput::builder(client.clone(), shape![rh, ci, co])
-        .dtype(f32_ty)
-        .custom(w_data.clone())
-        .generate_with_f32_host_data();
-    let out_handle = TestInput::builder(client.clone(), shape![oh, co])
-        .dtype(f32_ty)
-        .zeros()
-        .generate_without_host_data();
-
-    conv_mma_kernel::launch(
-        &client,
-        launcher.cube_count(),
-        launcher.cube_dim(),
-        TileTensorLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
-        TileTensorLaunch::new(
-            w_handle.binding().into_tensor_arg(),
-            f32_ty,
-            1,
-            TileSpec::direct(&[RH, CI, CO]),
-        ),
-        TileTensorLaunch::new(
-            out_handle.clone().binding().into_tensor_arg(),
-            f32_ty,
-            1,
-            TileSpec::direct(&[OH, CO]),
-        ),
-        io,
-        launcher.partitioning_arg(),
-        launcher.partitioning().level(0),
-        f32_ty,
-    );
-
-    let got = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
-    for o in 0..oh {
-        for c in 0..co {
-            let want: f32 = (0..rh)
-                .flat_map(|r| (0..ci).map(move |i| (r, i)))
-                .map(|(r, i)| {
-                    let h = o * stride + r * dilation;
-                    in_data[h * ci + i] * w_data[(r * ci + i) * co + c]
-                })
-                .sum();
-            assert_eq!(
-                got.get_f32(&[o, c]),
-                want,
-                "conv1d mma leaf: wrong at ({o}, {c})"
-            );
-        }
-    }
 }
 
 // ---- rational (fractional scale) -------------------------------------------

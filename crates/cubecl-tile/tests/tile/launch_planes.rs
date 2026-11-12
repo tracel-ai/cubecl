@@ -92,12 +92,10 @@ fn count_walks(walks: &mut Tensor<f32>, space: Partitioning) {
 fn plane_product(plane: &Region, a: &Tile, b: &Tile, c: &Tile) {
     for unit in plane {
         let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
-        let sum = c_unit.accumulator::<f32>(
+        let sum = c_unit.register_accumulator::<f32>(
             &a_unit,
             &b_unit,
-            comptime!(Instruction::Registers {
-                config: RegisterBlock::new(BLOCK[0] * BLOCK[1])
-            }),
+            comptime!(RegisterBlock::new(BLOCK[0] * BLOCK[1])),
             Semiring::SUM_PROD,
         );
         for step in &unit {

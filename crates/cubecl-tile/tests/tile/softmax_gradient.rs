@@ -16,9 +16,9 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Semiring, Space,
-    StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
-    ops::{matmul::MmaIo, softmax::OnlineSoftmax},
+    Axis, Levels, Partitioning, RegisterBlock, Semiring, Space, StageStorage, Stages, Tile,
+    TileSpec, TileTensor, TileTensorLaunch,
+    ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -79,9 +79,7 @@ fn by_queries(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(RegisterBlock::new(rows * block));
     for cube in space {
         for unit in cube {
             let mut delta_u = delta.at(&unit);
@@ -93,16 +91,20 @@ fn by_queries(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &query_s,
+                    &key_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&query_s, &key_s);
                 score
                     .along(S)
                     .probabilities::<f32>(scale, &bias_s, &logsumexp_u);
-                let mut gradient = bias_s.accumulator::<f32>(
+                let mut gradient = bias_s.register_accumulator::<f32>(
                     &out_gradient_s,
                     &value_s,
-                    instruction,
+                    config,
                     Semiring::SUM_PROD,
                 );
                 gradient.mma(&out_gradient_s, &value_s);
@@ -142,9 +144,7 @@ fn by_keys(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(RegisterBlock::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u, value_u) = (query.at(&unit), key.at(&unit), value.at(&unit));
@@ -155,16 +155,20 @@ fn by_keys(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&key_s, &query_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &key_s,
+                    &query_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&key_s, &query_s);
                 score
                     .along(Q)
                     .probabilities::<f32>(scale, &bias_s, &logsumexp_u.at(&step));
-                let mut gradient = bias_s.accumulator::<f32>(
+                let mut gradient = bias_s.register_accumulator::<f32>(
                     &value_s,
                     &out_gradient_s,
-                    instruction,
+                    config,
                     Semiring::SUM_PROD,
                 );
                 gradient.mma(&value_s, &out_gradient_s);
@@ -196,10 +200,6 @@ fn by_plane_fragments(
     space: Partitioning,
     #[comptime] keys_first: bool,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::default(),
-        operands: MmaOperands::Plain,
-    });
     // The plane owns `rows` and walks `cols`; the score is `rows · colsᵀ` over the head, its
     // gradient against the probabilities `rows' · cols'ᵀ` over the value.
     let (owned, walked) = comptime!(match keys_first {
@@ -242,17 +242,12 @@ fn by_plane_fragments(
                     .stage_for(&walk, StageStorage::Strided, None);
             rows_gradient_s.copy_from(&rows_gradient.at(&plane));
             sync_plane();
-            let scores = Tile::stage_accumulator::<f32>(
-                &walk,
-                comptime!(vec![owned, walked]),
-                &rows_s,
-                instruction,
-            );
+            let scores =
+                Tile::stage_accumulator::<f32>(&walk, comptime!(vec![owned, walked]), &rows_s);
             let gradients = Tile::stage_accumulator::<f32>(
                 &walk,
                 comptime!(vec![owned, walked]),
                 &rows_gradient_s,
-                instruction,
             );
             let (bias_p, logsumexp_p) = (bias.at(&plane), logsumexp.at(&plane));
             let (delta_p, score_gradient_p) = (delta.at(&plane), score_gradient.at(&plane));
@@ -317,9 +312,7 @@ fn logsumexp_of(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(RegisterBlock::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u, bias_u) = (query.at(&unit), key.at(&unit), bias.at(&unit));
@@ -327,8 +320,12 @@ fn logsumexp_of(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &query_s,
+                    &key_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&query_s, &key_s);
                 softmax.step(&score, &bias_s, scale);
             }

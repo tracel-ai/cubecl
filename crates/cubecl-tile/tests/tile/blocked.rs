@@ -801,12 +801,7 @@ fn promoted_matmul<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
@@ -917,12 +912,7 @@ fn wide_scaled_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region)));

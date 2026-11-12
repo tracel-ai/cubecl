@@ -21,7 +21,6 @@ use cubecl::{
     zspace::shape,
 };
 use cubecl_common::{e2m1, e4m3};
-use cubecl_tile::Instruction;
 use cubecl_tile::kind::Field;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::layout::split;
@@ -94,14 +93,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -113,8 +105,9 @@ fn scaled_matmul_promoted<E: Numeric>(
 }
 
 /// `c = (a ⊗ blocks ⊗ global) · b`, written as a kernel writes any sum: what `factor` takes out of
-/// the operand for a sum in `instruction`'s form multiplies the sum once, as it drains; what it
-/// leaves rides the load.
+/// the operand for the sum it opened multiplies the sum once, as it drains; what it leaves rides
+/// the load. The sum is a register block of `registers`, or the device's matrix instruction where
+/// `None`.
 #[cube(launch)]
 fn factored_matmul<E: Numeric>(
     a: &TileTensor<'_>,
@@ -124,7 +117,7 @@ fn factored_matmul<E: Numeric>(
     c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
-    #[comptime] instruction: Instruction,
+    #[comptime] registers: Option<RegisterBlock>,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a
@@ -133,8 +126,11 @@ fn factored_matmul<E: Numeric>(
         .mul(&global.tile(&space));
     let b = b.tile(&space);
     let mut c = c.tile(&space);
-    let (a, a_factor) = a.factor(c.space(), instruction);
-    let acc = c.accumulator::<E>(&a, &b, instruction, Semiring::SUM_PROD);
+    let acc = match registers {
+        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SUM_PROD),
+        None => c.accumulator::<E>(&a, &b, Semiring::SUM_PROD),
+    };
+    let (a, a_factor) = a.factor(&acc);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         acc_r.mma(&a.at(&region), &b.at(&region));
@@ -201,7 +197,7 @@ fn scaled_matmul_cmma<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -337,12 +333,7 @@ fn two_levels_multiply_in_order() {
 /// result is the same product.
 #[test]
 fn a_decoded_operands_global_scale_leaves_for_the_sum() {
-    check_factored(
-        Instruction::Registers {
-            config: REGISTER_BLOCK,
-        },
-        4,
-    );
+    check_factored(Some(REGISTER_BLOCK), 4);
 }
 
 /// [`factored_matmul`] in cmma fragments: a cmma sum is scaled only through shared memory, so the
@@ -353,12 +344,13 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
     if !require_cmma_8x8x8_f32(&client) {
         return;
     }
-    check_factored(Instruction::Cmma, 8);
+    check_factored(None, 8);
 }
 
-/// `c = (a ⊗ blocks ⊗ global) · b` over `size × size` summed in `instruction`'s form, written
-/// through `factor` and `scaled` as a kernel writes any sum, against the host product.
-fn check_factored(instruction: Instruction, size: usize) {
+/// `c = (a ⊗ blocks ⊗ global) · b` over `size × size`, summed in a register block of
+/// `registers` or the device's matrix instruction, written through `factor` and `scaled` as a
+/// kernel writes any sum, against the host product.
+fn check_factored(registers: Option<RegisterBlock>, size: usize) {
     let (rows, cols, block, blocks) = (size, size, 8, 2);
     let depth = block * blocks;
 
@@ -451,7 +443,7 @@ fn check_factored(instruction: Instruction, size: usize) {
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        instruction,
+        registers,
         dtype,
     );
 
@@ -1434,14 +1426,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -1890,7 +1875,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     let scale = scale.tile(&space);
     let c = c.tile(&space);
     let mut stage = b.stage(level.clone(), StageStorage::Strided);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     for region in space.over(&level) {
         stage.copy_from(&b.at(&region));
         sync_cube();
@@ -2038,7 +2023,7 @@ fn chunked_scaled_matmul<E: Numeric>(
     scale: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] instruction: Instruction,
+    #[comptime] registers: Option<RegisterBlock>,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
     #[define(E)] _dtype: ElemType,
@@ -2061,7 +2046,15 @@ fn chunked_scaled_matmul<E: Numeric>(
             let c_plane = c_cube.at(&plane);
             let mut lines =
                 scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
-            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, instruction, Semiring::SUM_PROD);
+            let sum = match registers {
+                Some(config) => c_plane.register_accumulator::<E>(
+                    &a_plane,
+                    &b_plane,
+                    config,
+                    Semiring::SUM_PROD,
+                ),
+                None => c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD),
+            };
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
                 for step in chunk {
@@ -2397,11 +2390,9 @@ fn check_chunked(arm: Arm, scales: TileScales, read: UnitRead) {
             .build(),
     };
     let chunks_level = levels[2].clone();
-    let instruction = match arm {
-        Arm::Registers => Instruction::Registers {
-            config: REGISTER_BLOCK,
-        },
-        Arm::Landing => Instruction::Cmma,
+    let registers = match arm {
+        Arm::Registers => Some(REGISTER_BLOCK),
+        Arm::Landing => None,
     };
     let launcher = implied(&client, Partitioning::new(w.space(), levels), Form::Static);
     let s_op = w.s_op(
@@ -2424,7 +2415,7 @@ fn check_chunked(arm: Arm, scales: TileScales, read: UnitRead) {
         s_op.arg(),
         w.c_op(&launcher, &c).arg(),
         launcher.partitioning_arg(),
-        instruction,
+        registers,
         chunks_level,
         read,
         dtype,
@@ -2497,8 +2488,7 @@ fn partitioned_scaled_matmul<E: Numeric>(
             let c_plane = c_cube.at(&plane);
             let mut lines =
                 scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
-            let sum =
-                c_plane.accumulator::<E>(&a_plane, &b_plane, Instruction::Cmma, Semiring::SUM_PROD);
+            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD);
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
                 for step in chunk {
@@ -2600,8 +2590,7 @@ fn stepped_scaled_matmul<E: Numeric>(
         for plane in cube {
             let (a_plane, b_plane) = (a_cube.at(&plane), b_cube.at(&plane));
             let (scale_plane, c_plane) = (scale_cube.at(&plane), c_cube.at(&plane));
-            let sum =
-                c_plane.accumulator::<E>(&a_plane, &b_plane, Instruction::Cmma, Semiring::SUM_PROD);
+            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD);
             for step in plane {
                 let mut sum_step = sum.at(&step);
                 sum_step.mma(
@@ -2807,7 +2796,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
     for cube in space {
         let (a_cube, b_cube) = (a.at(&cube), b.at(&cube));
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
-        let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Instruction::Cmma, Semiring::SUM_PROD);
+        let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Semiring::SUM_PROD);
         let run = cube.walk();
         let staged = match unpacked {
             Unpacked::ByEachPlane => b_cube.clone(),

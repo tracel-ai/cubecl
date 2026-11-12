@@ -92,12 +92,10 @@ fn quantized_decode_promoted<E: Numeric>(
     let x = x.tile(&space);
     let scale = scale.tile(&space);
     let out = out.tile(&space);
-    let acc = out.accumulator::<E>(
+    let acc = out.register_accumulator::<E>(
         &w,
         &x,
-        comptime!(Instruction::Registers {
-            config: RegisterBlock::new(budget)
-        }),
+        comptime!(RegisterBlock::new(budget)),
         Semiring::SUM_PROD,
     );
     for cube in space {

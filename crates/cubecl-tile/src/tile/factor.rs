@@ -166,6 +166,13 @@ impl FactorExpand {
         }
     }
 
+    /// Whether the values were marked as staged as they are stored, their scales, if any, kept
+    /// beside them ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)): a reader
+    /// decodes them as it loads.
+    pub(crate) fn is_kept_beside(&self) -> bool {
+        self.kept_beside
+    }
+
     /// This factor, its scales kept beside the values by a stage.
     pub(crate) fn kept_beside(self) -> Self {
         FactorExpand {

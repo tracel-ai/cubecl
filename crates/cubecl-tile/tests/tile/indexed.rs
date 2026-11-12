@@ -184,14 +184,8 @@ fn indexed_walking_matmul_kernel<E: Numeric>(
 
     for tile in space.over(&rows) {
         let (o, x_t, w_t) = (out.at(&tile), x.at(&tile), w.at(&tile));
-        let mut sum = o.accumulator::<E>(
-            &x_t,
-            &w_t,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let mut sum =
+            o.register_accumulator::<E>(&x_t, &w_t, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
         sum.zero();
         for k_step in tile.walk_within(&w_t) {
             sum.mma(&x_t.at(&k_step), &w_t.at(&k_step));

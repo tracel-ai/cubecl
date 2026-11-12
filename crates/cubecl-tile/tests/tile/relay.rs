@@ -214,14 +214,7 @@ fn relayed_split_matmul(
     let b = b.tile(&space);
     let mut out = out.tile(&space);
     let c = relay.tile();
-    let acc = c.accumulator::<f32>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<f32>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
     for cube in &space {
         for step in cube.walk() {
             let mut acc_step = acc.at(&step);

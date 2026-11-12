@@ -276,12 +276,7 @@ fn buffer_matmul<EA: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -320,12 +315,7 @@ fn sink_matmul<E: Numeric, EA: Numeric>(
         Write::Replace,
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -363,12 +353,7 @@ fn source_matmul<E: Numeric, EA: Numeric>(
     .tile::<E>(comptime!(space.levels().to_vec()));
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);

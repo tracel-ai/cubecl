@@ -41,12 +41,10 @@ fn column_one_row_product<E: Numeric>(
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
+        let acc = c.register_accumulator::<E>(
             &x,
             &values,
-            comptime!(Instruction::Registers {
-                config: RegisterBlock::new(64)
-            }),
+            comptime!(RegisterBlock::new(64)),
             Semiring::SUM_PROD,
         );
         for step in cube {

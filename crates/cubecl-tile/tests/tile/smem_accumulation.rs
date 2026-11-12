@@ -16,7 +16,6 @@ use cubecl::{
 };
 
 use super::{Form, implied};
-use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
 
@@ -46,12 +45,10 @@ fn smem_split_matmul<E: Numeric>(
             let a_plane = a.at(&plane);
             let b_plane = b.at(&plane);
             let sink_plane = sum.sink.at(&plane);
-            let mut partial = sink_plane.accumulator::<E>(
+            let mut partial = sink_plane.register_accumulator::<E>(
                 &a_plane,
                 &b_plane,
-                comptime!(Instruction::Registers {
-                    config: REGISTER_BLOCK
-                }),
+                comptime!(REGISTER_BLOCK),
                 Semiring::SUM_PROD,
             );
             partial.mma(&a_plane, &b_plane);
@@ -82,12 +79,10 @@ fn smem_cyclic_split_matmul<E: Numeric>(
         for plane in cube {
             let a_plane = a.at(&plane);
             let b_plane = b.at(&plane);
-            let mut partial = c_cube.at(&plane).accumulator::<E>(
+            let mut partial = c_cube.at(&plane).register_accumulator::<E>(
                 &a_plane,
                 &b_plane,
-                comptime!(Instruction::Registers {
-                    config: REGISTER_BLOCK
-                }),
+                comptime!(REGISTER_BLOCK),
                 Semiring::SUM_PROD,
             );
             partial.mma(&a_plane, &b_plane);
@@ -351,8 +346,7 @@ fn fragment_matmul_into_a_short_window<E: Numeric>(
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
         let mut c_cube = c.at(&cube);
-        let opened =
-            c_cube.accumulator::<E>(&a_cube, &b_cube, Instruction::Cmma, Semiring::SUM_PROD);
+        let opened = c_cube.accumulator::<E>(&a_cube, &b_cube, Semiring::SUM_PROD);
         // The drain opens the scratch the window needs; a copy is handed one.
         let mut acc = if copies {
             opened.with_scratch(Scratch::OneTile)
@@ -480,8 +474,9 @@ fn short_window_matmul(copies: bool) {
 // A decode's few rows under a manual-mma fragment of sixteen: each plane's fragment holds more rows
 // than the cube's accumulator, which is sized to the box, and only the box's rows may land.
 
-/// [`smem_split_matmul`] through manual-mma fragments: each plane contracts its slice of `K` in a
-/// fragment the box's rows do not fill, and adds it into the cube's accumulator.
+/// [`smem_split_matmul`] through manual-mma fragments, the instruction a `16×8` leaf of `f16` gets:
+/// each plane contracts its slice of `K` in a fragment the box's rows do not fill, and adds it
+/// into the cube's accumulator.
 ///
 /// `canary` is shared memory declared after the accumulator, every cell the bits of `-0.0`: adding
 /// anything into it as a float, even the fragment's zero rows, turns a cell `+0.0`. `touched`
@@ -512,15 +507,7 @@ fn smem_split_fragment_matmul<E: Numeric>(
             let a_plane = a.at(&plane);
             let b_plane = b.at(&plane);
             let sink_plane = sum.sink.at(&plane);
-            let mut partial = sink_plane.accumulator::<E>(
-                &a_plane,
-                &b_plane,
-                comptime!(Instruction::Mma {
-                    io: MmaIo::manual(),
-                    operands: MmaOperands::Plain,
-                }),
-                Semiring::SUM_PROD,
-            );
+            let mut partial = sink_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD);
             partial.zero();
             partial.mma(&a_plane, &b_plane);
             partial.drained_into(&sink_plane);
