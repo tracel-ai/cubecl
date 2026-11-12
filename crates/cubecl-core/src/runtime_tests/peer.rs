@@ -5,7 +5,11 @@ use crate::prelude::*;
 use alloc::{string::ToString, vec, vec::Vec};
 use cubecl_common::device::Device;
 use cubecl_environment::future::block_on;
-use cubecl_runtime::{client::Client, runtime::Runtime, server::Handle};
+use cubecl_runtime::{
+    client::Client,
+    runtime::Runtime,
+    server::{Handle, PeerAccess},
+};
 
 const LEN: usize = 64;
 
@@ -47,20 +51,25 @@ fn copy_from_peer(input: &Peer<[u32]>, out: &mut [u32]) {
     }
 }
 
-/// Two clients of the runtime whose kernels can bind each other's memory, or
-/// `None` when the machine has no such pair.
-fn peers<R: Runtime>() -> Option<(Client, Client)> {
+#[cube(launch)]
+fn increment_peer_counter(counter: &mut Peer<[Atomic<u32>]>) {
+    counter[0].fetch_add(1u32);
+}
+
+fn peers<R: Runtime>(required_access: PeerAccess) -> Option<(Client, Client)> {
     let devices = R::enumerate_devices(0);
     for (i, a) in devices.iter().enumerate() {
         for b in &devices[i + 1..] {
             let a = R::client(&R::Device::from_id(*a));
             let b = R::client(&R::Device::from_id(*b));
-            if a.can_access_peer(&b) && b.can_access_peer(&a) {
+            if a.peer_access(&b) >= required_access && b.peer_access(&a) >= required_access {
                 return Some((a, b));
             }
         }
     }
-    std::println!("skipping peer access: no two devices can access each other's memory");
+    std::println!(
+        "skipping peer access: no two devices have {required_access:?} access in both directions"
+    );
     None
 }
 
@@ -108,11 +117,41 @@ fn scale(client: &Client, input: Handle, output: Handle, len: usize) {
 
 pub fn test_a_device_is_not_its_own_peer<R: Runtime>() {
     let client = R::client(&Default::default());
-    assert!(!client.can_access_peer(&client));
+    assert_eq!(client.peer_access(&client), PeerAccess::None);
+}
+
+pub fn test_peer_atomics_preserve_increments_under_contention<R: Runtime>() {
+    let Some((local, remote)) = peers::<R>(PeerAccess::MemoryAndAtomics) else {
+        return;
+    };
+    const CUBES: u32 = 64;
+    const UNITS: u32 = 256;
+    for round in 0..3 {
+        let counter = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
+        block_on(remote.sync()).unwrap();
+
+        for client in [&local, &remote] {
+            increment_peer_counter::launch(
+                client,
+                CubeCount::Static(CUBES, 1, 1),
+                CubeDim::new_1d(UNITS),
+                peer_arg(&counter, 1),
+            );
+        }
+        block_on(local.sync()).unwrap();
+        block_on(remote.sync()).unwrap();
+
+        let actual = remote.read_one(counter).unwrap();
+        assert_eq!(
+            u32::from_bytes(&actual),
+            [2 * CUBES * UNITS],
+            "round {round}"
+        );
+    }
 }
 
 pub fn test_a_kernel_reads_a_peer_buffer<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
@@ -129,7 +168,7 @@ pub fn test_a_kernel_reads_a_peer_buffer<R: Runtime>() {
 }
 
 pub fn test_a_kernel_writes_a_peer_buffer<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let input = local.create_from_slice(f32::as_bytes(&values(LEN)));
@@ -149,7 +188,7 @@ pub fn test_a_kernel_writes_a_peer_buffer<R: Runtime>() {
 /// The owner's own kernels take a shared buffer through a `Peer` parameter
 /// too: on its device it is an ordinary buffer.
 pub fn test_a_peer_parameter_binds_memory_of_its_own_device<R: Runtime>() {
-    let Some((local, _remote)) = peers::<R>() else {
+    let Some((local, _remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let input = local.create_from_slice(f32::as_bytes(&values(LEN)));
@@ -164,7 +203,7 @@ pub fn test_a_peer_parameter_binds_memory_of_its_own_device<R: Runtime>() {
 }
 
 pub fn test_a_kernel_reads_a_slice_of_a_peer_buffer<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     const SKIP: usize = 16;
@@ -184,7 +223,7 @@ pub fn test_a_kernel_reads_a_slice_of_a_peer_buffer<R: Runtime>() {
 /// The kernel holds the peer's memory: the owner dropping every handle to it
 /// right after the launch leaves it allocated until the kernel completed.
 pub fn test_a_peer_buffer_outlives_its_handles_while_bound<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
@@ -206,7 +245,7 @@ pub fn test_a_peer_buffer_outlives_its_handles_while_bound<R: Runtime>() {
 }
 
 pub fn test_an_unshared_foreign_handle_is_refused<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
@@ -220,7 +259,7 @@ pub fn test_an_unshared_foreign_handle_is_refused<R: Runtime>() {
 /// Only a `Peer` parameter binds another device's memory: the kernel would
 /// otherwise make promises about it that another device breaks.
 pub fn test_a_shared_handle_in_a_plain_parameter_is_refused<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
@@ -342,7 +381,7 @@ fn launch_producer(client: &Client, data: &Handle, flag: &Handle, token: u32) {
 /// The producer writes into the consumer's memory and raises a flag there, while the consumer
 /// is already running and waiting on it: the two kernels hand data off with no host in between.
 pub fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel<R: Runtime>() {
-    let Some((producer, consumer)) = peers::<R>() else {
+    let Some((producer, consumer)) = peers::<R>(PeerAccess::MemoryAndAtomics) else {
         return;
     };
     for token in [7u32, 11, 13] {
@@ -363,7 +402,7 @@ pub fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel<R: Runtime>() {
 /// The producer writes its own memory and raises a flag in the consumer's, and the consumer
 /// reads the data from the producer's memory once it saw the flag.
 pub fn test_a_kernel_pulls_data_a_peer_kernel_published<R: Runtime>() {
-    let Some((producer, consumer)) = peers::<R>() else {
+    let Some((producer, consumer)) = peers::<R>(PeerAccess::MemoryAndAtomics) else {
         return;
     };
     for token in [7u32, 11, 13] {
@@ -420,7 +459,7 @@ fn fence_consume(
 /// One unit's release and acquire hand plain stores across devices through a flag, with no
 /// barrier on either side.
 pub fn test_a_unit_fence_hands_plain_stores_off_through_a_flag<R: Runtime>() {
-    let Some((producer, consumer)) = peers::<R>() else {
+    let Some((producer, consumer)) = peers::<R>(PeerAccess::MemoryAndAtomics) else {
         return;
     };
     for token in [7u32, 11, 13] {
@@ -494,7 +533,7 @@ fn launch_copy_from_peer(client: &Client, input: &Handle, out: Handle, len: usiz
 /// Shared memory carried over to a handle of other memory does not bind: the
 /// address would point a kernel at bytes the handle does not name.
 pub fn test_shared_memory_of_another_buffer_is_refused<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let shared = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
@@ -513,7 +552,7 @@ pub fn test_shared_memory_of_another_buffer_is_refused<R: Runtime>() {
 /// A peer kernel that never ran leaves the memory it was going to write on its
 /// owner carrying the failure, so a read there names the cause.
 pub fn test_a_failed_peer_kernel_taints_the_memory_it_was_writing<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let output = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
@@ -536,7 +575,7 @@ pub fn test_a_failed_peer_kernel_taints_the_memory_it_was_writing<R: Runtime>() 
 /// and its outputs carry the owner's failure. Writing the memory again on its
 /// owner lets the peer read it.
 pub fn test_a_peer_kernel_does_not_run_on_a_failed_owner_write<R: Runtime>() {
-    let Some((local, remote)) = peers::<R>() else {
+    let Some((local, remote)) = peers::<R>(PeerAccess::Memory) else {
         return;
     };
     let input = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
@@ -582,6 +621,13 @@ macro_rules! testgen_peer {
             #[$crate::runtime_tests::test_log::test]
             fn test_a_device_is_not_its_own_peer() {
                 cubecl_core::runtime_tests::peer::test_a_device_is_not_its_own_peer::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_peer_atomics_preserve_increments_under_contention() {
+                cubecl_core::runtime_tests::peer::test_peer_atomics_preserve_increments_under_contention::<
+                    TestRuntime,
+                >();
             }
 
             #[$crate::runtime_tests::test_log::test]

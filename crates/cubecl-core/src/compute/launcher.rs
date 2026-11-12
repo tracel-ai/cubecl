@@ -7,7 +7,7 @@ use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{
-    BufferBinding, CubeCount, KernelResource, PeerBinding, TensorMapBinding,
+    BufferBinding, CubeCount, KernelResource, PeerAccess, PeerBinding, TensorMapBinding,
 };
 use cubecl_runtime::{client::Client, kernel::CubeKernel, server::KernelArguments};
 
@@ -210,7 +210,12 @@ impl KernelLauncher {
     /// Push a buffer in memory shared with peers to the state. It is bound as a peer binding
     /// whichever device it lives on, which is what tells the client the kernel declared it
     /// shared; on its own device, the client binds it as an ordinary buffer.
-    pub fn register_peer(&mut self, buffer: PeerArg, elem_size: usize) {
+    pub fn register_peer(
+        &mut self,
+        buffer: PeerArg,
+        elem_size: usize,
+        required_access: PeerAccess,
+    ) {
         let binding = self
             .process_buffer(
                 BufferArg::Handle {
@@ -219,7 +224,7 @@ impl KernelLauncher {
                 elem_size,
             )
             .expect("a handle is no alias");
-        let peer = PeerBinding::new(binding)
+        let peer = PeerBinding::new(binding, required_access)
             .expect("a peer argument is built from a handle shared with its peers");
         self.push_resource(KernelResource::Peer(peer));
     }

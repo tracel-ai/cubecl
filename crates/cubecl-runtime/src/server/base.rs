@@ -109,6 +109,17 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// What kernels on one device can do with another device's memory, ordered by what it allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PeerAccess {
+    /// The peer's memory cannot be bound.
+    None,
+    /// Loads and stores without native atomics.
+    Memory,
+    /// Loads, stores and native atomics.
+    MemoryAndAtomics,
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
@@ -148,9 +159,8 @@ pub struct ServerUtilities {
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
     /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
     pub communication_skips: CommunicationSkips,
-    /// Whether kernels on this device can address the memory of another device of the runtime,
-    /// asked of the device once per pair.
-    pub peer_access: RwLock<HashMap<DeviceId, bool>>,
+    /// Access to each peer's memory, queried once per device pair.
+    pub peer_access: RwLock<HashMap<DeviceId, PeerAccess>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
@@ -1296,13 +1306,10 @@ pub trait ServerCommunication {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
 
-    /// Whether kernels on this device can bind memory of `peer`, another
-    /// device of the same runtime.
-    ///
-    /// The default answers `false`.
+    /// Access to memory of `peer` in this runtime, defaulting to [`PeerAccess::None`].
     #[allow(unused_variables)]
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
-        false
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
+        PeerAccess::None
     }
 
     /// The device address of the first byte of the allocation `binding`

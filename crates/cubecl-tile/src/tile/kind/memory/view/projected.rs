@@ -144,6 +144,25 @@ impl Tile {
             | TileKind::Lines(_) => comptime!(true),
         }
     }
+
+    /// Whether a read can be anchored once per run of `axis` and advanced by an add: an unpacked
+    /// memory operand with no clamp or backward coefficient, whose `axis` steps additively.
+    pub(crate) fn run_advanceable(&self, #[comptime] axis: Axis) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(data) => {
+                comptime!(
+                    matches!(data.store.packing, Packing::Plain)
+                        && !data.window.boundaries.contains(&Some(Boundary::Clamp))
+                        && data.projection.advances_forward_by_add(axis)
+                )
+            }
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
 }
 
 /// A procedural tile's whole box as an N-D view, evaluated at the coordinate.
