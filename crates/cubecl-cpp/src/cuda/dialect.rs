@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope},
+    dialect::synchronization::{FenceOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope},
     prelude::*,
 };
 
@@ -74,6 +74,18 @@ cuda_op!(SyncOp, |op, ctx| {
         // The same at the system's scope, which reaches the host and peer devices.
         SyncScope::System => "__threadfence_system();\n__syncthreads();\n__threadfence_system();\n",
         SyncScope::Unit => "",
+    }
+    .into()
+});
+
+// CUDA has only the sequentially consistent fence, stronger than any order asked for. A unit's
+// own accesses are ordered at the block's scope for the plane and the cube alike.
+cuda_op!(FenceOp, |op, ctx| {
+    match op.scope(ctx).0 {
+        SyncScope::Plane | SyncScope::Cube => "__threadfence_block();\n",
+        SyncScope::Device => "__threadfence();\n",
+        SyncScope::System => "__threadfence_system();\n",
+        SyncScope::Unit => unreachable!("a unit fence is dropped at expansion"),
     }
     .into()
 });

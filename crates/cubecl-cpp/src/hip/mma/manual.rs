@@ -69,7 +69,7 @@ fn row_index(
     match ident {
         MatrixIdent::A => lane_id % 16,
         MatrixIdent::B => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, k)
             } else {
                 // RDNA3 hands every lane the whole `k` range, duplicated across the lane halves.
@@ -77,7 +77,7 @@ fn row_index(
             }
         }
         MatrixIdent::Accumulator => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, m)
             } else {
                 // 2 * i, offset by 1 if lane_id >= 16
@@ -97,7 +97,7 @@ fn col_index(
 ) -> u32 {
     match ident {
         MatrixIdent::A => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, k)
             } else {
                 i

@@ -6,10 +6,11 @@ use crate::{
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
+        CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError,
+        ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1099,6 +1100,16 @@ impl Client {
         self.utilities.device_transport.is_some()
     }
 
+    /// Whether a [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard) holds the device, so
+    /// its collectives queue nothing.
+    pub fn skips_communication(&self) -> bool {
+        self.utilities.communication_skips.any()
+    }
+
+    pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
+        &self.utilities.communication_skips
+    }
+
     /// Panics on the caller when the runtime has no device transport.
     fn expect_device_transport(&self, operation: Collective) {
         // The server refuses too, but on the device thread, where the channel turns the panic into
@@ -1150,7 +1161,8 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it.
+    /// queueing them stops with it. It queues nothing while this device skips communication,
+    /// whatever its peers do, since reading theirs would load their clients on every call.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1171,6 +1183,9 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
+        if self.skips_communication() {
+            return;
+        }
         self.prepare_collective(collective, device_ids.clone());
         self.queue_all_reduce(
             src,
@@ -1283,6 +1298,9 @@ impl Client {
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
+    ///
+    /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
+    /// waits on the source, whose queue may hold a transfer waiting on the destination's.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
@@ -1307,28 +1325,26 @@ impl Client {
             src_descriptor.handle.size_in_used(),
         );
         let handle_cloned = handle.clone();
+        let (report, outcome) = SendOutcome::channel();
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
-            // A refused send has no local buffer to answer for, so the log is
-            // the whole local report. The peer's posted recv is left waiting
-            // on its communication stream — the recv cannot be recalled from
-            // here, and cross-device failure propagation needs a design pass
-            // of its own — so the wedge is named loudly rather than hidden
-            // behind a swallowed unwrap.
-            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
-                log::error!(
-                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
-                );
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
+            {
+                log::error!("send to {device_id_dst:?} failed: {err}");
             }
         });
+        // Flushed before the recv is queued: called from the destination's own thread, the recv
+        // runs at once and waits on this send.
+        self.device.flush_queue();
 
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src) {
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome)
+            {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );
@@ -1337,7 +1353,6 @@ impl Client {
 
         // On a pair's first transfer, the send and the recv each wait in the join for the other, so
         // neither may sit in a queue behind work that waits on this thread.
-        self.device.flush_queue();
         dst_server.device.flush_queue();
 
         handle
@@ -1391,14 +1406,15 @@ impl Client {
             }
         }
 
-        crate::launched::note(|| kernel.id());
-
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
         let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
         // So is where its kernels count: the device runs it later, and an
         // override closing in between must not change that.
         let issued = crate::execution::IssuedRecorder::new();
+        // And what it is issued for: a race's launch loads a kernel the work
+        // may never pick, and the server records only the work's.
+        let purpose = crate::execution::LaunchPurpose::issued();
 
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
@@ -1430,8 +1446,10 @@ impl Client {
                         None
                     };
 
-                    issued.apply(|| unsafe {
-                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                    purpose.apply(|| {
+                        issued.apply(|| unsafe {
+                            state.launch(kernel, count, bindings, stream_id, launch_mode)
+                        })
                     });
 
                     if let Some(info) = execution_info {
@@ -1465,8 +1483,16 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| {
-                                issued_profiled.apply(|| unsafe {
-                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                purpose.apply(|| {
+                                    issued_profiled.apply(|| unsafe {
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
+                                    })
                                 })
                             })
                             .unwrap_or_resume()
@@ -1491,14 +1517,16 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    issued.apply(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
+                                    purpose.apply(|| {
+                                        issued.apply(|| unsafe {
+                                            state.launch(
+                                                kernel,
+                                                count,
+                                                bindings,
+                                                stream_id,
+                                                launch_mode,
+                                            )
+                                        })
                                     });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);

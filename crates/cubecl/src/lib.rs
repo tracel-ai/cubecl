@@ -67,9 +67,7 @@ pub use cubecl_environment::records;
 /// kernels it compiles and the tunes it measures, its launches discarded.
 pub use cubecl_runtime::execution;
 
-/// The kernels a workload launches, collected while it replays: what an
-/// environment shipped for it has to keep.
-pub use cubecl_runtime::launched;
+pub use cubecl_server::prune;
 
 /// Watching what the runtime runs: the launch observer, and the profiling
 /// logger's levels.

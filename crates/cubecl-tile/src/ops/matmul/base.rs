@@ -161,7 +161,7 @@ impl Tile {
     fn contract(&mut self, lhs: &Tile, rhs: &Tile) {
         let mma = self.contracts_through_mma();
         let reversed = comptime!(mma && Side::of(&lhs.place.space, &self.place.space) == Side::Rhs);
-        if comptime!(reversed) {
+        if reversed {
             self.mma_in_order(rhs, lhs)
         } else {
             self.mma_in_order(lhs, rhs)
