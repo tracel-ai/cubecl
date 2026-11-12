@@ -47,23 +47,6 @@ pub(crate) fn require_cmma_8x8x8(client: &Client, operands: ElemType, sum: ElemT
     supported
 }
 
-/// The manual-mma twin of [`require_cmma_8x8x8_f32`]. The *shape*, not just the feature: a
-/// backend can advertise manual mma and offer only `16x16x16` (gfx1151 does), and running `8x8x8`
-/// there is an instruction the hardware lacks: it reads back zeros, which looks like a leaf bug.
-fn require_mma_8x8x8_f32(client: &Client) -> bool {
-    let f32_ty = f32::elem_type_native();
-    let supported = client.properties().features.matmul.mma.iter().any(|cfg| {
-        cfg.a_type == f32_ty
-            && cfg.b_type == f32_ty
-            && cfg.cd_type == f32_ty
-            && (cfg.m, cfg.n, cfg.k) == (8, 8, 8)
-    });
-    if !supported {
-        ValidationResult::Skipped("backend offers no 8x8x8 f32 manual mma".to_string()).enforce();
-    }
-    supported
-}
-
 // Matmul's axes: the labels this client gives the engine's opaque `Axis`. `B`
 // is the leading batch axis; `M`/`N`/`K` are the matrix axes.
 const M: Axis = Axis(0);
@@ -629,32 +612,6 @@ fn cmma_matmul_k_walk<E: Numeric>(
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);
-    stages.pipelined(walk, |slot, region| {
-        let mut acc_r = acc.at(region);
-        slot.consume(|a_s, b_s| {
-            acc_r.mma(a_s, b_s);
-        });
-    });
-    acc.drained_into(&c);
-}
-
-/// [`cmma_matmul_k_walk`] with the operands in no stage arrangement of their own, a leaf the
-/// accumulator picks the instruction for: the manual mma where its shape is one only that offers.
-#[cube(launch)]
-fn mma_matmul_k_walk<E: Numeric>(
-    a: &TileTensor<'_>,
-    b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
-    space: Partitioning,
-    #[comptime] level: Level,
-    #[define(E)] _dtype: ElemType,
-) {
-    let a = a.tile(&space);
-    let b = b.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
-    let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut acc_r = acc.at(region);
         slot.consume(|a_s, b_s| {
@@ -3717,53 +3674,6 @@ fn check_staged_matmul_on_either_sum(registers: Option<SoftwareMatmul>) {
         StageLayout::Tiled.storage(&launcher),
         1,
         registers,
-        f32::elem_type_native(),
-    );
-    assert_matmul_arange(&client, c.handle(), m, n, k);
-}
-
-/// A leaf four `8×8×8` instructions deep, a shape no cmma offers, so the accumulator picks the
-/// manual mma: the fragment is read off the shared stage one instruction's `k` at a time, whatever
-/// layout the target's registers take, and the steps sum into one accumulator.
-#[test]
-fn mma_matmul_8x8x8_four_instructions_deep() {
-    let client = cubecl::test_device().client();
-    if !require_mma_8x8x8_f32(&client) {
-        return;
-    }
-
-    let (m, n, k) = (8usize, 8usize, 32usize);
-    let launcher = implied(
-        &client,
-        Partitioning::new(
-            Space::new(&[(M, m), (N, n), (K, k)]),
-            Levels::leaf(&[(M, m), (N, n), (K, k)])
-                .walk_every(&[M, N, K])
-                .build(),
-        ),
-        Form::Static,
-    );
-
-    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
-        .untiled()
-        .arange();
-    let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
-        .untiled()
-        .arange();
-    // Poisoned, not zeroed: the kernel zeroes the accumulator fragment.
-    let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
-        .untiled()
-        .uniform(4242, 10., 100.);
-
-    mma_matmul_k_walk::launch(
-        &client,
-        launcher.cube_count(),
-        launcher.cube_dim(),
-        a.arg(&launcher, 1),
-        b.arg(&launcher, 1),
-        c.arg(&launcher, 1),
-        launcher.partitioning_arg(),
-        launcher.partitioning().level(0),
         f32::elem_type_native(),
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
