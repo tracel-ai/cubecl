@@ -359,10 +359,8 @@ pub trait CollectiveServer: Sized {
         let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
         drop(command);
-        let comm_stream = self.comm_stream();
-        marks.ended(comm_stream);
-        marks.reached(stream);
-        Self::Driver::wait_for(stream, comm_stream)
+        marks.reach(stream);
+        marks.ended(self.comm_stream(), stream, ComputeWait::Now)
     }
 
     /// Sends `desc` to `device_id_dst`, whose server receives it with [`recv`](Self::recv).
@@ -501,14 +499,9 @@ fn run<S: CollectiveServer, const N: usize>(
     let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
 
-    S::Driver::wait_for(comm_stream, stream)?;
-    marks.started(comm_stream);
+    marks.hand_over(comm_stream, stream)?;
     collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
-    marks.ended(comm_stream);
-    if let ComputeWait::Now = wait {
-        marks.reached(stream);
-        S::Driver::wait_for(stream, comm_stream)?;
-    }
+    marks.ended(comm_stream, stream, wait)?;
     // Dropping the command releases bindings borrowed from other streams at this point of
     // the compute stream, which only waits for the collective under `ComputeWait::Now`.
     drop(command);
@@ -555,16 +548,13 @@ fn post_send<S: CollectiveServer>(
     let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
 
-    S::Driver::wait_for(transfers, stream)?;
+    marks.hand_over(transfers, stream)?;
     let bytes = S::Driver::elements(BYTES, size)?;
-    marks.started(transfers);
     report.will_post();
     S::Driver::send(&comm, &resource, bytes, peer, transfers)?;
-    marks.ended(transfers);
-    marks.reached(stream);
     // This stream's pool may reuse the source from here, and dropping the command releases one
     // borrowed from another stream once this stream gets here: both wait for the send.
-    S::Driver::wait_for(stream, transfers)?;
+    marks.ended(transfers, stream, ComputeWait::Now)?;
     drop(command);
     Ok(())
 }
@@ -609,34 +599,33 @@ fn receive<S: CollectiveServer>(
     // Compute work queued before the reservation may still use its memory, and compute work
     // queued after it reads what arrives.
     let transfers = server.transfer_stream();
-    S::Driver::wait_for(transfers, stream)?;
+    marks.hand_over(transfers, stream)?;
     let bytes = S::Driver::elements(BYTES, size)?;
-    marks.started(transfers);
     S::Driver::recv(&comm, &resource, bytes, peer, transfers)?;
-    marks.ended(transfers);
-    marks.reached(stream);
-    S::Driver::wait_for(stream, transfers)
+    marks.ended(transfers, stream, ComputeWait::Now)
 }
 
 /// The marks that time one communication part on its own stream and a compute stream's wait on
 /// it, as a [`CommunicationTiming`] asks for them.
 ///
-/// Taken before the part is queued, so that recording them borrows nothing from the server.
-/// Timing never fails a communication: a mark the device will not record leaves the rest of it
-/// untimed, and its windows read back empty.
-struct CommunicationMarks<A: EventApi> {
+/// Timed, the events that order the two streams are these marks rather than fresh ones, so a
+/// part's compute stream carries no event it would not carry untimed: on HIP, one more timing
+/// event recorded there before its wait costs a decode step a quarter of its time. Taken before
+/// the part is queued, so that recording them borrows nothing from the server. Timing never fails
+/// a communication: a mark the device will not record leaves it ordered as an untimed one, and
+/// its windows read back empty.
+struct CommunicationMarks<S: CollectiveServer> {
     timing: CommunicationTiming,
-    start: Option<Mark<A>>,
-    end: Option<Mark<A>>,
-    reached: Option<Mark<A>>,
+    /// Where the compute stream reaches its wait. For a part, where it hands the part its inputs:
+    /// nothing is queued on it in between.
+    reached: Option<Mark<S::Events>>,
+    start: Option<Mark<S::Events>>,
+    end: Option<Mark<S::Events>>,
 }
 
-impl<A: EventApi> CommunicationMarks<A> {
+impl<S: CollectiveServer> CommunicationMarks<S> {
     /// The marks `timing` asks for, reaching for `server`'s profiler only when it asks for any.
-    fn new<S: CollectiveServer<Events = A>>(
-        server: &mut S,
-        timing: Option<CommunicationTiming>,
-    ) -> Self {
+    fn new(server: &mut S, timing: Option<CommunicationTiming>) -> Self {
         let Some(timing) = timing else {
             return Self::untimed();
         };
@@ -644,14 +633,14 @@ impl<A: EventApi> CommunicationMarks<A> {
     }
 
     fn taken(
-        profiler: &mut EventProfiler<A>,
+        profiler: &mut EventProfiler<S::Events>,
         timing: CommunicationTiming,
     ) -> Result<Self, DriverError> {
         let mut mark = |wanted: bool| wanted.then(|| profiler.mark()).transpose();
         Ok(Self {
+            reached: mark(true)?,
             start: mark(timing.times_part())?,
             end: mark(true)?,
-            reached: mark(timing.times_wait())?,
             timing,
         })
     }
@@ -659,16 +648,16 @@ impl<A: EventApi> CommunicationMarks<A> {
     fn untimed() -> Self {
         Self {
             timing: CommunicationTiming::default(),
+            reached: None,
             start: None,
             end: None,
-            reached: None,
         }
     }
 
     fn failed(error: DriverError) -> Self {
         log::warn!(
             "A communication runs untimed: {} refused a timing event ({error})",
-            A::BACKEND
+            <S::Events as EventApi>::BACKEND
         );
         Self::untimed()
     }
@@ -681,39 +670,90 @@ impl<A: EventApi> CommunicationMarks<A> {
         }
     }
 
-    /// The part starts at the current position of `stream`.
-    fn started(&mut self, stream: A::Stream) {
-        if let Some(start) = &self.start
-            && let Err(error) = start.record(stream)
+    /// Makes `part_stream` wait for the work queued on `compute` so far, then starts the part
+    /// there.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the two.
+    fn hand_over(
+        &mut self,
+        part_stream: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+    ) -> Result<(), ServerError> {
+        if let Some(reached) = &self.reached {
+            match reached
+                .record(compute)
+                .and_then(|()| reached.wait_async(part_stream))
+            {
+                Ok(()) => {
+                    self.started(part_stream);
+                    return Ok(());
+                }
+                Err(error) => *self = Self::failed(error),
+            }
+        }
+        S::Driver::wait_for(part_stream, compute)
+    }
+
+    /// The compute stream `compute` reaches its wait for the collectives queued so far.
+    fn reach(&mut self, compute: StreamSignal<S::Driver>) {
+        if let Some(reached) = &self.reached
+            && let Err(error) = reached.record(compute)
         {
             *self = Self::failed(error);
         }
     }
 
-    /// The part ends at the current position of `stream`, which sends its window.
-    fn ended(&mut self, stream: A::Stream) {
-        let Some(end) = &self.end else {
-            return;
-        };
-        if let Err(error) = end.record(stream) {
+    fn started(&mut self, part_stream: StreamSignal<S::Driver>) {
+        if let Some(start) = &self.start
+            && let Err(error) = start.record(part_stream)
+        {
             *self = Self::failed(error);
-            return;
-        }
-        if let Some(start) = &self.start {
-            self.timing.part_measured(EventProfiler::span(start, end));
         }
     }
 
-    /// The compute stream `stream` reaches its wait for the part, which sends the wait's window.
-    fn reached(&mut self, stream: A::Stream) {
-        let (Some(reached), Some(end)) = (&self.reached, &self.end) else {
+    /// The part ends at the current position of `part_stream`, and under `ComputeWait::Now`
+    /// `compute` waits for it there, which sends the windows.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the two.
+    fn ended(
+        &mut self,
+        part_stream: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        if let Some(end) = &self.end {
+            let ordered = end.record(part_stream).and_then(|()| match wait {
+                ComputeWait::Now => end.wait_async(compute),
+                ComputeWait::AtSync => Ok(()),
+            });
+            match ordered {
+                Ok(()) => {
+                    self.measured(wait);
+                    return Ok(());
+                }
+                Err(error) => *self = Self::failed(error),
+            }
+        }
+        match wait {
+            ComputeWait::Now => S::Driver::wait_for(compute, part_stream),
+            ComputeWait::AtSync => Ok(()),
+        }
+    }
+
+    fn measured(&mut self, wait: ComputeWait) {
+        let Some(end) = &self.end else {
             return;
         };
-        if let Err(error) = reached.record(stream) {
-            *self = Self::failed(error);
-            return;
+        if let Some(start) = &self.start {
+            self.timing.part_measured(EventProfiler::span(start, end));
         }
-        self.timing.wait_measured(EventProfiler::span(reached, end));
+        if let (ComputeWait::Now, Some(reached)) = (wait, &self.reached) {
+            self.timing.wait_measured(EventProfiler::span(reached, end));
+        }
     }
 }
 

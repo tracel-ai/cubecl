@@ -85,6 +85,15 @@ impl<A: EventApi> Mark<A> {
     pub fn record(&self, stream: A::Stream) -> Result<(), DriverError> {
         self.event.record(stream)
     }
+
+    /// Makes `stream` wait on the device until this mark is reached, without blocking the host.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the driver refuses the dependency.
+    pub fn wait_async(&self, stream: A::Stream) -> Result<(), DriverError> {
+        self.event.wait_async(stream)
+    }
 }
 
 impl<A: EventApi> Clone for Mark<A> {

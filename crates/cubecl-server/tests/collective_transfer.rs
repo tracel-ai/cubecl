@@ -678,7 +678,7 @@ fn a_timed_transfer_sends_the_window_of_each_half_and_of_its_wait() {
     };
     assert!(send > cubecl_common::profile::Duration::ZERO);
     assert!(recv > cubecl_common::profile::Duration::ZERO);
-    // Each compute stream reached its wait after its half ended on this one clock.
-    assert_eq!(send_wait, cubecl_common::profile::Duration::ZERO);
-    assert_eq!(recv_wait, cubecl_common::profile::Duration::ZERO);
+    // Each compute stream reaches its wait where it hands the half over, before the half starts.
+    assert!(send_wait > send);
+    assert!(recv_wait > recv);
 }

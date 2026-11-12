@@ -129,8 +129,9 @@ pub enum TimingRequest {
     /// host-staged transfer blocks the issuing thread, so it is measured on the
     /// host, as [`TimingMethod::System`].
     ///
-    /// A part costs its device three timing events. One inside a graph capture,
-    /// or refused before it ran, reads back empty.
+    /// A part costs its device one timing event more than an untimed one: the
+    /// events that order it against the compute stream are its marks. One
+    /// inside a graph capture, or refused before it ran, reads back empty.
     EveryExecution,
 }
 
