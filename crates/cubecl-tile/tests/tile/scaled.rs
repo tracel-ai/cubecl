@@ -29,7 +29,7 @@ use cubecl_tile::*;
 use half::f16;
 
 use super::matmul::{require_cmma_8x8x8, require_cmma_8x8x8_f32};
-use super::{Form, implied};
+use super::{Form, implied, uncut};
 use cubecl_tile::launch::Bound;
 
 /// Which factor a test kernel writes its scales on. The engine has no such enum: a kernel says
@@ -345,6 +345,92 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
         return;
     }
     check_factored(None, 8);
+}
+
+/// The one scale `a` is stored under, read off the factor a register sum of `a · b` takes out of
+/// it ([`Tile::factor`]), into `out[0]`, and `a`'s first value as it lies, without it, into
+/// `out[1]`.
+#[cube(launch)]
+fn per_tensor_factor(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
+    out: &mut Tensor<f32>,
+    space: Partitioning,
+) {
+    let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile(&space));
+    let sum = c.register_accumulator::<f32>(&a, &b, REGISTER_BLOCK, Semiring::SUM_PROD);
+    let (a, factor) = a.factor(&sum);
+    out[0] = factor.whole();
+    out[1] = a.flat::<f32, Const<1>>().read(0).extract(0usize);
+}
+
+/// A sum held in plain registers takes on an operand's per-tensor scale as one number: values
+/// stored under one scale over the whole tensor give it up to `factor`, whose `whole` reads it,
+/// and are read as they lie.
+#[test]
+fn a_per_tensor_factor_reads_as_its_one_scale() {
+    let (rows, depth, cols, scale) = (4, 4, 4, 0.37f32);
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let a: Vec<f32> = (0..rows * depth).map(|i| i as f32 + 1.5).collect();
+    let (a_t, _) = TestInput::builder(client.clone(), shape![rows, depth])
+        .dtype(dtype)
+        .custom(a.clone())
+        .generate_with_f32_host_data();
+    let b_t = TestInput::builder(client.clone(), shape![depth, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let c_t = TestInput::builder(client.clone(), shape![rows, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let (g_t, _) = TestInput::builder(client.clone(), shape![1])
+        .dtype(dtype)
+        .custom(vec![scale])
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![2])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols), (KI, depth)]);
+    per_tensor_factor::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_single(),
+        TileTensorLaunch::new(
+            a_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, KI]),
+        )
+        .scales(TileTensorLaunch::new(
+            g_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::new(Projection::new(&[M, KI], &[PhysicalAxisMap::broadcast()])),
+        )),
+        TileTensorLaunch::new(
+            b_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[KI, N]),
+        ),
+        TileTensorLaunch::new(
+            c_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, N]),
+        ),
+        out.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+    );
+
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    assert_eq!(got.get_f32(&[0]), scale, "the factor's one scale");
+    assert_eq!(got.get_f32(&[1]), a[0], "the values left without it");
 }
 
 /// `c = (a ⊗ blocks ⊗ global) · b` over `size × size`, summed in a register block of
