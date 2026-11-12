@@ -12,8 +12,9 @@ use cubecl_core::{
     prelude::*,
     server::{
         BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, PeerBinding, ProfileError, ProfilingToken, Reduction, SendOutcome, SendReport,
-        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        LaunchError, PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction, SendOutcome,
+        SendReport, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
+        TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -543,14 +544,11 @@ impl ServerCommunication for CudaServer {
         CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
     }
 
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
         use cudarc::driver::sys::CUdevice_P2PAttribute as Attribute;
         let (Ok(own), Ok(other)) = (cuda_device(self.device_id), cuda_device(peer)) else {
-            return false;
+            return PeerAccess::None;
         };
-        // Kernels on two devices hand data off through system-scope atomics
-        // on one's memory, so plain loads and stores are not enough: over a
-        // PCIe link without atomics, the producer's flag updates can be lost.
         let attribute = |attribute| {
             let mut value = 0;
             // SAFETY: `value` is a valid stack variable the driver writes through.
@@ -559,8 +557,13 @@ impl ServerCommunication for CudaServer {
             };
             status.result().is_ok() && value != 0
         };
-        attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_ACCESS_SUPPORTED)
-            && attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_NATIVE_ATOMIC_SUPPORTED)
+        if !attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_ACCESS_SUPPORTED) {
+            PeerAccess::None
+        } else if attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_NATIVE_ATOMIC_SUPPORTED) {
+            PeerAccess::MemoryAndAtomics
+        } else {
+            PeerAccess::Memory
+        }
     }
 
     fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {

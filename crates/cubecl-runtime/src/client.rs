@@ -11,8 +11,8 @@ use crate::{
     server::{
         BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
         CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource, MemoryLayout,
-        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError,
-        ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
+        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding, PeerMemory,
+        ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
         ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
@@ -327,24 +327,26 @@ impl Client {
             service.service == own.service,
             "a peer buffer of {service} was launched on {own}, of another runtime"
         );
+        let access = self.reaches_peer(service.device);
+        let required = peer.required_access();
         assert!(
-            self.reaches_peer(service.device),
-            "{own} cannot address the memory of {:?}: check `can_access_peer` before \
-             launching with a buffer of another device",
+            access >= required,
+            "{own} has {access:?} access to the memory of {:?}, short of the {required:?} \
+             its peer parameter needs: check `peer_access` before launching with a buffer \
+             of another device",
             service.device
         );
         KernelResource::Peer(peer)
     }
 
-    /// Whether kernels here can address the memory of `device`, cached per pair.
-    fn reaches_peer(&self, device: DeviceId) -> bool {
+    fn reaches_peer(&self, device: DeviceId) -> PeerAccess {
         if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
             return *reaches;
         }
         let reaches = self
             .device
-            .submit_blocking(move |server| server.can_access_peer(device))
-            .unwrap_or(false);
+            .submit_blocking(move |server| server.peer_access(device))
+            .unwrap_or(PeerAccess::None);
         self.utilities.peer_access.write().insert(device, reaches);
         reaches
     }
@@ -977,14 +979,14 @@ impl Client {
             });
     }
 
-    /// Whether kernels launched through this client can load, store and run
-    /// atomics on memory `peer` [shared](Self::share_with_peers).
-    pub fn can_access_peer(&self, peer: &Self) -> bool {
+    /// What kernels launched through this client can do with memory `peer`
+    /// [shared](Self::share_with_peers): none for itself or another runtime.
+    pub fn peer_access(&self, peer: &Self) -> PeerAccess {
         let peer_device = peer.device.device_id();
         if peer.service_id().service != self.service_id().service
             || peer_device == self.device.device_id()
         {
-            return false;
+            return PeerAccess::None;
         }
         self.reaches_peer(peer_device)
     }
