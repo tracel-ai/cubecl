@@ -23,7 +23,7 @@ pub(crate) struct ChunkSwizzle {
     lines_per_chunk: usize,
     /// Consecutive rows taking one key: the rows one bank period holds.
     rows_per_key: usize,
-    /// How many keys the rows cycle through, a power of two.
+    /// How many keys the rows cycle through, a power of two dividing the row's chunks.
     keys: usize,
     /// Chunks one block row holds.
     row_chunks: usize,
@@ -72,18 +72,15 @@ impl ChunkSwizzle {
         for (s, lines) in span_lines.iter_mut().enumerate().take(span) {
             *lines = extents[rank - span + s];
         }
-        if row_lines * line_bytes <= chunk_bytes {
+        if row_lines * line_bytes <= chunk_bytes || !row_lines.is_multiple_of(lines_per_chunk) {
             return None;
         }
-        assert!(
-            row_lines.is_multiple_of(lines_per_chunk)
-                && (row_lines / lines_per_chunk).is_power_of_two(),
-            "ChunkSwizzle: a row of {row_lines} {line_bytes}-byte lines is not a power of two of \
-             {chunk_bytes}-byte chunks, which an XOR permutes"
-        );
         let chunks = row_lines / lines_per_chunk;
         let period_chunks = Self::BANK_PERIOD_BYTES / chunk_bytes;
-        let keys = chunks.min(period_chunks);
+        // A key below the largest power of two dividing the row's chunks flips only the bits
+        // below it, so it moves a chunk within its aligned group and never past the row's end:
+        // a row of twelve chunks, as a head dim of 96 `f16` values is, cycles four keys.
+        let keys = (1 << chunks.trailing_zeros()).min(period_chunks);
         if keys < 2 {
             return None;
         }
@@ -195,18 +192,42 @@ mod tests {
         }
     }
 
+    /// Whatever its count of chunks, a power of two or not (twelve for a head dim of 96 `f16`
+    /// values, six for 48), a row is permuted within itself a chunk at a time.
     #[test]
     fn a_row_is_permuted_within_itself_a_chunk_at_a_time() {
-        let swizzle = ChunkSwizzle::new(&[16, 16], LineBytes(4), 2).unwrap();
-        for row in 0..16 {
-            let mut lines: Vec<usize> = (0..16).map(|line| swizzle.line_of(line, row)).collect();
-            for line in 0..16 {
-                assert_eq!(swizzle.line_of(line, row) % 4, line % 4);
-                assert_eq!(swizzle.line_of(swizzle.line_of(line, row), row), line);
+        for (row_lines, line_bytes, keys) in [(16, 4, 4), (96, 2, 4), (48, 2, 2), (12, 16, 4)] {
+            let swizzle = ChunkSwizzle::new(&[16, row_lines], LineBytes(line_bytes), 2).unwrap();
+            assert_eq!(
+                swizzle.keys, keys,
+                "{row_lines} lines of {line_bytes} bytes"
+            );
+            let lines_per_chunk = swizzle.lines_per_chunk;
+            for row in 0..16 {
+                let mut lines: Vec<usize> = (0..row_lines)
+                    .map(|line| swizzle.line_of(line, row))
+                    .collect();
+                for line in 0..row_lines {
+                    let moved = swizzle.line_of(line, row);
+                    assert_eq!(moved % lines_per_chunk, line % lines_per_chunk);
+                    assert_eq!(swizzle.line_of(moved, row), line);
+                }
+                lines.sort();
+                assert_eq!(
+                    lines,
+                    (0..row_lines).collect::<Vec<_>>(),
+                    "{row_lines} lines of {line_bytes} bytes, row {row}"
+                );
             }
-            lines.sort();
-            assert_eq!(lines, (0..16).collect::<Vec<_>>());
         }
+    }
+
+    /// A row of an odd count of chunks has no key to cycle, and one that ends mid-chunk no whole
+    /// chunks to move: both stay in order.
+    #[test]
+    fn a_row_no_xor_permutes_is_left_in_order() {
+        assert!(ChunkSwizzle::new(&[16, 24], LineBytes(2), 2).is_none());
+        assert!(ChunkSwizzle::new(&[16, 100], LineBytes(2), 2).is_none());
     }
 
     /// Where the TMA engine lands chunk `chunk` of row `row` under its swizzle of a
