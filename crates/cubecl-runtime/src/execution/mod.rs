@@ -36,11 +36,13 @@
 mod base;
 mod issued;
 mod process_mode;
+mod purpose;
 mod statistics;
 mod stream_mode;
 
 pub use base::LaunchMode;
 pub use process_mode::{ProcessMode, ProcessModeOverride};
+pub use purpose::LaunchPurpose;
 pub use statistics::{
     AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelHandling, KernelOutcome,
     KernelRegistration, Registration, SettledKernel, StatisticsCollector, StatisticsReader,

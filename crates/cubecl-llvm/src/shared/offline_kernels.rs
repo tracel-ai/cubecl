@@ -351,6 +351,71 @@ pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     )
 }
 
+/// Plain stores into a peer's `data`, a fence of `order` at `sync`, then a flag store: a hand-off
+/// with no barrier.
+#[cube(launch)]
+fn fence_send(
+    data: &mut Peer<[u32]>,
+    flag: &Peer<[Atomic<u32>]>,
+    #[comptime] order: MemoryOrder,
+    #[comptime] sync: SyncScope,
+) {
+    data[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
+    fence(comptime![order], comptime![sync]);
+    flag[ABSOLUTE_POS].store(1u32);
+}
+
+pub(crate) fn fence_send_kernel(order: MemoryOrder, sync: SyncScope) -> impl CubeKernel {
+    fence_kernel(|settings| {
+        fence_send::FenceSend::new(
+            settings,
+            device_properties(32),
+            Arc::new(TargetProperties::default()),
+            PeerCompilationArg,
+            PeerCompilationArg,
+            order,
+            sync,
+        )
+    })
+}
+
+/// Polls a peer's flag, then fences with `order` at `sync` and reads the data it guards.
+#[cube(launch)]
+fn fence_poll(
+    flag: &Peer<[Atomic<u32>]>,
+    data: &Peer<[u32]>,
+    out: &mut [u32],
+    #[comptime] order: MemoryOrder,
+    #[comptime] sync: SyncScope,
+) {
+    while flag[ABSOLUTE_POS].load() == 0u32 {}
+    fence(comptime![order], comptime![sync]);
+    out[ABSOLUTE_POS] = data[ABSOLUTE_POS];
+}
+
+pub(crate) fn fence_poll_kernel(order: MemoryOrder, sync: SyncScope) -> impl CubeKernel {
+    fence_kernel(|settings| {
+        fence_poll::FencePoll::new(
+            settings,
+            device_properties(32),
+            Arc::new(TargetProperties::default()),
+            PeerCompilationArg,
+            PeerCompilationArg,
+            BufferCompilationArg { inplace: None },
+            order,
+            sync,
+        )
+    })
+}
+
+fn fence_kernel<K: CubeKernel>(build: impl FnOnce(KernelSettings) -> K) -> K {
+    build(KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    ))
+}
+
 pub(crate) fn tally_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -942,6 +1007,35 @@ fn unit_async_copy(input: &[Vector<f32, Const<4>>], output: &mut [Vector<f32, Co
     landed.arrive_and_wait();
 
     output[unit] = stage[31 - unit];
+}
+
+/// A cube barrier ended and another initialized in its place, as a ring built in a loop does.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn barrier_ended_then_reused(output: &mut [u32]) {
+    let first = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    first.arrive_and_wait();
+    sync_cube();
+    if UNIT_POS == 0 {
+        first.invalidate();
+    }
+    let second = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    second.arrive_and_wait();
+    output[UNIT_POS as usize] = UNIT_POS;
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn barrier_ended_then_reused_kernel() -> impl CubeKernel {
+    barrier_ended_then_reused::BarrierEndedThenReused::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
 }
 
 #[cfg(feature = "nvptx")]

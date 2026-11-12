@@ -307,10 +307,11 @@ impl Tile {
         }
     }
 
-    /// Whether this tile's mapping has overlapping windows, so only an N-D view describes it.
+    /// Whether this tile's mapping is no partition from 0, its windows overlapping or moved, so
+    /// only an N-D view describes it.
     pub fn gathered(&self) -> comptime_type!(bool) {
         let projection = self.projection();
-        comptime!(projection.composition() == Composition::Overlapping)
+        comptime!(projection.composition() != Composition::Disjoint)
     }
 
     /// Whether this tile evaluates values from coordinates instead of a backing buffer.
@@ -701,7 +702,7 @@ impl Tile {
 
     /// Seed this tile with `monoid`'s identity.
     pub(crate) fn init_identity<S: Numeric>(&mut self, #[comptime] monoid: Monoid) {
-        match comptime!(monoid) {
+        match monoid {
             Monoid::Sum => self.zero(),
             Monoid::Prod | Monoid::Max | Monoid::Min => {
                 self.init::<S>(Monoid::identity::<S>(monoid))

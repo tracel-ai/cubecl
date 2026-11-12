@@ -14,7 +14,7 @@ impl Memory {
         src: &Memory,
         #[comptime] scan: Scan,
     ) {
-        match comptime!(scan) {
+        match scan {
             Scan::Element => self.scan_unpacked::<T, W, W>(src),
             Scan::Words => {
                 let size!(WP) = comptime!(src.store.packing.physical(src.store.vector_size));

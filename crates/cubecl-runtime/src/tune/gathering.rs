@@ -1,8 +1,9 @@
 //! Whether this thread runs a key's candidates to gather their kernels: a key
 //! reached there is gathered by another key's candidates.
 
-/// Held while a key's candidates run under a `CompileOnly` override, so a
-/// key their launches reach knows it was reached inside them.
+/// Held while a key's candidates run with their launches discarded, under a
+/// `CompileOnly` override or to compile a batch together, so a key their
+/// launches reach knows it was reached inside them.
 pub(crate) struct CandidateGathering {
     _private: (),
 }

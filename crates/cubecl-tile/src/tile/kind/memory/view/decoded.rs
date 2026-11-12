@@ -93,7 +93,7 @@ fn read_plain_line<O: Float, W: Size>(
     let space = comptime!(window.place.space.clone());
     let lines = space.extent_at(space.rank() - 1) / W::value();
     let values = window.flat::<O, W>();
-    match comptime!(guard) {
+    match guard {
         Guard::Checked => values.read(row * lines + line),
         Guard::Proved => values.read_unchecked(row * lines + line),
     }

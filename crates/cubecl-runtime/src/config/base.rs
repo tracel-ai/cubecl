@@ -3,7 +3,7 @@ use crate::config::streaming::StreamingConfig;
 
 use super::{
     autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig,
-    throughput::ThroughputConfig,
+    throughput::ThroughputConfig, transport::TransportConfig,
 };
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -44,6 +44,10 @@ pub struct CubeClRuntimeConfig {
     /// Which named environment to warm into.
     #[serde(default)]
     pub environment: super::environment::EnvironmentConfig,
+
+    /// Configuration for the transport between devices.
+    #[serde(default)]
+    pub transport: TransportConfig,
 }
 
 impl RuntimeConfig for CubeClRuntimeConfig {
@@ -224,6 +228,10 @@ impl RuntimeConfig for CubeClRuntimeConfig {
 
         if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_BENCH_ADAPTIVE") {
             self.autotune.bench.adaptive = enabled;
+        }
+
+        if let Some(mode) = env_variant("CUBECL_DEVICE_TRANSPORT") {
+            self.transport.device = mode;
         }
 
         self

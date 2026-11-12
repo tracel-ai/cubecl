@@ -38,7 +38,7 @@ pub(crate) fn resolve_nd_coords(
     for p in 0..operand_rank {
         let axis = operand.axis_at(p);
         let in_acc = acc.contains(axis);
-        let raw_coord = if comptime!(in_acc) {
+        let raw_coord = if in_acc {
             let pos = acc.position(axis);
             acc_coords.at(comptime!(pos))
         } else {
@@ -50,7 +50,7 @@ pub(crate) fn resolve_nd_coords(
         let divides = comptime!(
             p == operand_rank - 1 && width > 1 && (acc_counts == AccCoords::Cells || !in_acc)
         );
-        let coord = if comptime!(divides) {
+        let coord = if divides {
             raw_coord.divided_by(comptime!(width as u32))
         } else {
             raw_coord

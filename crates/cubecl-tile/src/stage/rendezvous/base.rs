@@ -130,7 +130,7 @@ impl Meeting {
                 let full =
                     Barrier::shared(Meeting::producers(collective_full, fillers), UNIT_POS == 0);
                 let empty = Barrier::shared(Meeting::consumers(fillers), UNIT_POS == 0);
-                if comptime!(fences) {
+                if fences {
                     sync_async_proxy_shared();
                 }
                 sync_cube();
@@ -146,7 +146,7 @@ impl Meeting {
     pub(crate) fn producers(#[comptime] collective_full: bool, #[comptime] fillers: usize) -> u32 {
         if fillers > 0 {
             comptime!(fillers as u32) * CUBE_DIM_X
-        } else if comptime!(collective_full) {
+        } else if collective_full {
             CUBE_DIM
         } else {
             1u32.runtime()
@@ -224,6 +224,23 @@ impl Meeting {
             Meeting::Barrier { empty, reads, .. } => {
                 empty.arrive();
                 *reads ^= 1;
+            }
+            Meeting::Cube | Meeting::Plane => {}
+        }
+    }
+
+    /// End the rendezvous once its walk is over: a barrier pair is invalidated, so a ring built in
+    /// the same shared memory afterwards, as a ring built in a loop is, initializes new barriers
+    /// rather than reinitializing ones whose phases have moved, whose waits may then never
+    /// complete. Every unit of the cube meets first, so none still waits on them.
+    pub(crate) fn end(&self) {
+        match self {
+            Meeting::Barrier { full, empty, .. } => {
+                sync_cube();
+                if UNIT_POS == 0 {
+                    full.invalidate();
+                    empty.invalidate();
+                }
             }
             Meeting::Cube | Meeting::Plane => {}
         }

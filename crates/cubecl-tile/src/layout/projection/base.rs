@@ -318,15 +318,22 @@ impl Projection {
         1 + field.div_ceil(map.divisor().bound())
     }
 
-    /// `Disjoint` if every physical axis is partitioned by its axes, else `Overlapping`.
+    /// `Disjoint` if every physical axis is partitioned by its axes, `Translated` if every one
+    /// is, some moved by an offset, else `Overlapping`.
     pub(crate) fn composition(&self) -> Composition {
+        let one_cell_a_position = |m: &PhysicalAxisMap| {
+            m.composition() != Composition::Overlapping && m.divisor().is_unit()
+        };
+        if !self.physical.iter().all(one_cell_a_position) {
+            return Composition::Overlapping;
+        }
         match self
             .physical
             .iter()
-            .all(|m| m.composition() == Composition::Disjoint && m.divisor().is_unit())
+            .any(|m| m.composition() == Composition::Translated)
         {
-            true => Composition::Disjoint,
-            false => Composition::Overlapping,
+            true => Composition::Translated,
+            false => Composition::Disjoint,
         }
     }
 
@@ -377,7 +384,7 @@ impl Projection {
             let last = &self.physical[self.physical.len() - 1];
             let steps_by_lines = match last.composition() {
                 Composition::Disjoint => last.terms().last().map(|t| t.axis) == Some(innermost),
-                Composition::Overlapping => last.is_identity(innermost),
+                Composition::Overlapping | Composition::Translated => last.is_identity(innermost),
             };
             if !steps_by_lines {
                 return Err(Refusal::GatherInnermostNotInLines);
