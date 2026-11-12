@@ -1156,7 +1156,10 @@ impl Client {
             // Logged rather than unwrapped: a panic on the server thread is
             // reduced to a log line by the channel's catch_unwind anyway, so
             // report deliberately instead of through a swallowed unwind.
-            if let Err(err) = server.sync_collective(stream_id, timing) {
+            if let Some(timing) = timing {
+                server.time_next_communication(timing);
+            }
+            if let Err(err) = server.sync_collective(stream_id) {
                 log::error!("sync_collective failed: {err}");
             }
         });
@@ -1200,9 +1203,13 @@ impl Client {
         }
         self.prepare_collective(collective, device_ids.clone());
         let _collective = self.collective_scope(collective, &device_ids, size, self.native_path());
-        let wait = ComputeWait::AtSync;
-        let timing = self.issue_part(StreamRole::Collective, wait);
-        self.queue_all_reduce(src, dst, Reduction { dtype, op }, device_ids, wait, timing);
+        self.queue_all_reduce(
+            src,
+            dst,
+            Reduction { dtype, op },
+            device_ids,
+            ComputeWait::AtSync,
+        );
     }
 
     /// Issues `collective` over `members`, `bytes` each, as the parent of what this thread issues
@@ -1297,29 +1304,24 @@ impl Client {
         reduction: Reduction,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
-        timing: Option<CommunicationTiming>,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::AllReduce, move |server, stream_id| {
-            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait, timing)
+        self.queue_collective(Collective::AllReduce, wait, move |server, stream_id| {
+            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait)
         });
     }
 
-    fn queue_all_gather(
-        &self,
-        src: Handle,
-        dst: Handle,
-        device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
-    ) {
+    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::AllGather, move |server, stream_id| {
-            server.all_gather(src, dst, stream_id, device_ids, timing)
-        });
+        self.queue_collective(
+            Collective::AllGather,
+            ComputeWait::Now,
+            move |server, stream_id| server.all_gather(src, dst, stream_id, device_ids),
+        );
     }
 
     fn queue_reduce_scatter(
@@ -1328,14 +1330,17 @@ impl Client {
         dst: Handle,
         reduction: Reduction,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::ReduceScatter, move |server, stream_id| {
-            server.reduce_scatter(src, dst, reduction, stream_id, device_ids, timing)
-        });
+        self.queue_collective(
+            Collective::ReduceScatter,
+            ComputeWait::Now,
+            move |server, stream_id| {
+                server.reduce_scatter(src, dst, reduction, stream_id, device_ids)
+            },
+        );
     }
 
     fn queue_broadcast(
@@ -1344,40 +1349,43 @@ impl Client {
         dst: Handle,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) {
         let (src, dst) = (src.map(Handle::binding), dst.binding());
         src.iter()
             .chain([&dst])
             .for_each(|binding| self.expect_local(binding));
-        self.queue_collective(Collective::Broadcast, move |server, stream_id| {
-            server.broadcast(src, dst, stream_id, root, device_ids, timing)
-        });
+        self.queue_collective(
+            Collective::Broadcast,
+            ComputeWait::Now,
+            move |server, stream_id| server.broadcast(src, dst, stream_id, root, device_ids),
+        );
     }
 
-    fn queue_all_to_all(
-        &self,
-        src: Handle,
-        dst: Handle,
-        device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
-    ) {
+    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::AllToAll, move |server, stream_id| {
-            server.all_to_all(src, dst, stream_id, device_ids, timing)
-        });
+        self.queue_collective(
+            Collective::AllToAll,
+            ComputeWait::Now,
+            move |server, stream_id| server.all_to_all(src, dst, stream_id, device_ids),
+        );
     }
 
-    /// Queues this device's part of `collective`.
+    /// Issues and queues this device's part of `collective`, which its compute stream waits for
+    /// as `wait` says.
     fn queue_collective(
         &self,
         collective: Collective,
+        wait: ComputeWait,
         part: impl FnOnce(&mut dyn Server, StreamId) -> Result<(), ServerError> + Send + 'static,
     ) {
         let stream_id = self.stream_id();
+        let timing = self.issue_part(StreamRole::Collective, wait);
         self.device.submit(move |server| {
+            if let Some(timing) = timing {
+                server.time_next_communication(timing);
+            }
             // The tainted destination is the report; an unwrap would only become a warning here.
             if let Err(err) = part(server, stream_id) {
                 log::error!(
@@ -1431,8 +1439,10 @@ impl Client {
 
         let timing = self.issue_part(StreamRole::Transfer, ComputeWait::Now);
         self.device.submit(move |server_src| {
-            if let Err(err) =
-                server_src.send(src_descriptor, stream_id_src, device_id_dst, report, timing)
+            if let Some(timing) = timing {
+                server_src.time_next_communication(timing);
+            }
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
             {
                 log::error!("send to {device_id_dst:?} failed: {err}");
             }
@@ -1445,8 +1455,10 @@ impl Client {
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) =
-                server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome, timing)
+            if let Some(timing) = timing {
+                server_dst.time_next_communication(timing);
+            }
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome)
             {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"

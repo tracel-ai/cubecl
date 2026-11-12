@@ -1109,17 +1109,12 @@ pub struct Reduction {
 /// The default methods are for a runtime with no transport between its devices:
 /// each returns [`ServerError::NoDeviceTransport`] before touching any buffer, so
 /// there is no destination to taint.
-///
-/// Each method that queues work on the device takes a [`CommunicationTiming`], given only while
-/// the observer times every execution: the windows it asks for are recorded around the work, so
-/// nothing can be reordered between the two.
 pub trait ServerCommunication {
     /// Ensure that all queued collective operations have been executed.
     ///
     /// # Arguments
     ///
     /// * `stream_id` - The [`StreamId`] of the stream waiting for the sync.
-    /// * `timing` - Where to send the window of the stream's wait, when it is timed.
     ///
     /// # Returns
     ///
@@ -1129,13 +1124,19 @@ pub trait ServerCommunication {
     ///
     /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
-    fn sync_collective(
-        &mut self,
-        stream_id: StreamId,
-        timing: Option<CommunicationTiming>,
-    ) -> Result<(), ServerError> {
+    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::SyncCollective))
     }
+
+    /// Times the next collective part, [`send`](Self::send), [`recv`](Self::recv) or
+    /// [`sync_collective`](Self::sync_collective) called on this server, which the caller calls
+    /// right after this in the same submitted task.
+    ///
+    /// Whichever comes next takes `timing`, timed or refused, so a timing it cannot use is
+    /// dropped rather than attached to a later one. The default drops it: a runtime with no
+    /// transport between its devices has nothing to time.
+    #[allow(unused_variables)]
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {}
 
     /// Initialize the communication between the devices in `device_ids`.
     ///
@@ -1166,7 +1167,6 @@ pub trait ServerCommunication {
     /// * `stream_id` - The data's stream id.
     /// * `device_ids` - The list of device ids from which to `all_reduce`.
     /// * `wait` - When the compute stream waits for it.
-    /// * `timing` - Where to send the windows of this part and of the wait, when they are timed.
     ///
     /// # Returns
     ///
@@ -1175,8 +1175,7 @@ pub trait ServerCommunication {
     /// # Errors
     ///
     /// The default returns [`ServerError::NoDeviceTransport`].
-    // One argument per thing the part is told; a struct over them would name nothing.
-    #[allow(unused_variables, clippy::too_many_arguments)]
+    #[allow(unused_variables)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -1185,7 +1184,6 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllReduce))
     }
@@ -1203,7 +1201,6 @@ pub trait ServerCommunication {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllGather))
     }
@@ -1222,7 +1219,6 @@ pub trait ServerCommunication {
         reduction: Reduction,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::ReduceScatter))
     }
@@ -1240,7 +1236,6 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Broadcast))
     }
@@ -1258,7 +1253,6 @@ pub trait ServerCommunication {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllToAll))
     }
@@ -1271,8 +1265,6 @@ pub trait ServerCommunication {
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
     /// * `report` - Tells the peer's [`recv`](Self::recv) whether to post.
-    /// * `timing` - Where to send the windows of the send and of the compute stream's wait for
-    ///   it, when they are timed.
     ///
     /// # Returns
     ///
@@ -1292,7 +1284,6 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_dst: DeviceId,
         report: SendReport,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1305,8 +1296,6 @@ pub trait ServerCommunication {
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
     /// * `outcome` - The result of the paired [`send`](Self::send), waited for before anything is posted.
-    /// * `timing` - Where to send the windows of the receive and of the compute stream's wait for
-    ///   it, when they are timed.
     ///
     /// # Returns
     ///
@@ -1323,7 +1312,6 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_src: DeviceId,
         outcome: SendOutcome,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }

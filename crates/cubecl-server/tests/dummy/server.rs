@@ -82,6 +82,7 @@ pub struct DummyServer<M = ()> {
     /// and a read, check or sync of one of them reports it. Nothing is queued
     /// and no call "drains" anything.
     failures: ErrorGraph,
+    next_timing: Option<CommunicationTiming>,
 }
 
 /// What a [`DummyServer`]'s marker has to be: a distinct type, and the transport its runtime
@@ -226,12 +227,12 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         Ok(())
     }
 
-    fn sync_collective(
-        &mut self,
-        _stream_id: StreamId,
-        timing: Option<CommunicationTiming>,
-    ) -> Result<(), ServerError> {
-        measured_empty(timing);
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        self.next_timing = Some(timing);
+    }
+
+    fn sync_collective(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        measured_empty(self.next_timing.take());
         Ok(())
     }
 
@@ -243,9 +244,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
         _wait: ComputeWait,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part(timing)
+        self.count_collective_part()
     }
 
     fn all_gather(
@@ -254,9 +254,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _dst: BufferBinding,
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part(timing)
+        self.count_collective_part()
     }
 
     fn reduce_scatter(
@@ -266,9 +265,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _reduction: Reduction,
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part(timing)
+        self.count_collective_part()
     }
 
     fn broadcast(
@@ -278,9 +276,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _stream_id: StreamId,
         _root: DeviceId,
         _device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part(timing)
+        self.count_collective_part()
     }
 
     fn all_to_all(
@@ -289,9 +286,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _dst: BufferBinding,
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part(timing)
+        self.count_collective_part()
     }
 
     fn send(
@@ -300,8 +296,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _stream_id: StreamId,
         _device_id_dst: DeviceId,
         report: SendReport,
-        _timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        self.next_timing = None;
         let refusal = ServerError::Generic {
             reason: "the dummy source was never written".into(),
             backtrace: BackTrace::capture(),
@@ -316,8 +312,8 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         stream_id: StreamId,
         _device_id_src: DeviceId,
         outcome: SendOutcome,
-        _timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        self.next_timing = None;
         let zeros = vec![0u8; handle.size() as usize];
         self.bind_with_data(&zeros, handle.clone(), stream_id);
         if let Err(error) = outcome.wait() {
@@ -625,6 +621,7 @@ impl<M: Marker> DummyServer<M> {
             utilities,
             timestamps: TimestampProfiler::default(),
             failures: ErrorGraph::default(),
+            next_timing: None,
         }
     }
 
@@ -668,10 +665,8 @@ impl<M: Marker> DummyServer<M> {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn count_collective_part(
-        &self,
-        timing: Option<CommunicationTiming>,
-    ) -> Result<(), ServerError> {
+    fn count_collective_part(&mut self) -> Result<(), ServerError> {
+        let timing = self.next_timing.take();
         COLLECTIVE_PARTS
             .lock()
             .unwrap()

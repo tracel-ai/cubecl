@@ -552,8 +552,8 @@ fn a_refused_send_posts_nothing_and_fails_the_read_of_its_recv() {
     let received = destination.unallocated();
     let (report, outcome) = SendOutcome::channel();
 
-    let sent = source.send(descriptor(refused), STREAM, dst, report, None);
-    let recv = destination.recv(received.clone(), STREAM, src, outcome, None);
+    let sent = source.send(descriptor(refused), STREAM, dst, report);
+    let recv = destination.recv(received.clone(), STREAM, src, outcome);
 
     assert!(sent.is_err());
     assert!(recv.is_err());
@@ -574,10 +574,10 @@ fn a_send_that_cannot_set_up_tells_its_recv_why() {
     let (report, outcome) = SendOutcome::channel();
 
     source
-        .send(descriptor(written), STREAM, dst, report, None)
+        .send(descriptor(written), STREAM, dst, report)
         .unwrap_err();
     destination
-        .recv(received.clone(), STREAM, src, outcome, None)
+        .recv(received.clone(), STREAM, src, outcome)
         .unwrap_err();
 
     assert_eq!(Wire::between(src, dst).posted(), Posted::default());
@@ -595,15 +595,13 @@ fn a_recv_is_posted_while_its_send_connects() {
             let mut source = FakeServer::new(src);
             let written = source.allocated();
             source
-                .send(descriptor(written), STREAM, dst, report, None)
+                .send(descriptor(written), STREAM, dst, report)
                 .unwrap();
         });
         scope.spawn(move || {
             let mut destination = FakeServer::new(dst);
             let received = destination.unallocated();
-            destination
-                .recv(received, STREAM, src, outcome, None)
-                .unwrap();
+            destination.recv(received, STREAM, src, outcome).unwrap();
         });
     });
 
@@ -627,17 +625,21 @@ fn transfer(
         let sent = scope.spawn(move || {
             let mut source = FakeServer::new(src);
             let written = source.allocated();
+            if let Some(timing) = send_timing {
+                source.time_next_communication(timing);
+            }
             source
-                .send(descriptor(written), STREAM, dst, report, send_timing)
+                .send(descriptor(written), STREAM, dst, report)
                 .unwrap();
             events_on_this_thread()
         });
         let received = scope.spawn(move || {
             let mut destination = FakeServer::new(dst);
             let received = destination.unallocated();
-            destination
-                .recv(received, STREAM, src, outcome, recv_timing)
-                .unwrap();
+            if let Some(timing) = recv_timing {
+                destination.time_next_communication(timing);
+            }
+            destination.recv(received, STREAM, src, outcome).unwrap();
             events_on_this_thread()
         });
         [sent.join().unwrap(), received.join().unwrap()]
@@ -681,4 +683,40 @@ fn a_timed_transfer_sends_the_window_of_each_half_and_of_its_wait() {
     // Each compute stream reaches its wait where it hands the half over, before the half starts.
     assert!(send_wait > send);
     assert!(recv_wait > recv);
+}
+
+#[test_log::test]
+fn a_timing_its_refused_send_never_used_is_dropped_rather_than_given_to_the_next() {
+    let (src, dst) = devices(60);
+    let mut timing = CommunicationTiming::default();
+    let window = timing.part_window();
+    let (report, outcome) = SendOutcome::channel();
+
+    let untimed = std::thread::scope(|scope| {
+        let sent = scope.spawn(move || {
+            let mut source = FakeServer::new(src);
+            let refused = source.out_of_memory("out of device memory");
+            let (refused_report, _) = SendOutcome::channel();
+            source.time_next_communication(timing);
+            source
+                .send(descriptor(refused), STREAM, dst, refused_report)
+                .unwrap_err();
+
+            let before = events_on_this_thread();
+            let written = source.allocated();
+            source
+                .send(descriptor(written), STREAM, dst, report)
+                .unwrap();
+            before == events_on_this_thread()
+        });
+        scope.spawn(move || {
+            let mut destination = FakeServer::new(dst);
+            let received = destination.unallocated();
+            destination.recv(received, STREAM, src, outcome).unwrap();
+        });
+        sent.join().unwrap()
+    });
+
+    assert!(untimed, "the next send took timing events");
+    assert!(cubecl_environment::future::block_on(window.resolve()).is_none());
 }

@@ -85,13 +85,16 @@ pub trait CollectiveServer: Sized {
         Ok(())
     }
 
+    /// See `ServerCommunication::time_next_communication`.
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        self.collectives().time_next(timing);
+    }
+
     /// See `ServerCommunication::all_reduce`.
     ///
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
-    // One argument per thing the part is told; a struct over them would name nothing.
-    #[allow(clippy::too_many_arguments)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -100,8 +103,8 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
             .expect_size(&dst, size)
@@ -140,8 +143,8 @@ pub trait CollectiveServer: Sized {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
             .expect_size(&dst, size * device_ids.len() as u64)
@@ -181,8 +184,8 @@ pub trait CollectiveServer: Sized {
         reduction: Reduction,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         let size = dst.size_in_used();
         let checked = CollectiveBuffer::Source
             .expect_size(&src, size * device_ids.len() as u64)
@@ -222,8 +225,8 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         let size = dst.size_in_used();
         let root_rank = self.collectives().rank(root, &device_ids);
         let group = CommunicationId::from(device_ids);
@@ -306,8 +309,8 @@ pub trait CollectiveServer: Sized {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         let ranks = device_ids.len();
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
@@ -349,11 +352,8 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A stream that cannot be resolved, and the driver's refusal to order the two.
-    fn sync_collective(
-        &mut self,
-        stream_id: StreamId,
-        timing: Option<CommunicationTiming>,
-    ) -> Result<(), ServerError> {
+    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());
@@ -374,8 +374,8 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         device_id_dst: DeviceId,
         report: SendReport,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         post_send(self, desc, stream_id, device_id_dst, &report, timing)
             .inspect_err(|refusal| report.refused(refusal.clone()))
     }
@@ -391,8 +391,8 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         device_id_src: DeviceId,
         outcome: SendOutcome,
-        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
+        let timing = self.collectives().take_timing();
         // Staged before the handle is consumed below.
         let destination = handle.clone().binding();
 

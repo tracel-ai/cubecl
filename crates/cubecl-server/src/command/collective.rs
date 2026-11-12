@@ -10,7 +10,7 @@
 //! naming an element type, and the operations themselves.
 
 use super::{DeviceResource, DeviceStream, Driver};
-use crate::server::{CommunicationId, ReduceOperation, ServerError};
+use crate::server::{CommunicationId, CommunicationTiming, ReduceOperation, ServerError};
 use alloc::{format, vec, vec::Vec};
 use cubecl_common::device::DeviceId;
 use cubecl_environment::backtrace::BackTrace;
@@ -204,7 +204,7 @@ pub struct Elements<T> {
     pub count: usize,
 }
 
-/// The groups this device has joined.
+/// The groups this device has joined, and the timing its next communication was given.
 ///
 /// One per server, unlike the identifiers behind
 /// [`group_id`](CollectiveDriver::group_id): an identifier is what every rank
@@ -215,6 +215,7 @@ pub struct Collectives<D: CollectiveDriver> {
     joined: HashMap<CommunicationId, D::Communicator>,
     /// The groups whose part here failed, each with the failure that broke it.
     broken: HashMap<CommunicationId, ServerError>,
+    next_timing: Option<CommunicationTiming>,
 }
 
 impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
@@ -236,7 +237,19 @@ impl<D: CollectiveDriver> Collectives<D> {
             device,
             joined: HashMap::default(),
             broken: HashMap::default(),
+            next_timing: None,
         }
+    }
+
+    /// Hands `timing` to the next communication, replacing one never taken.
+    pub fn time_next(&mut self, timing: CommunicationTiming) {
+        self.next_timing = Some(timing);
+    }
+
+    /// The timing handed to the communication now running, which every communication takes,
+    /// timed or not, so that it is never attached to a later one.
+    pub fn take_timing(&mut self) -> Option<CommunicationTiming> {
+        self.next_timing.take()
     }
 
     /// Records that this device's part of a collective over `group` failed with `cause`. Its
