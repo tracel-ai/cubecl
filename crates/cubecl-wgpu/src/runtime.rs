@@ -763,6 +763,7 @@ fn try_create_server<C: WgpuCompiler>(
         num_tensor_cores: None,
         min_tensor_cores_dim: None,
         num_cpu_cores: None, // TODO: Check if device is CPU.
+        num_cpu_physical_cores: None,
         last_level_cache_size: None,
         max_vector_size: 4,
         // Init later if extension is enabled
