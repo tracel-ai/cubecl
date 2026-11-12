@@ -1235,7 +1235,7 @@ impl Client {
     fn issue_part(&self, stream: StreamRole) {
         crate::logging::issue(|| ExecutionKind::Part {
             place: ExecutionPlace {
-                device: self.device.device_id(),
+                service: self.service_id(),
                 stream,
             },
         });
@@ -1372,8 +1372,8 @@ impl Client {
         let handle_cloned = handle.clone();
         let (report, outcome) = SendOutcome::channel();
         let _transfer = ExecutionScope::communication(|| Communication::Transfer {
-            from: device_id_src,
-            to: device_id_dst,
+            from: self.service_id(),
+            to: dst_server.service_id(),
             bytes: src_descriptor.handle.size_in_used(),
             route: TransferRoute::Device,
         });
@@ -1480,7 +1480,7 @@ impl Client {
         // than beside the logger's aggregation.
         let execution = crate::logging::issue(|| ExecutionKind::Kernel {
             place: ExecutionPlace {
-                device: self.device.device_id(),
+                service: self.service_id(),
                 stream: StreamRole::Compute(stream_id),
             },
             name: kernel.name(),
@@ -2132,8 +2132,8 @@ impl Client {
         let stream_id_dst = dst_server.stream_id();
         crate::logging::issue(|| {
             ExecutionKind::Communication(Communication::Transfer {
-                from: self.device.device_id(),
-                to: dst_server.device.device_id(),
+                from: self.service_id(),
+                to: dst_server.service_id(),
                 bytes: src_descriptor.handle.size_in_used(),
                 route: TransferRoute::Host,
             })

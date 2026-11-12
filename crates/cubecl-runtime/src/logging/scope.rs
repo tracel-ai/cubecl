@@ -8,7 +8,9 @@ use super::{Communication, ExecutionId, ExecutionKind, observer::issue};
 /// kernels on the calling thread: each of them names it as its parent, so an observer can charge
 /// their cost to it. Scopes nest, and dropping one puts back the parent it replaced.
 ///
-/// Inert when nothing observes: the communication is never built, and nothing is issued.
+/// Inert when nothing observes: the communication is never built, and nothing is issued. Without
+/// `std` there is no thread-local to hold the parent, so a scope issues its communication and
+/// parents nothing: attribution is missing there rather than crossing threads.
 #[must_use = "a scope parents nothing once it is dropped"]
 pub struct ExecutionScope {
     replaced: Option<Option<ExecutionId>>,
@@ -67,19 +69,15 @@ mod parent {
     }
 }
 
-/// With no threads to be local to, one parent for the process.
 #[cfg(not(feature = "std"))]
 mod parent {
     use super::ExecutionId;
-    use cubecl_environment::sync::Mutex;
 
-    static PARENT: Mutex<Option<ExecutionId>> = Mutex::new(None);
-
-    pub(super) fn replace(parent: Option<ExecutionId>) -> Option<ExecutionId> {
-        core::mem::replace(&mut *PARENT.lock(), parent)
+    pub(super) fn replace(_parent: Option<ExecutionId>) -> Option<ExecutionId> {
+        None
     }
 
     pub(super) fn get() -> Option<ExecutionId> {
-        *PARENT.lock()
+        None
     }
 }

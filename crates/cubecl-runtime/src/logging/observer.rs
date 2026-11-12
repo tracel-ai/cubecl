@@ -455,14 +455,18 @@ mod tests {
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
     // bring in itself.
     use alloc::vec;
-    use cubecl_common::device::DeviceId;
+    use cubecl_common::device::{DeviceId, ServiceId};
     use cubecl_environment::stream::StreamId;
     use cubecl_environment::sync::Mutex;
+
+    fn service(index: u16) -> ServiceId {
+        ServiceId::of::<()>(DeviceId::new(0, index))
+    }
 
     fn launch(name: &'static str) -> Option<Execution> {
         issue(|| ExecutionKind::Kernel {
             place: ExecutionPlace {
-                device: DeviceId::new(0, 0),
+                service: service(0),
                 stream: StreamRole::Compute(StreamId { value: 0 }),
             },
             name,
@@ -471,8 +475,8 @@ mod tests {
 
     fn transfer() -> Communication {
         Communication::Transfer {
-            from: DeviceId::new(0, 0),
-            to: DeviceId::new(0, 1),
+            from: service(0),
+            to: service(1),
             bytes: 4,
             route: TransferRoute::Host,
         }
@@ -520,6 +524,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
+    #[cfg(feature = "std")]
     fn a_scope_parents_what_is_issued_inside_it_and_restores_its_parent() {
         let recorder = Arc::new(Recorder::default());
         let watching = ExecutionObservation::new(recorder.clone());

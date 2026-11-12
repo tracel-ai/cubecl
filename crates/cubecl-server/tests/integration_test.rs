@@ -750,24 +750,51 @@ fn a_scope_parents_the_launches_and_transfers_issued_inside_it() {
             ExecutionKind::Kernel {
                 place: ExecutionPlace {
                     stream: StreamRole::Compute(_),
-                    device,
+                    service,
                 },
                 ..
-            } if device == devices[0]
+            } if service.device == devices[0]
         ),
         "{kernel:?}"
     );
     assert_eq!(transfer.parent, Some(collective.id));
-    assert_eq!(
-        transfer.kind,
-        ExecutionKind::Communication(Communication::Transfer {
-            from: devices[0],
-            to: devices[1],
-            bytes: 4,
-            route: TransferRoute::Device,
-        })
+    assert!(
+        matches!(
+            transfer.kind,
+            ExecutionKind::Communication(Communication::Transfer {
+                from,
+                to,
+                bytes: 4,
+                route: TransferRoute::Device,
+            }) if from.device == devices[0] && to.device == devices[1]
+        ),
+        "{transfer:?}"
     );
     assert_parts_of(transfer, parts, &devices, StreamRole::Transfer);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_transfer_across_runtimes_names_both_ends_apart() {
+    let device = DeviceId::new(0, 68);
+    let mut source = Client::load::<DummyServer>(device);
+    let destination = Client::load::<DummyServer<Other>>(device);
+    let recorded = Recorded::on(&[device]);
+    let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    source.to_client(handle, &destination);
+    drop(watching);
+
+    let issued = recorded.issued();
+    assert!(
+        issued.iter().any(|execution| matches!(
+            execution.kind,
+            ExecutionKind::Communication(Communication::Transfer { from, to, .. })
+                if from == source.service_id() && to == destination.service_id() && from != to
+        )),
+        "{issued:?}"
+    );
 }
 
 #[test_log::test]
@@ -817,17 +844,15 @@ fn assert_parts_of(
     for part in parts {
         assert_eq!(part.parent, Some(parent.id), "{part:?}");
     }
-    let kinds: Vec<_> = parts.iter().map(|part| part.kind.clone()).collect();
-    let expected: Vec<_> = devices
+    let places: Vec<_> = parts
         .iter()
-        .map(|device| ExecutionKind::Part {
-            place: ExecutionPlace {
-                device: *device,
-                stream,
-            },
+        .map(|part| match part.kind {
+            ExecutionKind::Part { place } => (place.service.device, place.stream),
+            ref other => panic!("not a part: {other:?}"),
         })
         .collect();
-    assert_eq!(kinds, expected);
+    let expected: Vec<_> = devices.iter().map(|device| (*device, stream)).collect();
+    assert_eq!(places, expected);
 }
 
 /// Every execution issued on some devices, in issue order.
@@ -853,12 +878,12 @@ impl Recorded {
         match kind {
             ExecutionKind::Kernel { place, .. }
             | ExecutionKind::Part { place }
-            | ExecutionKind::Wait { place, .. } => on(&place.device),
+            | ExecutionKind::Wait { place, .. } => on(&place.service.device),
             ExecutionKind::Communication(Communication::Collective { members, .. }) => {
                 members.iter().any(on)
             }
             ExecutionKind::Communication(Communication::Transfer { from, to, .. }) => {
-                on(from) || on(to)
+                on(&from.device) || on(&to.device)
             }
         }
     }

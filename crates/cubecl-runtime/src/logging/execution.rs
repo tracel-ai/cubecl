@@ -1,6 +1,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
-use cubecl_common::device::DeviceId;
+use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 
 use crate::server::{Collective, TransportProvider};
@@ -71,8 +71,8 @@ pub enum ExecutionKind {
 /// Where an execution runs: a device, and which of its streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExecutionPlace {
-    /// The device.
-    pub device: DeviceId,
+    /// The device, with the runtime serving it: two runtimes can number their devices alike.
+    pub service: ServiceId,
     /// The stream on it.
     pub stream: StreamRole,
 }
@@ -104,10 +104,10 @@ pub enum Communication {
     },
     /// One buffer copied from one device to another.
     Transfer {
-        /// The device holding the source.
-        from: DeviceId,
-        /// The device receiving it.
-        to: DeviceId,
+        /// The device holding the source, with its runtime.
+        from: ServiceId,
+        /// The device receiving it, with its runtime.
+        to: ServiceId,
         /// The size of the buffer.
         bytes: u64,
         /// How the bytes travel.
