@@ -124,7 +124,7 @@ impl<E: Float> OnlineSoftmax<E> {
     ///
     /// Where planes split the axis it is a meeting of the cube: every unit of every plane calls it,
     /// each holding its plane's state as a plane's window or fragments keep it, and it meets the
-    /// cube three times through shared memory. The planes' values are read in plane order, so the
+    /// cube twice through shared memory. The planes' values are read in plane order, so the
     /// merged sum is the same bits from run to run. A slice every plane masked stays at zero.
     pub fn normalizer(&mut self, plane: &Region) -> Array<E> {
         let axis = self.axis;
@@ -152,19 +152,21 @@ impl<E: Float> OnlineSoftmax<E> {
 
     /// Merge this state with those of the `planes` planes, this one at `plane`, that took in other
     /// parts of the same slices: every plane leaves holding the merged max and sum. Returns each
-    /// slice's `exp(max before − max after)`. The first unit of each plane writes, and the cube
-    /// meets before each read and before the values read are overwritten.
+    /// slice's `exp(max before − max after)`. The first unit of each plane writes its maxima, and
+    /// then its corrected sums beside them rather than over them, so the cube meets once before
+    /// each read and never to let a read finish before a write.
     fn merge_planes(&mut self, plane: usize, #[comptime] planes: usize) -> Array<E> {
         self.refuse_merging("OnlineSoftmax::normalizer");
         let slices = self.slices;
-        let mut shared = Shared::<[E]>::new_slice(comptime!(planes * slices));
+        let mut maxima = Shared::<[E]>::new_slice(comptime!(planes * slices));
+        let mut sums = Shared::<[E]>::new_slice(comptime!(planes * slices));
         let writes = UNIT_POS_PLANE == 0;
         let own = plane * slices;
 
         if writes {
             #[unroll]
             for i in 0..slices {
-                shared[own + i] = self.m[i];
+                maxima[own + i] = self.m[i];
             }
         }
         sync_cube();
@@ -174,11 +176,9 @@ impl<E: Float> OnlineSoftmax<E> {
             max[i] = E::min_value();
             #[unroll]
             for p in 0..planes {
-                max[i] = max[i].max(shared[p * slices + i]);
+                max[i] = max[i].max(maxima[p * slices + i]);
             }
         }
-        // Every plane has read the maxima before any overwrites them with its sum.
-        sync_cube();
 
         let mut correction = Array::<E>::new(slices);
         #[unroll]
@@ -188,7 +188,7 @@ impl<E: Float> OnlineSoftmax<E> {
         if writes {
             #[unroll]
             for i in 0..slices {
-                shared[own + i] = correction[i] * self.l[i];
+                sums[own + i] = correction[i] * self.l[i];
             }
         }
         sync_cube();
@@ -197,7 +197,7 @@ impl<E: Float> OnlineSoftmax<E> {
             let mut sum = E::from_int(0);
             #[unroll]
             for p in 0..planes {
-                sum += shared[p * slices + i];
+                sum += sums[p * slices + i];
             }
             self.l[i] = sum;
             self.m[i] = max[i];
