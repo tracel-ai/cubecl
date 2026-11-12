@@ -11,10 +11,10 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction, SendOutcome,
-        SendReport, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
-        TensorMapMeta,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, Handle, KernelArguments,
+        KernelResource, LaunchError, PeerAccess, PeerBinding, ProfileError, ProfilingToken,
+        Reduction, SendOutcome, SendReport, ServerCommunication, ServerError, ServerUtilities,
+        TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -472,8 +472,11 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::all_reduce(self, src, dst, reduction, stream_id, device_ids, wait)
+        CollectiveServer::all_reduce(
+            self, src, dst, reduction, stream_id, device_ids, wait, timing,
+        )
     }
 
     fn all_gather(
@@ -482,8 +485,9 @@ impl ServerCommunication for CudaServer {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::all_gather(self, src, dst, stream_id, device_ids)
+        CollectiveServer::all_gather(self, src, dst, stream_id, device_ids, timing)
     }
 
     fn reduce_scatter(
@@ -493,8 +497,9 @@ impl ServerCommunication for CudaServer {
         reduction: Reduction,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::reduce_scatter(self, src, dst, reduction, stream_id, device_ids)
+        CollectiveServer::reduce_scatter(self, src, dst, reduction, stream_id, device_ids, timing)
     }
 
     fn broadcast(
@@ -504,8 +509,9 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::broadcast(self, src, dst, stream_id, root, device_ids)
+        CollectiveServer::broadcast(self, src, dst, stream_id, root, device_ids, timing)
     }
 
     fn all_to_all(
@@ -514,12 +520,17 @@ impl ServerCommunication for CudaServer {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::all_to_all(self, src, dst, stream_id, device_ids)
+        CollectiveServer::all_to_all(self, src, dst, stream_id, device_ids, timing)
     }
 
-    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        CollectiveServer::sync_collective(self, stream_id)
+    fn sync_collective(
+        &mut self,
+        stream_id: StreamId,
+        timing: Option<CommunicationTiming>,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::sync_collective(self, stream_id, timing)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
@@ -529,8 +540,9 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_dst: DeviceId,
         report: SendReport,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, report, timing)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -540,8 +552,9 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_src: DeviceId,
         outcome: SendOutcome,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome, timing)
     }
 
     fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
@@ -643,6 +656,7 @@ impl CudaServer {
 
 impl CollectiveServer for CudaServer {
     type Driver = Cuda;
+    type Events = crate::compute::events::Cuda;
 
     fn device_id(&self) -> DeviceId {
         self.device_id
@@ -650,6 +664,12 @@ impl CollectiveServer for CudaServer {
 
     fn collectives(&mut self) -> &mut Collectives<Cuda> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut crate::compute::events::EventProfiler {
+        // Its first mark creates events and a stream, which belong to the current context.
+        self.unsafe_set_current();
+        &mut self.ctx.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<CudaStreamBackend> {

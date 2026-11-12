@@ -145,6 +145,7 @@ pub enum TransferRoute {
 pub enum WaitTarget {
     /// One part, on another stream of the same device.
     Part(ExecutionId),
-    /// Every collective queued on the device so far.
+    /// Every collective queued on the device so far, so its time belongs to the last part issued
+    /// on that device.
     QueuedCollectives,
 }

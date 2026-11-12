@@ -5,15 +5,15 @@ use crate::{
     kernel::CubeKernel,
     logging::{
         CollectivePath, Communication, ExecutionKind, ExecutionPlace, ExecutionScope, ProfileLevel,
-        StreamRole, TransferRoute,
+        StreamRole, TransferRoute, WaitTarget,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, CommunicationSkips, ComputeWait,
-        CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource, MemoryLayout,
-        MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding, PeerMemory,
-        ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server, ServerError,
-        ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CommunicationSkips, CommunicationTiming,
+        ComputeWait, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
+        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding,
+        PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
+        ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -31,7 +31,7 @@ use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
     device_handle::{CallError, CallResultExt, DeviceHandle},
-    profile::ProfileDuration,
+    profile::{Instant, ProfileDuration},
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
@@ -1146,12 +1146,17 @@ impl Client {
             return;
         }
         let stream_id = self.stream_id();
+        let timing = crate::logging::times_every_execution().then(|| {
+            let mut timing = CommunicationTiming::default();
+            self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
+            timing
+        });
 
         self.device.submit(move |server| {
             // Logged rather than unwrapped: a panic on the server thread is
             // reduced to a log line by the channel's catch_unwind anyway, so
             // report deliberately instead of through a swallowed unwind.
-            if let Err(err) = server.sync_collective(stream_id) {
+            if let Err(err) = server.sync_collective(stream_id, timing) {
                 log::error!("sync_collective failed: {err}");
             }
         });
@@ -1195,14 +1200,9 @@ impl Client {
         }
         self.prepare_collective(collective, device_ids.clone());
         let _collective = self.collective_scope(collective, &device_ids, size, self.native_path());
-        self.issue_part(StreamRole::Collective);
-        self.queue_all_reduce(
-            src,
-            dst,
-            Reduction { dtype, op },
-            device_ids,
-            ComputeWait::AtSync,
-        );
+        let wait = ComputeWait::AtSync;
+        let timing = self.issue_part(StreamRole::Collective, wait);
+        self.queue_all_reduce(src, dst, Reduction { dtype, op }, device_ids, wait, timing);
     }
 
     /// Issues `collective` over `members`, `bytes` each, as the parent of what this thread issues
@@ -1238,14 +1238,40 @@ impl Client {
         CollectivePath::Native(transport.provider)
     }
 
-    /// Issues this device's part of the communication open on this thread, on `stream`.
-    fn issue_part(&self, stream: StreamRole) {
-        crate::logging::issue(|| ExecutionKind::Part {
+    /// Issues this device's part of the communication open on this thread, on `stream`, and the
+    /// compute stream's wait for it when that is `Now`. Returns where the server sends their
+    /// windows, while the observer times every execution.
+    fn issue_part(&self, stream: StreamRole, wait: ComputeWait) -> Option<CommunicationTiming> {
+        let part = crate::logging::issue(|| ExecutionKind::Part {
             place: ExecutionPlace {
                 service: self.service_id(),
                 stream,
             },
+        })?;
+        if !crate::logging::times_every_execution() {
+            return None;
+        }
+        let mut timing = CommunicationTiming::default();
+        crate::logging::notify_unread(&part, timing.part_window());
+        if let ComputeWait::Now = wait {
+            self.issue_wait(WaitTarget::Part(part.id), &mut timing);
+        }
+        Some(timing)
+    }
+
+    /// Issues this device's compute stream reaching the point where it needs `awaits`, with its
+    /// window in `timing`.
+    fn issue_wait(&self, awaits: WaitTarget, timing: &mut CommunicationTiming) {
+        let wait = crate::logging::issue(|| ExecutionKind::Wait {
+            place: ExecutionPlace {
+                service: self.service_id(),
+                stream: StreamRole::Compute(self.stream_id()),
+            },
+            awaits,
         });
+        if let Some(wait) = wait {
+            crate::logging::notify_unread(&wait, timing.wait_window());
+        }
     }
 
     fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
@@ -1271,21 +1297,28 @@ impl Client {
         reduction: Reduction,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
+        timing: Option<CommunicationTiming>,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllReduce, move |server, stream_id| {
-            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait)
+            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait, timing)
         });
     }
 
-    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+    fn queue_all_gather(
+        &self,
+        src: Handle,
+        dst: Handle,
+        device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
+    ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllGather, move |server, stream_id| {
-            server.all_gather(src, dst, stream_id, device_ids)
+            server.all_gather(src, dst, stream_id, device_ids, timing)
         });
     }
 
@@ -1295,12 +1328,13 @@ impl Client {
         dst: Handle,
         reduction: Reduction,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::ReduceScatter, move |server, stream_id| {
-            server.reduce_scatter(src, dst, reduction, stream_id, device_ids)
+            server.reduce_scatter(src, dst, reduction, stream_id, device_ids, timing)
         });
     }
 
@@ -1310,22 +1344,29 @@ impl Client {
         dst: Handle,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) {
         let (src, dst) = (src.map(Handle::binding), dst.binding());
         src.iter()
             .chain([&dst])
             .for_each(|binding| self.expect_local(binding));
         self.queue_collective(Collective::Broadcast, move |server, stream_id| {
-            server.broadcast(src, dst, stream_id, root, device_ids)
+            server.broadcast(src, dst, stream_id, root, device_ids, timing)
         });
     }
 
-    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+    fn queue_all_to_all(
+        &self,
+        src: Handle,
+        dst: Handle,
+        device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
+    ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllToAll, move |server, stream_id| {
-            server.all_to_all(src, dst, stream_id, device_ids)
+            server.all_to_all(src, dst, stream_id, device_ids, timing)
         });
     }
 
@@ -1388,9 +1429,10 @@ impl Client {
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
-        self.issue_part(StreamRole::Transfer);
+        let timing = self.issue_part(StreamRole::Transfer, ComputeWait::Now);
         self.device.submit(move |server_src| {
-            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
+            if let Err(err) =
+                server_src.send(src_descriptor, stream_id_src, device_id_dst, report, timing)
             {
                 log::error!("send to {device_id_dst:?} failed: {err}");
             }
@@ -1399,11 +1441,12 @@ impl Client {
         // runs at once and waits on this send.
         self.device.flush_queue();
 
-        dst_server.issue_part(StreamRole::Transfer);
+        let timing = dst_server.issue_part(StreamRole::Transfer, ComputeWait::Now);
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome)
+            if let Err(err) =
+                server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome, timing)
             {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
@@ -2137,14 +2180,16 @@ impl Client {
         let elem_size = src_descriptor.elem_size;
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
-        crate::logging::issue(|| {
+        let transfer = crate::logging::issue(|| {
             ExecutionKind::Communication(Communication::Transfer {
                 from: self.service_id(),
                 to: dst_server.service_id(),
                 bytes: src_descriptor.handle.size_in_used(),
                 route: TransferRoute::Host,
             })
-        });
+        })
+        .filter(|_| crate::logging::times_every_execution())
+        .map(|transfer| (transfer, Instant::now()));
 
         let read = self
             .device
@@ -2152,6 +2197,10 @@ impl Client {
             .closed_as_error();
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
+        if let Some((transfer, started)) = transfer {
+            let read = ProfileDuration::new_system_time(started, Instant::now());
+            crate::logging::notify_unread(&transfer, read);
+        }
 
         // The allocation belongs to the destination: it is initialized and
         // written there, so it takes that device's layout policy, stream and

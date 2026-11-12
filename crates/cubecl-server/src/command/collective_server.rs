@@ -8,9 +8,11 @@
 use super::{
     CollectiveDriver, Collectives, Command, DeviceResource, DeviceStream, Driver, StreamSignal,
 };
+use crate::device_events::{EventApi, EventProfiler, Mark};
+use crate::driver::DriverError;
 use crate::server::{
-    BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
-    ReduceOperation, Reduction, SendOutcome, SendReport, ServerError,
+    BufferBinding, CollectiveBuffer, CommunicationId, CommunicationTiming, ComputeWait,
+    CopyDescriptor, Handle, ReduceOperation, Reduction, SendOutcome, SendReport, ServerError,
 };
 use crate::stream::{FailureStore, MultiStream};
 use alloc::{format, vec, vec::Vec};
@@ -31,11 +33,17 @@ pub trait CollectiveServer: Sized {
     /// The library collectives run through.
     type Driver: CollectiveDriver;
 
+    /// The device's events, which time a communication when an observer asks.
+    type Events: EventApi<Stream = StreamSignal<Self::Driver>>;
+
     /// This server's device.
     fn device_id(&self) -> DeviceId;
 
     /// The groups this device has joined.
     fn collectives(&mut self) -> &mut Collectives<Self::Driver>;
+
+    /// The profiler that times this device's kernels, whose marks time its communications too.
+    fn profiler(&mut self) -> &mut EventProfiler<Self::Events>;
 
     /// The compute streams, and the failures their buffers carry.
     fn streams(&mut self) -> &mut MultiStream<<Self::Driver as Driver>::Backend>;
@@ -82,6 +90,8 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
+    // One argument per thing the part is told; a struct over them would name nothing.
+    #[allow(clippy::too_many_arguments)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -90,6 +100,7 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
@@ -109,6 +120,7 @@ pub trait CollectiveServer: Sized {
                     &group,
                     [src, dst],
                     wait,
+                    timing,
                     |comm, [src, dst], stream| {
                         Self::Driver::all_reduce(comm, src, dst, elements, reduction.op, stream)
                     },
@@ -128,6 +140,7 @@ pub trait CollectiveServer: Sized {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
@@ -147,6 +160,7 @@ pub trait CollectiveServer: Sized {
                     &group,
                     [src, dst],
                     ComputeWait::Now,
+                    timing,
                     |comm, [src, dst], stream| {
                         Self::Driver::all_gather(comm, src, dst, elements, stream)
                     },
@@ -167,6 +181,7 @@ pub trait CollectiveServer: Sized {
         reduction: Reduction,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let size = dst.size_in_used();
         let checked = CollectiveBuffer::Source
@@ -186,6 +201,7 @@ pub trait CollectiveServer: Sized {
                     &group,
                     [src, dst],
                     ComputeWait::Now,
+                    timing,
                     |comm, [src, dst], stream| {
                         Self::Driver::reduce_scatter(comm, src, dst, elements, reduction.op, stream)
                     },
@@ -206,6 +222,7 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let size = dst.size_in_used();
         let root_rank = self.collectives().rank(root, &device_ids);
@@ -228,6 +245,7 @@ pub trait CollectiveServer: Sized {
                             &group,
                             [src, dst],
                             ComputeWait::Now,
+                            timing,
                             |comm, [src, dst], stream| {
                                 let elements = Self::Driver::elements(BYTES, size)?;
                                 Self::Driver::broadcast(
@@ -250,6 +268,7 @@ pub trait CollectiveServer: Sized {
                     &group,
                     [dst],
                     ComputeWait::Now,
+                    timing,
                     |comm, [dst], stream| {
                         let elements = Self::Driver::elements(BYTES, size)?;
                         Self::Driver::broadcast(comm, None, dst, elements, root, stream)
@@ -287,6 +306,7 @@ pub trait CollectiveServer: Sized {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let ranks = device_ids.len();
         let size = src.size_in_used();
@@ -315,6 +335,7 @@ pub trait CollectiveServer: Sized {
                     &group,
                     [src, dst],
                     ComputeWait::Now,
+                    timing,
                     |comm, [src, dst], stream| {
                         Self::Driver::all_to_all(comm, src, dst, chunk, ranks, stream)
                     },
@@ -328,11 +349,20 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A stream that cannot be resolved, and the driver's refusal to order the two.
-    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+    fn sync_collective(
+        &mut self,
+        stream_id: StreamId,
+        timing: Option<CommunicationTiming>,
+    ) -> Result<(), ServerError> {
+        let marks = CommunicationMarks::new(self.profiler(), timing);
         let mut command = self.command(stream_id, [].into_iter())?;
+        let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
         drop(command);
-        Self::Driver::wait_for(stream, self.comm_stream())
+        let comm_stream = self.comm_stream();
+        marks.ended(comm_stream);
+        marks.reached(stream);
+        Self::Driver::wait_for(stream, comm_stream)
     }
 
     /// Sends `desc` to `device_id_dst`, whose server receives it with [`recv`](Self::recv).
@@ -346,8 +376,9 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         device_id_dst: DeviceId,
         report: SendReport,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        post_send(self, desc, stream_id, device_id_dst, &report)
+        post_send(self, desc, stream_id, device_id_dst, &report, timing)
             .inspect_err(|refusal| report.refused(refusal.clone()))
     }
 
@@ -362,6 +393,7 @@ pub trait CollectiveServer: Sized {
         stream_id: StreamId,
         device_id_src: DeviceId,
         outcome: SendOutcome,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         // Staged before the handle is consumed below.
         let destination = handle.clone().binding();
@@ -369,7 +401,7 @@ pub trait CollectiveServer: Sized {
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
         // bytes for a result.
-        match receive(self, handle, stream_id, device_id_src, outcome) {
+        match receive(self, handle, stream_id, device_id_src, outcome, timing) {
             Ok(()) => {
                 // The data is on its way, so an earlier failure that left the
                 // destination stale has nothing left to say about it.
@@ -450,6 +482,7 @@ fn run<S: CollectiveServer, const N: usize>(
     group: &CommunicationId,
     bindings: [BufferBinding; N],
     wait: ComputeWait,
+    timing: Option<CommunicationTiming>,
     collective: impl FnOnce(
         &<S::Driver as CollectiveDriver>::Communicator,
         [&DeviceResource<S::Driver>; N],
@@ -458,17 +491,22 @@ fn run<S: CollectiveServer, const N: usize>(
 ) -> Result<(), ServerError> {
     let comm = *server.collectives().get(group)?;
     let comm_stream = server.comm_stream();
+    let marks = CommunicationMarks::new(server.profiler(), timing);
 
     let mut command = server.command(stream_id, bindings.iter())?;
     let mut resources = Vec::with_capacity(N);
     for binding in bindings {
         resources.push(command.resource(binding)?);
     }
+    let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
 
     S::Driver::wait_for(comm_stream, stream)?;
+    marks.started(comm_stream);
     collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
+    marks.ended(comm_stream);
     if let ComputeWait::Now = wait {
+        marks.reached(stream);
         S::Driver::wait_for(stream, comm_stream)?;
     }
     // Dropping the command releases bindings borrowed from other streams at this point of
@@ -489,6 +527,7 @@ fn post_send<S: CollectiveServer>(
     stream_id: StreamId,
     device_id_dst: DeviceId,
     report: &SendReport,
+    timing: Option<CommunicationTiming>,
 ) -> Result<(), ServerError> {
     // Joined before anything that can fail: on a pair's first transfer the
     // peer's thread waits in its own join until this one arrives.
@@ -496,6 +535,7 @@ fn post_send<S: CollectiveServer>(
     let devices = pair(server.device_id(), device_id_dst);
     let peer = server.collectives().peer_rank(&devices)?;
     let transfers = server.transfer_stream();
+    let marks = CommunicationMarks::new(server.profiler(), timing);
 
     // The send reads the source, so it is worth no more than the work that wrote it. Skipping
     // this hands the peer stale bytes on a handle that carries no claim over there: the
@@ -512,12 +552,16 @@ fn post_send<S: CollectiveServer>(
     // was allocated on.
     let mut command = server.command(stream_id, [&desc.handle].into_iter())?;
     let resource = command.resource(binding)?;
+    let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
 
     S::Driver::wait_for(transfers, stream)?;
     let bytes = S::Driver::elements(BYTES, size)?;
+    marks.started(transfers);
     report.will_post();
     S::Driver::send(&comm, &resource, bytes, peer, transfers)?;
+    marks.ended(transfers);
+    marks.reached(stream);
     // This stream's pool may reuse the source from here, and dropping the command releases one
     // borrowed from another stream once this stream gets here: both wait for the send.
     S::Driver::wait_for(stream, transfers)?;
@@ -538,6 +582,7 @@ fn receive<S: CollectiveServer>(
     stream_id: StreamId,
     device_id_src: DeviceId,
     outcome: SendOutcome,
+    timing: Option<CommunicationTiming>,
 ) -> Result<(), ServerError> {
     // Joined before anything that can fail or relocate: on a pair's first
     // transfer the peer's thread waits in its own join until this one arrives.
@@ -545,6 +590,7 @@ fn receive<S: CollectiveServer>(
     let devices = pair(server.device_id(), device_id_src);
     let peer = server.collectives().peer_rank(&devices)?;
     let size = handle.size_in_used();
+    let marks = CommunicationMarks::new(server.profiler(), timing);
 
     // A command on the destination server reserves the memory the incoming
     // data lands in.
@@ -552,6 +598,7 @@ fn receive<S: CollectiveServer>(
     let memory = command.reserve(handle.size())?;
     command.bind(memory, handle.memory.clone())?;
     let resource = command.resource(handle.binding())?;
+    let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
     drop(command);
 
@@ -564,8 +611,106 @@ fn receive<S: CollectiveServer>(
     let transfers = server.transfer_stream();
     S::Driver::wait_for(transfers, stream)?;
     let bytes = S::Driver::elements(BYTES, size)?;
+    marks.started(transfers);
     S::Driver::recv(&comm, &resource, bytes, peer, transfers)?;
+    marks.ended(transfers);
+    marks.reached(stream);
     S::Driver::wait_for(stream, transfers)
+}
+
+/// The marks that time one communication part on its own stream and a compute stream's wait on
+/// it, as a [`CommunicationTiming`] asks for them.
+///
+/// Taken before the part is queued, so that recording them borrows nothing from the server.
+/// Timing never fails a communication: a mark the device will not record leaves the rest of it
+/// untimed, and its windows read back empty.
+struct CommunicationMarks<A: EventApi> {
+    timing: CommunicationTiming,
+    start: Option<Mark<A>>,
+    end: Option<Mark<A>>,
+    reached: Option<Mark<A>>,
+}
+
+impl<A: EventApi> CommunicationMarks<A> {
+    fn new(profiler: &mut EventProfiler<A>, timing: Option<CommunicationTiming>) -> Self {
+        let Some(timing) = timing else {
+            return Self::untimed();
+        };
+        Self::taken(profiler, timing).unwrap_or_else(Self::failed)
+    }
+
+    fn taken(
+        profiler: &mut EventProfiler<A>,
+        timing: CommunicationTiming,
+    ) -> Result<Self, DriverError> {
+        let mut mark = |wanted: bool| wanted.then(|| profiler.mark()).transpose();
+        Ok(Self {
+            start: mark(timing.times_part())?,
+            end: mark(true)?,
+            reached: mark(timing.times_wait())?,
+            timing,
+        })
+    }
+
+    fn untimed() -> Self {
+        Self {
+            timing: CommunicationTiming::default(),
+            start: None,
+            end: None,
+            reached: None,
+        }
+    }
+
+    fn failed(error: DriverError) -> Self {
+        log::warn!(
+            "A communication runs untimed: {} refused a timing event ({error})",
+            A::BACKEND
+        );
+        Self::untimed()
+    }
+
+    /// These marks, unless `stream` is capturing a graph, whose recording takes no timing event.
+    fn unless_capturing(self, stream: &mut impl DeviceStream) -> Self {
+        match stream.capturing().is_recording() {
+            true => Self::untimed(),
+            false => self,
+        }
+    }
+
+    /// The part starts at the current position of `stream`.
+    fn started(&mut self, stream: A::Stream) {
+        if let Some(start) = &self.start
+            && let Err(error) = start.record(stream)
+        {
+            *self = Self::failed(error);
+        }
+    }
+
+    /// The part ends at the current position of `stream`, which sends its window.
+    fn ended(&mut self, stream: A::Stream) {
+        let Some(end) = &self.end else {
+            return;
+        };
+        if let Err(error) = end.record(stream) {
+            *self = Self::failed(error);
+            return;
+        }
+        if let Some(start) = &self.start {
+            self.timing.part_measured(EventProfiler::span(start, end));
+        }
+    }
+
+    /// The compute stream `stream` reaches its wait for the part, which sends the wait's window.
+    fn reached(&mut self, stream: A::Stream) {
+        let (Some(reached), Some(end)) = (&self.reached, &self.end) else {
+            return;
+        };
+        if let Err(error) = reached.record(stream) {
+            *self = Self::failed(error);
+            return;
+        }
+        self.timing.wait_measured(EventProfiler::span(reached, end));
+    }
 }
 
 /// The two devices of a peer-to-peer transfer, sorted.

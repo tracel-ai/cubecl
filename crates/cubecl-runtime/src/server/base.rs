@@ -1109,12 +1109,17 @@ pub struct Reduction {
 /// The default methods are for a runtime with no transport between its devices:
 /// each returns [`ServerError::NoDeviceTransport`] before touching any buffer, so
 /// there is no destination to taint.
+///
+/// Each method that queues work on the device takes a [`CommunicationTiming`], given only while
+/// the observer times every execution: the windows it asks for are recorded around the work, so
+/// nothing can be reordered between the two.
 pub trait ServerCommunication {
     /// Ensure that all queued collective operations have been executed.
     ///
     /// # Arguments
     ///
     /// * `stream_id` - The [`StreamId`] of the stream waiting for the sync.
+    /// * `timing` - Where to send the window of the stream's wait, when it is timed.
     ///
     /// # Returns
     ///
@@ -1124,7 +1129,11 @@ pub trait ServerCommunication {
     ///
     /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
-    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+    fn sync_collective(
+        &mut self,
+        stream_id: StreamId,
+        timing: Option<CommunicationTiming>,
+    ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::SyncCollective))
     }
 
@@ -1157,6 +1166,7 @@ pub trait ServerCommunication {
     /// * `stream_id` - The data's stream id.
     /// * `device_ids` - The list of device ids from which to `all_reduce`.
     /// * `wait` - When the compute stream waits for it.
+    /// * `timing` - Where to send the windows of this part and of the wait, when they are timed.
     ///
     /// # Returns
     ///
@@ -1165,7 +1175,8 @@ pub trait ServerCommunication {
     /// # Errors
     ///
     /// The default returns [`ServerError::NoDeviceTransport`].
-    #[allow(unused_variables)]
+    // One argument per thing the part is told; a struct over them would name nothing.
+    #[allow(unused_variables, clippy::too_many_arguments)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -1174,6 +1185,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllReduce))
     }
@@ -1191,6 +1203,7 @@ pub trait ServerCommunication {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllGather))
     }
@@ -1209,6 +1222,7 @@ pub trait ServerCommunication {
         reduction: Reduction,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::ReduceScatter))
     }
@@ -1226,6 +1240,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Broadcast))
     }
@@ -1243,6 +1258,7 @@ pub trait ServerCommunication {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllToAll))
     }
@@ -1255,6 +1271,8 @@ pub trait ServerCommunication {
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
     /// * `report` - Tells the peer's [`recv`](Self::recv) whether to post.
+    /// * `timing` - Where to send the windows of the send and of the compute stream's wait for
+    ///   it, when they are timed.
     ///
     /// # Returns
     ///
@@ -1274,6 +1292,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_dst: DeviceId,
         report: SendReport,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1286,6 +1305,8 @@ pub trait ServerCommunication {
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
     /// * `outcome` - The result of the paired [`send`](Self::send), waited for before anything is posted.
+    /// * `timing` - Where to send the windows of the receive and of the compute stream's wait for
+    ///   it, when they are timed.
     ///
     /// # Returns
     ///
@@ -1302,6 +1323,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_src: DeviceId,
         outcome: SendOutcome,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
@@ -1375,6 +1397,65 @@ impl SendOutcome {
                 backtrace: BackTrace::capture(),
             })
         })
+    }
+}
+
+/// Where a server sends the device windows of one communication part and of a compute stream's
+/// wait, for an observer that times every execution
+/// ([`EveryExecution`](crate::logging::TimingRequest::EveryExecution)).
+///
+/// The observer holds each window unread from the moment it is issued. One the server never
+/// sends, for a part refused before it ran or recorded inside a graph capture, reads back empty.
+#[derive(Debug, Default)]
+pub struct CommunicationTiming {
+    part: Option<Sender<ProfileDuration>>,
+    wait: Option<Sender<ProfileDuration>>,
+}
+
+impl CommunicationTiming {
+    /// Asks for the part's window, which reads back once the server has sent it.
+    pub fn part_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.part)
+    }
+
+    /// Asks for the wait's window, which reads back once the server has sent it.
+    pub fn wait_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.wait)
+    }
+
+    fn window(sender: &mut Option<Sender<ProfileDuration>>) -> ProfileDuration {
+        let (sent, received) = bounded(1);
+        *sender = Some(sent);
+        ProfileDuration::new_device_time_maybe(async move {
+            received.recv().await.ok()?.resolve().await
+        })
+    }
+
+    /// Whether the part's window is asked for.
+    pub fn times_part(&self) -> bool {
+        self.part.is_some()
+    }
+
+    /// Whether the wait's window is asked for.
+    pub fn times_wait(&self) -> bool {
+        self.wait.is_some()
+    }
+
+    /// Sends the part's window, if it is asked for.
+    pub fn part_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.part.take(), window);
+    }
+
+    /// Sends the wait's window, if it is asked for.
+    pub fn wait_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.wait.take(), window);
+    }
+
+    fn send(sender: Option<Sender<ProfileDuration>>, window: ProfileDuration) {
+        // An observer that dropped the window unread has no use for it.
+        if let Some(sender) = sender {
+            let _ = sender.try_send(window);
+        }
     }
 }
 

@@ -26,9 +26,10 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, CubeCount, DeviceTransport, Handle,
-        KernelArguments, KernelResource, ProfileError, ProfilingToken, Reduction, SendOutcome,
-        SendReport, Server, ServerCommunication, ServerError, ServerUtilities, TransportProvider,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, CubeCount,
+        DeviceTransport, Handle, KernelArguments, KernelResource, ProfileError, ProfilingToken,
+        Reduction, SendOutcome, SendReport, Server, ServerCommunication, ServerError,
+        ServerUtilities, TransportProvider,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -135,14 +136,36 @@ impl Marker for CountedTransport {
 /// How many collective parts each dummy device has received.
 static COLLECTIVE_PARTS: Mutex<Vec<ServiceId>> = Mutex::new(Vec::new());
 
+/// How many collective parts each dummy device has been asked to time.
+static TIMED_PARTS: Mutex<Vec<ServiceId>> = Mutex::new(Vec::new());
+
 /// How many collective parts the dummy device of `service` has received.
 pub fn collective_parts(service: ServiceId) -> usize {
-    COLLECTIVE_PARTS
+    count(&COLLECTIVE_PARTS, service)
+}
+
+/// How many collective parts the dummy device of `service` has been asked to time.
+pub fn timed_collective_parts(service: ServiceId) -> usize {
+    count(&TIMED_PARTS, service)
+}
+
+fn count(received: &Mutex<Vec<ServiceId>>, service: ServiceId) -> usize {
+    received
         .lock()
         .unwrap()
         .iter()
         .filter(|received| **received == service)
         .count()
+}
+
+/// Sends every window `timing` asks for, each empty and at the current host time.
+fn measured_empty(timing: Option<CommunicationTiming>) {
+    let Some(mut timing) = timing else {
+        return;
+    };
+    let now = cubecl_common::profile::Instant::now();
+    timing.part_measured(ProfileDuration::new_system_time(now, now));
+    timing.wait_measured(ProfileDuration::new_system_time(now, now));
 }
 
 #[derive(Debug, Clone)]
@@ -196,9 +219,19 @@ impl KernelTask {
 }
 
 /// Only a runtime that claims a transport reaches these: the client refuses a transfer on any
-/// other before it is queued. A collective part is counted and moves nothing.
+/// other before it is queued. A collective part is counted and moves nothing, and a timed one
+/// is measured as an empty window.
 impl<M: Marker> ServerCommunication for DummyServer<M> {
     fn comm_init(&mut self, _device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        Ok(())
+    }
+
+    fn sync_collective(
+        &mut self,
+        _stream_id: StreamId,
+        timing: Option<CommunicationTiming>,
+    ) -> Result<(), ServerError> {
+        measured_empty(timing);
         Ok(())
     }
 
@@ -210,8 +243,9 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
         _wait: ComputeWait,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part()
+        self.count_collective_part(timing)
     }
 
     fn all_gather(
@@ -220,8 +254,9 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _dst: BufferBinding,
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part()
+        self.count_collective_part(timing)
     }
 
     fn reduce_scatter(
@@ -231,8 +266,9 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _reduction: Reduction,
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part()
+        self.count_collective_part(timing)
     }
 
     fn broadcast(
@@ -242,8 +278,9 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _stream_id: StreamId,
         _root: DeviceId,
         _device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part()
+        self.count_collective_part(timing)
     }
 
     fn all_to_all(
@@ -252,8 +289,9 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _dst: BufferBinding,
         _stream_id: StreamId,
         _device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
-        self.count_collective_part()
+        self.count_collective_part(timing)
     }
 
     fn send(
@@ -262,6 +300,7 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _stream_id: StreamId,
         _device_id_dst: DeviceId,
         report: SendReport,
+        _timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let refusal = ServerError::Generic {
             reason: "the dummy source was never written".into(),
@@ -277,6 +316,7 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         stream_id: StreamId,
         _device_id_src: DeviceId,
         outcome: SendOutcome,
+        _timing: Option<CommunicationTiming>,
     ) -> Result<(), ServerError> {
         let zeros = vec![0u8; handle.size() as usize];
         self.bind_with_data(&zeros, handle.clone(), stream_id);
@@ -628,11 +668,18 @@ impl<M: Marker> DummyServer<M> {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn count_collective_part(&self) -> Result<(), ServerError> {
+    fn count_collective_part(
+        &self,
+        timing: Option<CommunicationTiming>,
+    ) -> Result<(), ServerError> {
         COLLECTIVE_PARTS
             .lock()
             .unwrap()
             .push(self.utilities.service);
+        if timing.is_some() {
+            TIMED_PARTS.lock().unwrap().push(self.utilities.service);
+        }
+        measured_empty(timing);
         Ok(())
     }
 

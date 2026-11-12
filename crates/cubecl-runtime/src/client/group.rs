@@ -4,8 +4,8 @@
 use super::{Client, PEER_ORDER};
 use crate::logging::{CollectivePath, StreamRole};
 use crate::server::{
-    Collective, CollectiveBuffer, ComputeWait, DeviceTransport, Handle, Overlap, ReduceOperation,
-    Reduction, Server,
+    Collective, CollectiveBuffer, CommunicationTiming, ComputeWait, DeviceTransport, Handle,
+    Overlap, ReduceOperation, Reduction, Server,
 };
 use alloc::vec::Vec;
 use cubecl_common::{device::DeviceId, device_handle::DeviceHandle};
@@ -210,10 +210,15 @@ impl ClientGroup {
 
         let root_id = self.device_ids[root];
         let bytes = src.size_in_used();
-        self.queue(collective, bytes, dst, |member, client, dst, device_ids| {
-            let src = (member == root).then(|| src.clone());
-            client.queue_broadcast(src, dst, root_id, device_ids)
-        });
+        self.queue(
+            collective,
+            bytes,
+            dst,
+            |member, client, dst, device_ids, timing| {
+                let src = (member == root).then(|| src.clone());
+                client.queue_broadcast(src, dst, root_id, device_ids, timing)
+            },
+        );
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src`, concatenated in member
@@ -260,8 +265,8 @@ impl ClientGroup {
             collective,
             src,
             buffers,
-            |_, client, buffers, device_ids| {
-                exchange.queue(client, buffers, device_ids);
+            |_, client, buffers, device_ids, timing| {
+                exchange.queue(client, buffers, device_ids, timing);
             },
         );
     }
@@ -348,13 +353,14 @@ impl ClientGroup {
         );
     }
 
-    /// Prepares every member, then queues each member's part before anything else can queue.
+    /// Prepares every member, then queues each member's part before anything else can queue,
+    /// each member's compute stream waiting for it at once.
     fn queue<Part>(
         &self,
         collective: Collective,
         bytes: u64,
         parts: Vec<Part>,
-        mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
+        mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>, Option<CommunicationTiming>),
     ) {
         if self.skips_communication() {
             let _skipped = self.clients[0].collective_scope(
@@ -375,8 +381,8 @@ impl ClientGroup {
         );
         let _order = PEER_ORDER.lock();
         for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
-            client.issue_part(StreamRole::Collective);
-            queue_part(member, client, part, self.device_ids.clone());
+            let timing = client.issue_part(StreamRole::Collective, ComputeWait::Now);
+            queue_part(member, client, part, self.device_ids.clone(), timing);
         }
         // A part waits in its client's queue until flushed, and a member blocked reading its
         // result would wait on a peer whose part never reached the device.
@@ -433,8 +439,8 @@ impl GroupMember {
             return;
         }
         let client = &self.group.clients[self.rank];
-        client.issue_part(StreamRole::Collective);
-        exchange.queue(client, buffers, self.group.device_ids.clone());
+        let timing = client.issue_part(StreamRole::Collective, ComputeWait::Now);
+        exchange.queue(client, buffers, self.group.device_ids.clone(), timing);
         client.device.flush_queue();
     }
 }
@@ -498,17 +504,23 @@ impl Exchange {
 
     /// Queues one member's part on `client`, its compute stream waiting for it before anything
     /// queued after.
-    fn queue(self, client: &Client, buffers: MemberBuffers, device_ids: Vec<DeviceId>) {
+    fn queue(
+        self,
+        client: &Client,
+        buffers: MemberBuffers,
+        device_ids: Vec<DeviceId>,
+        timing: Option<CommunicationTiming>,
+    ) {
         let MemberBuffers { src, dst } = buffers;
         match self {
             Self::AllReduce(reduction) => {
-                client.queue_all_reduce(src, dst, reduction, device_ids, ComputeWait::Now)
+                client.queue_all_reduce(src, dst, reduction, device_ids, ComputeWait::Now, timing)
             }
-            Self::AllGather => client.queue_all_gather(src, dst, device_ids),
+            Self::AllGather => client.queue_all_gather(src, dst, device_ids, timing),
             Self::ReduceScatter(reduction) => {
-                client.queue_reduce_scatter(src, dst, reduction, device_ids)
+                client.queue_reduce_scatter(src, dst, reduction, device_ids, timing)
             }
-            Self::AllToAll => client.queue_all_to_all(src, dst, device_ids),
+            Self::AllToAll => client.queue_all_to_all(src, dst, device_ids, timing),
         }
     }
 }

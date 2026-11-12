@@ -59,16 +59,85 @@ pub struct EventProfiler<A: EventApi> {
 
 /// A window that has opened and not yet closed.
 struct Open<A: EventApi> {
-    start: Pooled<A>,
+    start: Mark<A>,
     /// The stream whose next launch records `start`, until one does.
     waits_for_launch: Option<A::Stream>,
-    /// The anchor this window opened under, kept so that its start and its end
-    /// are placed against the same one however many refreshes happen in
-    /// between.
+}
+
+/// A point on one of the device's streams, which a [`span`](EventProfiler::span) runs from or to.
+///
+/// Taken from the profiler before it is recorded, so that recording it, on whichever of the
+/// device's streams, borrows nothing. A clone is the same point.
+pub struct Mark<A: EventApi> {
+    event: Arc<Pooled<A>>,
+    /// The anchor this mark was taken under, kept so that a span starting here is placed against
+    /// it however many refreshes happen before its end.
     anchor: Anchor<A>,
 }
 
+impl<A: EventApi> Mark<A> {
+    /// Places this mark at the current position of `stream`.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the stream will not record an event, as one capturing a graph will
+    /// not.
+    pub fn record(&self, stream: A::Stream) -> Result<(), DriverError> {
+        self.event.record(stream)
+    }
+}
+
+impl<A: EventApi> Clone for Mark<A> {
+    fn clone(&self) -> Self {
+        Self {
+            event: self.event.clone(),
+            anchor: self.anchor.clone(),
+        }
+    }
+}
+
+impl<A: EventApi> core::fmt::Debug for Mark<A> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Mark<{}>", A::BACKEND)
+    }
+}
+
 impl<A: EventApi> EventProfiler<A> {
+    /// A mark for [`record`](Mark::record) to place.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the device refuses an event.
+    pub fn mark(&mut self) -> Result<Mark<A>, DriverError> {
+        Ok(Mark {
+            anchor: self.anchor()?,
+            event: Arc::new(self.pool.acquire()?),
+        })
+    }
+
+    /// The device time from `start` to `end`, read once the device has reached both, and placed
+    /// on the host clock through `start`'s anchor.
+    ///
+    /// The two may be on different streams of the device, which share its clock. An `end` the
+    /// device reached before `start` gives an empty window at `start`: a compute stream that
+    /// reaches a wait after what it awaits has ended waits for nothing.
+    pub fn span(start: &Mark<A>, end: &Mark<A>) -> ProfileDuration {
+        let (start, end) = (start.clone(), end.clone());
+        ProfileDuration::new_device_time(async move {
+            read::<A>(&start.event, &end.event, &start.anchor).unwrap_or_else(|err| {
+                log::error!(
+                    "Could not read back a {} profiling window ({err}); reporting {UNREADABLE:?} \
+                     so nothing mistakes it for a fast one",
+                    A::BACKEND
+                );
+                let now = Instant::now();
+                ProfileTicks::from_start_end(now, now + UNREADABLE)
+            })
+            // The marks are dropped here, which returns their events to the pool once no other
+            // span holds them.
+        })
+    }
+
     /// Open a window at the current position of `stream`.
     ///
     /// # Errors
@@ -77,14 +146,12 @@ impl<A: EventApi> EventProfiler<A> {
     /// record one. No window is opened and no token is issued, so the caller
     /// owes nothing; the events involved return to the pool.
     pub fn start(&mut self, stream: A::Stream) -> Result<ProfilingToken, ServerError> {
-        let anchor = self.anchor()?;
-        let start = self.pool.acquire()?;
+        let start = self.mark()?;
         start.record(stream)?;
 
         Ok(self.opened(Open {
             start,
             waits_for_launch: None,
-            anchor,
         }))
     }
 
@@ -103,13 +170,11 @@ impl<A: EventApi> EventProfiler<A> {
     ///
     /// [`ServerError`] when the device refuses an event. No window is opened.
     pub fn start_at_launch(&mut self, stream: A::Stream) -> Result<ProfilingToken, ServerError> {
-        let anchor = self.anchor()?;
-        let start = self.pool.acquire()?;
+        let start = self.mark()?;
 
         Ok(self.opened(Open {
             start,
             waits_for_launch: Some(stream),
-            anchor,
         }))
     }
 
@@ -164,7 +229,6 @@ impl<A: EventApi> EventProfiler<A> {
         let Open {
             start,
             waits_for_launch,
-            anchor,
         } = match self.open.remove(&token) {
             Some(state) => state?,
             None => {
@@ -178,22 +242,10 @@ impl<A: EventApi> EventProfiler<A> {
             start.record(stream).map_err(profile_error)?;
         }
 
-        let end = self.pool.acquire().map_err(profile_error)?;
+        let end = self.mark().map_err(profile_error)?;
         end.record(stream).map_err(profile_error)?;
 
-        Ok(ProfileDuration::new_device_time(async move {
-            read::<A>(&start, &end, &anchor).unwrap_or_else(|err| {
-                log::error!(
-                    "Could not read back a {} profiling window ({err}); reporting {UNREADABLE:?} \
-                     so nothing mistakes it for a fast one",
-                    A::BACKEND
-                );
-                let now = Instant::now();
-                ProfileTicks::from_start_end(now, now + UNREADABLE)
-            })
-            // `start` and `end` are dropped here, which is what returns them
-            // to the pool.
-        }))
+        Ok(Self::span(&start, &end))
     }
 
     /// Drop the window `token` opened without measuring it, for a caller that
@@ -262,10 +314,8 @@ fn read<A: EventApi>(
     end: &Event<A>,
     anchor: &Anchor<A>,
 ) -> Result<ProfileTicks, DriverError> {
-    // Both, rather than the end alone. The end implies the start only because
-    // the two are recorded on the same stream, and waiting on an event the
-    // device has already passed returns immediately — a free way to stop
-    // depending on that.
+    // Both: a span may run between two streams, where reaching the end implies nothing about the
+    // start.
     start.wait()?;
     end.wait()?;
 
@@ -353,4 +403,108 @@ impl<A: EventApi> Drop for Anchoring<A> {
 /// A driver failure while setting a window up, as the error a profile reports.
 fn profile_error(error: DriverError) -> ProfileError {
     ProfileError::Server(Box::new(ServerError::from(error)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::sync::atomic::{AtomicU8, Ordering};
+    use cubecl_environment::sync::Mutex;
+
+    /// How far each stream has run, in microseconds of the one device clock they share.
+    static CLOCK: Mutex<[u64; 256]> = Mutex::new([0; 256]);
+
+    /// Streams the profiler creates for its anchor, apart from the ones each test runs on.
+    static NEXT_STREAM: AtomicU8 = AtomicU8::new(128);
+
+    struct Fake;
+
+    struct FakeEvent(Mutex<Option<u64>>);
+
+    impl EventApi for Fake {
+        type Event = FakeEvent;
+        type Stream = u8;
+
+        const BACKEND: &'static str = "fake";
+
+        fn event_create() -> Result<Self::Event, DriverError> {
+            Ok(FakeEvent(Mutex::new(None)))
+        }
+
+        fn event_destroy(_event: &mut Self::Event) -> Result<(), DriverError> {
+            Ok(())
+        }
+
+        fn event_record(event: &Self::Event, stream: Self::Stream) -> Result<(), DriverError> {
+            *event.0.lock() = Some(CLOCK.lock()[stream as usize]);
+            Ok(())
+        }
+
+        fn event_wait(_event: &Self::Event) -> Result<(), DriverError> {
+            Ok(())
+        }
+
+        fn event_elapsed(start: &Self::Event, end: &Self::Event) -> Result<Duration, DriverError> {
+            let start = start.0.lock().expect("recorded");
+            let end = end.0.lock().expect("recorded");
+            Ok(Duration::from_micros(end.saturating_sub(start)))
+        }
+
+        fn stream_wait_event(
+            _stream: Self::Stream,
+            _event: &Self::Event,
+        ) -> Result<(), DriverError> {
+            Ok(())
+        }
+
+        fn stream_synchronize(_stream: Self::Stream) -> Result<(), DriverError> {
+            Ok(())
+        }
+
+        fn stream_create_non_blocking() -> Result<Self::Stream, DriverError> {
+            Ok(NEXT_STREAM.fetch_add(1, Ordering::Relaxed))
+        }
+
+        fn stream_destroy(_stream: Self::Stream) -> Result<(), DriverError> {
+            Ok(())
+        }
+    }
+
+    fn recorded_at(mark: &Mark<Fake>, stream: u8, micros: u64) {
+        CLOCK.lock()[stream as usize] = micros;
+        mark.record(stream).unwrap();
+    }
+
+    fn read(window: ProfileDuration) -> Duration {
+        cubecl_environment::future::block_on(window.resolve())
+            .expect("both marks were recorded")
+            .duration()
+    }
+
+    #[test]
+    fn a_wait_lasts_from_its_stream_reaching_it_to_the_part_ending() {
+        let (compute, collective) = (1, 2);
+        let mut profiler = EventProfiler::<Fake>::default();
+        let (reached, end) = (profiler.mark().unwrap(), profiler.mark().unwrap());
+
+        recorded_at(&reached, compute, 3);
+        recorded_at(&end, collective, 10);
+
+        assert_eq!(
+            read(EventProfiler::span(&reached, &end)),
+            Duration::from_micros(7)
+        );
+    }
+
+    #[test]
+    fn a_wait_on_a_part_that_had_already_ended_reads_zero() {
+        let (compute, collective) = (3, 4);
+        let mut profiler = EventProfiler::<Fake>::default();
+        let (reached, end) = (profiler.mark().unwrap(), profiler.mark().unwrap());
+
+        recorded_at(&end, collective, 5);
+        recorded_at(&reached, compute, 9);
+
+        assert_eq!(read(EventProfiler::span(&reached, &end)), Duration::ZERO);
+    }
 }

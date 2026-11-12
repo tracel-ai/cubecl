@@ -1,6 +1,7 @@
 use cubecl_common::{
     bytes::Bytes,
     device::{DeviceId, ServiceId},
+    profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -10,6 +11,8 @@ use cubecl_server::{
         CollectiveDriver, CollectiveServer, Collectives, Command, CopyLayout, DeviceResource,
         DeviceStream, Driver, Elements, HostResource, StreamSignal,
     },
+    device_events::{EventApi, EventProfiler},
+    driver::DriverError,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{
@@ -19,15 +22,16 @@ use cubecl_server::{
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     server::{
-        BufferBinding, CommunicationId, CopyDescriptor, DeviceCaptures, Handle, IoError,
-        LaunchError, ReduceOperation, SendOutcome, ServerError,
+        BufferBinding, CommunicationId, CommunicationTiming, CopyDescriptor, DeviceCaptures,
+        Handle, IoError, LaunchError, ReduceOperation, SendOutcome, ServerError,
     },
     storage::BytesStorage,
     stream::{EventStreamBackend, FailureStore, MultiStream, StreamCapture, StreamMemory},
 };
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -366,16 +370,87 @@ impl CollectiveDriver for Fake {
     }
 }
 
+/// The device clock every fake stream shares, a tick per event recorded.
+static TICKS: AtomicU64 = AtomicU64::new(0);
+
+std::thread_local! {
+    /// The events this thread has taken from the driver, and recorded.
+    static EVENTS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+}
+
+fn events_on_this_thread() -> (usize, usize) {
+    EVENTS.with(Cell::get)
+}
+
+struct FakeEvents;
+
+struct FakeEvent(Mutex<Option<u64>>);
+
+impl EventApi for FakeEvents {
+    type Event = FakeEvent;
+    type Stream = ();
+
+    const BACKEND: &'static str = "fake";
+
+    fn event_create() -> Result<Self::Event, DriverError> {
+        EVENTS.with(|events| events.set((events.get().0 + 1, events.get().1)));
+        Ok(FakeEvent(Mutex::new(None)))
+    }
+
+    fn event_destroy(_event: &mut Self::Event) -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    fn event_record(event: &Self::Event, _stream: ()) -> Result<(), DriverError> {
+        EVENTS.with(|events| events.set((events.get().0, events.get().1 + 1)));
+        *event.0.lock().unwrap() = Some(TICKS.fetch_add(1, Ordering::Relaxed));
+        Ok(())
+    }
+
+    fn event_wait(_event: &Self::Event) -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    fn event_elapsed(
+        start: &Self::Event,
+        end: &Self::Event,
+    ) -> Result<cubecl_common::profile::Duration, DriverError> {
+        let start = start.0.lock().unwrap().expect("recorded");
+        let end = end.0.lock().unwrap().expect("recorded");
+        Ok(cubecl_common::profile::Duration::from_micros(
+            end.saturating_sub(start),
+        ))
+    }
+
+    fn stream_wait_event(_stream: (), _event: &Self::Event) -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    fn stream_synchronize(_stream: ()) -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    fn stream_create_non_blocking() -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    fn stream_destroy(_stream: ()) -> Result<(), DriverError> {
+        Ok(())
+    }
+}
+
 struct FakeServer {
     device: DeviceId,
     service: ServiceId,
     ctx: (),
     collectives: Collectives<Fake>,
     streams: MultiStream<FakeBackend>,
+    profiler: EventProfiler<FakeEvents>,
 }
 
 impl CollectiveServer for FakeServer {
     type Driver = Fake;
+    type Events = FakeEvents;
 
     fn device_id(&self) -> DeviceId {
         self.device
@@ -383,6 +458,10 @@ impl CollectiveServer for FakeServer {
 
     fn collectives(&mut self) -> &mut Collectives<Fake> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut EventProfiler<FakeEvents> {
+        &mut self.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<FakeBackend> {
@@ -415,6 +494,7 @@ impl FakeServer {
             ctx: (),
             collectives: Collectives::new(device),
             streams: MultiStream::new(Arc::new(ServerLogger::default()), FakeBackend, 4),
+            profiler: EventProfiler::default(),
         }
     }
 
@@ -472,8 +552,8 @@ fn a_refused_send_posts_nothing_and_fails_the_read_of_its_recv() {
     let received = destination.unallocated();
     let (report, outcome) = SendOutcome::channel();
 
-    let sent = source.send(descriptor(refused), STREAM, dst, report);
-    let recv = destination.recv(received.clone(), STREAM, src, outcome);
+    let sent = source.send(descriptor(refused), STREAM, dst, report, None);
+    let recv = destination.recv(received.clone(), STREAM, src, outcome, None);
 
     assert!(sent.is_err());
     assert!(recv.is_err());
@@ -494,10 +574,10 @@ fn a_send_that_cannot_set_up_tells_its_recv_why() {
     let (report, outcome) = SendOutcome::channel();
 
     source
-        .send(descriptor(written), STREAM, dst, report)
+        .send(descriptor(written), STREAM, dst, report, None)
         .unwrap_err();
     destination
-        .recv(received.clone(), STREAM, src, outcome)
+        .recv(received.clone(), STREAM, src, outcome, None)
         .unwrap_err();
 
     assert_eq!(Wire::between(src, dst).posted(), Posted::default());
@@ -515,13 +595,15 @@ fn a_recv_is_posted_while_its_send_connects() {
             let mut source = FakeServer::new(src);
             let written = source.allocated();
             source
-                .send(descriptor(written), STREAM, dst, report)
+                .send(descriptor(written), STREAM, dst, report, None)
                 .unwrap();
         });
         scope.spawn(move || {
             let mut destination = FakeServer::new(dst);
             let received = destination.unallocated();
-            destination.recv(received, STREAM, src, outcome).unwrap();
+            destination
+                .recv(received, STREAM, src, outcome, None)
+                .unwrap();
         });
     });
 
@@ -529,4 +611,74 @@ fn a_recv_is_posted_while_its_send_connects() {
         Wire::between(src, dst).posted(),
         Posted { sends: 1, recvs: 1 }
     );
+}
+
+/// Runs a send and its recv between two fresh servers, each on its own thread since the send
+/// waits for its recv, and returns the events each thread took and recorded.
+fn transfer(
+    devices: (DeviceId, DeviceId),
+    timings: [Option<CommunicationTiming>; 2],
+) -> [(usize, usize); 2] {
+    let (src, dst) = devices;
+    let (report, outcome) = SendOutcome::channel();
+    let [send_timing, recv_timing] = timings;
+
+    std::thread::scope(|scope| {
+        let sent = scope.spawn(move || {
+            let mut source = FakeServer::new(src);
+            let written = source.allocated();
+            source
+                .send(descriptor(written), STREAM, dst, report, send_timing)
+                .unwrap();
+            events_on_this_thread()
+        });
+        let received = scope.spawn(move || {
+            let mut destination = FakeServer::new(dst);
+            let received = destination.unallocated();
+            destination
+                .recv(received, STREAM, src, outcome, recv_timing)
+                .unwrap();
+            events_on_this_thread()
+        });
+        [sent.join().unwrap(), received.join().unwrap()]
+    })
+}
+
+fn read(window: ProfileDuration) -> cubecl_common::profile::Duration {
+    cubecl_environment::future::block_on(window.resolve())
+        .expect("the server sent the window")
+        .duration()
+}
+
+#[test_log::test]
+fn an_untimed_transfer_takes_and_records_no_event() {
+    let events = transfer(devices(40), [None, None]);
+
+    assert_eq!(events, [(0, 0), (0, 0)]);
+}
+
+#[test_log::test]
+fn a_timed_transfer_sends_the_window_of_each_half_and_of_its_wait() {
+    let mut timings = [
+        CommunicationTiming::default(),
+        CommunicationTiming::default(),
+    ];
+    let windows: Vec<_> = timings
+        .iter_mut()
+        .flat_map(|timing| [timing.part_window(), timing.wait_window()])
+        .collect();
+
+    let events = transfer(devices(50), timings.map(Some));
+
+    // Three marks per half, and the anchor that places them.
+    assert_eq!(events, [(4, 4), (4, 4)]);
+    let read: Vec<_> = windows.into_iter().map(read).collect();
+    let [send, send_wait, recv, recv_wait] = read[..] else {
+        unreachable!("two windows per half");
+    };
+    assert!(send > cubecl_common::profile::Duration::ZERO);
+    assert!(recv > cubecl_common::profile::Duration::ZERO);
+    // Each compute stream reached its wait after its half ended on this one clock.
+    assert_eq!(send_wait, cubecl_common::profile::Duration::ZERO);
+    assert_eq!(recv_wait, cubecl_common::profile::Duration::ZERO);
 }

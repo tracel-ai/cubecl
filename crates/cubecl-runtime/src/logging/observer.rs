@@ -52,7 +52,9 @@
 //!
 //! An execution that was **issued**, not one that finished: [`issued`] arrives
 //! before it reaches the server, and a measurement, when one was asked for,
-//! arrives afterwards through [`measured`]. Only kernels are measured.
+//! arrives afterwards through [`measured`]. Kernels are measured, and so are
+//! communication parts and the waits on them when the observer times every
+//! execution.
 //!
 //! Issued is not the same as executed. A launch whose
 //! [mode](crate::execution::LaunchMode) discards it is still compiled and
@@ -115,12 +117,28 @@ pub enum TimingRequest {
     /// observer whose figures only mean something on a pipelined pass should
     /// say so when timings arrive that way.
     Deferred,
+    /// [`Deferred`](Self::Deferred), and each communication timed as well: its
+    /// parts, and the compute streams' waits on them, issued as
+    /// [`Wait`](super::ExecutionKind::Wait)s at this level only.
+    ///
+    /// A part's or a wait's measurement arrives unread right after it is
+    /// issued, and is read on its device's clock. A part runs from when its
+    /// inputs are written to when it ends, the time it spends waiting for its
+    /// peers included. A wait runs from when its compute stream reaches it to
+    /// when what it awaits ends, and is zero when that had already ended. A
+    /// host-staged transfer blocks the issuing thread, so it is measured on the
+    /// host, as [`TimingMethod::System`].
+    ///
+    /// A part costs its device three timing events. One inside a graph capture,
+    /// or refused before it ran, reads back empty.
+    EveryExecution,
 }
 
 /// A launch's measurement, as an observer asked for it.
 pub enum Measurement {
-    /// Not yet read back, under [`TimingRequest::Deferred`]. Keep it, and read
-    /// it once the work being measured is over.
+    /// Not yet read back, under [`TimingRequest::Deferred`] and
+    /// [`TimingRequest::EveryExecution`]. Keep it, and read it once the work
+    /// being measured is over.
     ///
     /// Where the backend times on the device without waiting (CUDA, HIP, and
     /// wgpu's timestamp queries) the measurement is two events in the stream
@@ -137,9 +155,9 @@ pub enum Measurement {
     /// for the length of the kernel, which is the thing
     /// [`Deferred`](TimingRequest::Deferred) exists to avoid.
     Unread(ProfileDuration),
-    /// Read back by the launch path: under [`TimingRequest::Resolved`], and
-    /// under [`TimingRequest::Deferred`] whenever the profiling logger reads
-    /// measurements as well.
+    /// A kernel's, read back by the launch path: under
+    /// [`TimingRequest::Resolved`], and under the two that keep measurements
+    /// unread whenever the profiling logger reads them as well.
     Read {
         /// How long the kernel took.
         duration: Duration,
@@ -180,7 +198,8 @@ pub trait ExecutionObserver: Send + Sync {
     /// leave this alone; one measuring where a pass spends its time wants
     /// [`Deferred`](TimingRequest::Deferred).
     ///
-    /// Communications are issued at every level, and never timed.
+    /// Communications are issued at every level, and timed only at
+    /// [`EveryExecution`](TimingRequest::EveryExecution).
     ///
     /// Two situations refuse the measurement without refusing the launch:
     ///
@@ -198,8 +217,9 @@ pub trait ExecutionObserver: Send + Sync {
 
     /// An execution reported to [`issued`](Self::issued) was measured.
     ///
-    /// Called on the thread that issued it, after the launch, under the same
-    /// lock as every other method here, so keeping the measurement must be
+    /// Called on the thread that issued it, after the launch, or right after
+    /// [`issued`](Self::issued) for a communication part or wait, under the
+    /// same lock as every other method here, so keeping the measurement must be
     /// cheap. **An observer that asked to keep measurements unread still
     /// receives [`Measurement::Read`]** whenever the profiling logger is on.
     ///
@@ -287,6 +307,27 @@ pub(crate) fn timing_wanted() -> bool {
     timing_requested() != TimingRequest::None
 }
 
+/// Whether the installed observer times communications, and so is told of their waits.
+pub(crate) fn times_every_execution() -> bool {
+    timing_requested() == TimingRequest::EveryExecution
+}
+
+/// Hand a communication part's or wait's measurement over unread, to an observer that times
+/// every execution.
+///
+/// Never read here, whatever the observer answers by now: a part ends only once its peers' run,
+/// so a thread that queues several would wait forever on the first.
+pub(crate) fn notify_unread(execution: &Execution, measurement: ProfileDuration) {
+    if !OBSERVING.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(observer) = OBSERVER.read().as_ref()
+        && observer.timing() == TimingRequest::EveryExecution
+    {
+        observer.measured(execution, Measurement::Unread(measurement));
+    }
+}
+
 /// Say once that the profiling logger is taking the measurements an observer
 /// asked to keep.
 ///
@@ -300,7 +341,11 @@ pub(crate) fn timing_wanted() -> bool {
 /// event: at one line per kernel it would be the log.
 pub(crate) fn warn_logger_takes_deferred_measurements() {
     static SAID: AtomicBool = AtomicBool::new(false);
-    if timing_requested() == TimingRequest::Deferred && !SAID.swap(true, Ordering::Relaxed) {
+    if matches!(
+        timing_requested(),
+        TimingRequest::Deferred | TimingRequest::EveryExecution
+    ) && !SAID.swap(true, Ordering::Relaxed)
+    {
         log::warn!(
             "The profiling logger is reading every launch's measurement, so this run's \
              execution observer is told durations instead of keeping them, and its kernels \
@@ -387,7 +432,9 @@ fn warn_unmeasured(execution: &Execution) {
 
 /// Deliver a launch's measurement the way the observer asked for it.
 ///
-/// [`Deferred`](TimingRequest::Deferred) hands it over unread and is done.
+/// [`Deferred`](TimingRequest::Deferred) and
+/// [`EveryExecution`](TimingRequest::EveryExecution) hand it over unread and are
+/// done.
 /// [`Resolved`](TimingRequest::Resolved) reads it here with the slot's lock
 /// released, since holding the lock across a read would stall every other
 /// launching thread behind this one's kernel, and delivers through
@@ -402,7 +449,7 @@ pub(crate) fn notify_profiled(execution: &Execution, profile: ProfileDuration) {
             return;
         };
         match observer.timing() {
-            TimingRequest::Deferred => {
+            TimingRequest::Deferred | TimingRequest::EveryExecution => {
                 observer.measured(execution, Measurement::Unread(profile));
                 return;
             }
@@ -715,7 +762,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn an_observer_can_keep_a_measurement_unread() {
-        let kept = Arc::new(Kept::default());
+        let kept = Kept::asking(TimingRequest::Deferred);
         let watching = ExecutionObservation::new(kept.clone());
         let first = launch("first").unwrap();
         let second = launch("second").unwrap();
@@ -741,13 +788,41 @@ mod tests {
         );
     }
 
-    #[derive(Default)]
-    struct Kept(Mutex<Vec<(ExecutionId, ProfileDuration)>>);
+    #[test]
+    #[serial_test::serial]
+    fn a_communication_is_measured_only_for_an_observer_timing_every_execution() {
+        let deferred = Kept::asking(TimingRequest::Deferred);
+        let watching = ExecutionObservation::new(deferred.clone());
+        let part = launch("standing_in_for_a_part").unwrap();
+        notify_unread(&part, measured(3));
+        drop(watching);
+        assert!(deferred.0.lock().is_empty());
+
+        let every = Kept::asking(TimingRequest::EveryExecution);
+        let watching = ExecutionObservation::new(every.clone());
+        assert!(times_every_execution());
+        let part = launch("standing_in_for_a_part").unwrap();
+        let kernel = launch("a_kernel").unwrap();
+        notify_unread(&part, measured(3));
+        notify_profiled(&kernel, measured(5));
+        drop(watching);
+
+        let kept: Vec<_> = every.0.lock().iter().map(|(id, _)| *id).collect();
+        assert_eq!(kept, [part.id, kernel.id], "both kept unread");
+    }
+
+    struct Kept(Mutex<Vec<(ExecutionId, ProfileDuration)>>, TimingRequest);
+
+    impl Kept {
+        fn asking(timing: TimingRequest) -> Arc<Self> {
+            Arc::new(Self(Mutex::new(Vec::new()), timing))
+        }
+    }
 
     impl ExecutionObserver for Kept {
         fn issued(&self, _execution: &Execution) {}
         fn timing(&self) -> TimingRequest {
-            TimingRequest::Deferred
+            self.1
         }
         fn measured(&self, execution: &Execution, measurement: Measurement) {
             let Measurement::Unread(profile) = measurement else {
