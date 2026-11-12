@@ -1,5 +1,6 @@
 //! The `mr × nr` register block: seed it from the accumulator, contract into it, commit it back.
 
+use cubecl::ir::FloatKind;
 use cubecl::prelude::*;
 
 use crate::*;
@@ -172,11 +173,21 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
         ));
         let summed = comptime!(cell == 1);
         let scale_sum = comptime!(summed && semiring == Semiring::SUM_PROD);
+        let (sum_elem, lhs_elem) = (elem_type_of::<E>(), elem_type_of::<EL>());
+        let paired = comptime!(
+            scale_sum
+                && !lhs_scales.scaled
+                && contracted_per_step.is_multiple_of(2)
+                && pairs_into_f32(sum_elem, lhs_elem)
+        );
         let mut a = Array::<Vector<E, L>>::new(mr);
+        let mut a_held = Array::<Vector<EL, L>>::new(mr);
         #[unroll(unroll)]
         for i in 0..mr {
             let pos = (i as u32, k_line);
-            a[i] = lhs_scales.apply::<E, L>(Vector::<E, L>::cast_from(lhs.read(pos)), pos);
+            let line = lhs.read(pos);
+            a_held[i] = line;
+            a[i] = lhs_scales.apply::<E, L>(Vector::<E, L>::cast_from(line), pos);
         }
         #[unroll(unroll)]
         for g in 0..(nr / columns) {
@@ -196,10 +207,20 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                 } else {
                     rhs_scales.apply::<E, L>(values, pos)
                 };
+                // The run at the lhs's own 16-bit element, for a sum two products an instruction.
+                let held_values = values_at::<EL, ER, RL, L>(
+                    held,
+                    j * contracted_per_step,
+                    comptime!(Packing::Plain),
+                );
                 #[unroll(unroll)]
                 for i in 0..mr {
                     let at = i * nr + n;
-                    if summed {
+                    if paired {
+                        let sum = run_dot2::<EL, L>(a_held[i], held_values, contracted_per_step);
+                        let sum = rhs_scales.apply::<E, V>(Vector::<E, V>::cast_from(sum), pos);
+                        c[at] = semiring.add().combine::<Vector<E, V>>(c[at], sum);
+                    } else if summed {
                         let mut sum =
                             Vector::<E, V>::cast_from(Monoid::identity::<E>(semiring.add()));
                         #[unroll]
@@ -245,6 +266,37 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
             }
         }
     }
+}
+
+/// Whether a sum in `sum` of products of `lhs` values is taken two products an instruction
+/// ([`fdot2`]): an `f32` sum of `f16` or `bf16` pairs, each product exact in `f32`.
+fn pairs_into_f32(sum: ElemType, lhs: ElemType) -> bool {
+    sum == ElemType::Float(FloatKind::F32)
+        && matches!(lhs, ElemType::Float(FloatKind::F16 | FloatKind::BF16))
+}
+
+/// The `f32` sum of a run's products `a · b`, `run` values each, two products a [`fdot2`],
+/// neighbours a pair: the lhs's neighbours share the register they were loaded in, and each row
+/// holds its own lhs, while the rhs's pairs are gathered once for every row they meet.
+#[cube]
+fn run_dot2<EL: Numeric, L: Size>(
+    a: Vector<EL, L>,
+    b: Vector<EL, L>,
+    #[comptime] run: usize,
+) -> f32 {
+    let mut sum = 0.0f32.runtime();
+    #[unroll]
+    for p in 0..run / 2 {
+        let (lo, hi) = comptime!((2 * p, 2 * p + 1));
+        let mut x = Vector::<EL, Const<2>>::empty();
+        let mut y = Vector::<EL, Const<2>>::empty();
+        x.insert(0usize, a.extract(lo));
+        x.insert(1usize, a.extract(hi));
+        y.insert(0usize, b.extract(lo));
+        y.insert(1usize, b.extract(hi));
+        sum = fdot2(x, y, sum);
+    }
+    sum
 }
 
 /// Checks shared by [`seed`] and [`commit`] before spreading a block column across sink cells.
