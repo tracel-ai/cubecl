@@ -59,11 +59,8 @@ fn main() {
             .enumerate()
             .filter(|(owning, _)| *owning != reading)
         {
-            let access = match client.can_access_peer(peer) {
-                true => "reads",
-                false => "cannot read",
-            };
-            println!("member {reading} {access} member {owning}'s memory");
+            let access = client.peer_access(peer);
+            println!("member {reading} has {access:?} access to member {owning}'s memory");
         }
     }
     let group = ClientGroup::new(clients).expect("the devices form a collective group");
