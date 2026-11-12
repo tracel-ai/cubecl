@@ -18,7 +18,7 @@
 One codebase, more hardware choices. Write your compute kernels in Rust, and let CubeCL translate them for different GPUs and CPUs.
 
 CubeCL is a Rust language extension, a Just-in-Time compiler, and a set of runtimes for writing high-performance compute kernels.
-A single `#[cube]` Rust function is compiled on demand and runs on CUDA, HIP, Metal, Vulkan, WebGPU, or CPU, while still using the best instructions each platform offers.
+A single `#[cube]` Rust function is compiled on demand and runs on CUDA, HIP, Metal, OpenCL, Vulkan, WebGPU, or CPU, while still using the best instructions each platform offers.
 The programming model is low-level by design, so that a single kernel can reach peak performance on every backend it targets.
 
 [![NVIDIA](https://img.shields.io/badge/nvidia-cuda-82b432?style=flat-square)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda)
@@ -220,6 +220,7 @@ CubeCL is one part of a small ecosystem with deliberately separated concerns, so
 | NVIDIA   | LLVM → PTX     | CUDA    |
 | AMD      | LLVM → AMDGPU  | HIP     |
 | Apple    | MSL            | Metal   |
+| OpenCL   | OpenCL C       | opencl  |
 | Vulkan   | SPIR-V         | wgpu    |
 | WebGPU   | WGSL           | wgpu    |
 | CPU      | LLVM → native  | cpu     |
@@ -237,7 +238,7 @@ Add CubeCL to your Cargo.toml, and turn on the runtimes your binary links.
 
 ```toml
 [dependencies]
-cubecl = { version = "*", features = ["cuda"] }   # or "hip", "metal", "vulkan", "webgpu", "cpu"
+cubecl = { version = "*", features = ["cuda"] }   # or "hip", "metal", "opencl", "vulkan", "webgpu", "cpu"
 ```
 
 A kernel library turns none of them on.

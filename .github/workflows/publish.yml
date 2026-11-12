@@ -323,6 +323,7 @@ jobs:
       - publish-cubecl-cpu
       - publish-cubecl-hip
       - publish-cubecl-metal
+      - publish-cubecl-opencl
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v12
     with:
       crate: cubecl

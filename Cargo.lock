@@ -1065,6 +1065,7 @@ dependencies = [
  "cubecl-hip",
  "cubecl-ir",
  "cubecl-metal",
+ "cubecl-opencl",
  "cubecl-runtime",
  "cubecl-server",
  "cubecl-std",
