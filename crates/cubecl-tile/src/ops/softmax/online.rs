@@ -72,6 +72,10 @@ impl<E: Float> OnlineSoftmax<E> {
     /// probabilities, unnormalized. Returns each slice's `exp(max before − max after)`, what
     /// anything summed against the earlier blocks is multiplied by ([`AxisSlices::mul`]).
     ///
+    /// A `score` that carries a per-tensor factor, taken out of an operand it was summed over
+    /// ([`Tile::factor`]) and put back on it ([`Tile::scaled`]), is read under it: the factor
+    /// multiplies `scale`, so a key cache scaled per tensor costs the softmax nothing.
+    ///
     /// `bias` is a procedural tile windowed to the same region as `score`. A masked cell's bias is
     /// `E::min_value()`; a slice whose every cell so far is masked holds zeros and a zero sum. A
     /// bias zero everywhere ([`Procedural::zero`]) is no bias: the max is then taken over the raw
@@ -80,6 +84,14 @@ impl<E: Float> OnlineSoftmax<E> {
     /// unit of the plane calls it, and the caller meets the plane before it and before the
     /// probabilities are read.
     pub fn step(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
+        // A score summed over operands whose scales it took out (`Tile::factor`) carries them
+        // (`Tile::scaled`): one per tensor, positive, which multiplies `scale` once.
+        let scaled = score.factor.scaled();
+        let scale = if comptime!(scaled) {
+            scale * E::cast_from(score.factor.whole())
+        } else {
+            scale
+        };
         let unbiased = bias.is_zero();
         match comptime!(unbiased) {
             true => self.step_unbiased(score, scale),
