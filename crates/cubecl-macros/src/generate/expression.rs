@@ -835,6 +835,15 @@ impl Expression {
                 }
             }
             Expression::AssertConstant { inner } => inner.to_tokens(context),
+            Expression::CloneUnchecked { inner } => {
+                if let Some(cloned) = self.as_const(context) {
+                    cloned
+                } else {
+                    let clone = prelude_type("ExpandTypeClone");
+                    let inner = inner.to_tokens(context);
+                    quote![#clone::clone_unchecked(&#inner)]
+                }
+            }
             Expression::ExpressionMacro { ident, args } => {
                 let prelude = prelude_path();
                 let expand = format_ident!("__expand_{}", ident);

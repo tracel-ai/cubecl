@@ -324,6 +324,150 @@ pub fn test_comptime_option_scalar<R: Runtime>(client: &Client) {
     assert_eq!(read(ComptimeOptionArgs::None), 999.0);
 }
 
+#[derive(CubeType, Clone, Copy)]
+pub enum GuardMode {
+    Clamp,
+    Nan,
+    Extrapolate,
+}
+
+/// Match guards on a plain enum argument, mirroring the extrapolation-offset pattern.
+#[cube]
+fn guarded_offset(mode: GuardMode, query: f32, lo: f32, hi: f32) -> f32 {
+    match mode {
+        GuardMode::Extrapolate if query < lo || query > hi => query - lo,
+        GuardMode::Nan if query < lo => -1.0f32,
+        _ => 0.0f32,
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_guard_enum_argument(query: f32, output: &mut [f32]) {
+    output[0] = guarded_offset(GuardMode::new_Extrapolate(), query, 0.0, 1.0);
+    output[1] = guarded_offset(GuardMode::new_Nan(), query, 0.0, 1.0);
+    output[2] = guarded_offset(GuardMode::new_Clamp(), query, 0.0, 1.0);
+}
+
+pub fn test_guard_enum_argument<R: Runtime>(client: &Client) {
+    let read = |query: f32| {
+        let array = client.empty(3 * core::mem::size_of::<f32>());
+        kernel_guard_enum_argument::launch(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            query,
+            unsafe { BufferArg::from_raw_parts(array.clone(), 3) },
+        );
+        let bytes = client.read_one_unchecked(array);
+        f32::from_bytes(&bytes).to_vec()
+    };
+
+    assert_eq!(read(-2.0), [-2.0, -1.0, 0.0]);
+    assert_eq!(read(0.5), [0.0, 0.0, 0.0]);
+    assert_eq!(read(3.0), [3.0, 0.0, 0.0]);
+}
+
+/// A guard reading a binding from its own pattern, falling through to the same variant.
+#[cube(launch)]
+pub fn kernel_guard_binding(test: TestEnum<i32>, output: &mut [f32]) {
+    output[0] = match test {
+        TestEnum::C(x) if x > 5 => 1.0f32,
+        TestEnum::C(_) => 2.0f32,
+        TestEnum::D => 3.0f32,
+        _ => 4.0f32,
+    };
+}
+
+pub fn test_guard_binding<R: Runtime>(client: &Client) {
+    let read = |args: TestEnumArgs<i32>| {
+        let array = client.empty(core::mem::size_of::<f32>());
+        kernel_guard_binding::launch(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            args,
+            unsafe { BufferArg::from_raw_parts(array.clone(), 1) },
+        );
+        let bytes = client.read_one_unchecked(array);
+        f32::from_bytes(&bytes)[0]
+    };
+
+    assert_eq!(read(TestEnumArgs::C(10)), 1.0);
+    assert_eq!(read(TestEnumArgs::C(3)), 2.0);
+    assert_eq!(read(TestEnumArgs::D), 3.0);
+    assert_eq!(read(TestEnumArgs::A(1, 2)), 4.0);
+}
+
+/// A runtime guard on a runtime-variant enum.
+#[cube(launch_unchecked)]
+pub fn kernel_guard_runtime_variants(test: RuntimeEnumEmpty, flag: u32, output: &mut [f32]) {
+    match test {
+        RuntimeEnumEmpty::B if flag > 0 => {
+            output[0] = 21.0;
+        }
+        RuntimeEnumEmpty::B => {
+            output[0] = 20.0;
+        }
+        _ => {
+            output[0] = 10.0;
+        }
+    };
+}
+
+pub fn test_guard_runtime_variants<R: Runtime>(client: &Client) {
+    let read = |variant: RuntimeEnumEmptyArgs, flag: u32| {
+        let array = client.empty(core::mem::size_of::<f32>());
+        unsafe {
+            kernel_guard_runtime_variants::launch_unchecked(
+                client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                RuntimeEnumEmptyLaunch::Runtime(variant),
+                flag,
+                BufferArg::from_raw_parts(array.clone(), 1),
+            )
+        };
+        let bytes = client.read_one_unchecked(array);
+        f32::from_bytes(&bytes)[0]
+    };
+
+    assert_eq!(read(RuntimeEnumEmptyArgs::B, 1), 21.0);
+    assert_eq!(read(RuntimeEnumEmptyArgs::B, 0), 20.0);
+    assert_eq!(read(RuntimeEnumEmptyArgs::A, 1), 10.0);
+}
+
+/// A runtime guard on an integer match, which lowers to a switch.
+#[cube(launch)]
+pub fn kernel_guard_numeric(sel: u32, flag: u32, output: &mut [f32]) {
+    output[0] = match sel {
+        1 if flag > 0 => 11.0f32,
+        1 => 10.0f32,
+        2 | 3 => 20.0f32,
+        _ => 0.0f32,
+    };
+}
+
+pub fn test_guard_numeric<R: Runtime>(client: &Client) {
+    let read = |sel: u32, flag: u32| {
+        let array = client.empty(core::mem::size_of::<f32>());
+        kernel_guard_numeric::launch(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            sel,
+            flag,
+            unsafe { BufferArg::from_raw_parts(array.clone(), 1) },
+        );
+        let bytes = client.read_one_unchecked(array);
+        f32::from_bytes(&bytes)[0]
+    };
+
+    assert_eq!(read(1, 1), 11.0);
+    assert_eq!(read(1, 0), 10.0);
+    assert_eq!(read(3, 1), 20.0);
+    assert_eq!(read(7, 1), 0.0);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_enums {
@@ -384,6 +528,32 @@ macro_rules! testgen_enums {
             fn tuple_enum() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::enums::test_tuple_enum::<TestRuntime>(&client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn guard_enum_argument() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_guard_enum_argument::<TestRuntime>(&client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn guard_binding() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_guard_binding::<TestRuntime>(&client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn guard_runtime_variants() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_guard_runtime_variants::<TestRuntime>(
+                    &client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn guard_numeric() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_guard_numeric::<TestRuntime>(&client);
             }
         }
     };
