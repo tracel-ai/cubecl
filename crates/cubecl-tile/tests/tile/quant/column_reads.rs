@@ -44,7 +44,7 @@ fn column_one_row_product<E: Numeric>(
         let acc = c.register_accumulator::<E>(
             &x,
             &values,
-            comptime!(RegisterBlock::new(64)),
+            comptime!(SoftwareMatmul::new(64)),
             Semiring::SUM_PROD,
         );
         for step in cube {
@@ -79,7 +79,7 @@ fn column_one_row_product_in_memory(
         for step in cube {
             let mut c_s = c
                 .at(&step)
-                .accumulating(comptime!(RegisterBlock::new(64)), Semiring::SUM_PROD);
+                .accumulating(comptime!(SoftwareMatmul::new(64)), Semiring::SUM_PROD);
             c_s.mma(&x.at(&step), &w.at(&step));
         }
     }

@@ -10,19 +10,19 @@ use cubecl::quant::scheme::QuantValue;
 
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
-use crate::{ComputeScope, MmaIo, RegisterBlock};
+use crate::{ComputeScope, MmaIo, SoftwareMatmul};
 
-/// What one plane contracts through: a software register block or a hardware fragment form.
+/// What one plane contracts through: a software matmul or a hardware fragment form.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Instruction {
-    /// A register block, run under `config`. Asks nothing of the hardware.
-    Registers { config: RegisterBlock },
+    /// A software matmul, run under `config`. Asks nothing of the hardware.
+    Registers { config: SoftwareMatmul },
     /// The vendor's fragment API: `wmma` on CUDA, rocWMMA on HIP.
     Cmma,
     /// This crate's own fragment transport over the matrix intrinsics, with per-role `io`, over
     /// `operands` of one form.
     Mma { io: MmaIo, operands: MmaOperands },
-    /// Hopper's warpgroup MMA: a plane group of four contracts its `64 × n` tile together,
+    /// Hopper's plane group MMA: a plane group of four contracts its `64 × n` tile together,
     /// reading both operands out of shared memory, asynchronously.
     Wgmma,
 }
@@ -31,7 +31,7 @@ impl Instruction {
     /// Whether a sum this instruction contracts is scaled where it is held: a register block's
     /// cells and a manual-mma fragment's are each unit's own registers. A cmma fragment hides
     /// which unit holds a cell, so it is scaled only through a round trip in shared memory, and a
-    /// warpgroup's sum only once its MMAs land.
+    /// plane group's sum only once its MMAs land.
     pub fn scales_its_sum_in_place(self) -> bool {
         match self {
             Self::Registers { .. } | Self::Mma { .. } => true,
@@ -240,7 +240,7 @@ impl Instruction {
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator) and
     /// [`for_stage_accumulator`](Self::for_stage_accumulator):
-    /// - held by a warpgroup (`holder`): the warpgroup MMA;
+    /// - held by a plane group (`holder`): the plane group MMA;
     /// - an operand already held in fragments: their instruction, which reads them as they lie;
     /// - both operands codes the device's block-scaled instruction of that shape reads as stored:
     ///   that instruction;
@@ -270,7 +270,7 @@ impl Instruction {
             instruction,
             cell: [m, n],
         };
-        if holder == ComputeScope::WARPGROUP {
+        if holder == ComputeScope::PLANE_GROUP {
             return Some(whole(Instruction::Wgmma));
         }
         if let FragmentSource::Fragments(held) = lhs {
@@ -684,13 +684,13 @@ mod tests {
         assert_eq!(picked(&metal(), held, [8, 8, 8]), Some(mma()));
     }
 
-    /// Plane groups of four issue the warpgroup MMA.
+    /// Plane groups of four issue the plane group MMA.
     #[test]
-    fn a_warpgroup_issues_the_warpgroup_mma() {
+    fn a_plane_group_issues_the_plane_group_mma() {
         let instruction = Instruction::for_accumulator(
             &cuda(),
             &sum_is_next_a(),
-            ComputeScope::WARPGROUP,
+            ComputeScope::PLANE_GROUP,
             HALF,
             HALF,
             F32,

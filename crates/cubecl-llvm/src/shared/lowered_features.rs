@@ -3,11 +3,11 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and warpgroup MMA and
-//! Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
-//! consumer picks its algorithm off these properties — cubek's matmul selectors ask for `mma`
-//! before they ask anything else — and an advertisement that cannot be honoured is a launch that
-//! fails rather than one that falls back.
+//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and plane group MMA
+//! and Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than
+//! left to fail at compile time, because a consumer picks its algorithm off these properties —
+//! cubek's matmul selectors ask for `mma` before they ask anything else — and an advertisement that
+//! cannot be honoured is a launch that fails rather than one that falls back.
 //! The CPU runtime builds its properties from what this backend lowers, so it has nothing to
 //! narrow.
 
@@ -39,7 +39,7 @@ pub enum GpuTarget {
 /// Narrows `props` to what the LLVM backend lowers for `target`: the matrix forms that target
 /// has register shapes for, and nothing that neither target lowers. It also adds what only this
 /// backend lowers, which the C++ backend that built `props` never advertised: Hopper's
-/// warpgroup MMA.
+/// plane group MMA.
 pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
     props.features.matmul.wgmma.clear();
     match target {
@@ -540,9 +540,9 @@ mod nvptx_tma_tests {
         assert!(!props.features.copy_async);
     }
 
-    /// Hopper alone gets warpgroup MMA.
+    /// Hopper alone gets plane group MMA.
     #[test]
-    fn only_hopper_gets_warpgroup_mma() {
+    fn only_hopper_gets_plane_group_mma() {
         for (sm, expected) in [(80, false), (90, true), (100, false)] {
             let mut props = (*device_properties(32)).clone();
             let arch = SmArch::new(sm, true);

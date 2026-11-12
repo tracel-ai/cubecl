@@ -65,7 +65,7 @@ pub use layout::storage::Geometry;
 pub use ops::matmul::instruction::{
     BlockScaledOperands, FragmentSource, Instruction, MmaOperands, PlanePick,
 };
-pub use ops::matmul::register_block::RegisterBlock;
+pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use space::axis::Axis;
 pub use space::base::Space;
 pub use space::partition::base::Partitioning;

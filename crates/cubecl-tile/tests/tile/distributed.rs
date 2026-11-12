@@ -43,7 +43,7 @@ fn distributed_block_matmul<E: Numeric>(
                 let sum = c_unit.register_accumulator::<E>(
                     &a_unit,
                     &b_unit,
-                    comptime!(RegisterBlock::new(BLOCK[0] * BLOCK[1])),
+                    comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
                     Semiring::SUM_PROD,
                 );
                 for step in &unit {

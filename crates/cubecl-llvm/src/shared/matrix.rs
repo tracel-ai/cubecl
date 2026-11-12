@@ -70,7 +70,7 @@ dispatch_matrix_op!(MmaManualScaledOp, ["nvptx" Nvptx => crate::nvptx::matrix::m
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
 
-/// Warpgroup MMA is Hopper's alone, so only NVPTX lowers it.
+/// Plane group MMA is Hopper's alone, so only NVPTX lowers it.
 macro_rules! dispatch_wgmma_op {
     ($cube_op:ty, $method:ident) => {
         dispatch_matrix_op!($cube_op, ["nvptx" Nvptx => crate::nvptx::wgmma::$method]);

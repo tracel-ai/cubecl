@@ -8,7 +8,7 @@ pub enum ComputeScope {
     Unit,
     Plane,
     /// `planes` consecutive planes, the first a multiple of `planes`, issuing one instruction
-    /// together: a warpgroup MMA's four.
+    /// together: a plane group MMA's four.
     PlaneGroup {
         planes: usize,
     },
@@ -16,9 +16,9 @@ pub enum ComputeScope {
 }
 
 impl ComputeScope {
-    /// The four planes of a warpgroup, which issue each warpgroup MMA together
+    /// The four planes of a plane group, which issue each plane group MMA together
     /// ([`Instruction::Wgmma`](crate::Instruction::Wgmma)).
-    pub const WARPGROUP: Self = Self::PlaneGroup { planes: 4 };
+    pub const PLANE_GROUP: Self = Self::PlaneGroup { planes: 4 };
 
     /// The planes one instance of this scope spans, where it spans whole planes.
     pub fn planes(self) -> Option<usize> {

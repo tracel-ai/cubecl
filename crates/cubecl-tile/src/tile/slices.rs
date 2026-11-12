@@ -89,7 +89,7 @@ impl Tile {
                 }
                 PlaneTile::Cmma(_) | PlaneTile::Registers(_) => comptime!(every),
                 PlaneTile::Wgmma(_) => panic!(
-                    "Tile::slices_per_unit: a warpgroup accumulator's slices are not read in \
+                    "Tile::slices_per_unit: a plane group accumulator's slices are not read in \
                      place; drain it first"
                 ),
             },
@@ -97,7 +97,7 @@ impl Tile {
                 PlaneTile::Mma(fragment) => fragment.rows_per_unit::<Served>(),
                 PlaneTile::Cmma(_) | PlaneTile::Registers(_) => comptime!(every),
                 PlaneTile::Wgmma(_) => panic!(
-                    "Tile::slices_per_unit: a warpgroup accumulator's slices are not read in \
+                    "Tile::slices_per_unit: a plane group accumulator's slices are not read in \
                      place; drain it first"
                 ),
             },
