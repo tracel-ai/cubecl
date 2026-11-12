@@ -244,9 +244,9 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// Obtains each requested kernel's artifact from the store or the
     /// compiler, and loads it.
     ///
-    /// The store and the loads are reached in order, on this thread; lowering
-    /// and finalizing run on several threads at once when more than one
-    /// kernel has that step to take.
+    /// The store and the loads are reached in order, on this thread; lowering,
+    /// finalizing and preparing what the store gave run on several threads at
+    /// once when more than one kernel has that step to take.
     fn compile(
         &mut self,
         requests: Vec<Request<'_, VariantOf<T>>>,
@@ -265,6 +265,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
         jobs.iter_mut().for_each(Job::settle);
 
         let compiler = self.target.compiler();
+        if <T::Compiler as ArtifactCompiler>::PREPARES {
+            let mut stored: Vec<&mut Job<'_, T>> =
+                jobs.iter_mut().filter(|job| job.is_stored()).collect();
+            for_each_at_once(&mut stored, self.parallelism, |job| job.prepare(compiler));
+        }
+
         let mut missing: Vec<&mut Job<'_, T>> =
             jobs.iter_mut().filter(|job| job.is_missing()).collect();
         let threads = self.parallelism.min(missing.len()).max(1);
@@ -642,6 +648,17 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
         matches!(self.step, Step::Lowered { .. })
     }
 
+    /// Whether the store gave its artifact.
+    fn is_stored(&self) -> bool {
+        matches!(
+            self.step,
+            Step::Ready {
+                outcome: CompilationOutcome::Loaded,
+                ..
+            }
+        )
+    }
+
     /// Whether it lowered to text an artifact can be reused by.
     fn has_source(&self) -> bool {
         matches!(
@@ -661,6 +678,15 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 source: None,
                 outcome: CompilationOutcome::Loaded,
             };
+        }
+    }
+
+    /// Readies what the store gave for its load: see [`ArtifactCompiler::prepare`].
+    fn prepare(&mut self, compiler: &T::Compiler) {
+        if let Step::Ready { artifact, .. } = &mut self.step {
+            let started = Instant::now();
+            compiler.prepare(&self.id, artifact);
+            self.recording.worked(started.elapsed());
         }
     }
 
