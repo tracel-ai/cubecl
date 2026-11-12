@@ -87,6 +87,9 @@ impl DeviceService for MetalServer {
         );
 
         cubecl_cpp::metal::register_metal_features(&mut device_props);
+        if metal_device.supportsFamily(MTLGPUFamily::Metal4) {
+            cubecl_cpp::metal::register_metal_tensor_op_features(&mut device_props);
+        }
 
         let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
