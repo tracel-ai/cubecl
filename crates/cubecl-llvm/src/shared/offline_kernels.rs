@@ -1123,6 +1123,50 @@ pub(crate) fn mismatched_mma_kernel() -> impl CubeKernel {
     )
 }
 
+/// A manual FP8 `mma` of `m16n8k32`: an `e4m3` A by an `e4m3` B into `f32`, four codes to each
+/// of A's four registers and B's two, read from `a` and `b`.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn fp8_mma(
+    a: &[Vector<cubecl_core::e4m3, Const<4>>],
+    b: &[Vector<cubecl_core::e4m3, Const<4>>],
+    output: &mut [f32],
+) {
+    let def = cmma::MmaDefinition::<cubecl_core::e4m3, cubecl_core::e4m3, f32>::new(
+        16usize, 8usize, 32usize,
+    );
+    let mut registers_a = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(4usize);
+    let mut registers_b = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(2usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = a[i];
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = b[i];
+        registers_c[i] = Vector::new(0.0);
+    }
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    output[UNIT_POS as usize] = registers_d[0].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn fp8_mma_kernel() -> impl CubeKernel {
+    fp8_mma::Fp8Mma::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// A manual `f16` `mma` repeated by a loop of 256 turns, whose registers sit in local arrays
 /// at constant indices.
 #[cfg(feature = "nvptx")]

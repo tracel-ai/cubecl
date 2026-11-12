@@ -97,14 +97,21 @@ fn is_half_or_single(ty: ElemType) -> bool {
 /// Keeps the matrix forms NVPTX has register shapes for.
 #[cfg(feature = "nvptx")]
 fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
-    // Both matrix families support f16, bf16 and TF32 operands. TF32 uses FP32 storage,
-    // rounded casts, and opaque i32 registers at the NVVM matrix call boundary; bf16 packs two
-    // `bfloat` lanes to an i32 register and accumulates in f32. Keep only the TF32 geometries
-    // NVVM implements.
+    // Both matrix families support f16, bf16 and TF32 operands, and the manual one FP8 too.
+    // TF32 uses FP32 storage, rounded casts, and opaque i32 registers at the NVVM matrix call
+    // boundary; bf16 packs two `bfloat` lanes to an i32 register and accumulates in f32; FP8
+    // packs four codes to an i32 register, as the integer bytes do. Keep only the TF32
+    // geometries NVVM implements.
     let byte = |ty: ElemType| {
         matches!(
             ty,
             ElemType::Int(IntKind::I8) | ElemType::UInt(UIntKind::U8)
+        )
+    };
+    let fp8 = |ty: ElemType| {
+        matches!(
+            ty,
+            ElemType::Float(FloatKind::E4M3) | ElemType::Float(FloatKind::E5M2)
         )
     };
 
@@ -136,7 +143,13 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
             && config.m == 16
             && config.n == 8
             && matches!(config.k, 4 | 8);
-        floats || integers || tf32
+        // The FP8 forms of `m16n8k32` into `f32`, any pairing of `e4m3` and `e5m2`, which the
+        // runtime advertises from Ada on.
+        let fp8 = fp8(config.a_type)
+            && fp8(config.b_type)
+            && config.cd_type == f32
+            && (config.m, config.n, config.k) == (16, 8, 32);
+        floats || integers || tf32 || fp8
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
     // `test_cmma_manual` checks them element by element.

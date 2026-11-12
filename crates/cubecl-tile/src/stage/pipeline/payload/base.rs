@@ -77,6 +77,7 @@ pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
         spec.storage.clone(),
         spec.width,
         spec.owner,
+        spec.decoded,
     );
     let stage = Tile::new::<Staged>(
         stage.kind,
