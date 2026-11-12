@@ -3,7 +3,6 @@
 
 use std::marker::PhantomData;
 
-use cubecl::e2m1x2;
 use cubecl::ir::FloatKind;
 use cubecl::ir::VectorSize;
 use cubecl::ir::types::Fp8Format;
@@ -14,6 +13,7 @@ use cubecl::post_processing::minifloat::{
 };
 use cubecl::prelude::barrier::Barrier;
 use cubecl::quant::scheme::QuantValue;
+use cubecl::{e2m1x2, e4m3, e5m2};
 use cubecl_std::quant::fp4::{e2m1_packed_bits_to_float, float_to_e2m1_bits};
 
 use crate::{Field, FieldDecode, Packing};
@@ -40,6 +40,9 @@ pub fn unpack_line<F: Numeric, NQ: Size, NF: Size>(
             unpack_e2m1_line::<F, NQ, NF>(words, comptime!(FieldDecode::Placed { lifted }))
         }
         FieldDecode::Byte(format) => unpack_byte_line::<F, NQ, NF>(words, format),
+        FieldDecode::ConvertedByte(format) => {
+            unpack_converted_byte_line::<F, NQ, NF>(words, format)
+        }
         FieldDecode::PlacedByte { format, lifted } => {
             unpack_placed_byte_line::<F, NQ, NF>(words, format, lifted)
         }
@@ -163,9 +166,9 @@ fn codes_of<NF: Size>(values: Vector<f32, NF>, #[comptime] field: Field) -> Vect
             float_to_e2m1_bits::<f32, NF>(values)
         }
         FieldDecode::Byte(Fp8Format::UE8M0) => f32_to_ue8m0_bits::<NF>(values),
-        FieldDecode::Byte(format) | FieldDecode::PlacedByte { format, .. } => {
-            f32_to_fp8_bits::<NF>(values, format)
-        }
+        FieldDecode::Byte(format)
+        | FieldDecode::PlacedByte { format, .. }
+        | FieldDecode::ConvertedByte(format) => f32_to_fp8_bits::<NF>(values, format),
         FieldDecode::Bits(kind) => {
             let bits = Vector::<u32, NF>::reinterpret(values);
             match comptime!(kind) {
@@ -308,6 +311,40 @@ fn unpack_e2m1_line<F: Numeric, NQ: Size, NF: Size>(
             Vector::<F, Const<8>>::cast_from(Vector::<e2m1x2, Const<4>>::reinterpret(
                 words.extract(w),
             ))
+        };
+        #[unroll]
+        for j in 0..fields {
+            out.insert(w * fields + j, values.extract(j));
+        }
+    }
+    out
+}
+
+/// The 8-bit float codes, four a word, cast by the device: each word reinterpreted as four of
+/// them, which the compiler lowers to the device's conversion.
+#[cube]
+fn unpack_converted_byte_line<F: Numeric, NQ: Size, NF: Size>(
+    words: Vector<u32, NQ>,
+    #[comptime] format: Fp8Format,
+) -> Vector<F, NF> {
+    let nq = NQ::value();
+    let nf = NF::value();
+    let fields = comptime!(fields_per_word(nq, nf, 8));
+
+    let mut out = Vector::<F, NF>::empty();
+    #[unroll]
+    for w in 0..words.vector_size() {
+        let word = words.extract(w);
+        let values = match format {
+            Fp8Format::E4M3 => {
+                Vector::<F, Const<4>>::cast_from(Vector::<e4m3, Const<4>>::reinterpret(word))
+            }
+            Fp8Format::E5M2 => {
+                Vector::<F, Const<4>>::cast_from(Vector::<e5m2, Const<4>>::reinterpret(word))
+            }
+            other => {
+                panic!("unpack_converted_byte_line: {other:?} is not a value a device converts")
+            }
         };
         #[unroll]
         for j in 0..fields {

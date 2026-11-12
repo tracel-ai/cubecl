@@ -15,7 +15,8 @@ use pliron::dict_key;
 
 dict_key!(
     /// Kernel argument for the cube barrier state.
-    ATTR_SYNC_CUBE_STATE, "sync_cube_state"
+    ATTR_SYNC_CUBE_STATE,
+    "sync_cube_state"
 );
 
 /// Number of barrier counters required per launch.
