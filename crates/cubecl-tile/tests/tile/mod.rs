@@ -22,6 +22,7 @@ mod leaf;
 mod leaves;
 mod matmul;
 mod monoid;
+mod mul_exp;
 mod online_softmax;
 mod packed;
 mod paged;

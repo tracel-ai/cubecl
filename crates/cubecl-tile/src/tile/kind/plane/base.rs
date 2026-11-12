@@ -1017,6 +1017,22 @@ impl PlanePartition {
         }
     }
 
+    /// [`MmaData::mul_exp_along`] over every fragment, each at its place in the grid.
+    pub(crate) fn mul_exp_along<E: Float>(&self, bias: &Procedural, #[comptime] space: &Space) {
+        #[unroll]
+        for mi in 0..self.m_tiles {
+            #[unroll]
+            for ni in 0..self.n_tiles {
+                let mut fragment = self.at(mi, ni).manual_fragment();
+                fragment.mul_exp_along::<E>(
+                    bias,
+                    space,
+                    comptime!((mi * self.rows, ni * self.cols)),
+                );
+            }
+        }
+    }
+
     /// Each row's max, starting from `seed`'s: every fragment's cells on it, then the units'.
     pub(crate) fn maxima_along<E: Float>(&self, seed: &Array<E>) -> Array<E> {
         let rows = self.at(0usize, 0usize).rows_per_unit::<E>();

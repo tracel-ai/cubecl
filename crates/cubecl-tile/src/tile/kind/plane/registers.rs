@@ -351,6 +351,27 @@ impl RegisterData {
         }
     }
 
+    /// `self[i, s] = self[i, s] · exp(bias[i, s])` at every cell, the bias read at the cell of a
+    /// tile over `space` that the block holds ([`AxisSlices::mul_exp`]).
+    pub(crate) fn mul_exp_along<E: Float>(&mut self, bias: &Procedural, #[comptime] space: &Space) {
+        let data = self.data.at_mut::<E>();
+        #[unroll]
+        for r in 0..self.mr {
+            #[unroll]
+            for n in 0..self.nr {
+                let at = r * self.nr + n;
+                let mut line = data[at];
+                #[unroll]
+                for j in 0..self.vector_size {
+                    let column = n * self.vector_size + j;
+                    let cell = bias.value_at::<E>(r as u32, column as u32, space);
+                    line.insert(j, AxisSlices::mul_exp_cell::<E>(line.extract(j), cell));
+                }
+                data[at] = line;
+            }
+        }
+    }
+
     /// Each slice's max, starting from `seed`'s.
     pub(crate) fn maxima_along<E: Float>(&self, seed: &Array<E>) -> Array<E> {
         let data = self.data.at::<E>();
