@@ -1190,11 +1190,11 @@ impl Client {
         );
         if self.skips_communication() {
             let _skipped =
-                Self::collective_scope(collective, &device_ids, size, CollectivePath::Skipped);
+                self.collective_scope(collective, &device_ids, size, CollectivePath::Skipped);
             return;
         }
         self.prepare_collective(collective, device_ids.clone());
-        let _collective = Self::collective_scope(collective, &device_ids, size, self.native_path());
+        let _collective = self.collective_scope(collective, &device_ids, size, self.native_path());
         self.issue_part(StreamRole::Collective);
         self.queue_all_reduce(
             src,
@@ -1206,8 +1206,9 @@ impl Client {
     }
 
     /// Issues `collective` over `members`, `bytes` each, as the parent of what this thread issues
-    /// until the scope drops.
+    /// until the scope drops. Every member runs this client's runtime.
     fn collective_scope(
+        &self,
         collective: Collective,
         members: &[DeviceId],
         bytes: u64,
@@ -1215,7 +1216,13 @@ impl Client {
     ) -> ExecutionScope {
         ExecutionScope::communication(|| Communication::Collective {
             operation: collective,
-            members: members.to_vec(),
+            members: members
+                .iter()
+                .map(|device| ServiceId {
+                    device: *device,
+                    ..self.service_id()
+                })
+                .collect(),
             bytes,
             path,
         })

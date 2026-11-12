@@ -658,6 +658,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
 
 #[test_log::test]
 #[serial_test::serial]
+#[cfg(feature = "std")]
 fn an_observed_group_all_reduce_is_one_collective_with_a_part_per_member() {
     let (group, devices) = transported_group_on([60, 61]);
     let recorded = Recorded::on(&devices);
@@ -675,7 +676,7 @@ fn an_observed_group_all_reduce_is_one_collective_with_a_part_per_member() {
         collective.kind,
         ExecutionKind::Communication(Communication::Collective {
             operation: Collective::AllReduce,
-            members: devices.clone(),
+            members: services(&group),
             bytes: 8,
             path: CollectivePath::Native(TransportProvider::Nccl),
         })
@@ -699,7 +700,7 @@ fn an_observed_skipped_collective_is_issued_as_skipped_with_no_part() {
         kinds,
         [ExecutionKind::Communication(Communication::Collective {
             operation: Collective::AllReduce,
-            members: devices,
+            members: services(&group),
             bytes: 8,
             path: CollectivePath::Skipped,
         })]
@@ -708,6 +709,7 @@ fn an_observed_skipped_collective_is_issued_as_skipped_with_no_part() {
 
 #[test_log::test]
 #[serial_test::serial]
+#[cfg(feature = "std")]
 fn a_scope_parents_the_launches_and_transfers_issued_inside_it() {
     let (group, devices) = transported_group_on([64, 65]);
     let recorded = Recorded::on(&devices);
@@ -723,7 +725,7 @@ fn a_scope_parents_the_launches_and_transfers_issued_inside_it() {
     let watching = ExecutionObservation::new(recorded.clone());
     let emulated = ExecutionScope::communication(|| Communication::Collective {
         operation: Collective::AllReduce,
-        members: devices.clone(),
+        members: services(&group),
         bytes: 4,
         path: CollectivePath::Emulated {
             why: "emulated by the test".into(),
@@ -799,6 +801,7 @@ fn a_transfer_across_runtimes_names_both_ends_apart() {
 
 #[test_log::test]
 #[serial_test::serial]
+#[cfg(feature = "std")]
 fn a_members_part_takes_the_scope_open_on_its_thread_as_its_parent() {
     let (group, devices) = transported_group_on([66, 67]);
     let recorded = Recorded::on(&devices);
@@ -807,7 +810,7 @@ fn a_members_part_takes_the_scope_open_on_its_thread_as_its_parent() {
     let watching = ExecutionObservation::new(recorded.clone());
     let collective = ExecutionScope::communication(|| Communication::Collective {
         operation: Collective::AllReduce,
-        members: devices.clone(),
+        members: services(&group),
         bytes: 8,
         path: CollectivePath::Native(TransportProvider::Nccl),
     });
@@ -833,6 +836,10 @@ fn transported_group_on(indices: [u16; 2]) -> (ClientGroup, Vec<DeviceId>) {
         .map(|device| Client::load::<DummyServer<Transported>>(*device))
         .collect();
     (ClientGroup::new(clients).unwrap(), devices)
+}
+
+fn services(group: &ClientGroup) -> Vec<ServiceId> {
+    group.clients().iter().map(Client::service_id).collect()
 }
 
 fn assert_parts_of(
@@ -880,7 +887,7 @@ impl Recorded {
             | ExecutionKind::Part { place }
             | ExecutionKind::Wait { place, .. } => on(&place.service.device),
             ExecutionKind::Communication(Communication::Collective { members, .. }) => {
-                members.iter().any(on)
+                members.iter().any(|member| on(&member.device))
             }
             ExecutionKind::Communication(Communication::Transfer { from, to, .. }) => {
                 on(&from.device) || on(&to.device)

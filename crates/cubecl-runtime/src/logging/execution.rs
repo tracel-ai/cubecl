@@ -1,6 +1,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
-use cubecl_common::device::{DeviceId, ServiceId};
+use cubecl_common::device::ServiceId;
 use cubecl_environment::stream::StreamId;
 
 use crate::server::{Collective, TransportProvider};
@@ -95,8 +95,8 @@ pub enum Communication {
     Collective {
         /// Which collective.
         operation: Collective,
-        /// The group's devices, rank `i` at position `i`.
-        members: Vec<DeviceId>,
+        /// The group's devices with their runtime, rank `i` at position `i`.
+        members: Vec<ServiceId>,
         /// The size of one member's source: the root's for a broadcast.
         bytes: u64,
         /// How it runs.

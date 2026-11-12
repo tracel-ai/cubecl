@@ -357,7 +357,7 @@ impl ClientGroup {
         mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
     ) {
         if self.skips_communication() {
-            let _skipped = Client::collective_scope(
+            let _skipped = self.clients[0].collective_scope(
                 collective,
                 &self.device_ids,
                 bytes,
@@ -367,7 +367,7 @@ impl ClientGroup {
         }
         // Outside the lock, which setting the group up takes itself.
         self.clients[0].prepare_collective(collective, self.device_ids.clone());
-        let _collective = Client::collective_scope(
+        let _collective = self.clients[0].collective_scope(
             collective,
             &self.device_ids,
             bytes,
