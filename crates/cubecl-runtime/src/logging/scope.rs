@@ -12,6 +12,7 @@ use super::{Communication, ExecutionId, ExecutionKind, observer::issue};
 #[must_use = "a scope parents nothing once it is dropped"]
 pub struct ExecutionScope {
     replaced: Option<Option<ExecutionId>>,
+    // The parent is thread-local, so a scope dropped on another thread would restore the wrong one.
     _on_this_thread: PhantomData<*const ()>,
 }
 

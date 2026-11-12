@@ -4,7 +4,7 @@ use crate::{
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::{
-        CollectivePath, Communication, ExecutionKind, ExecutionScope, Place, ProfileLevel,
+        CollectivePath, Communication, ExecutionKind, ExecutionPlace, ExecutionScope, ProfileLevel,
         StreamRole, TransferRoute,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
@@ -1234,7 +1234,7 @@ impl Client {
     /// Issues this device's part of the communication open on this thread, on `stream`.
     fn issue_part(&self, stream: StreamRole) {
         crate::logging::issue(|| ExecutionKind::Part {
-            place: Place {
+            place: ExecutionPlace {
                 device: self.device.device_id(),
                 stream,
             },
@@ -1479,7 +1479,7 @@ impl Client {
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
         let execution = crate::logging::issue(|| ExecutionKind::Kernel {
-            place: Place {
+            place: ExecutionPlace {
                 device: self.device.device_id(),
                 stream: StreamRole::Compute(stream_id),
             },

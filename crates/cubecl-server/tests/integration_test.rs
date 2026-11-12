@@ -11,7 +11,7 @@ use cubecl_server::benchmark::CommunicationSkipGuard;
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::logging::{
     CollectivePath, Communication, Execution, ExecutionKind, ExecutionObservation,
-    ExecutionObserver, ExecutionScope, Place, StreamRole, TransferRoute,
+    ExecutionObserver, ExecutionPlace, ExecutionScope, StreamRole, TransferRoute,
 };
 use cubecl_server::server::{
     Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
@@ -748,7 +748,7 @@ fn a_scope_parents_the_launches_and_transfers_issued_inside_it() {
         matches!(
             kernel.kind,
             ExecutionKind::Kernel {
-                place: Place {
+                place: ExecutionPlace {
                     stream: StreamRole::Compute(_),
                     device,
                 },
@@ -821,7 +821,7 @@ fn assert_parts_of(
     let expected: Vec<_> = devices
         .iter()
         .map(|device| ExecutionKind::Part {
-            place: Place {
+            place: ExecutionPlace {
                 device: *device,
                 stream,
             },

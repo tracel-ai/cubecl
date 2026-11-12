@@ -212,7 +212,8 @@ pub trait ExecutionObserver: Send + Sync {
     ///
     /// The default drops it: an observer asking for timing owes an
     /// implementation.
-    fn measured(&self, _execution: &Execution, _measurement: Measurement) {}
+    #[allow(unused_variables)]
+    fn measured(&self, execution: &Execution, measurement: Measurement) {}
 }
 
 /// Watches every execution the process issues for as long as it lives, then
@@ -447,7 +448,9 @@ static OBSERVER: RwLock<Option<Arc<dyn ExecutionObserver>>> = RwLock::new(None);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logging::{Communication, ExecutionScope, Place, StreamRole, TransferRoute};
+    use crate::logging::{
+        Communication, ExecutionPlace, ExecutionScope, StreamRole, TransferRoute,
+    };
     use alloc::vec::Vec;
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
     // bring in itself.
@@ -458,7 +461,7 @@ mod tests {
 
     fn launch(name: &'static str) -> Option<Execution> {
         issue(|| ExecutionKind::Kernel {
-            place: Place {
+            place: ExecutionPlace {
                 device: DeviceId::new(0, 0),
                 stream: StreamRole::Compute(StreamId { value: 0 }),
             },

@@ -45,7 +45,7 @@ pub enum ExecutionKind {
     /// logger does.
     Kernel {
         /// Where it runs.
-        place: Place,
+        place: ExecutionPlace,
         /// The kernel's name.
         name: &'static str,
     },
@@ -57,20 +57,20 @@ pub enum ExecutionKind {
     /// stream.
     Part {
         /// Where it runs.
-        place: Place,
+        place: ExecutionPlace,
     },
     /// A compute stream reaching the point where it needs what it awaits.
     Wait {
         /// The compute stream that waits.
-        place: Place,
+        place: ExecutionPlace,
         /// What it waits for.
-        awaits: Awaited,
+        awaits: WaitTarget,
     },
 }
 
 /// Where an execution runs: a device, and which of its streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Place {
+pub struct ExecutionPlace {
     /// The device.
     pub device: DeviceId,
     /// The stream on it.
@@ -142,7 +142,7 @@ pub enum TransferRoute {
 
 /// What a [`Wait`](ExecutionKind::Wait) waits for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Awaited {
+pub enum WaitTarget {
     /// One part, on another stream of the same device.
     Part(ExecutionId),
     /// Every collective queued on the device so far.
