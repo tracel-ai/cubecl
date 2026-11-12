@@ -26,15 +26,15 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, SendOutcome, SendReport, Server,
-        ServerCommunication, ServerError, ServerUtilities, TransportProvider,
+        BufferBinding, ComputeWait, CopyDescriptor, CubeCount, DeviceTransport, Handle,
+        KernelArguments, KernelResource, ProfileError, ProfilingToken, Reduction, SendOutcome,
+        SendReport, Server, ServerCommunication, ServerError, ServerUtilities, TransportProvider,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
 };
 use cubecl_zspace::{Shape, Strides};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Makes `start_profile` fail while set, the way a real server refuses one
 /// inside a graph capture window. Process-wide, so tests that flip it run
@@ -121,6 +121,30 @@ impl Marker for Transported {
     }
 }
 
+/// A marker for a dummy runtime with [`Transported`]'s transport that one test has to itself, so
+/// the collective parts its devices receive are that test's alone.
+#[derive(Debug)]
+pub enum CountedTransport {}
+
+impl Marker for CountedTransport {
+    fn device_transport() -> Option<DeviceTransport> {
+        Transported::device_transport()
+    }
+}
+
+/// How many collective parts each dummy device has received.
+static COLLECTIVE_PARTS: Mutex<Vec<ServiceId>> = Mutex::new(Vec::new());
+
+/// How many collective parts the dummy device of `service` has received.
+pub fn collective_parts(service: ServiceId) -> usize {
+    COLLECTIVE_PARTS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|received| **received == service)
+        .count()
+}
+
 #[derive(Debug, Clone)]
 pub struct KernelTask {
     kernel: Arc<dyn DummyKernel>,
@@ -172,8 +196,66 @@ impl KernelTask {
 }
 
 /// Only a runtime that claims a transport reaches these: the client refuses a transfer on any
-/// other before it is queued.
+/// other before it is queued. A collective part is counted and moves nothing.
 impl<M: Marker> ServerCommunication for DummyServer<M> {
+    fn comm_init(&mut self, _device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        Ok(())
+    }
+
+    fn all_reduce(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _reduction: Reduction,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+        _wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn all_gather(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn reduce_scatter(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _reduction: Reduction,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn broadcast(
+        &mut self,
+        _src: Option<BufferBinding>,
+        _dst: BufferBinding,
+        _stream_id: StreamId,
+        _root: DeviceId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
+    fn all_to_all(
+        &mut self,
+        _src: BufferBinding,
+        _dst: BufferBinding,
+        _stream_id: StreamId,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.count_collective_part()
+    }
+
     fn send(
         &mut self,
         _desc: CopyDescriptor,
@@ -546,6 +628,14 @@ impl<M: Marker> DummyServer<M> {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn count_collective_part(&self) -> Result<(), ServerError> {
+        COLLECTIVE_PARTS
+            .lock()
+            .unwrap()
+            .push(self.utilities.service);
+        Ok(())
+    }
+
     fn bind_with_data(&mut self, data: &[u8], handle: Handle, stream_id: StreamId) {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
