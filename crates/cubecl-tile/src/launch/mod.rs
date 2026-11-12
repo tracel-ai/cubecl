@@ -22,4 +22,5 @@ pub use base::{Grid, spawnable};
 pub use binding::{Arg, Bound, Labelled, Unbound, Unlabelled};
 pub use refusal::Refusal;
 pub use spec::{BoundaryPolicy, Delivery};
+pub(crate) use spec::{COPY_ENGINE_LINE_BYTES, Landing, LineOrder};
 pub use vectorization::{MaskedExtent, VectorRequirement, Vectorization};

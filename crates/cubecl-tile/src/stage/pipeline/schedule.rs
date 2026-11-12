@@ -69,7 +69,8 @@ pub enum Prefetch {
 impl Prefetch {
     /// Scalars one unit holds when `units` prefetch `elements` values read `width` at a time.
     pub fn scalars(elements: usize, units: usize, width: usize) -> usize {
-        UnitLines::new(elements.div_ceil(width), units).scalars(width)
+        let turns = FillUnits::cube(units).unrolled(elements.div_ceil(width));
+        turns.count().expect("written-out turns are counted") * width
     }
 
     /// Whether a register prefetch of `scalars` a unit, over both operands, is accepted.

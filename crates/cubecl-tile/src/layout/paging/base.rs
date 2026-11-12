@@ -86,7 +86,7 @@ impl Paging {
         if !projection.is_direct() || projection.is_tiled() || !stored_tiles.is_empty() {
             return Err(Refusal::PagingOfAStatedLayout);
         }
-        if !matches!(delivery, Delivery::SyncPerUnit | Delivery::AsyncPerUnit) {
+        if delivery.scope() != ComputeScope::Unit {
             return Err(Refusal::PagingMovedByRuns);
         }
         let (sequence, _) = self.dims(projection)?;

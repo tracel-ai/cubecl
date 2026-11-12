@@ -79,55 +79,25 @@ impl Tile {
             varies
         ));
         let read = src.nd_packed::<F, LW>(comptime!(Guard::Checked));
-        let mut out = out;
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
-        // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
-        // runtime stride stalls each store on Metal's in-order pipe.
-        if units > 0 && loads.div_ceil(units) <= 8 {
-            #[unroll]
-            for t in 0..loads.div_ceil(units) {
-                let at_load = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if (t + 1) * units <= loads {
-                    self.encode_load_into::<F, I, WP, LW>(
-                        &read,
-                        &mut out,
-                        at_load,
-                        coarse,
-                        &from,
-                        line.clone(),
-                    );
-                } else {
-                    if at_load < comptime!(loads as u32) {
-                        self.encode_load_into::<F, I, WP, LW>(
-                            &read,
-                            &mut out,
-                            at_load,
-                            coarse,
-                            &from,
-                            line.clone(),
-                        );
-                    }
-                }
-            }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for at_load in range_stepped(first, comptime!(loads as u32), stride) {
-                self.encode_load_into::<F, I, WP, LW>(
-                    &read,
-                    &mut out,
-                    at_load,
-                    coarse,
-                    &from,
-                    line.clone(),
-                );
-            }
-        }
+        let mut lines = EncodedLoads::<F, I, WP, LW>::new(
+            self,
+            &read,
+            out,
+            coarse,
+            comptime!(from.clone()),
+            comptime!(line.clone()),
+        );
+        FillUnits::move_lines::<EncodedLoads<F, I, WP, LW>>(
+            fill,
+            loads,
+            comptime!(fill.turns(Some(loads))),
+            &mut lines,
+        );
     }
 
     /// This tile's `at_load`-th load, its lines read out of `read`, a source spanning `from` read
@@ -414,4 +384,55 @@ fn one_block_a_load(
             .extents()
             .iter()
             .all(|&(axis, extent)| block.contains(axis) && block.extent(axis) == extent)
+}
+
+/// A quantizing copy's load: the source's values the load covers, each divided by its scale and
+/// rounded to its code, written as the load's word.
+#[derive(CubeType)]
+struct EncodedLoads<'a, 'o, F: Float, I: Numeric, WP: Size, LW: Size> {
+    tile: &'a Tile,
+    read: &'a Masked<'a, Vector<F, LW>, CoordsDyn>,
+    out: MaskedMut<'o, Vector<I, WP>, CoordsDyn>,
+    coarse: f32,
+    #[cube(comptime)]
+    from: Space,
+    #[cube(comptime)]
+    line: VectorTile,
+}
+
+#[cube]
+impl<'a, 'o, F: Float, I: Numeric, WP: Size, LW: Size> EncodedLoads<'a, 'o, F, I, WP, LW> {
+    fn new(
+        tile: &'a Tile,
+        read: &'a Masked<'a, Vector<F, LW>, CoordsDyn>,
+        out: MaskedMut<'o, Vector<I, WP>, CoordsDyn>,
+        coarse: f32,
+        #[comptime] from: Space,
+        #[comptime] line: VectorTile,
+    ) -> Self {
+        EncodedLoads::<'a, 'o, F, I, WP, LW> {
+            tile,
+            read,
+            out,
+            coarse,
+            from,
+            line,
+        }
+    }
+}
+
+#[cube]
+impl<'a, 'o, F: Float, I: Numeric, WP: Size, LW: Size> LineMove
+    for EncodedLoads<'a, 'o, F, I, WP, LW>
+{
+    fn move_line(&mut self, line: usize, #[comptime] _turn: Option<usize>) {
+        self.tile.encode_load_into::<F, I, WP, LW>(
+            self.read,
+            &mut self.out,
+            line as u32,
+            self.coarse,
+            comptime!(&self.from),
+            comptime!(self.line.clone()),
+        );
+    }
 }

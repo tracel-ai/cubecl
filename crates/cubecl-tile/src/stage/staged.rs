@@ -44,14 +44,13 @@ impl Memory {
         let fill = comptime!(self.access.fill);
         let mut dst = self.flat_mut::<T, Const<1>>();
         let total = dst.shape();
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
-            let pos = shape.unravel(i.cast::<u32>());
-            // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
-            dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));
-            i += stride;
-        }
+        let mut lines = ComputedLines::<T>::new(&mut dst, src, &shape, comptime!(space.clone()));
+        FillUnits::move_lines::<ComputedLines<T>>(
+            fill,
+            total,
+            comptime!(Turns::Strided),
+            &mut lines,
+        );
     }
 
     /// Allocate a tile staging one `divide()` sub-tile of `operand`, laid out as `storage` and
@@ -225,5 +224,45 @@ impl Memory {
                 owner,
             ),
         }
+    }
+}
+
+/// A procedural fill's line: the source's value at the cell the line holds, computed where it
+/// lands.
+#[derive(CubeType)]
+struct ComputedLines<'a, T: Numeric> {
+    d: &'a mut FlatViewMut<'a, Vector<T, Const<1>>>,
+    src: &'a Procedural,
+    shape: &'a Coords<u32>,
+    #[cube(comptime)]
+    space: Space,
+}
+
+#[cube]
+impl<'a, T: Numeric> ComputedLines<'a, T> {
+    fn new(
+        d: &'a mut FlatViewMut<'a, Vector<T, Const<1>>>,
+        src: &'a Procedural,
+        shape: &'a Coords<u32>,
+        #[comptime] space: Space,
+    ) -> Self {
+        ComputedLines::<'a, T> {
+            d,
+            src,
+            shape,
+            space,
+        }
+    }
+}
+
+#[cube]
+impl<'a, T: Numeric> LineMove for ComputedLines<'a, T> {
+    fn move_line(&mut self, line: usize, #[comptime] _turn: Option<usize>) {
+        let pos = self.shape.unravel(line.cast::<u32>());
+        // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
+        self.d.write(
+            line,
+            Vector::cast_from(self.src.read_masked::<T>(&pos, comptime!(&self.space))),
+        );
     }
 }

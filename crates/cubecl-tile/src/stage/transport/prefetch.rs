@@ -3,6 +3,8 @@
 
 use cubecl::prelude::*;
 
+use cubecl_std::tensor::layout::CoordsDyn;
+
 use super::padded::read_stage_line;
 use super::straight::fill_extent;
 use crate::*;
@@ -10,86 +12,47 @@ use crate::*;
 /// Most scalars of both operands' stages one unit may hold in registers beside an accumulator.
 pub(crate) const MOST_FETCHED_SCALARS: usize = 128;
 
-/// The lines of one stage a single unit moves: unit `u` takes lines `u`, `u + units`, ….
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct UnitLines {
-    /// The units the lines are spread over: the launch's `CUBE_DIM`, or one plane's width.
-    fill: FillUnits,
-    /// The stage's line count.
-    lines: usize,
-}
-
-impl UnitLines {
-    /// The lines of a stage of `lines` spread over `units`; panics if `units` is zero.
-    pub(crate) fn new(lines: usize, units: usize) -> Self {
-        UnitLines::of(lines, FillUnits::cube(units))
-    }
-
-    /// [`new`](Self::new) for the units `fill` names.
-    pub(crate) fn of(lines: usize, fill: FillUnits) -> Self {
-        assert!(
-            fill.count > 0,
-            "UnitLines: a stage fetched into registers spreads its lines over the launch's \
-             units, which this operand's spec does not state: bind it through `Launcher::arg`, \
-             or set its `units`"
-        );
-        UnitLines { fill, lines }
-    }
-
-    /// Lines one unit moves.
-    pub(crate) fn tasks(self) -> usize {
-        self.lines.div_ceil(self.fill.count)
-    }
-
-    /// Scalars one unit holds in registers when each line is `width` wide.
-    pub(crate) fn scalars(self, width: usize) -> usize {
-        self.tasks() * width
-    }
-
-    /// Whether task `t` can run past the stage.
-    fn guarded(self, t: usize) -> bool {
-        (t + 1) * self.fill.count > self.lines
-    }
-}
-
 #[cube]
 impl Memory {
-    /// The lines of this stage one unit moves, unless its shape is not static or its fill does not
-    /// state the units it spreads over.
-    #[allow(dead_code)] // Reached through its expand, from `unit_lines` and `fetched_scalars`.
-    fn known_unit_lines(&self) -> comptime_type!(Option<UnitLines>) {
+    /// The turns each unit takes over this stage's lines, unless its shape is not static or its
+    /// fill does not state the units it spreads over.
+    #[allow(dead_code)] // Reached through its expand, from `fetched_turns` and `fetched_scalars`.
+    fn known_turns(&self) -> comptime_type!(Option<usize>) {
         let stage_lines = self.stage_lines().constant();
         let fill = comptime!(self.access.fill);
         comptime!(
             stage_lines
                 .filter(|_| fill.count > 0)
-                .map(|lines| UnitLines::of(lines as usize, fill))
+                .and_then(|lines| fill.unrolled(lines as usize).count())
         )
     }
 
-    /// The lines of this stage one unit moves; known wherever
+    /// The turns each unit takes over this stage's lines, every one written out; known wherever
     /// [`fetches_straight`](Memory::fetches_straight) holds.
     #[allow(dead_code)] // Reached through its expand, from `fetch_straight` and `store_fetched`.
-    fn unit_lines(&self) -> comptime_type!(UnitLines) {
-        let lines = self.known_unit_lines();
-        comptime!(lines.expect("Memory: a stage fetched into registers has a known share"))
+    fn fetched_turns(&self) -> comptime_type!(Turns) {
+        let stage_lines = self.stage_lines().constant();
+        let fill = comptime!(self.access.fill);
+        comptime!(fill.unrolled(
+            stage_lines.expect("Memory: a stage fetched into registers has a known share") as usize
+        ))
     }
 
     /// Scalars of this stage one unit holds in registers between fetch and store, unless its share
     /// is unknown.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
     pub(crate) fn fetched_scalars(&self) -> comptime_type!(Option<usize>) {
-        let lines = self.known_unit_lines();
-        comptime!(lines.map(|lines| lines.scalars(self.store.vector_size)))
+        let turns = self.known_turns();
+        comptime!(turns.map(|turns| turns * self.store.vector_size))
     }
 
     /// Whether this stage is filled from `src` by copying its lines as they lie, each unit's share
     /// known: all [`fetch_straight`](Memory::fetch_straight) moves.
     #[allow(dead_code)] // Reached through its expand, from `Tile::fetches_straight_from`.
     pub(crate) fn fetches_straight(&self, src: &Memory) -> comptime_type!(bool) {
-        let lines = self.known_unit_lines();
+        let turns = self.known_turns();
         comptime!(
-            lines.is_some()
+            turns.is_some()
                 && self.store.packing.as_stored()
                 && src.store.packing.as_stored()
                 && self.access.whole
@@ -128,38 +91,28 @@ impl Memory {
         ));
         let check = comptime!(src.access.overhang.masks());
         comptime!(fill_extent(space, w, w, check));
-        let layout = self.layout.clone();
-        let lines = self.unit_lines();
+        let fill = comptime!(self.access.fill);
+        let turns = self.fetched_turns();
         let total = self.stage_lines();
         let s = Masked::new(
             src.window_view_storage::<T, W>(comptime!(Guard::Checked)),
             check,
         );
-        #[unroll]
-        for t in 0..comptime!(lines.tasks()) {
-            let i = task_line(t, comptime!(lines));
-            if in_stage(i, total, t, comptime!(lines)) {
-                fetched[t] =
-                    read_stage_line::<T, W, W>(&s, &layout.line_coords(i), comptime!(None));
-            }
-        }
+        let mut lines = FetchedLines::<T, W>::new(fetched, &s, &self.layout);
+        FillUnits::move_lines::<FetchedLines<T, W>>(fill, total, turns, &mut lines);
     }
 
     /// Write this unit's `fetched` lines into the stage. The caller must `sync_cube` before (after
     /// the stage's last read) and after (before the next read).
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
     pub(crate) fn store_fetched<T: Numeric, W: Size>(&mut self, fetched: &Array<Vector<T, W>>) {
-        let lines = self.unit_lines();
+        let fill = comptime!(self.access.fill);
+        let turns = self.fetched_turns();
         let total = self.stage_lines();
         let layout = self.layout.clone();
         let d = self.lines_storage_mut::<T, W>();
-        #[unroll]
-        for t in 0..comptime!(lines.tasks()) {
-            let i = task_line(t, comptime!(lines));
-            if in_stage(i, total, t, comptime!(lines)) {
-                d[layout.line_offset(i)] = fetched[t];
-            }
-        }
+        let mut lines = StoredLines::<T, W>::new(d, fetched, &layout);
+        FillUnits::move_lines::<StoredLines<T, W>>(fill, total, turns, &mut lines);
     }
 
     /// Refuse a pairing this transport cannot move.
@@ -173,59 +126,58 @@ impl Memory {
     }
 }
 
-/// The line task `t` of this unit moves.
-#[cube]
-fn task_line(#[comptime] t: usize, #[comptime] lines: UnitLines) -> usize {
-    FillUnits::worker(lines.fill) + (t * lines.fill.count)
+/// A register prefetch's line: the source's line at the coordinates the stage's line holds, read
+/// into the register of this unit's turn.
+#[derive(CubeType)]
+struct FetchedLines<'a, T: Numeric, W: Size> {
+    fetched: &'a mut Array<Vector<T, W>>,
+    s: &'a Masked<'a, Vector<T, W>, CoordsDyn>,
+    layout: &'a BufferLayout,
 }
 
-/// Whether line `i` is inside the stage; a constant where task `t` cannot run past it.
 #[cube]
-fn in_stage(i: usize, total: usize, #[comptime] t: usize, #[comptime] lines: UnitLines) -> bool {
-    if lines.guarded(t) {
-        i < total
-    } else {
-        true.runtime()
+impl<'a, T: Numeric, W: Size> FetchedLines<'a, T, W> {
+    fn new(
+        fetched: &'a mut Array<Vector<T, W>>,
+        s: &'a Masked<'a, Vector<T, W>, CoordsDyn>,
+        layout: &'a BufferLayout,
+    ) -> Self {
+        FetchedLines::<'a, T, W> { fetched, s, layout }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_unit_runs_the_same_tasks() {
-        assert_eq!(UnitLines::new(256, 64).tasks(), 4);
-        assert_eq!(UnitLines::new(255, 64).tasks(), 4);
-        assert_eq!(UnitLines::new(1, 64).tasks(), 1);
+#[cube]
+impl<'a, T: Numeric, W: Size> LineMove for FetchedLines<'a, T, W> {
+    fn move_line(&mut self, line: usize, #[comptime] turn: Option<usize>) {
+        let turn = comptime!(turn.expect("FetchedLines: a fetch writes every turn out"));
+        self.fetched[turn] =
+            read_stage_line::<T, W, W>(self.s, &self.layout.line_coords(line), comptime!(None));
     }
+}
 
-    #[test]
-    fn the_registers_are_the_tasks_at_the_width() {
-        assert_eq!(UnitLines::new(256, 64).scalars(4), 16);
-        assert_eq!(UnitLines::new(256, 64).scalars(1), 4);
+/// A register prefetch's line stored: the register of this unit's turn, into the stage's line.
+#[derive(CubeType)]
+struct StoredLines<'a, T: Numeric, W: Size> {
+    d: &'a mut [Vector<T, W>],
+    fetched: &'a Array<Vector<T, W>>,
+    layout: &'a BufferLayout,
+}
+
+#[cube]
+impl<'a, T: Numeric, W: Size> StoredLines<'a, T, W> {
+    fn new(
+        d: &'a mut [Vector<T, W>],
+        fetched: &'a Array<Vector<T, W>>,
+        layout: &'a BufferLayout,
+    ) -> Self {
+        StoredLines::<'a, T, W> { d, fetched, layout }
     }
+}
 
-    #[test]
-    fn only_a_last_task_past_the_lines_is_guarded() {
-        let exact = UnitLines::new(256, 64);
-        for t in 0..exact.tasks() {
-            assert!(
-                !exact.guarded(t),
-                "task {t} of an exact spread needs no guard"
-            );
-        }
-        let ragged = UnitLines::new(200, 64);
-        assert_eq!(ragged.tasks(), 4);
-        for t in 0..3 {
-            assert!(!ragged.guarded(t), "task {t} lies wholly inside the lines");
-        }
-        assert!(ragged.guarded(3), "the last task runs past 200 lines");
-    }
-
-    #[test]
-    #[should_panic(expected = "spreads its lines over the launch's units")]
-    fn lines_with_no_units_are_refused() {
-        UnitLines::new(256, 0);
+#[cube]
+impl<'a, T: Numeric, W: Size> LineMove for StoredLines<'a, T, W> {
+    fn move_line(&mut self, line: usize, #[comptime] turn: Option<usize>) {
+        let turn = comptime!(turn.expect("StoredLines: a store writes every turn out"));
+        self.d[self.layout.line_offset(line)] = self.fetched[turn];
     }
 }

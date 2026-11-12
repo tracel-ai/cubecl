@@ -78,6 +78,20 @@ impl BufferLayout {
         self.logical_of_physical(&physical)
     }
 
+    /// The logical coordinate a copy's line `i` holds, its lines counted in `order`, and where
+    /// that line sits in this buffer: the destination's line `i`, or the line holding the source's
+    /// `i`-th.
+    pub(crate) fn line_in(&self, i: usize, #[comptime] order: LineOrder) -> (CoordsDyn, usize) {
+        match order {
+            LineOrder::Destination => (self.line_coords(i), self.line_offset(i)),
+            LineOrder::Source => {
+                let coords = self.logical_coords(i);
+                let offset = self.to_source_pos(coords.clone());
+                (coords, offset)
+            }
+        }
+    }
+
     /// Where line `i` of this buffer sits: `i` itself unless rows are padded.
     pub(crate) fn line_offset(&self, i: usize) -> usize {
         if comptime!(self.rows.is_pitched()) {
@@ -93,9 +107,11 @@ impl BufferLayout {
         }
     }
 
-    /// The logical coordinate of line `i` counted row-major over the logical extents: the
-    /// source's order, whatever blocking or swizzle places the line here.
-    pub(crate) fn row_major_coords(&self, i: usize) -> CoordsDyn {
+    /// The logical coordinate of line `i` counted row-major over the logical extents, whatever
+    /// blocking or swizzle places the line here: the source's order where the source lays the
+    /// same axes out row-major. A source storage-tiled into blocks of its own is not walked block
+    /// by block.
+    pub(crate) fn logical_coords(&self, i: usize) -> CoordsDyn {
         let rank = comptime!(self.projection.logical_rank());
         let extent = logical_extent(&self.projection, &self.physical_shape);
         let x = i.cast::<u32>();

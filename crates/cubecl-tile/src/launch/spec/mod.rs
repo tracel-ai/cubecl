@@ -8,3 +8,4 @@ pub(crate) mod delivery;
 pub use base::TileSpec;
 pub use boundary_policy::BoundaryPolicy;
 pub use delivery::Delivery;
+pub(crate) use delivery::{COPY_ENGINE_LINE_BYTES, Landing, LineOrder};

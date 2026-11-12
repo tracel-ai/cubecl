@@ -30,15 +30,15 @@ impl Memory {
         let s = src.flat_unpacked::<T, WP, W>();
         let mut d = self.flat_mut::<T, W>();
         let total = d.shape();
-        // One line per unit, striding by the units that fill: the distribution must stay
-        // disjoint, or a destination that adds (`Accumulate`, `Relay`) takes a value more than once.
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
-            // `src` zeroes reads past its bound; the staged buffer writes the full padded cell.
-            d.write(i, s.read(i));
-            i += stride;
-        }
+        // One line per unit: the lines dealt stay disjoint, or a destination that adds
+        // (`Accumulate`, `Relay`) takes a value more than once.
+        let mut lines = ScannedLines::<T, T, W>::new(&mut d, &s);
+        FillUnits::move_lines::<ScannedLines<T, T, W>>(
+            fill,
+            total,
+            comptime!(Turns::Strided),
+            &mut lines,
+        );
     }
 
     /// A copy of `src` into this window with a cast, `S` down (or up) to `T`, one line for one
@@ -72,13 +72,38 @@ impl Memory {
         let s = src.flat_unpacked::<S, W, W>();
         let mut d = self.flat_mut::<T, W>();
         let total = d.shape();
-        // The units that share this window, as the uncast scan strides: a window of one plane's
-        // is moved by that plane alone, and a destination that adds takes each line once.
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
-            d.write(i, Vector::<T, W>::cast_from(s.read(i)));
-            i += stride;
-        }
+        // The units that share this window, as the uncast scan deals them: a window of one
+        // plane's is moved by that plane alone, and a destination that adds takes each line once.
+        let mut lines = ScannedLines::<T, S, W>::new(&mut d, &s);
+        FillUnits::move_lines::<ScannedLines<T, S, W>>(
+            fill,
+            total,
+            comptime!(Turns::Strided),
+            &mut lines,
+        );
+    }
+}
+
+/// A scan's line: the source's line at the same place in its own window, cast to the
+/// destination's element. `src` zeroes reads past its bound; the staged buffer writes the full
+/// padded cell.
+#[derive(CubeType)]
+struct ScannedLines<'a, T: Numeric, S: Numeric, W: Size> {
+    d: &'a mut FlatViewMut<'a, Vector<T, W>>,
+    s: &'a FlatView<'a, Vector<S, W>>,
+}
+
+#[cube]
+impl<'a, T: Numeric, S: Numeric, W: Size> ScannedLines<'a, T, S, W> {
+    fn new(d: &'a mut FlatViewMut<'a, Vector<T, W>>, s: &'a FlatView<'a, Vector<S, W>>) -> Self {
+        ScannedLines::<'a, T, S, W> { d, s }
+    }
+}
+
+#[cube]
+impl<'a, T: Numeric, S: Numeric, W: Size> LineMove for ScannedLines<'a, T, S, W> {
+    fn move_line(&mut self, line: usize, #[comptime] _turn: Option<usize>) {
+        self.d
+            .write(line, Vector::<T, W>::cast_from(self.s.read(line)));
     }
 }

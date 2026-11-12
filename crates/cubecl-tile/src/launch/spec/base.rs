@@ -102,8 +102,7 @@ impl TileSpec {
     }
 
     /// This spec with its stages moved by `delivery`: each unit its own lines, landed when the fill
-    /// returns or after it, or one unit the whole stage in bulk. The kernel does not change; the
-    /// fill does.
+    /// returns or after it. The kernel does not change; the fill does.
     ///
     /// # Panics
     ///
@@ -111,12 +110,9 @@ impl TileSpec {
     /// [`Procedural`](Delivery::Procedural), which moves nothing.
     pub fn delivery(mut self, delivery: Delivery) -> Self {
         assert!(
-            matches!(
-                delivery,
-                Delivery::SyncPerUnit | Delivery::AsyncPerUnit | Delivery::AsyncBulk
-            ),
-            "TileSpec::delivery: a tensor is moved per unit or in bulk; {delivery:?} is a tensor \
-             map's or a coordinate tile's"
+            matches!(delivery, Delivery::SyncPerUnit | Delivery::AsyncPerUnit),
+            "TileSpec::delivery: a tensor is moved per unit; {delivery:?} is a tensor map's or a \
+             coordinate tile's"
         );
         self.delivery = delivery;
         self

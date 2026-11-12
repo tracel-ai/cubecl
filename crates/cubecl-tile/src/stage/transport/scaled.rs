@@ -15,7 +15,7 @@ impl Tile {
         // It decodes in the unit that loads each line; an async copy lands the bytes as they lie.
         let delivery = src.delivery();
         comptime!(assert!(
-            !delivery.is_async(),
+            delivery.landing() == Landing::OnReturn,
             "Tile::dequantize_from: a decoding copy cannot be delivered {delivery:?}; deliver it \
              SyncPerUnit, or stage it as it lies and decode out of the stage"
         ));

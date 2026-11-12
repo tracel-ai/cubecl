@@ -71,6 +71,14 @@ pub enum Refusal {
     /// `fillers` planes are set aside to fill a walk's stages, and the device has no barrier type
     /// for the two roles to meet on.
     FillersWithoutBarriers { fillers: u32 },
+    /// The device has neither the engine this delivery runs on nor the barrier its copies land
+    /// on ([`Delivery::runs_on`](crate::launch::Delivery::runs_on)).
+    DeliveryNotOnDevice(crate::launch::Delivery),
+    /// The ring holds its next stage in the units' registers, which this delivery never passes
+    /// through ([`Delivery::holds`](crate::launch::Delivery::holds)).
+    PrefetchPastDelivery(crate::launch::Delivery),
+    /// The copy engine moves 4, 8 or 16 bytes at once, and a line is `bits` bits.
+    LineNotCopied { bits: usize },
     /// A TMA box edge past the descriptor's per-axis limit `most`.
     BoxPastDescriptor {
         axis: Axis,
@@ -104,8 +112,8 @@ pub enum Refusal {
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on a pool of no pages, or
     /// of pages of no positions: there is no page for a table entry to read.
     PagingOfAnEmptyPool,
-    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on an operand moved by
-    /// runs (a bulk copy, a tensor map): the table resolves one line at a time.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on an operand one unit
+    /// moves whole (a tensor map): the table resolves one line at a time.
     PagingMovedByRuns,
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages whose scales span its
     /// pages or positions unplaced: they are a pool of their own, placed by the same table before
@@ -265,6 +273,20 @@ impl Display for Refusal {
                 f,
                 "Launcher: {fillers} plane(s) are set aside to fill a walk's stages, and this \
                  device carries no barrier type for the two roles to meet on"
+            ),
+            Refusal::DeliveryNotOnDevice(delivery) => write!(
+                f,
+                "{delivery:?}: the device has no engine for it, or no barrier for its copies to \
+                 land on"
+            ),
+            Refusal::PrefetchPastDelivery(delivery) => write!(
+                f,
+                "{delivery:?}: a stage prefetched into the units' registers is loaded and stored by \
+                 the units, which this delivery never passes through"
+            ),
+            Refusal::LineNotCopied { bits } => write!(
+                f,
+                "the copy engine moves 4, 8 or 16 bytes at once, and these lines are {bits} bits"
             ),
             Refusal::BoxPastDescriptor { axis, edge, most } => write!(
                 f,

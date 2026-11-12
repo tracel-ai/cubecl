@@ -55,10 +55,6 @@ impl TransportKind {
         let kind = Self::choose(dst, src, access, space);
         match src.delivery {
             Delivery::AsyncPerUnit => kind.refuse_async(dst, src),
-            Delivery::AsyncBulk => panic!(
-                "TransportKind: a bulk copy moves a stage that is one contiguous run in its \
-                 source's byte order, and no fill checks that yet"
-            ),
             Delivery::SyncPerUnit | Delivery::Tma | Delivery::Procedural => {}
         }
         kind
@@ -350,18 +346,6 @@ mod tests {
     #[should_panic(expected = "an async copy moves whole source lines")]
     fn an_async_copy_refuses_a_padded_stage() {
         kind(plain(4), asynchronous(plain(1)), &access());
-    }
-
-    /// A bulk copy moves the stage as one run, which only a source laid out byte for byte like the
-    /// stage allows, and nothing checks that yet.
-    #[test]
-    #[should_panic(expected = "a bulk copy moves a stage that is one contiguous run")]
-    fn a_bulk_copy_is_refused_until_its_layout_is_checked() {
-        let bulk = StoreForm {
-            delivery: Delivery::AsyncBulk,
-            ..plain(4)
-        };
-        kind(plain(4), bulk, &access());
     }
 
     /// A destination whose gather partitions its buffer, as a block-split output's does, is

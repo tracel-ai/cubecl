@@ -3,6 +3,7 @@
 pub(crate) mod access;
 pub(crate) mod base;
 pub(crate) mod codebook;
+pub(crate) mod fill_units;
 pub(crate) mod global;
 pub(crate) mod slices;
 pub(crate) mod stage;
@@ -12,6 +13,7 @@ pub(crate) mod window;
 
 pub(crate) use base::*;
 pub(crate) use codebook::*;
+pub(crate) use fill_units::*;
 pub(crate) use global::*;
 pub(crate) use stage::*;
 pub(crate) use tma::*;
