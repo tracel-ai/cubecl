@@ -214,8 +214,9 @@ impl ReturnOp {
         Self { op }
     }
 
+    /// The returned value, an operand (`new_with_value`).
     pub fn value(&self, ctx: &Context) -> Option<Value> {
-        self.get_operation().deref(ctx).results().next()
+        self.get_operation().deref(ctx).operands().next()
     }
 }
 

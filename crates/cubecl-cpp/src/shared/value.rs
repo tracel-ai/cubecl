@@ -116,8 +116,12 @@ impl CppConstantAttr for ZeroAttr {
     fn as_f64(&self, _ctx: &Context) -> f64 {
         0.0
     }
-    fn to_cpp(&self, _ctx: &Context) -> String {
-        "{}".to_string()
+    fn to_cpp(&self, ctx: &Context) -> String {
+        // C has no empty initialiser for a scalar.
+        match ctx.target() {
+            Target::OpenCl => "{0}".to_string(),
+            _ => "{}".to_string(),
+        }
     }
 }
 
@@ -143,6 +147,14 @@ pub(crate) fn format_const(ctx: &Context, value: &AttrObj, ty: TypeHandle) -> St
         } else if val == 0.0 && val.is_sign_negative() {
             // Zero prints as the integer `-0`, which is `+0.0` once converted.
             "(-0.0f)".into()
+        } else if ctx.target() == Target::OpenCl && !ty.is_f64(ctx) {
+            // OpenCL C reads an unsuffixed literal as a `double`, which a device without fp64
+            // can only narrow, with a warning.
+            let literal = attr.to_cpp(ctx);
+            match literal.contains(['.', 'e']) {
+                true => format!("{literal}f"),
+                false => format!("{literal}.0f"),
+            }
         } else {
             attr.to_cpp(ctx)
         };
@@ -197,5 +209,15 @@ mod tests {
             constant(Target::Metal, -0.0, FloatKind::BF16),
             "bfloat((-0.0f));\n"
         );
+    }
+
+    /// Single precision, not a `double` the device narrows; a `double` stays one.
+    #[test]
+    fn an_opencl_literal_is_single_precision() {
+        assert_eq!(constant(Target::OpenCl, 0.5, FloatKind::F32), "0.5f;\n");
+        assert_eq!(constant(Target::OpenCl, 2.0, FloatKind::F32), "2.0f;\n");
+        assert_eq!(constant(Target::OpenCl, 0.5, FloatKind::F16), "0.5f;\n");
+        assert_eq!(constant(Target::OpenCl, 0.5, FloatKind::F64), "0.5;\n");
+        assert_eq!(constant(Target::OpenCl, -0.0, FloatKind::F32), "(-0.0f);\n");
     }
 }

@@ -9,7 +9,7 @@ use pliron::{
 
 use crate::{
     metal::metal_op_with_out,
-    shared::{convert::no_msl_bfloat, lowering::LowerOp, unroll::unrolling},
+    shared::{convert::no_msl_bfloat, lowering::LowerOp},
     target::Metal,
 };
 
@@ -95,106 +95,88 @@ impl LowerOp<Metal> for BallotOp {
     }
 }
 
-unrolling!(ISumOp);
 metal_op_with_out!(ISumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_sum({val})")
 });
-unrolling!(FSumOp);
 metal_op_with_out!(FSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_sum({val})")
 });
 no_msl_bfloat!(FSumOp);
 
-unrolling!(IProdOp);
 metal_op_with_out!(IProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_product({val})")
 });
-unrolling!(FProdOp);
 metal_op_with_out!(FProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_product({val})")
 });
 no_msl_bfloat!(FProdOp);
 
-unrolling!(SMinOp);
 metal_op_with_out!(SMinOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_min({val})")
 });
-unrolling!(UMinOp);
 metal_op_with_out!(UMinOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_min({val})")
 });
-unrolling!(FMinOp);
 metal_op_with_out!(FMinOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_min({val})")
 });
 no_msl_bfloat!(FMinOp);
 
-unrolling!(SMaxOp);
 metal_op_with_out!(SMaxOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_max({val})")
 });
-unrolling!(UMaxOp);
 metal_op_with_out!(UMaxOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_max({val})")
 });
-unrolling!(FMaxOp);
 metal_op_with_out!(FMaxOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_max({val})")
 });
 no_msl_bfloat!(FMaxOp);
 
-unrolling!(InclusiveISumOp);
 metal_op_with_out!(InclusiveISumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_sum({val})")
 });
-unrolling!(InclusiveFSumOp);
 metal_op_with_out!(InclusiveFSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_sum({val})")
 });
 no_msl_bfloat!(InclusiveFSumOp);
 
-unrolling!(InclusiveIProdOp);
 metal_op_with_out!(InclusiveIProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_product({val})")
 });
-unrolling!(InclusiveFProdOp);
 metal_op_with_out!(InclusiveFProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_product({val})")
 });
 no_msl_bfloat!(InclusiveFProdOp);
 
-unrolling!(ExclusiveISumOp);
 metal_op_with_out!(ExclusiveISumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_sum({val})")
 });
-unrolling!(ExclusiveFSumOp);
 metal_op_with_out!(ExclusiveFSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_sum({val})")
 });
 no_msl_bfloat!(ExclusiveFSumOp);
 
-unrolling!(ExclusiveIProdOp);
 metal_op_with_out!(ExclusiveIProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_product({val})")
 });
-unrolling!(ExclusiveFProdOp);
 metal_op_with_out!(ExclusiveFProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_product({val})")

@@ -206,9 +206,9 @@ shared_op_with_out!(FmaOp, |op, ctx| {
     let res = op.get_result(ctx);
     // CUDA/HIP headers have no `fma` overload for `__half`/bf16 — the call is
     // ambiguous between the double/float/_Float16 candidates — so the half
-    // types go through the dedicated intrinsics. Metal's `fma` is generic over
-    // its scalar and vector float types, including half.
-    let f = if matches!(ctx.target(), Target::Metal) {
+    // types go through the dedicated intrinsics. Metal's and OpenCL's `fma` are
+    // generic over their scalar and vector float types, including half.
+    let f = if matches!(ctx.target(), Target::Metal | Target::OpenCl) {
         "fma"
     } else if res.is_half(ctx) {
         "__hfma"
