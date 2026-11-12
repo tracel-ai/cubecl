@@ -11,8 +11,8 @@ use cubecl_server::{
 use std::{borrow::Cow, sync::Arc};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModule, ShaderModuleDescriptor,
-    ShaderStages,
+    ComputePipeline, Device, Features, PipelineLayoutDescriptor, Queue, ShaderModule,
+    ShaderModuleDescriptor, ShaderStages,
 };
 
 #[cfg(feature = "spirv")]
@@ -375,6 +375,18 @@ fn refused(object: &str, entrypoint_name: &str, err: wgpu::Error) -> Compilation
         reason: format!("the device refused the {object} of kernel `{entrypoint_name}`: {err}"),
         backtrace: cubecl_environment::backtrace::BackTrace::capture(),
     }
+}
+
+/// The adapter's features that a compute device requests: all of them except mappable primary
+/// buffers and ray tracing. Compute traces no rays, and requesting ray tracing makes device
+/// creation fail on NVIDIA's 595 driver.
+pub(crate) fn compute_features(adapter: &Adapter) -> Features {
+    adapter.features().difference(
+        Features::MAPPABLE_PRIMARY_BUFFERS
+            | Features::EXPERIMENTAL_RAY_QUERY
+            | Features::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN
+            | Features::EXPERIMENTAL_RAY_TRACING_PIPELINES,
+    )
 }
 
 /// Request a device, returning device creation failures.
