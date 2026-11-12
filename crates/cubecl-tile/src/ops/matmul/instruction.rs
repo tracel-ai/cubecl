@@ -188,9 +188,9 @@ pub(crate) enum OpenedBy {
 
 impl Instruction {
     /// What the sum [`Tile::accumulator`](crate::Tile::accumulator) opens contracts through on
-    /// `device` compiling for `target`: a sum in `sum` held by `holder`, of fragments loaded from
-    /// `lhs` and `rhs`, each call contracting `m × n × k`. The rule the kernel reads as it
-    /// expands; a host reads it to size what the kernel will hold. `None` where the device offers
+    /// `device` compiling for `target`, and the cell of its leaf each call fills: a sum in `sum`
+    /// held by `holder`, of fragments loaded from `lhs` and `rhs`, over a leaf of `m × n × k`. The
+    /// rule the kernel reads as it expands; a host reads it to size what the kernel will hold. `None` where the device offers
     /// no matrix instruction for the product, which a plane routine refuses.
     pub fn for_accumulator(
         device: &DeviceProperties,
@@ -200,7 +200,7 @@ impl Instruction {
         rhs: FragmentSource,
         sum: ElemType,
         shape: [usize; 3],
-    ) -> Option<Self> {
+    ) -> Option<PlanePick> {
         Self::for_plane(
             device,
             target,
@@ -211,7 +211,6 @@ impl Instruction {
             shape,
             OpenedBy::Accumulator,
         )
-        .map(|pick| pick.instruction)
     }
 
     /// What the sum [`Tile::stage_accumulator`](crate::Tile::stage_accumulator) opens contracts
@@ -226,7 +225,7 @@ impl Instruction {
         rhs: FragmentSource,
         sum: ElemType,
         shape: [usize; 3],
-    ) -> Option<Self> {
+    ) -> Option<PlanePick> {
         Self::for_plane(
             device,
             target,
@@ -237,7 +236,6 @@ impl Instruction {
             shape,
             OpenedBy::StageAccumulator,
         )
-        .map(|pick| pick.instruction)
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator) and
@@ -328,9 +326,9 @@ impl Instruction {
 /// What a plane's sum contracts through, and the `m × n` cell of its output one call fills: the
 /// whole leaf, or one of the cells the tile cuts the leaf into.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct PlanePick {
-    pub(crate) instruction: Instruction,
-    pub(crate) cell: [usize; 2],
+pub struct PlanePick {
+    pub instruction: Instruction,
+    pub cell: [usize; 2],
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -559,6 +557,7 @@ mod tests {
             F32,
             shape,
         )
+        .map(|pick| pick.instruction)
     }
 
     /// A drained sum goes through the vendor's fragment API.
@@ -625,7 +624,7 @@ mod tests {
                 F32,
                 shape,
             );
-            assert_eq!(instruction, Some(mma()));
+            assert_eq!(instruction.map(|p| p.instruction), Some(mma()));
         }
     }
 
@@ -640,7 +639,7 @@ mod tests {
             F32,
             [16, 16, 16],
         );
-        assert_eq!(instruction, Some(Instruction::Cmma));
+        assert_eq!(instruction.map(|p| p.instruction), Some(Instruction::Cmma));
     }
 
     /// An operand the TMA engine lands goes through the crate's transport even for a drained
@@ -675,7 +674,7 @@ mod tests {
             F32,
             [8, 8, 8],
         );
-        assert_eq!(pick, Some(mma()));
+        assert_eq!(pick.map(|p| p.instruction), Some(mma()));
     }
 
     /// An operand already held in fragments is read as it lies: the sum keeps their instruction.
@@ -697,7 +696,7 @@ mod tests {
             F32,
             [64, 128, 16],
         );
-        assert_eq!(instruction, Some(Instruction::Wgmma));
+        assert_eq!(instruction.map(|p| p.instruction), Some(Instruction::Wgmma));
     }
 
     /// A device offering only one transport is reached through it, whatever becomes of the sum.
@@ -714,7 +713,8 @@ mod tests {
                 HALF,
                 F32,
                 [16, 8, 16]
-            ),
+            )
+            .map(|p| p.instruction),
             Some(mma())
         );
     }
