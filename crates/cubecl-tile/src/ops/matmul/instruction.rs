@@ -188,9 +188,9 @@ pub(crate) enum OpenedBy {
 
 impl Instruction {
     /// What the sum [`Tile::accumulator`](crate::Tile::accumulator) opens contracts through on
-    /// `device` compiling for `target`, and the cell of its leaf each call fills: a sum in `sum`
-    /// held by `holder`, of fragments loaded from `lhs` and `rhs`, over a leaf of `m × n × k`. The
-    /// rule the kernel reads as it expands; a host reads it to size what the kernel will hold.
+    /// `device` compiling for `target`, at the shape of one of its calls: a sum in `sum` held by
+    /// `holder`, of fragments loaded from `lhs` and `rhs`, over a leaf of `m × n × k`. The rule the
+    /// kernel reads as it expands; a host reads it to size what the kernel will hold.
     /// `None` where the device offers no matrix instruction for the product, which a plane routine
     /// refuses.
     pub fn for_accumulator(
@@ -201,7 +201,7 @@ impl Instruction {
         rhs: FragmentSource,
         sum: ElemType,
         shape: [usize; 3],
-    ) -> Option<PlanePick> {
+    ) -> Option<ShapedInstruction> {
         Self::for_plane(
             device,
             target,
@@ -228,7 +228,6 @@ impl Instruction {
         sum: ElemType,
         shape: [usize; 3],
     ) -> Option<Self> {
-        let [m, n, _] = shape;
         Self::for_plane(
             device,
             target,
@@ -239,8 +238,8 @@ impl Instruction {
             shape,
             OpenedBy::StageAccumulator,
         )
-        .filter(|pick| pick.cell == [m, n])
-        .map(|pick| pick.instruction)
+        .filter(|call| call.shape == shape)
+        .map(|call| call.instruction)
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator) and
@@ -259,7 +258,7 @@ impl Instruction {
     /// The fragment API and this crate's transport each take the leaf whole where the device
     /// offers that shape, or cut it into calls of their largest shape that does: a leaf one call
     /// fills comes before one cut into several, whichever comes first above, so a leaf the size
-    /// of an instruction contracts through it. The pick says the cell one call fills.
+    /// of an instruction contracts through it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn for_plane(
         device: &DeviceProperties,
@@ -270,10 +269,10 @@ impl Instruction {
         sum: ElemType,
         [m, n, k]: [usize; 3],
         opened_by: OpenedBy,
-    ) -> Option<PlanePick> {
-        let whole = |instruction| PlanePick {
+    ) -> Option<ShapedInstruction> {
+        let whole = |instruction| ShapedInstruction {
             instruction,
-            cell: [m, n],
+            shape: [m, n, k],
         };
         if holder == ComputeScope::MMA_PLANE_GROUP {
             return Some(whole(Instruction::Wgmma));
@@ -305,16 +304,16 @@ impl Instruction {
         let sum_is_next_a = layout.register_layout_a == layout.register_layout_acc
             && layout.register_duplication_a == layout.register_duplication_acc;
         let mma_first = mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a);
-        let cmma = cmma.map(|cell| PlanePick {
+        let cmma = cmma.map(|[cm, cn]| ShapedInstruction {
             instruction: Instruction::Cmma,
-            cell,
+            shape: [cm, cn, k],
         });
-        let mma = mma.map(|cell| PlanePick {
+        let mma = mma.map(|[cm, cn]| ShapedInstruction {
             instruction: Instruction::Mma {
                 io: MmaIo::default(),
                 operands: MmaOperands::Plain,
             },
-            cell,
+            shape: [cm, cn, k],
         });
         let ordered = match mma_first {
             true => [mma, cmma],
@@ -323,17 +322,25 @@ impl Instruction {
         let one_call = ordered
             .into_iter()
             .flatten()
-            .find(|pick| pick.cell == [m, n]);
+            .find(|call| call.shape == [m, n, k]);
         one_call.or_else(|| ordered.into_iter().flatten().next())
     }
 }
 
-/// What a plane's sum contracts through, and the `m × n` cell of its output one call fills: the
-/// whole leaf, or one of the cells the tile cuts the leaf into.
+/// An instruction at the `m × n × k` of one of its calls: the whole leaf, or one of the cells the
+/// tile cuts the leaf into.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct PlanePick {
+pub struct ShapedInstruction {
     pub instruction: Instruction,
-    pub cell: [usize; 2],
+    pub shape: [usize; 3],
+}
+
+impl ShapedInstruction {
+    /// The `m × n` of the output one call fills.
+    pub fn cell(&self) -> [usize; 2] {
+        let [m, n, _] = self.shape;
+        [m, n]
+    }
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -562,7 +569,7 @@ mod tests {
             F32,
             shape,
         )
-        .map(|pick| pick.instruction)
+        .map(|call| call.instruction)
     }
 
     /// A drained sum goes through the vendor's fragment API.
@@ -572,8 +579,12 @@ mod tests {
         assert_eq!(picked(&cuda(), HALF, [16, 16, 16]), Some(Instruction::Cmma));
     }
 
-    /// The pick for a drained sum over `shape`, its cell included.
-    fn cut(device: &DeviceProperties, lhs: FragmentSource, shape: [usize; 3]) -> Option<PlanePick> {
+    /// What a drained sum over `shape` contracts through, at the shape of one call.
+    fn cut(
+        device: &DeviceProperties,
+        lhs: FragmentSource,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
         Instruction::for_plane(
             device,
             &sum_is_next_a(),
@@ -591,7 +602,8 @@ mod tests {
     #[test]
     fn a_leaf_wider_than_any_instruction_is_cut_into_its_largest_cells() {
         let (metal, cuda) = (metal(), cuda());
-        let pick = |device, shape| cut(device, HALF, shape).map(|p| (p.instruction, p.cell));
+        let pick =
+            |device, shape| cut(device, HALF, shape).map(|call| (call.instruction, call.cell()));
         assert_eq!(pick(&metal, [16, 32, 8]), Some((Instruction::Cmma, [8, 8])));
         assert_eq!(
             pick(&cuda, [32, 32, 16]),
@@ -611,7 +623,7 @@ mod tests {
     #[test]
     fn a_leaf_one_call_fills_takes_that_instruction() {
         let landed = FragmentSource::Landed(F16);
-        let pick = |shape| cut(&cuda(), landed, shape).map(|p| (p.instruction, p.cell));
+        let pick = |shape| cut(&cuda(), landed, shape).map(|call| (call.instruction, call.cell()));
         assert_eq!(pick([16, 8, 16]), Some((mma(), [16, 8])));
         assert_eq!(pick([16, 16, 16]), Some((Instruction::Cmma, [16, 16])));
         assert_eq!(pick([32, 16, 16]), Some((mma(), [16, 8])));
@@ -679,7 +691,7 @@ mod tests {
             F32,
             [8, 8, 8],
         );
-        assert_eq!(pick.map(|p| p.instruction), Some(mma()));
+        assert_eq!(pick.map(|call| call.instruction), Some(mma()));
     }
 
     /// An operand already held in fragments is read as it lies: the sum keeps their instruction.
@@ -701,7 +713,10 @@ mod tests {
             F32,
             [64, 128, 16],
         );
-        assert_eq!(instruction.map(|p| p.instruction), Some(Instruction::Wgmma));
+        assert_eq!(
+            instruction.map(|call| call.instruction),
+            Some(Instruction::Wgmma)
+        );
     }
 
     /// A device offering only one transport is reached through it, whatever becomes of the sum.
