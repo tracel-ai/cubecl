@@ -12,7 +12,7 @@ use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers
 use cubecl_server::logging::{
     CollectivePath, Communication, Execution, ExecutionId, ExecutionKind, ExecutionObservation,
     ExecutionObserver, ExecutionPlace, ExecutionScope, Measurement, ProfileDuration, StreamRole,
-    TimingMethod, TimingRequest, TransferRoute, WaitTarget,
+    Timed, TimingMethod, TimingRequest, TransferRoute, WaitTarget,
 };
 use cubecl_server::server::{
     Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
@@ -829,9 +829,12 @@ fn a_members_part_takes_the_scope_open_on_its_thread_as_its_parent() {
 #[test_log::test]
 #[serial_test::serial]
 #[cfg(feature = "std")]
-fn every_execution_times_each_part_of_a_group_collective_and_its_wait() {
+fn timed_communications_time_each_part_of_a_group_collective_and_its_wait() {
     let (group, devices) = transported_group_on([76, 77]);
-    let recorded = Recorded::timing(&devices, TimingRequest::EveryExecution);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
 
     let watching = ExecutionObservation::new(recorded.clone());
     group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
@@ -871,9 +874,9 @@ fn every_execution_times_each_part_of_a_group_collective_and_its_wait() {
 
 #[test_log::test]
 #[serial_test::serial]
-fn below_every_execution_no_wait_is_issued_and_no_part_timed() {
+fn kernels_only_issue_no_wait_and_time_no_part() {
     let (group, devices) = transported_group_on([78, 79]);
-    let recorded = Recorded::timing(&devices, TimingRequest::Deferred);
+    let recorded = Recorded::timing(&devices, TimingRequest::Deferred(Timed::Kernels));
 
     group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
     let watching = ExecutionObservation::new(recorded.clone());
@@ -899,7 +902,10 @@ fn below_every_execution_no_wait_is_issued_and_no_part_timed() {
 #[serial_test::serial]
 fn a_sync_collective_waits_for_the_queued_collectives() {
     let (group, devices) = transported_group_on([80, 81]);
-    let recorded = Recorded::timing(&devices, TimingRequest::EveryExecution);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
     let mut client = group.clients()[0].clone();
     let (src, dst) = (client.empty(8), client.empty(8));
 
@@ -929,12 +935,15 @@ fn a_sync_collective_waits_for_the_queued_collectives() {
 
 #[test_log::test]
 #[serial_test::serial]
-fn every_execution_times_a_host_staged_transfer_on_the_host() {
+fn timed_communications_time_a_host_staged_transfer_on_the_host() {
     let devices = [DeviceId::new(0, 82), DeviceId::new(0, 83)];
     let mut source = Client::load::<DummyServer>(devices[0]);
     let destination = Client::load::<DummyServer>(devices[1]);
     let sent = source.create_from_slice(&[1u8, 2, 3, 4]);
-    let recorded = Recorded::timing(&devices, TimingRequest::EveryExecution);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
 
     let watching = ExecutionObservation::new(recorded.clone());
     source.to_client(sent, &destination);

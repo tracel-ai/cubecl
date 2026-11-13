@@ -6,7 +6,7 @@ use cubecl::{
     future::block_on,
     ir::{ElemType, FloatKind},
     logging::{
-        Execution, ExecutionObservation, ExecutionObserver, Measurement, ProfileDuration,
+        Execution, ExecutionObservation, ExecutionObserver, Measurement, ProfileDuration, Timed,
         TimingRequest,
     },
     prelude::*,
@@ -57,16 +57,18 @@ impl ExecutionObserver for Keeps {
 #[derive(Clone, Copy, Debug)]
 enum Observed {
     Not,
-    Deferred,
-    EveryExecution,
+    Kernels,
+    KernelsAndCommunications,
 }
 
 /// The time to issue a pass, and to have every member finish it.
 fn pass(group: &ClientGroup, states: &[Handle], observed: Observed) -> (Duration, Duration) {
     let keeps = match observed {
         Observed::Not => None,
-        Observed::Deferred => Some(TimingRequest::Deferred),
-        Observed::EveryExecution => Some(TimingRequest::EveryExecution),
+        Observed::Kernels => Some(TimingRequest::Deferred(Timed::Kernels)),
+        Observed::KernelsAndCommunications => {
+            Some(TimingRequest::Deferred(Timed::KernelsAndCommunications))
+        }
     }
     .map(|timing| {
         Arc::new(Keeps {
@@ -120,11 +122,15 @@ fn main() {
         .map(|client| client.create_from_slice(f32::as_bytes(&vec![0.5; HIDDEN])))
         .collect();
 
-    for observed in [Observed::Not, Observed::Deferred, Observed::EveryExecution] {
+    let order = [
+        Observed::Not,
+        Observed::Kernels,
+        Observed::KernelsAndCommunications,
+    ];
+    for observed in order {
         pass(&group, &states, observed);
     }
 
-    let order = [Observed::Not, Observed::Deferred, Observed::EveryExecution];
     let mut times: Vec<Vec<(Duration, Duration)>> = vec![Vec::new(); order.len()];
     for rep in 0..REPS {
         // Reversed every other rep, so a drift does not favour one.
@@ -152,7 +158,7 @@ fn main() {
         let (issue, issue_min, issue_max) = per_step(|time| time.0);
         let (step, step_min, step_max) = per_step(|time| time.1);
         println!(
-            "{:>15}: issue {issue:7.2} us/step [{issue_min:.2}, {issue_max:.2}], \
+            "{:>24}: issue {issue:7.2} us/step [{issue_min:.2}, {issue_max:.2}], \
              step {step:7.2} us/step [{step_min:.2}, {step_max:.2}]",
             format!("{observed:?}")
         );

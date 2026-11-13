@@ -1146,7 +1146,7 @@ impl Client {
             return;
         }
         let stream_id = self.stream_id();
-        let timing = crate::logging::times_every_execution().then(|| {
+        let timing = crate::logging::times_communications().then(|| {
             let mut timing = CommunicationTiming::default();
             self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
             timing
@@ -1247,7 +1247,7 @@ impl Client {
 
     /// Issues this device's part of the communication open on this thread, on `stream`, and the
     /// compute stream's wait for it when that is `Now`. Returns where the server sends their
-    /// windows, while the observer times every execution.
+    /// windows, while the observer times communications.
     fn issue_part(&self, stream: StreamRole, wait: ComputeWait) -> Option<CommunicationTiming> {
         let part = crate::logging::issue(|| ExecutionKind::Part {
             place: ExecutionPlace {
@@ -1255,7 +1255,7 @@ impl Client {
                 stream,
             },
         })?;
-        if !crate::logging::times_every_execution() {
+        if !crate::logging::times_communications() {
             return None;
         }
         let mut timing = CommunicationTiming::default();
@@ -2200,7 +2200,7 @@ impl Client {
                 route: TransferRoute::Host,
             })
         })
-        .filter(|_| crate::logging::times_every_execution())
+        .filter(|_| crate::logging::times_communications())
         .map(|transfer| (transfer, Instant::now()));
 
         let read = self
