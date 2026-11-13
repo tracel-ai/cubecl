@@ -106,6 +106,12 @@ impl HipContext {
 
         let cube_dim = kernel.cube_dim;
 
+        // A kernel compiled for another architecture is never loaded, so there is nothing to
+        // launch.
+        if kernel.func.is_null() {
+            return Ok(());
+        }
+
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid HIP stream. `bindings` contains valid device pointers
         // for all kernel arguments. The dispatch and cube dimensions are validated by

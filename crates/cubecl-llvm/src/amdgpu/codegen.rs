@@ -46,6 +46,9 @@ const AMDGPU_KERNEL_CC: u32 = 91;
 /// Wave32 feature for RDNA devices.
 const WAVE32: &str = "+wavefrontsize32";
 
+/// Wave64 feature, which RDNA runs in when asked to.
+const WAVE64: &str = "+wavefrontsize64";
+
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_AMDGPU: Once = Once::new();
@@ -60,10 +63,11 @@ fn init_amdgpu() {
 }
 
 fn features_for(arch: &GfxArch) -> &'static str {
-    if arch.plane_dim() == Some(32) {
-        WAVE32
-    } else {
-        ""
+    match arch.plane_dim() {
+        Some(32) => WAVE32,
+        // CDNA has only wave64, and RDNA has to be asked for it.
+        Some(64) => WAVE64,
+        _ => "",
     }
 }
 
@@ -294,12 +298,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_rdna_parts_ask_for_wave32() {
+    fn each_part_asks_for_its_wave_width() {
         for name in ["gfx1201", "gfx1100", "gfx1030"] {
             assert_eq!(features_for(&GfxArch::parse(name)), WAVE32, "{name}");
         }
         for name in ["gfx90a", "gfx942", "gfx908"] {
-            assert_eq!(features_for(&GfxArch::parse(name)), "", "{name}");
+            assert_eq!(features_for(&GfxArch::parse(name)), WAVE64, "{name}");
+        }
+        for name in ["gfx1151", "gfx1201"] {
+            let arch = GfxArch::parse(name).in_wave64();
+            assert_eq!(features_for(&arch), WAVE64, "{name}");
         }
     }
 

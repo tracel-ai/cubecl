@@ -1,6 +1,6 @@
 use crate::{
     compiler::{HipBackend, HipCompilationOptions},
-    compute::{HipServer, communication, context::HipContext},
+    compute::{HipServer, communication, context::HipContext, modules::COMPILE_FOR_VAR},
     device::AmdDevice,
 };
 use core::ffi::c_int;
@@ -62,6 +62,9 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+/// Set to run an RDNA part in wave64, the width CDNA runs in.
+const WAVE64_VAR: &str = "CUBECL_HIP_WAVE64";
+
 static AMD_MATRIX_CORE: OnceLock<Option<AmdMatrixCore>> = OnceLock::new();
 
 /// The values that control how a HIP Runtime will perform its calculations.
@@ -86,7 +89,22 @@ impl DeviceService for HipServer {
 
         // Parsed once, here, and handed to whichever backend compiles: the target feature
         // suffix (`xnack`, `sramecc`) is not part of the name the tables are keyed by.
-        let gfx = GfxArch::parse(&probe.arch_name);
+        // Two ways to check code for a part that is not here, both through the LLVM backend:
+        // compile every kernel for another architecture without launching any, or run an RDNA
+        // part in wave64, the width CDNA runs in.
+        let llvm = HipBackend::default() == HipBackend::Llvm;
+        let compile_for = std::env::var(COMPILE_FOR_VAR).ok().filter(|_| llvm);
+        let wave64 = std::env::var_os(WAVE64_VAR).is_some() && llvm;
+        let gfx = GfxArch::parse(compile_for.as_deref().unwrap_or(&probe.arch_name));
+        let gfx = match wave64 {
+            true => gfx.in_wave64(),
+            false => gfx,
+        };
+        let foreign = wave64 || compile_for.is_some();
+        let warp_size = gfx
+            .plane_dim()
+            .filter(|_| foreign)
+            .unwrap_or(probe.warp_size);
         let arch = gfx.family();
         // `Runtime::target_properties` is static, so stash what it needs from the device we're
         // initializing. A process mixing RDNA3 and RDNA4 GPUs would see whichever came up first,
@@ -96,7 +114,7 @@ impl DeviceService for HipServer {
         // reporting a different one, or a name the table has never seen, would mean every
         // kernel is generated for the wrong wavefront width.
         assert_eq!(
-            Some(probe.warp_size),
+            Some(warp_size),
             gfx.plane_dim(),
             "the driver reports a wavefront of {} for {:?} (reported as {:?}), but the \
              architecture table generates code for {:?}",
@@ -139,8 +157,8 @@ impl DeviceService for HipServer {
         let topology = HardwareProperties {
             load_width: 128,
             vector_register_count: None,
-            plane_size_min: probe.warp_size,
-            plane_size_max: probe.warp_size,
+            plane_size_min: warp_size,
+            plane_size_max: warp_size,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
             max_shared_memory_size: probe.max_shared_memory,
             max_cube_count: probe.max_cube_count,
@@ -168,7 +186,15 @@ impl DeviceService for HipServer {
         // differs by so much as `xnack`. Built once here and handed to both the
         // identity and the compilation cache, so the two can never disagree
         // about what a kernel was built for.
-        let fingerprint = format!("hip-kernel_{}", probe.arch_name);
+        // Kernels compiled for another part or wave width are kept apart from the device's own.
+        let fingerprint = match (foreign, gfx.plane_dim()) {
+            (true, Some(width)) => format!(
+                "hip-kernel_{}_as_{}_wave{width}",
+                probe.arch_name,
+                gfx.name()
+            ),
+            _ => format!("hip-kernel_{}", probe.arch_name),
+        };
 
         let mut device_props = DeviceProperties::new(
             Default::default(),

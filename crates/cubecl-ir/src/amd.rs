@@ -161,6 +161,8 @@ impl AMDArchitecture {
 pub struct GfxArch {
     name: String,
     family: AMDArchitecture,
+    /// RDNA runs in wave64 when asked to, which is how a wave64 kernel is tested on an RDNA part.
+    wave64: bool,
 }
 
 impl GfxArch {
@@ -172,7 +174,26 @@ impl GfxArch {
             .unwrap_or(reported)
             .to_lowercase();
         let family = AMDArchitecture::parse(&name).unwrap_or(AMDArchitecture::Other);
-        Self { name, family }
+        Self {
+            name,
+            family,
+            wave64: false,
+        }
+    }
+
+    /// This architecture run in wave64, as CDNA always is. On RDNA, which defaults to wave32,
+    /// it gives up the matrix instructions: WMMA lays its fragments out differently in wave64,
+    /// and the lowering knows only the wave32 layout.
+    pub fn in_wave64(self) -> Self {
+        Self {
+            wave64: true,
+            ..self
+        }
+    }
+
+    /// Whether this runs in a wave width other than the family's own.
+    fn runs_foreign_wave(&self) -> bool {
+        self.wave64 && self.family.plane_dim() != Some(64)
     }
 
     /// The bare name, which is the `-mcpu` and the `target-cpu` attribute.
@@ -187,12 +208,17 @@ impl GfxArch {
 
     /// The wavefront width, or `None` for an architecture the table does not know.
     pub fn plane_dim(&self) -> Option<u32> {
-        self.family.plane_dim()
+        match self.wave64 {
+            true => self.family.plane_dim().map(|_| 64),
+            false => self.family.plane_dim(),
+        }
     }
 
     /// Which WMMA this device has, or `None` where it has none at all.
     pub fn wmma(&self) -> Option<AmdWmma> {
-        self.family.wmma_generation()
+        self.family
+            .wmma_generation()
+            .filter(|_| !self.runs_foreign_wave())
     }
 
     /// Which MFMA this device has, or `None` where it has none this table lowers.
@@ -202,7 +228,9 @@ impl GfxArch {
 
     /// Which matrix instructions this device has, or `None` where it has neither kind.
     pub fn matrix_core(&self) -> Option<AmdMatrixCore> {
-        self.family.matrix_core()
+        self.family
+            .matrix_core()
+            .filter(|_| !self.runs_foreign_wave())
     }
 
     /// The bare architecture number, which is how the `oclc_isa_version_*` control libraries
@@ -296,6 +324,19 @@ mod tests {
         let cdna3 = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
         assert_eq!(cdna3.frag_ab_elems(16), 4);
         assert_eq!(cdna3.frag_ab_elems(32), 8);
+    }
+
+    /// RDNA in wave64 has 64-lane planes and no matrix lowering, and CDNA is unchanged by it.
+    #[test]
+    fn rdna_in_wave64_gives_up_its_matrix_core() {
+        let rdna = GfxArch::parse("gfx1151").in_wave64();
+        assert_eq!(rdna.plane_dim(), Some(64));
+        assert_eq!(rdna.matrix_core(), None);
+        assert_eq!(rdna.wmma(), None);
+        let cdna = GfxArch::parse("gfx942").in_wave64();
+        assert_eq!(cdna, GfxArch::parse("gfx942").in_wave64());
+        assert_eq!(cdna.matrix_core(), GfxArch::parse("gfx942").matrix_core());
+        assert_eq!(GfxArch::parse("gfx1337").in_wave64().plane_dim(), None);
     }
 
     /// An architecture the table has never heard of reports no width rather than guessing

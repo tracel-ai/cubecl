@@ -10,7 +10,43 @@ use cubecl_server::compiler::{
 };
 use cubecl_server::kernel::BufferIOAttr;
 use std::ffi::CString;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
+
+/// Names an architecture to compile every kernel for in place of the device's, without
+/// launching any: how a part that is not here is checked for what its kernels compile to.
+pub(crate) const COMPILE_FOR_VAR: &str = "CUBECL_HIP_COMPILE_FOR";
+
+/// Where the code objects compiled for [`COMPILE_FOR_VAR`] are written, a directory under the
+/// system's temporary one when unset.
+const DUMP_DIR_VAR: &str = "CUBECL_HIP_DUMP_DIR";
+
+/// The directory kernels compiled for another architecture go to, or `None` when they are
+/// compiled for the device and launched.
+fn compile_only_dir() -> Option<&'static PathBuf> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let arch = std::env::var(COMPILE_FOR_VAR).ok()?;
+        let dir = std::env::var_os(DUMP_DIR_VAR)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join(format!("cubecl-hip-{arch}")));
+        std::fs::create_dir_all(&dir).expect("the dump directory can be created");
+        Some(dir)
+    })
+    .as_ref()
+}
+
+/// Writes `artifact`'s code object to `dir`, beside the kernel it was compiled for.
+fn dump(dir: &std::path::Path, id: &ArtifactId<()>, artifact: &HipArtifact) {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let index = COUNT.fetch_add(1, Ordering::Relaxed);
+    let stem = format!("{index:05}-{}", artifact.entrypoint_name);
+    std::fs::write(dir.join(format!("{stem}.hsaco")), &artifact.binary)
+        .expect("the code object can be written");
+    std::fs::write(dir.join(format!("{stem}.txt")), format!("{:#?}", id.kernel))
+        .expect("the kernel description can be written");
+}
 
 /// Loads HIP modules for one device, from the compilation store when it holds
 /// the kernel and from [`HipArtifactCompiler`] when it does not.
@@ -95,6 +131,16 @@ impl CompilationTarget for HipModules {
         id: &ArtifactId<()>,
         artifact: &HipArtifact,
     ) -> Result<HipCompiledKernel, CompilationError> {
+        if let Some(dir) = compile_only_dir() {
+            dump(dir, id, artifact);
+            return Ok(HipCompiledKernel {
+                module: std::ptr::null_mut(),
+                func: std::ptr::null_mut(),
+                cube_dim: id.kernel.cube_dim.into(),
+                shared_mem_bytes: artifact.shared_mem_bytes,
+                io: artifact.io.clone().map(Arc::from),
+            });
+        }
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
 
         // Create the HIP module
