@@ -6,7 +6,7 @@ use crate::{
 };
 use cubecl_core::ir::{
     dialect::{atomic::AtomicLoadOp, base::OperationPtrExt},
-    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp, MemoryLocation},
 };
 use pliron::{
     graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op},
@@ -116,7 +116,7 @@ impl AtomicReads {
                     return;
                 };
                 for effect in effects.memory_effects(ctx) {
-                    if let MemoryEffect::Read(ptr) = effect {
+                    if let MemoryEffect::Read(MemoryLocation::Pointer(ptr, _)) = effect {
                         reads.add(ptr.get_type(ctx).deref(ctx).downcast_ref());
                     }
                 }

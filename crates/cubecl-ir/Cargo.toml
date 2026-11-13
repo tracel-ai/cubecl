@@ -29,10 +29,7 @@ spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
-cubecl-common = { workspace = true, features = [
-    "fp8",
-    "hash",
-] }
+cubecl-common = { workspace = true, features = ["fp8", "hash"] }
 cubecl-environment = { workspace = true }
 cubecl-macros-internal = { workspace = true, default-features = true }
 

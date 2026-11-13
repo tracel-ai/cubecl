@@ -9,9 +9,13 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
 use cubecl_server::benchmark::CommunicationSkipGuard;
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
+use cubecl_server::logging::{
+    CollectivePath, Communication, Execution, ExecutionKind, ExecutionObservation,
+    ExecutionObserver, ExecutionPlace, ExecutionScope, StreamRole, TransferRoute,
+};
 use cubecl_server::server::{
-    CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation,
-    ServerError,
+    Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
+    ReduceOperation, ServerError, TransportProvider,
 };
 use cubecl_server::{
     local_tuner,
@@ -582,37 +586,39 @@ fn execute_elementwise_addition() {
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
 }
 
-/// A profile the server refuses — as one is inside a graph capture window —
+/// A profile the server refuses, as one is inside a graph capture window,
 /// must cost the observer its timing and nothing else: the kernel still runs,
-/// [`launched`](cubecl_server::logging::LaunchObserver::launched) still
-/// arrives, and `timed` is skipped. `serial` because the observer slot, the
+/// [`issued`](cubecl_server::logging::ExecutionObserver::issued) still
+/// arrives, and `measured` is skipped. `serial` because the observer slot, the
 /// refusal toggle, and execution overrides are all process-wide.
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_server::logging::{
-        Duration, LaunchObservation, LaunchObserver, TimingMethod, TimingRequest,
-    };
+    use cubecl_server::logging::{Measurement, TimingRequest};
 
     #[derive(Default)]
     struct WantsTiming {
         launched: std::sync::Mutex<Vec<&'static str>>,
-        timed: std::sync::Mutex<Vec<&'static str>>,
+        measured: std::sync::Mutex<Vec<&'static str>>,
     }
-    impl LaunchObserver for WantsTiming {
-        fn launched(&self, kernel: &'static str) {
-            self.launched.lock().unwrap().push(kernel);
+    impl ExecutionObserver for WantsTiming {
+        fn issued(&self, execution: &Execution) {
+            if let ExecutionKind::Kernel { name, .. } = execution.kind {
+                self.launched.lock().unwrap().push(name);
+            }
         }
         fn timing(&self) -> TimingRequest {
             TimingRequest::Resolved
         }
-        fn timed(&self, kernel: &'static str, _duration: Duration, _method: TimingMethod) {
-            self.timed.lock().unwrap().push(kernel);
+        fn measured(&self, execution: &Execution, _measurement: Measurement) {
+            if let ExecutionKind::Kernel { name, .. } = execution.kind {
+                self.measured.lock().unwrap().push(name);
+            }
         }
     }
 
     let observer = std::sync::Arc::new(WantsTiming::default());
-    let watching = LaunchObservation::new(observer.clone());
+    let watching = ExecutionObservation::new(observer.clone());
     REFUSE_PROFILES.store(true, core::sync::atomic::Ordering::Relaxed);
     let refusing = ClearsRefusedProfiles;
 
@@ -645,9 +651,257 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         "the launch is still reported"
     );
     assert!(
-        observer.timed.lock().unwrap().is_empty(),
+        observer.measured.lock().unwrap().is_empty(),
         "nothing was measured, so nothing is reported as measured"
     );
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn an_observed_group_all_reduce_is_one_collective_with_a_part_per_member() {
+    let (group, devices) = transported_group_on([60, 61]);
+    let recorded = Recorded::on(&devices);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, parts @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    assert_eq!(collective.parent, None);
+    assert_eq!(
+        collective.kind,
+        ExecutionKind::Communication(Communication::Collective {
+            operation: Collective::AllReduce,
+            members: services(&group),
+            bytes: 8,
+            path: CollectivePath::Native(TransportProvider::Nccl),
+        })
+    );
+    assert_parts_of(collective, parts, &devices, StreamRole::Collective);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn an_observed_skipped_collective_is_issued_as_skipped_with_no_part() {
+    let (group, devices) = transported_group_on([62, 63]);
+    let recorded = Recorded::on(&devices);
+    let _skipping = CommunicationSkipGuard::enter(group.clients());
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
+    assert_eq!(
+        kinds,
+        [ExecutionKind::Communication(Communication::Collective {
+            operation: Collective::AllReduce,
+            members: services(&group),
+            bytes: 8,
+            path: CollectivePath::Skipped,
+        })]
+    );
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn a_scope_parents_the_launches_and_transfers_issued_inside_it() {
+    let (group, devices) = transported_group_on([64, 65]);
+    let recorded = Recorded::on(&devices);
+    let mut source = group.clients()[0].clone();
+    let destination = &group.clients()[1];
+    let sent = source.create_from_slice(&[1u8, 2, 3, 4]);
+    let (lhs, rhs, out) = (
+        source.create_from_slice(&[0, 1, 2]),
+        source.create_from_slice(&[4, 4, 4]),
+        source.empty(3),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    let emulated = ExecutionScope::communication(|| Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 4,
+        path: CollectivePath::Emulated {
+            why: "emulated by the test".into(),
+        },
+    });
+    source.launch(
+        Box::new(KernelTask::new(DummyElementwiseAddition)),
+        CubeCount::Static(1, 1, 1),
+        KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.binding()]),
+    );
+    source.to_client(sent, destination);
+    drop(emulated);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, kernel, transfer, parts @ ..] = issued.as_slice() else {
+        panic!("issued {issued:?}");
+    };
+    assert_eq!(collective.parent, None);
+    assert_eq!(kernel.parent, Some(collective.id));
+    assert!(
+        matches!(
+            kernel.kind,
+            ExecutionKind::Kernel {
+                place: ExecutionPlace {
+                    stream: StreamRole::Compute(_),
+                    service,
+                },
+                ..
+            } if service.device == devices[0]
+        ),
+        "{kernel:?}"
+    );
+    assert_eq!(transfer.parent, Some(collective.id));
+    assert!(
+        matches!(
+            transfer.kind,
+            ExecutionKind::Communication(Communication::Transfer {
+                from,
+                to,
+                bytes: 4,
+                route: TransferRoute::Device,
+            }) if from.device == devices[0] && to.device == devices[1]
+        ),
+        "{transfer:?}"
+    );
+    assert_parts_of(transfer, parts, &devices, StreamRole::Transfer);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_transfer_across_runtimes_names_both_ends_apart() {
+    let device = DeviceId::new(0, 68);
+    let mut source = Client::load::<DummyServer>(device);
+    let destination = Client::load::<DummyServer<Other>>(device);
+    let recorded = Recorded::on(&[device]);
+    let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    source.to_client(handle, &destination);
+    drop(watching);
+
+    let issued = recorded.issued();
+    assert!(
+        issued.iter().any(|execution| matches!(
+            execution.kind,
+            ExecutionKind::Communication(Communication::Transfer { from, to, .. })
+                if from == source.service_id() && to == destination.service_id() && from != to
+        )),
+        "{issued:?}"
+    );
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn a_members_part_takes_the_scope_open_on_its_thread_as_its_parent() {
+    let (group, devices) = transported_group_on([66, 67]);
+    let recorded = Recorded::on(&devices);
+    let members = group.members();
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    let collective = ExecutionScope::communication(|| Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 8,
+        path: CollectivePath::Native(TransportProvider::Nccl),
+    });
+    for (member, buffers) in members.iter().zip(member_buffers(&group, 8, 8)) {
+        member.all_reduce(buffers, F32, ReduceOperation::Sum);
+    }
+    drop(collective);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, parts @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    assert_parts_of(collective, parts, &devices, StreamRole::Collective);
+}
+
+/// Two clients of a runtime that claims a transport, on devices no other test uses: the observer
+/// is process-wide, and tests running beside this one issue their own executions.
+fn transported_group_on(indices: [u16; 2]) -> (ClientGroup, Vec<DeviceId>) {
+    let devices: Vec<DeviceId> = indices.map(|index| DeviceId::new(0, index)).to_vec();
+    let clients = devices
+        .iter()
+        .map(|device| Client::load::<DummyServer<Transported>>(*device))
+        .collect();
+    (ClientGroup::new(clients).unwrap(), devices)
+}
+
+fn services(group: &ClientGroup) -> Vec<ServiceId> {
+    group.clients().iter().map(Client::service_id).collect()
+}
+
+fn assert_parts_of(
+    parent: &Execution,
+    parts: &[Execution],
+    devices: &[DeviceId],
+    stream: StreamRole,
+) {
+    for part in parts {
+        assert_eq!(part.parent, Some(parent.id), "{part:?}");
+    }
+    let places: Vec<_> = parts
+        .iter()
+        .map(|part| match part.kind {
+            ExecutionKind::Part { place } => (place.service.device, place.stream),
+            ref other => panic!("not a part: {other:?}"),
+        })
+        .collect();
+    let expected: Vec<_> = devices.iter().map(|device| (*device, stream)).collect();
+    assert_eq!(places, expected);
+}
+
+/// Every execution issued on some devices, in issue order.
+struct Recorded {
+    devices: Vec<DeviceId>,
+    issued: std::sync::Mutex<Vec<Execution>>,
+}
+
+impl Recorded {
+    fn on(devices: &[DeviceId]) -> Arc<Self> {
+        Arc::new(Self {
+            devices: devices.to_vec(),
+            issued: Default::default(),
+        })
+    }
+
+    fn issued(&self) -> Vec<Execution> {
+        self.issued.lock().unwrap().clone()
+    }
+
+    fn touches(&self, kind: &ExecutionKind) -> bool {
+        let on = |device: &DeviceId| self.devices.contains(device);
+        match kind {
+            ExecutionKind::Kernel { place, .. }
+            | ExecutionKind::Part { place }
+            | ExecutionKind::Wait { place, .. } => on(&place.service.device),
+            ExecutionKind::Communication(Communication::Collective { members, .. }) => {
+                members.iter().any(|member| on(&member.device))
+            }
+            ExecutionKind::Communication(Communication::Transfer { from, to, .. }) => {
+                on(&from.device) || on(&to.device)
+            }
+        }
+    }
+}
+
+impl ExecutionObserver for Recorded {
+    fn issued(&self, execution: &Execution) {
+        if self.touches(&execution.kind) {
+            self.issued.lock().unwrap().push(execution.clone());
+        }
+    }
 }
 
 #[test_log::test]

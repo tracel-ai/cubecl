@@ -4,6 +4,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{MetadataError, Tiling};
 
+use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
 use crate::{Axis, LineMisfit};
 
 /// Why a launch cannot run as described, or an operand cannot be bound to it.
@@ -29,6 +30,10 @@ pub enum Refusal {
     WidthNotServed { width: usize, why: LineMisfit },
     /// The innermost axis is served in vector lines but is not provably in bounds.
     UncheckableVectorEdge,
+    /// A storage-tiled operand whose storage tile is the tile of `level`, and which this launch
+    /// overhangs: a window inside one storage tile is read as one unmasked run, so the windows
+    /// past the tensor's end would read storage tiles it does not have.
+    CheckedInsideStorageTile { level: usize },
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
     /// operand's last logical axis at coefficient 1.
     GatherInnermostNotInLines,
@@ -44,6 +49,8 @@ pub enum Refusal {
     PlanesUnavailable,
     /// The kernel needs one plane width, and the device's varies between `min` and `max`.
     ImprecisePlaneDim { min: u32, max: u32 },
+    /// The gather leaf cannot serve an lhs vectorized along `axis`, for the reason `why`.
+    LhsVectorNotServed { axis: Axis, why: LhsVectorMisfit },
     /// A routine declines a problem it does not serve, for the reason `why`.
     Declined { why: &'static str },
     /// A cube shaped `shape` along x, y and z, past the `most` the device spawns along one of them:
@@ -209,6 +216,13 @@ impl Display for Refusal {
                  state BoundaryPolicy::Unchecked if the launch proves its vector lines are in \
                  bounds"
             ),
+            Refusal::CheckedInsideStorageTile { level } => write!(
+                f,
+                "Arg: this storage-tiled operand's storage tile is the tile of level {level}, \
+                 where a window is read as one unmasked run, and the launch overhangs it, so a \
+                 window past the tensor's end would read storage tiles it does not have; tile \
+                 the launch so it divides the operand, or tile it coarser than the storage tile"
+            ),
             Refusal::GatherInnermostNotInLines => write!(
                 f,
                 "Arg::gathered: the innermost physical axis must step by the operand's last \
@@ -239,6 +253,9 @@ impl Display for Refusal {
                 f,
                 "the kernel needs one plane width, and the device's varies from {min} to {max}"
             ),
+            Refusal::LhsVectorNotServed { axis, why } => {
+                write!(f, "contract gather: lhs vectorized along {axis:?}: {why}")
+            }
             Refusal::Declined { why } => f.write_str(why),
             Refusal::CubeShapePastDevice { shape, most } => write!(
                 f,
