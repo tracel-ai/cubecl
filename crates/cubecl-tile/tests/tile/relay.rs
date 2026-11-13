@@ -17,7 +17,7 @@ const N: Axis = Axis(1);
 const K: Axis = Axis(2);
 
 /// The leaf's register block in the relay's contraction.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// Rows and columns every case holds, cut by tiles of [`TILE`] that overhang both.
 const ROWS: usize = 5;
@@ -214,7 +214,7 @@ fn relayed_split_matmul(
     let b = b.tile(&space);
     let mut out = out.tile(&space);
     let c = relay.tile();
-    let acc = c.register_accumulator::<f32>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<f32>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for cube in &space {
         for step in cube.walk() {
             let mut acc_step = acc.at(&step);

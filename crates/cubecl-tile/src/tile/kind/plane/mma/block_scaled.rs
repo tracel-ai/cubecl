@@ -21,7 +21,7 @@ const LDMATRIX_ROW_WORDS: usize = LDMATRIX_ROW_BYTES / size_of::<u32>();
 
 /// Bind a block-scaled fragment's widths in role `ident`: its values' and its scales'.
 #[cube]
-pub(crate) fn register_block_scaled_sizes(
+pub(crate) fn register_scaled_sizes(
     def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
     #[comptime] ident: MatrixIdent,
 ) {
@@ -42,7 +42,7 @@ pub(crate) fn register_block_scaled_sizes(
 /// Bind the elements `form` names: each role's codes and the scales', so either fragment's
 /// instruction names both inputs.
 #[cube]
-pub(crate) fn register_block_scaled_elements(#[comptime] form: BlockScaledOperands) {
+pub(crate) fn register_scaled_elements(#[comptime] form: BlockScaledOperands) {
     intrinsic!(|scope| {
         scope.register_type::<LhsCodes>(ElemType::Float(form.lhs));
         scope.register_type::<RhsCodes>(ElemType::Float(form.rhs));
@@ -184,7 +184,7 @@ fn codes_per_register(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> comptime_type!(usize) {
-    register_block_scaled_elements(form);
+    register_scaled_elements(form);
     let def = block_scaled_definition::<f32>(form, m, n, k);
     let elements = def.vector_size(ident);
     comptime!(elements * BlockScaledOperands::values_per_element(form.codes(ident)))
@@ -462,7 +462,7 @@ pub(crate) fn mma_execute_block_scaled<A: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) {
-    register_block_scaled_elements(form);
+    register_scaled_elements(form);
     let def = block_scaled_definition::<A>(form, m, n, k);
     let out = def.execute_scaled(
         lhs.at::<LhsCodes>(),

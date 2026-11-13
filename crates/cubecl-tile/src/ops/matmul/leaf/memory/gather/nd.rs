@@ -19,7 +19,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] problem: GatherProblem,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let matrices = problem.block.matrices();
@@ -141,7 +141,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     acc: &mut AccumulateView<'_, E, A>,
     batch: &Coords<u32>,
     #[comptime] problem: GatherProblem,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] unroll: bool,
     #[comptime] semiring: Semiring,
 ) {
@@ -422,7 +422,7 @@ enum StepGroups {
 }
 
 impl StepGroups {
-    fn of(problem: &GatherProblem, config: RegisterBlock) -> Self {
+    fn of(problem: &GatherProblem, config: SoftwareMatmul) -> Self {
         let fixed_components = problem.block.lw > 1
             && problem.block.contracted_per_step == 1
             && problem.lhs_vector_axis == LhsVectorAxis::Contracted

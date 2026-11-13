@@ -296,7 +296,7 @@ fn one_kernel_stores_into_a_buffer_or_a_caller_sink() {
 const M: Axis = Axis(2);
 const N: Axis = Axis(3);
 const K: Axis = Axis(4);
-const BLOCK: RegisterBlock = RegisterBlock::new(16);
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The promoted matmul over any destination: `K` sums in registers and the drain is the only
 /// touch of the output, which is the shape of a kernel a fused epilogue is handed to.

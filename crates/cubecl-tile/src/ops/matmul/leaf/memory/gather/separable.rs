@@ -18,7 +18,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] problem: GatherProblem,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let mr = problem.block.mr;

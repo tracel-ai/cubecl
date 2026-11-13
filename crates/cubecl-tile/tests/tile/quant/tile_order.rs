@@ -51,7 +51,7 @@ fn tile_order_one_row_product<E: Numeric>(
         let acc = c.register_accumulator::<E>(
             &x,
             &values,
-            comptime!(RegisterBlock::new(256)),
+            comptime!(SoftwareMatmul::new(256)),
             Semiring::SUM_PROD,
         );
         for step in cube {

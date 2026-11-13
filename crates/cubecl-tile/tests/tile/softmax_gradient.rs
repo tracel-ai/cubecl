@@ -16,7 +16,7 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Levels, Partitioning, RegisterBlock, Semiring, Space, StageStorage, Stages, Tile,
+    Axis, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
     TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
@@ -79,7 +79,7 @@ fn by_queries(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let config = comptime!(RegisterBlock::new(rows * block));
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let mut delta_u = delta.at(&unit);
@@ -144,7 +144,7 @@ fn by_keys(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let config = comptime!(RegisterBlock::new(rows * block));
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u, value_u) = (query.at(&unit), key.at(&unit), value.at(&unit));
@@ -312,7 +312,7 @@ fn logsumexp_of(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let config = comptime!(RegisterBlock::new(rows * block));
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u, bias_u) = (query.at(&unit), key.at(&unit), bias.at(&unit));

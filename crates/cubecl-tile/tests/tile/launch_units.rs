@@ -47,7 +47,7 @@ fn launch_unit_matmul<O: Destination>(
         let sum = c_unit.register_accumulator::<f32>(
             &a_unit,
             &b_unit,
-            comptime!(RegisterBlock::new(BLOCK[0] * BLOCK[1])),
+            comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
             Semiring::SUM_PROD,
         );
         for step in &unit {

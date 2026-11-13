@@ -34,7 +34,7 @@ const LINE: usize = 4;
 /// another cannot land on the right answer.
 const ROUTES: [u32; TOKENS] = [2, 0, 2, 1];
 
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `x[m, k]`.
 fn activations(depth: usize) -> Vec<f32> {
@@ -138,7 +138,7 @@ fn routed_matmul_kernel(
         for slab in tok.over(&expert).routed(EXPERT, e) {
             let mut o = out
                 .at(&slab)
-                .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
             o.mm(&x.at(&slab), &w.at(&slab));
         }
     }
@@ -168,7 +168,7 @@ fn routed_staged_matmul_kernel(
         stages.pipelined(experts, |slot, slab| {
             let mut o = out
                 .at(slab)
-                .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
             slot.consume(|w_s| {
                 o.mm(&x.at(slab), w_s);
             });
@@ -337,7 +337,7 @@ fn routed_block_matmul_kernel<E: Numeric>(
             let acc = out_s.register_accumulator::<E>(
                 &x_s,
                 &w_s,
-                comptime!(REGISTER_BLOCK),
+                comptime!(SOFTWARE_MATMUL),
                 Semiring::SUM_PROD,
             );
             for step in slab.over(&depth) {
@@ -420,7 +420,7 @@ fn run_block(routes: &[u32]) -> HostData {
 /// A refusal inside a cube verb dies on the expansion worker, so a regression here reads as the
 /// output keeping its fill value rather than as a message.
 #[test]
-fn a_routed_walk_sums_its_contraction_into_a_register_block() {
+fn a_routed_walk_sums_its_contraction_into_a_software_matmul() {
     assert_routed(&run_block(&ROUTES), &ROUTES, DEPTH);
 }
 

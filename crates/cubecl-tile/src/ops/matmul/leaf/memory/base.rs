@@ -14,7 +14,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] space: &Space,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let lhs_scaled = lhs.quantized();

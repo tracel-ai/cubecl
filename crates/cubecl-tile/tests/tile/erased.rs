@@ -260,7 +260,7 @@ const M: Axis = Axis(2);
 const N: Axis = Axis(3);
 const K: Axis = Axis(4);
 /// The register block the promoted accumulator contracts through.
-const BLOCK: RegisterBlock = RegisterBlock::new(16);
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The promoted matmul, storing to a buffer: `launch_promoted_matmul`'s twin, kept here so the
 /// comparison is between two kernels in one file rather than across suites.

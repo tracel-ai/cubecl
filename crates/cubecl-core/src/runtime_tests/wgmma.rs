@@ -2,7 +2,7 @@ use crate::{
     self as cubecl,
     prelude::barrier::Barrier,
     wgmma::{
-        Accumulator, Fragment, Major, MatrixDescriptor, Swizzle, WARPGROUP_M, WgmmaTileLayout,
+        Accumulator, Fragment, Major, MatrixDescriptor, PLANE_GROUP_M, Swizzle, WgmmaTileLayout,
     },
 };
 use cubecl::prelude::*;
@@ -37,7 +37,7 @@ pub enum AOperand {
     Registers,
 }
 
-/// One warpgroup MMA test: `out = lhs * rhs^T`, `64 x n`, over `k_steps` steps of K.
+/// One plane group MMA test: `out = lhs * rhs^T`, `64 x n`, over `k_steps` steps of K.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WgmmaCase {
     pub n: usize,
@@ -60,7 +60,7 @@ impl WgmmaCase {
         WgmmaTileLayout {
             major: format.major,
             swizzle: format.swizzle,
-            rows: WARPGROUP_M,
+            rows: PLANE_GROUP_M,
             k: size_k,
         }
     }
@@ -91,7 +91,7 @@ fn stage<E: Scalar>(source: &[E], tile: &mut [E], #[comptime] layout: WgmmaTileL
 }
 
 /// `out = lhs * rhs^T` for a `64 x size_k` `lhs` and an `n x size_k` `rhs`, both row-major. One
-/// warpgroup stages them in shared memory as the case lays them out, and issues the MMAs.
+/// plane group stages them in shared memory as the case lays them out, and issues the MMAs.
 #[cube(launch)]
 pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
     lhs: &[A],
@@ -172,7 +172,7 @@ pub fn kernel_wgmma_tma(
     out: &mut [f32],
     #[comptime] n: usize,
 ) {
-    let a_layout = comptime![tma_tile(WARPGROUP_M)];
+    let a_layout = comptime![tma_tile(PLANE_GROUP_M)];
     let b_layout = comptime![tma_tile(n)];
     let size_k = comptime![a_layout.k];
     let k = comptime![WgmmaTileLayout::k_step(F16_BYTES)];
@@ -180,10 +180,10 @@ pub fn kernel_wgmma_tma(
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
     let mut smem_a: Shared<[half::f16]> =
-        Shared::new_aligned_slice(WARPGROUP_M * size_k, a_layout.alignment());
+        Shared::new_aligned_slice(PLANE_GROUP_M * size_k, a_layout.alignment());
     let mut smem_b: Shared<[half::f16]> =
         Shared::new_aligned_slice(n * size_k, b_layout.alignment());
-    let bytes = comptime![((WARPGROUP_M + n) * size_k * F16_BYTES) as u32];
+    let bytes = comptime![((PLANE_GROUP_M + n) * size_k * F16_BYTES) as u32];
     let expected = select(UNIT_POS == 0, bytes, 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(lhs, &mut smem_a, 0, 0);
@@ -231,7 +231,7 @@ fn supported<A: CubeElement, B: CubeElement, CD: CubeElement>(
         cd: CD::cube_type(),
     };
     let shape = MatrixShape {
-        m: WARPGROUP_M,
+        m: PLANE_GROUP_M,
         n,
         k,
     };
@@ -259,10 +259,10 @@ fn rhs_at(l: usize, j: usize) -> i64 {
 fn check<CD: CubeElement + Numeric>(actual: &[CD], n: usize, size_k: usize, what: &str) {
     assert_eq!(
         actual.len(),
-        WARPGROUP_M * n,
+        PLANE_GROUP_M * n,
         "the kernel did not run: {what}"
     );
-    for i in 0..WARPGROUP_M {
+    for i in 0..PLANE_GROUP_M {
         for j in 0..n {
             let expected: i64 = (0..size_k).map(|l| lhs_at(i, l) * rhs_at(l, j)).sum();
             let actual = actual[i * n + j].to_f64().unwrap();
@@ -288,7 +288,7 @@ pub fn test_wgmma<
     if !supported::<A, B, CD>(&client, case.n, k) {
         return;
     }
-    let (m, n) = (WARPGROUP_M, case.n);
+    let (m, n) = (PLANE_GROUP_M, case.n);
     let size_k = k * case.k_steps;
 
     let lhs: Vec<A> = (0..m)
@@ -334,7 +334,7 @@ pub fn test_wgmma_tma<R: Runtime>(client: Client, n: usize) {
         println!("Skipping the TMA-fed wgmma test for n = {n}: no TMA or no such wgmma");
         return;
     }
-    let lhs: Vec<half::f16> = (0..WARPGROUP_M)
+    let lhs: Vec<half::f16> = (0..PLANE_GROUP_M)
         .flat_map(|i| (0..size_k).map(move |l| half::f16::from_f32(lhs_at(i, l) as f32)))
         .collect();
     let rhs: Vec<half::f16> = (0..n)
@@ -354,15 +354,15 @@ pub fn test_wgmma_tma<R: Runtime>(client: Client, n: usize) {
         )
         .with_swizzle(tma_tile(rows).tensor_map_swizzle())
     };
-    let out = client.create_from_slice(f32::as_bytes(&vec![0.0; WARPGROUP_M * n]));
+    let out = client.create_from_slice(f32::as_bytes(&vec![0.0; PLANE_GROUP_M * n]));
 
     kernel_wgmma_tma::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(128),
-        map(&lhs, WARPGROUP_M),
+        map(&lhs, PLANE_GROUP_M),
         map(&rhs, n),
-        unsafe { BufferArg::from_raw_parts(out.clone(), WARPGROUP_M * n) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), PLANE_GROUP_M * n) },
         n,
     );
 
