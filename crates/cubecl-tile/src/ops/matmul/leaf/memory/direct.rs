@@ -16,7 +16,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     rhs: &Tile,
     #[comptime] space: &Space,
     #[comptime] contracted_per_step: usize,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let lhs_gathered = lhs.gathered();
@@ -73,7 +73,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
     rhs: &Tile,
     #[comptime] shape: ContractShape,
     #[comptime] columns: usize,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let mr = shape.mr;

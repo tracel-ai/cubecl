@@ -176,7 +176,7 @@ impl Descent {
                     lhs,
                     rhs,
                     &space,
-                    contraction.block,
+                    contraction.matmul,
                     contraction.semiring,
                 )
             }

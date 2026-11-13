@@ -61,7 +61,7 @@ pub fn lower_sync_system(scope: &Scope) {
 }
 
 /// `fence.proxy.async.shared::cta`: orders this unit's generic proxy accesses to shared memory
-/// with the async proxy's, which TMA and warpgroup MMA read and write through.
+/// with the async proxy's, which TMA and plane group MMA read and write through.
 pub fn lower_sync_async_proxy(scope: &Scope) {
     let void_ty = VoidType::get(scope.ctx_mut()).into();
     let op = call_op(scope.ctx_mut(), FENCE_PROXY_ASYNC_SHARED, void_ty, vec![]);

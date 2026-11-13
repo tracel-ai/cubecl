@@ -276,10 +276,10 @@ mod tests {
         }
     }
 
-    /// A stage of K-major rows one TMA span long lies as a warpgroup MMA reads a tile under the
+    /// A stage of K-major rows one TMA span long lies as a plane group MMA reads a tile under the
     /// same swizzle, so a descriptor over the stage reads what the TMA engine landed.
     #[test]
-    fn a_tma_span_row_is_the_warpgroup_mma_tile() {
+    fn a_tma_span_row_is_the_plane_group_mma_tile() {
         use cubecl::wgmma::{Major, Swizzle, WgmmaTileLayout};
 
         const F16_BYTES: usize = 2;

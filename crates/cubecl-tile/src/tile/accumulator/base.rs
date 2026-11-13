@@ -141,7 +141,7 @@ impl Tile {
     /// What the planes holding this output sum `lhs · rhs` into under the sum of products,
     /// at the element `EA`, opened at zero, for a sum drained into an output: in the matrix
     /// instruction the device offers for the product, picked as the kernel expands
-    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the warpgroup
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the plane group
     /// MMA where plane groups of four hold it.
     pub fn accumulator<EA: Numeric>(
         &self,
@@ -173,7 +173,7 @@ impl Tile {
         &self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] semiring: Semiring,
     ) -> Tile {
         register_accumulator::<EA>(self, lhs, rhs, config, semiring)
@@ -185,7 +185,7 @@ impl Tile {
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] monoid: Monoid,
     ) -> Tile {
         let vector_size = self.vector_size();
@@ -545,8 +545,8 @@ impl Tile {
 }
 
 /// Who holds each of the output's tiles at `place`: the narrowest scope a level below it deals them
-/// to, or the one holding `place` where none does. A warpgroup holding them issues the warpgroup
-/// MMA, which takes all four of its planes.
+/// to, or the one holding `place` where none does. A plane group holding them issues the plane
+/// group MMA, which takes all four of its planes.
 fn holder(place: &Placement) -> ComputeScope {
     place
         .below()
@@ -581,7 +581,7 @@ fn register_accumulator<EA: Numeric>(
     out: &Tile,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) -> Tile {
     let lw = lhs.vector_size();

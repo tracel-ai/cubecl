@@ -38,7 +38,7 @@ const NB: Axis = Axis(5);
 const NI: Axis = Axis(6);
 
 /// The register block every leaf here runs under.
-const BLOCK: RegisterBlock = RegisterBlock::new(16);
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `C = A · B`, whichever axes the operands spell their contraction over.
 #[cube(launch)]

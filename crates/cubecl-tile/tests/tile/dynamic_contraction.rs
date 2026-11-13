@@ -43,7 +43,7 @@ fn contract<E: Numeric>(
     let acc = c.register_accumulator::<E>(
         &a,
         &b,
-        comptime!(RegisterBlock::new(budget)),
+        comptime!(SoftwareMatmul::new(budget)),
         Semiring::SUM_PROD,
     );
     for cube in space {

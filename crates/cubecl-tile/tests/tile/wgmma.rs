@@ -1,10 +1,10 @@
-//! A plane group's warpgroup MMA over stages the TMA engine lands: two groups of four planes a
+//! A plane group's MMA over stages the TMA engine lands: two groups of four planes a
 //! cube, each one `64 × 128` accumulator, its MMAs reading both operands K-major straight out of
 //! the stage, beside a plane that fills the stages and frees each once the MMAs that read it are
 //! done ([`Stages::consume_async`]). Checked against the host product, one stage in flight and
 //! two.
 //!
-//! A device without the warpgroup MMA or the TMA engine skips: Hopper alone has both.
+//! A device without the plane group MMA or the TMA engine skips: Hopper alone has both.
 
 use crate::support::ValidationResult;
 use cubecl::{
@@ -127,7 +127,7 @@ fn storage() -> StageStorage {
     }
 }
 
-/// Whether this device runs a `64 × 128` warpgroup MMA of `f16` into `f32` and lands its stages
+/// Whether this device runs a `64 × 128` plane group MMA of `f16` into `f32` and lands its stages
 /// by TMA; a test without them is skipped, not passed.
 fn runs_wgmma(client: &Client) -> bool {
     let props = client.properties();
@@ -151,7 +151,7 @@ fn runs_wgmma(client: &Client) -> bool {
     if wgmma && props.features.tma.contains(Tma::Base) {
         return true;
     }
-    ValidationResult::Skipped("the device has no warpgroup MMA or no TMA engine".to_string())
+    ValidationResult::Skipped("the device has no plane group MMA or no TMA engine".to_string())
         .enforce();
     false
 }
@@ -271,12 +271,12 @@ fn check_wgmma_walk(m: usize, n: usize, k: usize, depth: usize) {
 
 /// Two stages in their slots: each slot freed a stage after its MMAs were issued.
 #[test]
-fn a_warpgroup_mma_walk_frees_each_stage_a_stage_late() {
+fn a_plane_group_mma_walk_frees_each_stage_a_stage_late() {
     check_wgmma_walk(256, 256, 256, 2);
 }
 
 /// One slot: the MMAs that read it are waited for before it is refilled.
 #[test]
-fn a_warpgroup_mma_walk_over_one_slot_waits_at_once() {
+fn a_plane_group_mma_walk_over_one_slot_waits_at_once() {
     check_wgmma_walk(128, 128, 192, 1);
 }
