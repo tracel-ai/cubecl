@@ -87,12 +87,7 @@ impl<E: Float> OnlineSoftmax<E> {
     /// unit of the plane calls it, and the caller meets the plane before it and before the
     /// probabilities are read.
     pub fn step(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
-        let scaled = score.factor.scaled();
-        let scale = if comptime!(scaled) {
-            scale * E::cast_from(score.factor.whole())
-        } else {
-            scale
-        };
+        let scale = scale * E::cast_from(score.factor.whole());
         let unbiased = bias.is_zero();
         match comptime!(unbiased) {
             true => self.step_unbiased(score, scale),
