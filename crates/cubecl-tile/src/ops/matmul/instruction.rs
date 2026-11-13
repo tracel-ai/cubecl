@@ -270,7 +270,7 @@ impl Instruction {
             instruction,
             cell: [m, n],
         };
-        if holder == ComputeScope::PLANE_GROUP {
+        if holder == ComputeScope::MMA_PLANE_GROUP {
             return Some(whole(Instruction::Wgmma));
         }
         if let FragmentSource::Fragments(held) = lhs {
@@ -690,7 +690,7 @@ mod tests {
         let instruction = Instruction::for_accumulator(
             &cuda(),
             &sum_is_next_a(),
-            ComputeScope::PLANE_GROUP,
+            ComputeScope::MMA_PLANE_GROUP,
             HALF,
             HALF,
             F32,

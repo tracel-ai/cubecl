@@ -266,7 +266,7 @@ macro_rules! plane_group_synchronizes {
     };
 }
 
-/// Units in a plane group: the four planes that issue one plane group MMA together.
+/// Units in the plane group that issues one plane group MMA: its four planes.
 pub const PLANE_GROUP_UNITS: usize = 128;
 /// Rows every plane group MMA computes.
 pub const PLANE_GROUP_M: usize = 64;

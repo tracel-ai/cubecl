@@ -191,9 +191,9 @@ impl MmaData {
         let form = operands.block_scaled().expect(
             "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form",
         );
-        software_matmul_scaled_elements(form);
+        register_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
-        software_matmul_scaled_sizes(&def, ident);
+        register_scaled_sizes(&def, ident);
         let fragment = match ident {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
                 Raw::<Registers<NLB>>::of::<LhsCodes>(Array::new(

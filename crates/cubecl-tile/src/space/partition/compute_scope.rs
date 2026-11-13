@@ -16,9 +16,9 @@ pub enum ComputeScope {
 }
 
 impl ComputeScope {
-    /// The four planes of a plane group, which issue each plane group MMA together
+    /// The plane group that issues each plane group MMA: four planes together
     /// ([`Instruction::Wgmma`](crate::Instruction::Wgmma)).
-    pub const PLANE_GROUP: Self = Self::PlaneGroup { planes: 4 };
+    pub const MMA_PLANE_GROUP: Self = Self::PlaneGroup { planes: 4 };
 
     /// The planes one instance of this scope spans, where it spans whole planes.
     pub fn planes(self) -> Option<usize> {
