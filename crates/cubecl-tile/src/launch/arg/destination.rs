@@ -11,9 +11,6 @@ use crate::{
 /// Which launch argument carries a kernel's output and how the kernel serves it: a storing
 /// destination serves the output as a [`Tile`], one that carries a state across the output tiles
 /// is the next op fused into the routine.
-///
-/// Three lifetimes, three types: [`Arg`](Self::Arg) at launch, [`ServedDestination`] built once
-/// per kernel by [`serve`](Self::serve), [`OpenedDestination`] per owner region.
 #[cube]
 pub trait Destination: Send + Sync + 'static {
     /// The launch argument carrying the output and its spec, at element `E`.
