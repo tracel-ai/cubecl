@@ -60,6 +60,13 @@ impl Descent {
     }
 }
 
+/// Whether the level below `acc` steps only axes the sum does not hold: the contraction.
+fn steps_contraction_only(acc: &Placement) -> bool {
+    acc.below()
+        .first()
+        .is_some_and(|level| level.axes().iter().all(|&axis| !acc.space.contains(axis)))
+}
+
 #[cube]
 impl Descent {
     /// The descent a contraction into `acc` takes.
@@ -136,9 +143,21 @@ impl Descent {
             comptime!(acc.place.depth),
         )
         .walk();
-        for region in walk.unrolled() {
-            let mut acc_region = acc.at(&region);
-            Self::contract::<E, Lhs, Rhs>(&mut acc_region, &lhs.at(&region), &rhs.at(&region));
+        // A level that steps the contraction alone, over operands in memory, only offsets their
+        // windows and never picks a fragment of the sum: one rolled loop, so a deep walk is not
+        // expanded step by step.
+        let contraction_only = comptime!(steps_contraction_only(&acc.place));
+        let (lhs_memory, rhs_memory) = (lhs.is_memory(), rhs.is_memory());
+        if comptime!(contraction_only && lhs_memory && rhs_memory) {
+            for region in walk {
+                let mut acc_region = acc.at(&region);
+                Self::contract::<E, Lhs, Rhs>(&mut acc_region, &lhs.at(&region), &rhs.at(&region));
+            }
+        } else {
+            for region in walk.unrolled() {
+                let mut acc_region = acc.at(&region);
+                Self::contract::<E, Lhs, Rhs>(&mut acc_region, &lhs.at(&region), &rhs.at(&region));
+            }
         }
     }
 
