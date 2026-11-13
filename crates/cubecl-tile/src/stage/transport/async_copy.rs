@@ -66,7 +66,9 @@ impl<'a, I2: Numeric, W: Size> LineMove for AsyncLines<'a, I2, W> {
             "AsyncLines: the copy engine moves 4, 8 or 16 bytes at once, and this stage's lines \
              are {bytes}: serve the operand in lines one copy moves"
         ));
-        let (coords, offset) = self.layout.line_in(line, comptime!(self.order));
+        let order = comptime!(self.order);
+        let coords = self.layout.line_coords_in(line, order);
+        let offset = self.layout.line_offset_in(line, coords.clone(), order);
         let run = self.s.item_run(coords);
         let dst = &mut self.d[offset..offset + 1];
         if comptime!(self.s.check) {

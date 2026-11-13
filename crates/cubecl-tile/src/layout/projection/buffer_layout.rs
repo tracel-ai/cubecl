@@ -78,17 +78,25 @@ impl BufferLayout {
         self.logical_of_physical(&physical)
     }
 
-    /// The logical coordinate a copy's line `i` holds, its lines counted in `order`, and where
-    /// that line sits in this buffer: the destination's line `i`, or the line holding the source's
-    /// `i`-th.
-    pub(crate) fn line_in(&self, i: usize, #[comptime] order: LineOrder) -> (CoordsDyn, usize) {
+    /// The logical coordinate a copy's line `i` holds, its lines counted in `order`.
+    pub(crate) fn line_coords_in(&self, i: usize, #[comptime] order: LineOrder) -> CoordsDyn {
         match order {
-            LineOrder::Destination => (self.line_coords(i), self.line_offset(i)),
-            LineOrder::Source => {
-                let coords = self.logical_coords(i);
-                let offset = self.to_source_pos(coords.clone());
-                (coords, offset)
-            }
+            LineOrder::Destination => self.line_coords(i),
+            LineOrder::Source => self.logical_coords(i),
+        }
+    }
+
+    /// Where a copy's line `i`, holding `coords`, sits in this buffer, its lines counted in
+    /// `order`: the destination's line `i`, or the line holding the source's `i`-th.
+    pub(crate) fn line_offset_in(
+        &self,
+        i: usize,
+        coords: CoordsDyn,
+        #[comptime] order: LineOrder,
+    ) -> usize {
+        match order {
+            LineOrder::Destination => self.line_offset(i),
+            LineOrder::Source => self.to_source_pos(coords),
         }
     }
 

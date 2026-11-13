@@ -208,7 +208,9 @@ impl<'a, I2: Numeric, WP2: Size, SW: Size> StraightLines<'a, I2, WP2, SW> {
 #[cube]
 impl<'a, I2: Numeric, WP2: Size, SW: Size> LineMove for StraightLines<'a, I2, WP2, SW> {
     fn move_line(&mut self, line: usize, #[comptime] _turn: Option<usize>) {
-        let (coords, offset) = self.layout.line_in(line, comptime!(self.order));
-        self.d[offset] = read_stage_line::<I2, WP2, SW>(self.s, &coords, comptime!(self.padding));
+        let order = comptime!(self.order);
+        let coords = self.layout.line_coords_in(line, order);
+        let value = read_stage_line::<I2, WP2, SW>(self.s, &coords, comptime!(self.padding));
+        self.d[self.layout.line_offset_in(line, coords, order)] = value;
     }
 }
