@@ -7,6 +7,7 @@
 //! place themselves at.
 #![allow(non_snake_case)]
 
+use super::quant::column_reads::offset;
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{
@@ -15,6 +16,7 @@ use cubecl::{
 };
 use cubecl_tile::kind::Boundary;
 use cubecl_tile::launch::Refusal;
+use cubecl_tile::layout::StorageLevels;
 use cubecl_tile::*;
 
 /// Row: a token, or a token's slot.
@@ -209,9 +211,71 @@ enum Reading {
     Walking,
 }
 
+/// How the weights `[EXPERT, K, N]` lie: in rows under a spec, or each expert's `K × N` stored in
+/// tiles of `(k, n)`, the experts one after another.
+#[derive(Clone)]
+enum Stored {
+    InRows(TileSpec),
+    InTiles(usize, usize),
+}
+
+impl Stored {
+    /// The weights on `client`, laid as this says, and the spec they are read under.
+    fn weights(&self, client: &Client) -> (TensorHandle, TileSpec) {
+        let f32_ty = f32::elem_type_native();
+        let w = weights();
+        match self {
+            Stored::InRows(spec) => {
+                let (handle, _) =
+                    TestInput::builder(client.clone(), Shape::new([EXPERTS, FEATURES, FEATURES]))
+                        .dtype(f32_ty)
+                        .custom(w)
+                        .generate_with_f32_host_data();
+                (handle, spec.clone())
+            }
+            Stored::InTiles(tile_k, tile_n) => {
+                let axes = [K, N];
+                let storage = StorageLevels::new(&[(N, *tile_n)])
+                    .tile(&[(K, *tile_k)])
+                    .grid(&[N, K]);
+                let geometry = storage
+                    .physical(&[(K, FEATURES), (N, FEATURES)])
+                    .expect("the tiles close a slab");
+                let labels = geometry.labels(&axes);
+                let slab = FEATURES * FEATURES;
+                let mut stored = vec![0f32; EXPERTS * slab];
+                for e in 0..EXPERTS {
+                    for k in 0..FEATURES {
+                        for n in 0..FEATURES {
+                            let at = offset(&geometry, &labels, &axes, &[k, n]);
+                            stored[e * slab + at] = w[e * slab + k * FEATURES + n];
+                        }
+                    }
+                }
+                let lead = |first: usize, rest: &[usize]| [&[first][..], rest].concat();
+                let handle = TensorHandle::new(
+                    client.create(Bytes::from_elems(stored)),
+                    lead(EXPERTS, geometry.shape()),
+                    lead(slab, geometry.strides()),
+                    f32_ty,
+                );
+                let labels = [&[EXPERT][..], &labels].concat();
+                let mut spec = TileSpec::new(Projection::tiled(&[EXPERT, K, N], &labels));
+                spec.stored_tiles = storage.tiles().to_vec();
+                (handle, spec)
+            }
+        }
+    }
+}
+
 /// The rows in tiles of `tile`, the weights `[EXPERT, K, N]` keyed by the row tile: `entries`
 /// holds one expert per tile.
 fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -> HostData {
+    run_stored(entries, tile, Stored::InRows(weights_spec), reading)
+}
+
+/// [`run`] over weights laid as `stored` says.
+fn run_stored(entries: &[u32], tile: usize, stored: Stored, reading: Reading) -> HostData {
     let client = cubecl::test_device().client();
     let launcher = implied(
         &client,
@@ -234,10 +298,7 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
         .dtype(f32_ty)
         .custom(activations())
         .generate_with_f32_host_data();
-    let (w, _) = TestInput::builder(client.clone(), Shape::new([EXPERTS, FEATURES, FEATURES]))
-        .dtype(f32_ty)
-        .custom(weights())
-        .generate_with_f32_host_data();
+    let (w, weights_spec) = stored.weights(&client);
     let routes = table(&client, entries, Shape::new([entries.len()]), &[M]);
     let out = unwritten_output(&client);
 
@@ -358,6 +419,22 @@ fn a_grouped_operand_stages_the_slab_of_each_tile() {
     let got = run(&groups, 2, weights_spec(), Reading::Staged);
     let want = expected(|m| groups[m / 2] as usize, &weights());
     assert_cells(&got, &want, "grouped, staged");
+}
+
+/// Each expert's `K × N` stored in tiles, the experts one after another: the table moves the
+/// window along the expert, a dim the storage tiling leaves whole, by its stride, read in place,
+/// staged, or walked a step of `K` at a time. Routed rows and grouped tiles alike.
+#[test]
+fn a_routed_operand_stored_in_tiles_reads_the_expert_its_table_names() {
+    for reading in [Reading::InPlace, Reading::Staged, Reading::Walking] {
+        let got = run_stored(&ROUTES, 1, Stored::InTiles(2, 2), reading);
+        let want = expected(|m| ROUTES[m] as usize, &weights());
+        assert_cells(&got, &want, "routed, in tiles");
+        let groups = [2u32, 0];
+        let got = run_stored(&groups, 2, Stored::InTiles(2, 2), reading);
+        let want = expected(|m| groups[m / 2] as usize, &weights());
+        assert_cells(&got, &want, "grouped, in tiles");
+    }
 }
 
 /// `out[rows] = x[rows] · (W[e] ⊗ s[e])` with `W` packed eight bits a field, four to a word, and
