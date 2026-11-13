@@ -354,7 +354,7 @@ pub trait CollectiveServer: Sized {
     /// A stream that cannot be resolved, and the driver's refusal to order the two.
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let timing = self.collectives().take_timing();
-        let last_end = self.collectives().last_end().cloned();
+        let last_end = self.collectives().take_last_end();
         let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());

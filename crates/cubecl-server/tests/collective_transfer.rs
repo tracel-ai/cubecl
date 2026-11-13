@@ -726,42 +726,73 @@ fn a_timing_its_refused_send_never_used_is_dropped_rather_than_given_to_the_next
     assert!(cubecl_environment::future::block_on(window.resolve()).is_none());
 }
 
-#[test_log::test]
-fn a_sync_after_its_collectives_ended_waits_for_nothing() {
-    let device = DeviceId::new(0, 70);
-    let mut server = FakeServer::new(device);
-    server.collectives().join(vec![device]).unwrap();
+fn all_reduce(server: &mut FakeServer, device: DeviceId, timing: Option<CommunicationTiming>) {
     let (src, dst) = (server.allocated(), server.allocated());
-    let mut part = CommunicationTiming::default();
-    let _part = part.part_window();
-    server.time_next_communication(part);
-
-    clock_at(3);
+    if let Some(timing) = timing {
+        server.time_next_communication(timing);
+    }
+    let reduction = Reduction {
+        dtype: ElemType::Float(FloatKind::F32),
+        op: ReduceOperation::Sum,
+    };
     server
         .all_reduce(
             src.binding(),
             dst.binding(),
-            Reduction {
-                dtype: ElemType::Float(FloatKind::F32),
-                op: ReduceOperation::Sum,
-            },
+            reduction,
             STREAM,
             vec![device],
             ComputeWait::AtSync,
         )
         .unwrap();
-    let mut sync = CommunicationTiming::default();
-    let wait = sync.wait_window();
-    server.time_next_communication(sync);
+}
+
+/// A timed sync on `stream`, and the window of its wait.
+fn timed_sync(server: &mut FakeServer, stream: StreamId) -> ProfileDuration {
+    let mut timing = CommunicationTiming::default();
+    let wait = timing.wait_window();
+    server.time_next_communication(timing);
+    server.sync_collective(stream).unwrap();
+    wait
+}
+
+fn joined_alone(index: u16) -> (FakeServer, DeviceId) {
+    let device = DeviceId::new(0, index);
+    let mut server = FakeServer::new(device);
+    server.collectives().join(vec![device]).unwrap();
+    (server, device)
+}
+
+#[test_log::test]
+fn a_sync_after_its_collectives_ended_waits_for_nothing() {
+    let (mut server, device) = joined_alone(70);
+
+    clock_at(3);
+    all_reduce(&mut server, device, Some(CommunicationTiming::default()));
     clock_at(9);
-    server.sync_collective(STREAM).unwrap();
+    let wait = timed_sync(&mut server, STREAM);
 
     assert_eq!(read(wait), cubecl_common::profile::Duration::ZERO);
+    let nothing_queued = timed_sync(&mut server, StreamId { value: 2 });
+    assert!(cubecl_environment::future::block_on(nothing_queued.resolve()).is_none());
+}
 
-    let mut another_stream = CommunicationTiming::default();
-    let wait = another_stream.wait_window();
-    server.time_next_communication(another_stream);
-    server.sync_collective(StreamId { value: 2 }).unwrap();
+#[test_log::test]
+fn a_sync_after_an_untimed_collective_reads_back_empty() {
+    let (mut server, device) = joined_alone(71);
 
-    assert_eq!(read(wait), cubecl_common::profile::Duration::ZERO);
+    all_reduce(&mut server, device, Some(CommunicationTiming::default()));
+    all_reduce(&mut server, device, None);
+    let wait = timed_sync(&mut server, STREAM);
+
+    assert!(cubecl_environment::future::block_on(wait.resolve()).is_none());
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "left its timing untaken")]
+fn a_timing_left_untaken_fails_the_next_one() {
+    let mut collectives = Collectives::<Fake, FakeEvents>::new(DeviceId::new(0, 72));
+    collectives.time_next(CommunicationTiming::default());
+    collectives.time_next(CommunicationTiming::default());
 }
