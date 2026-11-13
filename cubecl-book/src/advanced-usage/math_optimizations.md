@@ -71,7 +71,7 @@ fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
 }
 ```
 
-Contraction stays forbidden where `client.properties().features.unfused_arithmetic` is true, which
+Contraction stays forbidden where `client.properties().features.forbid_contraction` is true, which
 excludes WGSL and Metal. `Inf`, `NaN` and signed zero are kept where
 `client.properties().features.ieee_special_values` is true.
 

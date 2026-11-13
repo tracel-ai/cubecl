@@ -46,7 +46,7 @@ pub struct Features {
     pub ieee_special_values: bool,
     /// Whether a kernel that forbids `AllowContraction` gets each add, subtract, multiply and
     /// divide rounded on its own.
-    pub unfused_arithmetic: bool,
+    pub forbid_contraction: bool,
 }
 
 /// Type support for a device

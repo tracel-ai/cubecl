@@ -292,7 +292,7 @@ impl WgpuCompiler for WgslCompiler {
         // WGSL has no way to ask for `SignedZeroInfNanPreserve` or `NoContraction`, whatever the
         // adapter offers.
         properties.features.ieee_special_values = false;
-        properties.features.unfused_arithmetic = false;
+        properties.features.forbid_contraction = false;
     }
 
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {

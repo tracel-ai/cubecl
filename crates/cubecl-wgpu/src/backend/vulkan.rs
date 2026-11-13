@@ -424,7 +424,7 @@ fn register_features(
     // SPIR-V spells the device scope on the barrier itself: `OpControlBarrier` with a
     // `Workgroup` execution scope and a `Device` memory scope, acquire-release.
     props.features.device_memory_scope = true;
-    props.features.unfused_arithmetic = true;
+    props.features.forbid_contraction = true;
 
     if let Some(uniform_standard_layout) = extended_feat.uniform_standard_layout
         && uniform_standard_layout.uniform_buffer_standard_layout == TRUE

@@ -165,7 +165,7 @@ fn assert_strict_rounds_each_operation<
 }
 
 pub fn test_strict_rounds_each_operation<R: Runtime>(client: Client) {
-    if !client.properties().features.unfused_arithmetic {
+    if !client.properties().features.forbid_contraction {
         return;
     }
     assert_strict_rounds_each_operation::<half::f16>(&client);
@@ -184,7 +184,7 @@ fn strict_dot(a: &[Vector<f32, Const<2>>], b: &[Vector<f32, Const<2>>], output: 
 /// A dot product is a multiply-add per lane, so it fuses the same way. Each pair cancels the other
 /// lane's rounded square exactly, in both lane orders.
 pub fn test_strict_dot_rounds_each_operation<R: Runtime>(client: Client) {
-    if !client.properties().features.unfused_arithmetic {
+    if !client.properties().features.forbid_contraction {
         return;
     }
     let (near_one, rounded) = near_one::<f32>();
@@ -303,7 +303,7 @@ fn strict_mod_floor(lhs: &[f32], rhs: &[f32], output: &mut [f32]) {
 /// of `x = 4098.5` floors to `4097`, whose product with `y` is `4098 + 2⁻¹²`: rounded on its own
 /// it is `4098`, leaving `0.5`, and fused it leaves `0.5 - 2⁻¹²`.
 pub fn test_strict_mod_floor_rounds_each_operation<R: Runtime>(client: Client) {
-    if !client.properties().features.unfused_arithmetic {
+    if !client.properties().features.forbid_contraction {
         return;
     }
     let (near_one, _) = near_one::<f32>();
