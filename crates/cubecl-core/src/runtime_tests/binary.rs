@@ -5,10 +5,8 @@ use cubecl_common::powi_portable;
 use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_type};
-use cubecl_environment::sync::LazyLock;
 
 use cubecl::prelude::*;
-use cubecl_ir::EnumSet;
 use cubecl_runtime::server::Handle;
 
 /// Set by reductions: they round twice per term against a reference `f16` cannot hold.
@@ -71,10 +69,6 @@ fn assert_equals_exact<F: CubeElement + PartialEq + Display>(
     }
 }
 
-// Needs lazy because const trait fns aren't stable
-static FAST_MATH: LazyLock<EnumSet<FastMath>> =
-    LazyLock::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
-
 macro_rules! test_binary_impl {
     (
         $test_name:ident,
@@ -108,7 +102,7 @@ macro_rules! test_binary_impl {
         }),*],
         $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
-            #[cube(launch_unchecked, fast_math = *FAST_MATH)]
+            #[cube(launch_unchecked)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
                 lhs: &[Vector<$float_type, In>],
                 rhs: &[Vector<$float_type, In>],

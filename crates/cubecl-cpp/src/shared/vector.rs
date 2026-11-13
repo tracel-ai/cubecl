@@ -1,6 +1,11 @@
 use cubecl_core::{
-    self as cubecl,
-    ir::{dialect::vector::*, interfaces::TypedExt, prelude::*},
+    self as cubecl, define_scalar, define_size,
+    ir::{
+        FastMath,
+        dialect::vector::*,
+        interfaces::{TypedExt, fast_math::FastMathOp},
+        prelude::*,
+    },
     prelude::*,
 };
 use itertools::Itertools;
@@ -8,6 +13,7 @@ use itertools::Itertools;
 use crate::{
     shared::{
         binary::lower_binop,
+        lowering::LowerOp,
         scoped_block, shared_op_with_out,
         ty::{TypeExtCPP, TypedExtCPP},
         unary::lower_unop,
@@ -105,9 +111,29 @@ fn sum<T: Float, N: Size>(input: Vector<T, N>) -> T {
     sum
 }
 
+/// Starting from `0`, as [`sum`] does, turns a sum of `-0`s into `+0`.
+#[cube]
+fn signed_zero_sum<T: Float, N: Size>(input: Vector<T, N>) -> T {
+    let mut sum = input.extract(0usize);
+    #[unroll]
+    for i in 1..input.vector_size() {
+        sum += input.extract(i);
+    }
+    sum
+}
+
 #[cube]
 fn dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {
     sum(lhs * rhs)
+}
+
+#[cube]
+fn signed_zero_dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {
+    signed_zero_sum(lhs * rhs)
+}
+
+fn keeps_zero_sign(op: &impl FastMathOp, ctx: &Context) -> bool {
+    !op.allows(ctx, FastMath::UnsignedZero.into())
 }
 
 // MSL's `length`, `normalize` and `dot` cover `half` and `float` vectors, not `bfloat` ones.
@@ -120,9 +146,39 @@ lower_unop!(NormalizeOp, normalize, |op, ctx| {
 });
 
 lower_unop!(ISumOp, sum);
-lower_unop!(FSumOp, sum);
 lower_binop!(SDotOp, dot);
 lower_binop!(UDotOp, dot);
-lower_binop!(FDotOp, dot, |op, ctx| {
-    ctx.target() != Target::Metal || op.lhs(ctx).is_bf16(ctx)
-});
+
+#[op_interface_impl]
+impl LowerOp for FSumOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let input = self.input(scope.ctx());
+        scope.register_value_type::<T, S>(input);
+        let sum = match keeps_zero_sign(self, scope.ctx()) {
+            true => signed_zero_sum::expand::<T, S>(scope, input.into()),
+            false => sum::expand::<T, S>(scope, input.into()),
+        };
+        vec![sum.read_value(scope)]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for FDotOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        ctx.target() != Target::Metal || self.lhs(ctx).is_bf16(ctx)
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let (lhs, rhs) = (self.lhs(scope.ctx()), self.rhs(scope.ctx()));
+        scope.register_value_type::<T, S>(rhs);
+        let dot = match keeps_zero_sign(self, scope.ctx()) {
+            true => signed_zero_dot::expand::<T, S>(scope, lhs.into(), rhs.into()),
+            false => dot::expand::<T, S>(scope, lhs.into(), rhs.into()),
+        };
+        vec![dot.read_value(scope)]
+    }
+}

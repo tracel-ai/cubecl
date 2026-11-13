@@ -1,5 +1,4 @@
 use crate::{
-    EnumSet,
     dialect::memory::StoreOp,
     interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
     rewrite::op_insertion_point_in_block,
@@ -29,7 +28,7 @@ use pliron::{
     dict_key,
     identifier::Identifier,
     irbuild::inserter::{IRInserter, Inserter, OpInsertionPoint},
-    op::Op,
+    op::{Op, op_cast},
     operation::Operation,
     printable::Printable,
     r#type::{TypeHandle, Typed, type_cast},
@@ -39,7 +38,8 @@ use portable_atomic::AtomicUsize;
 use spin::LazyLock;
 
 use crate::{
-    AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
+    AddressSpace, AddressType, DeviceProperties, ElemType, FastMathPermissions, TargetProperties,
+    TypeHash,
     arena::DropBump,
     attributes::{
         ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_PEER_BINDING, ATTR_TENSOR_MAP_BINDING,
@@ -53,7 +53,7 @@ use crate::{
         memory::DeclareVariableOp,
         vector::CompositeExtractOp,
     },
-    interfaces::{ScalarType, TypedExt},
+    interfaces::{ScalarType, TypedExt, fast_math::FastMathOp},
     read_value,
     settings::{DebugInfo, KernelSettings},
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType, scalar::BoolType},
@@ -415,7 +415,8 @@ impl Debug for GlobalState {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
 pub struct InstructionModes {
-    pub fp_math_mode: EnumSet<FastMath>,
+    /// The float optimizations ops registered now get.
+    pub fast_math: FastMathPermissions,
 }
 
 impl Scope {
@@ -577,7 +578,26 @@ impl Scope {
     /// Register an [`Instruction`] into the scope.
     pub fn register(&self, op: &dyn Op) {
         let ctx = self.ctx();
+        let fast_math = self.state().modes.fast_math;
+        if let Some(op) = op_cast::<dyn FastMathOp>(op)
+            && !fast_math.is_default()
+        {
+            op.set_fast_math(ctx, fast_math);
+        }
         self.inserter().append_op(ctx, op);
+    }
+
+    /// Run `body` with the float ops it registers getting `fast_math`, within what they get now.
+    pub fn with_fast_math<R>(
+        &self,
+        fast_math: FastMathPermissions,
+        body: impl FnOnce(&Self) -> R,
+    ) -> R {
+        let outer = self.state().modes.fast_math;
+        self.state_mut().modes.fast_math = outer.within(fast_math);
+        let result = body(self);
+        self.state_mut().modes.fast_math = outer;
+        result
     }
 
     /// Register an [`Instruction`] into the scope and return its result.

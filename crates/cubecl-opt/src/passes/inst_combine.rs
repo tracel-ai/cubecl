@@ -1,7 +1,7 @@
 use cubecl_ir::{
     NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
-    interfaces::TypedExt as _,
+    interfaces::{TypedExt as _, fast_math::FastMathOp},
     prelude::{Inserter as _, Rewriter as _, *},
     rewrite::MatchRewritePass,
     types::scalar::{Complex32Type, Complex64Type},
@@ -24,24 +24,30 @@ enum Negate {
     Factor,
 }
 
-/// The product `value` defines, if this is its only use.
+/// The product `value` defines, if this is its only use and it may be contracted.
 ///
 /// Fusing one that feeds anything else would leave it computed twice.
 fn lone_product(ctx: &Context, value: Value) -> Option<FMulOp> {
     let mul = value.defining_op()?.as_op::<FMulOp>(ctx)?;
-    (mul.get_result(ctx).num_uses(ctx) == 1).then_some(mul)
+    (mul.get_result(ctx).num_uses(ctx) == 1 && mul.allows_contraction(ctx)).then_some(mul)
 }
 
 /// The product, what is added to it, and what needs negating, for an `op` of the form
 /// `a * b + c`, `a * b - c` or `c - a * b`, in either operand order.
 fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> {
     let candidate = if let Some(add) = op.as_op::<FAddOp>(ctx) {
+        if !add.allows_contraction(ctx) {
+            return None;
+        }
         let (lhs, rhs) = (add.lhs(ctx), add.rhs(ctx));
         lone_product(ctx, lhs)
             .map(|mul| (mul, rhs, Negate::Nothing))
             .or_else(|| lone_product(ctx, rhs).map(|mul| (mul, lhs, Negate::Nothing)))
     } else {
         let sub = op.as_op::<FSubOp>(ctx)?;
+        if !sub.allows_contraction(ctx) {
+            return None;
+        }
         let (lhs, rhs) = (sub.lhs(ctx), sub.rhs(ctx));
         lone_product(ctx, lhs)
             .map(|mul| (mul, rhs, Negate::Addend))
@@ -88,6 +94,10 @@ impl MatchRewrite for InstCombine {
         }
 
         let fma = FmaOp::new(ctx, a, b, c);
+        let fast_math = mul.fast_math(ctx).fused_with(op.fast_math(ctx));
+        if !fast_math.is_default() {
+            fma.set_fast_math(ctx, fast_math);
+        }
         rewriter.insert_op(ctx, &fma);
         rewriter.replace_operation(ctx, op, fma.get_operation());
         rewriter.erase_operation(ctx, mul.get_operation());

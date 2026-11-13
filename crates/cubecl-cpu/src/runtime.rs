@@ -230,6 +230,8 @@ impl DeviceService for CpuServer {
         let mut device_props = DeviceProperties::new(
             Features {
                 unaligned_io: true,
+                ieee_special_values: true,
+                forbid_contraction: true,
                 ..Default::default()
             },
             mem_properties.clone(),

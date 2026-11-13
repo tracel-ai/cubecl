@@ -621,6 +621,124 @@ impl FastMath {
     pub const fn all() -> EnumSet<FastMath> {
         EnumSet::all()
     }
+
+    /// The name it goes by in printed IR.
+    pub const fn name(self) -> &'static str {
+        match self {
+            FastMath::NotNaN => "not-nan",
+            FastMath::NotInf => "not-inf",
+            FastMath::UnsignedZero => "unsigned-zero",
+            FastMath::AllowReciprocal => "allow-reciprocal",
+            FastMath::AllowContraction => "allow-contraction",
+            FastMath::AllowReassociation => "allow-reassociation",
+            FastMath::AllowTransform => "allow-transform",
+            FastMath::ReducedPrecision => "reduced-precision",
+        }
+    }
+
+    /// The optimizations that allowing this one also allows.
+    pub fn includes(self) -> EnumSet<FastMath> {
+        match self {
+            FastMath::AllowTransform => FastMath::AllowContraction | FastMath::AllowReassociation,
+            _ => EnumSet::empty(),
+        }
+    }
+}
+
+impl fmt::Display for FastMath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A name that no [`FastMath`] goes by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownFastMath(pub String);
+
+impl fmt::Display for UnknownFastMath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not a fast-math optimization: {}", self.0)
+    }
+}
+
+impl core::error::Error for UnknownFastMath {}
+
+impl FromStr for FastMath {
+    type Err = UnknownFastMath;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        FastMath::all()
+            .iter()
+            .find(|flag| flag.name() == name)
+            .ok_or_else(|| UnknownFastMath(String::from(name)))
+    }
+}
+
+/// The float optimizations a kernel gives its ops, against its backend's default: some it
+/// allows on top, and some it forbids, which no allowance brings back.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
+pub struct FastMathPermissions {
+    /// Optimizations allowed on top of the backend's default.
+    pub allowed: EnumSet<FastMath>,
+    /// Optimizations removed, from the default as from what is allowed.
+    pub forbidden: EnumSet<FastMath>,
+}
+
+impl FastMathPermissions {
+    /// The backend's default and `allowed`.
+    pub fn allowing(allowed: impl Into<EnumSet<FastMath>>) -> Self {
+        Self {
+            allowed: allowed.into(),
+            forbidden: EnumSet::empty(),
+        }
+    }
+
+    /// The backend's default, less `forbidden`.
+    pub fn forbidding(forbidden: impl Into<EnumSet<FastMath>>) -> Self {
+        Self {
+            allowed: EnumSet::empty(),
+            forbidden: forbidden.into(),
+        }
+    }
+
+    /// Whether the kernel said nothing.
+    pub fn is_default(self) -> bool {
+        self.allowed.is_empty() && self.forbidden.is_empty()
+    }
+
+    /// These permissions inside a function that gives `inner`: each adds what it allows and
+    /// forbids.
+    pub fn within(self, inner: Self) -> Self {
+        Self {
+            allowed: self.allowed | inner.allowed,
+            forbidden: self.forbidden | inner.forbidden,
+        }
+    }
+
+    /// The permissions of one op fused from two: what both allow.
+    pub fn fused_with(self, other: Self) -> Self {
+        Self {
+            allowed: self.allowed & other.allowed,
+            forbidden: self.forbidden | other.forbidden,
+        }
+    }
+
+    /// The optimizations allowed on a backend whose default is `default`.
+    pub fn resolve(self, default: EnumSet<FastMath>) -> EnumSet<FastMath> {
+        let allowed = Self::with_included(default | self.allowed);
+        let forbidden = Self::with_included(self.forbidden);
+        // An optimization that includes a forbidden one would bring it back.
+        allowed
+            .difference(forbidden)
+            .iter()
+            .filter(|flag| flag.includes().is_disjoint(forbidden))
+            .collect()
+    }
+
+    fn with_included(flags: EnumSet<FastMath>) -> EnumSet<FastMath> {
+        flags.iter().fold(flags, |all, flag| all | flag.includes())
+    }
 }
 
 impl HardwareProperties {
@@ -644,6 +762,50 @@ mod tests {
     use super::*;
     use crate::FloatKind;
     use alloc::string::ToString;
+
+    #[test]
+    fn a_forbid_removes_what_includes_it() {
+        let permissions = FastMathPermissions::allowing(FastMath::all())
+            .within(FastMathPermissions::forbidding(FastMath::AllowContraction));
+        let allowed = permissions.resolve(EnumSet::empty());
+
+        assert!(!allowed.contains(FastMath::AllowContraction));
+        assert!(!allowed.contains(FastMath::AllowTransform));
+        assert!(allowed.contains(FastMath::AllowReassociation));
+    }
+
+    #[test]
+    fn an_allow_in_a_callee_cannot_lift_its_callers_forbid() {
+        let permissions = FastMathPermissions::forbidding(FastMath::AllowContraction)
+            .within(FastMathPermissions::allowing(FastMath::all()));
+
+        assert!(
+            !permissions
+                .resolve(EnumSet::empty())
+                .contains(FastMath::AllowContraction)
+        );
+    }
+
+    #[test]
+    fn an_allow_adds_to_the_backend_default() {
+        let permissions = FastMathPermissions::allowing(FastMath::ReducedPrecision);
+
+        assert_eq!(
+            permissions.resolve(FastMath::AllowContraction.into()),
+            FastMath::AllowContraction | FastMath::ReducedPrecision
+        );
+    }
+
+    #[test]
+    fn a_forbid_alone_keeps_the_rest_of_the_backend_default() {
+        let permissions = FastMathPermissions::forbidding(FastMath::NotNaN);
+        let default = FastMath::AllowContraction | FastMath::NotNaN;
+
+        assert_eq!(
+            permissions.resolve(default),
+            FastMath::AllowContraction.into()
+        );
+    }
 
     /// Properties sent to another host read back as they were sent, the element-type tables
     /// keyed by a non-string type included, and a stated capacity of zero reads back as none.

@@ -36,7 +36,7 @@ use pliron::{
 
 use crate::{
     dialect::BlockPtrExt,
-    interfaces::{CanonicalizeInterface, LowerInterface, SimplifyInterface},
+    interfaces::{CanonicalizeInterface, LowerInterface, SimplifyInterface, fast_math::FastMathOp},
     prelude::*,
 };
 
@@ -62,7 +62,7 @@ impl<T: DialectConversion + NamedRewrite> Pass for DialectConversionPass<T> {
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
-        res.ir_changed = apply_dialect_conversion(ctx, &mut KeepLocation(&mut self.0), op)?;
+        res.ir_changed = apply_dialect_conversion(ctx, &mut KeepOrigin(&mut self.0), op)?;
         Ok(res)
     }
 }
@@ -84,7 +84,7 @@ impl<T: MatchRewrite + NamedRewrite> Pass for MatchRewritePass<T> {
         let mut res = PassResult::default();
         res.ir_changed = apply_match_rewrite(
             ctx,
-            &mut KeepLocation(&mut self.0),
+            &mut KeepOrigin(&mut self.0),
             RewriterOrder::default(),
             op,
         )?;
@@ -92,11 +92,12 @@ impl<T: MatchRewrite + NamedRewrite> Pass for MatchRewritePass<T> {
     }
 }
 
-/// A rewrite that gives each op it inserts without a location the location of the op it
-/// rewrites. [`DialectConversionPass`] and [`MatchRewritePass`] use it for every rewrite.
-pub struct KeepLocation<'a, T>(pub &'a mut T);
+/// A rewrite that gives each op it inserts what it leaves unset of the op it rewrites: its
+/// location, and its fast-math permissions. [`DialectConversionPass`] and [`MatchRewritePass`] use
+/// it for every rewrite.
+pub struct KeepOrigin<'a, T>(pub &'a mut T);
 
-impl<T: DialectConversion> DialectConversion for KeepLocation<'_, T> {
+impl<T: DialectConversion> DialectConversion for KeepOrigin<'_, T> {
     fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
         self.0.can_convert_op(ctx, op)
     }
@@ -116,13 +117,13 @@ impl<T: DialectConversion> DialectConversion for KeepLocation<'_, T> {
         op: Ptr<Operation>,
         operands_info: &OperandsInfo,
     ) -> Result<()> {
-        keep_location(ctx, rewriter, op, |ctx, rewriter| {
+        keep_origin(ctx, rewriter, op, |ctx, rewriter| {
             self.0.rewrite(ctx, rewriter, op, operands_info)
         })
     }
 }
 
-impl<T: MatchRewrite> MatchRewrite for KeepLocation<'_, T> {
+impl<T: MatchRewrite> MatchRewrite for KeepOrigin<'_, T> {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         self.0.r#match(ctx, op)
     }
@@ -133,25 +134,26 @@ impl<T: MatchRewrite> MatchRewrite for KeepLocation<'_, T> {
         rewriter: &mut MatchRewriter,
         op: Ptr<Operation>,
     ) -> Result<()> {
-        keep_location(ctx, rewriter, op, |ctx, rewriter| {
+        keep_origin(ctx, rewriter, op, |ctx, rewriter| {
             self.0.rewrite(ctx, rewriter, op)
         })
     }
 }
 
-/// Runs `rewrite` on `op`, then gives the location of `op` to each op that `rewrite` inserted
-/// without one.
-fn keep_location(
+/// Runs `rewrite` on `op`, then gives each op that `rewrite` inserted what it leaves unset of
+/// `op`: its location, and its fast-math permissions.
+fn keep_origin(
     ctx: &mut Context,
     rewriter: &mut IRRewriter<Recorder>,
     op: Ptr<Operation>,
     rewrite: impl FnOnce(&mut Context, &mut IRRewriter<Recorder>) -> Result<()>,
 ) -> Result<()> {
-    if op.deref(ctx).loc().is_unknown() {
+    // The rewrite can change or erase `op`, so keep what it gives away.
+    let loc = op.deref(ctx).loc().clone();
+    let mut fast_math = op.fast_math(ctx);
+    if loc.is_unknown() && fast_math.is_default() {
         return rewrite(ctx, rewriter);
     }
-    // The rewrite can change or erase `op`, so keep its location.
-    let loc = op.deref(ctx).loc().clone();
     let first = rewriter.get_listener().events.len();
     rewrite(ctx, rewriter)?;
 
@@ -164,12 +166,29 @@ fn keep_location(
             _ => None,
         })
         .collect::<Vec<_>>();
-    for event in events {
-        if let RecorderEvent::InsertedOperation(new_op) = event
-            && !erased.contains(new_op)
-            && new_op.deref(ctx).loc().is_unknown()
-        {
+    let inserted = events
+        .iter()
+        .filter_map(|event| match event {
+            RecorderEvent::InsertedOperation(new_op) if !erased.contains(new_op) => Some(*new_op),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for new_op in inserted {
+        if !loc.is_unknown() && new_op.deref(ctx).loc().is_unknown() {
             new_op.deref_mut(ctx).set_loc(loc.clone());
+        }
+        if !fast_math.is_default() {
+            // Ops the rewrite built inside a new region are not among the inserted ones.
+            visit_all_ops_with_interface::<dyn FastMathOp, _>(
+                ctx,
+                &mut fast_math,
+                new_op,
+                |ctx, fast_math, inner| {
+                    if inner.fast_math(ctx).is_default() {
+                        inner.set_fast_math(ctx, *fast_math);
+                    }
+                },
+            );
         }
     }
     Ok(())
@@ -177,7 +196,7 @@ fn keep_location(
 
 /// Gives each op without a location the location of the op before it in its block. The first op
 /// of a block takes the location of the op that holds the block. Run it last before export, for
-/// the ops that passes outside [`KeepLocation`] insert.
+/// the ops that passes outside [`KeepOrigin`] insert.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct InheritLocationPass;
 
@@ -819,7 +838,7 @@ mod tests {
         let module = scope.state().module.get_operation();
         apply_match_rewrite(
             ctx,
-            &mut KeepLocation(&mut rewrite),
+            &mut KeepOrigin(&mut rewrite),
             RewriterOrder::default(),
             module,
         )

@@ -30,6 +30,7 @@ pub use cubecl_core::ir::{
     attributes::{BufferIOAttr, EntrypointInterface, FuncInterface, IndexAttr, ZeroAttr},
     interfaces::{
         AlignedType, MaterializableOp, MaybeSizedType, ScalarType, ScalarizableType, TypedExt,
+        fast_math::FastMathOp,
     },
     prelude::*,
     settings::Dim3,

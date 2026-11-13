@@ -424,6 +424,7 @@ fn register_features(
     // SPIR-V spells the device scope on the barrier itself: `OpControlBarrier` with a
     // `Workgroup` execution scope and a `Device` memory scope, acquire-release.
     props.features.device_memory_scope = true;
+    props.features.forbid_contraction = true;
 
     if let Some(uniform_standard_layout) = extended_feat.uniform_standard_layout
         && uniform_standard_layout.uniform_buffer_standard_layout == TRUE
@@ -441,6 +442,24 @@ fn register_features(
         && float_controls2.shader_float_controls2 == TRUE
     {
         comp_options.vulkan.supports_fp_fast_math = true;
+    }
+
+    if let Some(float_controls) = &extended_feat.float_controls_properties {
+        let vulkan = &mut comp_options.vulkan;
+        vulkan.supports_signed_zero_inf_nan_preserve_f16 =
+            float_controls.shader_signed_zero_inf_nan_preserve_float16 == TRUE;
+        vulkan.supports_signed_zero_inf_nan_preserve_f32 =
+            float_controls.shader_signed_zero_inf_nan_preserve_float32 == TRUE;
+        vulkan.supports_signed_zero_inf_nan_preserve_f64 =
+            float_controls.shader_signed_zero_inf_nan_preserve_float64 == TRUE;
+
+        let f16 = extended_feat
+            .float16_int8
+            .is_some_and(|it| it.shader_float16 == TRUE);
+        let f64 = extended_feat.core.shader_float64 == TRUE;
+        props.features.ieee_special_values = vulkan.supports_signed_zero_inf_nan_preserve_f32
+            && (vulkan.supports_signed_zero_inf_nan_preserve_f16 || !f16)
+            && (vulkan.supports_signed_zero_inf_nan_preserve_f64 || !f64);
     }
 
     // Native fp8 takes no comparison, so equality and the bool conversion read the value as an

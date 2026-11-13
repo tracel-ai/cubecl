@@ -399,7 +399,10 @@ macro_rules! invert_cmp_expression {
                     self.result_type(ctx),
                     <$to>::get_opid_static(),
                     operands,
-                    Default::default(),
+                    self.get_operation()
+                        .deref(ctx)
+                        .attributes
+                        .clone_skip_outlined(ctx),
                 )
             }
         }
@@ -716,6 +719,21 @@ impl CanonicalizeInterface for BoolNotEqualOp {
         Ok(())
     }
 }
+
+crate::FastMathOp!(
+    FMinOp,
+    FMaxOp,
+    FClampOp,
+    FMinNanOp,
+    FMaxNanOp,
+    FClampNanOp,
+    FLessThanOp,
+    FGreaterThanOp,
+    FLessThanOrEqualOp,
+    FGreaterThanOrEqualOp,
+    FEqualOp,
+    FNotEqualOp
+);
 
 fn cmp_result_ty(ctx: &Context, lhs: &Value, _: &Value) -> TypeHandle {
     let vectorization = lhs.vector_size(ctx);

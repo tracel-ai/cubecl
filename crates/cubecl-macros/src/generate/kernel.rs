@@ -96,15 +96,20 @@ impl KernelFn {
         } else {
             (TokenStream::new(), Vec::new())
         };
-        let body = self
-            .args
-            .fast_math
-            .as_ref()
-            .map(|value| {
-                let fast_math = frontend_type("fast_math_expand");
-                quote![#fast_math(scope, #value, |scope| {#body})]
-            })
-            .unwrap_or_else(|| quote![#body]);
+        let body = match &self.args.allow_fast_math {
+            Some(value) => {
+                let allow = frontend_type("allow_fast_math_expand");
+                quote![#allow(scope, #value, |scope| {#body})]
+            }
+            None => body,
+        };
+        let body = match &self.args.forbid_fast_math {
+            Some(value) => {
+                let forbid = frontend_type("forbid_fast_math_expand");
+                quote![#forbid(scope, #value, |scope| {#body})]
+            }
+            None => body,
+        };
         let imports = trait_imports();
         let mappings = self.sig.define_mappings();
         let registers = self

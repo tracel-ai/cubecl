@@ -128,10 +128,14 @@ fn promote(
     let narrow_ty = result.get_type(ctx);
     let wide_ty = widen_ty(ctx, narrow_ty);
 
+    let rounded = rounds_in_f16(ctx, op);
     let operands: Vec<Value> = op
         .operands(ctx)
         .into_iter()
-        .map(|operand| widen(ctx, widened, operand, op))
+        .map(|operand| match rounded {
+            true => widen_rounded(ctx, operand, op),
+            false => widen(ctx, widened, operand, op),
+        })
         .collect();
 
     let attributes = op.deref(ctx).attributes.clone();
@@ -146,8 +150,24 @@ fn promote(
 
     let narrowed = narrowed.get_result(ctx);
     result.replace_all_uses_with(ctx, &narrowed);
-    widened.insert(narrowed, wide_result);
+    if !rounded {
+        widened.insert(narrowed, wide_result);
+    }
     rewriter.erase_operation(ctx, op);
+}
+
+/// Whether `op` must see its operands, and hand on its result, as the f16 they round to. Carrying
+/// them in f32 is what contraction does, keeping a result's bits past its rounding.
+fn rounds_in_f16(ctx: &Context, op: Ptr<Operation>) -> bool {
+    op_cast::<dyn FastMathOp>(&*op.dyn_op(ctx)).is_some_and(|op| !op.allows_contraction(ctx))
+}
+
+/// `value`, an f16, as an f32 read just before `user`.
+fn widen_rounded(ctx: &mut Context, value: Value, user: Ptr<Operation>) -> Value {
+    let wide_ty = widen_ty(ctx, value.get_type(ctx));
+    let cast = CastOp::new(ctx, wide_ty, value);
+    cast.get_operation().insert_before(ctx, user);
+    cast.get_result(ctx)
 }
 
 fn widen(
@@ -439,10 +459,19 @@ fn loop_depth(ctx: &Context, op: Ptr<Operation>) -> usize {
     depth
 }
 
+/// A cast to f32 that an f16 held in f32 can stand in for: one that is not strict and that no
+/// strict op reads, since a strict op must see the f16 its operand rounds to.
 fn is_widening(ctx: &Context, op: Ptr<Operation>) -> bool {
-    op.is_op::<CastOp>(ctx)
-        && is_f16(ctx, op.operand(ctx, 0))
-        && scalar_is::<Float32Type>(ctx, op.deref(ctx).get_result(0))
+    if !op.is_op::<CastOp>(ctx) || rounds_in_f16(ctx, op) {
+        return false;
+    }
+    let wide = op.deref(ctx).get_result(0);
+    is_f16(ctx, op.operand(ctx, 0))
+        && scalar_is::<Float32Type>(ctx, wide)
+        && !wide
+            .uses(ctx)
+            .iter()
+            .any(|r#use| rounds_in_f16(ctx, r#use.user_op()))
 }
 
 fn widen_ty(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {

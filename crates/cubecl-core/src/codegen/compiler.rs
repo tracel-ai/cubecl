@@ -22,8 +22,24 @@ pub struct VulkanCompilationOptions {
     /// Whether the device accepts `NonSemantic.Shader.DebugInfo.100` (Vulkan 1.3 or
     /// `VK_KHR_shader_non_semantic_info`).
     pub supports_non_semantic_info: bool,
+    pub supports_signed_zero_inf_nan_preserve_f16: bool,
+    pub supports_signed_zero_inf_nan_preserve_f32: bool,
+    pub supports_signed_zero_inf_nan_preserve_f64: bool,
 
     pub max_spirv_version: (u8, u8),
     pub max_vector_size: usize,
     pub push_constant_size: usize,
+}
+
+impl VulkanCompilationOptions {
+    /// Whether the device keeps NaN, infinity and the sign of zero for floats of `width` bits when
+    /// asked to.
+    pub fn preserves_special_values(&self, width: u32) -> bool {
+        match width {
+            16 => self.supports_signed_zero_inf_nan_preserve_f16,
+            32 => self.supports_signed_zero_inf_nan_preserve_f32,
+            64 => self.supports_signed_zero_inf_nan_preserve_f64,
+            _ => false,
+        }
+    }
 }

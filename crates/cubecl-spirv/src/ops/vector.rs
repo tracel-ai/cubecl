@@ -8,7 +8,7 @@ use pliron_spirv::{
 
 use crate::{
     decorate_uniform,
-    lower::lower_unop,
+    lower::{lower_binop, lower_unop, spelled_out},
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
         to_spirv_dialect::ToSpirvDialectOp,
@@ -156,6 +156,27 @@ binop_to_spirv_dialect!(vector::FDotOp => ops::DotOp);
 
 lower_unop!(vector::ISumOp, i_vector_sum);
 lower_unop!(vector::FSumOp, f_vector_sum);
+
+// `NoContraction` does not reach the multiply-adds inside `OpDot`, `Length` and `Normalize`, so a
+// kernel that forbids contraction spells them out.
+lower_binop!(vector::FDotOp, rounded_dot, spelled_out);
+lower_unop!(vector::MagnitudeOp, rounded_magnitude, spelled_out);
+lower_unop!(vector::NormalizeOp, rounded_normalize, spelled_out);
+
+#[cube]
+fn rounded_dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {
+    i_vector_sum(lhs * rhs)
+}
+
+#[cube]
+fn rounded_magnitude<T: Float, N: Size>(vector: Vector<T, N>) -> T {
+    rounded_dot(vector, vector).sqrt()
+}
+
+#[cube]
+fn rounded_normalize<T: Float, N: Size>(vector: Vector<T, N>) -> Vector<T, N> {
+    vector / Vector::new(rounded_magnitude(vector))
+}
 
 #[cube]
 fn i_vector_sum<T: Numeric, N: Size>(vector: Vector<T, N>) -> T {

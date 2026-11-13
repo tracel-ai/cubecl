@@ -13,7 +13,7 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, Commutative, ConstantValue, NoMemoryEffect, NoSideEffects,
+    CanMaterialize, Commutative, ConstantValue, FastMathOp, NoMemoryEffect, NoSideEffects,
     PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{pure_binop, pure_unop},
@@ -796,7 +796,10 @@ impl ExpressionCanonicalize for FmaOp {
             self.result_type(ctx),
             Self::get_opid_static(),
             operands,
-            Default::default(),
+            self.get_operation()
+                .deref(ctx)
+                .attributes
+                .clone_skip_outlined(ctx),
         )
     }
 }
@@ -840,6 +843,55 @@ fn dp4a_const(a: i32, b: i32, c: i32) -> i32 {
         acc.wrapping_add(byte(a, shift).wrapping_mul(byte(b, shift)))
     })
 }
+
+FastMathOp!(
+    FAddOp,
+    FSubOp,
+    FMulOp,
+    FDivOp,
+    FRemOp,
+    FModFloorOp,
+    FmaOp,
+    FNegOp,
+    FAbsOp,
+    IsNanOp,
+    IsInfOp,
+    RoundOp,
+    FloorOp,
+    CeilOp,
+    TruncOp,
+    CAbsOp,
+    RecipOp,
+    SqrtOp,
+    RsqrtOp,
+    CbrtOp,
+    RcbrtOp,
+    ExpOp,
+    Exp2Op,
+    Expm1Op,
+    LogOp,
+    Log1pOp,
+    PowfOp,
+    PowiOp,
+    HypotOp,
+    RhypotOp,
+    SinOp,
+    CosOp,
+    TanOp,
+    SinhOp,
+    CoshOp,
+    TanhOp,
+    ArcSinOp,
+    ArcCosOp,
+    ArcTanOp,
+    ArcSinhOp,
+    ArcCoshOp,
+    ArcTanhOp,
+    ArcTan2Op,
+    DegreesOp,
+    RadiansOp,
+    ErfOp
+);
 
 #[cfg(test)]
 mod dp4a_tests {

@@ -23,6 +23,25 @@ fn an_accumulator_keeps_adding_past_the_f16_step_size() {
     assert_eq!(total.to_f32(), 3048.0);
 }
 
+/// A strict operation reads the f16 a held accumulator rounds to, not the f32 it is held in.
+///
+/// `2048 + 1001` is `3049` in f32 and `3048` in f16, so subtracting `3048` strictly leaves `0`,
+/// where reading the f32 leaves `1`.
+#[test]
+fn a_strict_operation_reads_the_rounded_accumulator() {
+    let difference = chains::accumulated_minus_strict::<f16>(&client(), 2048.0, 1.0, 1001, 3048.0);
+    assert_eq!(difference.to_f32(), 0.0);
+}
+
+/// A strict cast is a strict operation too: the f32 it makes is the f16 the accumulator rounds
+/// to, even when what reads it allows anything.
+#[test]
+fn a_strict_cast_reads_the_rounded_accumulator() {
+    let difference =
+        chains::accumulated_widened_strict_minus::<f16>(&client(), 2048.0, 1.0, 1001, 3048.0);
+    assert_eq!(difference.to_f32(), 0.0);
+}
+
 /// A second local on the path changes nothing about what the loop computes, so it must not
 /// change whether the total is held. `mem2reg` collapses the copy, and it runs after the pass,
 /// so the promotion has to see the two variables as one.
