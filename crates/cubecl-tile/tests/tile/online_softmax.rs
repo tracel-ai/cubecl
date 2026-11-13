@@ -270,6 +270,172 @@ fn register_plane_attention<E: Float>(
     }
 }
 
+/// [`register_plane_attention`] stating only each plane's tile: the plane holds its rows by a
+/// block of keys, the whole head dim and the whole value dim, and calls each product once a block.
+/// The tile picks the instruction, cuts the score into the cells it keeps in registers, walks the
+/// head dim, and reads runs of the score's cells as the value's `A`, walking the keys.
+#[cube(launch)]
+#[allow(clippy::too_many_arguments)]
+fn cut_plane_attention<E: Float>(
+    q: &TileTensor<'_>,
+    k: &TileTensor<'_>,
+    v: &TileTensor<'_>,
+    out: &TileTensor<'_>,
+    keys: u32,
+    queries: u32,
+    scale: f32,
+    space: Partitioning,
+    #[comptime] causal: bool,
+    #[comptime] block_keys: usize,
+    #[define(E)] _dtype: ElemType,
+) {
+    let q = q.tile(&space);
+    let k = k.tile(&space).within(S, 0, keys as usize);
+    let v = v.tile(&space).within(S, 0, keys as usize);
+    let out = out.tile(&space);
+    let bias = Procedural::new::<f32, Attended>(
+        comptime!(space.space().subspace(&[Q, S])),
+        Attended {
+            keys,
+            queries,
+            causal,
+        },
+    )
+    .tile_in::<f32>(&space);
+    for cube in space {
+        let mut out_cube = out.at(&cube).planes_output::<f32>(&cube);
+        for plane in cube {
+            let (q_p, k_p, v_p) = (q.at(&plane), k.at(&plane), v.at(&plane));
+            let bias_p = bias.at(&plane);
+            let origin = plane.origin(S);
+            let reach = select(keys as usize > origin, keys as usize - origin, 0usize);
+            let keys_walk = plane.walk();
+            let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
+            let walk = keys_walk.range(0, blocks);
+            let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
+            q_s.copy_from(&q_p);
+            sync_plane();
+            let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            let acc =
+                out.at(&plane)
+                    .accumulator::<f32>(&logits.cast::<E>(), &v_p, Semiring::SUM_PROD);
+            let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
+            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
+            stages.pipelined(walk, |slot, stage| {
+                let bias_s = bias_p.at(stage);
+                slot.consume(|k_s, v_s| {
+                    let mut logits = logits.clone();
+                    logits.reset();
+                    logits.mma(&q_s, k_s);
+                    let correction = softmax.step(&logits, &bias_s, scale);
+                    let p = logits.cast::<E>();
+                    acc.along(V).mul(&correction);
+                    // The output's sum sits at the plane, above the walk over the blocks: this
+                    // block's product adds into it at the stage.
+                    let mut sum = acc.at(stage);
+                    sum.mma(&p, v_s);
+                });
+            });
+            acc.along(V).mul(&softmax.recip_l());
+            out_cube.drain(&acc, &plane);
+        }
+        out_cube.write();
+    }
+}
+
+/// [`cut_plane_attention`] on `case`, the planes' tiles `rows × block` of `8 × 8` cells.
+fn run_cut<E: Float + CubeElement>(case: Case) {
+    let client: Client = cubecl::test_device().client();
+    let e_ty = E::elem_type_native();
+    let f32_ty = f32::elem_type_native();
+    let offered = client.properties().features.matmul.mma.iter().any(|cfg| {
+        cfg.a_type == e_ty
+            && cfg.b_type == e_ty
+            && cfg.cd_type == f32_ty
+            && [cfg.m, cfg.n, cfg.k] == [8, 8, 8]
+    });
+    if !offered {
+        ValidationResult::Skipped(format!("no m8n8k8 {e_ty:?} instruction summing in f32"))
+            .enforce();
+        return;
+    }
+    let Case {
+        queries,
+        keys,
+        attended,
+        head,
+        value,
+        rows,
+        block,
+        planes,
+        causal,
+        ..
+    } = case;
+    let (plane_rows, block_keys) = (8 * rows, 8 * block);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(Q, queries), (S, keys), (D, head), (V, value)]),
+            planes_over(
+                Levels::leaf(&[(Q, plane_rows), (S, block_keys), (D, head), (V, value)]),
+                PlanesAlong::Queries,
+                planes,
+                keys / block_keys,
+            )
+            .cubes(&[Q])
+            .build(),
+        ),
+        Form::Static,
+    );
+    let (q_data, k_data, v_data, q_handle, k_handle, v_handle) =
+        inputs::<E>(&client, queries, keys, attended, head, value, false);
+    let out_handle = TestInput::builder(client.clone(), Shape::new([queries, value]))
+        .dtype(f32_ty)
+        .zeros()
+        .generate_without_host_data();
+    let scale = 1. / (head as f32).sqrt();
+    cut_plane_attention::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            q_handle.binding().into_tensor_arg(),
+            e_ty,
+            1,
+            TileSpec::direct(&[Q, D]),
+        ),
+        TileTensorLaunch::new(
+            k_handle.binding().into_tensor_arg(),
+            e_ty,
+            1,
+            TileSpec::direct(&[S, D]),
+        ),
+        TileTensorLaunch::new(
+            v_handle.binding().into_tensor_arg(),
+            e_ty,
+            1,
+            TileSpec::direct(&[S, V]),
+        ),
+        TileTensorLaunch::new(
+            out_handle.clone().binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[Q, V]),
+        ),
+        attended as u32,
+        queries as u32,
+        scale,
+        launcher.partitioning_arg(),
+        causal,
+        block_keys,
+        e_ty,
+    );
+    let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
+    check(
+        &out, &q_data, &k_data, &v_data, queries, keys, attended, head, value, causal, false,
+    );
+}
+
 #[cube(launch)]
 fn unit_attention(
     q: &TileTensor<'_>,
@@ -1246,5 +1412,33 @@ fn unit_attention_hands_its_undivided_state() {
         causal: true,
         ending: Ending::Undivided,
         ..UNIT
+    });
+}
+
+/// A plane stating only its tile, `16 × 16` keys a block by the whole head and value dims: the
+/// tile cuts its score into `8 × 8` cells held in registers, walks the head dim, and the value
+/// reads runs of the score's cells, walking the keys. Causally and past the attended keys too.
+#[test]
+fn a_plane_stating_its_tile_holds_a_score_the_tile_cuts() {
+    let case = Case {
+        queries: 32,
+        keys: 64,
+        attended: 64,
+        head: 16,
+        value: 16,
+        edge: 0,
+        rows: 2,
+        block: 2,
+        planes: 2,
+        along: PlanesAlong::Queries,
+        causal: false,
+        unbiased: false,
+        over_run: false,
+    };
+    run_cut::<half::f16>(case);
+    run_cut::<half::f16>(Case {
+        attended: 50,
+        causal: true,
+        ..case
     });
 }

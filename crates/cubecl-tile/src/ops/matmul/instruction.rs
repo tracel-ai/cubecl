@@ -150,8 +150,12 @@ pub enum FragmentSource {
     StoredCodes(QuantValue),
     /// Packed values a stage fill decodes on their way into the fragments.
     Decoded,
-    /// A product already held in fragments of this instruction, contracted again as it lies.
-    Fragments(Instruction),
+    /// A product already held in fragments of this instruction, each an `m × n` cell of it,
+    /// contracted again as it lies.
+    Fragments {
+        instruction: Instruction,
+        cell: [usize; 2],
+    },
 }
 
 impl FragmentSource {
@@ -164,7 +168,7 @@ impl FragmentSource {
             FragmentSource::Codes { .. }
             | FragmentSource::StoredCodes(_)
             | FragmentSource::Decoded
-            | FragmentSource::Fragments(_) => None,
+            | FragmentSource::Fragments { .. } => None,
         };
         match self {
             FragmentSource::Decoded
@@ -219,8 +223,8 @@ impl Instruction {
     /// through, a sum contracted again as the next product's `A`, as an attention's score is:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
     /// first where `target` lays a fragment's `A` like its accumulator, so the sum lies where that
-    /// `A` does. Its leaf is one call, as deep as the leaf: the tile does not cut a sum contracted
-    /// again, whose cells must line up with the next product's operand.
+    /// `A` does. The tile cuts and walks its leaf as it does any sum's: the next product reads runs
+    /// of its cells along the contraction as its `A` ([`FragmentSource::Fragments`]).
     pub fn for_stage_accumulator(
         device: &DeviceProperties,
         target: &TargetProperties,
@@ -228,8 +232,7 @@ impl Instruction {
         rhs: FragmentSource,
         sum: ElemType,
         shape: [usize; 3],
-    ) -> Option<Self> {
-        let [m, n, k] = shape;
+    ) -> Option<PlanePick> {
         Self::for_plane(
             device,
             target,
@@ -240,8 +243,6 @@ impl Instruction {
             shape,
             OpenedBy::StageAccumulator,
         )
-        .filter(|pick| pick.cell == [m, n] && pick.depth == k)
-        .map(|pick| pick.instruction)
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator) and
@@ -283,11 +284,12 @@ impl Instruction {
         if holder == ComputeScope::MMA_PLANE_GROUP {
             return Some(whole(Instruction::Wgmma));
         }
-        if let FragmentSource::Fragments(held) = lhs {
-            return Some(whole(held));
+        if let FragmentSource::Fragments { instruction, cell } = lhs {
+            let run = held_run(device, instruction, cell, rhs, sum, [m, n, k]);
+            return Some(run.unwrap_or_else(|| whole(instruction)));
         }
-        if let FragmentSource::Fragments(held) = rhs {
-            return Some(whole(held));
+        if let FragmentSource::Fragments { instruction, .. } = rhs {
+            return Some(whole(instruction));
         }
         if let Some(form) = block_scaled(device, lhs, rhs, [m, n, k]) {
             return Some(whole(Instruction::Mma {
@@ -370,6 +372,56 @@ impl Call {
 struct Offered {
     whole: [Option<Call>; 2],
     walked: [Option<Call>; 2],
+}
+
+/// The calls of a product whose `A` is held in fragments of `held`, each an `m × n` cell of a sum
+/// opened before ([`FragmentSource::Fragments`]), over a leaf of `m × n × k` against `rhs`, summed
+/// in `sum`: the held instruction, at the device's shapes of it for the held cells' rows and
+/// `rhs`'s element, its cell the leaf's own `m × n` where offered, else its largest that cuts the
+/// leaf. Each call reads a run of the held cells along `k` as its `A`, so it is as deep as a whole
+/// number of them: the leaf's own depth where offered, else the deepest that cuts it, which the
+/// tile walks. `None` where the device offers none, or the held cells are the fragment API's,
+/// whose cells no call rereads.
+fn held_run(
+    device: &DeviceProperties,
+    held: Instruction,
+    [held_rows, held_width]: [usize; 2],
+    rhs: FragmentSource,
+    sum: ElemType,
+    [m, n, k]: [usize; 3],
+) -> Option<PlanePick> {
+    let Instruction::Mma { .. } = held else {
+        return None;
+    };
+    let element = rhs.element(rhs)?;
+    let runs: Vec<&MmaConfig> = device
+        .features
+        .matmul
+        .mma
+        .iter()
+        .filter(|s| s.a_type == element && s.b_type == element && s.cd_type == sum)
+        .filter(|s| s.m as usize == held_rows && m.is_multiple_of(held_rows))
+        .filter(|s| n.is_multiple_of(s.n as usize))
+        .filter(|s| (s.k as usize).is_multiple_of(held_width) && k.is_multiple_of(s.k as usize))
+        .collect();
+    let depth = runs
+        .iter()
+        .map(|s| s.k as usize)
+        .find(|&depth| depth == k)
+        .or_else(|| runs.iter().map(|s| s.k as usize).max())?;
+    let columns = runs
+        .iter()
+        .filter(|s| s.k as usize == depth)
+        .map(|s| s.n as usize);
+    let width = columns
+        .clone()
+        .find(|&c| c == n)
+        .or_else(|| columns.max())?;
+    Some(PlanePick {
+        instruction: held,
+        cell: [held_rows, width],
+        depth,
+    })
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -726,7 +778,7 @@ mod tests {
                 F32,
                 shape,
             );
-            assert_eq!(instruction, Some(mma()));
+            assert_eq!(instruction.map(|pick| pick.instruction), Some(mma()));
         }
     }
 
@@ -741,7 +793,10 @@ mod tests {
             F32,
             [16, 16, 16],
         );
-        assert_eq!(instruction, Some(Instruction::Cmma));
+        assert_eq!(
+            instruction.map(|pick| pick.instruction),
+            Some(Instruction::Cmma)
+        );
     }
 
     /// An operand the TMA engine lands goes through the crate's transport even for a drained
@@ -782,8 +837,35 @@ mod tests {
     /// An operand already held in fragments is read as it lies: the sum keeps their instruction.
     #[test]
     fn an_operand_held_in_fragments_keeps_their_instruction() {
-        let held = FragmentSource::Fragments(mma());
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [8, 8],
+        };
         assert_eq!(picked(&metal(), held, [8, 8, 8]), Some(mma()));
+    }
+
+    /// A product on held cells reads a run of them as each call's `A`: at the held cells' rows,
+    /// its leaf's own depth where the device offers it, else the deepest run that cuts the leaf,
+    /// which the tile walks. A held `16 × 8` cell on sm_80 is read two at a time by `16 × 8 × 16`.
+    #[test]
+    fn a_product_on_held_cells_reads_runs_of_them() {
+        let held = |cell| FragmentSource::Fragments {
+            instruction: mma(),
+            cell,
+        };
+        let pick = |device, cell, shape| {
+            cut(device, held(cell), shape).map(|p| (p.instruction, p.cell, p.depth))
+        };
+        let (metal, cuda) = (metal(), cuda());
+        assert_eq!(pick(&metal, [8, 8], [8, 16, 32]), Some((mma(), [8, 8], 8)));
+        assert_eq!(
+            pick(&cuda, [16, 8], [16, 32, 16]),
+            Some((mma(), [16, 8], 16))
+        );
+        assert_eq!(
+            pick(&cuda, [16, 8], [32, 8, 64]),
+            Some((mma(), [16, 8], 16))
+        );
     }
 
     /// Plane groups of four issue the plane group MMA.
@@ -815,7 +897,8 @@ mod tests {
                 HALF,
                 F32,
                 [16, 8, 16]
-            ),
+            )
+            .map(|pick| pick.instruction),
             Some(mma())
         );
     }
