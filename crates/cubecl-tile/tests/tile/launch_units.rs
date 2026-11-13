@@ -16,7 +16,10 @@ use cubecl::{
 };
 
 use cubecl_tile::kind::{Boundary, Write};
-use cubecl_tile::launch::{BoundaryPolicy, Buffered, Destination, DestinationLaunch, Grid};
+use cubecl_tile::launch::{
+    BoundaryPolicy, Buffered, Destination, DestinationLaunch, Grid, ServedDestination,
+    ServedDestinationExpand,
+};
 use cubecl_tile::space::UnitCube;
 use cubecl_tile::*;
 
@@ -32,7 +35,7 @@ const B: Axis = Axis(3);
 /// Rows, columns and depth of the block one unit owns.
 const BLOCK: [usize; 3] = [2, 2, 4];
 
-/// `c += a · b`, every unit of the launch its block.
+/// `c += a · b`, every unit of the launch its block, handed to `O` once summed.
 #[cube(launch)]
 fn launch_unit_matmul<O: Destination>(
     a: &TileTensor<'_>,
@@ -41,7 +44,8 @@ fn launch_unit_matmul<O: Destination>(
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(out, &space);
+    let dest = O::serve::<f32, Const<1>>(out, &space);
+    let c = dest.tile();
     for unit in &space {
         let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
         let sum = c_unit.register_accumulator::<f32>(
@@ -54,9 +58,9 @@ fn launch_unit_matmul<O: Destination>(
             let mut sum_step = sum.at(&step);
             sum_step.mma(&a_unit.at(&step), &b_unit.at(&step));
         }
-        sum.drained_into(&c_unit);
+        sum.consumed_by::<O::Served<f32>>(&dest, &unit);
     }
-    O::finish::<f32>(out);
+    dest.finish();
 }
 
 /// How many tiles every unit of the launch walks, at the unit's place in the launch.

@@ -26,9 +26,10 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, CubeCount, DeviceTransport, Handle,
-        KernelArguments, KernelResource, ProfileError, ProfilingToken, Reduction, SendOutcome,
-        SendReport, Server, ServerCommunication, ServerError, ServerUtilities, TransportProvider,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, CubeCount,
+        DeviceTransport, Handle, KernelArguments, KernelResource, ProfileError, ProfilingToken,
+        Reduction, SendOutcome, SendReport, Server, ServerCommunication, ServerError,
+        ServerUtilities, TransportProvider,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -81,6 +82,7 @@ pub struct DummyServer<M = ()> {
     /// and a read, check or sync of one of them reports it. Nothing is queued
     /// and no call "drains" anything.
     failures: ErrorGraph,
+    next_timing: Option<CommunicationTiming>,
 }
 
 /// What a [`DummyServer`]'s marker has to be: a distinct type, and the transport its runtime
@@ -135,14 +137,36 @@ impl Marker for CountedTransport {
 /// How many collective parts each dummy device has received.
 static COLLECTIVE_PARTS: Mutex<Vec<ServiceId>> = Mutex::new(Vec::new());
 
+/// How many collective parts each dummy device has been asked to time.
+static TIMED_PARTS: Mutex<Vec<ServiceId>> = Mutex::new(Vec::new());
+
 /// How many collective parts the dummy device of `service` has received.
 pub fn collective_parts(service: ServiceId) -> usize {
-    COLLECTIVE_PARTS
+    count(&COLLECTIVE_PARTS, service)
+}
+
+/// How many collective parts the dummy device of `service` has been asked to time.
+pub fn timed_collective_parts(service: ServiceId) -> usize {
+    count(&TIMED_PARTS, service)
+}
+
+fn count(received: &Mutex<Vec<ServiceId>>, service: ServiceId) -> usize {
+    received
         .lock()
         .unwrap()
         .iter()
         .filter(|received| **received == service)
         .count()
+}
+
+/// Sends every window `timing` asks for, each empty and at the current host time.
+fn measured_empty(timing: Option<CommunicationTiming>) {
+    let Some(mut timing) = timing else {
+        return;
+    };
+    let now = cubecl_common::profile::Instant::now();
+    timing.part_measured(ProfileDuration::new_system_time(now, now));
+    timing.wait_measured(ProfileDuration::new_system_time(now, now));
 }
 
 #[derive(Debug, Clone)]
@@ -196,9 +220,19 @@ impl KernelTask {
 }
 
 /// Only a runtime that claims a transport reaches these: the client refuses a transfer on any
-/// other before it is queued. A collective part is counted and moves nothing.
+/// other before it is queued. A collective part is counted and moves nothing, and a timed one
+/// is measured as an empty window.
 impl<M: Marker> ServerCommunication for DummyServer<M> {
     fn comm_init(&mut self, _device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        Ok(())
+    }
+
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        self.next_timing = Some(timing);
+    }
+
+    fn sync_collective(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        measured_empty(self.next_timing.take());
         Ok(())
     }
 
@@ -263,6 +297,7 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _device_id_dst: DeviceId,
         report: SendReport,
     ) -> Result<(), ServerError> {
+        self.next_timing = None;
         let refusal = ServerError::Generic {
             reason: "the dummy source was never written".into(),
             backtrace: BackTrace::capture(),
@@ -278,6 +313,7 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _device_id_src: DeviceId,
         outcome: SendOutcome,
     ) -> Result<(), ServerError> {
+        self.next_timing = None;
         let zeros = vec![0u8; handle.size() as usize];
         self.bind_with_data(&zeros, handle.clone(), stream_id);
         if let Err(error) = outcome.wait() {
@@ -585,6 +621,7 @@ impl<M: Marker> DummyServer<M> {
             utilities,
             timestamps: TimestampProfiler::default(),
             failures: ErrorGraph::default(),
+            next_timing: None,
         }
     }
 
@@ -628,11 +665,16 @@ impl<M: Marker> DummyServer<M> {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn count_collective_part(&self) -> Result<(), ServerError> {
+    fn count_collective_part(&mut self) -> Result<(), ServerError> {
+        let timing = self.next_timing.take();
         COLLECTIVE_PARTS
             .lock()
             .unwrap()
             .push(self.utilities.service);
+        if timing.is_some() {
+            TIMED_PARTS.lock().unwrap().push(self.utilities.service);
+        }
+        measured_empty(timing);
         Ok(())
     }
 

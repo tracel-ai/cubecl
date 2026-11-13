@@ -179,7 +179,5 @@ pub fn cube_pointee<T>(
 
 /// The size of what `ptr` points at, read off the cube pointer type it was converted from.
 pub fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
-    cube_pointee(ctx, info, ptr, |inner| {
-        Some(type_cast::<dyn SizedType>(inner)?.size(ctx))
-    })
+    cube_pointee(ctx, info, ptr, |inner| inner.try_size(ctx))
 }

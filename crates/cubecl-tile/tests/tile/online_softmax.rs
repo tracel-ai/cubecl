@@ -28,19 +28,19 @@ use cubecl_tile::{
 
 use super::{Form, implied};
 
-const Q: Axis = Axis(0);
-const S: Axis = Axis(1);
-const D: Axis = Axis(2);
-const V: Axis = Axis(3);
+pub(super) const Q: Axis = Axis(0);
+pub(super) const S: Axis = Axis(1);
+pub(super) const D: Axis = Axis(2);
+pub(super) const V: Axis = Axis(3);
 
 /// The bias a query's scores are summed with: zero at a key it sees, the minimum value past the
 /// attended keys and, under `causal`, past its own position aligned at the bottom right.
 #[derive(CubeType, Clone)]
-struct Attended {
-    keys: u32,
-    queries: u32,
+pub(super) struct Attended {
+    pub(super) keys: u32,
+    pub(super) queries: u32,
     #[cube(comptime)]
-    causal: bool,
+    pub(super) causal: bool,
 }
 
 #[cube]
@@ -704,7 +704,7 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
 /// The query, keys and values of a case and their host copies. Every key past the attended ones
 /// is NaN, so reading one shows; the keys are stored `[head, keys]` where `transposed_keys`.
 #[allow(clippy::type_complexity)]
-fn inputs<E: Float + CubeElement>(
+pub(super) fn inputs<E: Float + CubeElement>(
     client: &Client,
     queries: usize,
     keys: usize,
@@ -813,7 +813,7 @@ fn reference_row(
 
 /// `out` against the attention computed on the host ([`reference_row`]).
 #[allow(clippy::too_many_arguments)]
-fn check(
+pub(super) fn check(
     out: &HostData,
     q_data: &HostData,
     k_data: &HostData,

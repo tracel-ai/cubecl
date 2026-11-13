@@ -7,8 +7,8 @@ use pliron::{
 use crate::{
     AddressSpace, aligned,
     interfaces::{
-        AlignedType, HasElementType, IndexableType, MaybePackedType, MaybeVectorizedType,
-        ScalarizableType, SizedType, TypedExt, memory_slot::DestructurableTypeInterface,
+        AlignedType, HasElementType, IndexableType, MaybePackedType, MaybeSizedType,
+        MaybeVectorizedType, ScalarizableType, TypedExt, memory_slot::DestructurableTypeInterface,
     },
     prelude::*,
     sized,
@@ -64,9 +64,9 @@ impl AlignedType for VectorType {
 }
 
 #[type_interface_impl]
-impl SizedType for VectorType {
-    fn size(&self, ctx: &Context) -> usize {
-        self.inner.size(ctx) * self.vectorization
+impl MaybeSizedType for VectorType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        Some(self.inner.try_size(ctx)? * self.vectorization)
     }
 }
 
@@ -128,9 +128,9 @@ impl AlignedType for AtomicType {
 }
 
 #[type_interface_impl]
-impl SizedType for AtomicType {
-    fn size(&self, ctx: &Context) -> usize {
-        self.inner.size(ctx)
+impl MaybeSizedType for AtomicType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        self.inner.try_size(ctx)
     }
 }
 
@@ -209,9 +209,9 @@ impl AlignedType for ArrayType {
 }
 
 #[type_interface_impl]
-impl SizedType for ArrayType {
-    fn size(&self, ctx: &Context) -> usize {
-        self.inner.size(ctx) * self.length
+impl MaybeSizedType for ArrayType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        Some(self.inner.try_size(ctx)? * self.length)
     }
 }
 

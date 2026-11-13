@@ -21,7 +21,10 @@ use cubecl::{
 };
 
 use cubecl_tile::kind::{Boundary, Write};
-use cubecl_tile::launch::{BoundaryPolicy, Buffered, Destination, DestinationLaunch, Grid};
+use cubecl_tile::launch::{
+    BoundaryPolicy, Buffered, Destination, DestinationLaunch, Grid, ServedDestination,
+    ServedDestinationExpand,
+};
 use cubecl_tile::space::{CubeOrder, PlaneOrder};
 use cubecl_tile::*;
 
@@ -48,11 +51,11 @@ fn launch_plane_matmul<O: Destination>(
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(out, &space);
+    let dest = O::serve::<f32, Const<1>>(out, &space);
     for plane in &space {
-        plane_product(&plane, &a, &b, &c);
+        plane_product::<O::Served<f32>>(&plane, &a, &b, &dest);
     }
-    O::finish::<f32>(out);
+    dest.finish();
 }
 
 /// `c += a · b`, every plane of every cube its tile: the control.
@@ -64,13 +67,13 @@ fn cube_plane_matmul<O: Destination>(
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(out, &space);
+    let dest = O::serve::<f32, Const<1>>(out, &space);
     for cube in &space {
         for plane in cube {
-            plane_product(&plane, &a, &b, &c);
+            plane_product::<O::Served<f32>>(&plane, &a, &b, &dest);
         }
     }
-    O::finish::<f32>(out);
+    dest.finish();
 }
 
 /// How many tiles every plane of the launch walks, at the plane's place in the launch: its cube's,
@@ -89,7 +92,8 @@ fn count_walks(walks: &mut Tensor<f32>, space: Partitioning) {
 
 /// `plane`'s tile of `c += a · b`, every unit of it a block summed in registers.
 #[cube]
-fn plane_product(plane: &Region, a: &Tile, b: &Tile, c: &Tile) {
+fn plane_product<D: ServedDestination>(plane: &Region, a: &Tile, b: &Tile, dest: &D) {
+    let c = dest.tile();
     for unit in plane {
         let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
         let sum = c_unit.register_accumulator::<f32>(
@@ -102,7 +106,7 @@ fn plane_product(plane: &Region, a: &Tile, b: &Tile, c: &Tile) {
             let mut sum_step = sum.at(&step);
             sum_step.mma(&a_unit.at(&step), &b_unit.at(&step));
         }
-        sum.drained_into(&c_unit);
+        sum.consumed_by::<D>(dest, &unit);
     }
 }
 

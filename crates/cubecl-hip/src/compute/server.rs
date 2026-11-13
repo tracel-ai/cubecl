@@ -19,9 +19,9 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction, SendOutcome, SendReport,
-        ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, Handle, KernelArguments,
+        KernelResource, PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction,
+        SendOutcome, SendReport, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future;
@@ -61,7 +61,7 @@ pub struct HipServer {
     peers: HashSet<DeviceId>,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities>,
-    collectives: Collectives<Hip>,
+    collectives: Collectives<Hip, crate::compute::events::Hip>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
 }
@@ -479,6 +479,10 @@ impl ServerCommunication for HipServer {
         CollectiveServer::sync_collective(self, stream_id)
     }
 
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        CollectiveServer::time_next_communication(self, timing)
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
     fn send(
         &mut self,
@@ -567,13 +571,18 @@ impl HipServer {
 
 impl CollectiveServer for HipServer {
     type Driver = Hip;
+    type Events = crate::compute::events::Hip;
 
     fn device_id(&self) -> DeviceId {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Hip> {
+    fn collectives(&mut self) -> &mut Collectives<Hip, crate::compute::events::Hip> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut crate::compute::events::EventProfiler {
+        &mut self.ctx.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<HipStreamBackend> {

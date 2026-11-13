@@ -7,7 +7,9 @@ use super::{Form, implied};
 use crate::support::{HostData, HostDataType, StridedLayout, TestInput, hands_off_between_cubes};
 use cubecl::{ir::ElemType, prelude::*, zspace::shape};
 use cubecl_tile::kind::Write;
-use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch};
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand,
+};
 use cubecl_tile::*;
 
 const ROW: Axis = Axis(0);
@@ -37,9 +39,10 @@ fn store<E: Float, V: Size, O: Destination>(
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let mut dst = O::tile::<E, V>(out, &space);
+    let dest = O::serve::<E, V>(out, &space);
+    let mut dst = dest.tile();
     dst.copy_from(&src);
-    O::finish::<E>(out);
+    dest.finish();
 }
 
 /// `out` written with `input` cast to the output's element.

@@ -266,6 +266,14 @@ impl Tile {
         }))
     }
 
+    /// This sum, the output tile at `at`, handed to `dest`: open, consume, close. It opens and
+    /// closes on each call, so a routine handing several tiles per owner opens `dest` itself.
+    pub fn consumed_by<D: ServedDestination>(&self, dest: &D, at: &Region) {
+        let mut opened = dest.open(at, self);
+        opened.consume(at, self);
+        opened.close();
+    }
+
     /// [`drained_into`](Tile::drained_into)'s drain, as tracing writes it inside the op.
     #[allow(
         dead_code,
