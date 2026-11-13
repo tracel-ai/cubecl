@@ -1609,10 +1609,84 @@ pub fn test_cmma_manual_fp8_matches_cpu_reference<
     }
 }
 
-/// One quantized tile product: lane by lane, the codes, scales and accumulator gathered at the
-/// positions the definition names, multiplied, and the sums scattered back. `A` is row major
-/// (`m × k`), `B` column major (`n × k`), the scales one per row of `A` and one per column of `B`
-/// (the tile lies within one block), and `c` and `out` row major (`m × n`).
+/// Each lane of the plane loads the elements of role `ident` it holds into `registers`, from
+/// `source`, where a row is `row_stride` elements after the one before it and a column
+/// `col_stride`.
+#[cube]
+pub fn plane_load_quantized_registers<A: Scalar, B: Scalar, S: Scalar, E: Scalar, N: Size>(
+    def: &cmma::QuantizedMma<A, B, S>,
+    source: &[E],
+    row_stride: u32,
+    col_stride: u32,
+    registers: &mut Array<Vector<E, N>>,
+    #[comptime] ident: MatrixIdent,
+) {
+    let lane = UNIT_POS_PLANE;
+    let size = def.vector_size(ident);
+    let elems = def.elems_per_lane(ident);
+    let count = comptime!(elems / size);
+    #[unroll]
+    for i in 0..count {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size {
+            let (row, col) = def.position_of_nth(lane, (i * size + j) as u32, ident);
+            reg.insert(j, source[(row * row_stride + col * col_stride) as usize]);
+        }
+        registers[i] = reg;
+    }
+}
+
+/// Each lane of the plane stores the sums it holds of `registers` into `destination`, where a
+/// row is `row_stride` elements after the one before it and a column `col_stride`.
+#[cube]
+pub fn plane_store_quantized_sums<A: Scalar, B: Scalar, S: Scalar, N: Size>(
+    def: &cmma::QuantizedMma<A, B, S>,
+    registers: &Array<Vector<f32, N>>,
+    destination: &mut [f32],
+    row_stride: u32,
+    col_stride: u32,
+) {
+    let lane = UNIT_POS_PLANE;
+    let size = def.vector_size(MatrixIdent::Accumulator);
+    let elems = def.elems_per_lane(MatrixIdent::Accumulator);
+    let count = comptime!(elems / size);
+    #[unroll]
+    for i in 0..count {
+        let reg = registers[i];
+        #[unroll]
+        for j in 0..size {
+            let nth = (i * size + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::Accumulator);
+            destination[(row * row_stride + col * col_stride) as usize] = reg.extract(j);
+        }
+    }
+}
+
+/// Each lane of the plane loads the scales it holds of one operand into `registers`, from
+/// `scales`, one per row of `A` or column of `B`.
+#[cube]
+pub fn plane_load_quantized_scales<A: Scalar, B: Scalar, S: Scalar>(
+    def: &cmma::QuantizedMma<A, B, S>,
+    scales: &[S],
+    registers: &mut Array<S>,
+    #[comptime] ident: MatrixIdent,
+) {
+    let lane = UNIT_POS_PLANE;
+    #[unroll]
+    for i in 0..def.scales_per_lane() {
+        let index = def.scale_index_of_nth(lane, i as u32, ident);
+        registers[i] = scales[index as usize];
+    }
+}
+
+/// One quantized tile product by one plane: the codes of `A` and `B`, their scales (one per row
+/// of `A` and column of `B`, the tile lying within one block) and the accumulator `c` loaded
+/// into the lanes' registers, multiplied, and the sums stored into `out`. Every operand is
+/// addressed through its strides between rows and between columns, `c` and `out` alike.
+///
+/// Per plane, it reads the `m × k` codes of `A` and the `k × n` of `B`, `m + n` scales and the
+/// `m × n` `f32` of `c`, and writes the `m × n` `f32` of `out`.
 #[cube(launch)]
 pub fn kernel_quantized_mma<A: Scalar, B: Scalar, S: Scalar>(
     codes_a: &[A],
@@ -1621,73 +1695,52 @@ pub fn kernel_quantized_mma<A: Scalar, B: Scalar, S: Scalar>(
     scales_b: &[S],
     c: &[f32],
     out: &mut [f32],
+    a_rows: u32,
+    a_cols: u32,
+    b_rows: u32,
+    b_cols: u32,
+    c_rows: u32,
+    c_cols: u32,
     #[comptime] config: QuantizedMmaConfig,
 ) {
     let def = cmma::QuantizedMma::<A, B, S>::new(config);
-    let lane = UNIT_POS_PLANE;
-    let (n, k) = (config.n, config.k);
 
-    let size_a = def.vector_size(MatrixIdent::A);
-    let size!(NA) = size_a;
-    let elems_a = def.elems_per_lane(MatrixIdent::A);
-    let count_a = comptime!(elems_a / size_a);
-    let mut registers_a = Array::<Vector<A, NA>>::new(count_a);
-    #[unroll]
-    for i in 0..count_a {
-        let mut reg = Vector::empty();
-        #[unroll]
-        for j in 0..size_a {
-            let nth = (i * size_a + j) as u32;
-            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::A);
-            reg.insert(j, codes_a[(row * k + col) as usize]);
-        }
-        registers_a[i] = reg;
-    }
+    let size!(NA) = def.vector_size(MatrixIdent::A);
+    let size!(NB) = def.vector_size(MatrixIdent::B);
+    let size!(NC) = def.vector_size(MatrixIdent::Accumulator);
+    let mut registers_a = Array::<Vector<A, NA>>::new(def.vectors_per_lane(MatrixIdent::A));
+    let mut registers_b = Array::<Vector<B, NB>>::new(def.vectors_per_lane(MatrixIdent::B));
+    let mut registers_c =
+        Array::<Vector<f32, NC>>::new(def.vectors_per_lane(MatrixIdent::Accumulator));
+    let mut lane_scales_a = Array::<S>::new(def.scales_per_lane());
+    let mut lane_scales_b = Array::<S>::new(def.scales_per_lane());
 
-    let size_b = def.vector_size(MatrixIdent::B);
-    let size!(NB) = size_b;
-    let elems_b = def.elems_per_lane(MatrixIdent::B);
-    let count_b = comptime!(elems_b / size_b);
-    let mut registers_b = Array::<Vector<B, NB>>::new(count_b);
-    #[unroll]
-    for i in 0..count_b {
-        let mut reg = Vector::empty();
-        #[unroll]
-        for j in 0..size_b {
-            let nth = (i * size_b + j) as u32;
-            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::B);
-            reg.insert(j, codes_b[(col * k + row) as usize]);
-        }
-        registers_b[i] = reg;
-    }
-
-    let scales = def.scales_per_lane();
-    let mut lane_scales_a = Array::<S>::new(scales);
-    let mut lane_scales_b = Array::<S>::new(scales);
-    #[unroll]
-    for i in 0..scales {
-        let row = def.scale_index_of_nth(lane, i as u32, MatrixIdent::A);
-        let col = def.scale_index_of_nth(lane, i as u32, MatrixIdent::B);
-        lane_scales_a[i] = scales_a[row as usize];
-        lane_scales_b[i] = scales_b[col as usize];
-    }
-
-    let size_c = def.vector_size(MatrixIdent::Accumulator);
-    let size!(NC) = size_c;
-    let elems_c = def.elems_per_lane(MatrixIdent::Accumulator);
-    let count_c = comptime!(elems_c / size_c);
-    let mut registers_c = Array::<Vector<f32, NC>>::new(count_c);
-    #[unroll]
-    for i in 0..count_c {
-        let mut reg = Vector::empty();
-        #[unroll]
-        for j in 0..size_c {
-            let nth = (i * size_c + j) as u32;
-            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::Accumulator);
-            reg.insert(j, c[(row * n + col) as usize]);
-        }
-        registers_c[i] = reg;
-    }
+    plane_load_quantized_registers(
+        &def,
+        codes_a,
+        a_rows,
+        a_cols,
+        &mut registers_a,
+        MatrixIdent::A,
+    );
+    plane_load_quantized_registers(
+        &def,
+        codes_b,
+        b_rows,
+        b_cols,
+        &mut registers_b,
+        MatrixIdent::B,
+    );
+    plane_load_quantized_registers(
+        &def,
+        c,
+        c_rows,
+        c_cols,
+        &mut registers_c,
+        MatrixIdent::Accumulator,
+    );
+    plane_load_quantized_scales(&def, scales_a, &mut lane_scales_a, MatrixIdent::A);
+    plane_load_quantized_scales(&def, scales_b, &mut lane_scales_b, MatrixIdent::B);
 
     let registers_d = def.execute(
         &registers_a,
@@ -1696,16 +1749,38 @@ pub fn kernel_quantized_mma<A: Scalar, B: Scalar, S: Scalar>(
         &lane_scales_b,
         &registers_c,
     );
-    #[unroll]
-    for i in 0..count_c {
-        let reg = registers_d[i];
-        #[unroll]
-        for j in 0..size_c {
-            let nth = (i * size_c + j) as u32;
-            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::Accumulator);
-            out[(row * n + col) as usize] = reg.extract(j);
-        }
+    plane_store_quantized_sums(&def, &registers_d, out, c_rows, c_cols);
+}
+
+/// The small values the codes take: every 8-bit float format holds the float ones exactly, a
+/// negative zero among them, which MI300 reads as NaN unless it is cleared, and `i8` the integer
+/// ones.
+const QUANTIZED_FLOAT_VALUES: [f64; 12] = [
+    -0.0, 0.0, 0.25, -0.5, 1.0, -1.5, 2.0, -3.0, 4.0, 6.0, -0.25, 1.5,
+];
+const QUANTIZED_INTEGER_VALUES: [f64; 12] = [
+    0.0, 1.0, -1.0, 2.0, -3.0, 4.0, -5.0, 7.0, -8.0, 3.0, -2.0, 6.0,
+];
+
+/// The values codes of `elem` take.
+fn quantized_values(elem: ElemType) -> [f64; 12] {
+    match elem {
+        ElemType::Float(_) => QUANTIZED_FLOAT_VALUES,
+        _ => QUANTIZED_INTEGER_VALUES,
     }
+}
+
+/// `count` of `values`, spread so that no two neighbours repeat a pattern the layout could hide.
+fn quantized_codes(values: [f64; 12], count: usize, salt: usize) -> Vec<f64> {
+    (0..count)
+        .map(|index| values[(index * 7 + salt * 5 + index / 13) % values.len()])
+        .collect()
+}
+
+/// Powers of two from 2^-4 to 2^4, exact in every scale type.
+fn quantized_scale(index: usize, salt: usize) -> f64 {
+    let exponent = ((index * 3 + salt) % 9) as i32 - 4;
+    2f64.powi(exponent)
 }
 
 /// Every quantized MMA the device offers whose codes are held in `A` and `B` and whose scales in
@@ -1715,7 +1790,9 @@ pub fn kernel_quantized_mma<A: Scalar, B: Scalar, S: Scalar>(
 /// The codes are small values every 8-bit format holds exactly, a negative zero among the float
 /// ones, so the products and their sums are exact in `f32` and a code read at the wrong value,
 /// or a negative zero read as NaN, shows up as a wrong cell rather than as rounding. The scales
-/// are powers of two, exact in every scale type.
+/// are powers of two, exact in every scale type. Configurations that differ only in what the
+/// registers do not see, the block size and which 8-bit integer value, lower alike, so one of
+/// each depth runs.
 pub fn test_quantized_mma<
     R: Runtime,
     A: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
@@ -1726,6 +1803,7 @@ pub fn test_quantized_mma<
     cube_dimensions: CubeDim,
 ) {
     let held = |value: QuantValue| ElemType::from_quant_value(value);
+    let mut depths = alloc::collections::BTreeSet::new();
     let configs: Vec<QuantizedMmaConfig> = client
         .features()
         .matmul
@@ -1736,6 +1814,7 @@ pub fn test_quantized_mma<
                 && held(config.b) == B::cube_type()
                 && ElemType::from_scale_dtype(config.scales) == S::cube_type()
         })
+        .filter(|config| depths.insert(config.k))
         .copied()
         .collect();
     if configs.is_empty() {
@@ -1748,38 +1827,26 @@ pub fn test_quantized_mma<
         return;
     }
 
-    // Values every 8-bit float and integer format holds exactly: halves and quarters only where
-    // the codes are floats, and a negative zero, which MI300 reads as NaN unless it is cleared.
-    let float_values = [
-        -0.0, 0.0, 0.25, -0.5, 1.0, -1.5, 2.0, -3.0, 4.0, 6.0, -0.25, 1.5,
-    ];
-    let integer_values = [
-        0.0, 1.0, -1.0, 2.0, -3.0, 4.0, -5.0, 7.0, -8.0, 3.0, -2.0, 6.0,
-    ];
-    let codes = |count: usize, salt: usize, float: bool| -> Vec<f64> {
-        let values = if float { float_values } else { integer_values };
-        (0..count)
-            .map(|index| values[(index * 7 + salt * 5 + index / 13) % values.len()])
-            .collect()
-    };
-    let is_float = |ty: ElemType| matches!(ty, ElemType::Float(_));
-    let power_of_two = |index: usize, salt: usize| 2f64.powi(((index * 3 + salt) % 9) as i32 - 4);
     let decoded = |value: &dyn num_traits::ToPrimitive| value.to_f64().unwrap();
-
+    let (lhs_salt, rhs_salt, lhs_scale_salt, rhs_scale_salt) = (1, 2, 1, 4);
     for config in configs {
         let (m, n, k) = (config.m as usize, config.n as usize, config.k as usize);
-        let lhs = codes(m * k, 1, is_float(A::cube_type()));
-        // Column major: `rhs[col][l]` at `col * k + l`.
-        let rhs = codes(n * k, 2, is_float(B::cube_type()));
+        // `A` row major, `B` column major (`rhs[col][l]` at `col * k + l`), `c` row major:
+        // each a stride between rows, then one between columns.
+        let (a_rows, a_cols) = (k as u32, 1);
+        let (b_rows, b_cols) = (1, k as u32);
+        let (c_rows, c_cols) = (n as u32, 1);
+        let lhs = quantized_codes(quantized_values(A::cube_type()), m * k, lhs_salt);
+        let rhs = quantized_codes(quantized_values(B::cube_type()), n * k, rhs_salt);
         let c: Vec<f32> = (0..m * n).map(|index| (index % 11) as f32 - 5.0).collect();
 
         let lhs_typed: Vec<A> = lhs.iter().map(|value| A::from(*value).unwrap()).collect();
         let rhs_typed: Vec<B> = rhs.iter().map(|value| B::from(*value).unwrap()).collect();
         let lhs_scales: Vec<S> = (0..m)
-            .map(|row| S::from(power_of_two(row, 1)).unwrap())
+            .map(|row| S::from(quantized_scale(row, lhs_scale_salt)).unwrap())
             .collect();
         let rhs_scales: Vec<S> = (0..n)
-            .map(|col| S::from(power_of_two(col, 4)).unwrap())
+            .map(|col| S::from(quantized_scale(col, rhs_scale_salt)).unwrap())
             .collect();
 
         // The reference reads every code and scale back from its type, so it multiplies what
@@ -1813,6 +1880,12 @@ pub fn test_quantized_mma<
                 BufferArg::from_raw_parts(rhs_scales_handle, n),
                 BufferArg::from_raw_parts(c_handle, m * n),
                 BufferArg::from_raw_parts(out.clone(), m * n),
+                a_rows,
+                a_cols,
+                b_rows,
+                b_cols,
+                c_rows,
+                c_cols,
                 config,
             )
         };

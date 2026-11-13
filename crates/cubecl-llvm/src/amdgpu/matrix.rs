@@ -2,7 +2,11 @@
 
 use crate::{
     amdgpu::{
-        mfma::{self, MfmaForm, emit_mfma},
+        fragment::{
+            BF16, E4M3, E5M2, F16, F32, I8, I32, INSTRUCTION_M, INSTRUCTION_N, TILE_DEPTHS, U8,
+            fp8_name, fragment_slice, instruction_steps, shuffle,
+        },
+        mfma::{self, CodeReading, MfmaForm, emit_mfma},
         plane::lane_id,
     },
     prelude::*,
@@ -10,7 +14,7 @@ use crate::{
     shared::plane::bitcast,
 };
 use cubecl_core::ir::{
-    ElemType, FloatKind, IntKind, UIntKind,
+    ElemType,
     amd::{AmdMatrixCore, AmdMfma, AmdWmma},
     dialect::matrix::{
         CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
@@ -30,40 +34,42 @@ pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 #[derive(Debug, Error)]
 #[error(
     "no matrix lowering for a {}x{}x{} tile: one is {INSTRUCTION_M}x{INSTRUCTION_N} and a \
-     multiple of {} deep",
-    .0.m, .0.n, .0.k, .1
+     multiple of {instruction_k} deep",
+    shape.m, shape.n, shape.k
 )]
-pub struct MatrixShapeUnsupported(MatrixShape, usize);
+pub struct MatrixShapeUnsupported {
+    pub shape: MatrixShape,
+    pub instruction_k: usize,
+}
 
 #[derive(Debug, Error)]
-#[error("no {0:?} instruction multiplies {1:?} by {2:?} into {3:?}")]
-pub struct MatrixElemUnsupported(AmdMatrixCore, ElemType, ElemType, ElemType);
+#[error("no {core:?} instruction multiplies {a:?} by {b:?} into {cd:?}")]
+pub struct MatrixElemUnsupported {
+    pub core: AmdMatrixCore,
+    pub a: ElemType,
+    pub b: ElemType,
+    pub cd: ElemType,
+}
+
+impl MatrixElemUnsupported {
+    /// The refusal of a product of these operand types on the context's matrix core.
+    fn of(ctx: &Context, a: TypeHandle, b: TypeHandle, cd: TypeHandle) -> Self {
+        Self {
+            core: ctx.matrix_core(),
+            a: elem_type(ctx, a),
+            b: elem_type(ctx, b),
+            cd: elem_type(ctx, cd),
+        }
+    }
+}
 
 /// RDNA3 pads 16-bit accumulators to 32-bit registers.
 fn pads_half_accumulator(generation: AmdWmma) -> bool {
     generation == AmdWmma::Rdna3
 }
 
-/// The shape of every WMMA form this lowering emits, on RDNA3 and RDNA4 alike.
-const INSTRUCTION_M: usize = 16;
-const INSTRUCTION_N: usize = 16;
+/// The depth of every WMMA form this lowering emits, on RDNA3 and RDNA4 alike.
 const INSTRUCTION_K: usize = 16;
-
-/// The tile depths offered: one instruction, or two in a row.
-const TILE_KS: [usize; 2] = [INSTRUCTION_K, 2 * INSTRUCTION_K];
-
-/// How many instructions a tile takes, where its output is one instruction's and its depth a
-/// whole number of them.
-///
-/// A deeper tile is cut into consecutive slices of each lane's fragment. On RDNA4 a lane holds
-/// its half's run of `k`, so a slice pairs `k` from both halves the instruction would not, but A
-/// and B are sliced alike and the products summed are the same.
-fn instruction_steps(shape: MatrixShape) -> Option<usize> {
-    let MatrixShape { m, n, k } = shape;
-    let output = m == INSTRUCTION_M && n == INSTRUCTION_N;
-    let depth = k > 0 && k.is_multiple_of(INSTRUCTION_K);
-    (output && depth).then_some(k / INSTRUCTION_K)
-}
 
 /// The WMMA instruction a tile's element types select.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,15 +81,6 @@ pub enum WmmaForm {
     /// 8-bit integer operands, each side signed or not, accumulating in `i32`.
     Int8 { a_signed: bool, b_signed: bool },
 }
-
-const F16: ElemType = ElemType::Float(FloatKind::F16);
-const BF16: ElemType = ElemType::Float(FloatKind::BF16);
-const F32: ElemType = ElemType::Float(FloatKind::F32);
-const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
-const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
-const I8: ElemType = ElemType::Int(IntKind::I8);
-const U8: ElemType = ElemType::UInt(UIntKind::U8);
-const I32: ElemType = ElemType::Int(IntKind::I32);
 
 impl WmmaForm {
     /// The form multiplying `a` by `b` into `cd` on `generation`, where it has one.
@@ -117,13 +114,13 @@ impl WmmaForm {
         elems
             .filter(|&(a, b, cd)| Self::of(generation, a, b, cd).is_some())
             .flat_map(|(a, b, cd)| {
-                TILE_KS.map(|k| MmaConfig {
+                TILE_DEPTHS.map(|depth| MmaConfig {
                     a_type: a,
                     b_type: b,
                     cd_type: cd,
                     m: INSTRUCTION_M as u32,
                     n: INSTRUCTION_N as u32,
-                    k: k as u32,
+                    k: (depth * INSTRUCTION_K) as u32,
                 })
             })
             .collect()
@@ -178,15 +175,6 @@ fn half_name(elem: ElemType) -> &'static str {
         BF16 => "bf16",
         F32 => "f32",
         other => unreachable!("{other:?} is no half precision WMMA element"),
-    }
-}
-
-/// AMD names `e4m3` `fp8` and `e5m2` `bf8`.
-fn fp8_name(elem: ElemType) -> &'static str {
-    match elem {
-        E4M3 => "fp8",
-        E5M2 => "bf8",
-        other => unreachable!("{other:?} is no fp8 WMMA element"),
     }
 }
 
@@ -568,22 +556,17 @@ impl MatrixForm {
         cd: TypeHandle,
     ) -> core::result::Result<Self, MatrixElemUnsupported> {
         let form = Self::any(ctx, a, b, cd)?;
-        match form.reads_fnuz() {
-            false => Ok(form),
-            true => Err(MatrixElemUnsupported(
-                ctx.matrix_core(),
-                elem_type(ctx, a),
-                elem_type(ctx, b),
-                elem_type(ctx, cd),
-            )),
+        match form.code_reading() {
+            CodeReading::Ocp => Ok(form),
+            CodeReading::Fnuz => Err(MatrixElemUnsupported::of(ctx, a, b, cd)),
         }
     }
 
-    /// Whether the form reads its 8-bit floats as FNUZ: see [`MfmaForm::reads_fnuz`].
-    fn reads_fnuz(&self) -> bool {
+    /// How the form reads its 8-bit float bytes.
+    fn code_reading(&self) -> CodeReading {
         match self {
-            MatrixForm::Wmma(_) => false,
-            MatrixForm::Mfma(form, _) => form.reads_fnuz(),
+            MatrixForm::Wmma(_) => CodeReading::Ocp,
+            MatrixForm::Mfma(form, _) => form.code_reading(),
         }
     }
 
@@ -595,17 +578,22 @@ impl MatrixForm {
         b: TypeHandle,
         cd: TypeHandle,
     ) -> core::result::Result<Self, MatrixElemUnsupported> {
-        let core = ctx.matrix_core();
-        let (a, b, cd) = (elem_type(ctx, a), elem_type(ctx, b), elem_type(ctx, cd));
-        let form = match core {
+        let (a_elem, b_elem, cd_elem) = (elem_type(ctx, a), elem_type(ctx, b), elem_type(ctx, cd));
+        Self::of(ctx.matrix_core(), a_elem, b_elem, cd_elem)
+            .ok_or_else(|| MatrixElemUnsupported::of(ctx, a, b, cd))
+    }
+
+    /// The form multiplying `a` by `b` into `cd` on `core`, FNUZ forms among them, where it has
+    /// one.
+    fn of(core: AmdMatrixCore, a: ElemType, b: ElemType, cd: ElemType) -> Option<Self> {
+        match core {
             AmdMatrixCore::Wmma(generation) => {
                 WmmaForm::of(generation, a, b, cd).map(MatrixForm::Wmma)
             }
             AmdMatrixCore::Mfma(generation) => {
                 MfmaForm::of(generation, a, b, cd).map(|form| MatrixForm::Mfma(form, generation))
             }
-        };
-        form.ok_or(MatrixElemUnsupported(core, a, b, cd))
+        }
     }
 
     /// How deep one instruction is.
@@ -635,32 +623,11 @@ impl MatrixForm {
     }
 }
 
-pub(super) fn fragment_slice(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    fragment: Value,
-    step: usize,
-    width: usize,
-) -> Value {
-    shuffle(
-        ctx,
-        rw,
-        fragment,
-        (0..width).map(|i| (step * width + i) as i32).collect(),
-    )
-}
-
-fn shuffle(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    fragment: Value,
-    mask: Vec<i32>,
-) -> Value {
-    let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
-    insert(ctx, rw, &op)
-}
-
 /// Emits the instructions for a tile, or `None` where no whole number of them makes its shape.
+///
+/// A deeper tile is cut into consecutive slices of each lane's fragment. On RDNA4 a lane holds
+/// its half's run of `k`, so a slice pairs `k` from both halves the instruction would not, but A
+/// and B are sliced alike and the products summed are the same.
 fn emit_wmma(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -669,7 +636,7 @@ fn emit_wmma(
     (a_val, b_val, c_val): (Value, Value, Value),
     cd_ty: TypeHandle,
 ) -> Option<Value> {
-    let steps = instruction_steps(shape)?;
+    let steps = instruction_steps(shape, INSTRUCTION_K)?;
     let slice_width = ctx.matrix_core().frag_ab_elems(INSTRUCTION_K);
 
     let fragment_cd_ty = cd_ty;
@@ -771,8 +738,11 @@ pub(crate) fn multiply_accumulate(
 
     let shape = a_ty.shape;
     let Some(result) = form.emit(ctx, rw, shape, (a_val, b_val, c_val), cd_frag_ty) else {
-        let depth = form.instruction_k();
-        return input_err!(op.loc(ctx), MatrixShapeUnsupported(shape, depth));
+        let unsupported = MatrixShapeUnsupported {
+            shape,
+            instruction_k: form.instruction_k(),
+        };
+        return input_err!(op.loc(ctx), unsupported);
     };
     store_fragment(ctx, rw, d, result);
 
@@ -918,8 +888,11 @@ pub(crate) fn mma_manual(
 
     let shape = op.shape(ctx).0;
     let Some(result) = form.emit(ctx, rw, shape, (a_val, b_val, c_val), cd_ty) else {
-        let depth = form.instruction_k();
-        return input_err!(op.loc(ctx), MatrixShapeUnsupported(shape, depth));
+        let unsupported = MatrixShapeUnsupported {
+            shape,
+            instruction_k: form.instruction_k(),
+        };
+        return input_err!(op.loc(ctx), unsupported);
     };
     store_fragment(ctx, rw, d, result);
 
@@ -982,31 +955,6 @@ mod tests {
                 "{generation:?}"
             );
         }
-    }
-
-    fn shape(m: usize, n: usize, k: usize) -> MatrixShape {
-        MatrixShape { m, n, k }
-    }
-
-    #[test]
-    fn a_tile_deeper_than_the_instruction_is_several_of_them() {
-        assert_eq!(instruction_steps(shape(16, 16, 16)), Some(1));
-        assert_eq!(instruction_steps(shape(16, 16, 32)), Some(2));
-    }
-
-    #[test]
-    fn a_tile_that_does_not_divide_has_no_lowering() {
-        assert_eq!(instruction_steps(shape(16, 16, 24)), None);
-        assert_eq!(instruction_steps(shape(16, 16, 8)), None);
-        assert_eq!(instruction_steps(shape(16, 16, 0)), None);
-    }
-
-    /// Every instruction writes a 16x16 output, so a tile of any other has no lowering.
-    #[test]
-    fn a_tile_of_another_output_shape_has_no_lowering() {
-        assert_eq!(instruction_steps(shape(32, 8, 16)), None);
-        assert_eq!(instruction_steps(shape(16, 8, 32)), None);
-        assert_eq!(instruction_steps(shape(32, 32, 16)), None);
     }
 
     #[test]

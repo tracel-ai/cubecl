@@ -3,7 +3,19 @@
 //! The HIP runtime drives two of them, and the wavefront width and WMMA generation a
 //! kernel is built for have to be the same answer whichever one compiles it.
 
+use crate::{
+    ContiguousElements, MmaProperties,
+    interfaces::TypedExt,
+    types::matrix::{MatrixIdent, MatrixLayout, MatrixType},
+};
 use alloc::string::String;
+use pliron::{context::Context, r#type::TypedHandle};
+
+/// The bytes a lane loads of an operand in one go: a swizzle atom and the widest load.
+const LOAD_WIDTH_BYTES: usize = 16;
+
+/// The bits each register of a matrix fragment holds.
+const REGISTER_BITS: usize = 32;
 
 /// Which generation of AMD's WMMA instructions to emit. RDNA4 renamed the builtins and dropped
 /// RDNA3's duplication of the A/B fragments across lane halves, halving them to 8 elements, so the
@@ -55,6 +67,63 @@ impl AmdMatrixCore {
             AmdMatrixCore::Mfma(_) => k / MFMA_LANE_GROUPS,
         }
     }
+
+    /// How the manual MMA lays its registers out on this core, whichever backend lowers it: `A`
+    /// along its rows, `B` and the accumulator along their columns. RDNA3 holds every A/B cell
+    /// in both halves of its 32-lane wavefront, RDNA4 once; CDNA splits `k` between the four
+    /// 16-lane groups of its 64-lane wavefront.
+    pub fn mma_properties(self) -> MmaProperties {
+        let (plane_size, duplication_ab) = match self {
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3) => (32, 2),
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4) => (32, 1),
+            AmdMatrixCore::Mfma(_) => (64, 1),
+        };
+        let contiguous_elements = match self {
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3) => ContiguousElements::new(contiguous_rdna3),
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4) => ContiguousElements::new(contiguous_rdna4),
+            AmdMatrixCore::Mfma(_) => ContiguousElements::new(contiguous_cdna),
+        };
+        MmaProperties {
+            register_size_bits: REGISTER_BITS,
+            const_plane_size: plane_size,
+            register_layout_a: MatrixLayout::RowMajor,
+            register_layout_b: MatrixLayout::ColMajor,
+            register_layout_acc: MatrixLayout::ColMajor,
+            register_duplication_a: duplication_ab,
+            register_duplication_b: duplication_ab,
+            register_duplication_acc: 1,
+            contiguous_elements,
+        }
+    }
+
+    /// Consecutive elements of `matrix` a lane holds in role `ident`, at most a load wide: a
+    /// lane's run of `k` for A and B, one accumulator element at a time.
+    fn contiguous_elements(
+        self,
+        ctx: &Context,
+        ident: MatrixIdent,
+        matrix: TypedHandle<MatrixType>,
+    ) -> usize {
+        let matrix = matrix.deref(ctx);
+        let widest = LOAD_WIDTH_BYTES / matrix.elem_ty.size(ctx);
+        match ident {
+            MatrixIdent::A | MatrixIdent::B => self.frag_ab_elems(matrix.shape.k).min(widest),
+            MatrixIdent::Accumulator => 1,
+        }
+    }
+}
+
+fn contiguous_rdna3(ctx: &Context, ident: MatrixIdent, matrix: TypedHandle<MatrixType>) -> usize {
+    AmdMatrixCore::Wmma(AmdWmma::Rdna3).contiguous_elements(ctx, ident, matrix)
+}
+
+fn contiguous_rdna4(ctx: &Context, ident: MatrixIdent, matrix: TypedHandle<MatrixType>) -> usize {
+    AmdMatrixCore::Wmma(AmdWmma::Rdna4).contiguous_elements(ctx, ident, matrix)
+}
+
+/// Both CDNA generations lay a lane's run of `k` out alike.
+fn contiguous_cdna(ctx: &Context, ident: MatrixIdent, matrix: TypedHandle<MatrixType>) -> usize {
+    AmdMatrixCore::Mfma(AmdMfma::Cdna3).contiguous_elements(ctx, ident, matrix)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,11 +262,6 @@ impl GfxArch {
     /// Which WMMA this device has, or `None` where it has none at all.
     pub fn wmma(&self) -> Option<AmdWmma> {
         self.family.wmma_generation()
-    }
-
-    /// Which MFMA this device has, or `None` where it has none this table lowers.
-    pub fn mfma(&self) -> Option<AmdMfma> {
-        self.family.mfma_generation()
     }
 
     /// Which matrix instructions this device has, or `None` where it has neither kind.

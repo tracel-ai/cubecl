@@ -15,6 +15,7 @@
 
 use super::{MatrixIdent, MatrixLayout, MmaDefinitionExpand};
 use crate::{self as cubecl, prelude::*};
+use alloc::format;
 use core::marker::PhantomData;
 use cubecl_ir::{
     ElemType, FloatKind, Scope, VectorSize, dialect::matrix::MmaQuantizedOp,
@@ -31,7 +32,7 @@ use pliron::r#type::TypeHandle;
 /// [`position_of_nth`](Self::position_of_nth) places them. The scales come one pair per
 /// accumulator element a lane holds: [`scale_index_of_nth`](Self::scale_index_of_nth) places
 /// them.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct QuantizedMma<A: CubeType, B: CubeType, S: CubeType> {
     _a: PhantomData<A>,
     _b: PhantomData<B>,
@@ -47,16 +48,19 @@ pub struct QuantizedMmaExpand<A: CubeType, B: CubeType, S: CubeType> {
     _s: PhantomData<S>,
 }
 
-impl<A: CubeType, B: CubeType, S: CubeType> Copy for QuantizedMmaExpand<A, B, S> {}
 impl<A: CubeType, B: CubeType, S: CubeType> Clone for QuantizedMmaExpand<A, B, S> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            codes: self.codes,
+            config: self.config,
+            _s: PhantomData,
+        }
     }
 }
 
 impl<A: CubeType, B: CubeType, S: CubeType> ExpandTypeClone for QuantizedMmaExpand<A, B, S> {
     fn clone_unchecked(&self) -> Self {
-        *self
+        self.clone()
     }
 }
 
@@ -92,14 +96,39 @@ impl<A: CubeType, B: CubeType, S: CubeType> IntoMut for QuantizedMmaExpand<A, B,
 
 impl<A: CubeType, B: CubeType, S: CubeType> CubeDebug for QuantizedMmaExpand<A, B, S> {}
 
-/// Panics unless `held` is the type `named` names: a quantized MMA's register types are the ones
-/// its configuration's quantization types are held in.
-fn assert_held_in(scope: &Scope, held: TypeHandle, named: ElemType, what: &str) {
-    let expected = named.to_type(scope.ctx());
-    assert!(
-        held == expected,
-        "QuantizedMma: the {what} are held in {named:?}, not the type the kernel names"
-    );
+/// The registers of a quantized MMA whose type its configuration names.
+#[derive(Clone, Copy, Debug)]
+enum Registers {
+    CodesA,
+    CodesB,
+    Scales,
+}
+
+/// Refuses the kernel unless `held`, the type it names for `registers`, is `named`, the type its
+/// configuration's quantization type is held in.
+fn check_held_in(scope: &Scope, registers: Registers, held: TypeHandle, named: ElemType) {
+    if held == named.to_type(scope.ctx()) {
+        return;
+    }
+    scope.push_error(format!(
+        "QuantizedMma: the {registers:?} registers are held in {named:?}, not the type the \
+         kernel names for them"
+    ));
+}
+
+/// Refuses the kernel unless the device advertises `config`, where the device is known.
+fn check_advertised(scope: &Scope, config: QuantizedMmaConfig) {
+    let Some(props) = scope.state().device_properties.clone() else {
+        return;
+    };
+    let offered = &props.features.matmul.quantized_mma;
+    if offered.contains(&config) {
+        return;
+    }
+    scope.push_error(format!(
+        "the device doesn't support the quantized MMA {config:?}; supported configurations: \
+         {offered:?}"
+    ));
 }
 
 #[cube]
@@ -107,28 +136,21 @@ impl<A: Scalar, B: Scalar, S: Scalar> QuantizedMma<A, B, S> {
     /// The quantized MMA of `config`, one the device advertises in
     /// [`quantized_mma`](cubecl_ir::features::MatmulFeatures::quantized_mma).
     ///
-    /// Panics unless `A`, `B` and `S` are the types `config`'s codes and scales are held in: the
-    /// [`ElemType::from_quant_value`] of each operand's value and the
-    /// [`ElemType::from_scale_dtype`] of its scales.
+    /// Refuses the kernel unless the device advertises `config`, and unless `A`, `B` and `S`
+    /// are the types its codes and scales are held in: the [`ElemType::from_quant_value`] of
+    /// each operand's value and the [`ElemType::from_scale_dtype`] of its scales.
     pub fn new(#[comptime] config: QuantizedMmaConfig) -> Self {
         intrinsic!(|scope| {
+            check_advertised(scope, config);
             let a_type = A::Scalar::__expand_as_type(scope);
             let b_type = B::Scalar::__expand_as_type(scope);
             let scales_type = S::Scalar::__expand_as_type(scope);
-            assert_held_in(
-                scope,
-                a_type,
-                ElemType::from_quant_value(config.a),
-                "A codes",
-            );
-            assert_held_in(
-                scope,
-                b_type,
-                ElemType::from_quant_value(config.b),
-                "B codes",
-            );
+            let codes_a = ElemType::from_quant_value(config.a);
+            let codes_b = ElemType::from_quant_value(config.b);
             let scales = ElemType::from_scale_dtype(config.scales);
-            assert_held_in(scope, scales_type, scales, "scales");
+            check_held_in(scope, Registers::CodesA, a_type, codes_a);
+            check_held_in(scope, Registers::CodesB, b_type, codes_b);
+            check_held_in(scope, Registers::Scales, scales_type, scales);
             let shape = (config.m as usize, config.n as usize, config.k as usize).into();
             let codes = MmaDefinitionExpand {
                 shape,

@@ -1,6 +1,6 @@
 use crate::shared::Architecture;
 
-pub use cubecl_core::ir::amd::{AMDArchitecture, AmdMatrixCore, AmdMfma, AmdWmma};
+pub use cubecl_core::ir::amd::{AMDArchitecture, AmdWmma};
 
 impl Architecture for AMDArchitecture {
     fn warp_size(&self) -> u32 {

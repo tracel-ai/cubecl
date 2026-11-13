@@ -4,6 +4,7 @@ pub mod abi;
 pub mod builtins;
 pub mod codegen;
 pub mod device_libs;
+mod fragment;
 pub mod intrinsic;
 pub mod lld;
 pub mod matrix;
