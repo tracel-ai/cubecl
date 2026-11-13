@@ -251,7 +251,12 @@ impl<A: EventApi> EventProfiler<A> {
             start.record(stream).map_err(profile_error)?;
         }
 
-        let end = self.mark().map_err(profile_error)?;
+        // Under the start's anchor: refreshing one here waits on the device before the end is
+        // recorded, and an idle device charges that wait to the window.
+        let end = Mark {
+            event: Arc::new(self.pool.acquire().map_err(profile_error)?),
+            anchor: start.anchor.clone(),
+        };
         end.record(stream).map_err(profile_error)?;
 
         Ok(Self::span(&start, &end))
