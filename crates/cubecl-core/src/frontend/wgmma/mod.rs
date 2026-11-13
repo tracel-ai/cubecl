@@ -1,9 +1,9 @@
-//! Warpgroup matrix-multiply and accumulate, Hopper's asynchronous tensor core instructions.
+//! Plane group matrix-multiply and accumulate, Hopper's asynchronous tensor core instructions.
 //!
-//! The four planes of a warpgroup (128 contiguous units, starting at a multiple of 128) issue one
+//! The four planes of a plane group (128 contiguous units, starting at a multiple of 128) issue one
 //! `64 x n x k` MMA together. `B`, and optionally `A`, are read straight from shared memory
 //! through [matrix descriptors](MatrixDescriptor), and the [`Accumulator`] stays in registers,
-//! spread over the warpgroup as [`Accumulator::position_of_nth`] describes.
+//! spread over the plane group as [`Accumulator::position_of_nth`] describes.
 //!
 //! The MMAs run asynchronously, and own the accumulator while they do: [`Accumulator::start`]
 //! hands it over as a [`Pending`](crate::prelude::Pending), which issues the MMAs, and gives it back once they complete.

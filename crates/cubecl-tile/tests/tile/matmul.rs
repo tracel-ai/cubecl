@@ -64,7 +64,7 @@ const K2: Axis = Axis(6);
 
 /// The software instruction most tests contract through: a 16-cell budget, no edge split, no
 /// unit fan-out.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The kernel-side level of one cube naming nothing: the whole space is its box.
 fn one_cube() -> Level {
@@ -126,7 +126,7 @@ fn matmul_in_place<E: Numeric>(
     #[comptime] outer: Level,
     #[comptime] runs: Option<Level>,
     #[comptime] inner: Level,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -154,7 +154,7 @@ fn contract_in_place<E: Numeric>(
     c: &Tile,
     owned: &Region,
     #[comptime] inner: Level,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     // This instance's windows of `c`, each initialized once: the level projected onto `c`'s
@@ -222,7 +222,7 @@ fn contract_staged(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
@@ -286,7 +286,7 @@ fn matmul_smem_ring_scheduled(
 #[cube]
 fn contract_on_the_last_unit(c: &Tile, a: &Tile, b: &Tile) {
     if UNIT_POS == CUBE_DIM - 1 {
-        let mut c = c.clone().accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+        let mut c = c.clone().accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c.mma(a, b);
     }
 }
@@ -310,7 +310,7 @@ fn matmul_smem_ring_accumulate(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
@@ -336,7 +336,7 @@ fn matmul_lhs_smem_ring(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let b_r = b.at(region);
         slot.consume(|a_s| {
             c_r.mma(a_s, &b_r);
@@ -376,7 +376,7 @@ fn matmul_padded_rhs_stage(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let a_r = a.at(region);
         slot.consume(|b_s| {
             c_r.mma(&a_r, b_s);
@@ -421,7 +421,7 @@ fn matmul_padded_lhs_stage_two_levels(
         stages.pipelined(walk, |slot, region| {
             let mut c_r = c_o
                 .at(region)
-                .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
             let b_r = b_o.at(region);
             slot.consume(|a_s| {
                 c_r.mma(a_s, &b_r);
@@ -455,7 +455,7 @@ fn matmul_two_levels_smem_then_in_place(
             for cell in region.over(&inner) {
                 let mut c_r = c_o
                     .at(&cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                 c_r.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -494,7 +494,7 @@ fn matmul_two_levels_smem_then_smem(
             inner_ring.pipelined(cells, |slot, cell| {
                 let mut c_r = c_o
                     .at(cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                 slot.consume(|a_i, b_i| {
                     c_r.mma(a_i, b_i);
                 });
@@ -513,7 +513,7 @@ fn promoted_matmul_in_place<EA: Numeric>(
     c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
@@ -536,7 +536,7 @@ fn promoted_matmul_two_levels_in_place<EA: Numeric>(
     b: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -573,7 +573,7 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for outer in space.over(&outer) {
         let acc_o = acc.at(&outer);
         let a_o = a.at(&outer);
@@ -1615,7 +1615,7 @@ fn check_matmul_cpu(m: usize, n: usize, k: usize, levels: Vec<Level>) {
         launcher.partitioning().level(0),
         runs,
         inner,
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -1667,7 +1667,7 @@ fn matmul_cpu_dynamic_k() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -1718,7 +1718,7 @@ fn register_matmul_unit_spread_n() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2203,7 +2203,7 @@ fn matmul_direct_vectorized() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2405,7 +2405,7 @@ fn register_matmul_promoted_accumulator() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         dtype,
     );
@@ -2452,7 +2452,7 @@ fn tropical_matmul_in_place() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::MIN_SUM,
         f32::elem_type_native(),
     );
@@ -2511,7 +2511,7 @@ fn tropical_matmul_promoted() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::MAX_SUM,
         dtype,
     );
@@ -2578,7 +2578,7 @@ fn register_matmul_promoted_cube_plane() {
         b.arg(&launcher, 2),
         c.arg(&launcher, 2),
         launcher.partitioning_arg(),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2653,7 +2653,7 @@ fn plane_staged_matmul<E: Numeric>(
             let acc = c_p.register_accumulator::<E>(
                 &a_p,
                 &b_p,
-                comptime!(REGISTER_BLOCK),
+                comptime!(SOFTWARE_MATMUL),
                 Semiring::SUM_PROD,
             );
             let walk = plane.walk();
@@ -2680,7 +2680,7 @@ fn matmul_on_either_sum<EA: Numeric>(
     b: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] registers: Option<RegisterBlock>,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -2748,7 +2748,7 @@ fn one_body_runs_in_registers() {
         b.arg(&launcher, 1),
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
-        Some(REGISTER_BLOCK),
+        Some(SOFTWARE_MATMUL),
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2852,7 +2852,7 @@ fn register_matmul_lined_lhs() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2889,7 +2889,7 @@ fn register_matmul_promoted_lined_lhs() {
         c.arg(&launcher, 2),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         dtype,
     );
@@ -2938,7 +2938,7 @@ fn check_summing_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budg
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        RegisterBlock::new(budget),
+        SoftwareMatmul::new(budget),
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2968,18 +2968,18 @@ fn register_matmul_summing_step_rolled() {
 /// the output between regions, hence [`a_promoted_folded_step_sums_wider_than_its_output`].
 #[test]
 fn register_matmul_promoted_summing_step() {
-    check_promoted_summing_step(RegisterBlock::new(64));
+    check_promoted_summing_step(SoftwareMatmul::new(64));
 }
 
 /// [`register_matmul_promoted_summing_step`] with the block opened for partials: each cell a line
 /// of the run's products, a lane each, summed once at the drain rather than every step.
 #[test]
 fn register_matmul_promoted_partials_step() {
-    check_promoted_summing_step(RegisterBlock::new(64).partials());
+    check_promoted_summing_step(SoftwareMatmul::new(64).partials());
 }
 
 /// A promoted block under `config` contracting two operands lined along `K` into a scalar output.
-fn check_promoted_summing_step(config: RegisterBlock) {
+fn check_promoted_summing_step(config: SoftwareMatmul) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 8usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3024,18 +3024,18 @@ fn check_promoted_summing_step(config: RegisterBlock) {
 /// the only way such a weight contracts.
 #[test]
 fn a_promoted_summing_step_sums_wider_than_its_output() {
-    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64));
+    check_a_promoted_step_sums_wider_than_its_output(SoftwareMatmul::new(64));
 }
 
 /// [`a_promoted_summing_step_sums_wider_than_its_output`] with the block opened for partials: the
 /// lanes are summed at the drain in `f32`, before the cast down to the output's `f16`.
 #[test]
 fn a_promoted_partials_step_sums_wider_than_its_output() {
-    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64).partials());
+    check_a_promoted_step_sums_wider_than_its_output(SoftwareMatmul::new(64).partials());
 }
 
 /// A `1x1` cell of an `f16` output summing `4096` products of one in `f32` under `config`.
-fn check_a_promoted_step_sums_wider_than_its_output(config: RegisterBlock) {
+fn check_a_promoted_step_sums_wider_than_its_output(config: SoftwareMatmul) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (1usize, 1usize, 4096usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3132,7 +3132,7 @@ fn register_matmul_summing_step_two_contracted_axes() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        RegisterBlock::new(64),
+        SoftwareMatmul::new(64),
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -3209,7 +3209,7 @@ fn register_matmul_unit_group_reduce() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        RegisterBlock::new(edge * n),
+        SoftwareMatmul::new(edge * n),
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -3256,7 +3256,7 @@ fn register_matmul_promoted_unit_group_reduce() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(edge * n),
+        SoftwareMatmul::new(edge * n),
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3301,7 +3301,7 @@ fn register_matmul_promoted_summing_step_unit_group_reduce() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(edge * n),
+        SoftwareMatmul::new(edge * n),
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3372,6 +3372,57 @@ fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
 #[test]
 fn cmma_matmul_staged_k_walk_transposed_operands() {
     check_cmma_matmul_k_walk_with(16, 1, 1, StageLayout::Strided, Transposed::Both);
+}
+
+/// A plane holding a tile wider than any instruction, its nest stating no instruction: the tile
+/// cuts the plane's `16 × 32` into the calls of the instruction it picks (`8 × 8` cells on Metal),
+/// and the drain lays each cell where it lies.
+#[test]
+fn a_plane_tile_wider_than_its_instruction_is_cut_by_the_tile() {
+    let client = cubecl::test_device().client();
+    if !require_cmma_8x8x8_f32(&client) {
+        return;
+    }
+
+    let (m, n, k) = (16usize, 32usize, 32usize);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, m), (N, n), (K, 8)])
+                .walk_every(&[M, N, K])
+                .build(),
+        ),
+        Form::Static,
+    );
+    for layout in [StageLayout::Strided, StageLayout::Tiled] {
+        for v in [1, 4] {
+            let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+                .untiled()
+                .arange();
+            let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
+                .untiled()
+                .arange();
+            // Poisoned, not zeroed: the kernel zeroes the accumulator.
+            let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
+                .untiled()
+                .uniform(4242, 10., 100.);
+            cmma_matmul_k_walk::launch(
+                &client,
+                launcher.cube_count(),
+                launcher.cube_dim(),
+                a.arg(&launcher, v),
+                b.arg(&launcher, v),
+                c.arg(&launcher, v),
+                launcher.partitioning_arg(),
+                launcher.partitioning().level(0),
+                layout.storage(&launcher),
+                1,
+                f32::elem_type_native(),
+            );
+            assert_matmul_arange(&client, c.handle(), m, n, k);
+        }
+    }
 }
 
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
@@ -3490,7 +3541,7 @@ fn staged_matmul_on_either_sum<E: Numeric>(
     #[comptime] level: Level,
     #[comptime] storage: StageStorage,
     #[comptime] depth: usize,
-    #[comptime] registers: Option<RegisterBlock>,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -3619,8 +3670,8 @@ fn check_b_fragments_two_at_a_time(depth: usize) {
 
 /// The staged body at a register block, which every device runs.
 #[test]
-fn one_staged_body_at_a_register_block() {
-    check_staged_matmul_on_either_sum(Some(REGISTER_BLOCK));
+fn one_staged_body_at_a_software_matmul() {
+    check_staged_matmul_on_either_sum(Some(SOFTWARE_MATMUL));
 }
 
 /// The same body at the matrix instruction the accumulator picks, cmma on a device that offers
@@ -3639,7 +3690,7 @@ fn one_staged_body_at_cmma() {
 }
 
 /// [`staged_matmul_on_either_sum`] against the arange reference, at whichever form.
-fn check_staged_matmul_on_either_sum(registers: Option<RegisterBlock>) {
+fn check_staged_matmul_on_either_sum(registers: Option<SoftwareMatmul>) {
     let client = cubecl::test_device().client();
     let (m, n, k, edge) = (8usize, 8usize, 16usize, 8usize);
     let launcher = implied(

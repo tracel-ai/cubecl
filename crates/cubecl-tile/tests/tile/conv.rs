@@ -33,7 +33,7 @@ const RW: Axis = Axis(5);
 
 /// The software instruction the leaves here run under unless a test states another: a 16-cell
 /// budget, no edge split, no unit fan-out.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// Where a kernel reads its inputs from: where they lie, or a shared-memory stage it fills per
 /// region of its first level, `depth` slots deep, the gathered input served in `width`-wide lines
@@ -52,7 +52,7 @@ pub(crate) fn conv_kernel(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -73,7 +73,7 @@ fn conv_kernel_smem(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] depth: usize,
     space: Partitioning,
     #[comptime] level: Level,
@@ -98,7 +98,7 @@ fn conv_kernel_smem_padded(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] depth: usize,
     #[comptime] width: usize,
     space: Partitioning,
@@ -132,7 +132,7 @@ fn conv_kernel_two_levels(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -160,7 +160,7 @@ fn conv_kernel_two_levels_smem(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
     out: &TileTensor<'_>,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] depth: usize,
     space: Partitioning,
     #[comptime] outer: Level,
@@ -200,7 +200,7 @@ fn run(
     out_spec: TileSpec,
     launcher: Launcher,
     in_v: usize,
-    config: RegisterBlock,
+    config: SoftwareMatmul,
     stage: Stage,
 ) -> (HostData, Vec<f32>, Vec<f32>) {
     let client = cubecl::test_device().client();
@@ -376,7 +376,7 @@ impl Conv1d {
             in_v,
             checked,
             stage,
-            RegisterBlock::new(16),
+            SoftwareMatmul::new(16),
         )
     }
 
@@ -388,7 +388,7 @@ impl Conv1d {
         in_v: usize,
         checked: bool,
         stage: Stage,
-        config: RegisterBlock,
+        config: SoftwareMatmul,
     ) {
         let launcher = implied(
             &cubecl::test_device().client(),
@@ -574,7 +574,7 @@ fn conv1d_padded_underflow_masks_to_zero() {
         TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
         launcher.clone(),
         1,
-        RegisterBlock::new(16),
+        SoftwareMatmul::new(16),
         Stage::InPlace,
     );
 
@@ -652,7 +652,7 @@ fn conv1d_padded_underflow_clamps_to_edge() {
         TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
         launcher.clone(),
         1,
-        RegisterBlock::new(16),
+        SoftwareMatmul::new(16),
         Stage::InPlace,
     );
 
@@ -726,7 +726,7 @@ fn conv1d_padded_staged_underflow_masks_to_zero() {
         TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
         launcher.clone(),
         1,
-        RegisterBlock::new(16),
+        SoftwareMatmul::new(16),
         Stage::Smem {
             depth: 1,
             width: None,
@@ -930,7 +930,7 @@ impl Conv1d {
                 in_arg.arg(),
                 w_arg.arg(),
                 out_arg.arg(),
-                RegisterBlock::new(16),
+                SoftwareMatmul::new(16),
                 launch.partitioning_arg(),
                 launch.partitioning().level(0),
             ),
@@ -941,7 +941,7 @@ impl Conv1d {
                 in_arg.arg(),
                 w_arg.arg(),
                 out_arg.arg(),
-                RegisterBlock::new(16),
+                SoftwareMatmul::new(16),
                 depth,
                 launch.partitioning_arg(),
                 launch.partitioning().level(0),
@@ -1139,7 +1139,7 @@ impl Conv1d {
                 1,
                 TileSpec::direct(&[OH, CO]),
             ),
-            REGISTER_BLOCK,
+            SOFTWARE_MATMUL,
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
         );
@@ -1304,7 +1304,7 @@ impl Conv1d {
                 in_arg,
                 w_arg,
                 out_arg,
-                REGISTER_BLOCK,
+                SOFTWARE_MATMUL,
                 launcher.partitioning_arg(),
                 launcher.partitioning().level(0),
             ),
@@ -1315,7 +1315,7 @@ impl Conv1d {
                 in_arg,
                 w_arg,
                 out_arg,
-                REGISTER_BLOCK,
+                SOFTWARE_MATMUL,
                 1,
                 launcher.partitioning_arg(),
                 launcher.partitioning().level(0),
@@ -1496,7 +1496,7 @@ impl Conv2d {
             TileSpec::direct(&[OH, OW, CO]),
             launcher.clone(),
             1,
-            RegisterBlock::new(16),
+            SoftwareMatmul::new(16),
             stage,
         );
 
@@ -2023,7 +2023,7 @@ impl Resize1d {
             TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
             self.space(oh, oh_counts),
             vector_size,
-            RegisterBlock::new(16),
+            SoftwareMatmul::new(16),
             stage,
         );
 
@@ -2229,7 +2229,7 @@ fn conv_kernel_input_staged(
         sync_cube();
         let mut out_region = out
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out_region.mm(&stage, &weight.at(&region));
         sync_cube();
     }
@@ -2325,7 +2325,7 @@ fn check_resize1d_rational_dynamic(staged: bool) {
             input,
             weight,
             out,
-            REGISTER_BLOCK,
+            SOFTWARE_MATMUL,
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
         ),
@@ -2387,7 +2387,7 @@ fn conv1d_staged_padded_multi_axis_reduce_component_indexing() {
         TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
         launcher.clone(),
         1,
-        RegisterBlock::new(16),
+        SoftwareMatmul::new(16),
         Stage::Smem {
             depth: 1,
             width: Some(4),
@@ -2463,7 +2463,7 @@ fn conv1d_staged_padded_multi_axis_reduce_component_fanout() {
         TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
         launcher.clone(),
         1,
-        RegisterBlock::new(16).component_fanout(),
+        SoftwareMatmul::new(16).component_fanout(),
         Stage::Smem {
             depth: 1,
             width: Some(4),

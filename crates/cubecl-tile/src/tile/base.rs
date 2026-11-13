@@ -1314,6 +1314,14 @@ impl Tile {
         unexpanded!()
     }
 
+    /// This tile without its outer scales that vary along no axis, and those scales: what a sum
+    /// held outside any tile, in a unit's own registers, takes out of every term and applies once
+    /// ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing a
+    /// table gives up none: only its copy decodes it.
+    pub fn factor_whole(&self) -> (Tile, Factor) {
+        unexpanded!()
+    }
+
     /// This tile under `factor`'s scales, outside its own.
     pub fn scaled(&self, _factor: &Factor) -> Tile {
         unexpanded!()
@@ -1513,6 +1521,16 @@ impl TileExpand {
             return (self.clone(), FactorExpand::default());
         }
         let (inner, outer) = self.factor.split_on(scope, &space);
+        let mut values = self.clone();
+        values.factor = inner;
+        (values, outer)
+    }
+
+    pub fn __expand_factor_whole_method(&self, scope: &Scope) -> (TileExpand, FactorExpand) {
+        if self.looks_up() {
+            return (self.clone(), FactorExpand::default());
+        }
+        let (inner, outer) = self.factor.split_on(scope, &Space::new(&[]));
         let mut values = self.clone();
         values.factor = inner;
         (values, outer)

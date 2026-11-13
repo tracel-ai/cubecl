@@ -20,9 +20,9 @@ const OH: Axis = Axis(4);
 const OW: Axis = Axis(5);
 const RW: Axis = Axis(6);
 
-const BLOCK: RegisterBlock = RegisterBlock::new(64);
-const ROLLED: RegisterBlock = RegisterBlock::new(1);
-const SPLIT: RegisterBlock = BLOCK.split_edge();
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(64);
+const ROLLED: SoftwareMatmul = SoftwareMatmul::new(1);
+const SPLIT: SoftwareMatmul = BLOCK.split_edge();
 
 /// One operand: its buffer's shape, its spec, and the vector width it is served at.
 struct Operand {
@@ -87,7 +87,7 @@ struct Gather {
 }
 
 impl Gather {
-    fn check(&self, config: RegisterBlock, case: &dyn std::fmt::Debug) {
+    fn check(&self, config: SoftwareMatmul, case: &dyn std::fmt::Debug) {
         let client = cubecl::test_device().client();
         let axes: Vec<Axis> = self.space.iter().map(|(a, _)| *a).collect();
         let launcher = implied(
@@ -225,7 +225,7 @@ impl WeightBackward {
         widths: VectorWidths { input: 4, grad: 2 },
     };
 
-    fn check(self, config: RegisterBlock) {
+    fn check(self, config: SoftwareMatmul) {
         let (b, oh, rh) = (2, 5, 3);
         let space = vec![(RH, rh), (CI, self.ci), (CO, self.co), (B, b), (OH, oh)];
         let lhs = Operand {
@@ -293,7 +293,7 @@ struct DataBackward {
 }
 
 impl DataBackward {
-    fn check(self, config: RegisterBlock) {
+    fn check(self, config: SoftwareMatmul) {
         let (co, rh, ci) = (4, 3, 4);
         let space = vec![(OH, self.oh), (CO, co), (RH, rh), (CI, ci)];
         let lhs = Operand {
@@ -365,7 +365,7 @@ impl Forward {
         per_cell: false,
     };
 
-    fn check(self, config: RegisterBlock) {
+    fn check(self, config: SoftwareMatmul) {
         let (b, o, taps, co) = (2, 5, 3, self.co);
         let len = self.window.input(o, taps);
         let (th, tw, tco) = self.tile;
@@ -454,7 +454,7 @@ struct Dot {
 }
 
 impl Dot {
-    fn check(self, config: RegisterBlock) {
+    fn check(self, config: SoftwareMatmul) {
         let (oh, co) = (4, 4);
         let space = vec![(OH, oh), (CO, co), (CI, self.k)];
         let mut lhs = Operand::direct(&space, &[OH, CI], self.width, checked());

@@ -62,8 +62,10 @@ pub use launch::spec::TileSpec;
 pub use layout::projection::Projection;
 pub use layout::reads::{MicroTile, OperandReads};
 pub use layout::storage::Geometry;
-pub use ops::matmul::instruction::{BlockScaledOperands, FragmentSource, Instruction, MmaOperands};
-pub use ops::matmul::register_block::RegisterBlock;
+pub use ops::matmul::instruction::{
+    BlockScaledOperands, FragmentSource, Instruction, MmaOperands, ShapedInstruction,
+};
+pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use space::axis::Axis;
 pub use space::base::Space;
 pub use space::partition::base::Partitioning;

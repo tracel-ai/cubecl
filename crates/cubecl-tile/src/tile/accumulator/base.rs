@@ -3,7 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::dialect::DrainOp;
-use crate::ops::matmul::instruction::OpenedBy;
+use crate::ops::matmul::instruction::{OpenedBy, ShapedInstruction};
 use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
@@ -141,7 +141,7 @@ impl Tile {
     /// What the planes holding this output sum `lhs · rhs` into under the sum of products,
     /// at the element `EA`, opened at zero, for a sum drained into an output: in the matrix
     /// instruction the device offers for the product, picked as the kernel expands
-    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the warpgroup
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), or the plane group
     /// MMA where plane groups of four hold it.
     pub fn accumulator<EA: Numeric>(
         &self,
@@ -150,8 +150,9 @@ impl Tile {
         #[comptime] semiring: Semiring,
     ) -> Tile {
         let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
-        let instruction =
-            plane_instruction::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
+        let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
+        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+        let instruction = comptime!(call.instruction);
         if comptime!(instruction == Instruction::Wgmma) {
             comptime!(assert_groups_own_their_box(&self.place));
         }
@@ -173,7 +174,7 @@ impl Tile {
         &self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] semiring: Semiring,
     ) -> Tile {
         register_accumulator::<EA>(self, lhs, rhs, config, semiring)
@@ -185,7 +186,7 @@ impl Tile {
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] monoid: Monoid,
     ) -> Tile {
         let vector_size = self.vector_size();
@@ -545,8 +546,8 @@ impl Tile {
 }
 
 /// Who holds each of the output's tiles at `place`: the narrowest scope a level below it deals them
-/// to, or the one holding `place` where none does. A warpgroup holding them issues the warpgroup
-/// MMA, which takes all four of its planes.
+/// to, or the one holding `place` where none does. A plane group holding them issues the plane
+/// group MMA, which takes all four of its planes.
 fn holder(place: &Placement) -> ComputeScope {
     place
         .below()
@@ -581,7 +582,7 @@ fn register_accumulator<EA: Numeric>(
     out: &Tile,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) -> Tile {
     let lw = lhs.vector_size();
@@ -639,6 +640,31 @@ fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
         .map(|p| space.axis_at(p))
         .collect();
     Placement::new(space.subspace(&order), place.depth, place.levels.clone())
+}
+
+/// `place`, the output's, with a level below its leaf cutting it into `cell`s, where one call of
+/// its instruction fills less than the leaf: the tile's own cut, which the kernel never states.
+/// The leaf's rows and columns are each one axis there.
+fn cut_into_cells(place: &Placement, lhs: &Space, cell: [usize; 2]) -> Placement {
+    let leaf = place.space.leaf(place.below());
+    let axes = MatrixAxes::accumulator(&leaf, &lhs.leaf(place.below()));
+    if [axes.rows(&leaf), axes.cols(&leaf)] == cell {
+        return place.clone();
+    }
+    assert!(
+        axes.col_split == axes.row_split + 1 && axes.col_split + 1 == leaf.rank(),
+        "Tile::accumulator: the leaf {leaf:?} is cut into {cell:?} cells only where its rows and \
+         its columns are each one axis; state the cells as a level below it"
+    );
+    let rows = leaf.axis_at(axes.row_split);
+    let cols = leaf.axis_at(axes.col_split);
+    let mut levels = place.levels.clone();
+    levels.push(
+        Levels::leaf(&[(rows, cell[0]), (cols, cell[1])])
+            .walk_every(&[rows, cols])
+            .level(),
+    );
+    Placement::new(place.space.clone(), place.depth, levels)
 }
 
 /// The plane-resident grid an accumulator gathers in, in `form`, at its identity.
@@ -705,14 +731,22 @@ impl Tile {
         lhs: &Tile,
     ) -> Tile {
         let place = comptime!(Placement::new(space, depth, levels));
-        let instruction =
-            plane_instruction::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
+        let call = plane_call::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
+        let grid = comptime!(GridShape::new(&place, &lhs.place.space));
+        // The tile does not cut a sum contracted again: its cells must line up with the next
+        // product's operand ([`Instruction::for_stage_accumulator`]).
+        comptime!(assert!(
+            call.cell() == [grid.m, grid.n],
+            "Tile::placed_accumulator: no instruction fills its {:?} leaf in one call",
+            [grid.m, grid.n]
+        ));
+        let instruction = comptime!(call.instruction);
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
             &place.space,
             comptime!(MatrixAxes::accumulator(&place.space, &lhs.place.space)),
             instruction,
-            comptime!(GridShape::new(&place, &lhs.place.space)),
+            grid,
             1usize,
             1usize,
             accumulation,
@@ -725,16 +759,16 @@ impl Tile {
 }
 
 /// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts
-/// through on the device the kernel compiles for, read off the device and its target as the
-/// kernel expands ([`Instruction::for_accumulator`],
+/// through on the device the kernel compiles for, at the shape of one of its calls, read off the
+/// device and its target as the kernel expands ([`Instruction::for_accumulator`],
 /// [`Instruction::for_stage_accumulator`]).
 #[cube]
-fn plane_instruction<EA: Numeric>(
+fn plane_call<EA: Numeric>(
     #[comptime] out: &Placement,
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] opened_by: OpenedBy,
-) -> comptime_type!(Instruction) {
+) -> comptime_type!(ShapedInstruction) {
     let lhs_source = lhs.fragment_source();
     let rhs_source = rhs.fragment_source();
     let device = comptime::device_properties().comptime();

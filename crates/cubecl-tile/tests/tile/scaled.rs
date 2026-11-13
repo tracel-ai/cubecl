@@ -29,7 +29,7 @@ use cubecl_tile::*;
 use half::f16;
 
 use super::matmul::{require_cmma_8x8x8, require_cmma_8x8x8_f32};
-use super::{Form, implied};
+use super::{Form, implied, uncut};
 use cubecl_tile::launch::Bound;
 
 /// Which factor a test kernel writes its scales on. The engine has no such enum: a kernel says
@@ -47,7 +47,7 @@ const KB: Axis = Axis(2);
 const KI: Axis = Axis(3);
 
 /// The register block the contractions here run under, but for the wide-lhs one.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c = (a ⊗ s) · b`, with `s` at whatever granularity its own projection states.
 #[cube(launch)]
@@ -68,7 +68,7 @@ fn scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
@@ -93,7 +93,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -117,7 +117,7 @@ fn factored_matmul<E: Numeric>(
     c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
-    #[comptime] registers: Option<RegisterBlock>,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a
@@ -161,7 +161,7 @@ fn two_level_scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         match side {
             Scaled::Lhs => c_r.mma(
                 &a.at(&region)
@@ -333,7 +333,7 @@ fn two_levels_multiply_in_order() {
 /// result is the same product.
 #[test]
 fn a_decoded_operands_global_scale_leaves_for_the_sum() {
-    check_factored(Some(REGISTER_BLOCK), 4);
+    check_factored(Some(SOFTWARE_MATMUL), 4);
 }
 
 /// [`factored_matmul`] in cmma fragments: a cmma sum is scaled only through shared memory, so the
@@ -347,10 +347,116 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
     check_factored(None, 8);
 }
 
+/// The one scale `a` is stored under, read off the factor taken out of it into `out[0]`, and
+/// `a`'s first value as it lies, without it, into `out[1]`. The factor is the one a register sum
+/// of `a · b` takes out ([`Tile::factor`]), or, `whole`, the one a sum no tile holds takes out
+/// ([`Tile::factor_whole`]).
+#[cube(launch)]
+fn per_tensor_factor(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
+    out: &mut Tensor<f32>,
+    space: Partitioning,
+    #[comptime] whole: bool,
+) {
+    let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile(&space));
+    let (a, factor) = if whole {
+        a.factor_whole()
+    } else {
+        let sum = c.register_accumulator::<f32>(&a, &b, SOFTWARE_MATMUL, Semiring::SUM_PROD);
+        a.factor(&sum)
+    };
+    out[0] = factor.whole();
+    out[1] = a.flat::<f32, Const<1>>().read(0).extract(0usize);
+}
+
+/// A sum held in plain registers takes on an operand's per-tensor scale as one number: values
+/// stored under one scale over the whole tensor give it up to `factor`, whose `whole` reads it,
+/// and are read as they lie.
+#[test]
+fn a_per_tensor_factor_reads_as_its_one_scale() {
+    check_per_tensor_factor(false);
+}
+
+/// A sum no tile holds takes the same per-tensor scale out with `factor_whole`, and the values
+/// are read as they lie.
+#[test]
+fn a_per_tensor_factor_leaves_for_a_sum_no_tile_holds() {
+    check_per_tensor_factor(true);
+}
+
+/// [`per_tensor_factor`] over values stored under a scale of 0.37, the factor taken out as
+/// `whole` says.
+fn check_per_tensor_factor(whole: bool) {
+    let (rows, depth, cols, scale) = (4, 4, 4, 0.37f32);
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let a: Vec<f32> = (0..rows * depth).map(|i| i as f32 + 1.5).collect();
+    let (a_t, _) = TestInput::builder(client.clone(), shape![rows, depth])
+        .dtype(dtype)
+        .custom(a.clone())
+        .generate_with_f32_host_data();
+    let b_t = TestInput::builder(client.clone(), shape![depth, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let c_t = TestInput::builder(client.clone(), shape![rows, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let (g_t, _) = TestInput::builder(client.clone(), shape![1])
+        .dtype(dtype)
+        .custom(vec![scale])
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![2])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols), (KI, depth)]);
+    per_tensor_factor::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_single(),
+        TileTensorLaunch::new(
+            a_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, KI]),
+        )
+        .scales(TileTensorLaunch::new(
+            g_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::new(Projection::new(&[M, KI], &[PhysicalAxisMap::broadcast()])),
+        )),
+        TileTensorLaunch::new(
+            b_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[KI, N]),
+        ),
+        TileTensorLaunch::new(
+            c_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, N]),
+        ),
+        out.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+        whole,
+    );
+
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    assert_eq!(got.get_f32(&[0]), scale, "the factor's one scale");
+    assert_eq!(got.get_f32(&[1]), a[0], "the values left without it");
+}
+
 /// `c = (a ⊗ blocks ⊗ global) · b` over `size × size`, summed in a register block of
 /// `registers` or the device's matrix instruction, written through `factor` and `scaled` as a
 /// kernel writes any sum, against the host product.
-fn check_factored(registers: Option<RegisterBlock>, size: usize) {
+fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
     let (rows, cols, block, blocks) = (size, size, 8, 2);
     let depth = block * blocks;
 
@@ -1426,7 +1532,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -1574,14 +1680,14 @@ fn wide_lhs_scaled_matmul(
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c.at(&region).accumulating(
-            comptime!(RegisterBlock::new(64).component_fanout()),
+            comptime!(SoftwareMatmul::new(64).component_fanout()),
             Semiring::SUM_PROD,
         );
         match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r
                 .accumulating(
-                    comptime!(RegisterBlock::new(64).component_fanout()),
+                    comptime!(SoftwareMatmul::new(64).component_fanout()),
                     Semiring::SUM_PROD,
                 )
                 .mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
@@ -2023,7 +2129,7 @@ fn chunked_scaled_matmul<E: Numeric>(
     scale: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] registers: Option<RegisterBlock>,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
     #[define(E)] _dtype: ElemType,
@@ -2391,7 +2497,7 @@ fn check_chunked(arm: Arm, scales: TileScales, read: UnitRead) {
     };
     let chunks_level = levels[2].clone();
     let registers = match arm {
-        Arm::Registers => Some(REGISTER_BLOCK),
+        Arm::Registers => Some(SOFTWARE_MATMUL),
         Arm::Landing => None,
     };
     let launcher = implied(&client, Partitioning::new(w.space(), levels), Form::Static);
@@ -3234,7 +3340,7 @@ fn staged_scaled_matmul(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
