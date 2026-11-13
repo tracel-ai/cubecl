@@ -285,8 +285,7 @@ impl Instruction {
             return Some(whole(Instruction::Wgmma));
         }
         if let FragmentSource::Fragments { instruction, cell } = lhs {
-            let run = held_run(device, instruction, cell, rhs, sum, [m, n, k]);
-            return Some(run.unwrap_or_else(|| whole(instruction)));
+            return held_run(device, target, instruction, cell, rhs, sum, [m, n, k]);
         }
         if let FragmentSource::Fragments { instruction, .. } = rhs {
             return Some(whole(instruction));
@@ -380,10 +379,13 @@ struct Offered {
 /// `rhs`'s element, its cell the leaf's own `m × n` where offered, else its largest that cuts the
 /// leaf. Each call reads a run of the held cells along `k` as its `A`, so it is as deep as a whole
 /// number of them: the leaf's own depth where offered, else the deepest that cuts it, which the
-/// tile walks. `None` where the device offers none, or the held cells are the fragment API's,
-/// whose cells no call rereads.
+/// tile walks. `None` where the device offers none; where the held cells are the fragment API's,
+/// whose cells no call rereads; and where a held cell does not lie where an `A` does: on a target
+/// laying a fragment's `A` otherwise than its accumulator, or for values other than 16-bit ones,
+/// whose `A` lays its cells otherwise (`accumulators_as_a`).
 fn held_run(
     device: &DeviceProperties,
+    target: &TargetProperties,
     held: Instruction,
     [held_rows, held_width]: [usize; 2],
     rhs: FragmentSource,
@@ -393,7 +395,13 @@ fn held_run(
     let Instruction::Mma { .. } = held else {
         return None;
     };
+    let layout = &target.mma;
+    let held_as_a = layout.register_layout_a == layout.register_layout_acc
+        && layout.register_duplication_a == layout.register_duplication_acc;
     let element = rhs.element(rhs)?;
+    if !held_as_a || element.size_bits() != 16 {
+        return None;
+    }
     let runs: Vec<&MmaConfig> = device
         .features
         .matmul
@@ -866,6 +874,32 @@ mod tests {
             pick(&cuda, [16, 8], [32, 8, 64]),
             Some((mma(), [16, 8], 16))
         );
+        // No call rereads held cells where a fragment's `A` lies otherwise than its accumulator,
+        // nor `f32` cells, nor where the device offers no run of them.
+        let elsewhere = Instruction::for_accumulator(
+            &metal,
+            &sum_is_not_next_a(),
+            ComputeScope::Plane,
+            held([8, 8]),
+            HALF,
+            F32,
+            [8, 8, 8],
+        );
+        assert_eq!(elsewhere, None);
+        let single = FragmentSource::Values(F32);
+        assert_eq!(
+            Instruction::for_accumulator(
+                &metal,
+                &sum_is_next_a(),
+                ComputeScope::Plane,
+                held([8, 8]),
+                single,
+                F32,
+                [8, 8, 8],
+            ),
+            None
+        );
+        assert_eq!(pick(&cuda, [16, 8], [16, 8, 24]), None);
     }
 
     /// Plane groups of four issue the plane group MMA.
