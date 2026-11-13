@@ -91,7 +91,7 @@ pub struct CudaServer {
     streams: MultiStream<CudaStreamBackend>,
     utilities: Arc<ServerUtilities>,
     /// The groups this device has joined — see [`Collectives`].
-    collectives: Collectives<Cuda>,
+    collectives: Collectives<Cuda, crate::compute::events::Cuda>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
     /// the client. `end_capture` inserts, `replay` looks up, `graph_destroy`
     /// removes (dropping the [`CudaGraph`] destroys its executable and unpins the
@@ -653,7 +653,7 @@ impl CollectiveServer for CudaServer {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Cuda> {
+    fn collectives(&mut self) -> &mut Collectives<Cuda, crate::compute::events::Cuda> {
         &mut self.collectives
     }
 

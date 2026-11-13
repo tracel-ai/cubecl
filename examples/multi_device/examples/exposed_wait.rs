@@ -150,6 +150,43 @@ fn main() {
             println!("{launches:>3} launches: {}", round.report(&group));
         }
     }
+
+    println!("the same all-reduce waited for at a sync every member reaches idle, after it ended");
+    let spun: Vec<_> = group
+        .clients()
+        .iter()
+        .map(|client| client.empty(SPUN * F32.size()))
+        .collect();
+    let devices: Vec<_> = group
+        .clients()
+        .iter()
+        .map(|client| client.service_id().device)
+        .collect();
+    for _ in 0..ROUNDS {
+        let buffers = buffers(&group);
+        let round = Arc::new(Round::default());
+        let watching = ExecutionObservation::new(round.clone());
+        for (client, buffers) in group.clients().iter().zip(&buffers) {
+            client.clone().all_reduce(
+                buffers.src.clone(),
+                buffers.dst.clone(),
+                F32,
+                devices.clone(),
+                ReduceOperation::Sum,
+            );
+        }
+        // Each compute stream runs past the collective, which waits for none of them.
+        for (client, spun) in group.clients().iter().zip(&spun) {
+            hold_back(client, spun, 16);
+        }
+        sync(&group);
+        for client in group.clients() {
+            client.sync_collective();
+        }
+        drop(watching);
+        sync(&group);
+        println!("    at sync: {}", round.report(&group));
+    }
 }
 
 fn hold_back(client: &Client, spun: &cubecl::server::Handle, launches: usize) {

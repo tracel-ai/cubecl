@@ -61,7 +61,7 @@ pub struct HipServer {
     peers: HashSet<DeviceId>,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities>,
-    collectives: Collectives<Hip>,
+    collectives: Collectives<Hip, crate::compute::events::Hip>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
 }
@@ -577,7 +577,7 @@ impl CollectiveServer for HipServer {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Hip> {
+    fn collectives(&mut self) -> &mut Collectives<Hip, crate::compute::events::Hip> {
         &mut self.collectives
     }
 

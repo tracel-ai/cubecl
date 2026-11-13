@@ -40,7 +40,7 @@ pub trait CollectiveServer: Sized {
     fn device_id(&self) -> DeviceId;
 
     /// The groups this device has joined.
-    fn collectives(&mut self) -> &mut Collectives<Self::Driver>;
+    fn collectives(&mut self) -> &mut Collectives<Self::Driver, Self::Events>;
 
     /// The profiler that times this device's kernels, whose marks time its communications too.
     fn profiler(&mut self) -> &mut EventProfiler<Self::Events>;
@@ -354,13 +354,14 @@ pub trait CollectiveServer: Sized {
     /// A stream that cannot be resolved, and the driver's refusal to order the two.
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let timing = self.collectives().take_timing();
+        let last_end = self.collectives().take_last_end();
         let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
         drop(command);
         marks.reach(stream);
-        marks.ended(self.comm_stream(), stream, ComputeWait::Now)
+        marks.synced(self.comm_stream(), stream, last_end.as_ref())
     }
 
     /// Sends `desc` to `device_id_dst`, whose server receives it with [`recv`](Self::recv).
@@ -422,14 +423,16 @@ fn connect<S: CollectiveServer>(server: &mut S, id: &CommunicationId) -> Result<
     let comm = *server.collectives().get(id)?;
     let element = server.connect_element();
     let elements = S::Driver::elements(ElemType::Float(FloatKind::F32), CONNECT_ELEMENT_SIZE)?;
-    S::Driver::all_reduce(
+    let connected = S::Driver::all_reduce(
         &comm,
         element,
         element,
         elements,
         ReduceOperation::Sum,
         server.comm_stream(),
-    )
+    );
+    server.collectives().collective_queued(None);
+    connected
 }
 
 /// Runs `collective` over `group`, which reads `reads` and writes `dst`, under the
@@ -501,11 +504,12 @@ fn run<S: CollectiveServer, const N: usize>(
 
     marks.hand_over(comm_stream, stream)?;
     collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
-    marks.ended(comm_stream, stream, wait)?;
+    let ended = marks.ended(comm_stream, stream, wait);
     // Dropping the command releases bindings borrowed from other streams at this point of
     // the compute stream, which only waits for the collective under `ComputeWait::Now`.
     drop(command);
-    Ok(())
+    server.collectives().collective_queued(marks.end);
+    ended
 }
 
 /// The send itself, so every way it can fail reaches the peer through one path in
@@ -725,16 +729,53 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
         compute: StreamSignal<S::Driver>,
         wait: ComputeWait,
     ) -> Result<(), ServerError> {
+        self.order(part_stream, compute, wait)?;
+        if let Some(end) = self.end.clone() {
+            if let Some(start) = &self.start {
+                self.timing.part_measured(EventProfiler::span(start, &end));
+            }
+            if let ComputeWait::Now = wait {
+                self.wait_measured(&end);
+            }
+        }
+        Ok(())
+    }
+
+    /// `compute` waits for every collective queued on `collectives`, and the wait's window runs
+    /// to `last_end`, where the last of them ends, or reads back empty without one. Not to this
+    /// sync's own mark: an idle stream reaches it once queued, which is no part of the wait.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the two.
+    fn synced(
+        &mut self,
+        collectives: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        last_end: Option<&Mark<S::Events>>,
+    ) -> Result<(), ServerError> {
+        self.order(collectives, compute, ComputeWait::Now)?;
+        if let (Some(_), Some(last_end)) = (&self.end, last_end) {
+            self.wait_measured(last_end);
+        }
+        Ok(())
+    }
+
+    /// Records the end on `part_stream` and, under `ComputeWait::Now`, has `compute` wait for it,
+    /// ordering the two without the marks once one fails.
+    fn order(
+        &mut self,
+        part_stream: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        wait: ComputeWait,
+    ) -> Result<(), ServerError> {
         if let Some(end) = &self.end {
             let ordered = end.record(part_stream).and_then(|()| match wait {
                 ComputeWait::Now => end.wait_async(compute),
                 ComputeWait::AtSync => Ok(()),
             });
             match ordered {
-                Ok(()) => {
-                    self.measured(wait);
-                    return Ok(());
-                }
+                Ok(()) => return Ok(()),
                 Err(error) => *self = Self::failed(error),
             }
         }
@@ -744,15 +785,10 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
         }
     }
 
-    fn measured(&mut self, wait: ComputeWait) {
-        let Some(end) = &self.end else {
-            return;
-        };
-        if let Some(start) = &self.start {
-            self.timing.part_measured(EventProfiler::span(start, end));
-        }
-        if let (ComputeWait::Now, Some(reached)) = (wait, &self.reached) {
-            self.timing.wait_measured(EventProfiler::span(reached, end));
+    fn wait_measured(&mut self, awaited: &Mark<S::Events>) {
+        if let Some(reached) = &self.reached {
+            self.timing
+                .wait_measured(EventProfiler::span(reached, awaited));
         }
     }
 }

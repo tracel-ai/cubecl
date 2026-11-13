@@ -10,6 +10,7 @@
 //! naming an element type, and the operations themselves.
 
 use super::{DeviceResource, DeviceStream, Driver};
+use crate::device_events::{EventApi, Mark};
 use crate::server::{CommunicationId, CommunicationTiming, ReduceOperation, ServerError};
 use alloc::{format, vec, vec::Vec};
 use cubecl_common::device::DeviceId;
@@ -204,21 +205,24 @@ pub struct Elements<T> {
     pub count: usize,
 }
 
-/// The groups this device has joined, and the timing its next communication was given.
+/// The groups this device has joined, the timing its next communication was given, and where the
+/// last collective it queued ends.
 ///
 /// One per server, unlike the identifiers behind
 /// [`group_id`](CollectiveDriver::group_id): an identifier is what every rank
 /// of a group agrees on, a communicator is one rank's membership of it.
-pub struct Collectives<D: CollectiveDriver> {
+pub struct Collectives<D: CollectiveDriver, E: EventApi> {
     /// This device, whose position in a sorted group is its rank.
     device: DeviceId,
     joined: HashMap<CommunicationId, D::Communicator>,
     /// The groups whose part here failed, each with the failure that broke it.
     broken: HashMap<CommunicationId, ServerError>,
     next_timing: Option<CommunicationTiming>,
+    /// The end of the last collective queued since the last sync, while it was timed.
+    last_end: Option<Mark<E>>,
 }
 
-impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
+impl<D: CollectiveDriver, E: EventApi> core::fmt::Debug for Collectives<D, E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // The communicators are opaque driver handles, so which groups this
         // device is in is the whole of what there is to say.
@@ -230,7 +234,7 @@ impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
     }
 }
 
-impl<D: CollectiveDriver> Collectives<D> {
+impl<D: CollectiveDriver, E: EventApi> Collectives<D, E> {
     /// A device that has joined nothing yet.
     pub fn new(device: DeviceId) -> Self {
         Self {
@@ -238,6 +242,7 @@ impl<D: CollectiveDriver> Collectives<D> {
             joined: HashMap::default(),
             broken: HashMap::default(),
             next_timing: None,
+            last_end: None,
         }
     }
 
@@ -250,6 +255,19 @@ impl<D: CollectiveDriver> Collectives<D> {
     /// timed or not, so that it is never attached to a later one.
     pub fn take_timing(&mut self) -> Option<CommunicationTiming> {
         self.next_timing.take()
+    }
+
+    /// A collective was queued on the collective stream, ending at `end` when it was timed.
+    ///
+    /// An untimed one forgets the end of the one before, which no longer ends the stream.
+    pub fn collective_queued(&mut self, end: Option<Mark<E>>) {
+        self.last_end = end;
+    }
+
+    /// Where the collectives queued since the last sync end, which a sync waits for: `None`
+    /// when the last one was untimed, or none was queued.
+    pub fn take_last_end(&mut self) -> Option<Mark<E>> {
+        self.last_end.take()
     }
 
     /// Records that this device's part of a collective over `group` failed with `cause`. Its
