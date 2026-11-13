@@ -63,7 +63,7 @@ pub use layout::projection::Projection;
 pub use layout::reads::{MicroTile, OperandReads};
 pub use layout::storage::Geometry;
 pub use ops::matmul::instruction::{
-    BlockScaledOperands, FragmentSource, Instruction, MmaOperands, PlanePick,
+    BlockScaledOperands, FragmentSource, Instruction, MmaOperands, ShapedInstruction,
 };
 pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use space::axis::Axis;

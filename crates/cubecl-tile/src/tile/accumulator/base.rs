@@ -3,7 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::dialect::DrainOp;
-use crate::ops::matmul::instruction::{OpenedBy, PlanePick};
+use crate::ops::matmul::instruction::{OpenedBy, ShapedInstruction};
 use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
@@ -150,10 +150,10 @@ impl Tile {
         #[comptime] semiring: Semiring,
     ) -> Tile {
         let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
-        let pick = plane_pick::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, pick.depth));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, pick.cell));
-        let instruction = comptime!(pick.instruction);
+        let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.shape[2]));
+        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+        let instruction = comptime!(call.instruction);
         if comptime!(instruction == Instruction::Wgmma) {
             comptime!(assert_groups_own_their_box(&self.place));
         }
@@ -758,11 +758,11 @@ impl Tile {
         lhs: &Tile,
     ) -> Tile {
         let place = comptime!(Placement::new(space, depth, levels));
-        let pick = plane_pick::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, pick.depth));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, pick.cell));
+        let call = plane_call::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.shape[2]));
+        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
         let grid = comptime!(GridShape::new(&place, &lhs.place.space));
-        let instruction = comptime!(pick.instruction);
+        let instruction = comptime!(call.instruction);
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
             &place.space,
@@ -781,16 +781,16 @@ impl Tile {
 }
 
 /// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts
-/// through on the device the kernel compiles for, and the cell of `out`'s leaf one call fills,
-/// read off the device and its target as the kernel expands ([`Instruction::for_accumulator`],
+/// through on the device the kernel compiles for, at the shape of one of its calls, read off the
+/// device and its target as the kernel expands ([`Instruction::for_accumulator`],
 /// [`Instruction::for_stage_accumulator`]).
 #[cube]
-fn plane_pick<EA: Numeric>(
+fn plane_call<EA: Numeric>(
     #[comptime] out: &Placement,
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] opened_by: OpenedBy,
-) -> comptime_type!(PlanePick) {
+) -> comptime_type!(ShapedInstruction) {
     let lhs_source = lhs.fragment_source();
     let rhs_source = rhs.fragment_source();
     let device = comptime::device_properties().comptime();
