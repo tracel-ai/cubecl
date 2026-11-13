@@ -216,8 +216,9 @@ pub(crate) struct Access {
     pub overhang: Overhang,
     /// What a write here does to the cell it lands on.
     pub write: Write,
-    /// The units that share a cooperative fill of this window.
-    pub fill: FillUnits,
+    /// The level a cooperative copy into or out of this window deals its lines by
+    /// ([`Level::copied_by`]).
+    pub copy: Level,
     /// What the storage tiles are to this window.
     pub storage: WindowStorage,
     /// Who moves this tile's lines into a stage filled from it. Stated by the operand's spec and

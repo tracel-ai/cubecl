@@ -344,7 +344,7 @@ impl Memory {
                     Overhang::Fits
                 },
                 write,
-                fill: FillUnits::cube(spec.units),
+                copy: Level::copied_by_cube(spec.units),
                 storage: WindowStorage::Stored(spec.storage),
                 delivery: spec.delivery,
             }),

@@ -22,14 +22,14 @@ use crate::*;
 #[cube]
 impl Memory {
     /// Move the stage's `total` whole lines out of `s`, dealt to the units `fill` names
-    /// ([`FillUnits::deal`]), by the engine `delivery` names.
+    /// ([`Walk::copy`]), by the engine `delivery` names.
     pub(crate) fn move_lines<I2: Numeric, W: Size>(
         d: &mut [Vector<I2, W>],
         s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
         layout: &BufferLayout,
         total: usize,
         #[comptime] delivery: Delivery,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
     ) {
         match delivery {
             Delivery::SyncPerUnit => {
@@ -55,7 +55,7 @@ impl Memory {
                 // The wait is the cube's: a stage one plane fills on its own would leave the
                 // others' arrivals missing.
                 comptime!(assert!(
-                    self.access.fill.scope() == ComputeScope::Cube,
+                    self.access.copy.copied_within() == ComputeScope::Cube,
                     "Tile::copy_from: an async copy into a stage waits on a barrier the whole \
                      cube arrives at, and this stage is filled by one plane"
                 ));

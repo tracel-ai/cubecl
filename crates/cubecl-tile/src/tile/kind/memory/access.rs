@@ -1,6 +1,7 @@
 //! Reading, writing and windowing a [`Memory`]: cooperative fills, the views a leaf reads and
 //! writes through, and [`at`](Memory::at).
-//! Cooperative fills assume every unit their destination names ([`FillUnits`]) runs them: the
+//! Cooperative fills assume every unit their destination's level names ([`Level::copied_by`])
+//! runs them: the
 //! cube's, or, for a stage one plane owns, that plane's.
 
 use cubecl::prelude::*;
@@ -787,7 +788,7 @@ impl Memory {
                 whole: false,
                 overhang: self.access.overhang,
                 write: self.access.write,
-                fill: self.access.fill,
+                copy: self.access.copy.clone(),
                 storage: self.access.storage.below(step.depth, &step.level, space),
                 delivery: self.access.delivery,
             }),
@@ -956,15 +957,15 @@ impl Memory {
     /// This window filled by the units of `holder` where they are fewer than the ones that fill
     /// its buffer: a plane's window of a buffer the cube fills is the plane's to fill.
     pub(crate) fn filled_by(&self, #[comptime] holder: ComputeScope) -> Memory {
-        let fill = comptime!(self.access.fill.held_by(holder));
+        let fill = comptime!(self.access.copy.clone().held_by(holder));
         self.moved_to(
             self.window.clone(),
             comptime!(WindowCut::Unmoved),
             self.window_start,
             self.map.clone(),
             comptime!(Access {
-                fill,
-                ..self.access
+                copy: fill,
+                ..self.access.clone()
             }),
             comptime!(self.unit_share),
             comptime!(self.split_share),
@@ -1017,7 +1018,7 @@ impl Memory {
             self.map.clone(),
             comptime!(Access {
                 whole: false,
-                ..self.access
+                ..self.access.clone()
             }),
             comptime!(self.unit_share),
             comptime!(self.split_share),
@@ -1088,7 +1089,7 @@ impl Memory {
                     overhang => overhang,
                 },
                 write: self.access.write,
-                fill: self.access.fill,
+                copy: self.access.copy.clone(),
                 storage: self.access.storage,
                 delivery: self.access.delivery,
             }),

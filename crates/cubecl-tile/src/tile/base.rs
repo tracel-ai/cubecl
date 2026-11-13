@@ -173,20 +173,20 @@ impl Tile {
 
     /// The launch's cube size this operand was bound with, `0` when unknown.
     pub(crate) fn units(&self) -> comptime_type!(usize) {
-        let fill = self.fill_units();
-        comptime!(fill.count().unwrap_or(0))
+        let fill = self.copy_level();
+        comptime!(fill.copied_units().1.unwrap_or(0))
     }
 
-    /// The units that share a cooperative fill of this tile ([`FillUnits`]): one plane's for a
-    /// stage that plane owns, the cube's for everything else.
-    pub(crate) fn fill_units(&self) -> comptime_type!(FillUnits) {
+    /// The level a cooperative copy of this tile deals its lines by ([`Level::copied_by`]): to one
+    /// plane's units for a stage that plane owns, the cube's for everything else.
+    pub(crate) fn copy_level(&self) -> comptime_type!(Level) {
         match &self.kind {
-            TileKind::Memory(d) => comptime!(d.access.fill),
-            TileKind::TmaGmem(t) => comptime!(FillUnits::cube(t.units)),
+            TileKind::Memory(d) => comptime!(d.access.copy.clone()),
+            TileKind::TmaGmem(t) => comptime!(Level::copied_by_cube(t.units)),
             TileKind::Procedural(_)
             | TileKind::Lines(_)
             | TileKind::PlaneTile(_)
-            | TileKind::PlanePartition(_) => comptime!(FillUnits::cube(0)),
+            | TileKind::PlanePartition(_) => comptime!(Level::copied_by_cube(0)),
         }
     }
 

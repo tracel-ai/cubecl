@@ -46,7 +46,7 @@ impl Memory {
         s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
         layout: &BufferLayout,
         total: usize,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
     ) {
         // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic and
         // `value` is not expanded at all.
@@ -58,8 +58,8 @@ impl Memory {
             "Memory::async_lines: the copy engine moves 4, 8 or 16 bytes at once, and this stage's lines \
          are {bytes}: serve the operand in lines one copy moves"
         ));
-        for line in FillUnits::deal(fill, total) {
-            copy_line_async::<I2, W>(d, s, layout, FillUnits::line(&line));
+        for line in Walk::copy(&fill, total) {
+            copy_line_async::<I2, W>(d, s, layout, line.coord(Level::COPIED));
         }
     }
 }

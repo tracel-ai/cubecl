@@ -23,7 +23,7 @@ pub(crate) const SYNC_PER_UNIT: Engine = Engine {
 
 #[cube]
 impl Memory {
-    /// Write the stage's `total` lines, dealt to the units `fill` names ([`FillUnits::deal`]): each
+    /// Write the stage's `total` lines, dealt to the units `fill` names ([`Walk::copy`]): each
     /// the source's line at the coordinates the stage holds it at, assembled out of narrower
     /// cells where the stage is padded ([`Padding`]).
     pub(crate) fn sync_lines<I2: Numeric, WP2: Size, SW: Size>(
@@ -31,11 +31,11 @@ impl Memory {
         s: &Masked<'_, Vector<I2, SW>, CoordsDyn>,
         layout: &BufferLayout,
         total: usize,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
         #[comptime] padding: Option<Padding>,
     ) {
-        for line in FillUnits::deal(fill, total) {
-            let i = FillUnits::line(&line);
+        for line in Walk::copy(&fill, total) {
+            let i = line.coord(Level::COPIED);
             d[layout.line_offset(i)] =
                 read_stage_line::<I2, WP2, SW>(s, &layout.line_coords(i), comptime!(padding));
         }

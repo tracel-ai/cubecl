@@ -1,5 +1,6 @@
 //! Choosing the transport that moves one memory tile's cells into another's, and the copy.
-//! Cooperative fills assume every unit their destination names ([`FillUnits`]) runs them: the
+//! Cooperative fills assume every unit their destination's level names ([`Level::copied_by`])
+//! runs them: the
 //! cube's, or the plane's that owns the stage.
 
 use cubecl::prelude::*;
@@ -209,7 +210,7 @@ mod tests {
             whole: true,
             overhang: Overhang::Never,
             write: Write::Replace,
-            fill: FillUnits::cube(64),
+            copy: Level::copied_by_cube(64),
             storage: WindowStorage::Contiguous,
             delivery: Delivery::SyncPerUnit,
         }

@@ -65,16 +65,16 @@ impl Tile {
         ));
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
-        let fill = self.fill_units();
+        let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
         // The loads dealt to the units that fill, as a straight fill's lines are.
-        for dealt in FillUnits::deal(fill, comptime!(loads).runtime()) {
+        for load in Walk::copy(&fill, comptime!(loads).runtime()) {
             src.decode_load_into::<S, O, I, WP, VW>(
                 &stored,
                 &mut out,
-                FillUnits::line(&dealt) as u32,
+                load.coord(Level::COPIED) as u32,
                 &dst,
                 lands.clone(),
             );

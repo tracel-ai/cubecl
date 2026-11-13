@@ -17,8 +17,8 @@ impl Memory {
     #[allow(dead_code)] // Reached through its expand, from `turns` and `fetched_scalars`.
     fn known_turns(&self) -> comptime_type!(Option<usize>) {
         let stage_lines = self.stage_lines().constant();
-        let fill = comptime!(self.access.fill);
-        comptime!(stage_lines.and_then(|lines| fill.turns(lines as usize)))
+        let fill = comptime!(self.access.copy.clone());
+        comptime!(stage_lines.and_then(|lines| fill.copy_turns(lines as usize)))
     }
 
     /// The turns one unit takes over this stage's lines; known wherever
@@ -84,7 +84,7 @@ impl Memory {
         comptime!(fill_extent(space, w, w, check));
         let layout = self.layout.clone();
         let turns = self.turns();
-        let deal = FillUnits::deal(comptime!(self.access.fill), self.stage_lines());
+        let lines = Walk::copy(&comptime!(self.access.copy.clone()), self.stage_lines());
         let s = Masked::new(
             src.window_view_storage::<T, W>(comptime!(Guard::Checked)),
             check,
@@ -92,8 +92,8 @@ impl Memory {
         // Each turn's line is held in a register of its own, so every turn is written out.
         #[unroll]
         for t in 0..turns {
-            if deal.takes_turn(t) {
-                let i = FillUnits::line(&deal.region(t));
+            if lines.takes_turn(t) {
+                let i = lines.region(t).coord(Level::COPIED);
                 fetched[t] =
                     read_stage_line::<T, W, W>(&s, &layout.line_coords(i), comptime!(None));
             }
@@ -105,13 +105,13 @@ impl Memory {
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
     pub(crate) fn store_fetched<T: Numeric, W: Size>(&mut self, fetched: &Array<Vector<T, W>>) {
         let turns = self.turns();
-        let deal = FillUnits::deal(comptime!(self.access.fill), self.stage_lines());
+        let lines = Walk::copy(&comptime!(self.access.copy.clone()), self.stage_lines());
         let layout = self.layout.clone();
         let d = self.lines_storage_mut::<T, W>();
         #[unroll]
         for t in 0..turns {
-            if deal.takes_turn(t) {
-                d[layout.line_offset(FillUnits::line(&deal.region(t)))] = fetched[t];
+            if lines.takes_turn(t) {
+                d[layout.line_offset(lines.region(t).coord(Level::COPIED))] = fetched[t];
             }
         }
     }

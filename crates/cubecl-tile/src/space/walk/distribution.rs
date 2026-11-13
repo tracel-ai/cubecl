@@ -4,8 +4,7 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Axis, ComputeScope, Count, CubeAxis, Extent, FillUnits, Integer, IntegerExpand, Level, Space,
-    Spread,
+    Axis, ComputeScope, Count, CubeAxis, Extent, Integer, IntegerExpand, Level, Space, Spread,
 };
 
 /// One axis of a level: walked whole by every instance, or distributed over the level's scope.
@@ -44,9 +43,14 @@ pub(crate) enum Workers {
     Grid,
     /// This many workers, each taking a run of tiles ([`AllAcross`](Count::AllAcross)).
     Across(usize),
-    /// These units, taking the tiles in turns: a plane's, as many as the launch runs
-    /// ([`Distributed`](Count::Distributed)), or a copy's ([`Dealt`](Count::Dealt)).
-    Units(FillUnits),
+    /// The units of one instance of `within`, taking the tiles in turns ([`InTurns`](Count::InTurns)),
+    /// `units` of them where the launch states it, the cube's last `fillers` planes' alone where it
+    /// sets them aside.
+    Units {
+        within: ComputeScope,
+        units: Option<usize>,
+        fillers: usize,
+    },
 }
 
 impl AxisDistribution {
@@ -75,8 +79,11 @@ impl AxisDistribution {
             spread: level.cut(axis).spread,
             workers: match level.cut(axis).count {
                 Count::AllAcross(workers) => Workers::Across(workers),
-                Count::Distributed(_) => Workers::Units(FillUnits::Plane { units: None }),
-                Count::Dealt(units) => Workers::Units(units),
+                Count::InTurns { within, units, .. } => Workers::Units {
+                    within,
+                    units,
+                    fillers: level.fillers(),
+                },
                 Count::Stated(_) | Count::All => Workers::Grid,
             },
             divides: AxisDistribution::divides(level, space, axis),
@@ -99,11 +106,8 @@ impl AxisDistribution {
                     .is_multiple_of(workers),
                 Extent::Dynamic => false,
             },
-            Count::Distributed(_) => false,
-            Count::Dealt(units) => match (space.extent_raw(axis), units.count()) {
-                (Extent::Static(extent), Some(units)) => {
-                    extent.div_ceil(level.cut(axis).tile).is_multiple_of(units)
-                }
+            Count::InTurns { units, .. } => match (level.tiles_const(space, axis), units) {
+                (Some(tiles), Some(units)) => tiles.is_multiple_of(units),
                 _ => false,
             },
             Count::Stated(_) | Count::All => true,
@@ -158,6 +162,39 @@ impl AxisDistribution {
                     .plus(instances.minus(1usize))
                     .divided_by(instances),
             }
+        }
+    }
+
+    /// How many units of one instance of `within` take a level's tiles in turns: `units` where the
+    /// launch states them, read off the launch otherwise, the cube's last `fillers` planes' alone
+    /// where it sets them aside.
+    pub(crate) fn units_within(
+        #[comptime] within: ComputeScope,
+        #[comptime] units: Option<usize>,
+        #[comptime] fillers: usize,
+    ) -> usize {
+        match (units, fillers) {
+            (Some(units), _) => units.runtime(),
+            (None, 0) => match within {
+                ComputeScope::Cube => CUBE_DIM as usize,
+                ComputeScope::PlaneGroup { planes } => planes * CUBE_DIM_X as usize,
+                ComputeScope::Plane => CUBE_DIM_X as usize,
+                ComputeScope::Unit => 1usize.runtime(),
+            },
+            (None, fillers) => fillers * CUBE_DIM_X as usize,
+        }
+    }
+
+    /// This unit's place among the units [`units_within`](AxisDistribution::units_within) counts:
+    /// its place in its instance of `within` ([`ComputeScope::unit`]), among the filling planes'
+    /// units where the cube sets the last `fillers` aside.
+    pub(crate) fn unit_within(
+        #[comptime] within: ComputeScope,
+        #[comptime] fillers: usize,
+    ) -> usize {
+        match fillers {
+            0 => ComputeScope::unit(within),
+            fillers => (UNIT_POS - (CUBE_DIM - comptime!(fillers as u32) * CUBE_DIM_X)) as usize,
         }
     }
 

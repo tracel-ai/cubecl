@@ -61,7 +61,7 @@ impl Memory {
                 rank: src_rank,
             }
         }));
-        let fill = comptime!(self.access.fill);
+        let fill = comptime!(self.access.copy.clone());
         let total_c = total.constant();
         // A gathered destination's line count must equal the compacted window's.
         let cells = comptime!(compaction.as_ref().map(|c| c.cells(w)));
