@@ -64,20 +64,23 @@ impl Descent {
     }
 }
 
-/// Whether one fragment of `fragment` loads factors of `element` deeper than its instruction
-/// itself, as the device compiled for lays it out: the crate's transport, in lane runs, for
-/// 16-bit factors on a target whose instruction lane runs read.
+/// Whether one fragment of `fragment` takes factors of `element` deeper than its instruction
+/// itself, as the device compiled for lays it out: a register block and the plane group MMA
+/// always, the crate's transport in lane runs, for 16-bit factors on a target whose instruction
+/// lane runs read, and the fragment API never.
 #[cube]
 fn loads_deep(
     #[comptime] fragment: Instruction,
     #[comptime] element: ElemType,
 ) -> comptime_type!(bool) {
     let target = comptime::target_properties().comptime();
-    comptime!(
-        matches!(fragment, Instruction::Mma { .. })
-            && LaneMap::try_from(&target).is_ok()
-            && element.size_bits() == 16
-    )
+    comptime!(match fragment {
+        Instruction::Cmma => false,
+        Instruction::Mma { .. } => {
+            LaneMap::try_from(&target).is_ok() && element.size_bits() == 16
+        }
+        Instruction::Registers { .. } | Instruction::Wgmma => true,
+    })
 }
 
 /// Whether the level below `acc` steps only axes the sum does not hold: the contraction.
