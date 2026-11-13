@@ -558,9 +558,38 @@ enum MatrixForm {
 }
 
 impl MatrixForm {
-    /// The form multiplying these element types on the context's matrix core, or why there is
-    /// none.
-    fn of(
+    /// The form a plain MMA of these element types lowers to on the context's matrix core, or
+    /// why there is none. A form reading its 8-bit floats as FNUZ is none: it would read OCP
+    /// bytes at half their value and a negative zero as NaN.
+    fn plain(
+        ctx: &Context,
+        a: TypeHandle,
+        b: TypeHandle,
+        cd: TypeHandle,
+    ) -> core::result::Result<Self, MatrixElemUnsupported> {
+        let form = Self::any(ctx, a, b, cd)?;
+        match form.reads_fnuz() {
+            false => Ok(form),
+            true => Err(MatrixElemUnsupported(
+                ctx.matrix_core(),
+                elem_type(ctx, a),
+                elem_type(ctx, b),
+                elem_type(ctx, cd),
+            )),
+        }
+    }
+
+    /// Whether the form reads its 8-bit floats as FNUZ: see [`MfmaForm::reads_fnuz`].
+    fn reads_fnuz(&self) -> bool {
+        match self {
+            MatrixForm::Wmma(_) => false,
+            MatrixForm::Mfma(form, _) => form.reads_fnuz(),
+        }
+    }
+
+    /// The form multiplying these element types on the context's matrix core, FNUZ forms among
+    /// them, or why there is none.
+    fn any(
         ctx: &Context,
         a: TypeHandle,
         b: TypeHandle,
@@ -573,7 +602,7 @@ impl MatrixForm {
                 WmmaForm::of(generation, a, b, cd).map(MatrixForm::Wmma)
             }
             AmdMatrixCore::Mfma(generation) => {
-                MfmaForm::of(a, b, cd).map(|form| MatrixForm::Mfma(form, generation))
+                MfmaForm::of(generation, a, b, cd).map(|form| MatrixForm::Mfma(form, generation))
             }
         };
         form.ok_or(MatrixElemUnsupported(core, a, b, cd))
@@ -731,7 +760,7 @@ pub(crate) fn multiply_accumulate(
     let b_frag_ty = fragment_ty(ctx, &b_ty);
     let cd_frag_ty = fragment_ty(ctx, &c_ty);
 
-    let form = match MatrixForm::of(ctx, a_ty.elem_ty, b_ty.elem_ty, c_ty.elem_ty) {
+    let form = match MatrixForm::plain(ctx, a_ty.elem_ty, b_ty.elem_ty, c_ty.elem_ty) {
         Ok(form) => form,
         Err(err) => return input_err!(op.loc(ctx), err),
     };
@@ -878,7 +907,7 @@ pub(crate) fn mma_manual(
     let (b_ty, b_elem) = registers_as_vector(ctx, operands_info, b);
     let (cd_ty, cd_elem) = registers_as_vector(ctx, operands_info, c);
 
-    let form = match MatrixForm::of(ctx, a_elem, b_elem, cd_elem) {
+    let form = match MatrixForm::plain(ctx, a_elem, b_elem, cd_elem) {
         Ok(form) => form,
         Err(err) => return input_err!(op.loc(ctx), err),
     };
@@ -1123,3 +1152,8 @@ macro_rules! unsupported_tile_move {
 
 unsupported_tile_move!(ld_matrix, LdMatrixOp);
 unsupported_tile_move!(st_matrix, StMatrixOp);
+
+mod quantized;
+
+pub(crate) use quantized::mma_quantized;
+pub use quantized::{QuantizedShapeUnsupported, quantized_configs};

@@ -17,6 +17,8 @@ use cubecl_core::ir::{
 const F16: ElemType = ElemType::Float(FloatKind::F16);
 const BF16: ElemType = ElemType::Float(FloatKind::BF16);
 const F32: ElemType = ElemType::Float(FloatKind::F32);
+const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
+const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
 const I8: ElemType = ElemType::Int(IntKind::I8);
 const I32: ElemType = ElemType::Int(IntKind::I32);
 
@@ -41,24 +43,39 @@ pub enum MfmaForm {
     Half { ab: ElemType },
     /// Signed 8-bit operands accumulating in `i32`: 16 deep on CDNA2, 32 deep on CDNA3.
     Int8,
+    /// 8-bit float operands, each side its own format, accumulating in `f32`, 32 deep. CDNA3
+    /// only, and it reads its bytes as FNUZ ([`reads_fnuz`](Self::reads_fnuz)).
+    Fp8 { a: ElemType, b: ElemType },
 }
 
 impl MfmaForm {
-    /// The form multiplying `a` by `b` into `cd`, where MFMA has one. MFMA accumulates in 32 bits
-    /// only, and its 8-bit integer forms take signed operands on both sides.
-    pub fn of(a: ElemType, b: ElemType, cd: ElemType) -> Option<Self> {
+    /// The form multiplying `a` by `b` into `cd` on `generation`, where MFMA has one. MFMA
+    /// accumulates in 32 bits only, its 8-bit integer forms take signed operands on both sides,
+    /// and only CDNA3 has 8-bit float forms.
+    pub fn of(generation: AmdMfma, a: ElemType, b: ElemType, cd: ElemType) -> Option<Self> {
         match (a, b, cd) {
             (F16 | BF16, _, F32) if b == a => Some(MfmaForm::Half { ab: a }),
             (I8, I8, I32) => Some(MfmaForm::Int8),
+            (E4M3 | E5M2, E4M3 | E5M2, F32) if generation == AmdMfma::Cdna3 => {
+                Some(MfmaForm::Fp8 { a, b })
+            }
             _ => None,
         }
+    }
+
+    /// Whether the form reads its 8-bit float bytes as AMD's FNUZ formats rather than the OCP
+    /// ones cubecl holds: an exponent bias one higher, so a finite code reads as half its OCP
+    /// value, and `0x80`, OCP's negative zero, as the one NaN. Only the quantized MMA, which
+    /// clears negative zeros and folds the halving into its scales, emits such a form.
+    pub fn reads_fnuz(&self) -> bool {
+        matches!(self, MfmaForm::Fp8 { .. })
     }
 
     /// Every tile `generation` lowers: each form at a 16x16 output, one or two instructions deep.
     pub fn configs(generation: AmdMfma) -> Vec<MmaConfig> {
         [(F16, F32), (BF16, F32), (I8, I32)]
             .into_iter()
-            .filter_map(|(ab, cd)| Some((ab, cd, Self::of(ab, ab, cd)?)))
+            .filter_map(|(ab, cd)| Some((ab, cd, Self::of(generation, ab, ab, cd)?)))
             .flat_map(|(ab, cd, form)| {
                 TILE_DEPTHS.map(|depth| MmaConfig {
                     a_type: ab,
@@ -77,18 +94,34 @@ impl MfmaForm {
         match (self, generation) {
             (MfmaForm::Half { .. }, _) => 16,
             (MfmaForm::Int8, AmdMfma::Cdna2) => 16,
-            (MfmaForm::Int8, AmdMfma::Cdna3) => 32,
+            (MfmaForm::Int8, AmdMfma::Cdna3) | (MfmaForm::Fp8 { .. }, _) => 32,
         }
     }
 
     /// The intrinsic, which no type overloads.
-    fn intrinsic(&self, generation: AmdMfma) -> &'static str {
-        match (self, generation) {
+    fn intrinsic(&self, generation: AmdMfma) -> String {
+        let name = match (self, generation) {
             (MfmaForm::Half { ab: BF16 }, _) => "llvm.amdgcn.mfma.f32.16x16x16bf16.1k",
             (MfmaForm::Half { .. }, _) => "llvm.amdgcn.mfma.f32.16x16x16f16",
             (MfmaForm::Int8, AmdMfma::Cdna2) => "llvm.amdgcn.mfma.i32.16x16x16i8",
             (MfmaForm::Int8, AmdMfma::Cdna3) => "llvm.amdgcn.mfma.i32.16x16x32.i8",
-        }
+            (MfmaForm::Fp8 { a, b }, _) => {
+                return format!(
+                    "llvm.amdgcn.mfma.f32.16x16x32.{}.{}",
+                    fp8_name(*a),
+                    fp8_name(*b)
+                );
+            }
+        };
+        name.into()
+    }
+}
+
+/// AMD names `e4m3` `fp8` and `e5m2` `bf8`.
+fn fp8_name(elem: ElemType) -> &'static str {
+    match elem {
+        E4M3 => "fp8",
+        _ => "bf8",
     }
 }
 
@@ -126,7 +159,7 @@ pub fn emit_mfma(
         let a_arg = mfma_operand(ctx, rw, a_slice);
         let b_arg = mfma_operand(ctx, rw, b_slice);
         let args = vec![a_arg, b_arg, acc, no_broadcast, no_broadcast, no_broadcast];
-        acc = call_intrinsic(ctx, rw, form.intrinsic(generation), cd_ty, args);
+        acc = call_intrinsic(ctx, rw, &form.intrinsic(generation), cd_ty, args);
     }
     Some(acc)
 }
@@ -164,18 +197,25 @@ mod tests {
     #[test]
     fn mfma_accumulates_in_32_bits_from_matching_operands() {
         assert_eq!(
-            MfmaForm::of(F16, F16, F32),
+            MfmaForm::of(AmdMfma::Cdna3, F16, F16, F32),
             Some(MfmaForm::Half { ab: F16 })
         );
         assert_eq!(
-            MfmaForm::of(BF16, BF16, F32),
+            MfmaForm::of(AmdMfma::Cdna3, BF16, BF16, F32),
             Some(MfmaForm::Half { ab: BF16 })
         );
-        assert_eq!(MfmaForm::of(I8, I8, I32), Some(MfmaForm::Int8));
-        assert_eq!(MfmaForm::of(F16, F16, F16), None);
-        assert_eq!(MfmaForm::of(F16, BF16, F32), None);
+        assert_eq!(
+            MfmaForm::of(AmdMfma::Cdna3, I8, I8, I32),
+            Some(MfmaForm::Int8)
+        );
+        assert_eq!(MfmaForm::of(AmdMfma::Cdna3, F16, F16, F16), None);
+        assert_eq!(MfmaForm::of(AmdMfma::Cdna3, F16, BF16, F32), None);
         let u8 = ElemType::UInt(cubecl_core::ir::UIntKind::U8);
-        assert_eq!(MfmaForm::of(u8, I8, I32), None, "MFMA has no unsigned form");
+        assert_eq!(
+            MfmaForm::of(AmdMfma::Cdna3, u8, I8, I32),
+            None,
+            "MFMA has no unsigned form"
+        );
     }
 
     #[test]

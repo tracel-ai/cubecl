@@ -3,6 +3,7 @@ use crate::{
     types::{LdMatrixForm, MatrixShape, StMatrixForm},
 };
 use alloc::collections::{BTreeMap, BTreeSet};
+use cubecl_common::quant::scheme::{QuantValue, ScaleDtype};
 
 use crate::EnumSetType;
 
@@ -92,6 +93,11 @@ pub struct MatmulFeatures {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
+    /// Quantized MMA multiplies operands as their quantization scheme stores them, codes under
+    /// block scales, and sums each block's product into `f32` under its two scales. A device
+    /// lowers it to a block-scaled instruction where it has one, and otherwise to its plain MMA
+    /// over the codes, one block at a time.
+    pub quantized_mma: BTreeSet<QuantizedMmaConfig>,
     /// Warpgroup MMA (Hopper's `wgmma.mma_async`): four planes multiply a tile of `B`, and
     /// optionally `A`, read straight from shared memory through matrix descriptors, and
     /// accumulate asynchronously in registers.
@@ -303,6 +309,31 @@ pub struct ScaledMmaConfig {
     /// A scale factor of 2 means `m x 2` scales for A and `2 x n` for B (in CUDA)
     /// Scales blocks must be organized along the natural `vector_layout` of the operation
     pub scales_factor: u32,
+}
+
+/// A quantized MMA a device lowers: an `m × n × k` tile of `a` codes by `b` codes, both under
+/// block scales of `scales`, one every `block_k` values of `k`, summing in `f32`.
+///
+/// The tile lies within one block: `block_k` is a multiple of `k`, so a block longer than the
+/// tile is several tiles under the same scales. A per-tensor scale above the block ones is the
+/// caller's to apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct QuantizedMmaConfig {
+    /// The codes of the A matrix.
+    pub a: QuantValue,
+    /// The codes of the B matrix.
+    pub b: QuantValue,
+    /// The type both operands' block scales are stored in.
+    pub scales: ScaleDtype,
+    /// Values of `k` one scale covers.
+    pub block_k: u32,
+    /// The size of the tile on the `m` dimension.
+    pub m: u32,
+    /// The size of the tile on the `n` dimension.
+    pub n: u32,
+    /// The size of the tile on the `k` dimension.
+    pub k: u32,
 }
 
 /// Atomic features that may be supported by a ``Runtime``.

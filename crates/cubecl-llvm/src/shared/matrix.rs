@@ -5,8 +5,9 @@ use cubecl_core::{
     ir::{
         dialect::matrix::{
             CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp,
-            MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp,
-            WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
+            MmaQuantizedOp, MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp,
+            WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp,
+            WgmmaWaitGroupOp,
         },
         types::matrix::MatrixType,
     },
@@ -67,6 +68,8 @@ dispatch_matrix_op!(ColIndexOp, col_index);
 dispatch_matrix_op!(MmaManualOp, mma_manual);
 // The block-scaled `mma` is Blackwell's alone, so only NVPTX lowers it.
 dispatch_matrix_op!(MmaManualScaledOp, ["nvptx" Nvptx => crate::nvptx::matrix::mma_manual_scaled]);
+// The quantized `mma` lowers through each target's plain one; only AMDGPU has that lowering yet.
+dispatch_matrix_op!(MmaQuantizedOp, ["amdgpu" AmdGpu => crate::amdgpu::matrix::mma_quantized]);
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
 

@@ -1,9 +1,10 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, cdna_manual_product_kernel, fence_poll_kernel, fence_send_kernel,
-    keep_largest_kernel, nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel,
-    relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
+    Wait, bf16_math_kernel, cdna_manual_product_kernel, cdna_quantized_product_kernel,
+    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
+    tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -202,6 +203,88 @@ fn int8_tiles_multiply_on_mfma() {
     assert_eq!(asm.matches("v_mfma_i32_16x16x32_i8").count(), 1, "{asm}");
     let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), "gfx90a");
     assert_eq!(asm.matches("v_mfma_i32_16x16x16").count(), 2, "{asm}");
+}
+
+/// MI300's quantized MMA multiplies 8-bit float codes on its FNUZ MFMA, clearing negative zeros
+/// first and scaling the sum into the accumulator with one `fma` a cell, and 8-bit integer codes
+/// on its integer MFMA with no clearing, for a cube of one 64-lane plane and nothing on scratch.
+#[test]
+fn mi300_quantized_mma_compiles_to_mfma() {
+    use cubecl_core::{
+        e4m3, e5m2,
+        ir::features::QuantizedMmaConfig,
+        quant::scheme::{QuantValue, ScaleDtype},
+        ue8m0,
+    };
+    const ARCH: &str = "gfx942";
+    let config = |a, b, k, block_k| QuantizedMmaConfig {
+        a,
+        b,
+        scales: ScaleDtype::UE8M0,
+        block_k,
+        m: 16,
+        n: 16,
+        k,
+    };
+    let check = |asm: String, what: &str, op: &str, instructions: usize, clears: bool| {
+        if let Some(dir) = std::env::var_os("CUBECL_OFFLINE_ASM_DIR") {
+            std::fs::write(std::path::Path::new(&dir).join(format!("{what}.s")), &asm).unwrap();
+        }
+        assert_eq!(asm.matches(op).count(), instructions, "{what}:\n{asm}");
+        assert!(!asm.contains("scratch_"), "{what} spills:\n{asm}");
+        assert!(
+            asm.contains("v_fma_f32") || asm.contains("v_pk_fma_f32"),
+            "{what}:\n{asm}"
+        );
+        // The clearing masks the low seven bits of every code, which nothing else does.
+        assert_eq!(
+            asm.contains("0x7f7f7f7f"),
+            clears,
+            "{what} clears -0:\n{asm}"
+        );
+    };
+    let asm = asm_of(
+        cdna_quantized_product_kernel::<e4m3, e5m2, ue8m0>(config(
+            QuantValue::E4M3,
+            QuantValue::E5M2,
+            32,
+            32,
+        )),
+        ARCH,
+    );
+    check(
+        asm,
+        "quantized_fp8_k32",
+        "v_mfma_f32_16x16x32_fp8_bf8",
+        1,
+        true,
+    );
+    let asm = asm_of(
+        cdna_quantized_product_kernel::<e4m3, e4m3, ue8m0>(config(
+            QuantValue::E4M3,
+            QuantValue::E4M3,
+            64,
+            128,
+        )),
+        ARCH,
+    );
+    check(
+        asm,
+        "quantized_fp8_k64",
+        "v_mfma_f32_16x16x32_fp8_fp8",
+        2,
+        true,
+    );
+    let asm = asm_of(
+        cdna_quantized_product_kernel::<i8, i8, ue8m0>(config(
+            QuantValue::Q8S,
+            QuantValue::Q8S,
+            32,
+            64,
+        )),
+        ARCH,
+    );
+    check(asm, "quantized_i8_k32", "v_mfma_i32_16x16x32_i8", 1, false);
 }
 
 /// Every form MI300 offers compiles for a cube of one 64-lane plane, through the fragment API and

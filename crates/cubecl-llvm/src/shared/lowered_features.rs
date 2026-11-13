@@ -42,6 +42,8 @@ pub enum GpuTarget {
 /// warpgroup MMA.
 pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
     props.features.matmul.wgmma.clear();
+    // The quantized MMA lowers through AMDGPU's plain one alone, so only that target offers it.
+    props.features.matmul.quantized_mma.clear();
     match target {
         #[cfg(feature = "nvptx")]
         GpuTarget::Nvptx { arch } => {
@@ -54,6 +56,8 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
         #[cfg(feature = "amdgpu")]
         GpuTarget::AmdGpu { matrix } => {
             advertise_amdgpu_matrix_forms(props, matrix);
+            let quantized = matrix.map(crate::amdgpu::matrix::quantized_configs);
+            props.features.matmul.quantized_mma = quantized.into_iter().flatten().collect();
             props.features.matmul.scaled_mma = Default::default();
             // `copy_async` lowers to NVPTX's `cp.async` alone.
             props.features.copy_async = false;
@@ -337,6 +341,24 @@ mod tests {
             }));
         }
         assert_eq!(props.hardware.min_tensor_cores_dim, Some(16));
+    }
+
+    /// MI300 offers the quantized MMA over its 8-bit float and integer codes; RDNA2 has no matrix
+    /// core to lower it through.
+    #[test]
+    fn mi300_offers_quantized_fp8() {
+        use cubecl_core::quant::scheme::QuantValue;
+        let props = restricted_for("gfx942");
+        let quantized = &props.features.matmul.quantized_mma;
+        assert!(quantized.iter().any(|config| config.a == QuantValue::E4M3));
+        assert!(quantized.iter().any(|config| config.a == QuantValue::Q8S));
+        assert!(
+            restricted_for("gfx1030")
+                .features
+                .matmul
+                .quantized_mma
+                .is_empty()
+        );
     }
 
     /// RDNA3 has no fp8 WMMA.

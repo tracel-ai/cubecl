@@ -713,6 +713,40 @@ fn cdna_target_properties() -> TargetProperties {
     }
 }
 
+/// The runtime tests' quantized tile product of `config` on CDNA: a cube of one 64-lane plane,
+/// on a device offering it.
+#[cfg(feature = "amdgpu")]
+pub(crate) fn cdna_quantized_product_kernel<
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    S: Scalar + cubecl_core::CubeElement,
+>(
+    config: cubecl_core::ir::features::QuantizedMmaConfig,
+) -> impl CubeKernel {
+    use cubecl_core::runtime_tests::cmma::kernel_quantized_mma;
+    const PLANE_DIM: u32 = 64;
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(PLANE_DIM),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(PLANE_DIM)).clone();
+    props.features.matmul.quantized_mma.insert(config);
+    let buffer = || BufferCompilationArg { inplace: None };
+    kernel_quantized_mma::KernelQuantizedMma::<A, B, S>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(cdna_target_properties()),
+        buffer(),
+        buffer(),
+        buffer(),
+        buffer(),
+        buffer(),
+        buffer(),
+        config,
+    )
+}
+
 /// One `(m, n, k)` manual tile product on CDNA: a cube of one 64-lane plane.
 #[cfg(feature = "amdgpu")]
 pub(crate) fn cdna_manual_product_kernel<

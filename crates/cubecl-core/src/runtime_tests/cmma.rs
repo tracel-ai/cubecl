@@ -12,10 +12,11 @@ use cubecl::{
 };
 
 use alloc::{vec, vec::Vec};
+use cubecl_common::quant::scheme::QuantValue;
 use cubecl_common::{e2m1, e2m1x2, e4m3, ue8m0};
 use cubecl_ir::{
     OpaqueType,
-    features::{MmaConfig, ScaledMmaConfig},
+    features::{MmaConfig, QuantizedMmaConfig, ScaledMmaConfig},
     types::{MatrixIdent, MatrixLayout},
 };
 use half::{bf16, f16};
@@ -1608,6 +1609,225 @@ pub fn test_cmma_manual_fp8_matches_cpu_reference<
     }
 }
 
+/// One quantized tile product: lane by lane, the codes, scales and accumulator gathered at the
+/// positions the definition names, multiplied, and the sums scattered back. `A` is row major
+/// (`m × k`), `B` column major (`n × k`), the scales one per row of `A` and one per column of `B`
+/// (the tile lies within one block), and `c` and `out` row major (`m × n`).
+#[cube(launch)]
+pub fn kernel_quantized_mma<A: Scalar, B: Scalar, S: Scalar>(
+    codes_a: &[A],
+    codes_b: &[B],
+    scales_a: &[S],
+    scales_b: &[S],
+    c: &[f32],
+    out: &mut [f32],
+    #[comptime] config: QuantizedMmaConfig,
+) {
+    let def = cmma::QuantizedMma::<A, B, S>::new(config);
+    let lane = UNIT_POS_PLANE;
+    let (n, k) = (config.n, config.k);
+
+    let size_a = def.vector_size(MatrixIdent::A);
+    let size!(NA) = size_a;
+    let elems_a = def.elems_per_lane(MatrixIdent::A);
+    let count_a = comptime!(elems_a / size_a);
+    let mut registers_a = Array::<Vector<A, NA>>::new(count_a);
+    #[unroll]
+    for i in 0..count_a {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size_a {
+            let nth = (i * size_a + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::A);
+            reg.insert(j, codes_a[(row * k + col) as usize]);
+        }
+        registers_a[i] = reg;
+    }
+
+    let size_b = def.vector_size(MatrixIdent::B);
+    let size!(NB) = size_b;
+    let elems_b = def.elems_per_lane(MatrixIdent::B);
+    let count_b = comptime!(elems_b / size_b);
+    let mut registers_b = Array::<Vector<B, NB>>::new(count_b);
+    #[unroll]
+    for i in 0..count_b {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size_b {
+            let nth = (i * size_b + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::B);
+            reg.insert(j, codes_b[(col * k + row) as usize]);
+        }
+        registers_b[i] = reg;
+    }
+
+    let scales = def.scales_per_lane();
+    let mut lane_scales_a = Array::<S>::new(scales);
+    let mut lane_scales_b = Array::<S>::new(scales);
+    #[unroll]
+    for i in 0..scales {
+        let row = def.scale_index_of_nth(lane, i as u32, MatrixIdent::A);
+        let col = def.scale_index_of_nth(lane, i as u32, MatrixIdent::B);
+        lane_scales_a[i] = scales_a[row as usize];
+        lane_scales_b[i] = scales_b[col as usize];
+    }
+
+    let size_c = def.vector_size(MatrixIdent::Accumulator);
+    let size!(NC) = size_c;
+    let elems_c = def.elems_per_lane(MatrixIdent::Accumulator);
+    let count_c = comptime!(elems_c / size_c);
+    let mut registers_c = Array::<Vector<f32, NC>>::new(count_c);
+    #[unroll]
+    for i in 0..count_c {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size_c {
+            let nth = (i * size_c + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::Accumulator);
+            reg.insert(j, c[(row * n + col) as usize]);
+        }
+        registers_c[i] = reg;
+    }
+
+    let registers_d = def.execute(
+        &registers_a,
+        &registers_b,
+        &lane_scales_a,
+        &lane_scales_b,
+        &registers_c,
+    );
+    #[unroll]
+    for i in 0..count_c {
+        let reg = registers_d[i];
+        #[unroll]
+        for j in 0..size_c {
+            let nth = (i * size_c + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::Accumulator);
+            out[(row * n + col) as usize] = reg.extract(j);
+        }
+    }
+}
+
+/// Every quantized MMA the device offers whose codes are held in `A` and `B` and whose scales in
+/// `S` equals the CPU's product of the decoded codes under the decoded scales, added to a
+/// nonzero accumulator.
+///
+/// The codes are small values every 8-bit format holds exactly, a negative zero among the float
+/// ones, so the products and their sums are exact in `f32` and a code read at the wrong value,
+/// or a negative zero read as NaN, shows up as a wrong cell rather than as rounding. The scales
+/// are powers of two, exact in every scale type.
+pub fn test_quantized_mma<
+    R: Runtime,
+    A: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
+    B: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
+    S: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    let held = |value: QuantValue| ElemType::from_quant_value(value);
+    let configs: Vec<QuantizedMmaConfig> = client
+        .features()
+        .matmul
+        .quantized_mma
+        .iter()
+        .filter(|config| {
+            held(config.a) == A::cube_type()
+                && held(config.b) == B::cube_type()
+                && ElemType::from_scale_dtype(config.scales) == S::cube_type()
+        })
+        .copied()
+        .collect();
+    if configs.is_empty() {
+        println!(
+            "Skipping quantized mma for a: {:?} b: {:?} scales: {:?}: not advertised",
+            A::cube_type(),
+            B::cube_type(),
+            S::cube_type()
+        );
+        return;
+    }
+
+    // Values every 8-bit float and integer format holds exactly: halves and quarters only where
+    // the codes are floats, and a negative zero, which MI300 reads as NaN unless it is cleared.
+    let float_values = [
+        -0.0, 0.0, 0.25, -0.5, 1.0, -1.5, 2.0, -3.0, 4.0, 6.0, -0.25, 1.5,
+    ];
+    let integer_values = [
+        0.0, 1.0, -1.0, 2.0, -3.0, 4.0, -5.0, 7.0, -8.0, 3.0, -2.0, 6.0,
+    ];
+    let codes = |count: usize, salt: usize, float: bool| -> Vec<f64> {
+        let values = if float { float_values } else { integer_values };
+        (0..count)
+            .map(|index| values[(index * 7 + salt * 5 + index / 13) % values.len()])
+            .collect()
+    };
+    let is_float = |ty: ElemType| matches!(ty, ElemType::Float(_));
+    let power_of_two = |index: usize, salt: usize| 2f64.powi(((index * 3 + salt) % 9) as i32 - 4);
+    let decoded = |value: &dyn num_traits::ToPrimitive| value.to_f64().unwrap();
+
+    for config in configs {
+        let (m, n, k) = (config.m as usize, config.n as usize, config.k as usize);
+        let lhs = codes(m * k, 1, is_float(A::cube_type()));
+        // Column major: `rhs[col][l]` at `col * k + l`.
+        let rhs = codes(n * k, 2, is_float(B::cube_type()));
+        let c: Vec<f32> = (0..m * n).map(|index| (index % 11) as f32 - 5.0).collect();
+
+        let lhs_typed: Vec<A> = lhs.iter().map(|value| A::from(*value).unwrap()).collect();
+        let rhs_typed: Vec<B> = rhs.iter().map(|value| B::from(*value).unwrap()).collect();
+        let lhs_scales: Vec<S> = (0..m)
+            .map(|row| S::from(power_of_two(row, 1)).unwrap())
+            .collect();
+        let rhs_scales: Vec<S> = (0..n)
+            .map(|col| S::from(power_of_two(col, 4)).unwrap())
+            .collect();
+
+        // The reference reads every code and scale back from its type, so it multiplies what
+        // the device was handed.
+        let expected: Vec<f32> = (0..m * n)
+            .map(|index| {
+                let (row, col) = (index / n, index % n);
+                let dot: f64 = (0..k)
+                    .map(|l| decoded(&lhs_typed[row * k + l]) * decoded(&rhs_typed[col * k + l]))
+                    .sum();
+                let scale = decoded(&lhs_scales[row]) * decoded(&rhs_scales[col]);
+                (c[index] as f64 + dot * scale) as f32
+            })
+            .collect();
+
+        let lhs_handle = client.create_from_slice(A::as_bytes(&lhs_typed));
+        let rhs_handle = client.create_from_slice(B::as_bytes(&rhs_typed));
+        let lhs_scales_handle = client.create_from_slice(S::as_bytes(&lhs_scales));
+        let rhs_scales_handle = client.create_from_slice(S::as_bytes(&rhs_scales));
+        let c_handle = client.create_from_slice(f32::as_bytes(&c));
+        let out = client.empty(m * n * size_of::<f32>());
+
+        unsafe {
+            kernel_quantized_mma::launch::<A, B, S>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                cube_dimensions,
+                BufferArg::from_raw_parts(lhs_handle, m * k),
+                BufferArg::from_raw_parts(rhs_handle, n * k),
+                BufferArg::from_raw_parts(lhs_scales_handle, m),
+                BufferArg::from_raw_parts(rhs_scales_handle, n),
+                BufferArg::from_raw_parts(c_handle, m * n),
+                BufferArg::from_raw_parts(out.clone(), m * n),
+                config,
+            )
+        };
+
+        let actual = client.read_one_unchecked(out);
+        let actual = f32::from_bytes(&actual);
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "{config:?}: the kernel wrote its output"
+        );
+        assert_eq!(actual, expected.as_slice(), "{config:?}");
+    }
+}
+
 /// One tile product through the fragment API, `A` row major and `B` column major.
 #[cube(launch)]
 pub fn kernel_tile_product<A: Scalar, B: Scalar, CD: Numeric>(
@@ -3079,6 +3299,37 @@ macro_rules! testgen_cmma {
             test::<e4m3, e5m2, f32>();
             test::<e5m2, e4m3, f32>();
             test::<e5m2, e5m2, f32>();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_quantized_mma() {
+            use cubecl_common::{e4m3, e5m2, ue8m0};
+            use cubecl_core::num_traits::{ToPrimitive, cast::NumCast};
+            use half::{bf16, f16};
+
+            fn test<
+                A: CubeElement + Scalar + NumCast + ToPrimitive,
+                B: CubeElement + Scalar + NumCast + ToPrimitive,
+                S: CubeElement + Scalar + NumCast + ToPrimitive,
+            >() {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_quantized_mma::<TestRuntime, A, B, S>(
+                    client,
+                    cube_dimensions,
+                )
+            }
+
+            // Every scale type, under 8-bit integer codes and under 8-bit float ones.
+            test::<i8, i8, f32>();
+            test::<i8, i8, f16>();
+            test::<i8, i8, bf16>();
+            test::<i8, i8, ue8m0>();
+            test::<i8, i8, e4m3>();
+            test::<e4m3, e4m3, f32>();
+            test::<e4m3, e5m2, ue8m0>();
+            test::<e5m2, e4m3, bf16>();
+            test::<e5m2, e5m2, e4m3>();
         }
 
         #[$crate::runtime_tests::test_log::test]
