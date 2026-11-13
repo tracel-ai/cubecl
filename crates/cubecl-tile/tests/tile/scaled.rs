@@ -347,9 +347,10 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
     check_factored(None, 8);
 }
 
-/// The one scale `a` is stored under, read off the factor a register sum of `a · b` takes out of
-/// it ([`Tile::factor`]), into `out[0]`, and `a`'s first value as it lies, without it, into
-/// `out[1]`.
+/// The one scale `a` is stored under, read off the factor taken out of it into `out[0]`, and
+/// `a`'s first value as it lies, without it, into `out[1]`. The factor is the one a register sum
+/// of `a · b` takes out ([`Tile::factor`]), or, `whole`, the one a sum no tile holds takes out
+/// ([`Tile::factor_whole`]).
 #[cube(launch)]
 fn per_tensor_factor(
     a: &TileTensor<'_>,
@@ -357,10 +358,15 @@ fn per_tensor_factor(
     c: &TileTensor<'_>,
     out: &mut Tensor<f32>,
     space: Partitioning,
+    #[comptime] whole: bool,
 ) {
     let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile(&space));
-    let sum = c.register_accumulator::<f32>(&a, &b, REGISTER_BLOCK, Semiring::SUM_PROD);
-    let (a, factor) = a.factor(&sum);
+    let (a, factor) = if whole {
+        a.factor_whole()
+    } else {
+        let sum = c.register_accumulator::<f32>(&a, &b, REGISTER_BLOCK, Semiring::SUM_PROD);
+        a.factor(&sum)
+    };
     out[0] = factor.whole();
     out[1] = a.flat::<f32, Const<1>>().read(0).extract(0usize);
 }
@@ -370,6 +376,19 @@ fn per_tensor_factor(
 /// and are read as they lie.
 #[test]
 fn a_per_tensor_factor_reads_as_its_one_scale() {
+    check_per_tensor_factor(false);
+}
+
+/// A sum no tile holds takes the same per-tensor scale out with `factor_whole`, and the values
+/// are read as they lie.
+#[test]
+fn a_per_tensor_factor_leaves_for_a_sum_no_tile_holds() {
+    check_per_tensor_factor(true);
+}
+
+/// [`per_tensor_factor`] over values stored under a scale of 0.37, the factor taken out as
+/// `whole` says.
+fn check_per_tensor_factor(whole: bool) {
     let (rows, depth, cols, scale) = (4, 4, 4, 0.37f32);
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
@@ -426,6 +445,7 @@ fn a_per_tensor_factor_reads_as_its_one_scale() {
         ),
         out.clone().binding().into_tensor_arg(),
         uncut(&client, &space, &space).partitioning_arg(),
+        whole,
     );
 
     let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
