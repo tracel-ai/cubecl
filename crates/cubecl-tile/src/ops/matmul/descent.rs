@@ -5,6 +5,7 @@ use cubecl::prelude::*;
 
 use super::leaf::{Side, deep_load, memory};
 use crate::tile::base::witnessed_space;
+use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::*;
 
 /// Where `acc += lhs · rhs` runs, from the accumulator it is called on and the level below it.
@@ -23,15 +24,18 @@ pub(crate) enum Descent {
 
 impl Descent {
     /// The descent into an accumulator placed at `acc`, a grid contracting through `grid`'s
-    /// instruction or `None` where it holds one fragment, a cmma one where `cmma`, from operands
-    /// spanning `lhs` and `rhs`.
+    /// instruction or `None` where it holds one fragment of `fragment`, which loads its factors
+    /// deeper than its instruction itself where `loads_deep`, from operands spanning `lhs` and
+    /// `rhs`.
     ///
-    /// A cmma fragment reads its factors no deeper than its instruction, so one fragment under a
+    /// A cmma fragment reads its factors no deeper than its instruction, nor does a manual-mma one
+    /// where the target lays out no lane runs to load deeper ones in, so one such fragment under a
     /// level that walks the contraction steps it: run here, it would ask the device for a
     /// fragment as deep as the whole walk.
     pub(crate) fn of(
         grid: Option<Instruction>,
-        cmma: bool,
+        fragment: Instruction,
+        loads_deep: bool,
         acc: &Placement,
         lhs: &Space,
         rhs: &Space,
@@ -45,8 +49,8 @@ impl Descent {
         };
         let below = acc.below();
         let Some(instruction) = grid else {
-            return match cmma && below.iter().any(walks_contraction) {
-                true => Descent::Steps(Instruction::Cmma),
+            return match !loads_deep && below.iter().any(walks_contraction) {
+                true => Descent::Steps(fragment),
                 false => Descent::Here,
             };
         };
@@ -58,6 +62,22 @@ impl Descent {
             false => Descent::Cells(instruction),
         }
     }
+}
+
+/// Whether one fragment of `fragment` loads factors of `element` deeper than its instruction
+/// itself, as the device compiled for lays it out: the crate's transport, in lane runs, for
+/// 16-bit factors on a target whose instruction lane runs read.
+#[cube]
+fn loads_deep(
+    #[comptime] fragment: Instruction,
+    #[comptime] element: ElemType,
+) -> comptime_type!(bool) {
+    let target = comptime::target_properties().comptime();
+    comptime!(
+        matches!(fragment, Instruction::Mma { .. })
+            && LaneMap::try_from(&target).is_ok()
+            && element.size_bits() == 16
+    )
 }
 
 /// Whether the level below `acc` steps only axes the sum does not hold: the contraction.
@@ -74,20 +94,24 @@ impl Descent {
         match &acc.kind {
             TileKind::PlanePartition(p) => {
                 let grid = p.grid();
-                let cmma = p.is_cmma();
+                let fragment = p.frags.index(0usize).instruction();
+                let loads_deep = loads_deep(fragment, lhs.element);
                 comptime!(Descent::of(
                     grid,
-                    cmma,
+                    fragment,
+                    loads_deep,
                     &acc.place,
                     &lhs.place.space,
                     &rhs.place.space
                 ))
             }
             TileKind::PlaneTile(t) => {
-                let cmma = t.is_cmma();
+                let fragment = t.instruction();
+                let loads_deep = loads_deep(fragment, lhs.element);
                 comptime!(Descent::of(
                     None,
-                    cmma,
+                    fragment,
+                    loads_deep,
                     &acc.place,
                     &lhs.place.space,
                     &rhs.place.space
@@ -222,13 +246,25 @@ mod tests {
 
     /// The descent into a grid of cmma fragments, or of one cmma fragment where `grid` is `None`.
     fn descent(grid: Option<Instruction>, below: Level) -> Descent {
-        descent_of(grid, true, below)
+        descent_of(grid, Instruction::Cmma, false, below)
     }
 
-    fn descent_of(grid: Option<Instruction>, cmma: bool, below: Level) -> Descent {
+    fn descent_of(
+        grid: Option<Instruction>,
+        fragment: Instruction,
+        loads_deep: bool,
+        below: Level,
+    ) -> Descent {
         let lhs = Space::new(&[(M, 16), (K, 16)]);
         let rhs = Space::new(&[(K, 16), (N, 16)]);
-        Descent::of(grid, cmma, &grid_over(below), &lhs, &rhs)
+        Descent::of(grid, fragment, loads_deep, &grid_over(below), &lhs, &rhs)
+    }
+
+    fn mma() -> Instruction {
+        Instruction::Mma {
+            io: MmaIo::default(),
+            operands: MmaOperands::Plain,
+        }
     }
 
     /// One fragment under levels that leave the contraction whole runs its instruction where it
@@ -252,14 +288,20 @@ mod tests {
         assert_eq!(descent(None, below), Descent::Steps(Instruction::Cmma));
     }
 
-    /// One manual-mma fragment walks a contraction deeper than its instruction itself, so it still
-    /// runs where it is called.
+    /// One manual-mma fragment that loads deeper fragments in lane runs walks a contraction deeper
+    /// than its instruction itself, so it still runs where it is called; one that cannot steps it.
     #[test]
-    fn one_manual_mma_fragment_over_the_contraction_contracts_here() {
-        let below = Levels::leaf(&[(M, 16), (N, 16), (K, 8)])
-            .walk(&[(K, 2)])
-            .level();
-        assert_eq!(descent_of(None, false, below), Descent::Here);
+    fn one_manual_mma_fragment_over_the_contraction_contracts_here_where_it_loads_deep() {
+        let below = || {
+            Levels::leaf(&[(M, 16), (N, 16), (K, 8)])
+                .walk(&[(K, 2)])
+                .level()
+        };
+        assert_eq!(descent_of(None, mma(), true, below()), Descent::Here);
+        assert_eq!(
+            descent_of(None, mma(), false, below()),
+            Descent::Steps(mma())
+        );
     }
 
     /// A level that steps only the grid's cells loads each operand's fragments once above it.

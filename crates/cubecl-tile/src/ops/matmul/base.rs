@@ -64,8 +64,10 @@ impl Tile {
             match &self.kind {
                 TileKind::PlanePartition(partition) => {
                     let grid = partition.grid();
-                    let cmma = partition.is_cmma();
-                    match comptime!(Descent::of(grid, cmma, &self.place, &own, &own)) {
+                    let fragment = partition.frags.index(0usize).instruction();
+                    // A manual-mma sum returned above: this one's fragments are the fragment API's,
+                    // which load no deeper than their instruction.
+                    match comptime!(Descent::of(grid, fragment, false, &self.place, &own, &own)) {
                         Descent::Here => {
                             operand.fragment_for::<Target>(&partition.at(0usize, 0usize), &out)
                         }
