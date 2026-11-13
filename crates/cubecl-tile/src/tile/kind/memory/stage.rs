@@ -62,14 +62,10 @@ impl StageOwner {
     pub(crate) fn fill(self, cube_units: usize) -> FillUnits {
         match self {
             StageOwner::Cube { fillers: 0 } => FillUnits::cube(cube_units),
-            StageOwner::Cube { fillers } => FillUnits::filling_planes(fillers),
-            StageOwner::Plane { planes } => FillUnits {
-                scope: ComputeScope::Plane,
-                count: match cube_units.is_multiple_of(planes) {
-                    true => cube_units / planes,
-                    false => 0,
-                },
-                fillers: 0,
+            StageOwner::Cube { fillers: planes } => FillUnits::Fillers { planes },
+            StageOwner::Plane { planes } => FillUnits::Plane {
+                units: (cube_units > 0 && cube_units.is_multiple_of(planes))
+                    .then(|| cube_units / planes),
             },
         }
     }
@@ -957,11 +953,13 @@ mod tests {
     #[test]
     fn a_plane_fills_with_its_share_of_the_units() {
         let plane = StageOwner::Plane { planes: 4 };
-        assert_eq!(plane.fill(128).count, 32);
-        assert_eq!(plane.fill(0).count, 0);
-        assert_eq!(plane.fill(130).count, 0);
-        assert_eq!(plane.fill(128).scope, ComputeScope::Plane);
-        assert_eq!(StageOwner::CUBE.fill(128), FillUnits::cube(128));
+        assert_eq!(plane.fill(128), FillUnits::Plane { units: Some(32) });
+        assert_eq!(plane.fill(0), FillUnits::Plane { units: None });
+        assert_eq!(plane.fill(130), FillUnits::Plane { units: None });
+        assert_eq!(
+            StageOwner::CUBE.fill(128),
+            FillUnits::Cube { units: Some(128) }
+        );
     }
 
     /// A cube's stage under planes set aside is filled by their units alone, the planes at the
@@ -969,9 +967,8 @@ mod tests {
     #[test]
     fn a_cube_setting_planes_aside_fills_with_their_units() {
         let fill = StageOwner::Cube { fillers: 1 }.fill(160);
-        assert_eq!(fill, FillUnits::filling_planes(1));
-        assert_eq!(fill.scope, ComputeScope::Cube);
-        assert_eq!(fill.count, 0);
+        assert_eq!(fill, FillUnits::Fillers { planes: 1 });
+        assert_eq!(fill.count(), None);
     }
 
     /// Every plane's copy starts on the buffer's alignment: a copy of lines shorter than it is

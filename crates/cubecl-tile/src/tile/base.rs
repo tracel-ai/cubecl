@@ -173,7 +173,7 @@ impl Tile {
     /// The launch's cube size this operand was bound with, `0` when unknown.
     pub(crate) fn units(&self) -> comptime_type!(usize) {
         let fill = self.fill_units();
-        comptime!(fill.count)
+        comptime!(fill.count().unwrap_or(0))
     }
 
     /// The units that share a cooperative fill of this tile ([`FillUnits`]): one plane's for a

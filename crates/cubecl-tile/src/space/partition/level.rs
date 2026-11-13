@@ -1,7 +1,8 @@
 //! One [`Level`]: which axes a loop steps, in tiles of what size, how many, and who takes them.
 
 use super::{
-    ComputeScope, Count, Coverage, CubeAxis, CubeOrder, GridCount, PlaneOrder, Spread, UnitCube,
+    ComputeScope, Count, Coverage, CubeAxis, CubeOrder, FillUnits, GridCount, PlaneOrder, Spread,
+    UnitCube,
 };
 use crate::{Axis, AxisMap, Extent, Space};
 
@@ -90,6 +91,18 @@ impl Level {
                     "Level: {axis:?} is distributed in turns to however many units the launch runs, so \
                      the units take it interleaved"
                 ),
+                (Coverage::Distribute(ComputeScope::Unit), Count::Dealt(_)) => assert!(
+                    cuts.len() == 1
+                        && matches!(
+                            cuts.iter().find(|&&(a, ..)| a == axis).map(|&(.., s)| s),
+                            Some(Spread::Interleaved)
+                        ),
+                    "Level: {axis:?} is dealt in turns to a copy's units, which take it alone, \
+                     interleaved"
+                ),
+                (_, Count::Dealt(_)) => {
+                    panic!("Level: {axis:?} is dealt to a copy's units, which a units level takes")
+                }
                 (_, Count::Distributed(_)) => panic!(
                     "Level: {axis:?} is distributed in turns to however many units the launch runs, \
                      which only a plane's units can be"
@@ -130,6 +143,15 @@ impl Level {
             launch_span: None,
             reversed: Vec::new(),
         }
+    }
+
+    /// The level dealing `axis`'s tiles of `tile` cells to `units` in turns: unit `w` of `n` takes
+    /// tiles `w`, `w + n`, and on, so neighbouring units take neighbouring tiles at once.
+    pub(crate) fn dealt(axis: Axis, tile: usize, units: FillUnits) -> Level {
+        Level::new(
+            Coverage::Distribute(ComputeScope::Unit),
+            &[(axis, tile, Count::Dealt(units), Spread::Interleaved)],
+        )
     }
 
     /// The plane level over every tile of `tile`'s axes, each `(axis, tile)`, dealt to the planes
@@ -479,6 +501,7 @@ impl Level {
         match self.count(axis) {
             None => Some(1),
             Some(Count::Distributed(_)) => None,
+            Some(Count::Dealt(units)) => units.count(),
             Some(count) => match count.stated() {
                 Some(n) => Some(n),
                 None if !space.contains(axis) => None,

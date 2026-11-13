@@ -4,7 +4,8 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Axis, ComputeScope, Count, CubeAxis, Extent, Integer, IntegerExpand, Level, Space, Spread,
+    Axis, ComputeScope, Count, CubeAxis, Extent, FillUnits, Integer, IntegerExpand, Level, Space,
+    Spread,
 };
 
 /// One axis of a level: walked whole by every instance, or distributed over the level's scope.
@@ -43,9 +44,9 @@ pub(crate) enum Workers {
     Grid,
     /// This many workers, each taking a run of tiles ([`AllAcross`](Count::AllAcross)).
     Across(usize),
-    /// As many units as the launch runs a plane wide, taking the tiles in turns
-    /// ([`Distributed`](Count::Distributed)).
-    LaunchUnits,
+    /// These units, taking the tiles in turns: a plane's, as many as the launch runs
+    /// ([`Distributed`](Count::Distributed)), or a copy's ([`Dealt`](Count::Dealt)).
+    Units(FillUnits),
 }
 
 impl AxisDistribution {
@@ -74,7 +75,8 @@ impl AxisDistribution {
             spread: level.cut(axis).spread,
             workers: match level.cut(axis).count {
                 Count::AllAcross(workers) => Workers::Across(workers),
-                Count::Distributed(_) => Workers::LaunchUnits,
+                Count::Distributed(_) => Workers::Units(FillUnits::Plane { units: None }),
+                Count::Dealt(units) => Workers::Units(units),
                 Count::Stated(_) | Count::All => Workers::Grid,
             },
             divides: AxisDistribution::divides(level, space, axis),
@@ -98,6 +100,12 @@ impl AxisDistribution {
                 Extent::Dynamic => false,
             },
             Count::Distributed(_) => false,
+            Count::Dealt(units) => match (space.extent_raw(axis), units.count()) {
+                (Extent::Static(extent), Some(units)) => {
+                    extent.div_ceil(level.cut(axis).tile).is_multiple_of(units)
+                }
+                _ => false,
+            },
             Count::Stated(_) | Count::All => true,
         }
     }

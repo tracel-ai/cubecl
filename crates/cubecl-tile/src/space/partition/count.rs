@@ -1,6 +1,6 @@
 //! [`Count`]: how many tiles a level takes along one of its axes.
 
-use crate::Extent;
+use crate::{Extent, FillUnits};
 
 /// How many tiles a level takes along one of its axes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -13,6 +13,8 @@ pub(crate) enum Count {
     AllAcross(usize),
     /// This many tiles, taken in turns by however many units the launch runs.
     Distributed(usize),
+    /// Every tile, taken in turns by these units: a copy's lines.
+    Dealt(FillUnits),
 }
 
 /// What a walk counts along one axis of a level: a constant, or the extent handed down.
@@ -27,7 +29,7 @@ impl Count {
     pub(crate) fn stated(self) -> Option<usize> {
         match self {
             Count::Stated(n) | Count::AllAcross(n) => Some(n),
-            Count::All | Count::Distributed(_) => None,
+            Count::All | Count::Distributed(_) | Count::Dealt(_) => None,
         }
     }
 
@@ -35,7 +37,7 @@ impl Count {
     pub(crate) fn tiles(self, extent: usize, tile: usize) -> usize {
         match self {
             Count::Stated(n) | Count::Distributed(n) => n,
-            Count::All | Count::AllAcross(_) => extent.div_ceil(tile),
+            Count::All | Count::AllAcross(_) | Count::Dealt(_) => extent.div_ceil(tile),
         }
     }
 
@@ -52,7 +54,7 @@ impl Count {
     pub(crate) fn grid(self, tile: usize) -> GridCount {
         match self {
             Count::Stated(n) | Count::Distributed(n) => GridCount::Const(n),
-            Count::All | Count::AllAcross(_) => GridCount::Extent(tile),
+            Count::All | Count::AllAcross(_) | Count::Dealt(_) => GridCount::Extent(tile),
         }
     }
 }

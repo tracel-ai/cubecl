@@ -31,7 +31,7 @@ impl UnitShare {
         // Innermost first, so `weight` is the axis's stride in the unit index.
         let (mut weight, mut unit_bits) = (1usize, 0usize);
         for axis in level.axes().into_iter().rev() {
-            if let Count::Distributed(_) = level.cut(axis).count {
+            if let Count::Distributed(_) | Count::Dealt(_) = level.cut(axis).count {
                 match spanned.contains(axis) {
                     true => continue,
                     false => return UnitShare::Plane,

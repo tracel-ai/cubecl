@@ -5,13 +5,14 @@ use cubecl::unexpanded;
 
 use crate::dialect::LevelOp;
 use crate::{
-    Axis, ComputeScope, Coords, Integer, IntegerExpand, Level, Planes, Region, RegionExpand, Space,
-    StageOwner,
+    Axis, ComputeScope, Coords, FillUnits, Integer, IntegerExpand, Level, Planes, Region,
+    RegionExpand, Space, StageOwner,
 };
 
 use super::distribution::{AxisDistribution, Distribution, Workers};
 use super::launch_span::launch_tiles;
 use super::swizzled::{in_plane_axes, swizzled_positions};
+use crate::Count;
 use crate::Spread;
 use crate::space::partition::GridCount;
 
@@ -41,6 +42,10 @@ pub struct Walk {
     /// Whether iterating this walk unrolls.
     #[cube(comptime)]
     pub(crate) unroll: bool,
+    /// The steps every instance takes and the most any takes, where the host knows both though
+    /// not this instance's own: an unrolled walk writes the most out and guards the rest.
+    #[cube(comptime)]
+    pub(crate) bounds: Option<(usize, usize)>,
     /// The axis this walk steps a run along ([`Region::walk_within`]), where it steps nothing
     /// else and in order: every region but the last then lies inside the run.
     #[cube(comptime)]
@@ -87,6 +92,7 @@ impl Walk {
         // Computed whole, not accumulated, so a static walk can unroll.
         let steps = counts.product(comptime!((0..rank).collect::<Vec<_>>()));
 
+        let bounds = comptime!(Walk::bounds(&host, &level));
         Walk {
             tiles: grid,
             counts,
@@ -101,6 +107,7 @@ impl Walk {
             space: host,
             level,
             unroll: comptime!(false),
+            bounds,
             run: comptime!(None),
         }
     }
@@ -148,8 +155,8 @@ impl Walk {
                 AxisDistribution::Distributed(Distribution { workers, .. }) => {
                     match comptime!(workers) {
                         Workers::Across(workers) => instances.push(workers.runtime()),
-                        // The plane's width is the launch's, so it is read, not compiled in.
-                        Workers::LaunchUnits => instances.push(CUBE_DIM_X as usize),
+                        // A count the launch states is compiled in, any other read off it.
+                        Workers::Units(units) => instances.push(FillUnits::units(units)),
                         Workers::Grid => instances.push(grid.at(p)),
                     }
                 }
@@ -181,9 +188,10 @@ impl Walk {
                 }) => {
                     // Mixed-radix stride over the later same-dimension axes, spanned or not.
                     let inner_weight = instances.product(inner) * comptime!(unspanned).runtime();
-                    let position = match comptime!(joint) {
-                        Some(i) => swizzled.at(i),
-                        None => AxisDistribution::hardware(compute_scope, dim)
+                    let position = match comptime!((joint, workers)) {
+                        (Some(i), _) => swizzled.at(i),
+                        (None, Workers::Units(units)) => FillUnits::position(units),
+                        (None, _) => AxisDistribution::hardware(compute_scope, dim)
                             .divided_by(inner_weight)
                             .remainder(instances.at(p)),
                     };
@@ -192,7 +200,12 @@ impl Walk {
                             .at(p)
                             .plus(comptime!(workers - 1).runtime())
                             .divided_by(workers.runtime()),
-                        Workers::Grid | Workers::LaunchUnits => 1usize.runtime(),
+                        // Units taking turns, where the host proved the deal even, each take
+                        // every `instances`-th tile; elsewhere their count is reckoned per unit.
+                        Workers::Units(_) if divides => {
+                            grid.at(p).divided_by(instances.at(p))
+                        }
+                        Workers::Grid | Workers::Units(_) => 1usize.runtime(),
                     };
                     counts.push(AxisDistribution::tiles(
                         grid.at(p),
@@ -260,6 +273,7 @@ impl Walk {
             space: comptime!(self.space.clone()),
             level: comptime!(self.level.clone()),
             unroll: comptime!(self.unroll),
+            bounds: comptime!(None),
             run: comptime!(self.run),
         }
     }
@@ -281,6 +295,37 @@ impl Walk {
     /// The region count.
     pub fn total(&self) -> usize {
         self.steps
+    }
+
+    /// Whether this instance takes turn `t` of a bounded walk: a constant for a turn every
+    /// instance takes ([`takes`](Walk::takes) otherwise).
+    pub(crate) fn takes_turn(&self, #[comptime] t: usize) -> bool {
+        match comptime!(self.bounds) {
+            Some((sure, _)) if t >= sure => self.takes(t),
+            _ => true.runtime(),
+        }
+    }
+
+    /// Whether this instance takes step `i` of a bounded walk ([`bounds`](Walk::bounds)): whether
+    /// the tile it reaches along each dealt axis lies inside the axis's tiles.
+    pub(crate) fn takes(&self, i: usize) -> bool {
+        let p = comptime!(Walk::dealt_at(&self.space, &self.level));
+        self.tile_coord(self.step_coord(i, p), p) < self.tiles.at(p)
+    }
+
+    /// A walk over one dealt axis as a stride: this unit's first tile, the axis's tiles, and the
+    /// units that take them in turns.
+    #[allow(dead_code)] // Reached through its expand, from iterating a dealt walk.
+    pub(crate) fn stride(&self) -> (usize, usize, usize) {
+        (self.positions.at(0), self.tiles.at(0), self.scales.at(0))
+    }
+
+    /// The region of a walk over one dealt axis at that axis's tile `tile`.
+    #[allow(dead_code)] // Reached through its expand, from iterating a dealt walk.
+    pub(crate) fn dealt_region(&self, tile: usize) -> Region {
+        let mut coords = Coords::<u32>::new();
+        coords.push(tile.cast::<u32>());
+        self.parent.below(coords, &self.level)
     }
 
     /// This instance's position among those the level distributes axis `p` to, `0` for a walked
@@ -390,6 +435,31 @@ impl Iterable for WalkExpand {
     fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
         let start = 0usize.into_expand(scope);
         let total = self.__expand_total_method(scope);
+        // A bounded walk writes out its most steps, and guards those not every instance takes.
+        if let (true, None, Some((sure, most))) = (self.unroll, self.const_len(), self.bounds) {
+            for i in 0..most {
+                let step = i.into_expand(scope);
+                match i < sure {
+                    true => body(scope, self.__expand_region_method(scope, step)),
+                    false => {
+                        let taken = self.__expand_takes_method(scope, step);
+                        if_expand(scope, taken, |scope| {
+                            body(scope, self.__expand_region_method(scope, step))
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        // A copy's lines dealt in turns, not written out: stride from this unit's place, which is
+        // what taking every `n`-th line is, with no count of its own to reckon.
+        if !self.unroll && Walk::is_dealt(&self.space, &self.level) {
+            let (first, lines, units) = self.__expand_stride_method(scope);
+            range_stepped::expand(scope, first, lines, units).expand(scope, &mut |scope, tile| {
+                body(scope, self.__expand_dealt_region_method(scope, tile));
+            });
+            return;
+        }
         let range = RangeExpand::new(start, total);
         if self.unroll {
             range.expand_unroll(scope, &mut |scope, i| {
@@ -413,6 +483,42 @@ impl Iterable for WalkExpand {
     /// The region count when it is a constant, so a single region needs no loop.
     fn const_len(&self) -> Option<usize> {
         crate::algebra::constant(&self.steps).map(|n| n as usize)
+    }
+}
+
+impl Walk {
+    /// The position of the one axis `level` deals to a copy's units ([`Count::Dealt`]): a dealt
+    /// level cuts that axis alone ([`Level::dealt`]).
+    fn dealt_at(space: &Space, level: &Level) -> usize {
+        (0..space.rank())
+            .find(|&p| matches!(level.count(space.axis_at(p)), Some(Count::Dealt(_))))
+            .expect("Walk: only a walk over a dealt axis guards its turns")
+    }
+
+    /// Whether this walk is a copy's lines dealt in turns ([`Level::dealt`]) over a space of that
+    /// one axis: walked as a stride from this unit's place, not counted through its steps.
+    fn is_dealt(space: &Space, level: &Level) -> bool {
+        space.rank() == 1 && matches!(level.count(space.axis_at(0)), Some(Count::Dealt(_)))
+    }
+
+    /// The steps every instance of `level` over `space` takes and the most any takes, where they
+    /// differ only by how a dealt axis splits among its units and the host knows both: the one
+    /// walk whose instance's step count is not a constant but is bounded by one.
+    fn bounds(space: &Space, level: &Level) -> Option<(usize, usize)> {
+        let mut bounds = (1usize, 1usize);
+        for axis in space.axes() {
+            let tiles = level.tiles_const(space, axis)?;
+            let (sure, most) = match level.count(axis) {
+                Some(Count::Dealt(units)) => {
+                    let units = units.count()?;
+                    (tiles / units, tiles.div_ceil(units))
+                }
+                _ if level.distributes(axis) => return None,
+                _ => (tiles, tiles),
+            };
+            bounds = (bounds.0 * sure, bounds.1 * most);
+        }
+        (bounds.0 != bounds.1).then_some(bounds)
     }
 }
 
@@ -477,5 +583,32 @@ impl WalkExpand {
 
     pub(crate) fn depth(&self) -> usize {
         self.parent.path.depth() + 1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LINE: Axis = Axis(0);
+
+    fn bounds(lines: usize, units: FillUnits) -> Option<(usize, usize)> {
+        Walk::bounds(&Space::new(&[(LINE, lines)]), &Level::dealt(LINE, 1, units))
+    }
+
+    /// Lines dealt to a known count of units that does not divide them: every unit takes the
+    /// whole turns, some one more.
+    #[test]
+    fn a_ragged_deal_is_bounded_by_its_whole_and_its_last_turn() {
+        assert_eq!(bounds(200, FillUnits::cube(64)), Some((3, 4)));
+        assert_eq!(bounds(1, FillUnits::cube(64)), Some((0, 1)));
+    }
+
+    /// An even deal takes a constant count, and an unknown count of units bounds nothing.
+    #[test]
+    fn an_even_or_unknown_deal_has_no_bounds() {
+        assert_eq!(bounds(256, FillUnits::cube(64)), None);
+        assert_eq!(bounds(256, FillUnits::cube(0)), None);
+        assert_eq!(bounds(256, FillUnits::Fillers { planes: 1 }), None);
     }
 }

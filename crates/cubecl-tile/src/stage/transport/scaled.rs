@@ -66,47 +66,17 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
-        // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
-        // runtime stride stalls each store on Metal's in-order pipe.
-        if units > 0 && loads.div_ceil(units) <= 8 {
-            #[unroll]
-            for t in 0..loads.div_ceil(units) {
-                let line = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if (t + 1) * units <= loads {
-                    src.decode_load_into::<S, O, I, WP, VW>(
-                        &stored,
-                        &mut out,
-                        line,
-                        &dst,
-                        lands.clone(),
-                    );
-                } else {
-                    if line < comptime!(loads as u32) {
-                        src.decode_load_into::<S, O, I, WP, VW>(
-                            &stored,
-                            &mut out,
-                            line,
-                            &dst,
-                            lands.clone(),
-                        );
-                    }
-                }
-            }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for line in range_stepped(first, comptime!(loads as u32), stride) {
-                src.decode_load_into::<S, O, I, WP, VW>(
-                    &stored,
-                    &mut out,
-                    line,
-                    &dst,
-                    lands.clone(),
-                );
-            }
+        // The loads dealt to the units that fill, as a straight fill's lines are.
+        for dealt in FillUnits::deal(fill, comptime!(loads).runtime()) {
+            src.decode_load_into::<S, O, I, WP, VW>(
+                &stored,
+                &mut out,
+                FillUnits::line(&dealt) as u32,
+                &dst,
+                lands.clone(),
+            );
         }
     }
 

@@ -24,7 +24,7 @@ pub(crate) struct TmaData {
     layout: VirtualLayout<CoordsDyn, Sequence<i32>>,
     pos: CoordsDyn,
     pub(crate) bound: CoordsDyn,
-    /// The launch's cube size, `0` when unknown ([`FillUnits::count`](crate::FillUnits)).
+    /// The launch's cube size, `0` when unknown ([`TileSpec::units`](crate::TileSpec)).
     #[cube(comptime)]
     pub(crate) units: usize,
     /// How the values sit in the cells the descriptor moves.

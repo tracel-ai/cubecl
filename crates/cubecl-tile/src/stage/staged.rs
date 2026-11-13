@@ -44,13 +44,11 @@ impl Memory {
         let fill = comptime!(self.access.fill);
         let mut dst = self.flat_mut::<T, Const<1>>();
         let total = dst.shape();
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
+        for line in FillUnits::deal(fill, total) {
+            let i = FillUnits::line(&line);
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
             dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));
-            i += stride;
         }
     }
 

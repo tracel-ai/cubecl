@@ -24,9 +24,10 @@ use crate::*;
 const COPY_BYTES: [usize; 3] = [4, 8, 16];
 
 /// [`fill_lines`](super::straight::fill_lines) with every line handed to the copy engine: the
-/// same lines per unit on the same schedule, numbered in the source's order ([`BufferLayout::row_major_coords`]).
+/// same lines per unit, dealt the same way, numbered in the source's order
+/// ([`BufferLayout::row_major_coords`]).
 ///
-/// A schedule of its own rather than an arm of `fill_lines`: the copy reads and writes lines of
+/// A copy of its own rather than an arm of `fill_lines`: the copy reads and writes lines of
 /// one width, which `fill_lines`, generic over a source served narrower, cannot hand it.
 #[cube]
 pub(crate) fn fill_lines_async<I2: Numeric, W: Size>(
@@ -34,9 +35,7 @@ pub(crate) fn fill_lines_async<I2: Numeric, W: Size>(
     s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
     layout: &BufferLayout,
     total: usize,
-    #[comptime] total_c: Option<u64>,
     #[comptime] fill: FillUnits,
-    #[comptime] straight: bool,
 ) {
     // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic and
     // `value` is not expanded at all.
@@ -48,27 +47,8 @@ pub(crate) fn fill_lines_async<I2: Numeric, W: Size>(
         "fill_lines_async: the copy engine moves 4, 8 or 16 bytes at once, and this stage's lines \
          are {bytes}: serve the operand in lines one copy moves"
     ));
-    if straight {
-        let units = fill.count;
-        let tasks = comptime!((total_c.unwrap() as usize).div_ceil(units));
-        #[unroll]
-        for t in 0..tasks {
-            let i = FillUnits::worker(fill) + (t * units);
-            if comptime!((t + 1) * units > total_c.unwrap() as usize) {
-                if i < total {
-                    copy_line_async::<I2, W>(d, s, layout, i);
-                }
-            } else {
-                copy_line_async::<I2, W>(d, s, layout, i);
-            }
-        }
-    } else {
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
-            copy_line_async::<I2, W>(d, s, layout, i);
-            i += stride;
-        }
+    for line in FillUnits::deal(fill, total) {
+        copy_line_async::<I2, W>(d, s, layout, FillUnits::line(&line));
     }
 }
 
@@ -107,7 +87,7 @@ impl Memory {
             // The wait is the cube's: a stage one plane fills on its own would leave the others'
             // arrivals missing.
             comptime!(assert!(
-                self.access.fill.scope == ComputeScope::Cube,
+                self.access.fill.scope() == ComputeScope::Cube,
                 "Tile::copy_from: an async copy into a stage waits on a barrier the whole cube \
                  arrives at, and this stage is filled by one plane"
             ));
