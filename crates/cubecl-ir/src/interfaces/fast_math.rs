@@ -5,8 +5,7 @@ use pliron::{
     combine::{Parser, many1, satisfy},
     dict_key, input_err,
     irfmt::parsers::delimited_list_parser,
-    location::Located,
-    parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
+    parsable::{IntoParseResult, Parsable, ParseResult, StateStream, StreamLocation},
     printable::{self, Printable},
 };
 

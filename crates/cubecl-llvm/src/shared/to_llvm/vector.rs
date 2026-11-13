@@ -223,8 +223,8 @@ impl ToLLVMDialect for vector::FSumOp {
             .fast_math(ctx)
             .is_some_and(|fast_math| !fast_math.contains(FastMath::UnsignedZero));
         let start = if keeps_zero_sign { -0.0 } else { 0.0 };
-        let attr =
-            float_attr(ctx, res_ty, start).unwrap_or_else(|| FPSingleAttr::from(start).into());
+        let attr = float_attr(ctx, res_ty, start)
+            .unwrap_or_else(|| FPSingleAttr::from(start as f32).into());
         let attr = boxed_attr_cast(attr).unwrap();
 
         let res_ty = cube_type_to_llvm(ctx, res_ty);
