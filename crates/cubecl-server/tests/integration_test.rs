@@ -10,8 +10,9 @@ use cubecl_ir::{ElemType, FloatKind, UIntKind};
 use cubecl_server::benchmark::CommunicationSkipGuard;
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::logging::{
-    CollectivePath, Communication, Execution, ExecutionKind, ExecutionObservation,
-    ExecutionObserver, ExecutionPlace, ExecutionScope, StreamRole, TransferRoute,
+    CollectivePath, Communication, Execution, ExecutionId, ExecutionKind, ExecutionObservation,
+    ExecutionObserver, ExecutionPlace, ExecutionScope, Measurement, ProfileDuration, StreamRole,
+    Timed, TimingMethod, TimingRequest, TransferRoute, WaitTarget,
 };
 use cubecl_server::server::{
     Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
@@ -594,8 +595,6 @@ fn execute_elementwise_addition() {
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_server::logging::{Measurement, TimingRequest};
-
     #[derive(Default)]
     struct WantsTiming {
         launched: std::sync::Mutex<Vec<&'static str>>,
@@ -827,6 +826,144 @@ fn a_members_part_takes_the_scope_open_on_its_thread_as_its_parent() {
     assert_parts_of(collective, parts, &devices, StreamRole::Collective);
 }
 
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn timed_communications_time_each_part_of_a_group_collective_and_its_wait() {
+    let (group, devices) = transported_group_on([76, 77]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, members @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    let (parts, waits): (Vec<_>, Vec<_>) = members.chunks(2).map(|it| (&it[0], &it[1])).unzip();
+    assert_parts_of(
+        collective,
+        &parts.iter().copied().cloned().collect::<Vec<_>>(),
+        &devices,
+        StreamRole::Collective,
+    );
+    for ((part, wait), device) in parts.iter().zip(&waits).zip(&devices) {
+        assert_eq!(wait.parent, Some(collective.id));
+        assert!(
+            matches!(
+                wait.kind,
+                ExecutionKind::Wait {
+                    place: ExecutionPlace { service, stream: StreamRole::Compute(_) },
+                    awaits: WaitTarget::Part(awaited),
+                } if service.device == *device && awaited == part.id
+            ),
+            "{wait:?}"
+        );
+    }
+    let timed: Vec<_> = members.iter().map(|it| it.id).collect();
+    assert_eq!(recorded.measured(), timed, "each part and wait, read back");
+    for client in group.clients() {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        assert_eq!(timed_collective_parts(client.service_id()), 1);
+    }
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn kernels_only_issue_no_wait_and_time_no_part() {
+    let (group, devices) = transported_group_on([78, 79]);
+    let recorded = Recorded::timing(&devices, TimingRequest::Deferred(Timed::Kernels));
+
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
+    assert!(
+        !kinds
+            .iter()
+            .any(|kind| matches!(kind, ExecutionKind::Wait { .. })),
+        "{kinds:?}"
+    );
+    assert!(recorded.measured().is_empty());
+    for client in group.clients() {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        assert_eq!(collective_parts(client.service_id()), 2);
+        assert_eq!(timed_collective_parts(client.service_id()), 0);
+    }
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_sync_collective_waits_for_the_queued_collectives() {
+    let (group, devices) = transported_group_on([80, 81]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+    let mut client = group.clients()[0].clone();
+    let (src, dst) = (client.empty(8), client.empty(8));
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    client.all_reduce(src, dst, F32, devices.clone(), ReduceOperation::Sum);
+    client.sync_collective();
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [_collective, part, wait] = issued.as_slice() else {
+        panic!("issued {issued:?}");
+    };
+    assert!(matches!(part.kind, ExecutionKind::Part { .. }), "{part:?}");
+    assert_eq!(wait.parent, None);
+    assert!(
+        matches!(
+            wait.kind,
+            ExecutionKind::Wait {
+                awaits: WaitTarget::QueuedCollectives,
+                ..
+            }
+        ),
+        "{wait:?}"
+    );
+    assert_eq!(recorded.measured(), [part.id, wait.id]);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn timed_communications_time_a_host_staged_transfer_on_the_host() {
+    let devices = [DeviceId::new(0, 82), DeviceId::new(0, 83)];
+    let mut source = Client::load::<DummyServer>(devices[0]);
+    let destination = Client::load::<DummyServer>(devices[1]);
+    let sent = source.create_from_slice(&[1u8, 2, 3, 4]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    source.to_client(sent, &destination);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [transfer] = issued.as_slice() else {
+        panic!("issued {issued:?}");
+    };
+    assert!(matches!(
+        transfer.kind,
+        ExecutionKind::Communication(Communication::Transfer {
+            route: TransferRoute::Host,
+            ..
+        })
+    ));
+    assert_eq!(recorded.measured(), [transfer.id]);
+    assert_eq!(*recorded.methods.lock().unwrap(), [TimingMethod::System]);
+}
+
 /// Two clients of a runtime that claims a transport, on devices no other test uses: the observer
 /// is process-wide, and tests running beside this one issue their own executions.
 fn transported_group_on(indices: [u16; 2]) -> (ClientGroup, Vec<DeviceId>) {
@@ -862,22 +999,48 @@ fn assert_parts_of(
     assert_eq!(places, expected);
 }
 
-/// Every execution issued on some devices, in issue order.
+/// Every execution issued on some devices, in issue order, and the measurements they were handed.
 struct Recorded {
     devices: Vec<DeviceId>,
+    timing: TimingRequest,
     issued: std::sync::Mutex<Vec<Execution>>,
+    unread: std::sync::Mutex<Vec<(ExecutionId, ProfileDuration)>>,
+    methods: std::sync::Mutex<Vec<TimingMethod>>,
 }
 
 impl Recorded {
     fn on(devices: &[DeviceId]) -> Arc<Self> {
+        Self::timing(devices, TimingRequest::None)
+    }
+
+    fn timing(devices: &[DeviceId], timing: TimingRequest) -> Arc<Self> {
         Arc::new(Self {
             devices: devices.to_vec(),
+            timing,
             issued: Default::default(),
+            unread: Default::default(),
+            methods: Default::default(),
         })
     }
 
     fn issued(&self) -> Vec<Execution> {
         self.issued.lock().unwrap().clone()
+    }
+
+    /// The executions whose measurement was handed over unread and reads back, in that order.
+    fn measured(&self) -> Vec<ExecutionId> {
+        std::mem::take(&mut *self.unread.lock().unwrap())
+            .into_iter()
+            .map(|(id, measurement)| {
+                self.methods
+                    .lock()
+                    .unwrap()
+                    .push(measurement.timing_method());
+                cubecl_environment::future::block_on(measurement.resolve())
+                    .unwrap_or_else(|| panic!("{id:?} read back empty"));
+                id
+            })
+            .collect()
     }
 
     fn touches(&self, kind: &ExecutionKind) -> bool {
@@ -900,6 +1063,21 @@ impl ExecutionObserver for Recorded {
     fn issued(&self, execution: &Execution) {
         if self.touches(&execution.kind) {
             self.issued.lock().unwrap().push(execution.clone());
+        }
+    }
+
+    fn timing(&self) -> TimingRequest {
+        self.timing
+    }
+
+    fn measured(&self, execution: &Execution, measurement: Measurement) {
+        if let Measurement::Unread(measurement) = measurement
+            && self.touches(&execution.kind)
+        {
+            self.unread
+                .lock()
+                .unwrap()
+                .push((execution.id, measurement));
         }
     }
 }

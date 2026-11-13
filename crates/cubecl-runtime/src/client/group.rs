@@ -2,7 +2,7 @@
 //! once, or by each member for itself.
 
 use super::{Client, PEER_ORDER};
-use crate::logging::{CollectivePath, StreamRole};
+use crate::logging::CollectivePath;
 use crate::server::{
     Collective, CollectiveBuffer, ComputeWait, DeviceTransport, Handle, Overlap, ReduceOperation,
     Reduction, Server,
@@ -375,7 +375,6 @@ impl ClientGroup {
         );
         let _order = PEER_ORDER.lock();
         for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
-            client.issue_part(StreamRole::Collective);
             queue_part(member, client, part, self.device_ids.clone());
         }
         // A part waits in its client's queue until flushed, and a member blocked reading its
@@ -433,7 +432,6 @@ impl GroupMember {
             return;
         }
         let client = &self.group.clients[self.rank];
-        client.issue_part(StreamRole::Collective);
         exchange.queue(client, buffers, self.group.device_ids.clone());
         client.device.flush_queue();
     }
