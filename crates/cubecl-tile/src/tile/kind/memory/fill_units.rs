@@ -16,7 +16,8 @@ const MOST_UNROLLED_TURNS: usize = 8;
 /// plane owns and fills alone ([`Stages::smem`](crate::Stages::smem)).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct FillUnits {
-    /// Whose units they are: the cube's, or one plane's.
+    /// Whose units they are: the cube's, or one plane's. Not who issues one move, which the
+    /// delivery says ([`Delivery::issuer`](crate::Delivery::issuer)).
     pub scope: ComputeScope,
     /// How many there are, `0` when unknown: a stage filled from this tile emits its fill
     /// straight-line when it knows. The launch's cube size, or one plane's width.

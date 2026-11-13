@@ -102,7 +102,7 @@ impl Tile {
             TileKind::PlaneTile(_) | TileKind::PlanePartition(_) => {
                 panic!("Tile::delivery: a resident fragment is not a stage source")
             }
-            TileKind::Procedural(_) | TileKind::Lines(_) => comptime!(Delivery::Procedural),
+            TileKind::Procedural(_) | TileKind::Lines(_) => comptime!(Delivery::SyncPerUnit),
         }
     }
 

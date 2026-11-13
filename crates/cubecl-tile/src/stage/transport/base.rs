@@ -55,7 +55,7 @@ impl TransportKind {
         let kind = Self::choose(dst, src, access, space);
         match src.delivery {
             Delivery::AsyncPerUnit => kind.refuse_async(dst, src),
-            Delivery::SyncPerUnit | Delivery::Tma | Delivery::Procedural => {}
+            Delivery::SyncPerUnit | Delivery::Tma => {}
         }
         kind
     }

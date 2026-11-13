@@ -65,7 +65,7 @@ impl Rendezvous {
     pub(crate) fn collective_full(deliveries: &[Delivery]) -> bool {
         deliveries
             .iter()
-            .any(|delivery| delivery.scope() == ComputeScope::Unit)
+            .any(|delivery| delivery.issuer() == ComputeScope::Unit)
     }
 
     /// Whether a barrier slot's units copy asynchronously, which `full` must track before it flips.
@@ -302,25 +302,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn procedural_and_strided_share_a_cube_pipeline() {
+    fn the_units_own_stores_meet_on_the_cube() {
         assert_eq!(
-            Rendezvous::for_deliveries(
-                &[Delivery::Procedural, Delivery::SyncPerUnit],
-                0,
-                StageOwner::CUBE
-            ),
+            Rendezvous::for_deliveries(&[Delivery::SyncPerUnit], 0, StageOwner::CUBE),
             Rendezvous::Cube
         );
     }
 
     #[test]
-    fn procedural_and_tma_share_a_barrier_pipeline() {
+    fn the_units_beside_tma_meet_on_a_barrier() {
         assert_eq!(
-            Rendezvous::for_deliveries(&[Delivery::Procedural, Delivery::Tma], 0, StageOwner::CUBE),
+            Rendezvous::for_deliveries(
+                &[Delivery::SyncPerUnit, Delivery::Tma],
+                0,
+                StageOwner::CUBE
+            ),
             Rendezvous::Barrier
         );
         assert!(Rendezvous::collective_full(&[
-            Delivery::Procedural,
+            Delivery::SyncPerUnit,
             Delivery::Tma
         ]));
     }
@@ -349,10 +349,7 @@ mod tests {
         assert!(Rendezvous::fences(&[Delivery::Tma]));
         assert!(Rendezvous::fences(&[Delivery::SyncPerUnit, Delivery::Tma]));
         assert!(!Rendezvous::fences(&[Delivery::AsyncPerUnit]));
-        assert!(!Rendezvous::fences(&[
-            Delivery::SyncPerUnit,
-            Delivery::Procedural
-        ]));
+        assert!(!Rendezvous::fences(&[Delivery::SyncPerUnit]));
     }
 
     #[test]
@@ -373,7 +370,7 @@ mod tests {
     fn a_planes_own_stage_rendezvouses_on_the_plane() {
         let owner = StageOwner::Plane { planes: 4 };
         assert_eq!(
-            Rendezvous::for_deliveries(&[Delivery::Procedural, Delivery::SyncPerUnit], 0, owner),
+            Rendezvous::for_deliveries(&[Delivery::SyncPerUnit], 0, owner),
             Rendezvous::Plane
         );
     }

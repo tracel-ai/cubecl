@@ -1,8 +1,8 @@
-//! How an operand's bytes reach a stage ([`Delivery`]): who issues each move ([`scope`]), the order
+//! How an operand's bytes reach a stage ([`Delivery`]): who issues each move ([`issuer`]), the order
 //! its units walk the stage's lines in ([`order`]), and when what it moved has landed
 //! ([`landing`]).
 //!
-//! [`scope`]: Delivery::scope
+//! [`issuer`]: Delivery::issuer
 //! [`order`]: Delivery::order
 //! [`landing`]: Delivery::landing
 
@@ -14,8 +14,8 @@ use crate::{ComputeScope, Refusal, Rendezvous, Space};
 /// How an operand's bytes reach a stage filled from it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Delivery {
-    /// Every unit loads its own lines and stores them, through its registers: landed when the fill
-    /// returns, and a line can be decoded on its way.
+    /// Every unit writes its own lines through its registers, loaded from the source or computed
+    /// from their coordinates: landed when the fill returns, and a line can be decoded on its way.
     #[default]
     SyncPerUnit,
     /// Every unit hands its own lines to the copy engine (`cp.async`), memory to memory: they land
@@ -25,9 +25,6 @@ pub enum Delivery {
     /// (`cp.async.bulk.tensor`): it lands after the fill returns, counted in bytes on the slot's
     /// barrier.
     Tma,
-    /// Every unit computes its values from their coordinates: nothing is read, and the stage
-    /// holds them when the fill returns.
-    Procedural,
 }
 
 /// When what a delivery moved has landed in its stage.
@@ -49,9 +46,12 @@ pub(crate) enum LineOrder {
     /// delivery through the units' registers reads through the cache, which gathers the lines a
     /// warp reads from several rows back into whole transactions.
     Destination,
-    /// The source's order: neighbouring units read neighbouring source lines. A delivery that
-    /// bypasses the cache reads exactly the transactions its units' lines fall in, so it reads
-    /// the source as it lies.
+    /// The window's logical order, row-major over its logical axes: neighbouring units read
+    /// neighbouring source lines where the source lays those axes out row-major, which is what a
+    /// delivery that bypasses the cache wants, since it reads exactly the transactions its
+    /// units' lines fall in. A source storage-tiled into blocks of its own, or permuted, is not
+    /// walked in its physical order: its units' lines still land right, but a warp's reads
+    /// scatter across its blocks.
     Source,
 }
 
@@ -71,7 +71,7 @@ impl Delivery {
     /// Whether this delivery moves `stage` in one transfer, and why not where it cannot.
     pub fn moves(self, stage: &Space) -> Result<(), Refusal> {
         match self {
-            Delivery::SyncPerUnit | Delivery::AsyncPerUnit | Delivery::Procedural => Ok(()),
+            Delivery::SyncPerUnit | Delivery::AsyncPerUnit => Ok(()),
             Delivery::Tma => match stage
                 .extents()
                 .into_iter()
@@ -92,7 +92,7 @@ impl Delivery {
     pub fn runs_on(self, device: &DeviceProperties) -> Result<(), Refusal> {
         let barriers = device.features.types.opaque.contains(&OpaqueType::Barrier);
         let engine = match self {
-            Delivery::SyncPerUnit | Delivery::Procedural => return Ok(()),
+            Delivery::SyncPerUnit => return Ok(()),
             Delivery::AsyncPerUnit => device.features.copy_async,
             Delivery::Tma => device.features.tma.contains(Tma::Base),
         };
@@ -114,16 +114,13 @@ impl Delivery {
     }
 
     /// Whether this delivery moves lines `bits` long whole: the copy engine moves 4, 8 or 16
-    /// bytes at once ([`COPY_ENGINE_LINE_BYTES`]).
+    /// bytes at once.
     pub fn moves_lines(self, bits: usize) -> Result<(), Refusal> {
         match self {
             Delivery::AsyncPerUnit if !COPY_ENGINE_LINE_BYTES.iter().any(|&b| b * 8 == bits) => {
                 Err(Refusal::LineNotCopied { bits })
             }
-            Delivery::SyncPerUnit
-            | Delivery::AsyncPerUnit
-            | Delivery::Tma
-            | Delivery::Procedural => Ok(()),
+            Delivery::SyncPerUnit | Delivery::AsyncPerUnit | Delivery::Tma => Ok(()),
         }
     }
 
@@ -131,13 +128,13 @@ impl Delivery {
         matches!(self, Delivery::Tma)
     }
 
-    /// Who issues one move: each unit its own lines ([`Unit`](ComputeScope::Unit)), or one elected
-    /// unit the whole stage of the cube that owns it ([`Cube`](ComputeScope::Cube)).
-    pub(crate) fn scope(self) -> ComputeScope {
+    /// Who issues one move, the granularity the engine moves at: each unit its own lines
+    /// ([`Unit`](ComputeScope::Unit)), or one elected unit the whole stage of the cube that owns
+    /// it ([`Cube`](ComputeScope::Cube)). Not which units share the fill, which the stage's
+    /// [`FillUnits`](crate::FillUnits) says.
+    pub(crate) fn issuer(self) -> ComputeScope {
         match self {
-            Delivery::SyncPerUnit | Delivery::AsyncPerUnit | Delivery::Procedural => {
-                ComputeScope::Unit
-            }
+            Delivery::SyncPerUnit | Delivery::AsyncPerUnit => ComputeScope::Unit,
             Delivery::Tma => ComputeScope::Cube,
         }
     }
@@ -146,7 +143,7 @@ impl Delivery {
     /// a delivery one unit issues as a box.
     pub(crate) fn order(self) -> Option<LineOrder> {
         match self {
-            Delivery::SyncPerUnit | Delivery::Procedural => Some(LineOrder::Destination),
+            Delivery::SyncPerUnit => Some(LineOrder::Destination),
             Delivery::AsyncPerUnit => Some(LineOrder::Source),
             Delivery::Tma => None,
         }
@@ -155,7 +152,7 @@ impl Delivery {
     /// When what this delivery moved has landed in the stage.
     pub(crate) fn landing(self) -> Landing {
         match self {
-            Delivery::SyncPerUnit | Delivery::Procedural => Landing::OnReturn,
+            Delivery::SyncPerUnit => Landing::OnReturn,
             Delivery::AsyncPerUnit => Landing::Arrivals,
             Delivery::Tma => Landing::Bytes,
         }
@@ -223,14 +220,10 @@ mod tests {
 
     #[test]
     fn the_units_issue_their_own_lines_and_tma_the_whole_stage() {
-        for delivery in [
-            Delivery::SyncPerUnit,
-            Delivery::AsyncPerUnit,
-            Delivery::Procedural,
-        ] {
-            assert_eq!(delivery.scope(), ComputeScope::Unit, "{delivery:?}");
+        for delivery in [Delivery::SyncPerUnit, Delivery::AsyncPerUnit] {
+            assert_eq!(delivery.issuer(), ComputeScope::Unit, "{delivery:?}");
         }
-        assert_eq!(Delivery::Tma.scope(), ComputeScope::Cube);
+        assert_eq!(Delivery::Tma.issuer(), ComputeScope::Cube);
         assert_eq!(Delivery::Tma.order(), None);
     }
 
@@ -240,13 +233,11 @@ mod tests {
     fn the_copy_engine_walks_the_source_and_the_units_the_destination() {
         assert_eq!(Delivery::AsyncPerUnit.order(), Some(LineOrder::Source));
         assert_eq!(Delivery::SyncPerUnit.order(), Some(LineOrder::Destination));
-        assert_eq!(Delivery::Procedural.order(), Some(LineOrder::Destination));
     }
 
     #[test]
     fn only_the_units_land_their_lines_when_the_fill_returns() {
         assert_eq!(Delivery::SyncPerUnit.landing(), Landing::OnReturn);
-        assert_eq!(Delivery::Procedural.landing(), Landing::OnReturn);
         assert_eq!(Delivery::AsyncPerUnit.landing(), Landing::Arrivals);
         assert_eq!(Delivery::Tma.landing(), Landing::Bytes);
         assert_eq!(Delivery::SyncPerUnit.rendezvous(), Rendezvous::Cube);
@@ -256,9 +247,7 @@ mod tests {
     #[test]
     fn an_engine_runs_where_the_device_has_it_and_a_barrier() {
         let (bare, engines) = (bare(), engines());
-        for delivery in [Delivery::SyncPerUnit, Delivery::Procedural] {
-            assert_eq!(delivery.runs_on(&bare), Ok(()));
-        }
+        assert_eq!(Delivery::SyncPerUnit.runs_on(&bare), Ok(()));
         for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
             assert_eq!(
                 delivery.runs_on(&bare),

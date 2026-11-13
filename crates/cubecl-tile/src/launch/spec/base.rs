@@ -106,13 +106,11 @@ impl TileSpec {
     ///
     /// # Panics
     ///
-    /// [`Tma`](Delivery::Tma), which moves a tensor map rather than a tensor, and
-    /// [`Procedural`](Delivery::Procedural), which moves nothing.
+    /// [`Tma`](Delivery::Tma), which moves a tensor map rather than a tensor.
     pub fn delivery(mut self, delivery: Delivery) -> Self {
         assert!(
             matches!(delivery, Delivery::SyncPerUnit | Delivery::AsyncPerUnit),
-            "TileSpec::delivery: a tensor is moved per unit; {delivery:?} is a tensor map's or a \
-             coordinate tile's"
+            "TileSpec::delivery: a tensor is moved per unit; {delivery:?} is a tensor map's"
         );
         self.delivery = delivery;
         self

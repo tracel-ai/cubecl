@@ -86,7 +86,7 @@ impl Paging {
         if !projection.is_direct() || projection.is_tiled() || !stored_tiles.is_empty() {
             return Err(Refusal::PagingOfAStatedLayout);
         }
-        if delivery.scope() != ComputeScope::Unit {
+        if delivery.issuer() != ComputeScope::Unit {
             return Err(Refusal::PagingMovedByRuns);
         }
         let (sequence, _) = self.dims(projection)?;
