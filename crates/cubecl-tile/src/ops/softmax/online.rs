@@ -73,8 +73,11 @@ impl<E: Float> OnlineSoftmax<E> {
     /// anything summed against the earlier blocks is multiplied by ([`AxisSlices::mul`]).
     ///
     /// A `score` that carries a per-tensor factor, taken out of an operand it was summed over
-    /// ([`Tile::factor`]) and put back on it ([`Tile::scaled`]), is read under it: the factor
-    /// multiplies `scale`, so a key cache scaled per tensor costs the softmax nothing.
+    /// ([`Tile::factor`]) and put back on it ([`Tile::scaled`]), is read under it: the factor,
+    /// positive as `scale` is, multiplies `scale`, so a key cache scaled per tensor costs the
+    /// softmax nothing. The probabilities it leaves are whole, so read them from the tile
+    /// [`Tile::scaled`] was called on, not from the one it returned, which would apply the factor
+    /// again.
     ///
     /// `bias` is a procedural tile windowed to the same region as `score`. A masked cell's bias is
     /// `E::min_value()`; a slice whose every cell so far is masked holds zeros and a zero sum. A
@@ -84,8 +87,6 @@ impl<E: Float> OnlineSoftmax<E> {
     /// unit of the plane calls it, and the caller meets the plane before it and before the
     /// probabilities are read.
     pub fn step(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
-        // A score summed over operands whose scales it took out (`Tile::factor`) carries them
-        // (`Tile::scaled`): one per tensor, positive, which multiplies `scale` once.
         let scaled = score.factor.scaled();
         let scale = if comptime!(scaled) {
             scale * E::cast_from(score.factor.whole())
