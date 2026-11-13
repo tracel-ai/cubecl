@@ -846,7 +846,7 @@ mod tests {
 
     /// A product on held cells reads a run of them as each call's `A`: at the held cells' rows,
     /// its leaf's own depth where the device offers it, else the deepest run that cuts the leaf,
-    /// which the tile walks. A held `16 × 8` cell on sm_80 is read two at a time by `16 × 8 × 16`.
+    /// which the tile walks. A held `16 × 8` cell on `sm_80` is read two at a time by `16 × 8 × 16`.
     #[test]
     fn a_product_on_held_cells_reads_runs_of_them() {
         let held = |cell| FragmentSource::Fragments {
