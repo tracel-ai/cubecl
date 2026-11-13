@@ -131,12 +131,20 @@ impl RegisterData {
     ///
     /// Every cell of `lhs` is a whole value, whatever it summed: a block that summed runs of its
     /// contraction into its cells is one value wide. This block's lines are neighbours along the
-    /// columns `rhs` is lined along.
+    /// columns `rhs` is lined along. `rhs` is read as its values lie: values under scales are
+    /// refused, since the contraction would read them without.
     pub(crate) fn mma_block<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,
         lhs: &RegisterData,
         rhs: &Tile,
     ) {
+        let scaled = rhs.factor.scaled();
+        if comptime!(scaled) {
+            panic!(
+                "RegisterData::mma_block: the rhs carries scales this contraction would read \
+                 without; take them out (`Tile::factor`) and apply them to the sum (`Tile::scaled`)"
+            )
+        }
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma_block"));
         register_block_size(self.vector_size);
