@@ -343,7 +343,7 @@ impl Tile {
         let p = comptime!(placed_dim(&memory.projection, axis).unwrap());
         let zero =
             comptime!(memory.window.boundaries.get(p).copied().flatten() == Some(Boundary::Zero));
-        if comptime!(zero) {
+        if zero {
             coord
         } else {
             coord.min_with(memory.window.bound.at(p).max_with(1u32).minus(1u32))
@@ -439,7 +439,7 @@ fn with_extent(space: &Space, #[comptime] p: usize, extent: usize) -> Space {
             sizes.push(space.runtime_extent_at(i));
         }
     }
-    Space::with_sizes(comptime!(space.clone()), sizes)
+    Space::with_sizes(&comptime!(space.clone()), sizes)
 }
 
 impl TileExpand {

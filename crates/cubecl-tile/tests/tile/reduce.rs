@@ -72,7 +72,7 @@ fn reduce_body<E: Numeric>(
 ) {
     output.init::<E>(Monoid::identity::<E>(monoid));
     let walk = space.over(&level);
-    match comptime!(read) {
+    match read {
         Read::InPlace => {
             for region in walk {
                 let mut out_region = output.at(&region);
@@ -103,14 +103,7 @@ fn reduce_kernel<E: Numeric>(
 ) {
     let input = input.tile(&space);
     let mut output = output.tile(&space);
-    reduce_body::<E>(
-        &input,
-        &mut output,
-        &space,
-        comptime!(level.clone()),
-        read,
-        monoid,
-    );
+    reduce_body::<E>(&input, &mut output, &space, level.clone(), read, monoid);
 }
 
 /// Reduce an axis-index recipe so a trailing partial tile must be masked without a backing window.
@@ -138,7 +131,7 @@ fn procedural_reduce_kernel<E: Float>(
         &input,
         &mut output,
         &space,
-        comptime!(level.clone()),
+        level.clone(),
         read,
         comptime!(Monoid::Max),
     );

@@ -44,7 +44,7 @@ impl<E: Numeric, N: Size> Carrier for Indexed<E, N> {
 
     fn across(value: Self, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
-        match comptime!(share) {
+        match share {
             UnitShare::Repeated | UnitShare::Whole => value,
             // The winning value, then the lowest index among the units that hold it.
             UnitShare::Plane => {
@@ -109,7 +109,7 @@ fn ahead<E: Numeric, N: Size>(
     #[comptime] monoid: Monoid,
 ) -> Vector<bool, N> {
     let elem = elem_type_of::<E>();
-    let by_order = match comptime!(monoid) {
+    let by_order = match monoid {
         Monoid::Max => lhs.greater_than(&rhs),
         _ => lhs.less_than(&rhs),
     };

@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    dialect::memory::AddressSpaceAttr,
-    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+    dialect::memory::MemoryScopeAttr,
+    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp, MemoryLocation},
     prelude::*,
 };
 use cubecl_opt::analyses::{alias_analysis::address_space::AddressSpaceAA, memory_ssa::memory_ssa};
@@ -37,7 +37,7 @@ pub struct MemoryDefOp;
 #[op_interface_impl]
 impl MemoryEffectsOp for MemoryDefOp {
     fn memory_effects(&self, _ctx: &Context) -> Vec<MemoryEffect> {
-        vec![MemoryEffect::WriteAll]
+        vec![MemoryEffect::Write(MemoryLocation::All)]
     }
 }
 
@@ -52,16 +52,16 @@ pub struct MemoryUseOp;
 #[op_interface_impl]
 impl MemoryEffectsOp for MemoryUseOp {
     fn memory_effects(&self, _ctx: &Context) -> Vec<MemoryEffect> {
-        vec![MemoryEffect::ReadAll]
+        vec![MemoryEffect::Read(MemoryLocation::All)]
     }
 }
 
 #[pliron_op(
     name = "memory_ssa.memory_def_in_space",
-    format = "attr($def_address_space, $AddressSpaceAttr)",
+    format = "attr($def_address_space, $MemoryScopeAttr)",
     interfaces = [NOpdsInterface<0>, NResultsInterface<0>, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (def_address_space: AddressSpaceAttr)
+    attributes = (def_address_space: MemoryScopeAttr)
 )]
 pub struct MemoryDefInSpaceOp;
 
@@ -69,16 +69,16 @@ pub struct MemoryDefInSpaceOp;
 impl MemoryEffectsOp for MemoryDefInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_def_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::WriteAllInSpace(space)]
+        vec![MemoryEffect::Write(space.into())]
     }
 }
 
 #[pliron_op(
     name = "memory_ssa.memory_use_in_space",
-    format = "attr($use_address_space, $AddressSpaceAttr)",
+    format = "attr($use_address_space, $MemoryScopeAttr)",
     interfaces = [NOpdsInterface<0>, NResultsInterface<0>, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (use_address_space: AddressSpaceAttr)
+    attributes = (use_address_space: MemoryScopeAttr)
 )]
 pub struct MemoryUseInSpaceOp;
 
@@ -86,7 +86,7 @@ pub struct MemoryUseInSpaceOp;
 impl MemoryEffectsOp for MemoryUseInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_use_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::ReadAllInSpace(space)]
+        vec![MemoryEffect::Read(space.into())]
     }
 }
 
@@ -149,30 +149,30 @@ fn memory_ssa_is_path_sensitive() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; MemoryUse(M1, ReadAll)
+            ; MemoryUse(M1, Read(All))
             memory_ssa.memory_use;
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             true_v0 = builtin.constant <cube.bool true> : cube.bool;
             cf.branch_conditional if true_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
-            ; M4 = MemoryDef(M2, WriteAll)
+            ; M4 = MemoryDef(M2, Write(All))
             memory_ssa.memory_def;
             cf.branch ^bb2_block3v3();
 
           ; M3 = MemoryPhi({bb0_block4v1 -> M2}, {bb1_block5v1 -> M4})
           bb2_block3v3:
-            ; MemoryUse(M3, ReadAll)
+            ; MemoryUse(M3, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -199,11 +199,11 @@ fn memory_ssa_does_not_version_reads() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; MemoryUse(M1, ReadAll)
+            ; MemoryUse(M1, Read(All))
             memory_ssa.memory_use;
-            ; MemoryUse(M1, ReadAll)
+            ; MemoryUse(M1, Read(All))
             memory_ssa.memory_use;
-            ; MemoryUse(M1, ReadAll)
+            ; MemoryUse(M1, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -232,15 +232,15 @@ fn memory_ssa_versions_each_write() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; MemoryUse(M1, ReadAll)
+            ; MemoryUse(M1, Read(All))
             memory_ssa.memory_use;
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
-            ; M3 = MemoryDef(M2, WriteAll)
+            ; M3 = MemoryDef(M2, Write(All))
             memory_ssa.memory_def;
-            ; MemoryUse(M3, ReadAll)
+            ; MemoryUse(M3, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -278,25 +278,25 @@ fn memory_ssa_merges_distinct_cfg_paths() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             cf.branch_conditional if cond_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; M4 = MemoryDef(M2, WriteAll)
+            ; M4 = MemoryDef(M2, Write(All))
             memory_ssa.memory_def;
-            ; MemoryUse(M4, ReadAll)
+            ; MemoryUse(M4, Read(All))
             memory_ssa.memory_use;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             cf.branch ^bb2_block3v3();
 
           ; M3 = MemoryPhi({bb0_block4v1 -> M4}, {bb1_block5v1 -> M2})
           bb2_block3v3:
-            ; MemoryUse(M3, ReadAll)
+            ; MemoryUse(M3, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -335,18 +335,18 @@ fn memory_ssa_merges_multiple_defining_paths() -> Result<()> {
             cf.branch_conditional if cond_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; M3 = MemoryDef(M1, WriteAll)
+            ; M3 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; M4 = MemoryDef(M1, WriteAll)
+            ; M4 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             cf.branch ^bb2_block3v3();
 
           ; M2 = MemoryPhi({bb0_block4v1 -> M3}, {bb1_block5v1 -> M4})
           bb2_block3v3:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -383,22 +383,22 @@ fn memory_ssa_preserves_entry_value_through_def_free_branch() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             cf.branch_conditional if cond_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             cf.branch ^bb2_block3v3();
 
           bb2_block3v3:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -439,20 +439,20 @@ fn memory_ssa_versions_memory_inside_if_regions() -> Result<()> {
             ; M3 = MemoryRegionPhi({then_block2v1 -> M2}, {else_block3v1 -> M1})
             x_v2 = scf.if cond_v0 : builtin.integer i64 then {..} else {..};
               then_block2v1:
-                ; MemoryUse(M1, ReadAll)
+                ; MemoryUse(M1, Read(All))
                 memory_ssa.memory_use;
-                ; M2 = MemoryDef(M1, WriteAll)
+                ; M2 = MemoryDef(M1, Write(All))
                 memory_ssa.memory_def;
-                ; MemoryUse(M2, ReadAll)
+                ; MemoryUse(M2, Read(All))
                 memory_ssa.memory_use;
                 branch.yield (c_v1);
 
               else_block3v1:
-                ; MemoryUse(M1, ReadAll)
+                ; MemoryUse(M1, Read(All))
                 memory_ssa.memory_use;
                 branch.yield (c_v1);
 
-            ; MemoryUse(M3, ReadAll)
+            ; MemoryUse(M3, Read(All))
             memory_ssa.memory_use;
             branch.return x_v2;
 
@@ -494,15 +494,15 @@ fn memory_ssa_versions_memory_through_for_loop() -> Result<()> {
             y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
               ; M2 = MemoryRegionPhi({Parent -> M1}, {body_block2v1 -> M3})
               body_block2v1:
-                ; MemoryUse(M2, ReadAll)
+                ; MemoryUse(M2, Read(All))
                 memory_ssa.memory_use;
-                ; M3 = MemoryDef(M2, WriteAll)
+                ; M3 = MemoryDef(M2, Write(All))
                 memory_ssa.memory_def;
-                ; MemoryUse(M3, ReadAll)
+                ; MemoryUse(M3, Read(All))
                 memory_ssa.memory_use;
                 branch.yield (c2_v6);
 
-            ; MemoryUse(M4, ReadAll)
+            ; MemoryUse(M4, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -543,21 +543,21 @@ fn memory_ssa_versions_memory_through_while_loop() -> Result<()> {
             y_v4 = scf.while c_v1 : builtin.integer i64 {..} do {..};
               ; M2 = MemoryRegionPhi({Parent -> M1}, {after_block3v1 -> M4})
               before_block2v1:
-                ; MemoryUse(M2, ReadAll)
+                ; MemoryUse(M2, Read(All))
                 memory_ssa.memory_use;
                 branch.condition (cond_v0, x_v2);
 
               ; M3 = MemoryRegionPhi({before_block2v1 -> M2})
               after_block3v1:
-                ; MemoryUse(M3, ReadAll)
+                ; MemoryUse(M3, Read(All))
                 memory_ssa.memory_use;
-                ; M4 = MemoryDef(M3, WriteAll)
+                ; M4 = MemoryDef(M3, Write(All))
                 memory_ssa.memory_def;
-                ; MemoryUse(M4, ReadAll)
+                ; MemoryUse(M4, Read(All))
                 memory_ssa.memory_use;
                 branch.yield (x2_v3);
 
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             branch.return y_v4;
 
@@ -592,21 +592,21 @@ fn memory_ssa_versions_inside_unsupported_region_then_clobbers_at_boundary() -> 
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             ; M5 = MemoryDef(M2, Opaque)
             memory_ssa.unsupported_region {..};
               ; M3 = MemoryDef(M2, Opaque)
               region_entry_block2v1:
-                ; MemoryUse(M3, ReadAll)
+                ; MemoryUse(M3, Read(All))
                 memory_ssa.memory_use;
-                ; M4 = MemoryDef(M3, WriteAll)
+                ; M4 = MemoryDef(M3, Write(All))
                 memory_ssa.memory_def;
-                ; MemoryUse(M4, ReadAll)
+                ; MemoryUse(M4, Read(All))
                 memory_ssa.memory_use;
                 branch.return;
 
-            ; MemoryUse(M5, ReadAll)
+            ; MemoryUse(M5, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -633,11 +633,11 @@ fn memory_ssa_unknown_operations_are_opaque_defs() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             ; M3 = MemoryDef(M2, Opaque)
             memory_ssa.unsupported_op;
-            ; MemoryUse(M3, ReadAll)
+            ; MemoryUse(M3, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -683,36 +683,36 @@ fn memory_ssa_nested_supported_and_unsupported_regions() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAll)
+            ; M2 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             x_v1 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
             ; M6 = MemoryRegionPhi({then_block2v1 -> M5}, {else_block4v1 -> M2})
             y_v2 = scf.if cond_v0 : builtin.integer i64 then {..} else {..};
               then_block2v1:
-                ; MemoryUse(M2, ReadAll)
+                ; MemoryUse(M2, Read(All))
                 memory_ssa.memory_use;
                 ; M5 = MemoryDef(M2, Opaque)
                 memory_ssa.unsupported_region {..};
                   ; M3 = MemoryDef(M2, Opaque)
                   nested_block3v1:
-                    ; MemoryUse(M3, ReadAll)
+                    ; MemoryUse(M3, Read(All))
                     memory_ssa.memory_use;
-                    ; M4 = MemoryDef(M3, WriteAll)
+                    ; M4 = MemoryDef(M3, Write(All))
                     memory_ssa.memory_def;
-                    ; MemoryUse(M4, ReadAll)
+                    ; MemoryUse(M4, Read(All))
                     memory_ssa.memory_use;
                     branch.return;
 
-                ; MemoryUse(M5, ReadAll)
+                ; MemoryUse(M5, Read(All))
                 memory_ssa.memory_use;
                 branch.yield (x_v1);
 
               else_block4v1:
-                ; MemoryUse(M2, ReadAll)
+                ; MemoryUse(M2, Read(All))
                 memory_ssa.memory_use;
                 branch.yield (x_v1);
 
-            ; MemoryUse(M6, ReadAll)
+            ; MemoryUse(M6, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -740,13 +740,13 @@ fn memory_ssa_non_aliasing_defs_are_skipped() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; MemoryUse(M1, ReadAllInSpace(Local))
+            ; MemoryUse(M1, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
-            ; M3 = MemoryDef(M2, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M2, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; MemoryUse(M2, ReadAllInSpace(Shared))
+            ; MemoryUse(M2, Read(Scope(Shared)))
             memory_ssa.memory_use_in_space Shared;
             branch.return;
 
@@ -790,7 +790,7 @@ fn memory_ssa_places_phi_after_iterated_dominance_frontier() -> Result<()> {
             cf.branch_conditional if inner_cond_v1 ^write_block6v1() else ^merge_block2v5();
 
           write_block6v1:
-            ; M4 = MemoryDef(M1, WriteAll)
+            ; M4 = MemoryDef(M1, Write(All))
             memory_ssa.memory_def;
             cf.branch ^merge_block2v5();
 
@@ -800,7 +800,7 @@ fn memory_ssa_places_phi_after_iterated_dominance_frontier() -> Result<()> {
 
           ; M2 = MemoryPhi({entry_block1v1 -> M1}, {merge_block2v5 -> M3})
           exit_block5v3:
-            ; MemoryUse(M2, ReadAll)
+            ; MemoryUse(M2, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -827,11 +827,11 @@ fn memory_ssa_optimized_use_skips_non_aliasing_defs() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; M3 = MemoryDef(M2, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M2, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; MemoryUse(M2, ReadAllInSpace(Shared))
+            ; MemoryUse(M2, Read(Scope(Shared)))
             memory_ssa.memory_use_in_space Shared;
             branch.return;
 
@@ -858,11 +858,11 @@ fn memory_ssa_optimized_use_stops_at_aliasing_def() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; M3 = MemoryDef(M2, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M2, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; MemoryUse(M3, ReadAllInSpace(Local))
+            ; MemoryUse(M3, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -877,9 +877,9 @@ fn memory_ssa_optimized_use_skips_multiple_non_aliasing_defs() -> Result<()> {
     builtin.func @f: builtin.function <() -> ()> [] {
       ^entry():
         memory_ssa.memory_def_in_space Shared;
-        memory_ssa.memory_def_in_space Global<0>;
+        memory_ssa.memory_def_in_space Global;
         memory_ssa.memory_def_in_space Local;
-        memory_ssa.memory_def_in_space Global<0>;
+        memory_ssa.memory_def_in_space Global;
         memory_ssa.memory_use_in_space Shared;
         branch.return
     }
@@ -891,15 +891,15 @@ fn memory_ssa_optimized_use_skips_multiple_non_aliasing_defs() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; M3 = MemoryDef(M2, WriteAllInSpace(Global<0>))
-            memory_ssa.memory_def_in_space Global<0>;
-            ; M4 = MemoryDef(M3, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M2, Write(Scope(Global)))
+            memory_ssa.memory_def_in_space Global;
+            ; M4 = MemoryDef(M3, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; M5 = MemoryDef(M4, WriteAllInSpace(Global<0>))
-            memory_ssa.memory_def_in_space Global<0>;
-            ; MemoryUse(M2, ReadAllInSpace(Shared))
+            ; M5 = MemoryDef(M4, Write(Scope(Global)))
+            memory_ssa.memory_def_in_space Global;
+            ; MemoryUse(M2, Read(Scope(Shared)))
             memory_ssa.memory_use_in_space Shared;
             branch.return;
 
@@ -915,7 +915,7 @@ fn memory_ssa_optimized_use_finds_first_aliasing_def() -> Result<()> {
       ^entry():
         memory_ssa.memory_def_in_space Shared;
         memory_ssa.memory_def_in_space Local;
-        memory_ssa.memory_def_in_space Global<0>;
+        memory_ssa.memory_def_in_space Global;
         memory_ssa.memory_def_in_space Local;
         memory_ssa.memory_use_in_space Local;
         branch.return
@@ -928,15 +928,15 @@ fn memory_ssa_optimized_use_finds_first_aliasing_def() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; M3 = MemoryDef(M2, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M2, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; M4 = MemoryDef(M3, WriteAllInSpace(Global<0>))
-            memory_ssa.memory_def_in_space Global<0>;
-            ; M5 = MemoryDef(M4, WriteAllInSpace(Local))
+            ; M4 = MemoryDef(M3, Write(Scope(Global)))
+            memory_ssa.memory_def_in_space Global;
+            ; M5 = MemoryDef(M4, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; MemoryUse(M5, ReadAllInSpace(Local))
+            ; MemoryUse(M5, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -953,7 +953,7 @@ fn memory_ssa_optimized_use_skips_defs_before_an_aliasing_def() -> Result<()> {
         memory_ssa.memory_def_in_space Shared;
         memory_ssa.memory_def_in_space Local;
         memory_ssa.memory_def_in_space Shared;
-        memory_ssa.memory_def_in_space Global<0>;
+        memory_ssa.memory_def_in_space Global;
         memory_ssa.memory_use_in_space Local;
         branch.return
     }
@@ -965,15 +965,15 @@ fn memory_ssa_optimized_use_skips_defs_before_an_aliasing_def() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; M3 = MemoryDef(M2, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M2, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
-            ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+            ; M4 = MemoryDef(M3, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
-            ; M5 = MemoryDef(M4, WriteAllInSpace(Global<0>))
-            memory_ssa.memory_def_in_space Global<0>;
-            ; MemoryUse(M3, ReadAllInSpace(Local))
+            ; M5 = MemoryDef(M4, Write(Scope(Global)))
+            memory_ssa.memory_def_in_space Global;
+            ; MemoryUse(M3, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -998,7 +998,7 @@ fn memory_ssa_optimized_use_at_live_on_entry() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; MemoryUse(M1, ReadAllInSpace(Local))
+            ; MemoryUse(M1, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -1035,23 +1035,23 @@ fn memory_ssa_optimized_use_through_non_aliasing_cfg_path() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             cf.branch_conditional if cond_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; M4 = MemoryDef(M2, WriteAllInSpace(Shared))
+            ; M4 = MemoryDef(M2, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; M5 = MemoryDef(M2, WriteAllInSpace(Shared))
+            ; M5 = MemoryDef(M2, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             cf.branch ^bb2_block3v3();
 
           ; M3 = MemoryPhi({bb0_block4v1 -> M4}, {bb1_block5v1 -> M5})
           bb2_block3v3:
-            ; MemoryUse(M1, ReadAllInSpace(Local))
+            ; MemoryUse(M1, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -1090,18 +1090,18 @@ fn memory_ssa_optimized_use_stops_at_cfg_phi_when_aliasing_paths_differ() -> Res
             cf.branch_conditional if cond_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; M3 = MemoryDef(M1, WriteAllInSpace(Local))
+            ; M3 = MemoryDef(M1, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; M4 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M4 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             cf.branch ^bb2_block3v3();
 
           ; M2 = MemoryPhi({bb0_block4v1 -> M3}, {bb1_block5v1 -> M4})
           bb2_block3v3:
-            ; MemoryUse(M2, ReadAllInSpace(Local))
+            ; MemoryUse(M2, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -1138,23 +1138,23 @@ fn memory_ssa_optimized_use_collapses_cfg_phi_with_same_clobber() -> Result<()> 
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Local))
+            ; M2 = MemoryDef(M1, Write(Scope(Local)))
             memory_ssa.memory_def_in_space Local;
             cf.branch_conditional if cond_v0 ^bb0_block4v1() else ^bb1_block5v1();
 
           bb0_block4v1:
-            ; M4 = MemoryDef(M2, WriteAllInSpace(Shared))
+            ; M4 = MemoryDef(M2, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             cf.branch ^bb2_block3v3();
 
           bb1_block5v1:
-            ; M5 = MemoryDef(M2, WriteAllInSpace(Shared))
+            ; M5 = MemoryDef(M2, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             cf.branch ^bb2_block3v3();
 
           ; M3 = MemoryPhi({bb0_block4v1 -> M4}, {bb1_block5v1 -> M5})
           bb2_block3v3:
-            ; MemoryUse(M2, ReadAllInSpace(Local))
+            ; MemoryUse(M2, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -1193,21 +1193,21 @@ fn memory_ssa_optimized_use_through_if_region_with_non_aliasing_def() -> Result<
         MemorySSA {
           entry_block1v1:
             c_v1 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             ; M5 = MemoryRegionPhi({then_block2v1 -> M3}, {else_block3v1 -> M4})
             x_v2 = scf.if cond_v0 : builtin.integer i64 then {..} else {..};
               then_block2v1:
-                ; M3 = MemoryDef(M2, WriteAllInSpace(Shared))
+                ; M3 = MemoryDef(M2, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.yield (c_v1);
 
               else_block3v1:
-                ; M4 = MemoryDef(M2, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M2, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.yield (c_v1);
 
-            ; MemoryUse(M1, ReadAllInSpace(Local))
+            ; MemoryUse(M1, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return x_v2;
 
@@ -1248,16 +1248,16 @@ fn memory_ssa_optimized_use_stops_at_if_region_phi_when_one_path_clobbers() -> R
             ; M4 = MemoryRegionPhi({then_block2v1 -> M2}, {else_block3v1 -> M3})
             x_v2 = scf.if cond_v0 : builtin.integer i64 then {..} else {..};
               then_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Local))
+                ; M2 = MemoryDef(M1, Write(Scope(Local)))
                 memory_ssa.memory_def_in_space Local;
                 branch.yield (c_v1);
 
               else_block3v1:
-                ; M3 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M3 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.yield (c_v1);
 
-            ; MemoryUse(M4, ReadAllInSpace(Local))
+            ; MemoryUse(M4, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return x_v2;
 
@@ -1277,7 +1277,7 @@ fn memory_ssa_optimized_use_through_for_loop_non_aliasing_defs() -> Result<()> {
         scf.for start to end step step iter_args() {
           ^body(i: builtin.integer i32):
             memory_ssa.memory_def_in_space Shared;
-            memory_ssa.memory_def_in_space Global<0>;
+            memory_ssa.memory_def_in_space Global;
             branch.yield ()
         };
 
@@ -1298,13 +1298,13 @@ fn memory_ssa_optimized_use_through_for_loop_non_aliasing_defs() -> Result<()> {
             scf.for start_v1 to end_v0 step step_v2 {..};
               ; M2 = MemoryRegionPhi({Parent -> M1}, {body_block2v1 -> M4})
               body_block2v1:
-                ; M3 = MemoryDef(M2, WriteAllInSpace(Shared))
+                ; M3 = MemoryDef(M2, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Global<0>))
-                memory_ssa.memory_def_in_space Global<0>;
+                ; M4 = MemoryDef(M3, Write(Scope(Global)))
+                memory_ssa.memory_def_in_space Global;
                 branch.yield ();
 
-            ; MemoryUse(M1, ReadAllInSpace(Local))
+            ; MemoryUse(M1, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -1326,7 +1326,7 @@ fn memory_ssa_optimized_use_through_while_loop_non_aliasing_defs() -> Result<()>
         } do {
           ^after(x2: builtin.integer i64):
             memory_ssa.memory_def_in_space Shared;
-            memory_ssa.memory_def_in_space Global<0>;
+            memory_ssa.memory_def_in_space Global;
             branch.yield (x2)
         };
 
@@ -1349,13 +1349,13 @@ fn memory_ssa_optimized_use_through_while_loop_non_aliasing_defs() -> Result<()>
 
               ; M3 = MemoryRegionPhi({before_block2v1 -> M2})
               after_block3v1:
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M3, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
-                ; M5 = MemoryDef(M4, WriteAllInSpace(Global<0>))
-                memory_ssa.memory_def_in_space Global<0>;
+                ; M5 = MemoryDef(M4, Write(Scope(Global)))
+                memory_ssa.memory_def_in_space Global;
                 branch.yield (x2_v3);
 
-            ; MemoryUse(M1, ReadAllInSpace(Local))
+            ; MemoryUse(M1, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return y_v4;
 
@@ -1386,17 +1386,17 @@ fn memory_ssa_optimized_use_respects_opaque_boundary() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             ; M5 = MemoryDef(M2, Opaque)
             memory_ssa.unsupported_region {..};
               ; M3 = MemoryDef(M2, Opaque)
               region_entry_block2v1:
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M3, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 
-            ; MemoryUse(M5, ReadAllInSpace(Local))
+            ; MemoryUse(M5, Read(Scope(Local)))
             memory_ssa.memory_use_in_space Local;
             branch.return;
 
@@ -1427,17 +1427,17 @@ fn memory_ssa_optimized_use_clobbered_by_opaque_boundary() -> Result<()> {
     expect![[r#"
         MemorySSA {
           entry_block1v1:
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             ; M5 = MemoryDef(M2, Opaque)
             memory_ssa.unsupported_region {..};
               ; M3 = MemoryDef(M2, Opaque)
               region_entry_block2v1:
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M3, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 
-            ; MemoryUse(M5, ReadAll)
+            ; MemoryUse(M5, Read(All))
             memory_ssa.memory_use;
             branch.return;
 
@@ -1490,7 +1490,7 @@ fn memory_ssa_optimized_use_walks_a_long_phi_chain_without_recursing() {
         .unwrap();
 
     assert!(
-        printed.contains("MemoryUse(M2, ReadAllInSpace(Shared))"),
+        printed.contains("MemoryUse(M2, Read(Scope(Shared)))"),
         "the use should skip every loop's Local def and reach the Shared def at entry"
     );
 }
@@ -1539,7 +1539,7 @@ fn memory_ssa_optimized_use_through_nested_loops_without_clobbers() -> Result<()
             start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
             step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
             c_v3 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             ; M8 = MemoryRegionPhi({Parent -> M2}, {outer_block2v1 -> M7})
             y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
@@ -1549,17 +1549,17 @@ fn memory_ssa_optimized_use_through_nested_loops_without_clobbers() -> Result<()
                 z_v7 = scf.for start_v1 to end_v0 step step_v2 iter_args(c2_v6) {..};
                   ; M4 = MemoryRegionPhi({Parent -> M3}, {inner_block3v1 -> M5})
                   inner_block3v1:
-                    ; MemoryUse(M2, ReadAllInSpace(Shared))
+                    ; MemoryUse(M2, Read(Scope(Shared)))
                     memory_ssa.memory_use_in_space Shared;
-                    ; M5 = MemoryDef(M4, WriteAllInSpace(Local))
+                    ; M5 = MemoryDef(M4, Write(Scope(Local)))
                     memory_ssa.memory_def_in_space Local;
                     branch.yield (c3_v9);
 
-                ; M7 = MemoryDef(M6, WriteAllInSpace(Local))
+                ; M7 = MemoryDef(M6, Write(Scope(Local)))
                 memory_ssa.memory_def_in_space Local;
                 branch.yield (c2_v6);
 
-            ; MemoryUse(M2, ReadAllInSpace(Shared))
+            ; MemoryUse(M2, Read(Scope(Shared)))
             memory_ssa.memory_use_in_space Shared;
             branch.return;
 
@@ -1584,7 +1584,7 @@ fn memory_ssa_optimized_use_sees_a_clobber_on_the_outer_back_edge() -> Result<()
             start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
             step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
             c_v3 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             ; M8 = MemoryRegionPhi({Parent -> M2}, {outer_block2v1 -> M7})
             y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
@@ -1594,17 +1594,17 @@ fn memory_ssa_optimized_use_sees_a_clobber_on_the_outer_back_edge() -> Result<()
                 z_v7 = scf.for start_v1 to end_v0 step step_v2 iter_args(c2_v6) {..};
                   ; M4 = MemoryRegionPhi({Parent -> M3}, {inner_block3v1 -> M5})
                   inner_block3v1:
-                    ; MemoryUse(M3, ReadAllInSpace(Shared))
+                    ; MemoryUse(M3, Read(Scope(Shared)))
                     memory_ssa.memory_use_in_space Shared;
-                    ; M5 = MemoryDef(M4, WriteAllInSpace(Local))
+                    ; M5 = MemoryDef(M4, Write(Scope(Local)))
                     memory_ssa.memory_def_in_space Local;
                     branch.yield (c3_v9);
 
-                ; M7 = MemoryDef(M6, WriteAllInSpace(Shared))
+                ; M7 = MemoryDef(M6, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.yield (c2_v6);
 
-            ; MemoryUse(M8, ReadAllInSpace(Shared))
+            ; MemoryUse(M8, Read(Scope(Shared)))
             memory_ssa.memory_use_in_space Shared;
             branch.return;
 
@@ -1629,7 +1629,7 @@ fn memory_ssa_optimized_use_sees_a_clobber_later_in_the_inner_loop() -> Result<(
             start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
             step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
             c_v3 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
-            ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+            ; M2 = MemoryDef(M1, Write(Scope(Shared)))
             memory_ssa.memory_def_in_space Shared;
             ; M8 = MemoryRegionPhi({Parent -> M2}, {outer_block2v1 -> M7})
             y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
@@ -1639,17 +1639,17 @@ fn memory_ssa_optimized_use_sees_a_clobber_later_in_the_inner_loop() -> Result<(
                 z_v7 = scf.for start_v1 to end_v0 step step_v2 iter_args(c2_v6) {..};
                   ; M4 = MemoryRegionPhi({Parent -> M3}, {inner_block3v1 -> M5})
                   inner_block3v1:
-                    ; MemoryUse(M4, ReadAllInSpace(Shared))
+                    ; MemoryUse(M4, Read(Scope(Shared)))
                     memory_ssa.memory_use_in_space Shared;
-                    ; M5 = MemoryDef(M4, WriteAllInSpace(Shared))
+                    ; M5 = MemoryDef(M4, Write(Scope(Shared)))
                     memory_ssa.memory_def_in_space Shared;
                     branch.yield (c3_v9);
 
-                ; M7 = MemoryDef(M6, WriteAllInSpace(Local))
+                ; M7 = MemoryDef(M6, Write(Scope(Local)))
                 memory_ssa.memory_def_in_space Local;
                 branch.yield (c2_v6);
 
-            ; MemoryUse(M8, ReadAllInSpace(Shared))
+            ; MemoryUse(M8, Read(Scope(Shared)))
             memory_ssa.memory_use_in_space Shared;
             branch.return;
 
@@ -1689,11 +1689,11 @@ fn memory_ssa_interprocedural_simple_call() -> Result<()> {
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M5})
                 branch.call @callee () : () -> ();
-                ; MemoryUse(M3, ReadAllInSpace(Shared))
+                ; MemoryUse(M3, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -1701,9 +1701,9 @@ fn memory_ssa_interprocedural_simple_call() -> Result<()> {
             builtin.func @callee: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block3v1:
-                ; MemoryUse(M4, ReadAllInSpace(Shared))
+                ; MemoryUse(M4, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
-                ; M5 = MemoryDef(M4, WriteAllInSpace(Shared))
+                ; M5 = MemoryDef(M4, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 
@@ -1745,15 +1745,15 @@ fn memory_ssa_interprocedural_multiple_calls_to_same_callee() -> Result<()> {
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M7})
                 branch.call @callee () : () -> ();
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Local))
+                ; M4 = MemoryDef(M3, Write(Scope(Local)))
                 memory_ssa.memory_def_in_space Local;
                 ; M5 = MemoryCallPhi({branch.return  -> M7})
                 branch.call @callee () : () -> ();
-                ; MemoryUse(M5, ReadAllInSpace(Shared))
+                ; MemoryUse(M5, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -1761,7 +1761,7 @@ fn memory_ssa_interprocedural_multiple_calls_to_same_callee() -> Result<()> {
             builtin.func @callee: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block3v1:
-                ; M7 = MemoryDef(M6, WriteAllInSpace(Shared))
+                ; M7 = MemoryDef(M6, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 
@@ -1805,7 +1805,7 @@ fn memory_ssa_interprocedural_multiple_callers() -> Result<()> {
             builtin.func @caller1: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M6})
                 branch.call @callee () : () -> ();
@@ -1822,7 +1822,7 @@ fn memory_ssa_interprocedural_multiple_callers() -> Result<()> {
             builtin.func @callee: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block4v1:
-                ; MemoryUse(M6, ReadAllInSpace(Shared))
+                ; MemoryUse(M6, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -1861,11 +1861,11 @@ fn memory_ssa_interprocedural_optimized_use_crosses_non_aliasing_callee() -> Res
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M5})
                 branch.call @callee () : () -> ();
-                ; MemoryUse(M2, ReadAllInSpace(Shared))
+                ; MemoryUse(M2, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -1873,7 +1873,7 @@ fn memory_ssa_interprocedural_optimized_use_crosses_non_aliasing_callee() -> Res
             builtin.func @callee: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block3v1:
-                ; M5 = MemoryDef(M4, WriteAllInSpace(Local))
+                ; M5 = MemoryDef(M4, Write(Scope(Local)))
                 memory_ssa.memory_def_in_space Local;
                 branch.return;
 
@@ -1907,11 +1907,11 @@ fn memory_ssa_interprocedural_recursive_call() -> Result<()> {
             builtin.func @recursive: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M3})
                 branch.call @recursive () : () -> ();
-                ; MemoryUse(M3, ReadAllInSpace(Shared))
+                ; MemoryUse(M3, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -1953,17 +1953,17 @@ fn memory_ssa_interprocedural_use_keeps_call_context() -> Result<()> {
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M6})
                 branch.call @callee () : () -> ();
-                ; MemoryUse(M2, ReadAllInSpace(Shared))
+                ; MemoryUse(M2, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M3, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M5 = MemoryCallPhi({branch.return  -> M6})
                 branch.call @callee () : () -> ();
-                ; MemoryUse(M4, ReadAllInSpace(Shared))
+                ; MemoryUse(M4, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2014,11 +2014,11 @@ fn memory_ssa_interprocedural_call_phi_branches_keep_independent_call_stacks() -
             builtin.func @caller: builtin.function <(cube.bool ) -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M5}, {branch.return  -> M4})
                 branch.call @callee (cond_v0) : (cube.bool ) -> ();
-                ; MemoryUse(M3, ReadAllInSpace(Shared))
+                ; MemoryUse(M3, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2029,7 +2029,7 @@ fn memory_ssa_interprocedural_call_phi_branches_keep_independent_call_stacks() -
                 cf.branch_conditional if cond_v1 ^write_block6v1() else ^no_write_block4v3();
 
               write_block6v1:
-                ; M5 = MemoryDef(M4, WriteAllInSpace(Shared))
+                ; M5 = MemoryDef(M4, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 
@@ -2080,15 +2080,15 @@ fn memory_ssa_interprocedural_nested_calls_match_their_callers() -> Result<()> {
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M7})
                 branch.call @f () : () -> ();
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M3, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M5 = MemoryCallPhi({branch.return  -> M7})
                 branch.call @f () : () -> ();
-                ; MemoryUse(M4, ReadAllInSpace(Shared))
+                ; MemoryUse(M4, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2104,7 +2104,7 @@ fn memory_ssa_interprocedural_nested_calls_match_their_callers() -> Result<()> {
             builtin.func @g: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block4v1:
-                ; MemoryUse(M8, ReadAllInSpace(Shared))
+                ; MemoryUse(M8, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2143,7 +2143,7 @@ fn memory_ssa_interprocedural_use_inside_callee_stops_at_callee_phi() -> Result<
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M5})
                 branch.call @callee () : () -> ();
@@ -2155,7 +2155,7 @@ fn memory_ssa_interprocedural_use_inside_callee_stops_at_callee_phi() -> Result<
             builtin.func @callee: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block3v1:
-                ; MemoryUse(M5, ReadAllInSpace(Shared))
+                ; MemoryUse(M5, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2200,11 +2200,11 @@ fn memory_ssa_interprocedural_nested_clobber_unwinds_all_calls() -> Result<()> {
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M5})
                 branch.call @f () : () -> ();
-                ; MemoryUse(M3, ReadAllInSpace(Shared))
+                ; MemoryUse(M3, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2220,7 +2220,7 @@ fn memory_ssa_interprocedural_nested_clobber_unwinds_all_calls() -> Result<()> {
             builtin.func @g: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block4v1:
-                ; M7 = MemoryDef(M6, WriteAllInSpace(Shared))
+                ; M7 = MemoryDef(M6, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 
@@ -2266,11 +2266,11 @@ fn memory_ssa_interprocedural_non_clobbering_nested_call_propagates_through() ->
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M5})
                 branch.call @f () : () -> ();
-                ; MemoryUse(M2, ReadAllInSpace(Shared))
+                ; MemoryUse(M2, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2286,7 +2286,7 @@ fn memory_ssa_interprocedural_non_clobbering_nested_call_propagates_through() ->
             builtin.func @g: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block4v1:
-                ; M7 = MemoryDef(M6, WriteAllInSpace(Local))
+                ; M7 = MemoryDef(M6, Write(Scope(Local)))
                 memory_ssa.memory_def_in_space Local;
                 branch.return;
 
@@ -2335,17 +2335,17 @@ fn memory_ssa_interprocedural_nested_clobber_distinguishes_call_sites() -> Resul
             builtin.func @caller: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Public]{..};
               entry_block2v1:
-                ; M2 = MemoryDef(M1, WriteAllInSpace(Shared))
+                ; M2 = MemoryDef(M1, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M3 = MemoryCallPhi({branch.return  -> M7})
                 branch.call @f () : () -> ();
-                ; MemoryUse(M3, ReadAllInSpace(Shared))
+                ; MemoryUse(M3, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
-                ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                ; M4 = MemoryDef(M3, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 ; M5 = MemoryCallPhi({branch.return  -> M7})
                 branch.call @f () : () -> ();
-                ; MemoryUse(M5, ReadAllInSpace(Shared))
+                ; MemoryUse(M5, Read(Scope(Shared)))
                 memory_ssa.memory_use_in_space Shared;
                 branch.return;
 
@@ -2361,7 +2361,7 @@ fn memory_ssa_interprocedural_nested_clobber_distinguishes_call_sites() -> Resul
             builtin.func @g: builtin.function <() -> ()> 
           [sym_visibility: cube.sym_visibility Private]{..};
               entry_block4v1:
-                ; M9 = MemoryDef(M8, WriteAllInSpace(Shared))
+                ; M9 = MemoryDef(M8, Write(Scope(Shared)))
                 memory_ssa.memory_def_in_space Shared;
                 branch.return;
 

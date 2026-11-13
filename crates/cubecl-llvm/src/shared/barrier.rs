@@ -11,7 +11,7 @@ use crate::{
 use cubecl_core::ir::{
     dialect::barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, CopyAsyncOp, ExpectTxOp,
-        InitOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
+        InitOp, InvalidateOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
     },
     types::barrier::BarrierTokenType,
 };
@@ -36,6 +36,7 @@ macro_rules! barrier_op {
 }
 
 barrier_op!(InitOp, init);
+barrier_op!(InvalidateOp, invalidate);
 barrier_op!(ArriveOp, arrive_op);
 barrier_op!(ArriveAndExpectTxOp, arrive_and_expect_tx);
 barrier_op!(ExpectTxOp, expect_tx);

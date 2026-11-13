@@ -44,14 +44,15 @@ const UNITS: usize = 2;
 fn launch_plane_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &O::Arg<f32>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for plane in &space {
         plane_product(&plane, &a, &b, &c);
     }
+    O::finish::<f32>(out);
 }
 
 /// `c += a · b`, every plane of every cube its tile: the control.
@@ -59,16 +60,17 @@ fn launch_plane_matmul<O: Destination>(
 fn cube_plane_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &O::Arg<f32>,
+    out: &O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let c = O::tile::<f32, Const<1>>(c, &space);
+    let c = O::tile::<f32, Const<1>>(out, &space);
     for cube in &space {
         for plane in cube {
             plane_product(&plane, &a, &b, &c);
         }
     }
+    O::finish::<f32>(out);
 }
 
 /// How many tiles every plane of the launch walks, at the plane's place in the launch: its cube's,
@@ -113,6 +115,9 @@ enum Planes {
     OfEachCube,
     /// The planes of the launch, in this order.
     OfTheLaunch(PlaneOrder),
+    /// The planes of a launch of at most this many cubes, each a block of two tiles along `m`,
+    /// walking the tiles grid-stride: the product must be one `n` tile wide.
+    Capped(usize),
 }
 
 impl Planes {
@@ -126,6 +131,10 @@ impl Planes {
         let outermost = match self {
             Planes::OfEachCube => units.planes(&[(M, 2), (N, 2)]).cubes(&[M, N]).batches(&[B]),
             Planes::OfTheLaunch(order) => units.launch_planes(&[M, N, B], order.clone()),
+            Planes::Capped(cubes) => units.launch_planes(
+                &[M],
+                PlaneOrder::new(&[(M, 2)], CubeOrder::RowMajor).capped(*cubes),
+            ),
         };
         reversed
             .iter()
@@ -267,7 +276,7 @@ fn run(problem: Problem, planes: &Planes, dealt: Dealt<'_>) -> Option<HostData> 
     );
     let c_arg = Buffered::arg((bound, Write::Accumulate));
     match planes {
-        Planes::OfTheLaunch(_) => launch_plane_matmul::launch::<Buffered>(
+        Planes::OfTheLaunch(_) | Planes::Capped(_) => launch_plane_matmul::launch::<Buffered>(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
@@ -317,6 +326,25 @@ const PROBLEMS: [Problem; 3] = [
     Problem::new(7, 29, 11),
     Problem::new(13, 5, 6),
 ];
+
+/// A launch capped below its tiles takes every one of them once, its planes walking them
+/// grid-stride, a cube or many, the last walk ragged; capped above them, as one uncapped.
+#[test]
+fn a_capped_launch_takes_every_tile_once() {
+    // One `n` tile: two units of two columns; `m` ragged against the blocks of two tiles of two.
+    let problems = [
+        Problem::new(13, 4, 6),
+        Problem::new(8, 4, 8),
+        Problem::new(31, 4, 11),
+    ];
+    for cubes in [1, 2, 3, 64] {
+        for problem in problems {
+            if let Some(got) = run(problem, &Planes::Capped(cubes), Dealt::IN_ORDER) {
+                assert_every_tile_once(&got, problem, &format!("capped at {cubes} cubes"));
+            }
+        }
+    }
+}
 
 /// Every problem's product, its tiles taken by `planes` as `dealt` says.
 fn assert_takes_every_tile_once(planes: Planes, dealt: Dealt<'_>, what: &str) {

@@ -80,7 +80,7 @@ impl Memory {
     /// Allocate a shared-memory tile over `space` at physical `vector_size`.
     /// `units` is the launch's cube size, `0` when unknown.
     pub(crate) fn smem<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -100,7 +100,7 @@ impl Memory {
     /// [`RowChunks::STAGE_ALIGNMENT_BYTES`]: an `ldmatrix` row address needs a chunk, and the copy
     /// engine a whole sector. `units` is the launch's cube size, `0` when unknown.
     pub(crate) fn smem_owned<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -110,7 +110,7 @@ impl Memory {
         let alignment = comptime!(alignment.max(RowChunks::STAGE_ALIGNMENT_BYTES));
         let elem_bytes = T::size().comptime();
         let form = comptime!(StageForm::dense(
-            &space,
+            space,
             vector_size,
             storage,
             LineBytes(vector_size * elem_bytes)
@@ -133,7 +133,7 @@ impl Memory {
     /// units of the cube `owner` names.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn smem_gathered<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -144,7 +144,7 @@ impl Memory {
         #[comptime] owner: StageOwner,
     ) -> Tile {
         let form = comptime!(StageForm::gathered(
-            &space,
+            space,
             vector_size,
             storage,
             &projection
@@ -182,7 +182,7 @@ impl Memory {
     /// starting on the whole buffer's alignment.
     #[allow(clippy::too_many_arguments)]
     fn smem_with_form<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] units: usize,
         #[comptime] form: StageForm,
@@ -193,7 +193,7 @@ impl Memory {
     ) -> Tile {
         let size!(W) = vector_size;
         let cells = form.cells();
-        let smem = match comptime!(owner) {
+        let smem = match owner {
             StageOwner::Cube { .. } => {
                 if alignment > 0 {
                     Shared::<[Vector<T, W>]>::new_aligned_slice(cells, alignment)
@@ -233,7 +233,7 @@ impl Memory {
     /// `ldmatrix` row address needs a chunk, the copy engine a whole sector, and a TMA box the
     /// descriptor's swizzle span.
     pub(crate) fn smem_packed<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -244,7 +244,7 @@ impl Memory {
         let alignment = comptime!(alignment.max(RowChunks::STAGE_ALIGNMENT_BYTES));
         let word_bytes = u32::size().comptime();
         let form = comptime!(StageForm::dense(
-            &space,
+            space,
             vector_size,
             storage,
             LineBytes(packing.physical(vector_size) * word_bytes)
@@ -268,7 +268,7 @@ impl Memory {
     /// filled by the units `fill` names.
     #[allow(clippy::too_many_arguments)]
     fn smem_over<T: Numeric, H: Numeric, S: CubePrimitive<Scalar = H>>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] fill: FillUnits,
         smem: &Shared<[S]>,
@@ -301,7 +301,7 @@ impl Memory {
     /// its extent masked where `overhang` says a region larger than the buffer writes into it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn smem_backed<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] fill: FillUnits,
         backing: Backing,
@@ -352,7 +352,7 @@ impl Memory {
                 source_window: source,
             }),
             factor: Factor::none(),
-            place: comptime!(Placement::new(space, 0usize, Vec::new())),
+            place: comptime!(Placement::new(space.clone(), 0usize, Vec::new())),
             element: elem_type_of::<T>(),
         }
     }
@@ -360,7 +360,7 @@ impl Memory {
     /// One plane's landing: a dense scalar stage over `space`, one window per plane in one buffer.
     /// The buffer is returned beside the tile.
     pub(crate) fn landing<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] units: usize,
         #[comptime] planes: usize,
     ) -> (Tile, Shared<[T]>) {
@@ -374,7 +374,7 @@ impl Memory {
         let window = Shared::<[T]>::new_slice(cells * planes).map(|all| &all[start..end]);
         let elem_bytes = T::size().comptime();
         let form = comptime!(StageForm::dense(
-            &space,
+            space,
             1,
             StageStorage::Strided,
             LineBytes(elem_bytes)

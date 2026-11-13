@@ -9,13 +9,13 @@ use crate::{
 /// The swizzled cube level's two in-plane positions; zeros where no order is stated.
 #[cube]
 pub(crate) fn swizzled_positions(
-    #[comptime] space: Space,
-    #[comptime] level: Level,
+    #[comptime] space: &Space,
+    #[comptime] level: &Level,
     instances: &Coords<usize>,
 ) -> Coords<usize> {
     let mut out = Coords::<usize>::new();
     if level.order().swizzles() {
-        let (x_at, y_at) = comptime!(in_plane_axes(&space, &level));
+        let (x_at, y_at) = comptime!(in_plane_axes(space, level));
         let (count_x, count_y) = (instances.at(x_at), instances.at(y_at));
         let flat =
             CubeAxis::position(CubeAxis::X).plus(CubeAxis::position(CubeAxis::Y).times(count_x));

@@ -6,11 +6,13 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_runtime::execution::{KernelHandling, KernelOutcome, KernelRegistration, SettledKernel};
+use cubecl_runtime::execution::{
+    KernelHandling, KernelOutcome, KernelRegistration, LaunchPurpose, SettledKernel,
+};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
-    CompilationRecording, CompilationTarget, VariantOf,
+    CompilationRecording, CompilationTarget, VariantOf, WorkLaunchStore,
 };
 use crate::config::RuntimeConfig;
 use crate::kernel::CubeKernel;
@@ -33,7 +35,10 @@ use crate::server::LaunchError;
 /// it compiles in one phase that lasts about as long as its slowest kernel.
 pub struct KernelLoader<T: CompilationTarget> {
     target: T,
-    loaded: CompilationCache<ArtifactId<VariantOf<T>>, T::Loaded>,
+    loaded: CompilationCache<ArtifactId<VariantOf<T>>, LoadedKernel<T::Loaded>>,
+    /// Where the kernels the work launches are recorded, when the target
+    /// keeps what it compiles.
+    work: Option<WorkLaunchStore>,
     /// The kernels queued and not compiled yet.
     queue: KernelQueue<VariantOf<T>>,
     /// Why each queued kernel of the latest batch that failed to compile
@@ -51,7 +56,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// A loader holding nothing yet, bound to the active environment exactly
     /// when `target` [persists](CompilationTarget::persists) what it compiles.
     pub fn new(target: T) -> Self {
-        let loaded = CompilationCache::new(target.persists());
+        let bound = target.persists();
+        let loaded = CompilationCache::new(bound);
+        let work = match bound {
+            true => WorkLaunchStore::new(),
+            false => None,
+        };
         let parallelism = crate::config::CubeClRuntimeConfig::get()
             .compilation
             .parallelism();
@@ -59,6 +69,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         Self {
             target,
             loaded,
+            work,
             queue: KernelQueue::new(),
             failed: HashMap::new(),
             parallelism,
@@ -68,7 +79,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// The kernel loaded for `id`, if it is.
     #[cfg(test)]
     fn get(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<&T::Loaded> {
-        self.loaded.get(id)
+        self.loaded.get(id).map(|loaded| &loaded.kernel)
     }
 
     /// The kernel loaded for `kernel`, under `id`, loading it first if it is
@@ -78,7 +89,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// `id` is `kernel`'s, with what the launch adds to it: the launch already
     /// built the kernel's id, and building it again on every launch costs. A
     /// kernel already loaded, with nothing queued, costs one lookup and a
-    /// clone of what was loaded; `id` is only cloned to compile.
+    /// clone of what was loaded; `id` is only cloned to compile. The first
+    /// time the work's launch loads it, it is recorded as the work's.
     ///
     /// # Errors
     ///
@@ -92,11 +104,28 @@ impl<T: CompilationTarget> KernelLoader<T> {
         logger: &ServerLogger,
     ) -> Result<T::Loaded, LaunchError> {
         if self.queue.is_empty()
-            && let Some(loaded) = self.loaded.get(id)
+            && let Some(loaded) = self.launch_loaded(id)
         {
-            return Ok(loaded.clone());
+            return Ok(loaded);
         }
         self.load_missing(kernel, id, logger)
+    }
+
+    /// The kernel loaded for `id`, for the launch loading it on this thread,
+    /// which is recorded when it is the work's first.
+    fn launch_loaded(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<T::Loaded> {
+        let loaded = self.loaded.get_mut(id)?;
+        // The per-launch fast path: once the work launched the kernel, a
+        // launch reads this flag and nothing else, neither the launch's
+        // purpose nor the store. A race's launch leaves it unset, for the
+        // work's first to record.
+        if !loaded.recorded && LaunchPurpose::running() == LaunchPurpose::Work {
+            loaded.recorded = true;
+            if let Some(work) = self.work.as_mut() {
+                work.record(&id.kernel);
+            }
+        }
+        Some(loaded.kernel.clone())
     }
 
     /// [`load`](Self::load) past its one lookup: the kernel is not loaded, or
@@ -126,8 +155,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
             // An environment switch during the batch drops every kernel loaded
             // before it, this one too when it was: it loads again, from the
             // store of the environment switched to.
-            if let Some(loaded) = self.loaded.get(id) {
-                return Ok(loaded.clone());
+            if let Some(loaded) = self.launch_loaded(id) {
+                return Ok(loaded);
             }
         }
     }
@@ -182,6 +211,13 @@ impl<T: CompilationTarget> KernelLoader<T> {
             kernel: kernel.id(),
             variant,
         };
+        // Before anything that leaves the kernel alone: a work's launch queued
+        // in a compile-only pass is the work's, whoever queued it first.
+        if LaunchPurpose::running() == LaunchPurpose::Work
+            && let Some(work) = self.work.as_mut()
+        {
+            work.record(&id.kernel);
+        }
         if self.loaded.contains(&id) || self.queue.contains(&id) {
             return;
         }
@@ -192,7 +228,13 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// Keeps a loaded kernel, or the reason it failed.
     fn keep(&mut self, outcome: JobOutcome<T>) {
         match outcome.result {
-            Ok(loaded) => self.loaded.insert(outcome.id, loaded),
+            Ok(kernel) => self.loaded.insert(
+                outcome.id,
+                LoadedKernel {
+                    kernel,
+                    recorded: false,
+                },
+            ),
             Err(err) => {
                 self.failed.insert(outcome.id, err);
             }
@@ -327,6 +369,15 @@ struct JobOutcome<T: CompilationTarget> {
     stored: bool,
 }
 
+/// A kernel a [`KernelLoader`] holds loaded, and whether the work launched it
+/// since: until it has, each launch of it reads the launch's purpose, and
+/// after, none does.
+#[derive(Debug)]
+struct LoadedKernel<L> {
+    kernel: L,
+    recorded: bool,
+}
+
 /// The kernels a [`KernelLoader`] holds loaded — pipelines, modules — in front
 /// of the compilation store its target persists to.
 ///
@@ -364,9 +415,16 @@ impl<K: Eq + core::hash::Hash, V> CompilationCache<K, V> {
     }
 
     /// The kernel loaded for `key`, if it is still valid.
+    #[cfg(test)]
     fn get(&mut self, key: &K) -> Option<&V> {
         self.reset_if_switched();
         self.entries.get(key)
+    }
+
+    /// The kernel loaded for `key`, to update, if it is still valid.
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.reset_if_switched();
+        self.entries.get_mut(key)
     }
 
     /// Whether a kernel is loaded for `key` and still valid.
@@ -841,6 +899,7 @@ mod tests {
     use alloc::vec;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use cubecl_environment::backtrace::BackTrace;
+    use cubecl_environment::persistence::MemoryStorage;
     use std::sync::Mutex;
 
     /// Nothing compiles before something asks: queuing is free, and a load
@@ -1350,9 +1409,52 @@ mod tests {
         assert!(threads > 1, "lowered on {threads} thread");
     }
 
+    /// A race's load of a kernel leaves it unrecorded, and the work's load of
+    /// it after records it: the race having loaded it first must not hide the
+    /// work's launch from a prune.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_race_load_then_a_work_load_records_the_kernel() {
+        let mut loader = loader(1);
+        let logger = ServerLogger::default();
+        let kernel = Numbered(0).id();
+
+        LaunchPurpose::Race
+            .apply(|| loader.load(&Numbered(0), &id(0), &logger))
+            .unwrap();
+        assert!(!loader.work.as_mut().unwrap().holds(&kernel), "raced only");
+
+        LaunchPurpose::Work
+            .apply(|| loader.load(&Numbered(0), &id(0), &logger))
+            .unwrap();
+        assert!(loader.work.as_mut().unwrap().holds(&kernel));
+    }
+
+    /// A kernel queued for the work is recorded, as a compile-only pass of
+    /// the work queues it; one queued for a race is not.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_queued_is_recorded_for_the_work_only() {
+        let mut loader = loader(1);
+
+        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(2)), ()));
+
+        let work = loader.work.as_mut().unwrap();
+        assert!(!work.holds(&Numbered(1).id()), "queued for a race");
+        assert!(work.holds(&Numbered(2).id()), "queued for the work");
+    }
+
+    /// A loader over a fake target, recording the work's launches in memory
+    /// of its own.
     fn loader(parallelism: usize) -> KernelLoader<Fake> {
+        static LOADERS: AtomicUsize = AtomicUsize::new(0);
+
         let mut loader = KernelLoader::new(Fake::default());
         loader.parallelism = parallelism;
+        let number = LOADERS.fetch_add(1, Ordering::Relaxed);
+        let storage = MemoryStorage::new(&alloc::format!("work-launches-{number}"));
+        loader.work = Some(WorkLaunchStore::over(Box::new(storage)));
         loader
     }
 

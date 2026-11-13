@@ -61,7 +61,6 @@ impl Reads for AttendedExpand {
 }
 
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
@@ -105,7 +104,7 @@ fn plane_attention<E: Float>(
             let origin = plane.origin(S);
             let reach = select(keys as usize > origin, keys as usize - origin, 0usize);
             // Over the attended keys' run, every block but the last fills unchecked.
-            let keys_walk = match comptime!(over_run) {
+            let keys_walk = match over_run {
                 true => plane.walk().over_run(S),
                 false => plane.walk(),
             };
@@ -136,7 +135,7 @@ fn plane_attention<E: Float>(
                     // The score's cells were stored in the fragments' layout; the softmax reads
                     // them slice by slice.
                     sync_plane();
-                    let correction = match comptime!(unbiased) {
+                    let correction = match unbiased {
                         true => softmax.step(&score, &none_p.at(stage), scale),
                         false => softmax.step(&score, &bias_s, scale),
                     };
@@ -163,7 +162,6 @@ fn plane_attention<E: Float>(
 /// instruction `m × n` along the queries and keys, and the value contracts the keys as deep as the
 /// level above the leaf steps them: `n`, or a run of the score's fragments read as one `A`.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn register_plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
@@ -232,7 +230,7 @@ fn register_plane_attention<E: Float>(
                         let mut cell = logits.at(&fragment);
                         cell.mma(&q_s.at(&fragment), &k_s.at(&fragment));
                     }
-                    let correction = match comptime!(unbiased) {
+                    let correction = match unbiased {
                         true => softmax.step(&logits, &none_p.at(stage), scale),
                         false => softmax.step(&logits, &bias_s, scale),
                     };
@@ -244,7 +242,7 @@ fn register_plane_attention<E: Float>(
                     }
                 });
             });
-            match comptime!(ending) {
+            match ending {
                 Ending::Normalized => acc.along(V).mul(&softmax.recip_l()),
                 Ending::Undivided => {
                     // Each unit holds its own rows' state: written out row by row, then read by
@@ -276,7 +274,6 @@ fn register_plane_attention<E: Float>(
 }
 
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn unit_attention(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
@@ -345,7 +342,7 @@ fn unit_attention(
                 acc.along(V).mul(&correction);
                 acc.mma(&score, &v_s);
             }
-            match comptime!(ending) {
+            match ending {
                 Ending::Normalized => acc.along(V).mul(&softmax.recip_l()),
                 Ending::Undivided => {
                     let state = softmax.state();

@@ -29,8 +29,10 @@ use cubecl_common::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::future::DynFut;
+use cubecl_environment::future::block_on;
+use cubecl_environment::future::channel::{Receiver, Sender, bounded};
 use cubecl_environment::stream::StreamId;
-use cubecl_environment::sync::RwLock;
+use cubecl_environment::sync::{AtomicUsize, Ordering, RwLock};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
@@ -107,6 +109,17 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// What kernels on one device can do with another device's memory, ordered by what it allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PeerAccess {
+    /// The peer's memory cannot be bound.
+    None,
+    /// Loads and stores without native atomics.
+    Memory,
+    /// Loads, stores and native atomics.
+    MemoryAndAtomics,
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
@@ -144,19 +157,93 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
-    /// Whether kernels on this device can address the memory of another device of the runtime,
-    /// asked of the device once per pair.
-    pub peer_access: RwLock<HashMap<DeviceId, bool>>,
+    /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
+    pub communication_skips: CommunicationSkips,
+    /// Access to each peer's memory, queried once per device pair.
+    pub peer_access: RwLock<HashMap<DeviceId, PeerAccess>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
 }
 
+/// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold a device, so that
+/// nested ones compose.
+#[derive(Debug, Default)]
+pub struct CommunicationSkips {
+    held: AtomicUsize,
+}
+
+impl CommunicationSkips {
+    /// Whether any holds the device.
+    pub fn any(&self) -> bool {
+        self.held.load(Ordering::Acquire) > 0
+    }
+
+    pub(crate) fn enter(&self) {
+        self.held.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn leave(&self) {
+        self.held.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// A runtime's transport between its devices, which moves any buffer as bytes.
 #[derive(Debug, Clone)]
 pub struct DeviceTransport {
+    /// What runs it.
+    pub provider: TransportProvider,
     /// The element types it reduces.
     pub reduces: BTreeSet<ElemType>,
+}
+
+/// What runs a [`DeviceTransport`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportProvider {
+    /// NVIDIA's collective library, on CUDA.
+    Nccl,
+    /// AMD's collective library, on HIP.
+    Rccl,
+}
+
+impl DeviceTransport {
+    /// The transport `load` gives, or none without calling it when the configuration turns the
+    /// device transport off.
+    pub fn configured(load: impl FnOnce() -> Option<Self>) -> Option<Self> {
+        use crate::config::transport::DeviceTransportMode;
+
+        match CubeClRuntimeConfig::get().transport.device {
+            DeviceTransportMode::Auto => load(),
+            DeviceTransportMode::Off => {
+                static LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    log::info!(
+                        "The device transport is off by configuration (`transport.device` or \
+                         `CUBECL_DEVICE_TRANSPORT`): transfers between devices go through the \
+                         host, and cubecl runs no collective between them"
+                    );
+                }
+                None
+            }
+        }
+    }
+}
+
+impl TransportProvider {
+    /// The provider's name, as logs and refusals show it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nccl => "NCCL",
+            Self::Rccl => "RCCL",
+        }
+    }
+}
+
+impl Display for TransportProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Defines how the memory layout is determined.
@@ -227,6 +314,7 @@ impl ServerUtilities {
             device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            communication_skips: CommunicationSkips::default(),
             peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
@@ -1166,20 +1254,15 @@ pub trait ServerCommunication {
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
+    /// * `report` - Tells the peer's [`recv`](Self::recv) whether to post.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     ///
-    /// # Known limitation
-    ///
-    /// Send and recv are posted fire-and-forget on two devices and block for
-    /// each other, so a send that refuses — a source whose writer failed,
-    /// above all — leaves the peer's already-posted recv waiting on its
-    /// communication stream with no way to recall it from here. The refusal
-    /// is still right: completing the send would launder stale bytes onto a
-    /// handle that carries no claim on the other device. Cross-device
-    /// failure propagation needs a design pass of its own.
+    /// An implementation must call [`SendReport::will_post`] before posting: the
+    /// first transfer of a pair connects it, and that waits for the peer's recv.
+    /// One that refuses calls [`SendReport::refused`] and posts nothing.
     ///
     /// # Errors
     ///
@@ -1190,6 +1273,7 @@ pub trait ServerCommunication {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1201,6 +1285,7 @@ pub trait ServerCommunication {
     /// * `handle` - The handle in which the received data is written.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
+    /// * `outcome` - The result of the paired [`send`](Self::send), waited for before anything is posted.
     ///
     /// # Returns
     ///
@@ -1208,24 +1293,23 @@ pub trait ServerCommunication {
     ///
     /// # Errors
     ///
-    /// The default returns [`ServerError::NoDeviceTransport`].
+    /// The send's refusal, which `handle` carries too. The default returns
+    /// [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn recv(
         &mut self,
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
 
-    /// Whether kernels on this device can bind memory of `peer`, another
-    /// device of the same runtime.
-    ///
-    /// The default answers `false`.
+    /// Access to memory of `peer` in this runtime, defaulting to [`PeerAccess::None`].
     #[allow(unused_variables)]
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
-        false
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
+        PeerAccess::None
     }
 
     /// The device address of the first byte of the allocation `binding`
@@ -1254,6 +1338,61 @@ pub trait ServerCommunication {
     /// a buffer.
     #[allow(unused_variables)]
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
+}
+
+/// The result of a [`send`](ServerCommunication::send), for the
+/// [`recv`](ServerCommunication::recv) it is paired with.
+///
+/// A recv posted for a send that refused waits on its device forever, so the
+/// receiving server learns the result before it posts anything.
+#[derive(Debug)]
+pub struct SendOutcome {
+    result: Receiver<Result<(), ServerError>>,
+}
+
+/// The source's side of a [`SendOutcome`].
+#[derive(Debug)]
+pub struct SendReport {
+    result: Sender<Result<(), ServerError>>,
+}
+
+impl SendOutcome {
+    /// A report for the server that sends, and the outcome for the one that receives.
+    pub fn channel() -> (SendReport, Self) {
+        let (sender, receiver) = bounded(1);
+        (SendReport { result: sender }, Self { result: receiver })
+    }
+
+    /// Block until the source's server has reached the send.
+    ///
+    /// # Errors
+    ///
+    /// The send's refusal, or a send dropped before it reported.
+    pub fn wait(self) -> Result<(), ServerError> {
+        block_on(self.result.recv()).unwrap_or_else(|_| {
+            Err(ServerError::Generic {
+                reason: "the paired send was dropped before it reported".into(),
+                backtrace: BackTrace::capture(),
+            })
+        })
+    }
+}
+
+impl SendReport {
+    /// The send is about to be posted, so its recv can be too.
+    pub fn will_post(&self) {
+        self.deliver(Ok(()));
+    }
+
+    /// The send will not be posted, so its recv must not be.
+    pub fn refused(&self, error: ServerError) {
+        self.deliver(Err(error));
+    }
+
+    fn deliver(&self, result: Result<(), ServerError>) {
+        // The channel holds one report, so the first stands.
+        let _ = self.result.try_send(result);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

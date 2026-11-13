@@ -2,10 +2,12 @@
 //! once, or by each member for itself.
 
 use super::{Client, PEER_ORDER};
+use crate::logging::{CollectivePath, StreamRole};
 use crate::server::{
-    Collective, CollectiveBuffer, ComputeWait, Handle, Overlap, ReduceOperation, Reduction, Server,
+    Collective, CollectiveBuffer, ComputeWait, DeviceTransport, Handle, Overlap, ReduceOperation,
+    Reduction, Server,
 };
-use alloc::{collections::BTreeSet, vec::Vec};
+use alloc::vec::Vec;
 use cubecl_common::{device::DeviceId, device_handle::DeviceHandle};
 use cubecl_ir::ElemType;
 use thiserror::Error;
@@ -23,7 +25,7 @@ use thiserror::Error;
 pub struct ClientGroup {
     clients: Vec<Client>,
     device_ids: Vec<DeviceId>,
-    reduces: BTreeSet<ElemType>,
+    transport: DeviceTransport,
 }
 
 /// One member's buffers in a collective.
@@ -108,14 +110,16 @@ impl ClientGroup {
             });
         };
         // NCCL refuses a reduction unless every member's device supports it.
-        let mut reduces = transports[0].reduces.clone();
-        for transport in &transports[1..] {
-            reduces.retain(|dtype| transport.reduces.contains(dtype));
+        let mut transport = transports[0].clone();
+        for member in &transports[1..] {
+            transport
+                .reduces
+                .retain(|dtype| member.reduces.contains(dtype));
         }
         Ok(Self {
             clients,
             device_ids,
-            reduces,
+            transport,
         })
     }
 
@@ -124,10 +128,21 @@ impl ClientGroup {
         &self.clients
     }
 
+    /// The transport the members share: what runs it, and the element types every member reduces.
+    pub fn transport(&self) -> &DeviceTransport {
+        &self.transport
+    }
+
+    /// Whether any member's device skips communication, which makes every collective over the
+    /// group skip it: a member that queues its part waits on its device for every peer.
+    pub fn skips_communication(&self) -> bool {
+        self.clients.iter().any(Client::skips_communication)
+    }
+
     /// Whether the members reduce elements of `dtype` together. Every other collective moves bytes,
     /// whatever their type.
     pub fn reduces(&self, dtype: ElemType) -> bool {
-        self.reduces.contains(&dtype)
+        self.transport.reduces.contains(&dtype)
     }
 
     /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be
@@ -194,7 +209,8 @@ impl ClientGroup {
         );
 
         let root_id = self.device_ids[root];
-        self.queue(collective, dst, |member, client, dst, device_ids| {
+        let bytes = src.size_in_used();
+        self.queue(collective, bytes, dst, |member, client, dst, device_ids| {
             let src = (member == root).then(|| src.clone());
             client.queue_broadcast(src, dst, root_id, device_ids)
         });
@@ -240,9 +256,14 @@ impl ClientGroup {
         for (rank, buffers) in buffers.iter().enumerate() {
             exchange.expect_part(self, rank, buffers);
         }
-        self.queue(collective, buffers, |_, client, buffers, device_ids| {
-            exchange.queue(client, buffers, device_ids);
-        });
+        self.queue(
+            collective,
+            src,
+            buffers,
+            |_, client, buffers, device_ids| {
+                exchange.queue(client, buffers, device_ids);
+            },
+        );
     }
 
     fn expect_parts(&self, collective: Collective, parts: usize) {
@@ -331,13 +352,30 @@ impl ClientGroup {
     fn queue<Part>(
         &self,
         collective: Collective,
+        bytes: u64,
         parts: Vec<Part>,
         mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
     ) {
+        if self.skips_communication() {
+            let _skipped = self.clients[0].collective_scope(
+                collective,
+                &self.device_ids,
+                bytes,
+                CollectivePath::Skipped,
+            );
+            return;
+        }
         // Outside the lock, which setting the group up takes itself.
         self.clients[0].prepare_collective(collective, self.device_ids.clone());
+        let _collective = self.clients[0].collective_scope(
+            collective,
+            &self.device_ids,
+            bytes,
+            CollectivePath::Native(self.transport.provider),
+        );
         let _order = PEER_ORDER.lock();
         for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
+            client.issue_part(StreamRole::Collective);
             queue_part(member, client, part, self.device_ids.clone());
         }
         // A part waits in its client's queue until flushed, and a member blocked reading its
@@ -391,7 +429,11 @@ impl GroupMember {
     /// queueing theirs wait in it on their devices until it arrives.
     fn exchange(&self, exchange: Exchange, buffers: MemberBuffers) {
         exchange.expect_part(&self.group, self.rank, &buffers);
+        if self.group.skips_communication() {
+            return;
+        }
         let client = &self.group.clients[self.rank];
+        client.issue_part(StreamRole::Collective);
         exchange.queue(client, buffers, self.group.device_ids.clone());
         client.device.flush_queue();
     }

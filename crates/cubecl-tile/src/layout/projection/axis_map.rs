@@ -118,6 +118,11 @@ pub(crate) struct AxisTerm {
 pub(crate) enum Composition {
     /// No two logical positions share a cell: the terms partition the axis.
     Disjoint,
+    /// No two logical positions share a cell, but the cells start at an offset: a partition
+    /// moved along its axis, as a window of rows read from a dynamic position is. A write
+    /// through it aliases nothing; it is read as an N-D view, never as a partition that starts
+    /// at 0.
+    Translated,
     /// Two positions may land on the same cell, as with a stencil or a resample.
     Overlapping,
 }
@@ -206,7 +211,8 @@ impl PhysicalAxisMap {
     }
 
     /// The same combination plus a signed constant or dynamic `offset`, added before any
-    /// [`over`](Self::over).
+    /// [`over`](Self::over). A partition shifted stays one cell a position, moved:
+    /// [`Translated`](Composition::Translated).
     pub fn shifted(mut self, offset: impl Into<Offset>) -> Self {
         let offset = offset.into();
         assert!(
@@ -214,7 +220,10 @@ impl PhysicalAxisMap {
             "PhysicalAxisMap::shifted: shift once, before `over`"
         );
         if offset != Offset::Static(0) {
-            self.composition = Composition::Overlapping;
+            self.composition = match self.composition {
+                Composition::Disjoint | Composition::Translated => Composition::Translated,
+                Composition::Overlapping => Composition::Overlapping,
+            };
         }
         self.offset = offset;
         self
@@ -284,7 +293,7 @@ impl PhysicalAxisMap {
     /// The `(axis, coefficient)` radices a disjoint map claims, coarsest first; empty otherwise.
     pub(crate) fn claimed_radices(&self) -> SmallVec<[(Axis, usize); Space::MAX_RANK]> {
         match self.composition {
-            Composition::Overlapping => SmallVec::new(),
+            Composition::Overlapping | Composition::Translated => SmallVec::new(),
             Composition::Disjoint => self
                 .terms
                 .iter()
@@ -303,16 +312,21 @@ impl PhysicalAxisMap {
         self.divisor
     }
 
+    /// Whether stepping term `term` is an addition: its axis is not kept inside a floor.
+    pub(crate) fn steps_by_add(&self, term: usize) -> bool {
+        !self.is_rational() || self.static_offset_step(term).is_some()
+    }
+
     /// Term `term`'s static additive step, `None` if dynamic; panics for one kept inside a floor.
     pub(crate) fn additive_step(&self, term: usize) -> Option<isize> {
+        assert!(
+            self.steps_by_add(term),
+            "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping it is \
+             not an addition and the map has to be summed at every position",
+            self.terms()[term].axis
+        );
         if self.is_rational() {
-            return Some(self.static_offset_step(term).unwrap_or_else(|| {
-                panic!(
-                    "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping \
-                     it is not an addition and the map has to be summed at every position",
-                    self.terms()[term].axis
-                )
-            }) as isize);
+            return self.static_offset_step(term).map(|step| step as isize);
         }
         match self.terms()[term].scale {
             Scale::Static(s) => Some(s),
@@ -688,6 +702,32 @@ mod tests {
         assert_eq!(
             PhysicalAxisMap::affine(&[(A, 2)]).composition(),
             Composition::Overlapping
+        );
+    }
+
+    /// A partition shifted is one cell a position still, moved: a write through it aliases
+    /// nothing, but it claims no radices, which describe a partition from 0. A shifted overlap
+    /// stays one.
+    #[test]
+    fn a_shifted_partition_is_translated_and_a_shifted_overlap_is_not() {
+        for offset in [Offset::Static(3), Offset::Dynamic] {
+            let moved = PhysicalAxisMap::disjoint(&[(A, 2), (B, 1)]).shifted(offset);
+            assert_eq!(moved.composition(), Composition::Translated);
+            assert!(moved.claimed_radices().is_empty());
+            assert_eq!(
+                PhysicalAxisMap::of(A).shifted(offset).composition(),
+                Composition::Translated
+            );
+            assert_eq!(
+                PhysicalAxisMap::affine(&[(A, 2), (B, 1)])
+                    .shifted(offset)
+                    .composition(),
+                Composition::Overlapping
+            );
+        }
+        assert_eq!(
+            PhysicalAxisMap::of(A).shifted(0).composition(),
+            Composition::Disjoint
         );
     }
 

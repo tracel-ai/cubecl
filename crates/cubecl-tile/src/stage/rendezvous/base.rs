@@ -130,7 +130,7 @@ impl Meeting {
                 let full =
                     Barrier::shared(Meeting::producers(collective_full, fillers), UNIT_POS == 0);
                 let empty = Barrier::shared(Meeting::consumers(fillers), UNIT_POS == 0);
-                if comptime!(fences) {
+                if fences {
                     sync_async_proxy_shared();
                 }
                 sync_cube();
@@ -146,7 +146,7 @@ impl Meeting {
     pub(crate) fn producers(#[comptime] collective_full: bool, #[comptime] fillers: usize) -> u32 {
         if fillers > 0 {
             comptime!(fillers as u32) * CUBE_DIM_X
-        } else if comptime!(collective_full) {
+        } else if collective_full {
             CUBE_DIM
         } else {
             1u32.runtime()
@@ -229,6 +229,23 @@ impl Meeting {
         }
     }
 
+    /// End the rendezvous once its walk is over: a barrier pair is invalidated, so a ring built in
+    /// the same shared memory afterwards, as a ring built in a loop is, initializes new barriers
+    /// rather than reinitializing ones whose phases have moved, whose waits may then never
+    /// complete. Every unit of the cube meets first, so none still waits on them.
+    pub(crate) fn end(&self) {
+        match self {
+            Meeting::Barrier { full, empty, .. } => {
+                sync_cube();
+                if UNIT_POS == 0 {
+                    full.invalidate();
+                    empty.invalidate();
+                }
+            }
+            Meeting::Cube | Meeting::Plane => {}
+        }
+    }
+
     /// Publish the slot's last fill where no later fill will ([`Slot::publish`]).
     pub(crate) fn publish(&self) {
         match self {
@@ -246,13 +263,13 @@ impl Meeting {
         if comptime!(element == StageElement::Decoded) {
             dst.dequantize_from(src);
         } else {
-            self.fill_as_it_lies(dst, src, space);
+            self.fill_as_it_lies(dst, src, &space);
             dst.fill_scales_from(src, self);
         }
     }
 
     /// [`fill`](Meeting::fill) a source that decodes nothing.
-    fn fill_as_it_lies(&self, dst: &mut Tile, src: &Tile, #[comptime] space: Space) {
+    fn fill_as_it_lies(&self, dst: &mut Tile, src: &Tile, #[comptime] space: &Space) {
         let define!(Served) = dst.element;
         match self {
             Meeting::Barrier { full, elected, .. } => match (&mut dst.kind, &src.kind) {

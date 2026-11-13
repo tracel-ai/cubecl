@@ -152,11 +152,11 @@ macro_rules! aligned {
 }
 
 #[type_interface]
-pub trait SizedType: AlignedType {
+pub trait MaybeSizedType: AlignedType {
     verify_ty_succ!();
-    fn size(&self, ctx: &Context) -> usize;
-    fn size_bits(&self, ctx: &Context) -> usize {
-        self.size(ctx) * 8
+    fn size(&self, ctx: &Context) -> Option<usize>;
+    fn size_bits(&self, ctx: &Context) -> Option<usize> {
+        Some(self.size(ctx)? * 8)
     }
 }
 
@@ -164,10 +164,10 @@ pub trait SizedType: AlignedType {
 macro_rules! sized {
     ($ty: ty, $size: expr) => {
         #[::pliron::derive::type_interface_impl]
-        impl $crate::interfaces::SizedType for $ty {
+        impl $crate::interfaces::MaybeSizedType for $ty {
             #[allow(unused_variables)]
-            fn size(&self, ctx: &::pliron::context::Context) -> usize {
-                $size
+            fn size(&self, ctx: &::pliron::context::Context) -> Option<usize> {
+                Some($size)
             }
         }
     };
@@ -447,16 +447,22 @@ macro_rules! match_ty {
 }
 
 pub trait TypedExt: Typed {
+    fn try_size(&self, ctx: &Context) -> Option<usize> {
+        let ty = self.get_type(ctx).deref(ctx);
+        let sized = type_cast::<dyn MaybeSizedType>(&*ty)?;
+        sized.size(ctx)
+    }
+
     fn size(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let sized = try_cast_ty!(ty, ctx, dyn SizedType);
-        sized.size(ctx)
+        let sized = try_cast_ty!(ty, ctx, dyn MaybeSizedType);
+        sized.size(ctx).unwrap()
     }
 
     fn size_bits(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let sized = try_cast_ty!(ty, ctx, dyn SizedType);
-        sized.size_bits(ctx)
+        let sized = try_cast_ty!(ty, ctx, dyn MaybeSizedType);
+        sized.size_bits(ctx).unwrap()
     }
 
     fn unpacked_size_bits(&self, ctx: &Context) -> usize {

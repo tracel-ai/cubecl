@@ -54,7 +54,7 @@ impl Layout for BufferLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        logical_extent(comptime!(self.projection.clone()), &self.physical_shape).to_dyn()
+        logical_extent(&self.projection, &self.physical_shape).to_dyn()
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
@@ -97,7 +97,7 @@ impl BufferLayout {
     /// source's order, whatever blocking or swizzle places the line here.
     pub(crate) fn row_major_coords(&self, i: usize) -> CoordsDyn {
         let rank = comptime!(self.projection.logical_rank());
-        let extent = logical_extent(comptime!(self.projection.clone()), &self.physical_shape);
+        let extent = logical_extent(&self.projection, &self.physical_shape);
         let x = i.cast::<u32>();
         let mut coords = CoordsDyn::new();
         #[unroll]
@@ -277,7 +277,7 @@ impl BufferLayout {
             // Strip the finer coordinates, then take this one; the outermost keeps the full
             // quotient.
             let quot = pos[p].divided_by(self.physical_shape.product(finer.to_vec()));
-            let coord = match comptime!(modulo) {
+            let coord = match modulo {
                 Some(m) => quot.remainder(self.physical_shape.at(m)),
                 None => quot,
             };

@@ -20,8 +20,8 @@ use cubecl_core::{
     prelude::*,
     server::{
         BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        PeerBinding, ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError,
-        ServerUtilities,
+        PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction, SendOutcome, SendReport,
+        ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future;
@@ -485,8 +485,9 @@ impl ServerCommunication for HipServer {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -495,15 +496,14 @@ impl ServerCommunication for HipServer {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src)
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
     }
 
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
         let own = AmdDevice::from_id(self.device_id).index as i32;
         let other = AmdDevice::from_id(peer).index as i32;
-        // Kernels on two devices hand data off through system-scope atomics
-        // on one's memory, so plain loads and stores are not enough.
         let attribute = |attribute| {
             let mut value = 0;
             // SAFETY: `value` is a valid stack variable HIP writes through.
@@ -512,8 +512,13 @@ impl ServerCommunication for HipServer {
             };
             checked("hipDeviceGetP2PAttribute", status).is_ok() && value != 0
         };
-        attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrAccessSupported)
-            && attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrNativeAtomicSupported)
+        if !attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrAccessSupported) {
+            PeerAccess::None
+        } else if attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrNativeAtomicSupported) {
+            PeerAccess::MemoryAndAtomics
+        } else {
+            PeerAccess::Memory
+        }
     }
 
     fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {

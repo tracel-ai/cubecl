@@ -73,7 +73,7 @@ impl Lines {
     /// The empty box one region of `level` over `operand` fills, one line per unit.
     pub(crate) fn new(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] read: UnitRead,
     ) -> Lines {
         let loaded = comptime!(level.child(&operand.place.space));
@@ -104,7 +104,7 @@ impl Lines {
         ));
         let words = line / per_word;
         register_line_words(words);
-        let window = match comptime!(read) {
+        let window = match read {
             UnitRead::Shuffle => ComptimeOption::new_None(),
             UnitRead::PlaneShared => {
                 let planes = comptime!(plane_windows(&operand.place.space, &operand.place.levels));
@@ -236,13 +236,13 @@ impl Lines {
     }
 
     /// This window one level down, to `step`'s box: only the origin moves.
-    pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> Lines {
+    pub(crate) fn at(&self, step: &Step, #[comptime] space: &Space) -> Lines {
         let rank = space.rank();
         let mut origin = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
             let axis = space.axis_at(p);
-            let edge = comptime!(step.level.extent_in(&space, axis).get());
+            let edge = comptime!(step.level.extent_in(space, axis).get());
             origin.push(
                 self.origin
                     .at(p)

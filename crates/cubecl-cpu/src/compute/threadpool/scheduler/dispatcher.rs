@@ -66,8 +66,8 @@ impl DispatcherScheduler {
             // count, so never use it directly here.
             let mut best = 0;
             let mut min_value = self.lens[0].load(atomic::Ordering::Relaxed);
-            for (i, slot) in self.lens.iter().enumerate().skip(1) {
-                let len = slot.load(atomic::Ordering::Relaxed);
+            for (i, len) in self.lens.iter().enumerate().skip(1) {
+                let len = len.load(atomic::Ordering::Relaxed);
                 if len < min_value {
                     best = i;
                     min_value = len;

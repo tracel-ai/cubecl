@@ -5,7 +5,7 @@ use crate::{
     interfaces::{
         AlignedType, ConstantLike, MaybeVectorizedType, ScalarizableType, TypedExt,
         memory_slot::PromotableRegionOpInterface,
-        side_effects::{MemoryEffect, MemoryEffectsOp},
+        side_effects::{MemoryEffect, MemoryEffectsOp, MemoryLocation},
         uniformity::{UniformOpInterface, Uniformity},
     },
     scalar,
@@ -49,7 +49,9 @@ impl MemoryEffectsOp for LoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let ptr = self.get_operand_pointer(ctx);
         let Ok(ptr_ty) = TypedHandle::<PointerType>::from_handle(ptr.get_type(ctx), ctx) else {
-            return vec![MemoryEffect::Read(self.get_operand_pointer(ctx))];
+            return vec![MemoryEffect::Read(MemoryLocation::exact_pointer(
+                self.get_operand_pointer(ctx),
+            ))];
         };
         let storage_class = ptr_ty.deref(ctx).storage_class;
         match storage_class {
@@ -61,7 +63,9 @@ impl MemoryEffectsOp for LoadOp {
             | StorageClass::ShaderRecordBufferKHR
             | StorageClass::IncomingCallableDataKHR
             | StorageClass::IncomingRayPayloadKHR => vec![],
-            _ => vec![MemoryEffect::Read(self.get_operand_pointer(ctx))],
+            _ => vec![MemoryEffect::Read(MemoryLocation::exact_pointer(
+                self.get_operand_pointer(ctx),
+            ))],
         }
     }
 }

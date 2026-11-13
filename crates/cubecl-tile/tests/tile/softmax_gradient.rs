@@ -54,7 +54,6 @@ impl Reads for CausalExpand {
 /// Every unit owning `rows` queries: their dot product of the output and its gradient, then, a
 /// step of keys at a time, the gradient against their scores.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn by_queries(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -119,7 +118,6 @@ fn by_queries(
 /// Every unit owning `rows` keys, its scores held keys first: a step of queries at a time, the
 /// gradient against their scores, each query's logsumexp and dot product read along the slices.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn by_keys(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -184,7 +182,6 @@ fn by_keys(
 /// scores taken in the registers that hold them, then drained. Keys first, each cell reads its
 /// query's logsumexp and dot product along its column; queries first, along its row.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn by_plane_fragments(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -218,7 +215,7 @@ fn by_plane_fragments(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let (rows, cols, rows_gradient, cols_gradient) = match comptime!(keys_first) {
+    let (rows, cols, rows_gradient, cols_gradient) = match keys_first {
         true => (
             key.clone(),
             query.clone(),
@@ -303,7 +300,6 @@ fn by_plane_fragments(
 /// Every unit owning `rows` queries, taking its scores into an online softmax a step of keys at
 /// a time and leaving each query's logsumexp behind.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn logsumexp_of(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,

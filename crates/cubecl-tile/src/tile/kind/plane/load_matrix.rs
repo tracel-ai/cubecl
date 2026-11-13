@@ -48,7 +48,7 @@ pub(super) fn load_ldmatrix<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric
             panic!("MmaData::load: an ldmatrix load reads a row- or col-major window")
         }
     });
-    let view = if comptime!(col_major_window) {
+    let view = if col_major_window {
         src.fragment_matrix_packed::<T, W>(cols, rows)
     } else {
         src.fragment_matrix_packed::<T, W>(rows, cols)
@@ -67,7 +67,7 @@ pub(super) fn load_ldmatrix<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric
     // The step this fragment loads, where the window is several instructions deep.
     let (row, col) = along_k(row, col, ident, k_offset);
     // The unit's row runs along the window's lines, and the next unit's starts a line-row on.
-    let (line_row, cell) = if comptime!(col_major_window) {
+    let (line_row, cell) = if col_major_window {
         (col + row_in_matrix, row)
     } else {
         (row + row_in_matrix, col)
@@ -103,7 +103,6 @@ pub(crate) enum PairAxis {
 /// most one `ldmatrix` reads. Units past the pair's matrices wrap onto them, as in
 /// [`load_ldmatrix`], since every unit hands the instruction an address it may read.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn load_ldmatrix_pair<
     T: Numeric,
     W: Size,
@@ -158,13 +157,13 @@ pub(super) fn load_ldmatrix_pair<
     let fragment = matrix / comptime!(num_regs as u32);
     let nth_matrix = matrix % comptime!(num_regs as u32);
     let (row, col) = def.position_of_nth(0, nth_matrix * comptime!(vector_size as u32), ident);
-    let (line_row, cell) = if comptime!(col_major_window) {
+    let (line_row, cell) = if col_major_window {
         (col + row_in_matrix, row)
     } else {
         (row + row_in_matrix, col)
     };
     // The second fragment lies one fragment on along the pair's edge.
-    let (line_row, cell) = match comptime!(along) {
+    let (line_row, cell) = match along {
         PairAxis::Rows => (line_row + fragment * comptime!(frag_rows as u32), cell),
         PairAxis::Cols => (line_row, cell + fragment * comptime!(frag_cols as u32)),
     };
@@ -197,7 +196,7 @@ pub(crate) fn along_k(
     #[comptime] ident: MatrixIdent,
     #[comptime] k_offset: usize,
 ) -> (u32, u32) {
-    match comptime!(ident) {
+    match ident {
         MatrixIdent::A => (row, col + comptime!(k_offset as u32)),
         MatrixIdent::B => (row + comptime!(k_offset as u32), col),
         MatrixIdent::Accumulator => (row, col),

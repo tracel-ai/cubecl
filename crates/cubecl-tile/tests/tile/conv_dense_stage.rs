@@ -40,19 +40,12 @@ fn conv_dense_stage_kernel<E: Numeric>(
         let (input, weight, out) = (input.at(&cube), weight.at(&cube), out.at(&cube));
         let acc = out.accumulator::<E>(&input, &weight, instruction, Semiring::SUM_PROD);
         let walk = cube.over(&steps);
-        let mut stages = Stages::smem(
-            &walk,
-            &input,
-            &weight,
-            comptime!(storage.clone()),
-            1usize,
-            None,
-        );
+        let mut stages = Stages::smem(&walk, &input, &weight, storage.clone(), 1usize, None);
         stages.pipelined(walk, |slot, region| {
             let mut acc_r = acc.at(region);
             slot.consume(|i, w| {
                 // A stage taller than one block holds a block per plane, each contracting its own.
-                if comptime!(planes > 1) {
+                if planes > 1 {
                     for plane in region {
                         let mut acc_p = acc_r.at(&plane);
                         acc_p.mma(&i.at(&plane), &w.at(&plane));
@@ -83,6 +76,9 @@ struct Case {
     taps: usize,
     /// Row blocks the plane level lays side by side, so the stage is that many blocks tall.
     planes: usize,
+    /// A plane holds a 2 by 2 grid of fragments, which it loads from the stage before contracting
+    /// each cell, over twice the output channels.
+    grid: bool,
 }
 
 /// The instruction's shape if the device offers it over `f16` summed in `f32`, else a skip.
@@ -133,8 +129,10 @@ impl Case {
             in_len,
             taps,
             planes,
+            grid,
         } = *self;
-        let (co, rh) = (CO_EXTENT, RH_EXTENT);
+        let cells = if grid { 2 } else { 1 };
+        let (co, rh) = (cells * CO_EXTENT, RH_EXTENT);
         // A k step is `taps` taps by `k / taps` channels; the walk takes two channel steps.
         let ci_step = k / taps;
         let ci = 2 * ci_step;
@@ -144,6 +142,10 @@ impl Case {
             &client,
             Partitioning::new(Space::new(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)]), {
                 let levels = Levels::leaf(&[(OH, m), (CO, n), (RH, taps), (CI, ci_step)]);
+                let levels = match grid {
+                    true => levels.walk(&[(OH, 2), (CO, 2)]),
+                    false => levels,
+                };
                 let levels = match planes {
                     1 => levels,
                     _ => levels.planes(&[(OH, planes)]),
@@ -240,6 +242,7 @@ const FORWARD: Case = Case {
     in_len: 99,
     taps: 2,
     planes: 1,
+    grid: false,
 };
 
 #[test]
@@ -277,6 +280,7 @@ const TILED: Case = Case {
     in_len: 35,
     taps: 2,
     planes: 2,
+    grid: false,
 };
 
 #[test]
@@ -292,4 +296,23 @@ fn conv_dense_stage_cmma_tiled_stage_8_channels() {
 #[test]
 fn conv_dense_stage_mma_tiled_stage() {
     Case { taps: 4, ..TILED }.check(Unit::Mma);
+}
+
+/// One plane over a 2 by 2 grid of fragments, whose lhs rows step by the stride of the output's
+/// row axis, `taps * channels`, not the channels of one tap.
+const GRID: Case = Case {
+    planes: 1,
+    grid: true,
+    ..TILED
+};
+
+#[test]
+fn conv_dense_stage_cmma_fragment_grid_taps_2() {
+    GRID.check(Unit::Cmma);
+}
+
+/// Rows 4 channels apart would put the lanes' 16-byte reads 8 bytes apart.
+#[test]
+fn conv_dense_stage_cmma_fragment_grid_taps_4() {
+    Case { taps: 4, ..GRID }.check(Unit::Cmma);
 }

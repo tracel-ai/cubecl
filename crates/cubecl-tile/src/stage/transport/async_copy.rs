@@ -48,7 +48,7 @@ pub(crate) fn fill_lines_async<I2: Numeric, W: Size>(
         "fill_lines_async: the copy engine moves 4, 8 or 16 bytes at once, and this stage's lines \
          are {bytes}: serve the operand in lines one copy moves"
     ));
-    if comptime!(straight) {
+    if straight {
         let units = fill.count;
         let tasks = comptime!((total_c.unwrap() as usize).div_ceil(units));
         #[unroll]
@@ -102,7 +102,7 @@ impl Memory {
     ///
     /// The contract is `fill_from`'s either way: a `sync_cube` must still separate the fill from
     /// its readers.
-    pub(crate) fn load_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: Space) {
+    pub(crate) fn load_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: &Space) {
         if comptime!(src.access.delivery == Delivery::AsyncPerUnit) {
             // The wait is the cube's: a stage one plane fills on its own would leave the others'
             // arrivals missing.

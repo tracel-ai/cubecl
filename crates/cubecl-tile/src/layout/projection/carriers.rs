@@ -8,7 +8,7 @@ use crate::{Axis, Coords, Integer, IntegerExpand, IntegerSeq, IntegerSeqExpand, 
 /// The logical extent per axis: the product of `projection`'s physical extents carrying it.
 #[cube]
 pub(crate) fn logical_extent(
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
     physical_shape: &Coords<u32>,
 ) -> Coords<u32> {
     let mut bound = Coords::<u32>::new();
@@ -26,7 +26,7 @@ pub(crate) fn logical_extent(
 /// stride, so a move from one coordinate to another is the difference of their offsets.
 #[cube]
 pub(crate) fn axis_offset(
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
     #[comptime] axis: Axis,
     at: u32,
     physical_shape: &Coords<u32>,
@@ -41,7 +41,7 @@ pub(crate) fn axis_offset(
         let (finer, modulo) = projection.carried_by(pa, axis);
         let scale = comptime!(projection.scale(pa, axis) as u32);
         let quot = at.divided_by(physical_shape.product(finer.to_vec()));
-        let coord = match comptime!(modulo) {
+        let coord = match modulo {
             Some(m) => quot.remainder(physical_shape.at(m)),
             None => quot,
         };

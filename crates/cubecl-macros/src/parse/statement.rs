@@ -243,12 +243,15 @@ fn redundant_comptime_warning(_mac: &Macro, _context: &Context) -> proc_macro2::
 /// Whether `comptime!(expr)` can go without changing the kernel. A lone literal or a lone comptime
 /// local can't: where the macro reads a value in runtime code (a match arm, a branch's value) it
 /// turns those into runtime variables, while it leaves a `comptime!` block and any other comptime
-/// expression (a field, a method call, an operator) a host value.
+/// expression (a field, a method call, an operator) a host value. The exception is the whole
+/// condition of an `if` or value of a `match`, where a lone comptime local picks a comptime branch
+/// just like the `comptime!` block does.
 #[cfg(feature = "warn-redundant-comptime")]
 fn is_redundant_comptime(expr: &Expr, context: &Context) -> bool {
     match expr {
         Expr::Paren(paren) => is_redundant_comptime(&paren.expr, context),
         Expr::Group(group) => is_redundant_comptime(&group.expr, context),
+        Expr::Path(_) if context.in_branch_selector => is_comptime_without_wrapper(expr, context),
         Expr::Lit(_) | Expr::Path(_) => false,
         expr => is_comptime_without_wrapper(expr, context),
     }

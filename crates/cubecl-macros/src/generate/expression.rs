@@ -93,19 +93,20 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() => {
-                let op = format_ident!("__expand_{}_method", operator.op_name());
+                // The target doesn't go through `IntoExpand`: a comptime target would become a
+                // temporary that takes the update and is dropped. It stays plain Rust, which no
+                // compound assignment accepts, so the kernel is rejected at compile time. Only the
+                // method name carries the user's span, so the error points at the assignment.
+                let op = format_ident!("__expand_{}_method", operator.op_name(), span = *span);
                 let mut operands = Operands::new(context);
-                let left = operands.track(context, |context| into_expand(left.to_tokens(context)));
+                let left = operands.track(context, |context| left.to_tokens(context));
                 let right =
                     operands.track(context, |context| into_expand(right.to_tokens(context)));
-                let rhs = match operator.is_cmp() {
-                    true => quote![&#right],
-                    false => quote![#right],
-                };
-                let value = then_position(quote![_value], operands.position(context, *span));
+                let right = then_position(right, operands.position(context, *span));
+                // The value first: it may read the target, which the call borrows mutably.
                 quote! {{
-                    let _value = #rhs;
-                    #left.#op(scope, #value)
+                    let _value = #right;
+                    #left.#op(scope, _value)
                 }}
             }
             Expression::Binary {
@@ -548,6 +549,13 @@ impl Expression {
             Expression::Reference { inner } => {
                 if let Some(as_const) = inner.as_const(context) {
                     quote![&#as_const]
+                } else if let Expression::FieldAccess { .. } = **inner {
+                    // A field of a cube type is either an expand value, whose reference is the
+                    // value itself, or a `#[cube(comptime)]` host value, which has no expand form:
+                    // a plain borrow is right for both, so `&self.place.space` reads a comptime
+                    // field without `comptime!(...clone())`.
+                    let inner = inner.to_tokens(context);
+                    quote![&#inner]
                 } else {
                     let inner = inner.to_tokens(context);
                     quote![#inner.__expand_ref_method(scope)]
@@ -692,10 +700,11 @@ impl Expression {
                     .collect::<Option<Vec<_>>>();
 
                 if let Some(mut cases) = cases {
+                    let match_value = Ident::new("__match_value", Span::mixed_site());
                     let discriminants = arms.iter().enumerate().map(|(i, (pat, _))| {
                         let name = variant_name(pat).expect("Already checked");
                         let ident = format_ident!("_disc_{i}");
-                        quote![let #ident = #expr.discriminant_of_value(#name);]
+                        quote![let #ident = #match_value.discriminant_of_value(#name);]
                     });
 
                     // Needed so type inference can actually work
@@ -705,8 +714,10 @@ impl Expression {
                         .map(|(disc, block)| quote![.case(scope, #disc, |scope, value| #block)]);
                     quote! {
                         {
+                            // The scrutinee may be a call, so it is expanded once.
+                            let #match_value = #expr;
                             #(#discriminants)*
-                            #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
+                            #branch::#match_(scope, #match_value, #disc0, |scope, value| #block0)
                                 #(#cases)*
                                 #default
                                 .finish(scope)
@@ -746,6 +757,8 @@ impl Expression {
                 let if_expand = prelude_type("if_expand");
                 let if_else_expand = prelude_type("if_else_expand");
                 let if_else_expr_expand = prelude_type("if_else_expr_expand");
+                let into_runtime = prelude_type("IntoRuntime");
+                let value = Ident::new("__if_let_value", Span::mixed_site());
 
                 if let Some(name) = name {
                     let expr = expr
@@ -754,14 +767,17 @@ impl Expression {
 
                     let (pat, block) = arm.to_tokens(context, true, false);
 
-                    let block = match inner_pat(&pat) {
-                        Some(inner) => {
+                    // Expanded once, as in a match. Only a pattern that binds the value consumes
+                    // it.
+                    let (bind_value, block) = match inner_pat(&pat) {
+                        Some(inner) => (
+                            quote![let #value = #expr;],
                             quote! {{
-                                let #inner = #expr.runtime_value();
+                                let #inner = #value.runtime_value();
                                 #block
-                            }}
-                        }
-                        None => block,
+                            }},
+                        ),
+                        None => (quote![let #value = &#expr;], block),
                     };
 
                     let expand = match else_branch {
@@ -781,8 +797,12 @@ impl Expression {
                     };
 
                     quote! {{
-                        let __disc = #expr.discriminant_of_value(#name).into_runtime(scope);
-                        let __cond = #expr.discriminant().__expand_eq_method(scope, __disc);
+                        #bind_value
+                        let __disc = #into_runtime::__expand_runtime_method(
+                            #value.discriminant_of_value(#name),
+                            scope,
+                        );
+                        let __cond = #value.discriminant().__expand_eq_method(scope, &__disc);
 
                         #expand
                     }}

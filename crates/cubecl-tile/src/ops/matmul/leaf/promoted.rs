@@ -16,7 +16,7 @@ impl RegisterData {
         &mut self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma"));
@@ -60,12 +60,12 @@ impl RegisterData {
         let size!(L) = lw;
 
         let operands = comptime!(Space::merge(&[&lhs.place.space, &rhs.place.space]));
-        let kc = operands.contracted_extent(&out);
+        let kc = operands.contracted_extent(out);
         let (mr, nr) = comptime!((self.mr, self.nr));
 
         // Read the column edge off the operands so a split column group stays one edge.
-        let acc_axes = comptime!(MatrixAxes::accumulator(&out, &lhs.place.space));
-        let cols = acc_axes.cols(&out);
+        let acc_axes = comptime!(MatrixAxes::accumulator(out, &lhs.place.space));
+        let cols = acc_axes.cols(out);
         let lhs_axes =
             comptime!(MatrixAxes::new(&lhs.place.space, mr, kc).unwrap_or_else(|e| panic!("{e}")));
         let rhs_axes = comptime!(if lined_along_k {
@@ -82,6 +82,9 @@ impl RegisterData {
         let unroll = comptime!(mr * nr * self.vector_size <= config.budget);
         let component_fanout = config.component_fanout;
 
+        // Every value this block reads is read under its factor, so an `e2m1` operand is read
+        // placed, its lift carried by the factor: one multiply a scale, not one a value.
+        let (lhs, rhs) = (lhs.placed(), rhs.placed());
         let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, 0usize);
         let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, 0usize);
         let lhs_scales = lhs.reader(

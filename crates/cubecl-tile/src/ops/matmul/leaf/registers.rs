@@ -7,7 +7,6 @@ use crate::*;
 /// `c += lhs · rhs` over the block, one line of the contraction at a time, each factor times its
 /// scales.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size>(
     lhs: &MatrixView<'_, Vector<EL, L>>,
     lhs_scales: &FactorReader,
@@ -40,8 +39,9 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
     // Constant units let the backend merge an `mr`-row fan-out's repeated line reads into one.
     let fixed = along_k || (component_fanout && lw > 1) || lw == 1;
 
+    #[unroll(unroll)]
     for line in 0..lines {
-        if comptime!(along_k) {
+        if along_k {
             rank1_update::<E, EL, L, ER, V, RL>(
                 lhs,
                 lhs_scales,
@@ -61,7 +61,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
                 unroll,
                 semiring,
             );
-        } else if comptime!(fixed) {
+        } else if fixed {
             #[unroll]
             for unit in 0..lw {
                 rank1_update::<E, EL, L, ER, V, RL>(
@@ -145,7 +145,6 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
 /// multiplies that sum, one product a cell rather than one a value, since a run lies inside one
 /// scale.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size>(
     lhs: &MatrixView<'_, Vector<EL, L>>,
     lhs_scales: &FactorReader,
@@ -165,7 +164,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
     #[comptime] unroll: bool,
     #[comptime] semiring: Semiring,
 ) {
-    if comptime!(along_k) {
+    if along_k {
         let cell = V::value();
         comptime!(assert!(
             cell == contracted_per_step || cell == 1,
@@ -192,7 +191,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                     j * contracted_per_step,
                     comptime!(Packing::Plain),
                 );
-                let values = if comptime!(scale_sum) {
+                let values = if scale_sum {
                     values
                 } else {
                     rhs_scales.apply::<E, L>(values, pos)
@@ -200,7 +199,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                 #[unroll(unroll)]
                 for i in 0..mr {
                     let at = i * nr + n;
-                    if comptime!(summed) {
+                    if summed {
                         let mut sum =
                             Vector::<E, V>::cast_from(Monoid::identity::<E>(semiring.add()));
                         #[unroll]
@@ -211,7 +210,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
                                 sum,
                             );
                         }
-                        if comptime!(scale_sum) {
+                        if scale_sum {
                             sum = rhs_scales.apply::<E, V>(sum, pos);
                         }
                         c[at] = semiring.add().combine::<Vector<E, V>>(c[at], sum);
@@ -299,7 +298,7 @@ pub(crate) fn seed<E: Numeric, V: Size, A: Size>(
                 #[unroll]
                 for l in 0..spread {
                     let col = base.plus(comptime!(l as u32));
-                    let live = if comptime!(guard) {
+                    let live = if guard {
                         col < comptime!(cols as u32)
                     } else {
                         true.runtime()
@@ -363,7 +362,7 @@ pub(crate) fn commit<E: Numeric, V: Size, A: Size>(
                 #[unroll]
                 for l in 0..spread {
                     let col = base.plus(comptime!(l as u32));
-                    let live = if comptime!(guard) {
+                    let live = if guard {
                         col < comptime!(cols as u32)
                     } else {
                         true.runtime()

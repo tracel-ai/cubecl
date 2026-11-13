@@ -56,7 +56,7 @@ pub(crate) fn values_at<F: Numeric, I: Numeric, WP: Size, NF: Size>(
 ) -> Vector<F, NF> {
     let nf = NF::value();
     let wp = WP::value();
-    match comptime!(packing) {
+    match packing {
         Packing::Plain | Packing::Words { .. } if comptime!(offset == 0 && wp == nf) => {
             Vector::<F, NF>::cast_from(line)
         }
@@ -125,7 +125,7 @@ pub(crate) fn place_at<I: Numeric, WP: Size, NF: Size>(
 ) -> Vector<I, WP> {
     let nf = NF::value();
     let mut line = line;
-    match comptime!(packing) {
+    match packing {
         Packing::Plain | Packing::Words { .. } =>
         {
             #[unroll]
@@ -335,7 +335,7 @@ fn unpack_byte_line<F: Numeric, NQ: Size, NF: Size>(
         #[unroll]
         for j in 0..fields {
             let byte = Vector::<u32, Const<1>>::new((word >> comptime!((j * 8) as u32)) & 0xff);
-            let value = match comptime!(format) {
+            let value = match format {
                 Fp8Format::UE8M0 => ue8m0_bits_to_f32::<Const<1>>(byte),
                 _ => fp8_bits_to_f32::<Const<1>>(byte, format),
             };
@@ -364,7 +364,7 @@ fn unpack_placed_byte_line<F: Numeric, NQ: Size, NF: Size>(
     #[unroll]
     for w in 0..words.vector_size() {
         let word = Vector::<u32, Const<1>>::new(words.extract(w));
-        let values = if comptime!(lifted) {
+        let values = if lifted {
             Vector::<F, Const<4>>::cast_from(fp8_words_to_f16::<Const<1>, Const<4>>(word, format))
         } else {
             Vector::<F, Const<4>>::cast_from(fp8_words_to_f16_placed::<Const<1>, Const<4>>(
@@ -433,7 +433,7 @@ fn unpack_float_line<F: Numeric, NQ: Size, NF: Size>(
         for j in 0..fields {
             let slot = word >> comptime!((j * bits) as u32);
             // `bf16` is a truncated `f32`, so shifting it back is the decode.
-            let value = match comptime!(kind) {
+            let value = match kind {
                 FloatKind::F32 => F::cast_from(f32::reinterpret(slot)),
                 FloatKind::F16 => F::cast_from(f16_bits_to_f32(slot)),
                 _ => F::cast_from(f32::reinterpret((slot & 0xffffu32) << 16u32)),

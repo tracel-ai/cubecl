@@ -175,7 +175,7 @@ impl TileMatrix {
         #[unroll]
         for p in 0..upto {
             // A partition's windows tile, so the window still sizes every logical axis.
-            if comptime!(composition == Composition::Overlapping) {
+            if comptime!(composition != Composition::Disjoint) {
                 out.push(comptime!(space.extent_at(p) as u32));
             } else {
                 out.push(bound.at(p));
@@ -232,7 +232,7 @@ impl Tile {
         i: usize,
     ) -> MatrixView<'_, Vector<T, W>> {
         let g = self.mem("matrix");
-        let layout = g.batch_matrix(comptime!(self.place.space.clone()), axes, i);
+        let layout = g.batch_matrix(&self.place.space, axes, i);
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 
@@ -243,7 +243,7 @@ impl Tile {
         #[comptime] cols: usize,
     ) -> MatrixView<'_, Vector<T, W>> {
         let g = self.mem("fragment_matrix");
-        let layout = g.whole_matrix(comptime!(self.place.space.clone()), rows, cols);
+        let layout = g.whole_matrix(&self.place.space, rows, cols);
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 }

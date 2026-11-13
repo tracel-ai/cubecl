@@ -82,7 +82,6 @@ enum First {
 /// them; a per-tensor scale above them leaves `b` for the sum (`Tile::factor`). Each operand read
 /// straight, or out of a stage in shared memory as `staged` says.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn lane_run_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
@@ -100,11 +99,11 @@ fn lane_run_matmul(
     let a = a.tile(&space);
     let mut c = c.tile(&space);
     let (b, b_factor) = b.tile(&space).factor(c.space(), instruction);
-    let acc = match comptime!(first) {
+    let acc = match first {
         First::Activation => c.accumulator::<f32>(&a, &b, instruction, Semiring::SUM_PROD),
         First::Weight => c.accumulator::<f32>(&b, &a, instruction, Semiring::SUM_PROD),
     };
-    match comptime!(staged) {
+    match staged {
         Staged::Nothing => {
             for region in space.over(&level) {
                 let mut acc_r = acc.at(&region);

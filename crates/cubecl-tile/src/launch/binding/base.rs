@@ -243,6 +243,15 @@ impl<'a> Arg<'a, Labelled> {
             overhangs,
             width,
         )?;
+        // Inside its storage tile a window is one unmasked run: a checked operand whose launch
+        // reaches past its padding would read storage tiles it does not have, which the kernel
+        // can only find out as it expands.
+        if let Storage::Tiled(Some(level)) = storage
+            && !boundaries.modes.is_empty()
+            && self.reaches_past_storage_tiles(&axes, level)
+        {
+            return Err(Refusal::CheckedInsideStorageTile { level });
+        }
         let spec = TileSpec {
             projection,
             boundaries: boundaries.modes,
@@ -313,6 +322,25 @@ impl<'a> Arg<'a, Labelled> {
             .rev()
             .find_map(|tile| windows.iter().position(|window| cuts_to(window, tile)));
         (Storage::Tiled(level), stored_tiles)
+    }
+
+    /// Whether a window of `level`, the storage tile's, lies wholly past the operand along one of
+    /// `axes`: the launch's outermost tile reaches past the extent padded to whole storage tiles,
+    /// where no storage tile is allocated. A window that only overhangs the extent reads padding.
+    fn reaches_past_storage_tiles(&self, axes: &[Axis], level: usize) -> bool {
+        let launch = self.data.launch;
+        let levels = launch.partitioning().levels();
+        axes.iter().any(|&axis| {
+            // The outermost level cutting the axis tiles the grid; the last one down to `level`
+            // is the storage tile's extent along it. No cut leaves one window, the whole extent.
+            let mut cuts = levels[..=level].iter().filter_map(|level| level.tile(axis));
+            let Some(outer) = cuts.next() else {
+                return false;
+            };
+            let stored = cuts.next_back().unwrap_or(outer);
+            let extent = launch.space().extent(axis);
+            extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
+        })
     }
 }
 

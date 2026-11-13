@@ -35,12 +35,7 @@ impl SharedDeclarations {
                 "shared memory can't be initialized, it is uninitialized by definition"
             );
             let value_ty = d.value_ty(ctx).get_type(ctx);
-            let size = {
-                let value_ty = value_ty.deref(ctx);
-                type_cast::<dyn SizedType>(&*value_ty)
-                    .expect("shared memory must have a sized type")
-                    .size(ctx)
-            };
+            let size = value_ty.size(ctx);
             let align = d.alignment(ctx).0;
             // Block alignment must be a power of two.
             assert!(

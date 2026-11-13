@@ -80,8 +80,8 @@ impl Tile {
                         &stored,
                         &mut out,
                         line,
-                        dst.clone(),
-                        comptime!(lands.clone()),
+                        &dst,
+                        lands.clone(),
                     );
                 } else {
                     if line < comptime!(loads as u32) {
@@ -89,8 +89,8 @@ impl Tile {
                             &stored,
                             &mut out,
                             line,
-                            dst.clone(),
-                            comptime!(lands.clone()),
+                            &dst,
+                            lands.clone(),
                         );
                     }
                 }
@@ -103,8 +103,8 @@ impl Tile {
                     &stored,
                     &mut out,
                     line,
-                    dst.clone(),
-                    comptime!(lands.clone()),
+                    &dst,
+                    lands.clone(),
                 );
             }
         }
@@ -117,7 +117,7 @@ impl Tile {
         stored: &Masked<'_, Vector<I, WP>, CoordsDyn>,
         out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
         line: u32,
-        #[comptime] dst: Space,
+        #[comptime] dst: &Space,
         #[comptime] lands: VectorTile,
     ) {
         let load = self.vector_tile();
@@ -158,7 +158,7 @@ impl Tile {
             let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
                 * Vector::<f32, VW>::cast_from(scale);
             let decoded = Vector::<O, VW>::cast_from(scaled);
-            out.write(lands.index(&to, &dst), decoded);
+            out.write(lands.index(&to, dst), decoded);
         }
     }
 }

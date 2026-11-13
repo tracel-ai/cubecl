@@ -8,6 +8,7 @@ use crate::*;
 
 use super::base::{FactorReuse, GatherProblem};
 use super::coords::{cell_position, offset_last};
+use crate::ops::matmul::leaf::Side;
 
 /// Contract a separable procedural rhs, caching each factor's 1-D tap walk at its maximal reuse
 /// level (block, row, column or cell).
@@ -50,7 +51,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
         let mut acc = acc.matrix_accumulate::<E, A>(
             mat,
             problem.block.acc_axes,
-            problem.block.space.clone(),
+            &problem.block.space,
             semiring.add(),
         );
         // Taps unroll on their own budget: each unrolled tap costs a body per cell.
@@ -70,7 +71,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
         );
 
         let mut block_weights = Array::<EL>::new(taps);
-        if comptime!(caches_block) {
+        if caches_block {
             let block_anchor = rhs_anchor(&rhs_reader.map, &batch, 0u32, 0u32, problem.clone());
             #[unroll]
             for f in 0..factors {
@@ -93,7 +94,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
         }
 
         let mut column_weights = Array::<EL>::new(taps * nr);
-        if comptime!(caches_column) {
+        if caches_column {
             #[unroll(unroll)]
             for n in 0..nr {
                 let anchor = rhs_anchor(&rhs_reader.map, &batch, 0u32, n as u32, problem.clone());
@@ -140,7 +141,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                     );
                 }
             }
-            if comptime!(factors_span_col) {
+            if factors_span_col {
                 #[unroll(unroll)]
                 for n in 0..nr {
                     let anchor =
@@ -188,9 +189,8 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                                 i as u32,
                                 n as u32,
                                 &reduce_coords,
-                                problem.rhs_space.clone(),
+                                comptime!(Side::Rhs),
                                 problem.clone(),
-                                problem.block.vw,
                             ),
                             problem.block.reduce.clone(),
                         );
@@ -225,9 +225,8 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                             i as u32,
                             0u32,
                             &reduce_coords,
-                            problem.rhs_space.clone(),
+                            comptime!(Side::Rhs),
                             problem.clone(),
-                            problem.block.vw,
                         ),
                         problem.block.reduce.clone(),
                     );
@@ -274,9 +273,8 @@ fn rhs_anchor(
             row,
             col,
             &factor_coords(problem.factors.unwrap(), 0usize, 0usize),
-            problem.rhs_space.clone(),
+            comptime!(Side::Rhs),
             problem.clone(),
-            problem.block.vw,
         ),
         problem.block.reduce.clone(),
     )
@@ -284,7 +282,6 @@ fn rhs_anchor(
 
 /// Evaluate one factor's complete 1-D tap walk at the accumulator coordinate where it is cached.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn factor_walk<EL: Numeric>(
     weights: &mut Array<EL>,
     offset: usize,
@@ -308,9 +305,8 @@ fn factor_walk<EL: Numeric>(
                     row,
                     col,
                     &factor_coords(problem.factors.unwrap(), factor, k),
-                    problem.lhs_space.clone(),
+                    comptime!(Side::Lhs),
                     problem.clone(),
-                    1usize,
                 );
                 weights[offset + comptime!(k)] = lhs.separable_factor::<EL>(pos, factor);
             }
@@ -325,9 +321,8 @@ fn factor_walk<EL: Numeric>(
                     row,
                     col,
                     &reduce_coords,
-                    problem.lhs_space.clone(),
+                    comptime!(Side::Lhs),
                     problem.clone(),
-                    1usize,
                 );
                 let weight = lhs.separable_factor::<EL>(lhs_pos, factor);
                 let weight = match comptime!(normalization.taps) {
@@ -337,9 +332,8 @@ fn factor_walk<EL: Numeric>(
                             row,
                             col,
                             &reduce_coords,
-                            problem.rhs_space.clone(),
+                            comptime!(Side::Rhs),
                             problem.clone(),
-                            problem.block.vw,
                         );
                         let physical_pos =
                             rhs_map.advance(anchor, rhs_pos, problem.block.reduce.clone());
@@ -369,7 +363,6 @@ fn factor_walk<EL: Numeric>(
 
 /// Multiply one tap's per-factor weights from their maximal cache levels.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn tap_weight<EL: Numeric>(
     block: &Array<EL>,
     row: &Array<EL>,
@@ -413,7 +406,6 @@ fn tap_weight<EL: Numeric>(
 }
 
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn factor_weight<EL: Numeric>(
     block: &Array<EL>,
     row: &Array<EL>,
@@ -427,7 +419,7 @@ fn factor_weight<EL: Numeric>(
     #[comptime] reuse: FactorReuse,
 ) -> EL {
     let tap = factor_tap(reduce_coords, factor, offset);
-    match comptime!(reuse) {
+    match reuse {
         FactorReuse::Block => block[tap],
         FactorReuse::Row => row[tap],
         FactorReuse::Column => column[column_index * comptime!(taps) + tap],

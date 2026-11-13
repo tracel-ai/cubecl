@@ -1,8 +1,7 @@
-use crate::report::NamespaceRoot;
 use crate::{InspectError, environment};
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
 use cubecl_environment::persistence::{Access, Database};
-use cubecl_environment::records::Records;
+use cubecl_environment::records::{self, Records};
 use std::path::{Path, PathBuf};
 
 /// One environment file, opened read-only and checked to be one this build
@@ -106,7 +105,7 @@ impl EnvironmentFile {
                 .map(|manifest| manifest.environments)
                 .unwrap_or_default(),
             // Every layout of records, not only the one this build reads.
-            excluded_namespaces: vec![NamespaceRoot::records().as_str().to_string()],
+            excluded_namespaces: vec![records::EVERY_LAYOUT.to_string()],
             ..Default::default()
         };
         export(&[&self.path], out, &options).map_err(|err| InspectError::Export {

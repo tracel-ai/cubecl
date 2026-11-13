@@ -76,12 +76,12 @@ impl PageTable {
         table: &Tensor<u32>,
         pool_pages: u32,
         #[comptime] paging: Paging,
-        #[comptime] projection: Projection,
+        #[comptime] projection: &Projection,
         #[comptime] width: usize,
     ) -> PageTable {
         let (sequence_dim, position_dim) = comptime!(
             paging
-                .dims(&projection)
+                .dims(projection)
                 .unwrap_or_else(|refusal| panic!("PageTable: {refusal}"))
         );
         let unit = comptime!(match position_dim == projection.physical_rank() - 1 {
@@ -176,7 +176,7 @@ impl PageTable {
                 .spans(self.list.page_size),
             ),
         });
-        match comptime!(pin) {
+        match pin {
             Pin::Kept => self.with_alignment_and_entry(origin_alignment, self.handed.clone()),
             Pin::Resolved(spans) => self.repinned(
                 origin,

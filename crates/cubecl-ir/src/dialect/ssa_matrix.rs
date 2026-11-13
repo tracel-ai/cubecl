@@ -29,7 +29,11 @@ use crate::{
         memory,
         synchronization::SyncScope,
     },
-    interfaces::{Deterministic, TypedExt, synchronizes},
+    interfaces::{
+        Deterministic, TypedExt,
+        side_effects::{Extent, MemoryEffect, MemoryEffectsOp},
+        synchronizes,
+    },
     prelude::*,
 };
 
@@ -67,12 +71,20 @@ impl MatrixToSSAOp for matrix::FillOp {
 #[op_interfaces(Deterministic)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
-    #[operand(ptr_read)]
     pub source: Value,
     pub stride: Value,
     pub layout: MatrixLayoutAttr,
 }
 synchronizes!(LoadOp, SyncScope::Plane);
+
+#[op_interface_impl]
+impl MemoryEffectsOp for LoadOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Read(
+            (self.source(ctx), Extent::Unknown).into(),
+        )]
+    }
+}
 
 #[op_interface_impl]
 impl MatrixToSSAOp for matrix::LoadOp {
@@ -100,12 +112,20 @@ impl MatrixToSSAOp for matrix::LoadOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct StoreOp {
     pub matrix: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub stride: Value,
     pub layout: MatrixLayoutAttr,
 }
 synchronizes!(StoreOp, SyncScope::Plane);
+
+#[op_interface_impl]
+impl MemoryEffectsOp for StoreOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Write(
+            (self.destination(ctx), Extent::Unknown).into(),
+        )]
+    }
+}
 
 #[op_interface_impl]
 impl MatrixToSSAOp for matrix::StoreOp {

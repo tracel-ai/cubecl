@@ -71,7 +71,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
             nan = any_lane::<N>(nan_lanes::<E, N>(value));
         }
         if nan {
-            if comptime!(unrolled) {
+            if unrolled {
                 self.walk_turning(value, index, monoid);
             } else {
                 self.walk_in_full_order(value, index, monoid, false);
@@ -343,7 +343,7 @@ fn takes_the_slot<E: Numeric, N: Size>(
     index: Vector<u32, N>,
     #[comptime] monoid: Monoid,
 ) -> Vector<bool, N> {
-    let better = match comptime!(monoid) {
+    let better = match monoid {
         Monoid::Max => kept.less_than(&value),
         _ => kept.greater_than(&value),
     };
@@ -400,7 +400,16 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
     /// list unrolls, by a cursor where a one-lane list is too long to.
     fn across(value: Self, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
-        match comptime!(share) {
+        let hardware = comptime::hardware_properties().comptime();
+        // A singleton plane already holds the entire list and needs no lane communication.
+        let share = comptime!(
+            if hardware.plane_size_min == 1 && hardware.plane_size_max == 1 {
+                UnitShare::Whole
+            } else {
+                share
+            }
+        );
+        match share {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane | UnitShare::Group { .. } => {
                 let k = K::value();

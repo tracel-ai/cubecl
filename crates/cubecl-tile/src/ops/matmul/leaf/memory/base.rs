@@ -13,7 +13,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] config: RegisterBlock,
     #[comptime] semiring: Semiring,
 ) {
@@ -40,7 +40,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let contracted_per_step = comptime!(contracted_per_step(
         &lhs.place.space,
         &rhs.place.space,
-        &space,
+        space,
         lw,
         rw,
         aw

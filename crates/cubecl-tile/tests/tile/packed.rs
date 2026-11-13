@@ -391,7 +391,6 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
 /// The prefill shape on the tensor cores: a packed weight on the rhs with byte scales, landed
 /// unpacked and scaled by the plane's units, contracted through the plain cmma instruction.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
@@ -419,7 +418,6 @@ fn packed_cmma_rhs<E: Numeric>(
 /// [`packed_cmma_rhs`] with the weight dequantized at `element` by the kernel, before it
 /// contracts.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs_dequantized<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
@@ -3220,7 +3218,7 @@ fn decoded_lines<N: Size>(
     let at = ABSOLUTE_POS;
     let (row, line) = (at / lines, at % lines);
     if at < output.len() {
-        output[at] = match comptime!(read) {
+        output[at] = match read {
             LineRead::Masked => decoded.read(row, line),
             LineRead::Untested => decoded.read_unchecked(row, line),
         };
