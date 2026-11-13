@@ -68,8 +68,12 @@ impl Factor {
     }
 
     /// The one scale every value shares: the product down the chain, no scale of which varies
-    /// along any axis.
-    pub(crate) fn whole(&self) -> f32 {
+    /// along any axis. What a sum held outside any tile, in a unit's own registers, is multiplied
+    /// by where it takes on the per-tensor scale [`Tile::factor`](crate::Tile::factor) took out of
+    /// an operand it summed; `1` where the factor holds no scale.
+    ///
+    /// Expansion panics on a factor holding a scale that varies along an axis.
+    pub fn whole(&self) -> f32 {
         unexpanded!()
     }
 
@@ -339,7 +343,7 @@ impl FactorExpand {
         product.unwrap_or_else(|| ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into())
     }
 
-    pub(crate) fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
+    pub fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
         let mut product: NativeExpand<f32> =
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
         for scale in self.chain() {

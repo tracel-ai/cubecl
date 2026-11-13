@@ -52,9 +52,18 @@ impl Layout for FlatLayout {
 
 #[cube]
 impl Tile {
-    /// A flat row-major view over `Vector<T, W>` lines of the tile's window, masking the overhang.
-    /// A packed store is refused.
+    /// A flat row-major view over `Vector<T, W>` lines of the tile's window, masking the overhang:
+    /// its values as they lie. A packed store, or values under scales, which such a view would
+    /// read without them, is refused: take the scales out first ([`factor`](Tile::factor)).
     pub fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
+        let scaled = self.factor.scaled();
+        if comptime!(scaled) {
+            panic!(
+                "Tile::flat: these values carry scales a flat view would read without; take them \
+                 out (`Tile::factor`) and apply them where the values are summed, or decode them \
+                 (`Tile::decoded`)"
+            )
+        }
         let g = self.mem("flat");
         if comptime!(!g.store.packing.as_stored()) {
             panic!("Tile::flat: a packed tile unpacks under Tile::copy_from or Tile::decoded")
