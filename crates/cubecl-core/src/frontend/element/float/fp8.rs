@@ -29,6 +29,11 @@ impl CubePrimitive for e4m3 {
         e4m3::from_f64(value)
     }
 }
+impl HostShareable for e4m3 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}
 impl ConstantTyped for e4m3 {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         Float8E4M3Type::get(scope.ctx()).into()
@@ -71,6 +76,11 @@ impl CubePrimitive for e5m2 {
         e5m2::from_f64(value)
     }
 }
+impl HostShareable for e5m2 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}
 impl ConstantTyped for e5m2 {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         Float8E5M2Type::get(scope.ctx()).into()
@@ -111,6 +121,11 @@ impl CubePrimitive for ue8m0 {
             unreachable!()
         };
         ue8m0::from_f64(value)
+    }
+}
+impl HostShareable for ue8m0 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
     }
 }
 impl ConstantTyped for ue8m0 {

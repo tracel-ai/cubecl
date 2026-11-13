@@ -26,6 +26,11 @@ impl CubePrimitive for e2m3 {
         unimplemented!("e2m3 doesn't yet support conversion");
     }
 }
+impl HostShareable for e2m3 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}
 impl ConstantTyped for e2m3 {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         Float6E2M3Type::get(scope.ctx()).into()
@@ -63,6 +68,11 @@ impl CubePrimitive for e3m2 {
 
     fn from_const_value(_value: ConstantValue) -> Self {
         unimplemented!("e3m2 doesn't yet support conversion");
+    }
+}
+impl HostShareable for e3m2 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
     }
 }
 impl ConstantTyped for e3m2 {

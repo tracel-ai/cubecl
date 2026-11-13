@@ -478,11 +478,19 @@ impl Expression {
             // Skip deref and always use mutable index
             Expr::Index(ExprIndex { expr, index, .. }) => {
                 let index = Self::from_expr(*index, context)?;
-                let expr = Self::from_expr(*expr, context)?;
+                let expr = Self::from_expr_lhs(*expr, context)?;
                 Ok(Expression::IndexMut {
                     expr: Box::new(expr),
                     index: Box::new(index),
                     span,
+                })
+            }
+            // A field of a place is a place: `buf[i].x = v` writes the field in the buffer
+            Expr::Field(field) => {
+                let base = Self::from_expr_lhs(*field.base, context)?;
+                Ok(Expression::FieldAccess {
+                    base: Box::new(base),
+                    field: field.member,
                 })
             }
             other => Self::from_expr(other, context),
@@ -511,7 +519,12 @@ impl Expression {
                 }
             }
             other => {
-                let inner = Expression::from_expr(other, context)?;
+                let inner = match other {
+                    // A field of an indexed element is a place in the container: `&mut buf[i].x`
+                    // refers to the field in the buffer, not to a copy of it.
+                    Expr::Field(_) => Self::from_expr_place(other, is_mutable, context)?,
+                    other => Expression::from_expr(other, context)?,
+                };
                 match is_mutable {
                     true => Expression::MutReference {
                         inner: Box::new(inner),
@@ -523,6 +536,19 @@ impl Expression {
             }
         };
         Ok(expression)
+    }
+
+    /// A place: an indexed element is not read, so a field of it is the field's place in the
+    /// container. Anything else is parsed as a value.
+    fn from_expr_place(expr: Expr, is_mut: bool, context: &mut Context) -> syn::Result<Self> {
+        match expr {
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, is_mut),
+            Expr::Field(field) => Ok(Expression::FieldAccess {
+                base: Box::new(Self::from_expr_place(*field.base, is_mut, context)?),
+                field: field.member,
+            }),
+            other => Self::from_expr(other, context),
+        }
     }
 
     pub fn from_expr_receiver(

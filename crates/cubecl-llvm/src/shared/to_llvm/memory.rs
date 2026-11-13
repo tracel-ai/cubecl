@@ -1,6 +1,6 @@
-use crate::prelude::*;
+use crate::{prelude::*, shared::to_llvm::ty::padded_field_index};
 use cubecl_core::ir::{
-    dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp},
+    dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp, StructFieldOp},
     types::barrier::BarrierType,
 };
 
@@ -119,6 +119,45 @@ impl ToLLVMDialect for IndexOp {
             base,
             vec![llvm::GepIndex::Value(index)],
             elem_ty,
+            GepNoWrapFlags::INBOUNDS | GepNoWrapFlags::NUW,
+        );
+        rewriter.insert_op(ctx, &gep);
+        rewriter.replace_operation_with_values(
+            ctx,
+            self.get_operation(),
+            vec![gep.get_result(ctx)],
+        );
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for StructFieldOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let base = self.base(ctx);
+        let index = self.field(ctx).0;
+        let struct_ty = operands_info
+            .lookup_most_recent_type(base)
+            .expect("Should have type")
+            .unwrap_ptr(ctx);
+        let padded_index = padded_field_index(ctx, struct_ty, index);
+
+        let base_ty = cube_type_to_llvm(ctx, struct_ty);
+
+        // A struct index always stays in bounds
+        let gep = llvm::GetElementPtrOp::new_with_no_wrap_flags(
+            ctx,
+            base,
+            vec![
+                llvm::GepIndex::Constant(0),
+                llvm::GepIndex::Constant(padded_index as u32),
+            ],
+            base_ty,
             GepNoWrapFlags::INBOUNDS | GepNoWrapFlags::NUW,
         );
         rewriter.insert_op(ctx, &gep);

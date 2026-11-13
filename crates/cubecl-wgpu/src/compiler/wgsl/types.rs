@@ -161,6 +161,13 @@ impl TypeToWgsl for RuntimeArrayType {
     }
 }
 
+#[type_interface_impl]
+impl TypeToWgsl for cubecl_ir::types::StructType {
+    fn to_wgsl(&self, _ctx: &Context) -> String {
+        format!("Struct_{:x}", self.stable_hash())
+    }
+}
+
 #[pliron_type(
     name = "wgsl.struct",
     format = "$name",

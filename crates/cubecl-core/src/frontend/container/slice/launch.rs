@@ -147,12 +147,15 @@ impl<C: CubePrimitive> LaunchArg for Box<[C]> {
     }
 }
 
-impl<C: CubePrimitive> LaunchArg for [C] {
+impl<C: SliceElement> LaunchArg for [C] {
     type RuntimeArg = BufferArg;
     type CompilationArg = BufferCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
+        if elem_size == 0 {
+            panic!("Can't register zero-sized type");
+        }
         let inplace = match &arg {
             BufferArg::Handle { .. } => None,
             BufferArg::Alias { input_pos, .. } => Some(*input_pos),
