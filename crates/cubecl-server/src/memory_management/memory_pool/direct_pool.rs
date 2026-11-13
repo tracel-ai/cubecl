@@ -70,6 +70,7 @@ impl DirectPool {
             pages_peak: self.pages_peak,
             pages_unmapped: self.live().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc: self.largest_alloc,
+            allocations: self.allocations(),
         }
     }
 
@@ -257,6 +258,10 @@ impl MemoryPool for DirectPool {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?.as_ref()?;
         Some(PageGuard::allocation(slice.handle.clone().binding()))
+    }
+
+    fn live_slices(&self) -> impl Iterator<Item = &Slice> {
+        self.live().filter(|slice| !slice.is_free())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

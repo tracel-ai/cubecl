@@ -20,6 +20,9 @@ mod obfuscation;
 #[cfg(feature = "std")]
 pub mod arena;
 
+/// Labels naming the code that allocates device memory, kept per thread.
+pub mod allocation_label;
+
 /// Device module.
 pub mod device;
 

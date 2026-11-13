@@ -7,10 +7,12 @@ use super::{
 use crate::{
     config::{
         CubeClRuntimeConfig, RuntimeConfig,
-        memory::{MemoryLogLevel, PersistentMemory},
+        memory::{MemoryLogLevel, MemoryTracing, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
+    memory_management::{
+        BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice, memory_tracing,
+    },
     server::IoError,
     storage::{ComputeStorage, ManagedResource, StorageHandle},
 };
@@ -31,6 +33,17 @@ enum PoolPosition {
     Persistent,
     Dedicated,
     Dynamic(u8),
+}
+
+/// `persistent`, `dedicated` or `dynamic[2]`, as the memory log names a pool.
+impl core::fmt::Display for PoolPosition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PoolPosition::Persistent => f.write_str("persistent"),
+            PoolPosition::Dedicated => f.write_str("dedicated"),
+            PoolPosition::Dynamic(index) => write!(f, "dynamic[{index}]"),
+        }
+    }
 }
 
 impl PoolPosition {
@@ -246,6 +259,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // driver instead of leaving them pending.
         if cleanup == Cleanup::Explicit {
             self.storage.flush();
+            self.log_live_allocations();
         }
     }
 
@@ -582,8 +596,60 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let location = allocated(reserved.descriptor())?;
+        // Kept to name the allocation in the log once it is bound.
+        let traced = (memory_tracing() != MemoryTracing::Disabled).then(|| assigned.clone());
         self.pool_mut(location)?
-            .bind(reserved, assigned, cursor, failures)
+            .bind(reserved, assigned, cursor, failures)?;
+        if let Some(memory) = traced {
+            self.log_allocation(&memory, PoolPosition::new(location.pool));
+        }
+        Ok(())
+    }
+
+    /// Log, at the `full` level, the allocation `memory` was just bound to in
+    /// `pool`: its size and who asked for it.
+    fn log_allocation(&self, memory: &ManagedMemoryHandle, pool: PoolPosition) {
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || match self.find(&memory.clone().binding()) {
+                Ok(slice) => format!(
+                    "[{}] Allocated in the {pool} pool {}",
+                    self.name,
+                    slice.allocation_report()
+                ),
+                Err(err) => format!("[{}] Allocated in the {pool} pool: {err:?}", self.name),
+            },
+        );
+    }
+
+    /// Log, at the `full` level, every allocation still alive, pool by pool:
+    /// what an explicit cleanup could not release.
+    fn log_live_allocations(&self) {
+        if memory_tracing() == MemoryTracing::Disabled {
+            return;
+        }
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || {
+                let report = self.memory_report();
+                let pools = report
+                    .dynamic
+                    .iter()
+                    .enumerate()
+                    .map(|(index, pool)| (PoolPosition::Dynamic(index as u8), pool))
+                    .chain([
+                        (PoolPosition::Persistent, &report.persistent),
+                        (PoolPosition::Dedicated, &report.dedicated),
+                    ]);
+                let mut text = format!("[{}] Live allocations after cleanup:", self.name);
+                for (pool, report) in pools {
+                    for allocation in &report.allocations {
+                        text.push_str(&format!("\n  {pool}: {allocation}"));
+                    }
+                }
+                text
+            },
+        );
     }
 
     /// The failure claiming any byte of `range` in the allocation behind
@@ -1383,5 +1449,59 @@ mod tests {
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
+    }
+
+    /// While tracing is on, each pool's report lists the allocations alive
+    /// in it under the labels they were made with, and an allocation leaves
+    /// the report as soon as its last handle drops.
+    #[test_log::test]
+    fn a_traced_report_lists_who_holds_each_live_allocation() {
+        use crate::memory_management::{MemoryPoolReport, MemoryTracing, configure_tracing};
+        use cubecl_common::allocation_label::AllocationLabel;
+
+        let labels = |pools: &[MemoryPoolReport]| -> Vec<Vec<String>> {
+            pools
+                .iter()
+                .flat_map(|pool| &pool.allocations)
+                .filter_map(|allocation| allocation.origin.as_ref())
+                .map(|origin| origin.labels.clone())
+                .collect()
+        };
+        let failures = &mut ErrorGraph::default();
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::default(),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // Tracing is process-wide: on only while this test allocates and
+        // reads, so the other tests' reports stay as they were.
+        configure_tracing(MemoryTracing::Labels);
+        memory.mode(MemoryAllocationMode::Persistent);
+        let weights = {
+            let _model = AllocationLabel::push("model");
+            let _weights = AllocationLabel::push("weights");
+            memory.reserve(4096, PageUpdate::Allow, failures).unwrap()
+        };
+        memory.mode(MemoryAllocationMode::Auto);
+        let scratch = {
+            let _scratch = AllocationLabel::push("scratch");
+            memory.reserve(1024, PageUpdate::Allow, failures).unwrap()
+        };
+        let report = memory.memory_report();
+        drop(scratch);
+        let after_drop = memory.memory_report();
+        configure_tracing(MemoryTracing::Disabled);
+
+        assert_eq!(
+            labels(core::slice::from_ref(&report.persistent)),
+            [["model", "weights"]]
+        );
+        assert_eq!(labels(&report.dynamic), [["scratch"]]);
+        assert!(labels(&after_drop.dynamic).is_empty());
+        assert_eq!(after_drop.persistent.allocations.len(), 1);
+        drop(weights);
     }
 }
