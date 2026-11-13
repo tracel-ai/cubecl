@@ -25,6 +25,38 @@ impl AmdWmma {
     }
 }
 
+/// Which generation of CDNA's MFMA instructions to emit. Both lay out the 16x16 forms alike,
+/// over four groups of 16 lanes of a 64-wide wavefront, but CDNA3 replaced CDNA2's 16-deep
+/// 8-bit integer form with a 32-deep one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AmdMfma {
+    /// gfx90a (MI200).
+    Cdna2,
+    /// gfx940, gfx941, gfx942 (MI300).
+    Cdna3,
+}
+
+/// The lane groups an MFMA instruction splits `k` between: a 64-wide wavefront of 16-lane rows.
+pub const MFMA_LANE_GROUPS: usize = 4;
+
+/// The matrix instructions an AMD part has: RDNA's WMMA or CDNA's MFMA.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AmdMatrixCore {
+    Wmma(AmdWmma),
+    Mfma(AmdMfma),
+}
+
+impl AmdMatrixCore {
+    /// Elements of A/B each lane holds for a tile `k` deep. MFMA splits `k` between four lane
+    /// groups, each holding its own run of it.
+    pub fn frag_ab_elems(&self, k: usize) -> usize {
+        match self {
+            AmdMatrixCore::Wmma(generation) => generation.frag_ab_elems(k),
+            AmdMatrixCore::Mfma(_) => k / MFMA_LANE_GROUPS,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AMDArchitecture {
     // RDNA
@@ -56,6 +88,23 @@ impl AMDArchitecture {
             AMDArchitecture::GFX12 => Some(AmdWmma::Rdna4),
             _ => None,
         }
+    }
+
+    /// `None` for architectures without MFMA, or with one this table does not lower: CDNA1
+    /// (gfx908) has no 16x16 `bf16` form taking four elements a lane.
+    pub fn mfma_generation(&self) -> Option<AmdMfma> {
+        match self {
+            AMDArchitecture::GFX90A => Some(AmdMfma::Cdna2),
+            AMDArchitecture::GFX94 => Some(AmdMfma::Cdna3),
+            _ => None,
+        }
+    }
+
+    /// The matrix instructions this architecture has, `None` where it has neither kind.
+    pub fn matrix_core(&self) -> Option<AmdMatrixCore> {
+        self.wmma_generation()
+            .map(AmdMatrixCore::Wmma)
+            .or_else(|| self.mfma_generation().map(AmdMatrixCore::Mfma))
     }
 
     /// The wavefront width, or `None` for an architecture this table does not know.
@@ -146,6 +195,16 @@ impl GfxArch {
         self.family.wmma_generation()
     }
 
+    /// Which MFMA this device has, or `None` where it has none this table lowers.
+    pub fn mfma(&self) -> Option<AmdMfma> {
+        self.family.mfma_generation()
+    }
+
+    /// Which matrix instructions this device has, or `None` where it has neither kind.
+    pub fn matrix_core(&self) -> Option<AmdMatrixCore> {
+        self.family.matrix_core()
+    }
+
     /// The bare architecture number, which is how the `oclc_isa_version_*` control libraries
     /// are named.
     pub fn isa_version(&self) -> &str {
@@ -218,6 +277,25 @@ mod tests {
         }
         assert_eq!(GfxArch::parse("gfx908").family(), AMDArchitecture::GFX908);
         assert_eq!(GfxArch::parse("gfx90a").family(), AMDArchitecture::GFX90A);
+    }
+
+    /// MI300 and MI200 multiply on MFMA, RDNA on WMMA, and nothing else on either.
+    #[test]
+    fn each_part_has_one_kind_of_matrix_core() {
+        for (name, core) in [
+            ("gfx942", Some(AmdMatrixCore::Mfma(AmdMfma::Cdna3))),
+            ("gfx940", Some(AmdMatrixCore::Mfma(AmdMfma::Cdna3))),
+            ("gfx90a", Some(AmdMatrixCore::Mfma(AmdMfma::Cdna2))),
+            ("gfx908", None),
+            ("gfx1100", Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3))),
+            ("gfx1201", Some(AmdMatrixCore::Wmma(AmdWmma::Rdna4))),
+            ("gfx1030", None),
+        ] {
+            assert_eq!(GfxArch::parse(name).matrix_core(), core, "{name}");
+        }
+        let cdna3 = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
+        assert_eq!(cdna3.frag_ab_elems(16), 4);
+        assert_eq!(cdna3.frag_ab_elems(32), 8);
     }
 
     /// An architecture the table has never heard of reports no width rather than guessing

@@ -15,7 +15,7 @@ use pliron::{context::Context, r#type::TypedHandle, value::Value};
 
 use crate::{
     hip::{
-        arch::{AMDArchitecture, AmdWmma},
+        arch::{AMDArchitecture, AmdMatrixCore, AmdMfma, AmdWmma},
         hip_op,
         mma::{WmmaExecute, amd_wmma, compile_fragment_intrinsic},
     },
@@ -234,7 +234,7 @@ pub fn contiguous_elements_rdna3(
     ident: MatrixIdent,
     matrix: TypedHandle<MatrixType>,
 ) -> usize {
-    contiguous_elements(AmdWmma::Rdna3, ctx, ident, matrix)
+    contiguous_elements(AmdMatrixCore::Wmma(AmdWmma::Rdna3), ctx, ident, matrix)
 }
 
 pub fn contiguous_elements_rdna4(
@@ -242,11 +242,21 @@ pub fn contiguous_elements_rdna4(
     ident: MatrixIdent,
     matrix: TypedHandle<MatrixType>,
 ) -> usize {
-    contiguous_elements(AmdWmma::Rdna4, ctx, ident, matrix)
+    contiguous_elements(AmdMatrixCore::Wmma(AmdWmma::Rdna4), ctx, ident, matrix)
+}
+
+/// CDNA's MFMA, as the LLVM backend lowers it: the C++ backend offers no manual MMA there.
+pub fn contiguous_elements_cdna(
+    ctx: &Context,
+    ident: MatrixIdent,
+    matrix: TypedHandle<MatrixType>,
+) -> usize {
+    // Both generations lay a lane's run of `k` out alike.
+    contiguous_elements(AmdMatrixCore::Mfma(AmdMfma::Cdna3), ctx, ident, matrix)
 }
 
 fn contiguous_elements(
-    wmma: AmdWmma,
+    core: AmdMatrixCore,
     ctx: &Context,
     ident: MatrixIdent,
     matrix: TypedHandle<MatrixType>,
@@ -257,7 +267,7 @@ fn contiguous_elements(
     match ident {
         // Consecutive elements of a lane's fragment are consecutive `k`, so a lane can load as
         // many in one go as it holds.
-        MatrixIdent::A | MatrixIdent::B => wmma.frag_ab_elems(matrix.shape.k).min(max_vector_size),
+        MatrixIdent::A | MatrixIdent::B => core.frag_ab_elems(matrix.shape.k).min(max_vector_size),
         MatrixIdent::Accumulator => 1,
     }
 }

@@ -19,7 +19,9 @@ use cubecl_core::{
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
         MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, TargetProperties,
-        VectorSize, amd::GfxArch, features::Plane,
+        VectorSize,
+        amd::{AmdMatrixCore, GfxArch},
+        features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -30,7 +32,9 @@ use cubecl_cpp::{
         arch::AmdWmma,
         mma::{
             HipCmmaCompiler,
-            manual::{contiguous_elements_rdna3, contiguous_elements_rdna4},
+            manual::{
+                contiguous_elements_cdna, contiguous_elements_rdna3, contiguous_elements_rdna4,
+            },
         },
     },
     register_supported_types,
@@ -58,7 +62,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();
+static AMD_MATRIX_CORE: OnceLock<Option<AmdMatrixCore>> = OnceLock::new();
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -87,7 +91,7 @@ impl DeviceService for HipServer {
         // `Runtime::target_properties` is static, so stash what it needs from the device we're
         // initializing. A process mixing RDNA3 and RDNA4 GPUs would see whichever came up first,
         // which is a limitation the static signature can't express anyway.
-        let _ = AMD_WMMA.set(gfx.wmma());
+        let _ = AMD_MATRIX_CORE.set(gfx.matrix_core());
         // The architecture table decides the plane size the compiler emits for, so a driver
         // reporting a different one, or a name the table has never seen, would mean every
         // kernel is generated for the wrong wavefront width.
@@ -212,8 +216,8 @@ impl DeviceService for HipServer {
         // one cannot honour is a kernel that fails to compile rather than a slower one.
         let backend = HipBackend::default();
         if backend == HipBackend::Llvm {
-            let wmma = gfx.wmma();
-            restrict_features(&mut device_props, GpuTarget::AmdGpu { wmma });
+            let matrix = gfx.matrix_core();
+            restrict_features(&mut device_props, GpuTarget::AmdGpu { matrix });
         }
 
         let comp_opts = HipCompilationOptions {
@@ -282,23 +286,30 @@ impl Runtime for HipRuntime {
     fn target_properties() -> TargetProperties {
         // RDNA3 hands every lane the whole `k` range, duplicated across lanes 0-15 / 16-31. RDNA4
         // splits `k` between the two halves instead, so there's no duplication to account for.
-        let rdna4 = AMD_WMMA.get().copied().flatten() == Some(AmdWmma::Rdna4);
-        let duplication_ab = if rdna4 { 1 } else { 2 };
+        // CDNA's MFMA splits `k` between the four 16-lane groups of a 64-wide wavefront.
+        let (const_plane_size, duplication_ab, contiguous_elements) =
+            match AMD_MATRIX_CORE.get().copied().flatten() {
+                Some(AmdMatrixCore::Mfma(_)) => {
+                    (64, 1, ContiguousElements::new(contiguous_elements_cdna))
+                }
+                Some(AmdMatrixCore::Wmma(AmdWmma::Rdna4)) => {
+                    (32, 1, ContiguousElements::new(contiguous_elements_rdna4))
+                }
+                Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3)) | None => {
+                    (32, 2, ContiguousElements::new(contiguous_elements_rdna3))
+                }
+            };
         TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
-                const_plane_size: 32,
+                const_plane_size,
                 register_layout_a: MatrixLayout::RowMajor,
                 register_layout_b: MatrixLayout::ColMajor,
                 register_layout_acc: MatrixLayout::ColMajor,
                 register_duplication_a: duplication_ab,
                 register_duplication_b: duplication_ab,
                 register_duplication_acc: 1,
-                contiguous_elements: ContiguousElements::new(if rdna4 {
-                    contiguous_elements_rdna4
-                } else {
-                    contiguous_elements_rdna3
-                }),
+                contiguous_elements,
             },
         }
     }

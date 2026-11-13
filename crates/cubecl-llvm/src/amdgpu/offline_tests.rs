@@ -170,6 +170,40 @@ fn a_tile_two_instructions_deep_issues_two() {
     assert_eq!(count(&asm, "v_wmma_f32_16x16x16_fp8_fp8"), 2, "{asm}");
 }
 
+/// MI300 and MI200 multiply half-precision tiles on MFMA, one 16-deep instruction per 16 of `k`.
+/// The assembler spells the same instructions differently on each.
+#[test]
+fn half_precision_tiles_multiply_on_mfma() {
+    use half::{bf16, f16};
+    let count = |asm: &str, op: &str| asm.matches(op).count();
+    for (arch, f16_op, bf16_op) in [
+        (
+            "gfx942",
+            "v_mfma_f32_16x16x16_f16",
+            "v_mfma_f32_16x16x16_bf16",
+        ),
+        (
+            "gfx90a",
+            "v_mfma_f32_16x16x16f16",
+            "v_mfma_f32_16x16x16bf16_1k",
+        ),
+    ] {
+        let asm = asm_of(tile_product_kernel::<f16, f16, f32>((16, 16, 16)), arch);
+        assert_eq!(count(&asm, f16_op), 1, "{arch}:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<bf16, bf16, f32>((16, 16, 32)), arch);
+        assert_eq!(count(&asm, bf16_op), 2, "{arch}:\n{asm}");
+    }
+}
+
+/// MI300's 8-bit integer MFMA is 32 deep, MI200's 16.
+#[test]
+fn int8_tiles_multiply_on_mfma() {
+    let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), "gfx942");
+    assert_eq!(asm.matches("v_mfma_i32_16x16x32_i8").count(), 1, "{asm}");
+    let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), "gfx90a");
+    assert_eq!(asm.matches("v_mfma_i32_16x16x16").count(), 2, "{asm}");
+}
+
 /// A cube that waits on a counter reads what the cube before it wrote within the launch: the
 /// buffers some cube writes are promised nothing, or a read after the handoff could be a scalar
 /// load from a cache the acquire leaves stale. The weights no cube writes keep both promises.

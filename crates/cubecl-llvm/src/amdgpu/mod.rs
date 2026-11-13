@@ -7,6 +7,7 @@ pub mod device_libs;
 pub mod intrinsic;
 pub mod lld;
 pub mod matrix;
+pub mod mfma;
 pub mod ocml;
 #[cfg(test)]
 mod offline_tests;

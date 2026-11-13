@@ -12,7 +12,7 @@
 //! narrow.
 
 #[cfg(feature = "amdgpu")]
-use cubecl_core::ir::amd::AmdWmma;
+use cubecl_core::ir::amd::AmdMatrixCore;
 use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::{
@@ -31,9 +31,9 @@ pub enum GpuTarget {
     /// `arch` is the part's architecture.
     #[cfg(feature = "nvptx")]
     Nvptx { arch: SmArch },
-    /// `wmma` is the part's WMMA generation, `None` on a part without one.
+    /// `matrix` is the part's matrix core, `None` on a part without one this backend lowers.
     #[cfg(feature = "amdgpu")]
-    AmdGpu { wmma: Option<AmdWmma> },
+    AmdGpu { matrix: Option<AmdMatrixCore> },
 }
 
 /// Narrows `props` to what the LLVM backend lowers for `target`: the matrix forms that target
@@ -52,8 +52,8 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
             props.features.matmul.wgmma.extend(configs.iter().copied());
         }
         #[cfg(feature = "amdgpu")]
-        GpuTarget::AmdGpu { wmma } => {
-            advertise_amdgpu_matrix_forms(props, wmma);
+        GpuTarget::AmdGpu { matrix } => {
+            advertise_amdgpu_matrix_forms(props, matrix);
             props.features.matmul.scaled_mma = Default::default();
             // `copy_async` lowers to NVPTX's `cp.async` alone.
             props.features.copy_async = false;
@@ -172,14 +172,20 @@ fn keep_nvptx_scaled_forms(props: &mut DeviceProperties) {
 /// Advertises the matrix forms AMDGPU lowers, in place of the ones the C++ backend's rocWMMA
 /// table offers: RDNA's WMMA for `f16` and `bf16` operands accumulating in their own type or `f32`,
 /// 8-bit integers into `i32`, and on RDNA4 `e4m3` and `e5m2` into `f32`
-/// ([`WmmaForm::configs`](crate::amdgpu::matrix::WmmaForm::configs)). CDNA's MFMA has no
-/// lowering. The plane operations work under divergence, since they read the active lanes from
-/// `exec`, so they are left as advertised.
+/// ([`WmmaForm::configs`](crate::amdgpu::matrix::WmmaForm::configs)), and CDNA's MFMA for `f16`
+/// and `bf16` into `f32` and signed 8-bit integers into `i32`
+/// ([`MfmaForm::configs`](crate::amdgpu::mfma::MfmaForm::configs)). The plane operations work
+/// under divergence, since they read the active lanes from `exec`, so they are left as
+/// advertised.
 #[cfg(feature = "amdgpu")]
-fn advertise_amdgpu_matrix_forms(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
-    let configs = wmma
-        .map(crate::amdgpu::matrix::WmmaForm::configs)
-        .unwrap_or_default();
+fn advertise_amdgpu_matrix_forms(props: &mut DeviceProperties, matrix: Option<AmdMatrixCore>) {
+    let configs = match matrix {
+        Some(AmdMatrixCore::Wmma(generation)) => {
+            crate::amdgpu::matrix::WmmaForm::configs(generation)
+        }
+        Some(AmdMatrixCore::Mfma(generation)) => crate::amdgpu::mfma::MfmaForm::configs(generation),
+        None => Vec::new(),
+    };
     props.hardware.min_tensor_cores_dim = (!configs.is_empty()).then_some(16);
     let matmul = &mut props.features.matmul;
     matmul.cmma = configs.iter().copied().collect();
@@ -263,19 +269,47 @@ mod tests {
         restrict_features(
             &mut props,
             GpuTarget::AmdGpu {
-                wmma: GfxArch::parse("gfx1201").wmma(),
+                matrix: GfxArch::parse("gfx1201").matrix_core(),
             },
         );
         assert!(!props.features.copy_async);
     }
 
-    /// A part with no WMMA has no matrix lowering at all, so it must offer none.
+    /// A part with neither WMMA nor MFMA has no matrix lowering at all, so it must offer none.
     #[test]
-    fn a_part_without_wmma_advertises_no_matrix_form() {
-        let props = restricted_for("gfx90a");
-        assert!(props.features.matmul.cmma.is_empty());
-        assert!(props.features.matmul.mma.is_empty());
-        assert_eq!(props.hardware.num_tensor_cores, None);
+    fn a_part_without_a_matrix_core_advertises_no_matrix_form() {
+        for arch in ["gfx1030", "gfx908"] {
+            let props = restricted_for(arch);
+            assert!(props.features.matmul.cmma.is_empty(), "{arch}");
+            assert!(props.features.matmul.mma.is_empty(), "{arch}");
+            assert_eq!(props.hardware.num_tensor_cores, None, "{arch}");
+        }
+    }
+
+    /// MI300 offers its MFMA forms, all accumulating in 32 bits: the 16-bit accumulator and the
+    /// 32x32 form the C++ backend's table had are gone.
+    #[test]
+    fn cdna3_offers_the_mfma_forms_its_lowering_emits() {
+        let props = restricted_for("gfx942");
+        let f32 = ElemType::Float(FloatKind::F32);
+        let i8 = ElemType::Int(IntKind::I8);
+        let i32 = ElemType::Int(IntKind::I32);
+        for offered in [&props.features.matmul.cmma, &props.features.matmul.mma] {
+            assert!(offered.contains(&config(HALF, f32)));
+            assert!(offered.contains(&config(BF16, f32)));
+            assert!(offered.contains(&MmaConfig {
+                k: 32,
+                ..config(i8, i32)
+            }));
+            assert!(!offered.contains(&config(i8, i32)), "MI300 is 32 deep");
+            assert!(!offered.contains(&config(HALF, HALF)));
+            assert!(
+                offered
+                    .iter()
+                    .all(|config| config.m == 16 && config.n == 16)
+            );
+        }
+        assert_eq!(props.hardware.min_tensor_cores_dim, Some(16));
     }
 
     /// RDNA4 offers what its lowering emits, fp8 among it, whatever the C++ backend's table
@@ -329,7 +363,7 @@ mod tests {
         let mut props = (*device_properties(32)).clone();
         props.register_type_usage(bf16, TypeUsage::all());
         props.register_atomic_type_usage(Type::atomic(bf16), AtomicUsage::all());
-        restrict_features(&mut props, GpuTarget::AmdGpu { wmma: None });
+        restrict_features(&mut props, GpuTarget::AmdGpu { matrix: None });
         assert!(props.features.types.elem.contains_key(&bf16));
         assert!(
             props
@@ -343,8 +377,8 @@ mod tests {
 
     fn restricted_for(arch: &str) -> DeviceProperties {
         let mut props = advertising_every_matrix_form();
-        let wmma = GfxArch::parse(arch).wmma();
-        restrict_features(&mut props, GpuTarget::AmdGpu { wmma });
+        let matrix = GfxArch::parse(arch).matrix_core();
+        restrict_features(&mut props, GpuTarget::AmdGpu { matrix });
         props
     }
 
