@@ -366,7 +366,7 @@ fn fma_contraction(ctx: &Context) -> EnumSet<FastMath> {
         LlvmTarget::AmdGpu => FastMath::AllowContraction.into(),
         #[cfg(feature = "nvptx")]
         LlvmTarget::Nvptx => FastMath::AllowContraction.into(),
-        LlvmTarget::Cpu => FastMath::none(),
+        LlvmTarget::Cpu => EnumSet::empty(),
     }
 }
 
@@ -397,7 +397,7 @@ macro_rules! lower_float_bin_arith {
 }
 
 fn no_fast_math(_ctx: &Context) -> EnumSet<FastMath> {
-    FastMath::none()
+    EnumSet::empty()
 }
 
 fn llvm_fast_math(fast_math: EnumSet<FastMath>) -> FastmathFlagsAttr {

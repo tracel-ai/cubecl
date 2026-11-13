@@ -142,9 +142,9 @@ pub fn kernel_complex_div<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &[C]
     }
 }
 
-/// Complex arithmetic in a kernel that allows no fast math, which must still compile everywhere
+/// Complex arithmetic in a kernel that forbids all fast math, which must still compile everywhere
 /// complex does.
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 pub fn kernel_complex_strict<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &[C]) {
     if ABSOLUTE_POS < output.len() {
         let (lhs, rhs) = (lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -152,7 +152,7 @@ pub fn kernel_complex_strict<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &
     }
 }
 
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 pub fn kernel_complex_strict_mul<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &[C]) {
     if ABSOLUTE_POS < output.len() {
         output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS];

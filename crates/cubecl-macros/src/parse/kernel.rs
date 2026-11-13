@@ -25,7 +25,7 @@ pub(crate) struct KernelArgs {
     pub debug_symbols: Flag,
     // Force override because macro hygiene can cause weird issues
     pub no_debug_symbols: Flag,
-    pub fast_math: Option<Expr>,
+    pub allow_fast_math: Option<Expr>,
     pub forbid_fast_math: Option<Expr>,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,

@@ -47,7 +47,7 @@ fn apply<M: MatchRewrite>(
 ) -> Result<IRStatus> {
     apply_match_rewrite(
         ctx,
-        &mut KeepLocation(&mut match_rewrite),
+        &mut KeepOrigin(&mut match_rewrite),
         RewriterOrder::default(),
         op,
     )

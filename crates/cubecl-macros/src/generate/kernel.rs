@@ -96,10 +96,10 @@ impl KernelFn {
         } else {
             (TokenStream::new(), Vec::new())
         };
-        let body = match &self.args.fast_math {
+        let body = match &self.args.allow_fast_math {
             Some(value) => {
-                let fast_math = frontend_type("fast_math_expand");
-                quote![#fast_math(scope, #value, |scope| {#body})]
+                let allow = frontend_type("allow_fast_math_expand");
+                quote![#allow(scope, #value, |scope| {#body})]
             }
             None => body,
         };

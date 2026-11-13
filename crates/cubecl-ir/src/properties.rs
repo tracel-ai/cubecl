@@ -622,13 +622,6 @@ impl FastMath {
         EnumSet::all()
     }
 
-    /// No optimization: each operation rounds on its own, with nothing contracted, reassociated
-    /// or assumed about its operands. An operation keeps its backend's precision, which on Vulkan
-    /// is not correctly rounded for division, square root and remainder.
-    pub const fn none() -> EnumSet<FastMath> {
-        EnumSet::empty()
-    }
-
     /// The name it goes by in printed IR.
     pub const fn name(self) -> &'static str {
         match self {
@@ -681,22 +674,22 @@ impl FromStr for FastMath {
     }
 }
 
-/// The float optimizations a kernel gives its ops: an exact set or its backend's default, less
-/// what it forbids.
+/// The float optimizations a kernel gives its ops, against its backend's default: some it
+/// allows on top, and some it forbids, which no allowance brings back.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
 pub struct FastMathPermissions {
-    /// The optimizations allowed, or `None` for the backend's default.
-    pub allowed: Option<EnumSet<FastMath>>,
-    /// The optimizations removed from the allowed ones, whichever those are.
+    /// Optimizations allowed on top of the backend's default.
+    pub allowed: EnumSet<FastMath>,
+    /// Optimizations removed, from the default as from what is allowed.
     pub forbidden: EnumSet<FastMath>,
 }
 
 impl FastMathPermissions {
-    /// Exactly `allowed`.
+    /// The backend's default and `allowed`.
     pub fn allowing(allowed: EnumSet<FastMath>) -> Self {
         Self {
-            allowed: Some(allowed),
+            allowed,
             forbidden: EnumSet::empty(),
         }
     }
@@ -704,40 +697,36 @@ impl FastMathPermissions {
     /// The backend's default, less `forbidden`.
     pub fn forbidding(forbidden: EnumSet<FastMath>) -> Self {
         Self {
-            allowed: None,
+            allowed: EnumSet::empty(),
             forbidden,
         }
     }
 
     /// Whether the kernel said nothing.
     pub fn is_default(self) -> bool {
-        self.allowed.is_none() && self.forbidden.is_empty()
+        self.allowed.is_empty() && self.forbidden.is_empty()
     }
 
-    /// These permissions inside a function that gives `inner`. Its set replaces the allowed one,
-    /// but nothing it allows lifts a forbid of its caller.
+    /// These permissions inside a function that gives `inner`: each adds what it allows and
+    /// forbids.
     pub fn within(self, inner: Self) -> Self {
         Self {
-            allowed: inner.allowed.or(self.allowed),
+            allowed: self.allowed | inner.allowed,
             forbidden: self.forbidden | inner.forbidden,
         }
     }
 
     /// The permissions of one op fused from two: what both allow.
     pub fn fused_with(self, other: Self) -> Self {
-        let allowed = match (self.allowed, other.allowed) {
-            (Some(lhs), Some(rhs)) => Some(lhs & rhs),
-            (allowed, None) | (None, allowed) => allowed,
-        };
         Self {
-            allowed,
+            allowed: self.allowed & other.allowed,
             forbidden: self.forbidden | other.forbidden,
         }
     }
 
     /// The optimizations allowed on a backend whose default is `default`.
     pub fn resolve(self, default: EnumSet<FastMath>) -> EnumSet<FastMath> {
-        let allowed = Self::with_included(self.allowed.unwrap_or(default));
+        let allowed = Self::with_included(default | self.allowed);
         let forbidden = Self::with_included(self.forbidden);
         // An optimization that includes a forbidden one would bring it back.
         allowed
@@ -779,7 +768,7 @@ mod tests {
         let permissions = FastMathPermissions::allowing(FastMath::all()).within(
             FastMathPermissions::forbidding(FastMath::AllowContraction.into()),
         );
-        let allowed = permissions.resolve(FastMath::none());
+        let allowed = permissions.resolve(EnumSet::empty());
 
         assert!(!allowed.contains(FastMath::AllowContraction));
         assert!(!allowed.contains(FastMath::AllowTransform));
@@ -787,19 +776,29 @@ mod tests {
     }
 
     #[test]
-    fn a_callee_set_cannot_lift_its_callers_forbid() {
+    fn an_allow_in_a_callee_cannot_lift_its_callers_forbid() {
         let permissions = FastMathPermissions::forbidding(FastMath::AllowContraction.into())
             .within(FastMathPermissions::allowing(FastMath::all()));
 
         assert!(
             !permissions
-                .resolve(FastMath::none())
+                .resolve(EnumSet::empty())
                 .contains(FastMath::AllowContraction)
         );
     }
 
     #[test]
-    fn a_forbid_alone_keeps_the_backend_default() {
+    fn an_allow_adds_to_the_backend_default() {
+        let permissions = FastMathPermissions::allowing(FastMath::ReducedPrecision.into());
+
+        assert_eq!(
+            permissions.resolve(FastMath::AllowContraction.into()),
+            FastMath::AllowContraction | FastMath::ReducedPrecision
+        );
+    }
+
+    #[test]
+    fn a_forbid_alone_keeps_the_rest_of_the_backend_default() {
         let permissions = FastMathPermissions::forbidding(FastMath::NotNaN.into());
         let default = FastMath::AllowContraction | FastMath::NotNaN;
 

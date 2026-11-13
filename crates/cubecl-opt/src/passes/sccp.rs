@@ -124,7 +124,7 @@ impl Pass for SCCPPass {
         res.ir_changed |= sccp(op, ctx)?;
         res.ir_changed |= apply_match_rewrite(
             ctx,
-            &mut KeepLocation(&mut Canonicalize),
+            &mut KeepOrigin(&mut Canonicalize),
             RewriterOrder::default(),
             op,
         )?;

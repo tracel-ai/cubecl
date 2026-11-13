@@ -23,56 +23,28 @@ fn run_on_array<F: Float>(input: &[F], alpha: F, epsilon: F, output: &mut [F]) {
     }
 }
 
-#[cube(fast_math = FastMath::all())]
+#[cube(allow_fast_math = FastMath::all())]
 fn fast_rsqrt<F: Float>(x: F) -> F {
     F::inverse_sqrt(x)
 }
 ```
 
-### Strict Arithmetic
+### Allowing and Forbidding
 
-`FastMath::none()` allows nothing: every operation rounds on its own, so a product is never fused
-into the add that consumes it, and nothing is assumed about `Inf`, `NaN` or the sign of zero. Use it
-where the arithmetic itself is the algorithm, as in compensated summation.
+A function that says nothing gets each backend's default, which usually allows contraction: CubeCL
+fuses a product into the add that consumes it, and so may the driver. Two attributes change that,
+each against the default:
 
-```rust
-/// The error term of `a + b`, exact only if neither operation is fused or reassociated.
-#[cube(fast_math = FastMath::none())]
-fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
-    let sum = a + b;
-    let b_virtual = sum - a;
-    let error = (a - (sum - b_virtual)) + (b - b_virtual);
-    (sum, error)
-}
-```
+- `allow_fast_math` adds optimizations, as `fast_rsqrt` does above.
+- `forbid_fast_math` removes them, along with any optimization that includes one it names, such as
+  `AllowTransform` for contraction.
 
-Rounding is kept on every backend below except WGSL and Metal. `Inf`, `NaN` and signed zero are
-kept where `client.properties().features.ieee_special_values` is true.
+A function that says nothing gets its caller's permissions, and one that says something adds to
+them. A forbid always wins: nothing a function allows, or a function it calls allows, brings back
+what it forbids. Operations CubeCL expands into several, such as `exp` on the CPU, carry the
+permissions of the function they appear in.
 
-A kernel that says nothing gets each backend's default, which usually allows contraction: CubeCL
-fuses a product into the add that consumes it, and so may the driver. A function that says nothing
-gets its caller's set. A function that gives a set gets exactly that set, so
-`FastMath::NotNaN.into()` alone also forbids contraction and can run slower than saying nothing.
-Operations CubeCL expands into several, such as `exp` on the CPU, carry the flags of the function
-they appear in.
-
-A set can forbid only some optimizations. Here a product may still fuse into the add that consumes
-it, but the `-inf` a mask adds is kept, since `NotInf` is not in the set:
-
-```rust
-/// A masked attention score: fused where it pays, but a masked score stays `-inf`.
-#[cube(fast_math = FastMath::AllowContraction | FastMath::AllowReassociation)]
-fn masked_score<F: Float>(query: F, key: F, mask: F) -> F {
-    query * key + mask
-}
-```
-
-`AllowTransform` includes contraction and reassociation, so a set that forbids either must leave it
-out as well: `FastMath::all() - FastMath::AllowContraction` still contracts.
-
-To forbid one optimization and keep the rest of the backend's default, use `forbid_fast_math`. It
-removes what it names from whatever the function would otherwise get, along with any optimization
-that includes it, and nothing a function it calls allows brings it back:
+Forbidding one optimization keeps the rest of the default:
 
 ```rust
 /// `a * b + c` rounded after each operation, as a host reference computes it.
@@ -81,6 +53,27 @@ fn product_sum<F: Float>(a: F, b: F, c: F) -> F {
     a * b + c
 }
 ```
+
+### Strict Arithmetic
+
+`forbid_fast_math = FastMath::all()` allows nothing: every operation rounds on its own, so a product
+is never fused into the add that consumes it, and nothing is assumed about `Inf`, `NaN` or the sign
+of zero. Use it where the arithmetic itself is the algorithm, as in compensated summation.
+
+```rust
+/// The error term of `a + b`, exact only if neither operation is fused or reassociated.
+#[cube(forbid_fast_math = FastMath::all())]
+fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
+    let sum = a + b;
+    let b_virtual = sum - a;
+    let error = (a - (sum - b_virtual)) + (b - b_virtual);
+    (sum, error)
+}
+```
+
+Contraction stays forbidden where `client.properties().features.unfused_arithmetic` is true, which
+excludes WGSL and Metal. `Inf`, `NaN` and signed zero are kept where
+`client.properties().features.ieee_special_values` is true.
 
 ### Backend Implementation
 
@@ -108,8 +101,8 @@ CUDA, complex numbers and complex `powf` included, and as helpers compiled under
 
 #### Metal
 
-Metal has no per-operation control. `cubecl-metal` compiles with `MathMode::Safe`, and WGPU with
-Metal's default, which is fast math.
+Metal has no per-operation control, and both `cubecl-metal` and WGPU compile with Metal's default,
+which is fast math.
 
 #### WGSL
 

@@ -145,7 +145,7 @@ mod tests {
 
     /// The lowering passes keep the location of each op that comes from source: each float op,
     /// store and call. The entry ABI adds the loops over the units, which have no source and get
-    /// line 0 in the DWARF. Each statement keeps its own line: `KeepLocation` gives a rewritten op
+    /// line 0 in the DWARF. Each statement keeps its own line: `KeepOrigin` gives a rewritten op
     /// the location of the op it replaces, where the fallback pass alone would give the location
     /// of the op before it.
     #[test]

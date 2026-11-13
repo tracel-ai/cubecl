@@ -231,6 +231,7 @@ impl DeviceService for CpuServer {
             Features {
                 unaligned_io: true,
                 ieee_special_values: true,
+                unfused_arithmetic: true,
                 ..Default::default()
             },
             mem_properties.clone(),

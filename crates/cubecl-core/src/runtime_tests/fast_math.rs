@@ -1,4 +1,4 @@
-//! A kernel that allows no fast math gets each operation rounded on its own, on every backend
+//! A kernel that forbids all fast math gets each operation rounded on its own, on every backend
 //! that can say so, and keeps NaN, infinity and the sign of zero where the device can.
 
 use crate::{self as cubecl};
@@ -30,7 +30,7 @@ fn product_sum<F: Float, N: Size>(
     }
 }
 
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 fn strict_product_sum<F: Float, N: Size>(
     a: &[Vector<F, N>],
     b: &[Vector<F, N>],
@@ -50,7 +50,7 @@ fn product_sum_forbidding_contraction<F: Float, N: Size>(
     product_sum(a, b, c, output);
 }
 
-#[cube(fast_math = FastMath::all())]
+#[cube(allow_fast_math = FastMath::all())]
 fn fast_product_sum<F: Float, N: Size>(
     a: &[Vector<F, N>],
     b: &[Vector<F, N>],
@@ -70,7 +70,7 @@ fn fast_product_sum_forbidding_contraction<F: Float, N: Size>(
     fast_product_sum(a, b, c, output);
 }
 
-#[cube(fast_math = FastMath::none())]
+#[cube(forbid_fast_math = FastMath::all())]
 fn strict_product<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>) -> Vector<F, N> {
     a * b
 }
@@ -90,9 +90,9 @@ fn strict_product_default_sum<F: Float, N: Size>(
 /// Which of the kernels computing `a * b + c` to run.
 #[derive(Clone, Copy, Debug)]
 pub enum ProductSum {
-    /// Allows no fast math.
+    /// Forbids all fast math.
     Strict,
-    /// Multiplies in a function that allows no fast math, and adds in one that says nothing.
+    /// Multiplies in a function that forbids all fast math, and adds in one that says nothing.
     StrictProduct,
     /// Forbids contraction and allows the rest of the backend's default.
     ForbiddenContraction,
@@ -164,15 +164,8 @@ fn assert_strict_rounds_each_operation<
     }
 }
 
-/// WGSL cannot forbid one operation's contraction, so its own compiler may still fuse it. Metal
-/// has no such call either, and nothing has checked what its compiler does.
-fn can_forbid_contraction(client: &Client) -> bool {
-    let name = client.name();
-    !(name.starts_with("wgpu<wgsl") || name == "wgpu<msl>" || name == "metal")
-}
-
 pub fn test_strict_rounds_each_operation<R: Runtime>(client: Client) {
-    if !can_forbid_contraction(&client) {
+    if !client.properties().features.unfused_arithmetic {
         return;
     }
     assert_strict_rounds_each_operation::<half::f16>(&client);
@@ -181,7 +174,7 @@ pub fn test_strict_rounds_each_operation<R: Runtime>(client: Client) {
     assert_strict_rounds_each_operation::<f64>(&client);
 }
 
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 fn strict_dot(a: &[Vector<f32, Const<2>>], b: &[Vector<f32, Const<2>>], output: &mut [f32]) {
     if ABSOLUTE_POS < output.len() {
         output[ABSOLUTE_POS] = Vector::dot(a[ABSOLUTE_POS], b[ABSOLUTE_POS]);
@@ -191,7 +184,7 @@ fn strict_dot(a: &[Vector<f32, Const<2>>], b: &[Vector<f32, Const<2>>], output: 
 /// A dot product is a multiply-add per lane, so it fuses the same way. Each pair cancels the other
 /// lane's rounded square exactly, in both lane orders.
 pub fn test_strict_dot_rounds_each_operation<R: Runtime>(client: Client) {
-    if !can_forbid_contraction(&client) {
+    if !client.properties().features.unfused_arithmetic {
         return;
     }
     let (near_one, rounded) = near_one::<f32>();
@@ -214,7 +207,7 @@ pub fn test_strict_dot_rounds_each_operation<R: Runtime>(client: Client) {
 }
 
 #[allow(clippy::eq_op)]
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 fn strict_identities(input: &[f32], output: &mut [f32]) {
     let infinity = input[0];
     let minus_one = input[1];
@@ -260,7 +253,7 @@ pub fn test_strict_keeps_nan_infinity_and_signed_zero<R: Runtime>(client: Client
 }
 
 #[allow(clippy::eq_op)]
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 fn strict_without_arithmetic(input: &[f32], output: &mut [f32]) {
     let nan = input[0];
     let zero = input[1];
@@ -299,7 +292,7 @@ pub fn test_strict_keeps_special_values_without_arithmetic<R: Runtime>(client: C
     );
 }
 
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 fn strict_mod_floor(lhs: &[f32], rhs: &[f32], output: &mut [f32]) {
     if ABSOLUTE_POS < output.len() {
         output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].mod_floor(rhs[ABSOLUTE_POS]);
@@ -310,7 +303,7 @@ fn strict_mod_floor(lhs: &[f32], rhs: &[f32], output: &mut [f32]) {
 /// of `x = 4098.5` floors to `4097`, whose product with `y` is `4098 + 2⁻¹²`: rounded on its own
 /// it is `4098`, leaving `0.5`, and fused it leaves `0.5 - 2⁻¹²`.
 pub fn test_strict_mod_floor_rounds_each_operation<R: Runtime>(client: Client) {
-    if !can_forbid_contraction(&client) {
+    if !client.properties().features.unfused_arithmetic {
         return;
     }
     let (near_one, _) = near_one::<f32>();
@@ -330,7 +323,7 @@ pub fn test_strict_mod_floor_rounds_each_operation<R: Runtime>(client: Client) {
     assert_eq!(f32::from_bytes(&actual), [0.5]);
 }
 
-#[cube(launch_unchecked, fast_math = FastMath::none())]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::all())]
 fn strict_vector_sum_and_dot(input: &[Vector<f32, Const<2>>], output: &mut [f32]) {
     output[0] = input[0].vector_sum();
     output[1] = Vector::dot(input[0], input[1]);

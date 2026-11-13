@@ -11,7 +11,7 @@ use pliron::{
 
 use crate::{EnumSet, FastMath, FastMathPermissions, prelude::*};
 
-dict_key!(ATTR_KEY_FAST_MATH, "fast_math");
+dict_key!(ATTR_KEY_ALLOWED_FAST_MATH, "allowed_fast_math");
 dict_key!(ATTR_KEY_FORBIDDEN_FAST_MATH, "forbidden_fast_math");
 
 /// A set of float optimizations on one op: those its kernel allowed, or those it forbade.
@@ -47,7 +47,7 @@ impl Parsable for FastMathAttr {
         let mut list = delimited_list_parser('[', ']', ',', name);
         let names = list.parse_stream(input).into_result()?.0;
 
-        let mut flags = FastMath::none();
+        let mut flags = EnumSet::empty();
         for name in names {
             match name.parse() {
                 Ok(flag) => flags.insert(flag),
@@ -68,15 +68,19 @@ pub trait FastMathOp {
         let op = self.get_operation();
         let read = |key| op.get_attr::<FastMathAttr>(ctx, key).map(|flags| flags.0);
         FastMathPermissions {
-            allowed: read(&ATTR_KEY_FAST_MATH),
+            allowed: read(&ATTR_KEY_ALLOWED_FAST_MATH).unwrap_or_default(),
             forbidden: read(&ATTR_KEY_FORBIDDEN_FAST_MATH).unwrap_or_default(),
         }
     }
 
     fn set_fast_math(&self, ctx: &Context, fast_math: FastMathPermissions) {
         let op = self.get_operation();
-        if let Some(allowed) = fast_math.allowed {
-            op.set_attr(ctx, &ATTR_KEY_FAST_MATH, FastMathAttr(allowed));
+        if !fast_math.allowed.is_empty() {
+            op.set_attr(
+                ctx,
+                &ATTR_KEY_ALLOWED_FAST_MATH,
+                FastMathAttr(fast_math.allowed),
+            );
         }
         if !fast_math.forbidden.is_empty() {
             let forbidden = FastMathAttr(fast_math.forbidden);

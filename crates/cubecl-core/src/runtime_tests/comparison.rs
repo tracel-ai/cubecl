@@ -15,7 +15,7 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
         }),*]) => {
         pub fn $test_name<R: Runtime>(client: Client) {
-            #[cube(launch_unchecked, fast_math = FastMath::all())]
+            #[cube(launch_unchecked)]
             fn test_function<N: Size>(
                 lhs: &[Vector<$primitive_type, N>],
                 rhs: &[Vector<$primitive_type, N>],
