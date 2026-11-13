@@ -63,19 +63,25 @@ impl Rendezvous {
 
     /// Whether a barrier slot needs every unit to publish its writes.
     pub(crate) fn collective_full(deliveries: &[Delivery]) -> bool {
-        deliveries.iter().any(Delivery::every_unit_fills)
+        deliveries
+            .iter()
+            .any(|delivery| delivery.issuer() == Issuer::Unit)
     }
 
     /// Whether a barrier slot's units copy asynchronously, which `full` must track before it flips.
     pub(crate) fn commits(deliveries: &[Delivery]) -> bool {
-        deliveries.contains(&Delivery::AsyncPerUnit)
+        deliveries
+            .iter()
+            .any(|delivery| delivery.landing() == Landing::Arrivals)
     }
 
     /// Whether a barrier slot's barriers must be fenced into the async proxy once initialized:
-    /// only a bulk copy completes on them from there. The fence is sm90+, so a slot without one
-    /// must not emit it.
+    /// only a delivery counted in bytes completes on them from there. The fence is sm90+, so a
+    /// slot without one must not emit it.
     pub(crate) fn fences(deliveries: &[Delivery]) -> bool {
-        deliveries.iter().any(Delivery::through_async_proxy)
+        deliveries
+            .iter()
+            .any(|delivery| delivery.landing() == Landing::Bytes)
     }
 }
 
@@ -274,11 +280,7 @@ impl Meeting {
         match self {
             Meeting::Barrier { full, elected, .. } => match (&mut dst.kind, &src.kind) {
                 (TileKind::Memory(d), TileKind::TmaGmem(s)) => {
-                    // Single issuer: the transaction count is the elected unit's alone.
-                    if UNIT_POS == *elected {
-                        full.expect_tx(d.size_bytes::<Served>());
-                        s.stage_into::<Served>(d, full);
-                    }
+                    d.issue_box::<Served>(s, full, *elected)
                 }
                 (TileKind::Memory(d), TileKind::Memory(s)) => d.fill_from::<Served>(s, space),
                 (TileKind::Memory(d), TileKind::Procedural(s)) => {
@@ -296,25 +298,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn procedural_and_strided_share_a_cube_pipeline() {
+    fn the_units_own_writes_share_a_cube_pipeline() {
         assert_eq!(
-            Rendezvous::for_deliveries(
-                &[Delivery::Procedural, Delivery::SyncPerUnit],
-                0,
-                StageOwner::CUBE
-            ),
+            Rendezvous::for_deliveries(&[Delivery::SyncPerUnit], 0, StageOwner::CUBE),
             Rendezvous::Cube
         );
     }
 
     #[test]
-    fn procedural_and_tma_share_a_barrier_pipeline() {
+    fn the_units_writes_and_tma_share_a_barrier_pipeline() {
         assert_eq!(
-            Rendezvous::for_deliveries(&[Delivery::Procedural, Delivery::Tma], 0, StageOwner::CUBE),
+            Rendezvous::for_deliveries(
+                &[Delivery::SyncPerUnit, Delivery::Tma],
+                0,
+                StageOwner::CUBE
+            ),
             Rendezvous::Barrier
         );
         assert!(Rendezvous::collective_full(&[
-            Delivery::Procedural,
+            Delivery::SyncPerUnit,
             Delivery::Tma
         ]));
     }
@@ -336,33 +338,15 @@ mod tests {
         ]));
     }
 
-    /// A bulk copy has one issuer, as TMA does: its bytes are counted on `full`, not handed over
-    /// by every unit.
+    /// Only a delivery counted in bytes completes on the barrier from the async proxy. `cp.async`
+    /// stays in the generic proxy, and the fence it would otherwise emit does not exist before
+    /// sm90.
     #[test]
-    fn a_bulk_copy_keeps_its_single_producer_arrival() {
-        let deliveries = [Delivery::AsyncBulk];
-        assert_eq!(
-            Rendezvous::for_deliveries(&deliveries, 0, StageOwner::CUBE),
-            Rendezvous::Barrier
-        );
-        assert!(!Rendezvous::collective_full(&deliveries));
-        assert!(!Rendezvous::commits(&deliveries));
-    }
-
-    /// Only a bulk copy completes on the barrier from the async proxy. `cp.async` stays in the
-    /// generic proxy, and the fence it would otherwise emit does not exist before sm90.
-    #[test]
-    fn only_a_bulk_copy_fences_the_barrier_into_the_async_proxy() {
+    fn only_a_box_fences_the_barrier_into_the_async_proxy() {
         assert!(Rendezvous::fences(&[Delivery::Tma]));
-        assert!(Rendezvous::fences(&[
-            Delivery::SyncPerUnit,
-            Delivery::AsyncBulk
-        ]));
+        assert!(Rendezvous::fences(&[Delivery::SyncPerUnit, Delivery::Tma]));
         assert!(!Rendezvous::fences(&[Delivery::AsyncPerUnit]));
-        assert!(!Rendezvous::fences(&[
-            Delivery::SyncPerUnit,
-            Delivery::Procedural
-        ]));
+        assert!(!Rendezvous::fences(&[Delivery::SyncPerUnit]));
     }
 
     #[test]
@@ -383,7 +367,7 @@ mod tests {
     fn a_planes_own_stage_rendezvouses_on_the_plane() {
         let owner = StageOwner::Plane { planes: 4 };
         assert_eq!(
-            Rendezvous::for_deliveries(&[Delivery::Procedural, Delivery::SyncPerUnit], 0, owner),
+            Rendezvous::for_deliveries(&[Delivery::SyncPerUnit], 0, owner),
             Rendezvous::Plane
         );
     }

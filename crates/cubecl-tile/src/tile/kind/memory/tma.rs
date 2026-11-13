@@ -71,8 +71,8 @@ impl TmaData {
         }
     }
 
-    /// Issue the `tensor_map_load` into `dst` on `barrier` without arriving or waiting.
-    /// Only the electing unit may call it, since it alone declares the transaction count.
+    /// Issue the `tensor_map_load` into `dst` on `barrier` without arriving or waiting; who issues
+    /// it, and when, is the TMA engine's ([`Memory::issue_box`]).
     pub(crate) fn stage_into<T: Numeric>(&self, dst: &mut Memory, barrier: &Shared<Barrier>) {
         // A box lands its rows dense, swizzled by the descriptor where the stage keeps them
         // swizzled; the launch built the descriptor off the same answer
@@ -96,22 +96,6 @@ impl TmaData {
                 self.pos.clone(),
             ),
         }
-    }
-
-    /// Bulk-copy into shared-memory `dst` and wait, on a local mbarrier.
-    pub(crate) fn load_into<T: Numeric>(&self, dst: &mut Memory) {
-        comptime!(assert!(
-            dst.address == AddressSpace::Shared,
-            "TmaData::load_into: a tensor map bulk-copies into shared memory only"
-        ));
-        let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
-        sync_async_proxy_shared();
-        let expected = select(UNIT_POS == 0, dst.size_bytes::<T>(), 0);
-        if UNIT_POS == 0 {
-            self.stage_into::<T>(dst, &barrier);
-        }
-        let token = barrier.arrive_and_expect_tx(1, expected);
-        barrier.wait(token);
     }
 
     /// Bulk-copy shared-memory `src` out to this box, once every unit of the cube has written its

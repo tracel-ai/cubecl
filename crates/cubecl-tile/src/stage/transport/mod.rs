@@ -1,6 +1,5 @@
 //! Transports that move an operand's cells into the tile an instruction reads them from.
 
-pub(crate) mod async_copy;
 pub(crate) mod base;
 pub(crate) mod padded;
 pub(crate) mod prefetch;

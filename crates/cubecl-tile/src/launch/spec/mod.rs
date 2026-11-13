@@ -8,3 +8,4 @@ pub(crate) mod delivery;
 pub use base::TileSpec;
 pub use boundary_policy::BoundaryPolicy;
 pub use delivery::Delivery;
+pub(crate) use delivery::{Engine, Issuer, Landing, Route};

@@ -151,10 +151,7 @@ impl Memory {
                 // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
                 // words a gather reads lands as the compacted window the gather stages.
                 let delivery = operand.delivery();
-                let alignment = comptime!(match delivery.is_tma() {
-                    true => Delivery::TMA_STAGE_ALIGNMENT,
-                    false => 0usize,
-                });
+                let alignment = comptime!(delivery.engine().stage_alignment);
                 // A decoded stage is dense over the values' axes whatever the source's map, and
                 // so is a tiled one, which an instruction reads as one matrix.
                 let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));

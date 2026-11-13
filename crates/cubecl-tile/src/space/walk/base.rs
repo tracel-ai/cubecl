@@ -202,9 +202,7 @@ impl Walk {
                             .divided_by(workers.runtime()),
                         // Units taking turns, where the host proved the deal even, each take
                         // every `instances`-th tile; elsewhere their count is reckoned per unit.
-                        Workers::Units(_) if divides => {
-                            grid.at(p).divided_by(instances.at(p))
-                        }
+                        Workers::Units(_) if divides => grid.at(p).divided_by(instances.at(p)),
                         Workers::Grid | Workers::Units(_) => 1usize.runtime(),
                     };
                     counts.push(AxisDistribution::tiles(

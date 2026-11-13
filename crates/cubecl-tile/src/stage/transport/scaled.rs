@@ -12,10 +12,11 @@ impl Tile {
     /// loads ([`vector_tile`](Tile::vector_tile)), a run or a rectangle of its stored tiles. The
     /// source may carry extra axes only if each is one wide.
     pub(crate) fn copy_scaled_from<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        // It decodes in the unit that loads each line; an async copy lands the bytes as they lie.
+        // It decodes in the unit that loads each line; an engine moving memory to memory lands the
+        // bytes as they lie.
         let delivery = src.delivery();
         comptime!(assert!(
-            !delivery.is_async(),
+            delivery.route() == Route::Registers,
             "Tile::dequantize_from: a decoding copy cannot be delivered {delivery:?}; deliver it \
              SyncPerUnit, or stage it as it lies and decode out of the stage"
         ));

@@ -2,10 +2,7 @@
 
 use cubecl::prelude::*;
 
-use cubecl_std::tensor::layout::CoordsDyn;
-
-use super::async_copy::fill_lines_async;
-use super::padded::{read_stage_line, widened_shape};
+use super::padded::widened_shape;
 use crate::*;
 
 #[cube]
@@ -106,13 +103,16 @@ impl Memory {
                     check,
                 )
             };
-            // Only an equal-width fill moves each line whole, which is what the copy engine does
-            // ([`TransportKind::new`] refuses it any other).
-            if comptime!(src.access.delivery == Delivery::AsyncPerUnit) {
-                fill_lines_async::<I2, WP2>(d, &s, &layout, total, fill);
-            } else {
-                fill_lines::<I2, WP2, WP2>(d, &s, &layout, total, fill, padding);
-            }
+            // Only an equal-width fill moves each line whole, which is what an engine moving memory
+            // to memory does ([`TransportKind::new`] refuses it any other).
+            Memory::move_lines::<I2, WP2>(
+                d,
+                &s,
+                &layout,
+                total,
+                comptime!(src.access.delivery),
+                fill,
+            );
         } else {
             let s = if steps.is_empty() {
                 Masked::new(
@@ -129,7 +129,8 @@ impl Memory {
                     check,
                 )
             };
-            fill_lines::<I2, WP2, Const<1>>(d, &s, &layout, total, fill, padding);
+            // A padded stage assembles each line out of narrower ones, through the registers.
+            Memory::sync_lines::<I2, WP2, Const<1>>(d, &s, &layout, total, fill, padding);
         }
     }
 }
@@ -155,22 +156,5 @@ pub(crate) fn fill_extent(space: &Space, sw: usize, w: usize, check: bool) -> Op
             );
             None
         }
-    }
-}
-
-/// Write the stage's lines, dealt to the units `fill` names ([`FillUnits::deal`]).
-#[cube]
-fn fill_lines<I2: Numeric, WP2: Size, SW: Size>(
-    d: &mut [Vector<I2, WP2>],
-    s: &Masked<'_, Vector<I2, SW>, CoordsDyn>,
-    layout: &BufferLayout,
-    total: usize,
-    #[comptime] fill: FillUnits,
-    #[comptime] padding: Option<Padding>,
-) {
-    for line in FillUnits::deal(fill, total) {
-        let i = FillUnits::line(&line);
-        d[layout.line_offset(i)] =
-            read_stage_line::<I2, WP2, SW>(s, &layout.line_coords(i), comptime!(padding));
     }
 }
