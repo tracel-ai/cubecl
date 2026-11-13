@@ -8,7 +8,9 @@ use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::features::Tma;
 use cubecl::prelude::*;
 use cubecl::zspace::shape;
-use cubecl_tile::launch::{Destination, TmaBox, TmaStored};
+use cubecl_tile::launch::{
+    Destination, ServedDestination, ServedDestinationExpand, TmaBox, TmaStored,
+};
 use cubecl_tile::*;
 
 const ROW: Axis = Axis(0);
@@ -27,14 +29,15 @@ fn store_by_tma<E: Float, O: Destination>(
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let dst = O::tile::<E, Const<1>>(out, &space);
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let dst = dest.tile();
     for cube in &space {
         let mut dst_box = dst.at(&cube);
         let mut staged = dst_box.smem_box();
         staged.copy_from(&src.at(&cube));
         dst_box.copy_from(&staged);
     }
-    O::finish::<E>(out);
+    dest.finish();
 }
 
 /// Every cell of the tensor holds its own index, stored box by box by the TMA engine, and only

@@ -12,7 +12,8 @@ pub(crate) mod vectorization;
 pub use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
 pub use arg::accumulate::{AccumulateArg, AccumulateArgLaunch};
 pub use arg::destination::{
-    Buffered, Destination, DestinationLaunch, SinkLaunch, SinkLaunchVisitor, TmaStored,
+    Buffered, Destination, DestinationLaunch, OpenedDestination, OpenedDestinationExpand,
+    ServedDestination, ServedDestinationExpand, SinkLaunch, SinkLaunchVisitor, TmaStored,
 };
 pub use arg::last_arrival::LastArrival;
 pub use arg::output::{Output, OutputArgs};
