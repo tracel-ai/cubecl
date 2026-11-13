@@ -219,9 +219,7 @@ impl ToLLVMDialect for vector::FSumOp {
         let res_ty = self.get_result(ctx).get_type(ctx);
         // Floating-point reductions require an initial accumulator value. Only `-0` adds nothing,
         // since `+0 + -0` is `+0`, which matters only where the sign of zero must be kept.
-        let keeps_zero_sign = self
-            .fast_math(ctx)
-            .is_some_and(|fast_math| !fast_math.contains(FastMath::UnsignedZero));
+        let keeps_zero_sign = !self.allows(ctx, FastMath::UnsignedZero.into());
         let start = if keeps_zero_sign { -0.0 } else { 0.0 };
         let attr = float_attr(ctx, res_ty, start)
             .unwrap_or_else(|| FPSingleAttr::from(start as f32).into());

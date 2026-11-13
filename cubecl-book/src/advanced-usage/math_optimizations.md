@@ -70,6 +70,18 @@ fn masked_score<F: Float>(query: F, key: F, mask: F) -> F {
 `AllowTransform` includes contraction and reassociation, so a set that forbids either must leave it
 out as well: `FastMath::all() - FastMath::AllowContraction` still contracts.
 
+To forbid one optimization and keep the rest of the backend's default, use `forbid_fast_math`. It
+removes what it names from whatever the function would otherwise get, along with any optimization
+that includes it, and nothing a function it calls allows brings it back:
+
+```rust
+/// `a * b + c` rounded after each operation, as a host reference computes it.
+#[cube(forbid_fast_math = FastMath::AllowContraction)]
+fn product_sum<F: Float>(a: F, b: F, c: F) -> F {
+    a * b + c
+}
+```
+
 ### Backend Implementation
 
 #### WGPU with Vulkan Compiler

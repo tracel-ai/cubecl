@@ -681,6 +681,77 @@ impl FromStr for FastMath {
     }
 }
 
+/// The float optimizations a kernel gives its ops: an exact set or its backend's default, less
+/// what it forbids.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
+pub struct FastMathPermissions {
+    /// The optimizations allowed, or `None` for the backend's default.
+    pub allowed: Option<EnumSet<FastMath>>,
+    /// The optimizations removed from the allowed ones, whichever those are.
+    pub forbidden: EnumSet<FastMath>,
+}
+
+impl FastMathPermissions {
+    /// Exactly `allowed`.
+    pub fn allowing(allowed: EnumSet<FastMath>) -> Self {
+        Self {
+            allowed: Some(allowed),
+            forbidden: EnumSet::empty(),
+        }
+    }
+
+    /// The backend's default, less `forbidden`.
+    pub fn forbidding(forbidden: EnumSet<FastMath>) -> Self {
+        Self {
+            allowed: None,
+            forbidden,
+        }
+    }
+
+    /// Whether the kernel said nothing.
+    pub fn is_default(self) -> bool {
+        self.allowed.is_none() && self.forbidden.is_empty()
+    }
+
+    /// These permissions inside a function that gives `inner`. Its set replaces the allowed one,
+    /// but nothing it allows lifts a forbid of its caller.
+    pub fn within(self, inner: Self) -> Self {
+        Self {
+            allowed: inner.allowed.or(self.allowed),
+            forbidden: self.forbidden | inner.forbidden,
+        }
+    }
+
+    /// The permissions of one op fused from two: what both allow.
+    pub fn fused_with(self, other: Self) -> Self {
+        let allowed = match (self.allowed, other.allowed) {
+            (Some(lhs), Some(rhs)) => Some(lhs & rhs),
+            (allowed, None) | (None, allowed) => allowed,
+        };
+        Self {
+            allowed,
+            forbidden: self.forbidden | other.forbidden,
+        }
+    }
+
+    /// The optimizations allowed on a backend whose default is `default`.
+    pub fn resolve(self, default: EnumSet<FastMath>) -> EnumSet<FastMath> {
+        let allowed = Self::with_included(self.allowed.unwrap_or(default));
+        let forbidden = Self::with_included(self.forbidden);
+        // An optimization that includes a forbidden one would bring it back.
+        allowed
+            .difference(forbidden)
+            .iter()
+            .filter(|flag| flag.includes().is_disjoint(forbidden))
+            .collect()
+    }
+
+    fn with_included(flags: EnumSet<FastMath>) -> EnumSet<FastMath> {
+        flags.iter().fold(flags, |all, flag| all | flag.includes())
+    }
+}
+
 impl HardwareProperties {
     /// `width` bits of `elem_size`-byte elements, as a power of two the device accepts.
     fn vector_size_in(&self, width: u32, elem_size: usize) -> VectorSize {
@@ -702,6 +773,41 @@ mod tests {
     use super::*;
     use crate::FloatKind;
     use alloc::string::ToString;
+
+    #[test]
+    fn a_forbid_removes_what_includes_it() {
+        let permissions = FastMathPermissions::allowing(FastMath::all()).within(
+            FastMathPermissions::forbidding(FastMath::AllowContraction.into()),
+        );
+        let allowed = permissions.resolve(FastMath::none());
+
+        assert!(!allowed.contains(FastMath::AllowContraction));
+        assert!(!allowed.contains(FastMath::AllowTransform));
+        assert!(allowed.contains(FastMath::AllowReassociation));
+    }
+
+    #[test]
+    fn a_callee_set_cannot_lift_its_callers_forbid() {
+        let permissions = FastMathPermissions::forbidding(FastMath::AllowContraction.into())
+            .within(FastMathPermissions::allowing(FastMath::all()));
+
+        assert!(
+            !permissions
+                .resolve(FastMath::none())
+                .contains(FastMath::AllowContraction)
+        );
+    }
+
+    #[test]
+    fn a_forbid_alone_keeps_the_backend_default() {
+        let permissions = FastMathPermissions::forbidding(FastMath::NotNaN.into());
+        let default = FastMath::AllowContraction | FastMath::NotNaN;
+
+        assert_eq!(
+            permissions.resolve(default),
+            FastMath::AllowContraction.into()
+        );
+    }
 
     /// Properties sent to another host read back as they were sent, the element-type tables
     /// keyed by a non-string type included, and a stated capacity of zero reads back as none.

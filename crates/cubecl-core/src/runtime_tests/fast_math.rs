@@ -40,6 +40,36 @@ fn strict_product_sum<F: Float, N: Size>(
     product_sum(a, b, c, output);
 }
 
+#[cube(launch_unchecked, forbid_fast_math = FastMath::AllowContraction)]
+fn product_sum_forbidding_contraction<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    product_sum(a, b, c, output);
+}
+
+#[cube(fast_math = FastMath::all())]
+fn fast_product_sum<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    product_sum(a, b, c, output);
+}
+
+#[cube(launch_unchecked, forbid_fast_math = FastMath::AllowContraction)]
+fn fast_product_sum_forbidding_contraction<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    fast_product_sum(a, b, c, output);
+}
+
 #[cube(fast_math = FastMath::none())]
 fn strict_product<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>) -> Vector<F, N> {
     a * b
@@ -64,6 +94,10 @@ pub enum ProductSum {
     Strict,
     /// Multiplies in a function that allows no fast math, and adds in one that says nothing.
     StrictProduct,
+    /// Forbids contraction and allows the rest of the backend's default.
+    ForbiddenContraction,
+    /// Forbids contraction around a function that allows every optimization.
+    ForbiddenAroundFastMath,
 }
 
 /// `near_one² - rounded` in each lane of four, through `kernel` at `vectorization`: zero when the
@@ -79,6 +113,12 @@ pub fn product_sum_residue<F: Float + num_traits::Float + CubeElement>(
     let launch = match kernel {
         ProductSum::Strict => strict_product_sum::launch_unchecked::<F>,
         ProductSum::StrictProduct => strict_product_default_sum::launch_unchecked::<F>,
+        ProductSum::ForbiddenContraction => {
+            product_sum_forbidding_contraction::launch_unchecked::<F>
+        }
+        ProductSum::ForbiddenAroundFastMath => {
+            fast_product_sum_forbidding_contraction::launch_unchecked::<F>
+        }
     };
 
     let output = client.empty(a.len() * size_of::<F>());
@@ -107,7 +147,12 @@ fn assert_strict_rounds_each_operation<
     if !F::supported_uses(client).contains(TypeUsage::Arithmetic) {
         return;
     }
-    for kernel in [ProductSum::Strict, ProductSum::StrictProduct] {
+    for kernel in [
+        ProductSum::Strict,
+        ProductSum::StrictProduct,
+        ProductSum::ForbiddenContraction,
+        ProductSum::ForbiddenAroundFastMath,
+    ] {
         for vectorization in [1usize, 4] {
             assert_eq!(
                 product_sum_residue::<F>(client, kernel, vectorization),

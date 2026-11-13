@@ -1,5 +1,5 @@
 use cubecl_ir::{
-    EnumSet, FastMath, NamedRewrite,
+    NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
     interfaces::{TypedExt as _, fast_math::FastMathOp},
     prelude::{Inserter as _, Rewriter as _, *},
@@ -30,14 +30,6 @@ enum Negate {
 fn lone_product(ctx: &Context, value: Value) -> Option<FMulOp> {
     let mul = value.defining_op()?.as_op::<FMulOp>(ctx)?;
     (mul.get_result(ctx).num_uses(ctx) == 1 && mul.allows_contraction(ctx)).then_some(mul)
-}
-
-/// What the fused op allows: whatever both halves allow.
-fn fused_fast_math(ctx: &Context, mul: FMulOp, op: Ptr<Operation>) -> Option<EnumSet<FastMath>> {
-    [mul.fast_math(ctx), op.fast_math(ctx)]
-        .into_iter()
-        .flatten()
-        .reduce(|product, consumer| product & consumer)
 }
 
 /// The product, what is added to it, and what needs negating, for an `op` of the form
@@ -102,7 +94,8 @@ impl MatchRewrite for InstCombine {
         }
 
         let fma = FmaOp::new(ctx, a, b, c);
-        if let Some(fast_math) = fused_fast_math(ctx, mul, op) {
+        let fast_math = mul.fast_math(ctx).fused_with(op.fast_math(ctx));
+        if !fast_math.is_default() {
             fma.set_fast_math(ctx, fast_math);
         }
         rewriter.insert_op(ctx, &fma);

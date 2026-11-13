@@ -9,11 +9,12 @@ use pliron::{
     printable::{self, Printable},
 };
 
-use crate::{EnumSet, FastMath, prelude::*};
+use crate::{EnumSet, FastMath, FastMathPermissions, prelude::*};
 
 dict_key!(ATTR_KEY_FAST_MATH, "fast_math");
+dict_key!(ATTR_KEY_FORBIDDEN_FAST_MATH, "forbidden_fast_math");
 
-/// The float optimizations a kernel allowed one op.
+/// A set of float optimizations on one op: those its kernel allowed, or those it forbade.
 #[pliron_attr(name = "cube.fast_math", verifier = "succ")]
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct FastMathAttr(pub EnumSet<FastMath>);
@@ -62,25 +63,31 @@ impl Parsable for FastMathAttr {
 pub trait FastMathOp {
     verify_op_succ!();
 
-    /// The optimizations the kernel allowed this op, or `None` when the kernel said nothing.
-    fn fast_math(&self, ctx: &Context) -> Option<EnumSet<FastMath>> {
-        self.get_operation()
-            .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)
-            .map(|allowed| allowed.0)
+    /// What the kernel gave this op.
+    fn fast_math(&self, ctx: &Context) -> FastMathPermissions {
+        let op = self.get_operation();
+        let read = |key| op.get_attr::<FastMathAttr>(ctx, key).map(|flags| flags.0);
+        FastMathPermissions {
+            allowed: read(&ATTR_KEY_FAST_MATH),
+            forbidden: read(&ATTR_KEY_FORBIDDEN_FAST_MATH).unwrap_or_default(),
+        }
     }
 
-    fn set_fast_math(&self, ctx: &Context, fast_math: EnumSet<FastMath>) {
-        // Passes ask for the specific permission, not for one that includes it.
-        let included = fast_math.iter().map(FastMath::includes);
-        let fast_math = included.fold(fast_math, |all, flags| all | flags);
-        self.get_operation()
-            .set_attr(ctx, &ATTR_KEY_FAST_MATH, FastMathAttr(fast_math));
+    fn set_fast_math(&self, ctx: &Context, fast_math: FastMathPermissions) {
+        let op = self.get_operation();
+        if let Some(allowed) = fast_math.allowed {
+            op.set_attr(ctx, &ATTR_KEY_FAST_MATH, FastMathAttr(allowed));
+        }
+        if !fast_math.forbidden.is_empty() {
+            let forbidden = FastMathAttr(fast_math.forbidden);
+            op.set_attr(ctx, &ATTR_KEY_FORBIDDEN_FAST_MATH, forbidden);
+        }
     }
 
-    /// The optimizations this op may use. An op the kernel said nothing about may use all of
-    /// them, which is how cubecl's own passes treat every op by default.
+    /// The optimizations this op may use. Where the kernel said nothing, cubecl's own passes may
+    /// use all of them.
     fn permitted(&self, ctx: &Context) -> EnumSet<FastMath> {
-        self.fast_math(ctx).unwrap_or(FastMath::all())
+        self.fast_math(ctx).resolve(FastMath::all())
     }
 
     fn allows(&self, ctx: &Context, required: EnumSet<FastMath>) -> bool {

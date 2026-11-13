@@ -133,8 +133,7 @@ fn signed_zero_dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T
 }
 
 fn keeps_zero_sign(op: &impl FastMathOp, ctx: &Context) -> bool {
-    op.fast_math(ctx)
-        .is_some_and(|fast_math| !fast_math.contains(FastMath::UnsignedZero))
+    !op.allows(ctx, FastMath::UnsignedZero.into())
 }
 
 // MSL's `length`, `normalize` and `dot` cover `half` and `float` vectors, not `bfloat` ones.

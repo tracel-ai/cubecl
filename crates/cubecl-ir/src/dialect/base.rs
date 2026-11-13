@@ -1,7 +1,7 @@
 use core::{any::Any, cell::Ref, hash::Hash};
 
 use crate::{
-    EnumSet, FastMath,
+    FastMathPermissions,
     dialect::math::{FAddOp, FDivOp, FMulOp, FSubOp},
     interfaces::fast_math::FastMathOp,
     prelude::*,
@@ -35,8 +35,8 @@ pub trait OperationPtrExt: Sized {
     fn get_attr<'a, T: Attribute>(self, ctx: &'a Context, key: &Identifier) -> Option<Ref<'a, T>>;
     fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T);
     fn parent_module(self, ctx: &Context) -> ModuleOp;
-    /// The fast-math permissions on this op, if it is a float op its kernel said something about.
-    fn fast_math(self, ctx: &Context) -> Option<EnumSet<FastMath>>;
+    /// The fast-math permissions of this op, the default for one that is not a float op.
+    fn fast_math(self, ctx: &Context) -> FastMathPermissions;
     /// Whether this is arithmetic a downstream compiler could fuse with its neighbours, in a
     /// kernel that forbids it.
     fn is_unfused_arithmetic(self, ctx: &Context) -> bool;
@@ -131,9 +131,10 @@ impl OperationPtrExt for Ptr<Operation> {
         }
         panic!("Op is not contained in any module")
     }
-    fn fast_math(self, ctx: &Context) -> Option<EnumSet<FastMath>> {
+    fn fast_math(self, ctx: &Context) -> FastMathPermissions {
         self.cast::<dyn FastMathOp>(ctx)
-            .and_then(|op| op.fast_math(ctx))
+            .map(|op| op.fast_math(ctx))
+            .unwrap_or_default()
     }
     fn is_unfused_arithmetic(self, ctx: &Context) -> bool {
         let fusable = self.is_op::<FAddOp>(ctx)
