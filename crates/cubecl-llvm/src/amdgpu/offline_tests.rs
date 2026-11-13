@@ -1,9 +1,9 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, fence_poll_kernel, fence_send_kernel, keep_largest_kernel,
-    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
-    scale_kernel, tally_kernel, tile_product_kernel,
+    Wait, bf16_math_kernel, cdna_manual_product_kernel, fence_poll_kernel, fence_send_kernel,
+    keep_largest_kernel, nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel,
+    relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -202,6 +202,54 @@ fn int8_tiles_multiply_on_mfma() {
     assert_eq!(asm.matches("v_mfma_i32_16x16x32_i8").count(), 1, "{asm}");
     let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), "gfx90a");
     assert_eq!(asm.matches("v_mfma_i32_16x16x16").count(), 2, "{asm}");
+}
+
+/// Every form MI300 offers compiles for a cube of one 64-lane plane, through the fragment API and
+/// the manual one alike, to one MFMA per instruction deep and nothing on scratch: a fragment the
+/// lowering held in memory would read as a spill.
+#[test]
+fn every_mi300_form_compiles_for_a_wave64_plane() {
+    use half::{bf16, f16};
+    fn check(asm: String, what: &str, op: &str, instructions: usize) {
+        if let Some(dir) = std::env::var_os("CUBECL_OFFLINE_ASM_DIR") {
+            std::fs::write(std::path::Path::new(&dir).join(format!("{what}.s")), &asm).unwrap();
+        }
+        assert_eq!(asm.matches(op).count(), instructions, "{what}:\n{asm}");
+        assert!(!asm.contains("scratch_"), "{what} spills:\n{asm}");
+        assert!(
+            asm.contains(".wavefront_size: 64"),
+            "{what} is wave64:\n{asm}"
+        );
+    }
+    const PLANE_DIM: u32 = 64;
+    const ARCH: &str = "gfx942";
+    for (k, instructions) in [(16, 1), (32, 2)] {
+        let shape = (16, 16, k);
+        let f16_op = "v_mfma_f32_16x16x16_f16";
+        let bf16_op = "v_mfma_f32_16x16x16_bf16";
+        let asm = asm_of(
+            tile_product_in_plane::<f16, f16, f32>(shape, PLANE_DIM),
+            ARCH,
+        );
+        check(asm, &format!("cmma_f16_k{k}"), f16_op, instructions);
+        let asm = asm_of(
+            tile_product_in_plane::<bf16, bf16, f32>(shape, PLANE_DIM),
+            ARCH,
+        );
+        check(asm, &format!("cmma_bf16_k{k}"), bf16_op, instructions);
+        let asm = asm_of(cdna_manual_product_kernel::<f16, f16, f32>(shape), ARCH);
+        check(asm, &format!("manual_f16_k{k}"), f16_op, instructions);
+        let asm = asm_of(cdna_manual_product_kernel::<bf16, bf16, f32>(shape), ARCH);
+        check(asm, &format!("manual_bf16_k{k}"), bf16_op, instructions);
+    }
+    for (k, instructions) in [(32, 1), (64, 2)] {
+        let shape = (16, 16, k);
+        let op = "v_mfma_i32_16x16x32_i8";
+        let asm = asm_of(tile_product_in_plane::<i8, i8, i32>(shape, PLANE_DIM), ARCH);
+        check(asm, &format!("cmma_i8_k{k}"), op, instructions);
+        let asm = asm_of(cdna_manual_product_kernel::<i8, i8, i32>(shape), ARCH);
+        check(asm, &format!("manual_i8_k{k}"), op, instructions);
+    }
 }
 
 /// A cube that waits on a counter reads what the cube before it wrote within the launch: the

@@ -971,16 +971,22 @@ pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
 //     assert_eq!(expected, actual);
 // }
 
+/// Casting an `f32` accumulator to `f16` needs an `f16` accumulator fragment, which CDNA's MFMA
+/// does not have.
 pub fn test_cmma_cast_f16<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
-    if !client.features().matmul.cmma.contains(&MmaConfig {
+    let cmma = &client.features().matmul.cmma;
+    let accumulator = |cd_type| MmaConfig {
         a_type: ElemType::Float(FloatKind::F16),
         b_type: ElemType::Float(FloatKind::F16),
-        cd_type: ElemType::Float(FloatKind::F32),
+        cd_type,
         m: 16,
         k: 16,
         n: 16,
-    }) {
-        // We can't execute the test, skip.
+    };
+    let f32_and_f16 = [FloatKind::F32, FloatKind::F16]
+        .map(|kind| cmma.contains(&accumulator(ElemType::Float(kind))));
+    if f32_and_f16 != [true, true] {
+        println!("Unsupported, skipping");
         return;
     }
 

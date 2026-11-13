@@ -604,20 +604,178 @@ fn tile_product<A: Scalar, B: Scalar, CD: Numeric>(
     cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
-/// One `(m, n, k)` tile product of `A` by `B` accumulating in `CD`.
-pub(crate) fn tile_product_kernel<
+/// One tile product through the manual MMA API: each lane gathers its registers of `A` (row
+/// major), `B` (column major) and a zero accumulator at the positions the target names, and
+/// scatters its registers of the product the same way into `out` (row major).
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn manual_product<A: Scalar, B: Scalar, CD: Numeric>(
+    lhs: &[A],
+    rhs: &[B],
+    out: &mut [CD],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let def = cmma::MmaDefinition::<A, B, CD>::new(m, n, k);
+    let lane = UNIT_POS_PLANE;
+
+    let size_a = def.vector_size(cmma::MatrixIdent::A);
+    let size!(NA) = size_a;
+    let elems_a = def.elems_per_lane(cmma::MatrixIdent::A);
+    let count_a = comptime!(elems_a / size_a);
+    let mut registers_a = Array::<Vector<A, NA>>::new(count_a);
+    #[unroll]
+    for i in 0..count_a {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size_a {
+            let nth = (i * size_a + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, cmma::MatrixIdent::A);
+            reg.insert(j, lhs[(row * k as u32 + col) as usize]);
+        }
+        registers_a[i] = reg;
+    }
+
+    let size_b = def.vector_size(cmma::MatrixIdent::B);
+    let size!(NB) = size_b;
+    let elems_b = def.elems_per_lane(cmma::MatrixIdent::B);
+    let count_b = comptime!(elems_b / size_b);
+    let mut registers_b = Array::<Vector<B, NB>>::new(count_b);
+    #[unroll]
+    for i in 0..count_b {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size_b {
+            let nth = (i * size_b + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, cmma::MatrixIdent::B);
+            reg.insert(j, rhs[(col * k as u32 + row) as usize]);
+        }
+        registers_b[i] = reg;
+    }
+
+    let size_c = def.vector_size(cmma::MatrixIdent::Accumulator);
+    let size!(NC) = size_c;
+    let elems_c = def.elems_per_lane(cmma::MatrixIdent::Accumulator);
+    let count_c = comptime!(elems_c / size_c);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(count_c);
+    #[unroll]
+    for i in 0..count_c {
+        registers_c[i] = Vector::new(CD::from_int(0));
+    }
+
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    #[unroll]
+    for i in 0..count_c {
+        let reg = registers_d[i];
+        #[unroll]
+        for j in 0..size_c {
+            let nth = (i * size_c + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, cmma::MatrixIdent::Accumulator);
+            out[(row * n as u32 + col) as usize] = reg.extract(j);
+        }
+    }
+}
+
+/// The manual MMA register layout the HIP runtime gives CDNA: a 64-lane plane, `A` along its
+/// rows and `B` along its columns, every cell held once. It mirrors the runtime's
+/// `contiguous_elements_cdna`, which this crate cannot reach.
+#[cfg(feature = "amdgpu")]
+fn cdna_target_properties() -> TargetProperties {
+    use cubecl_core::ir::{
+        ContiguousElements, MmaProperties,
+        amd::{AmdMatrixCore, AmdMfma},
+        interfaces::TypedExt,
+    };
+    const LOAD_WIDTH_BYTES: usize = 16;
+    let contiguous = |ctx: &_, ident, matrix: pliron::r#type::TypedHandle<cmma::MatrixType>| {
+        let matrix = matrix.deref(ctx);
+        let core = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
+        match ident {
+            cmma::MatrixIdent::A | cmma::MatrixIdent::B => core
+                .frag_ab_elems(matrix.shape.k)
+                .min(LOAD_WIDTH_BYTES / matrix.elem_ty.size(ctx)),
+            cmma::MatrixIdent::Accumulator => 1,
+        }
+    };
+    TargetProperties {
+        mma: MmaProperties {
+            register_size_bits: 32,
+            const_plane_size: 64,
+            register_layout_a: cmma::MatrixLayout::RowMajor,
+            register_layout_b: cmma::MatrixLayout::ColMajor,
+            register_layout_acc: cmma::MatrixLayout::ColMajor,
+            register_duplication_a: 1,
+            register_duplication_b: 1,
+            register_duplication_acc: 1,
+            contiguous_elements: ContiguousElements::new(contiguous),
+        },
+    }
+}
+
+/// One `(m, n, k)` manual tile product on CDNA: a cube of one 64-lane plane.
+#[cfg(feature = "amdgpu")]
+pub(crate) fn cdna_manual_product_kernel<
     A: Scalar + cubecl_core::CubeElement,
     B: Scalar + cubecl_core::CubeElement,
     CD: Numeric + cubecl_core::CubeElement,
 >(
     (m, n, k): (usize, usize, usize),
 ) -> impl CubeKernel {
+    const PLANE_DIM: u32 = 64;
     let settings = KernelSettings::new(
-        *CubeDim::new_1d(32),
+        *CubeDim::new_1d(PLANE_DIM),
         ExecutionMode::Unchecked,
         AddressType::U32,
     );
-    let mut props = (*device_properties(32)).clone();
+    let mut props = (*device_properties(PLANE_DIM)).clone();
+    props.features.matmul.mma.insert(MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    });
+    manual_product::ManualProduct::<A, B, CD>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(cdna_target_properties()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        m,
+        n,
+        k,
+    )
+}
+
+/// One `(m, n, k)` tile product of `A` by `B` accumulating in `CD`.
+pub(crate) fn tile_product_kernel<
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    CD: Numeric + cubecl_core::CubeElement,
+>(
+    shape: (usize, usize, usize),
+) -> impl CubeKernel {
+    tile_product_in_plane::<A, B, CD>(shape, 32)
+}
+
+/// [`tile_product_kernel`] for one plane of `plane_dim` units, which is a whole cube.
+pub(crate) fn tile_product_in_plane<
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    CD: Numeric + cubecl_core::CubeElement,
+>(
+    (m, n, k): (usize, usize, usize),
+    plane_dim: u32,
+) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(plane_dim),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(plane_dim)).clone();
     props.features.matmul.cmma.insert(MmaConfig {
         a_type: A::cube_type(),
         b_type: B::cube_type(),
