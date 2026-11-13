@@ -2,27 +2,36 @@ use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle};
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::any::Any;
+#[cfg(feature = "std")]
+use cubecl_environment::future::channel::oneshot;
 
 /// An error returned by a blocking device call.
 ///
 /// When a task panics on a device's runner thread, the panic payload is
 /// captured and carried here instead of being logged and dropped.
-/// A `CallError` without a payload means the runner channel disconnected
-/// before the task could produce a result.
 pub struct CallError {
-    /// The captured panic payload, or `None` if the call failed because the
-    /// runner channel disconnected
-    payload: Option<Box<dyn Any + Send>>,
+    failure: Failure,
+}
+
+/// Why a device call produced no result.
+enum Failure {
+    /// The task panicked; the payload is the one `catch_unwind` captured.
+    Panicked(Box<dyn Any + Send>),
+    /// The service was closed ([`DeviceHandle::close`](super::DeviceHandle::close)) before
+    /// the task reached it.
+    Closed,
+    /// The runner channel disconnected before the task could produce a result.
+    Disconnected,
 }
 
 impl CallError {
-    // Only the `channel` backend (active when `multi_threading` is set) calls these
-    // constructors.
+    // Only the `channel` backend (active when `multi_threading` is set) produces these
+    // errors.
     /// Builds an error from a panic payload captured by `catch_unwind`.
     #[cfg_attr(not(multi_threading), allow(dead_code))]
     pub(crate) fn from_panic(payload: Box<dyn Any + Send>) -> Self {
         Self {
-            payload: Some(payload),
+            failure: Failure::Panicked(payload),
         }
     }
 
@@ -30,13 +39,31 @@ impl CallError {
     /// a result (no panic payload available).
     #[cfg_attr(not(multi_threading), allow(dead_code))]
     pub(crate) fn disconnected() -> Self {
-        Self { payload: None }
+        Self {
+            failure: Failure::Disconnected,
+        }
+    }
+
+    /// Builds an error for a task that reached a closed service.
+    #[cfg_attr(not(multi_threading), allow(dead_code))]
+    pub(crate) fn closed() -> Self {
+        Self {
+            failure: Failure::Closed,
+        }
+    }
+
+    /// Whether the service was closed before the task reached it, which only happens as the
+    /// process exits: the call is refused rather than run on a runtime being torn down.
+    pub fn is_closed(&self) -> bool {
+        matches!(self.failure, Failure::Closed)
     }
 
     /// Returns the panic message if the failure was a panic whose payload is a
     /// string (the common case for `panic!`, indexing, `unwrap`, ...).
     pub fn message(&self) -> Option<&str> {
-        let payload = self.payload.as_ref()?;
+        let Failure::Panicked(payload) = &self.failure else {
+            return None;
+        };
         if let Some(s) = payload.downcast_ref::<&'static str>() {
             Some(*s)
         } else if let Some(s) = payload.downcast_ref::<String>() {
@@ -51,21 +78,27 @@ impl CallError {
     /// The payload can be handed to [`std::panic::resume_unwind`] to re-raise
     /// the original panic on the caller's thread.
     pub fn into_panic(self) -> Option<Box<dyn Any + Send>> {
-        self.payload
+        match self.failure {
+            Failure::Panicked(payload) => Some(payload),
+            Failure::Closed | Failure::Disconnected => None,
+        }
     }
 
     /// Re-raises the failure on the current thread, diverging.
     #[track_caller]
     pub fn resume(self) -> ! {
-        match self.into_panic() {
+        match self.failure {
             #[cfg(feature = "std")]
-            Some(payload) => std::panic::resume_unwind(payload),
+            Failure::Panicked(payload) => std::panic::resume_unwind(payload),
             // std::panic::resume_unwind doesn't exist in a no_std build
             #[cfg(not(feature = "std"))]
-            Some(_payload) => {
+            Failure::Panicked(_payload) => {
                 panic!("a device task panicked but its payload cannot be re-raised without `std`")
             }
-            None => panic!("device runner channel disconnected before producing a result"),
+            Failure::Closed => panic!("the device service was closed, as the process exits"),
+            Failure::Disconnected => {
+                panic!("device runner channel disconnected before producing a result")
+            }
         }
     }
 }
@@ -89,17 +122,60 @@ impl<R> CallResultExt<R> for Result<R, CallError> {
     }
 }
 
+/// A call [spawned](super::DeviceHandle::spawn) on a device that may still be running.
+#[must_use = "the call's result is lost unless it is joined"]
+pub struct SpawnedCall<R> {
+    state: SpawnedState<R>,
+}
+
+enum SpawnedState<R> {
+    /// The result is already known.
+    Done(Result<R, CallError>),
+    #[cfg(feature = "std")]
+    Running(oneshot::Receiver<Result<R, CallError>>),
+}
+
+impl<R> SpawnedCall<R> {
+    pub(crate) fn done(result: Result<R, CallError>) -> Self {
+        Self {
+            state: SpawnedState::Done(result),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn running(receiver: oneshot::Receiver<Result<R, CallError>>) -> Self {
+        Self {
+            state: SpawnedState::Running(receiver),
+        }
+    }
+
+    /// Blocks until the call returns, failing as
+    /// [`submit_blocking`](super::DeviceHandle::submit_blocking) does.
+    pub fn join(self) -> Result<R, CallError> {
+        match self.state {
+            SpawnedState::Done(result) => result,
+            #[cfg(feature = "std")]
+            SpawnedState::Running(receiver) => receiver
+                .recv()
+                .unwrap_or_else(|_| Err(CallError::disconnected())),
+        }
+    }
+}
+
 impl core::fmt::Debug for CallError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.message() {
-            Some(message) => write!(
+        match (&self.failure, self.message()) {
+            (_, Some(message)) => write!(
                 f,
                 "CallError(task panicked on device runner thread: {message})"
             ),
-            None if self.payload.is_some() => f.write_str(
+            (Failure::Panicked(_), None) => f.write_str(
                 "CallError(task panicked on device runner thread with a non-string payload)",
             ),
-            None => f.write_str(
+            (Failure::Closed, None) => {
+                f.write_str("CallError(the device service was closed, as the process exits)")
+            }
+            (Failure::Disconnected, None) => f.write_str(
                 "CallError(device runner channel disconnected before producing a result)",
             ),
         }
@@ -109,6 +185,13 @@ impl core::fmt::Debug for CallError {
 #[derive(new, Clone, Debug)]
 /// Error when creating a [`DeviceService`].
 pub struct ServiceCreationError {
+    #[allow(dead_code)] // Debug uses it.
+    reason: alloc::string::String,
+}
+
+#[derive(new, Clone, Debug)]
+/// Error when closing a [`DeviceService`]: the service may still be serving.
+pub struct ServiceCloseError {
     #[allow(dead_code)] // Debug uses it.
     reason: alloc::string::String,
 }
@@ -155,10 +238,28 @@ pub trait DeviceHandleSpec: Sized + Clone {
 
     fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T);
 
+    /// Runs `task` without waiting for it to return.
+    ///
+    /// A transport whose calls run on the caller's thread has run it by the time this returns.
+    fn spawn<R: Send + 'static, T: FnOnce(&mut dyn Any) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R>;
+
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
 
     fn shutdown(device_id: DeviceId) {
         let _ = device_id;
+    }
+
+    /// Stops serving `S` on `device_id` though handles to it remain, dropping it where it
+    /// lives; later calls to it answer [`CallError::is_closed`], and it is not started again.
+    ///
+    /// A transport whose calls run on the caller's thread has no runner to close it on, and
+    /// keeps serving: only the channel transport serves a native runtime.
+    fn close<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
+        let _ = device_id;
+        Ok(())
     }
 }
 
@@ -174,6 +275,17 @@ mod tests {
     fn test_disconnected_has_no_message_or_payload() {
         let err = CallError::disconnected();
         assert_eq!(err.message(), None);
+        assert!(err.into_panic().is_none());
+    }
+
+    /// A closed service is not a panic and not a dead runner: callers map exactly this case to
+    /// an error, and re-raise the other two.
+    #[test]
+    fn test_closed_is_neither_a_panic_nor_a_disconnect() {
+        let err = CallError::closed();
+        assert!(err.is_closed());
+        assert!(!CallError::disconnected().is_closed());
+        assert!(alloc::format!("{err:?}").contains("closed"));
         assert!(err.into_panic().is_none());
     }
 

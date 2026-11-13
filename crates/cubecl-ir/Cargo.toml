@@ -11,6 +11,7 @@ license.workspace = true
 name = "cubecl-ir"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-ir"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -23,15 +24,12 @@ amd = []
 default = ["serde"]
 nvidia = []
 
-serde = ["dep:serde", "hashbrown/serde"]
+serde = ["dep:serde", "hashbrown/serde", "cubecl-common/serde"]
 spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
-cubecl-common = { workspace = true, features = [
-    "fp8",
-    "hash",
-] }
+cubecl-common = { workspace = true, features = ["fp8", "hash"] }
 cubecl-environment = { workspace = true }
 cubecl-macros-internal = { workspace = true, default-features = true }
 
@@ -58,3 +56,6 @@ variadics_please = { workspace = true }
 
 hashbrown = { workspace = true }
 portable-atomic = { workspace = true }
+
+[dev-dependencies]
+ciborium = { workspace = true, features = ["std"] }

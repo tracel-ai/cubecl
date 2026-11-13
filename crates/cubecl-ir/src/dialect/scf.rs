@@ -12,7 +12,7 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::attributes::IntegerAttr,
     combine::{
-        Parser, optional,
+        Parser, attempt, optional,
         parser::char::{self, spaces},
     },
     identifier::Identifier,
@@ -26,12 +26,15 @@ use pliron::{
     parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
     printable::Printable,
     region::Region,
-    utils::table::{HMap, SmallMap},
+    utils::{
+        apint::APInt,
+        table::{HMap, SmallMap},
+    },
     value::Use,
 };
 
 use crate::{
-    RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
+    HasSideEffects, RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{
         BlockPtrExt,
@@ -40,12 +43,14 @@ use crate::{
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
+            InvocationBounds, LoopLikeOpInterface, MutableRegionBranchOpInterface,
+            RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
         },
         memory_slot::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
             PromotableRegionOpInterface, RegionMemoryPhiInputs, RegionMemoryValue,
         },
+        side_effects::{ConditionallySpeculatable, Speculatability},
         uniformity::{UniformRegionOpInterface, Uniformity},
     },
     prelude::*,
@@ -308,17 +313,35 @@ impl RegionBranchOpInterface for IfOp {
 }
 
 #[op_interface_impl]
+impl MutableRegionBranchOpInterface for IfOp {
+    fn add_entry_successor_operand(&self, _: &mut Context, _: RegionSuccessor, _: Value) {
+        panic!("IfOp doesn't have entry successor operands")
+    }
+
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value {
+        assert_eq!(successor, RegionSuccessor::AfterOp);
+        let res_idx = Operation::push_result(self.get_operation(), ctx, ty);
+        self.get_result(ctx, res_idx)
+    }
+}
+
+#[op_interface_impl]
 impl UniformRegionOpInterface for IfOp {
-    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+    fn result_uniformity(&self, _: &Context, operands: &[Uniformity]) -> Uniformity {
         operands[0]
     }
 
     fn entry_successor_region_uniformity(
         &self,
-        _ctx: &Context,
+        _: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        vec![operands[0], operands[0]]
+    ) -> Uniformity {
+        operands[0]
     }
 }
 
@@ -548,6 +571,24 @@ impl PromotableRegionOpInterface for SwitchOp {
 }
 
 #[op_interface_impl]
+impl MutableRegionBranchOpInterface for SwitchOp {
+    fn add_entry_successor_operand(&self, _: &mut Context, _: RegionSuccessor, _: Value) {
+        panic!("SwitchOp doesn't have entry successor operands")
+    }
+
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value {
+        assert_eq!(successor, RegionSuccessor::AfterOp);
+        let res_idx = Operation::push_result(self.get_operation(), ctx, ty);
+        self.get_operation().deref(ctx).get_result(res_idx)
+    }
+}
+
+#[op_interface_impl]
 impl MemorySSARegionOpInterface for SwitchOp {
     fn setup_memory_ssa(
         &self,
@@ -664,11 +705,10 @@ impl UniformRegionOpInterface for SwitchOp {
 
     fn entry_successor_region_uniformity(
         &self,
-        ctx: &Context,
+        _: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        let num_regions = self.get_operation().deref(ctx).num_regions();
-        vec![operands[0]; num_regions]
+    ) -> Uniformity {
+        operands[0]
     }
 }
 
@@ -782,6 +822,10 @@ impl ForOp {
         self.get_operation().deref(ctx).get_operand(2)
     }
 
+    pub fn constant_step(&self, ctx: &Context) -> Option<APInt> {
+        Some(const_operand::<IntegerAttr>(ctx, self.get_operation(), 2)?.value())
+    }
+
     pub fn initial_carried_values(&self, ctx: &Context) -> Vec<Value> {
         self.get_segment(ctx, 1)
     }
@@ -878,7 +922,7 @@ impl Parsable for ForOp {
         let cur_loc = state_stream.loc();
         let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser()).skip(spaces());
         let mut iter_args_parser =
-            optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces());
+            attempt(optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces()));
         let mut range_parser = (
             ssa_opd_parser().skip(spaced(char::string("to"))),
             ssa_opd_parser().skip(spaced(char::string("step"))),
@@ -1071,6 +1115,22 @@ impl RegionBranchOpInterface for ForOp {
 }
 
 #[op_interface_impl]
+impl LoopLikeOpInterface for ForOp {}
+
+#[op_interface_impl]
+impl ConditionallySpeculatable for ForOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        if let Some(constant_step) = self.constant_step(ctx)
+            && constant_step.to_i128() == 1
+        {
+            Speculatability::RecursivelySpeculatable
+        } else {
+            Speculatability::NotSpeculatable
+        }
+    }
+}
+
+#[op_interface_impl]
 impl UniformRegionOpInterface for ForOp {
     fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
         operands[0].min(operands[1]).min(operands[2])
@@ -1078,11 +1138,10 @@ impl UniformRegionOpInterface for ForOp {
 
     fn entry_successor_region_uniformity(
         &self,
-        _ctx: &Context,
+        _: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        let uniformity = operands[0].min(operands[1]).min(operands[2]);
-        vec![uniformity, uniformity]
+    ) -> Uniformity {
+        operands[0].min(operands[1]).min(operands[2])
     }
 }
 
@@ -1111,7 +1170,7 @@ impl CanonicalizeInterface for ForOp {
     verifier = "succ"
 )]
 #[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
-#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
+#[op_traits(RecursiveMemoryEffects, HasSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {
@@ -1128,22 +1187,18 @@ impl WhileOp {
         let op = Operation::new(
             ctx,
             Self::get_concrete_op_info(),
-            results,
+            results.clone(),
             carried_values_init,
             vec![],
             2,
         );
 
         let before_region = op.deref_mut(ctx).get_region(0);
-        let before_block = BasicBlock::new(
-            ctx,
-            Some("before".try_into().unwrap()),
-            carried_types.clone(),
-        );
+        let before_block = BasicBlock::new(ctx, Some("before".try_into().unwrap()), carried_types);
         before_block.insert_at_front(before_region, ctx);
 
         let after_region = op.deref_mut(ctx).get_region(1);
-        let after_block = BasicBlock::new(ctx, Some("after".try_into().unwrap()), carried_types);
+        let after_block = BasicBlock::new(ctx, Some("after".try_into().unwrap()), results);
         after_block.insert_at_front(after_region, ctx);
 
         Self { op }
@@ -1388,6 +1443,9 @@ impl RegionBranchOpInterface for WhileOp {
 }
 
 #[op_interface_impl]
+impl LoopLikeOpInterface for WhileOp {}
+
+#[op_interface_impl]
 impl UniformRegionOpInterface for WhileOp {
     fn result_uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
         Uniformity::Cube
@@ -1397,28 +1455,31 @@ impl UniformRegionOpInterface for WhileOp {
         &self,
         _ctx: &Context,
         _operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        vec![Uniformity::Cube]
+    ) -> Uniformity {
+        Uniformity::Cube
     }
 }
 
 #[op_interface_impl]
 impl CanonicalizeInterface for WhileOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
-        let results = self.get_operation().results(ctx);
         let before_block = self.before_block(ctx);
         let after_block = self.after_block(ctx);
-        for (idx, res) in results.into_iter().enumerate().rev() {
-            let before_carried = self.get_before_carried_value(ctx, idx);
-            let after_carried = self.get_after_carried_value(ctx, idx);
-            if !res.is_used(ctx)
-                && only_used_for_forward::<ConditionOp>(ctx, before_block, idx + 1, before_carried)
-                && only_used_for_forward::<YieldOp>(ctx, after_block, idx, after_carried)
-            {
-                remove_from_terminator::<ConditionOp>(ctx, before_block, idx + 1);
-                remove_from_terminator::<YieldOp>(ctx, after_block, idx);
+
+        let before_carried = before_block.arguments(ctx);
+        for (idx, arg) in before_carried.into_iter().enumerate().rev() {
+            if !arg.is_used(ctx) {
                 self.remove_initial_carried_value(ctx, idx);
                 self.remove_before_carried_value(ctx, idx);
+                remove_from_terminator::<YieldOp>(ctx, after_block, idx);
+            }
+        }
+
+        let results = self.get_operation().results(ctx);
+        for (idx, res) in results.into_iter().enumerate().rev() {
+            let after_arg = self.get_after_carried_value(ctx, idx);
+            if !res.is_used(ctx) && !after_arg.is_used(ctx) {
+                remove_from_terminator::<ConditionOp>(ctx, before_block, idx + 1);
                 self.remove_after_carried_value(ctx, idx);
                 Operation::remove_result(self.get_operation(), ctx, idx);
             }

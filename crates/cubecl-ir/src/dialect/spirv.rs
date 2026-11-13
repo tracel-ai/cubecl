@@ -3,6 +3,7 @@ use cubecl_macros_internal::cube_op;
 use crate::{
     CanMaterialize, Pure,
     attributes::IndexAttr,
+    interfaces::side_effects::{Extent, MemoryEffect, MemoryEffectsOp},
     prelude::*,
     types::spirv::{ClampMode, TensorLayoutType},
 };
@@ -56,6 +57,15 @@ impl LoadTensorOp {
     }
 }
 
+#[op_interface_impl]
+impl MemoryEffectsOp for LoadTensorOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Read(
+            (self.buffer(ctx), Extent::Unknown).into(),
+        )]
+    }
+}
+
 #[pliron_op(name = "matrix_spirv.store_tensor", format, verifier = "succ")]
 #[op_traits(CanMaterialize)]
 pub struct StoreTensorOp;
@@ -103,8 +113,17 @@ impl StoreTensorOp {
     }
 }
 
+#[op_interface_impl]
+impl MemoryEffectsOp for StoreTensorOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Write(
+            (self.buffer(ctx), Extent::Unknown).into(),
+        )]
+    }
+}
+
 #[pliron_op(name = "spirv.create_layout", format, attributes = (spirv_create_layout_rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
+#[op_interfaces(OneResultInterface)]
 #[op_traits(CanMaterialize, Pure)]
 pub struct CreateLayoutOp;
 

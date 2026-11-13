@@ -52,7 +52,7 @@ impl core::fmt::Display for BundleError {
                 write!(
                     f,
                     "unsupported bundle database schema {schema} (this build reads {})",
-                    crate::persistence::turso::SCHEMA_VERSION
+                    crate::persistence::database::SCHEMA_VERSION
                 )
             }
             BundleError::TooLarge => write!(
@@ -79,6 +79,13 @@ impl From<super::EmbeddedBundleError> for BundleError {
 impl From<std::io::Error> for BundleError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
+    }
+}
+
+#[cfg(native_cache)]
+impl From<crate::persistence::sql::SqlError> for BundleError {
+    fn from(err: crate::persistence::sql::SqlError) -> Self {
+        Self::Storage(err.to_string())
     }
 }
 
@@ -184,8 +191,10 @@ impl BundleManifest {
 
     /// Reads and validates the manifest of a bundle database.
     #[cfg(native_cache)]
-    pub(super) fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
-        let content = crate::persistence::turso::meta_get(connection, MANIFEST_KEY)
+    pub(super) fn read(
+        connection: &crate::persistence::sql::Connection,
+    ) -> Result<Self, BundleError> {
+        let content = crate::persistence::database::meta_get(connection, MANIFEST_KEY)
             .map_err(super::sqlite::missing_meta)?
             .ok_or(BundleError::NotABundle)?;
 
@@ -194,11 +203,14 @@ impl BundleManifest {
 
     /// Writes the manifest into a bundle database.
     #[cfg(native_cache)]
-    pub(super) fn write(&self, connection: &turso::Connection) -> Result<(), BundleError> {
+    pub(super) fn write(
+        &self,
+        connection: &crate::persistence::sql::Connection,
+    ) -> Result<(), BundleError> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
-        crate::persistence::turso::meta_set(connection, MANIFEST_KEY, &content)
-            .map_err(super::export::storage_error)
+        crate::persistence::database::meta_set(connection, MANIFEST_KEY, &content)
+            .map_err(BundleError::from)
     }
 }

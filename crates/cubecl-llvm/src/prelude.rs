@@ -29,7 +29,7 @@ pub use cubecl_core::ir::{
     AddressSpace, Builtin, NamedRewrite, OpInserter, Scope,
     attributes::{BufferIOAttr, EntrypointInterface, FuncInterface, IndexAttr, ZeroAttr},
     interfaces::{
-        AlignedType, MaterializableOp, ScalarType, ScalarizableType, SizedType, TypedExt,
+        AlignedType, MaterializableOp, MaybeSizedType, ScalarType, ScalarizableType, TypedExt,
         fast_math::FastMathOp,
     },
     prelude::*,

@@ -212,7 +212,7 @@ impl UniformOpInterface for ShuffleDownOp {
 #[op_interfaces(TriviallyUnrollable)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct UniformLoadOp {
-    #[operand(ptr_read)]
+    #[operand(ptr_read, make_visible)]
     pub ptr: Value,
 }
 synchronizes!(UniformLoadOp, SyncScope::Plane);
@@ -229,7 +229,7 @@ impl UniformOpInterface for UniformLoadOp {
 #[op_interfaces(TriviallyUnrollable)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct AtomicUniformLoadOp {
-    #[operand(ptr_read)]
+    #[operand(ptr_read, make_visible)]
     pub ptr: Value,
 }
 synchronizes!(AtomicUniformLoadOp, SyncScope::Plane);

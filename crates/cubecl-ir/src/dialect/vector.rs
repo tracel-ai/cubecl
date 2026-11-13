@@ -194,7 +194,8 @@ impl Verify for CompositeExtractOp {
         let destructurable = try_cast_ty!(ty, ctx, dyn DestructurableTypeInterface);
         let fields = destructurable.subelement_index_map(ctx).unwrap();
 
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let index = self.index(ctx).0;
         if index >= fields.len() {
             return verify_err!(loc, CompositeOpError::IndexOutOfRange(index, fields.len()));
@@ -252,7 +253,8 @@ impl Verify for CompositeInsertOp {
         let destructurable = try_cast_ty!(ty, ctx, dyn DestructurableTypeInterface);
         let fields = destructurable.subelement_index_map(ctx).unwrap();
 
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let index = self.index(ctx).0;
         if index >= fields.len() {
             return verify_err!(loc, CompositeOpError::IndexOutOfRange(index, fields.len()));
@@ -338,7 +340,8 @@ pub struct VectorBroadcastOp {
 
 impl Verify for VectorBroadcastOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let value_ty = self.input(ctx).get_type(ctx);
         let scalar_ty = self.get_result(ctx).scalar_ty(ctx);
         if scalar_ty != value_ty {
@@ -414,7 +417,8 @@ pub struct VectorInsertDynamicOp {
 
 impl Verify for VectorInsertDynamicOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let scalar_ty = self.vector(ctx).scalar_ty(ctx);
         let value_ty = self.value(ctx).get_type(ctx);
         if scalar_ty != value_ty {

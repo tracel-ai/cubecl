@@ -17,19 +17,23 @@ use crate::{
 };
 use cubecl_core::ir::{
     dialect::barrier::{
-        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, ExpectTxOp, InitOp, MemCopyAsyncOp,
-        MemCopyAsyncTxOp, WaitOp, WaitParityOp,
+        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, CopyAsyncOp, ExpectTxOp,
+        InitOp, InvalidateOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
     },
     types::barrier::{BarrierLevel, BarrierType},
 };
-use pliron::location::Location;
 
 // LLVM has no scoped form of `init`; arrivals and transactions use the scoped forms, which
 // take a count.
 const INIT: &str = "llvm.nvvm.mbarrier.init.shared";
+const INVAL: &str = "llvm.nvvm.mbarrier.inval.shared";
 const ARRIVE_COUNT: &str = "llvm.nvvm.mbarrier.arrive.scope.cta.space.cta";
 const EXPECT_TX: &str = "llvm.nvvm.mbarrier.expect.tx.scope.cta.space.cta";
 const BULK_GLOBAL_TO_SHARED: &str = "llvm.nvvm.cp.async.bulk.global.to.shared.cluster";
+// The form that raises the barrier's pending count before it arrives, so the copies complete on
+// the phase without counting as one of its arrivals.
+const COPY_ASYNC_ARRIVE: &str = "llvm.nvvm.cp.async.mbarrier.arrive.shared";
+const COPY_ASYNC_WAIT_ALL: &str = "llvm.nvvm.cp.async.wait.all";
 
 #[derive(Debug, Error)]
 #[error(
@@ -67,11 +71,12 @@ impl Barrier {
         }
     }
 
-    /// The `mbarrier` a copy that counts its bytes as transactions completes on.
-    pub(crate) fn mbarrier(self, loc: Location) -> Result<Value> {
+    /// The `mbarrier` a copy that counts its bytes as transactions completes on. An error has
+    /// the location of `op`.
+    pub(crate) fn mbarrier(self, ctx: &Context, op: Ptr<Operation>) -> Result<Value> {
         match self {
             Barrier::Cube(barrier) => Ok(barrier),
-            Barrier::Unit => input_err!(loc, UnitBarrierUnsupported),
+            Barrier::Unit => input_err!(op.deref(ctx).loc(), UnitBarrierUnsupported),
         }
     }
 }
@@ -120,6 +125,19 @@ pub(crate) fn init(
     if let Barrier::Cube(barrier) = Barrier::new(ctx, rw, info, op.barrier(ctx)) {
         let count = u32_operand(ctx, rw, op.arrival_count(ctx));
         call_void(ctx, rw, INIT, vec![barrier, count]);
+    }
+    rw.erase_operation(ctx, op.get_operation());
+    Ok(())
+}
+
+pub(crate) fn invalidate(
+    op: &InvalidateOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    info: &OperandsInfo,
+) -> Result<()> {
+    if let Barrier::Cube(barrier) = Barrier::new(ctx, rw, info, op.barrier(ctx)) {
+        call_void(ctx, rw, INVAL, vec![barrier]);
     }
     rw.erase_operation(ctx, op.get_operation());
     Ok(())
@@ -228,7 +246,14 @@ pub(crate) fn memcpy_async(
         "a cooperative copy is split into each unit's share before it is lowered"
     );
     let (source, destination) = (op.source(ctx), op.destination(ctx));
-    let bytes = copy_bytes(ctx, rw, info, source, op.source_length(ctx), op.loc(ctx))?;
+    let bytes = copy_bytes(
+        ctx,
+        rw,
+        info,
+        source,
+        op.source_length(ctx),
+        op.get_operation(),
+    )?;
     let name = format!(
         "llvm.memcpy.{}.{}.i32",
         llvm_mangled_ty(ctx, destination.get_type(ctx)),
@@ -249,9 +274,9 @@ pub(crate) fn memcpy_async_tx(
     rw: &mut DialectConversionRewriter,
     info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
-    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
-    let bytes = copy_bytes(ctx, rw, info, op.source(ctx), op.source_length(ctx), loc)?;
+    let at = op.get_operation();
+    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(ctx, at)?;
+    let bytes = copy_bytes(ctx, rw, info, op.source(ctx), op.source_length(ctx), at)?;
     let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
     let source = NvptxSpace::Global.cast(ctx, rw, op.source(ctx));
 
@@ -259,6 +284,50 @@ pub(crate) fn memcpy_async_tx(
     args.extend(no_multicast_or_cache_hint(ctx, rw));
     call_void(ctx, rw, BULK_GLOBAL_TO_SHARED, args);
 
+    rw.erase_operation(ctx, op.get_operation());
+    Ok(())
+}
+
+/// A unit's copy of `copy_length` bytes from global to shared memory on the copy engine
+/// (`cp.async`), as the C++ backend issues it: through L2 alone (`cg`) for 16 bytes, through L1
+/// (`ca`) for 4 and 8. A checked copy reads `source_length` bytes and fills the rest with zeros.
+/// It completes on a barrier through [`commit_copy_async`].
+pub(crate) fn copy_async(
+    op: &CopyAsyncOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    _info: &OperandsInfo,
+) -> Result<()> {
+    let bytes = op.copy_length(ctx).0;
+    let cache = if bytes == 16 { "cg" } else { "ca" };
+    let destination = NvptxSpace::Shared.cast(ctx, rw, op.destination(ctx));
+    let source = NvptxSpace::Global.cast(ctx, rw, op.source(ctx));
+    let mut args = vec![destination, source];
+    let read = if op.checked(ctx).0 {
+        args.push(u32_operand(ctx, rw, op.source_length(ctx)));
+        ".s"
+    } else {
+        ""
+    };
+    let name = format!("llvm.nvvm.cp.async.{cache}.shared.global.{bytes}{read}");
+    call_void(ctx, rw, &name, args);
+
+    rw.erase_operation(ctx, op.get_operation());
+    Ok(())
+}
+
+/// Completes the unit's earlier [`copy_async`] copies on the barrier. A cube barrier's phase
+/// waits for them; a unit barrier's wait is dropped, so the unit waits for its copies here.
+pub(crate) fn commit_copy_async(
+    op: &CommitCopyAsyncOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    info: &OperandsInfo,
+) -> Result<()> {
+    match Barrier::new(ctx, rw, info, op.barrier(ctx)) {
+        Barrier::Cube(barrier) => call_void(ctx, rw, COPY_ASYNC_ARRIVE, vec![barrier]),
+        Barrier::Unit => call_void(ctx, rw, COPY_ASYNC_WAIT_ALL, Vec::new()),
+    }
     rw.erase_operation(ctx, op.get_operation());
     Ok(())
 }
@@ -280,20 +349,20 @@ fn unit_token(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
 }
 
 /// The bytes `length` elements of what `source` points at take, as the 32-bit count the copy
-/// instructions read.
+/// instructions read. An error has the location of `op`.
 fn copy_bytes(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     info: &OperandsInfo,
     source: Value,
     length: Value,
-    loc: Location,
+    op: Ptr<Operation>,
 ) -> Result<Value> {
     let elem_size =
         pointee_size(ctx, info, source).expect("a copy source points at sized elements");
     let Some(length) = resize_int(ctx, rw, length, 32, Extension::Zero) else {
         let ty = length.get_type(ctx).disp(ctx).to_string();
-        return input_err!(loc, CopyLengthType(ty));
+        return input_err!(op.deref(ctx).loc(), CopyLengthType(ty));
     };
     let elem_size = insert_i32_const(ctx, rw, elem_size as i32);
     let bytes = llvm::MulOp::new_with_overflow_flag(

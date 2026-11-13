@@ -68,7 +68,6 @@ use cubecl_ir::{
 pub use cubecl_ir::types::matrix::{
     LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, MatrixType, StMatrixForm,
 };
-use pliron::builtin::given_names::set_operation_result_name;
 use pliron::r#type::TypeHandle;
 
 #[derive(Clone, Copy)]
@@ -256,8 +255,7 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.elem.defining_op().unwrap();
-        set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
+        self.elem.set_name(scope.ctx(), Some(ident(name)));
     }
 }
 
@@ -452,7 +450,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`Self::vector_layout`] to check the correct data layout for each element.
+    /// Use `vector_layout` to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     pub fn new(#[comptime] m: usize, #[comptime] n: usize, #[comptime] k: usize) -> Self {
@@ -487,7 +485,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`Self::vector_layout`] to check the correct data layout for each element.
+    /// Use `vector_layout` to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     pub fn new_scaled<S: CubePrimitive>(
@@ -535,7 +533,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     }
 
     /// Returns the number of elements handled by each lane. Should be packed into `Vector`s of size
-    /// `vector_size` with [`Self::vector_layout`].
+    /// `vector_size` with `vector_layout`.
     ///
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
@@ -609,7 +607,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     }
 
     /// Returns the coordinates of the `nth` element handled by the `lane_id`
-    /// Each lane contains [`Self::elems_per_lane`] elements in [`Self::vector_size`] chunks.
+    /// Each lane contains `elems_per_lane` elements in `vector_size` chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
     /// # Note

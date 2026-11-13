@@ -119,7 +119,7 @@ pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Ex
 
 pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
     let span = if_expr.span();
-    let condition = Expression::from_expr(*if_expr.cond, context)
+    let condition = Expression::from_branch_selector(*if_expr.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported if condition"))?;
 
     let compute_branches = |context: &mut Context, closure_scope: ClosureScope| -> syn::Result<_> {
@@ -272,10 +272,12 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
         context.in_closure_scope(ClosureScope::NestedWithoutValue, |context| match expr {
             Expr::Block(block) => Block::from_block(block.block, context).ok(),
             expr => {
+                let ret_span = Some(expr.span());
                 let expr = Expression::from_expr(expr, context).ok()?;
                 Some(Block {
                     ret: Some(Box::new(expr)),
                     inner: vec![],
+                    ret_span,
                 })
             }
         })
@@ -323,21 +325,22 @@ impl Block {
             .map(|stmt| Statement::from_stmt(stmt, context))
             .collect::<Result<Vec<_>, _>>()?;
         // Pop implicit return if it exists so we can assign it as the block output
-        let ret = match statements.pop() {
+        let (ret, ret_span) = match statements.pop() {
             Some(Statement::Expression {
                 expression,
                 terminated: false,
-                ..
-            }) => Some(expression),
+                span,
+            }) => (Some(expression), span),
             Some(stmt) => {
                 statements.push(stmt);
-                None
+                (None, None)
             }
-            _ => None,
+            _ => (None, None),
         };
         Ok(Self {
             inner: statements,
             ret,
+            ret_span,
         })
     }
 }

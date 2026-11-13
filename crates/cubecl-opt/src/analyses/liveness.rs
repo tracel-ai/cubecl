@@ -58,8 +58,15 @@ pub mod shared {
     /// it before any touches the later one: the `free` and a cube barrier after it each run on
     /// every path to the later memory's first use, and run once. Each sits directly in a block
     /// enclosing that use, and no loop encloses that block. A `free` inside a branch might not
-    /// run, and one inside a loop leaves the memory to be used again on the next iteration; without
-    /// the barrier, one unit could write the new memory while another still reads the freed one.
+    /// run; without the barrier, one unit could write the new memory while another still reads the
+    /// freed one.
+    ///
+    /// Inside a loop, the same holds of one iteration, and the freed memory is used again on the
+    /// next: a `free` and the barrier after it, both run once an iteration of the innermost loop
+    /// enclosing them, release the memory to a later one only where the loop declares both, so
+    /// neither outlives an iteration, and where a cube barrier run once an iteration comes before
+    /// the freed memory's first use: no unit touches it again before every unit is done with the
+    /// iteration before, and with the later memory in it.
     ///
     /// It also handles allocation of slices to each shared memory object, using the analyzed
     /// liveness. `allocations` contains a specific slice allocation for each shared memory, while
@@ -160,17 +167,20 @@ pub mod shared {
         }
     }
 
-    /// Where an op sits: its block, and its place in the walk.
+    /// Where an op sits: its block, its place in the walk, and the innermost loop enclosing it,
+    /// whose every iteration runs it once where it sits directly in that loop's blocks.
     struct Place {
         block: Ptr<BasicBlock>,
         at: usize,
+        looped: Option<Ptr<Operation>>,
     }
 
-    /// What one walk of a kernel finds: its shared memories in the order they are declared, where
-    /// each is first used, and the frees and cube barriers that run once.
+    /// What one walk of a kernel finds: its shared memories in the order they are declared, the
+    /// innermost loop declaring each, where each is first used, and the frees and cube barriers.
     #[derive(Default)]
     struct Walk {
         shared_memories: Vec<(Value, MemoryResource)>,
+        declared_in: HashMap<Value, Option<Ptr<Operation>>>,
         first_uses: HashMap<Value, (usize, Vec<Ptr<BasicBlock>>)>,
         frees: Vec<(Value, Place)>,
         barriers: Vec<Place>,
@@ -193,6 +203,11 @@ pub mod shared {
                     root_ptr,
                 };
                 self.shared_memories.push((root_ptr, smem));
+                let looped = op
+                    .deref(ctx)
+                    .get_parent_block()
+                    .and_then(|block| innermost_loop(ctx, block));
+                self.declared_in.insert(root_ptr, looped);
                 return;
             }
             let parent = op.deref(ctx).get_parent_block();
@@ -211,23 +226,31 @@ pub mod shared {
                     self.first_uses.insert(root, (at, enclosing));
                 }
             }
-            let runs_once = || parent.filter(|&block| !in_loop(ctx, block));
+            let place = || {
+                parent.map(|block| Place {
+                    block,
+                    at,
+                    looped: innermost_loop(ctx, block),
+                })
+            };
             if Operation::is_op::<FreeOp>(op, ctx)
-                && let Some(block) = runs_once()
+                && let Some(place) = place()
             {
                 let memory = op.deref(ctx).get_operand(0).get_root_value(ctx);
-                self.frees.push((memory, Place { block, at }));
+                self.frees.push((memory, place));
             }
             if let Some(sync) = op_dyn.downcast_ref::<SyncOp>()
                 && sync.scope(ctx).0 >= SyncScope::Cube
-                && let Some(block) = runs_once()
+                && let Some(place) = place()
             {
-                self.barriers.push(Place { block, at });
+                self.barriers.push(place);
             }
         }
 
         /// The memories freed for `root`: each freed, then a cube barrier passed, on every path to
-        /// its first use, each once. Empty for a memory never used.
+        /// its first use, each once, or once an iteration of the loop declaring both, the freed
+        /// memory first used again only past a cube barrier of the next iteration. Empty for a
+        /// memory never used.
         fn released_to(&self, root: Value) -> Vec<Value> {
             let Some((used, enclosing)) = self.first_uses.get(&root) else {
                 return Vec::new();
@@ -236,15 +259,39 @@ pub mod shared {
                 |place: &Place| enclosing.contains(&place.block) && place.at < *used;
             self.frees
                 .iter()
-                .filter(|(_, free)| {
+                .filter(|(memory, free)| {
                     runs_before_use(free)
-                        && self
-                            .barriers
-                            .iter()
-                            .any(|barrier| runs_before_use(barrier) && barrier.at > free.at)
+                        && self.barriers.iter().any(|barrier| {
+                            runs_before_use(barrier)
+                                && barrier.at > free.at
+                                && barrier.looped == free.looped
+                        })
+                        && free.looped.is_none_or(|looped| {
+                            self.declared_in(*memory) == Some(looped)
+                                && self.declared_in(root) == Some(looped)
+                                && self.met_before_first_use(*memory, looped)
+                        })
                 })
                 .map(|&(memory, _)| memory)
                 .collect()
+        }
+
+        /// The innermost loop declaring `memory`, if any does.
+        fn declared_in(&self, memory: Value) -> Option<Ptr<Operation>> {
+            self.declared_in.get(&memory).copied().flatten()
+        }
+
+        /// Whether a cube barrier run once an iteration of `looped` comes before `memory`'s first
+        /// use, on every path to it: every unit is done with the iteration before.
+        fn met_before_first_use(&self, memory: Value, looped: Ptr<Operation>) -> bool {
+            let Some((used, enclosing)) = self.first_uses.get(&memory) else {
+                return false;
+            };
+            self.barriers.iter().any(|barrier| {
+                barrier.looped == Some(looped)
+                    && enclosing.contains(&barrier.block)
+                    && barrier.at < *used
+            })
         }
     }
 
@@ -261,11 +308,12 @@ pub mod shared {
         })
     }
 
-    /// Whether a loop encloses `block`, so that what runs in it may run more than once.
-    fn in_loop(ctx: &Context, block: Ptr<BasicBlock>) -> bool {
+    /// The innermost loop enclosing `block`, whose iterations may run what it holds more than
+    /// once.
+    fn innermost_loop(ctx: &Context, block: Ptr<BasicBlock>) -> Option<Ptr<Operation>> {
         enclosing_blocks(ctx, block)
             .filter_map(|block| block.deref(ctx).get_parent_op(ctx))
-            .any(|op| {
+            .find(|&op| {
                 Operation::is_op::<RangeLoopOp>(op, ctx)
                     || Operation::is_op::<WhileOp>(op, ctx)
                     || Operation::is_op::<ForOp>(op, ctx)

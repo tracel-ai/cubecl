@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-metal"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-metal"
+rust-version.workspace = true
 version.workspace = true
 
 [features]
@@ -29,7 +30,7 @@ cubecl-ir = { workspace = true }
 cubecl-monitoring = { workspace = true, features = [
     "io-accelerator",
 ] }
-cubecl-server = { workspace = true }
+cubecl-server = { workspace = true, features = ["storage-bytes"] }
 cubecl-cpp = { workspace = true, default-features = true, features = ["metal"] }
 
 # Utilities

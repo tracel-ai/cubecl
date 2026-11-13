@@ -54,7 +54,7 @@ impl LowerOp<Hip> for ColIndexOp {
 /// it. Every RDNA4 fragment is built this way: A and B split `k`, the accumulator splits `m`.
 #[cube]
 fn split_half(lane_id: u32, i: u32, #[comptime] dim: u32) -> u32 {
-    (lane_id / 16) * comptime![dim / 2] + i
+    (lane_id / 16) * (dim / 2) + i
 }
 
 #[cube]
@@ -69,7 +69,7 @@ fn row_index(
     match ident {
         MatrixIdent::A => lane_id % 16,
         MatrixIdent::B => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, k)
             } else {
                 // RDNA3 hands every lane the whole `k` range, duplicated across the lane halves.
@@ -77,7 +77,7 @@ fn row_index(
             }
         }
         MatrixIdent::Accumulator => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, m)
             } else {
                 // 2 * i, offset by 1 if lane_id >= 16
@@ -97,7 +97,7 @@ fn col_index(
 ) -> u32 {
     match ident {
         MatrixIdent::A => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, k)
             } else {
                 i

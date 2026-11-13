@@ -14,7 +14,7 @@ use cubecl_ir::{
     dialect::BlockPtrExt,
 };
 use pliron::{
-    builtin::ops::FuncOp,
+    builtin::ops::{ConstantOp, FuncOp},
     graph::walkers::uninterruptible::immutable::walk_op,
     identifier::Identifier,
     irbuild::{inserter::Inserter, listener::DummyListener, match_rewrite::apply_match_rewrite},
@@ -24,7 +24,10 @@ use pliron::{
 use pliron_spirv::{
     decorations::{DecoratableOp, DecorationInfo},
     interfaces::{VerCapExtOpInterface, VerCapExtTypeInterface},
-    ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
+    ops::{
+        AddressOfOp, CopyObjectOp, FunctionCallOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp,
+        PtrAccessChainOp, SelectOp, SpirvModuleOp,
+    },
     types::{ArrayType, PointerType, RuntimeArrayType, StructType},
 };
 use rspirv::{
@@ -321,7 +324,10 @@ const EXCLUDED_CAPS: &[Capability] = {
     DeviceEnqueue, LiteralSampler, SubgroupDispatch, NamedBarrier, PipeStorage]
 };
 const PREFERRED_CAPS: &[Capability] = &[Capability::GroupNonUniformArithmetic];
-const PREFERRED_EXTS: &[&str] = &["SPV_KHR_physical_storage_buffer"];
+const PREFERRED_EXTS: &[&str] = &[
+    "SPV_KHR_physical_storage_buffer",
+    "SPV_NV_cooperative_matrix2", // Migrate to shared one eventually
+];
 
 /// Capabilities can require other capabilities which require other capabilities, and each can
 /// require extensions/a minimum version. So add them all recursively.
@@ -342,6 +348,9 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
         IRNode::BasicBlock(block) => {
             let args = block.arguments(ctx);
             for arg in args {
+                // Block arguments become OpPhi results, so merging logical pointers needs
+                // variable-pointer support.
+                require_variable_pointer(ctx, *module, arg.get_type(ctx));
                 let ty = arg.get_type(ctx).deref(ctx);
                 if let Some(ver_cap_ext) = type_cast(&*ty) {
                     update_ver_cap_ext_ty(ctx, module, ver_cap_ext);
@@ -350,6 +359,20 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
         }
         IRNode::Operation(op) => {
             let dyn_op = op.dyn_op(ctx);
+            // Variable-pointer producers from the SPIR-V specification.
+            // OpPhi is handled by block arguments above. Any ConstantOp returning a pointer
+            // can be assumed to be null, covering OpConstantNull.
+            if op.is_op::<SelectOp>(ctx)
+                || op.is_op::<FunctionCallOp>(ctx)
+                || op.is_op::<PtrAccessChainOp>(ctx)
+                || op.is_op::<CopyObjectOp>(ctx)
+                || op.is_op::<LoadOp>(ctx)
+                || op.is_op::<ConstantOp>(ctx)
+            {
+                for result in op.results(ctx) {
+                    require_variable_pointer(ctx, *module, result.get_type(ctx));
+                }
+            }
             if let Some(custom) = op_cast::<dyn CustomCapabilitiesOp>(&*dyn_op) {
                 for cap in custom.custom_capabilities(ctx) {
                     module.insert_capability(ctx, cap);
@@ -366,6 +389,19 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
             }
         }
         _ => {}
+    }
+}
+
+fn require_variable_pointer(ctx: &Context, module: SpirvModuleOp, ty: TypeHandle) {
+    if let Some(pointer) = ty.deref(ctx).downcast_ref::<PointerType>()
+        && matches!(
+            pointer.storage_class,
+            StorageClass::Workgroup | StorageClass::StorageBuffer
+        )
+    {
+        // Using VariablePointersStorageBuffer would require proving that merged
+        // pointers originate from the same storage-buffer block.
+        module.insert_capability(ctx, Capability::VariablePointers);
     }
 }
 
@@ -438,5 +474,130 @@ fn update_ver_cap_ext_impl(
                 ext_set
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_core::{
+        self as cubecl, Compiler, ir::features::TypeUsage, prelude::*,
+        runtime_tests::offline::offline_device_properties,
+    };
+    use cubecl_runtime::kernel::CubeKernel;
+    use pliron::{
+        basic_block::BasicBlock,
+        builtin::types::{IntegerType, Signedness},
+    };
+    use rspirv::spirv::{AddressingModel, MemoryModel};
+
+    #[cube(launch)]
+    fn shared_memory_copy(output: &mut [u32]) {
+        let unit = UNIT_POS as usize;
+        let mut shared = Shared::<[u32]>::new_slice(32usize);
+        shared[unit] = UNIT_POS;
+        sync_cube();
+        output[unit] = shared[0];
+    }
+
+    #[test]
+    fn ordinary_memory_access_does_not_request_variable_pointers() {
+        let mut properties = offline_device_properties(32);
+        properties.register_address_type(AddressType::U32);
+        properties.register_type_usage(ElemType::Index, TypeUsage::all());
+        properties.register_type_usage(u32::elem_type_native(), TypeUsage::all());
+        properties.register_type_usage(ElemType::Bool, TypeUsage::all());
+        let kernel = shared_memory_copy::SharedMemoryCopy::new(
+            KernelSettings::new(
+                *CubeDim::new_1d(32),
+                ExecutionMode::Checked,
+                AddressType::U32,
+            ),
+            properties.into(),
+            Default::default(),
+            BufferCompilationArg { inplace: None },
+        );
+        let options = WgpuCompilationOptions {
+            vulkan: cubecl_core::VulkanCompilationOptions {
+                max_spirv_version: (1, 6),
+                max_vector_size: 4,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let compiled = crate::SpirvCompiler
+            .compile(kernel.define(), &options)
+            .unwrap();
+        let module = compiled.module.unwrap();
+        let has_capability = |capability| {
+            module
+                .capabilities
+                .iter()
+                .any(|op| op.operands.contains(&Operand::Capability(capability)))
+        };
+        assert!(!has_capability(Capability::VariablePointers));
+        assert!(!has_capability(Capability::VariablePointersStorageBuffer));
+    }
+
+    fn context() -> (Context, SpirvModuleOp) {
+        let mut ctx = Context::default();
+        ctx.set_aux_ty(WgpuCompilationOptions {
+            vulkan: cubecl_core::VulkanCompilationOptions {
+                max_spirv_version: (1, 6),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let module = SpirvModuleOp::new(
+            &mut ctx,
+            ident("capabilities"),
+            AddressingModel::PhysicalStorageBuffer64,
+            MemoryModel::Vulkan,
+        );
+        module.insert_capability(&ctx, Capability::Shader);
+        (ctx, module)
+    }
+
+    fn pointer_selection_requests_variable_pointers(storage: StorageClass) -> bool {
+        let (mut ctx, mut module) = context();
+        let scalar = IntegerType::get(&ctx, 32, Signedness::Signless).to_handle();
+        let pointer = PointerType::get(&ctx, scalar, storage).to_handle();
+        let boolean = IntegerType::get(&ctx, 1, Signedness::Signless).to_handle();
+        let block = BasicBlock::new(&mut ctx, None, vec![boolean, pointer, pointer]);
+        let [condition, first, second] = block.arguments(&ctx).try_into().unwrap();
+        let select = SelectOp::new(&mut ctx, pointer, condition, first, second);
+        update_ver_cap_ext(&ctx, &mut module, IRNode::Operation(select.get_operation()));
+        module.has_capability(&ctx, &Capability::VariablePointers)
+    }
+
+    #[test]
+    fn physical_pointer_selection_does_not_request_variable_pointers() {
+        assert!(!pointer_selection_requests_variable_pointers(
+            StorageClass::PhysicalStorageBuffer
+        ));
+    }
+
+    #[test]
+    fn shared_pointer_selection_requests_variable_pointers() {
+        assert!(pointer_selection_requests_variable_pointers(
+            StorageClass::Workgroup
+        ));
+    }
+
+    #[test]
+    fn storage_buffer_pointer_selection_requests_variable_pointers() {
+        assert!(pointer_selection_requests_variable_pointers(
+            StorageClass::StorageBuffer
+        ));
+    }
+
+    #[test]
+    fn shared_pointer_merge_requests_variable_pointers() {
+        let (mut ctx, mut module) = context();
+        let scalar = IntegerType::get(&ctx, 32, Signedness::Signless).to_handle();
+        let pointer = PointerType::get(&ctx, scalar, StorageClass::Workgroup).to_handle();
+        let merge = BasicBlock::new(&mut ctx, None, vec![pointer]);
+        update_ver_cap_ext(&ctx, &mut module, IRNode::BasicBlock(merge));
+        assert!(module.has_capability(&ctx, &Capability::VariablePointers));
     }
 }

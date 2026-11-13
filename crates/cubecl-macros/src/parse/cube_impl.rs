@@ -134,11 +134,11 @@ impl CubeImplItem {
                 )
             }),
         );
-
-        let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
+        // The method has the body and the context of the function, so it opens the frame and
+        // records the lines. The function only forwards to it.
         let context = Context::new(
             func.context.return_type.clone(),
-            cfg_debug || func.args.debug_symbols.is_present(),
+            false,
             func.context.is_intrinsic,
         );
         let context = core::mem::replace(&mut func.context, context);
@@ -201,7 +201,6 @@ impl CubeImplItem {
             )
         };
 
-        let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
             attrs: func.attrs.clone(),
             vis: func.vis.clone(),
@@ -209,9 +208,10 @@ impl CubeImplItem {
             body: KernelBody::Verbatim(body),
             full_name: func.full_name.clone(),
             span: func.span,
+            // The forwarded-to function opens the frame.
             context: Context::new(
                 func.context.return_type.clone(),
-                cfg_debug || func.args.debug_symbols.is_present(),
+                false,
                 func.context.is_intrinsic,
             ),
             args: func.args.clone(),

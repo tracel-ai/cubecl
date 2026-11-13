@@ -1,4 +1,4 @@
-use core::{fmt, ops::Range};
+use core::fmt;
 
 use crate::{dialect::RegionPtrExt, prelude::*};
 use derive_more::From;
@@ -32,10 +32,26 @@ impl Printable for RegionPredecessor {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
 pub enum RegionSuccessor {
     Region(Ptr<Region>),
     AfterOp,
+}
+
+impl Printable for RegionSuccessor {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegionSuccessor::Region(region)
+                if let Some(entry) = region.deref(ctx).get_entry_block() =>
+            {
+                write!(f, "{}", entry.label(ctx))
+            }
+            RegionSuccessor::Region(region) => {
+                write!(f, "{region:?}")
+            }
+            RegionSuccessor::AfterOp => f.write_str("AfterOp"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -129,12 +145,6 @@ pub trait SymbolOpInterface: pliron::builtin::op_interfaces::SymbolOpInterface {
     fn is_nested(&self, ctx: &Context) -> bool {
         matches!(self.get_visibility(ctx), SymbolVisibility::Nested)
     }
-}
-
-#[op_interface]
-pub trait CallOpInterface: pliron::builtin::op_interfaces::CallOpInterface {
-    verify_op_succ!();
-    fn args_range(&self, ctx: &Context) -> Range<usize>;
 }
 
 /// This interface provides information for region-holding operations that
@@ -439,6 +449,24 @@ pub fn all_region_predecessors(op: Ptr<Operation>, ctx: &Context) -> Vec<RegionP
     predecessors
 }
 
+#[op_interface]
+pub trait MutableRegionBranchOpInterface: RegionBranchOpInterface {
+    verify_op_succ!();
+
+    fn add_entry_successor_operand(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        value: Value,
+    );
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value;
+}
+
 /// This interface provides information for branching terminator operations
 /// in the presence of a parent `RegionBranchOpInterface` implementation. It
 /// acts as a marker for valid region branch points and specifies which
@@ -478,4 +506,17 @@ pub trait RegionBranchTerminatorOpInterface {
             .unwrap()
             .successor_regions(ctx, RegionPredecessor::Terminator(op))
     }
+}
+
+#[op_interface]
+pub trait MutableRegionBranchTerminatorOpInterface: RegionBranchTerminatorOpInterface {
+    verify_op_succ!();
+
+    fn add_successor_operand(&self, ctx: &mut Context, successor: RegionSuccessor, value: Value);
+}
+
+/// Will get actual methods later, for now use it to make the check in CPU generic
+#[op_interface]
+pub trait LoopLikeOpInterface {
+    verify_op_succ!();
 }

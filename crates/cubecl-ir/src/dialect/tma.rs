@@ -10,7 +10,7 @@ use crate::{
     attributes::IndexAttr,
     interfaces::{
         TypeExt,
-        side_effects::{MemoryEffect, MemoryEffectsOp},
+        side_effects::{Extent, MemoryEffect, MemoryEffectsOp, MemoryLocation, MemoryScope},
     },
     prelude::*,
     types::{
@@ -90,13 +90,16 @@ impl TmaLoadOp {
 #[op_interface_impl]
 impl MemoryEffectsOp for TmaLoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
-        vec![MemoryEffect::Write(self.destination(ctx))]
+        vec![MemoryEffect::Write(
+            (self.destination(ctx), Extent::Unknown).into(),
+        )]
     }
 }
 
 impl Verify for TmaLoadOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let barrier_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
         let dest_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
 
@@ -196,13 +199,16 @@ impl TmaLoadIm2colOp {
 #[op_interface_impl]
 impl MemoryEffectsOp for TmaLoadIm2colOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
-        vec![MemoryEffect::Write(self.destination(ctx))]
+        vec![MemoryEffect::Write(
+            (self.destination(ctx), Extent::Unknown).into(),
+        )]
     }
 }
 
 impl Verify for TmaLoadIm2colOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let barrier_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
         let dest_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
 
@@ -275,13 +281,16 @@ impl TmaStoreOp {
 #[op_interface_impl]
 impl MemoryEffectsOp for TmaStoreOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
-        vec![MemoryEffect::Read(self.source(ctx))]
+        vec![MemoryEffect::Read(
+            (self.source(ctx), Extent::Unknown).into(),
+        )]
     }
 }
 
 impl Verify for TmaStoreOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let src_ty = self.source(ctx).get_type(ctx).as_ptr(ctx);
 
         if src_ty.address_space != AddressSpace::Shared {
@@ -311,10 +320,29 @@ pub struct WaitGroupOp {
     pub max_pending: IndexAttr,
 }
 
+#[op_interface_impl]
+impl MemoryEffectsOp for WaitGroupOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        vec![
+            MemoryEffect::Read(MemoryLocation::Scope(MemoryScope::Shared.into())),
+            MemoryEffect::MakeVisible(MemoryLocation::Scope(MemoryScope::Global.into())),
+        ]
+    }
+}
+
 /// Waits until at most `max_pending` bulk async-groups are still reading their shared memory
 /// sources.
 #[cube_op(name = "tma.wait_group_read")]
 #[result_ty(none)]
 pub struct WaitGroupReadOp {
     pub max_pending: IndexAttr,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for WaitGroupReadOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Read(MemoryLocation::Scope(
+            MemoryScope::Shared.into(),
+        ))]
+    }
 }

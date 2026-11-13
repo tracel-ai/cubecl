@@ -2,18 +2,20 @@ use crate::{
     CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
     lower::LowerOpsSpirvPass,
     ops::{
-        branch::BranchToSpirvConversionPass, builtin::LowerBuiltinsPass, memory::lower_shared,
+        branch::SCFToSpirvConversionPass, builtin::LowerBuiltinsPass, memory::lower_shared,
         to_spirv_dialect::ToSpirvDialectPass,
     },
     params_storage_class,
 };
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
+    codegen::KernelDump,
     ir::{
-        ContextExt, attributes::FuncInterface, features::EnumSet, ident, metadata::Info,
+        ContextExt, attributes::FuncInterface, features::EnumSet, metadata::Info,
         rewrite::SimplifyOpsPass,
     },
     post_processing::{
+        bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         minifloat::{
@@ -33,16 +35,17 @@ use cubecl_ir::{
     interfaces::{TypedExt, fast_math::FastMathOp},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::{
-        CanonicalizePass, visit_all_ops_of_type, visit_all_ops_of_type_mut,
-        visit_all_ops_with_interface,
+        CanonicalizePass, InheritLocationPass, LowerOpsPass, visit_all_ops_of_type,
+        visit_all_ops_of_type_mut, visit_all_ops_with_interface,
     },
-    settings::{Dim3, KernelSettings},
+    settings::{DebugInfo, Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass,
     inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass,
+    pre::SSCMPre,
     sccp::SCCPPass,
     simple_cse::SimpleCSEPass,
     sroa::SROAPass,
@@ -56,6 +59,7 @@ use pliron::{
         ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
+    ident,
     identifier::Identifier,
     irbuild::{
         inserter::BlockInsertionPoint,
@@ -65,10 +69,11 @@ use pliron::{
     op::{Op, op_cast},
     operation::{Operation, verify_operation},
     opts::{dce::DCEPass, simplify_cfg::SimplifyCFGPass},
-    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, Pass, Passes},
+    printable::Printable,
 };
 use pliron_spirv::{
-    PlironBuilder, ToSpirvOp,
+    ToSpirvOp,
     attrs::VerCapExtAttr,
     decorations::{
         DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
@@ -120,8 +125,7 @@ impl Compiler for SpirvCompiler {
             });
         }
 
-        #[cfg(feature = "pliron-dump")]
-        let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
+        let dump = KernelDump::new(&value.settings.kernel_name);
 
         let entry_func = value.body.state().entry_func;
         let module = value.body.state().module;
@@ -133,14 +137,8 @@ impl Compiler for SpirvCompiler {
             cube_dim: value.settings.cube_dim,
         });
 
-        let (module, bindings, io, shared_size) = self.compile_kernel(
-            &mut ctx,
-            module,
-            entry_func,
-            value.settings.clone(),
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir,
-        )?;
+        let (module, bindings, io, shared_size) =
+            self.compile_kernel(&mut ctx, module, entry_func, value.settings, &dump)?;
 
         let info_visibility = Visibility::Read;
         let immediate_size = match params_storage_class(&ctx, bindings.len()) {
@@ -158,8 +156,13 @@ impl Compiler for SpirvCompiler {
             info_visibility,
         };
 
-        #[cfg(feature = "pliron-dump")]
-        dump_spirv(&kernel, &value.settings.kernel_name);
+        dump.write("module.spv", || {
+            let words = &kernel.assembled_module;
+            words
+                .iter()
+                .flat_map(|it| it.to_le_bytes())
+                .collect::<Vec<_>>()
+        });
 
         Ok(kernel)
     }
@@ -186,34 +189,23 @@ impl SpirvCompiler {
         module: ModuleOp,
         entry_func: FuncOp,
         settings: KernelSettings,
-        #[cfg(feature = "pliron-dump")] ir_printing_dir: Option<std::path::PathBuf>,
+        dump: &KernelDump,
     ) -> Result<(Module, Vec<Visibility>, Vec<BufferIOAttr>, usize), CompilationError> {
         let entry = entry_func.get_entry_block(ctx);
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
-        #[cfg(feature = "pliron-dump")]
-        if let Some(print_dir) = &ir_printing_dir {
-            use pliron::printable::Printable;
-            let str = std::format!("{}", module_op.disp(ctx));
-            std::fs::write(print_dir.join("initial.plir"), &str).unwrap();
-        }
+        dump.write("initial.plir", || module_op.disp(ctx).to_string());
 
         verify_operation(module.get_operation(), ctx)?;
 
-        let config = PMConfig {
-            print_after_all: cfg!(feature = "pliron-dump"),
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir,
-            ..Default::default()
-        };
-
         let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
+        analyses.set_config(dump.pass_config());
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             settings.execution_mode,
@@ -231,6 +223,7 @@ impl SpirvCompiler {
             }
             false => EnumSet::empty(),
         };
+        func_passes.add_pass(LowerWideBf16CastPass::default());
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             native_fp8,
             Fp8Container::Bytes,
@@ -258,12 +251,18 @@ impl SpirvCompiler {
         func_passes.add_pass(SROAPass);
 
         func_passes.add_pass(Mem2RegPass);
-
         func_passes.add_pass(SROAPass);
+        func_passes.add_pass(DCEPass);
+
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(SSCMPre);
+
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass::with_memory());
+        func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(CanonicalizePass::default());
+        func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
@@ -290,7 +289,7 @@ impl SpirvCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        func_passes.add_pass(BranchToSpirvConversionPass::default());
+        func_passes.add_pass(SCFToSpirvConversionPass::default());
         func_passes.add_pass(Mem2RegPass);
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SCCPPass);
@@ -313,6 +312,10 @@ impl SpirvCompiler {
 
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
+        // Some passes insert ops without a location. They get the location of the op before them.
+        if settings.debug_info != DebugInfo::None {
+            passes.add_pass(InheritLocationPass);
+        }
 
         // The conversion pass reports ops it must not compile (e.g.
         // cube.poison) as errors, not bugs; surface them as a compilation
@@ -332,7 +335,7 @@ impl SpirvCompiler {
         // Try to figure this out later.
         // verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
-        let mut builder = PlironBuilder::default();
+        let mut builder = crate::debug_info::builder(ctx, settings.debug_info);
         spirv_module.to_spirv(ctx, &mut builder)?;
         let module = builder.module();
 
@@ -346,7 +349,7 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
 
     let spirv_module = SpirvModuleOp::new(
         ctx,
-        ident("kernel"),
+        ident!("kernel"),
         AddressingModel::PhysicalStorageBuffer64,
         MemoryModel::Vulkan,
     );
@@ -513,38 +516,5 @@ pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Op
         }
     } else {
         op.set_attr(ctx, &DYNAMICALLY_UNIFORM_ATTR, uniformity);
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = sanitize_filename::sanitize_with_options(
-            name,
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        let dir = std::path::PathBuf::from(dir).join(&path);
-        std::fs::create_dir_all(&dir).unwrap();
-        Some(dir)
-    } else {
-        None
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str) {
-    use std::fs;
-
-    if let Some(dir) = kernel_dir_name(name) {
-        let kernel = &repr.assembled_module;
-        let kernel = kernel
-            .iter()
-            .flat_map(|it| it.to_le_bytes())
-            .collect::<Vec<_>>();
-        let kernel_path = dir.join("module.spv");
-        fs::write(kernel_path, kernel).unwrap();
     }
 }

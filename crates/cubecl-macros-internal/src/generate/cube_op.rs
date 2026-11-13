@@ -280,21 +280,42 @@ impl CubeOp {
         let (impl_generics, type_generics, where_clause) = self.generics.split_for_impl();
         let args = &self.data;
 
+        let memory_effect = quote![crate::interfaces::side_effects::MemoryEffect];
+        let memory_location = quote![crate::interfaces::side_effects::MemoryLocation];
+
         let ptr_reads = args
             .iter()
             .filter(|arg| arg.flags.ptr_read.is_present())
             .map(|arg| {
                 let ident = &arg.ident;
-                quote![crate::interfaces::side_effects::MemoryEffect::Read(self.#ident(ctx))]
+                quote![#memory_effect::Read(#memory_location::exact_pointer(self.#ident(ctx)))]
             });
         let ptr_writes = args
             .iter()
             .filter(|arg| arg.flags.ptr_write.is_present())
             .map(|arg| {
                 let ident = &arg.ident;
-                quote![crate::interfaces::side_effects::MemoryEffect::Write(self.#ident(ctx))]
+                quote![#memory_effect::Write(#memory_location::exact_pointer(self.#ident(ctx)))]
             });
-        let memory_effects = ptr_reads.chain(ptr_writes).collect::<Vec<_>>();
+        let make_available = args
+            .iter()
+            .filter(|arg| arg.flags.make_available.is_present())
+            .map(|arg| {
+                let ident = &arg.ident;
+                quote![#memory_effect::MakeAvailable(#memory_location::exact_pointer(self.#ident(ctx)))]
+            });
+        let make_visible = args
+            .iter()
+            .filter(|arg| arg.flags.make_visible.is_present())
+            .map(|arg| {
+                let ident = &arg.ident;
+                quote![#memory_effect::MakeVisible(#memory_location::exact_pointer(self.#ident(ctx)))]
+            });
+        let memory_effects = ptr_reads
+            .chain(ptr_writes)
+            .chain(make_available)
+            .chain(make_visible)
+            .collect::<Vec<_>>();
 
         if !memory_effects.is_empty() {
             interfaces.push(quote! {

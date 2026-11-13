@@ -1,9 +1,9 @@
 use core::fmt::{self, Debug};
 
 use crate::{
-    CanMaterialize, ConstantValue, ElemType,
+    ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
-    interfaces::memory_slot::MemoryValue,
+    interfaces::{memory_slot::MemoryValue, side_effects::MemoryEffectsOp},
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
@@ -16,11 +16,13 @@ use pliron::{
     builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
-    op::OpId,
+    op::{Op, OpId},
     printable::{self, Printable},
+    result::Result,
     r#type::{TypeHandle, type_cast},
     utils::apint::APInt,
     value::Use,
+    verify_err,
 };
 
 pub mod aliasing;
@@ -101,8 +103,6 @@ pub trait MaterializableOp {
     ) -> Ptr<Operation>;
 }
 
-CanMaterialize!(ConstantOp);
-
 #[op_interface]
 pub trait Synchronizes {
     verify_op_succ!();
@@ -153,11 +153,11 @@ macro_rules! aligned {
 }
 
 #[type_interface]
-pub trait SizedType: AlignedType {
+pub trait MaybeSizedType: AlignedType {
     verify_ty_succ!();
-    fn size(&self, ctx: &Context) -> usize;
-    fn size_bits(&self, ctx: &Context) -> usize {
-        self.size(ctx) * 8
+    fn size(&self, ctx: &Context) -> Option<usize>;
+    fn size_bits(&self, ctx: &Context) -> Option<usize> {
+        Some(self.size(ctx)? * 8)
     }
 }
 
@@ -165,10 +165,10 @@ pub trait SizedType: AlignedType {
 macro_rules! sized {
     ($ty: ty, $size: expr) => {
         #[::pliron::derive::type_interface_impl]
-        impl $crate::interfaces::SizedType for $ty {
+        impl $crate::interfaces::MaybeSizedType for $ty {
             #[allow(unused_variables)]
-            fn size(&self, ctx: &::pliron::context::Context) -> usize {
-                $size
+            fn size(&self, ctx: &::pliron::context::Context) -> Option<usize> {
+                Some($size)
             }
         }
     };
@@ -268,6 +268,15 @@ pub trait CanonicalizeInterface {
     fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
 }
 
+/// An op of a dialect the backends don't know, such as the tile DSL's. Every backend runs
+/// [`LowerOpsPass`](crate::rewrite::LowerOpsPass) ahead of its own passes, which lowers it to ops
+/// the backend knows.
+#[op_interface]
+pub trait LowerInterface {
+    verify_op_succ!();
+    fn lower(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
+}
+
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExpressionValue(u64);
 
@@ -318,6 +327,48 @@ impl Debug for Expression {
             .field("mem_value", &self.mem_value)
             .finish()
     }
+}
+
+/// The op is deterministic given the operands, attributes, and memory state.
+/// This applies to most ops, but not things like plane ops that have hidden runtime state.
+#[op_interface]
+pub trait Deterministic: MemoryEffectsOp {
+    verify_op_succ!();
+}
+
+/// Constant-like ops, i.e. `address_of` or constants, that do not have a runtime cost and carry no
+/// SSA values so should be freshly materialized instead of merged.
+#[op_interface]
+pub trait ConstantLike: MaterializableOp + OneResultInterface {
+    fn verify(op: &dyn Op, ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        let loc = op.loc(ctx);
+        let op = op.get_operation();
+        if op.deref(ctx).get_num_operands() > 0 {
+            return verify_err!(loc, "Constant-like ops can't have operands");
+        }
+        if op.deref(ctx).num_regions() > 0 {
+            return verify_err!(loc, "Constant-like ops can't have regions");
+        }
+        if op.deref(ctx).get_num_successors() > 0 {
+            return verify_err!(loc, "Constant-like ops can't have successors");
+        }
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ConstantLike for ConstantOp {}
+
+/// Ops that are so trivial it's better to recompute than insert a block arg/region result.
+/// They are excluded from the single-leader rule in PRE. Should be used for things like pointer
+/// offsets, this mirrors LLVM's specific exclusion of GEP in its PRE implementation.
+/// It ends up being more expensive to merge the offset pointers than to simply recompute them.
+#[op_interface]
+pub trait TrivialOp: MaterializableOp {
+    verify_op_succ!();
 }
 
 #[op_interface]
@@ -397,16 +448,22 @@ macro_rules! match_ty {
 }
 
 pub trait TypedExt: Typed {
+    fn try_size(&self, ctx: &Context) -> Option<usize> {
+        let ty = self.get_type(ctx).deref(ctx);
+        let sized = type_cast::<dyn MaybeSizedType>(&*ty)?;
+        sized.size(ctx)
+    }
+
     fn size(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let sized = try_cast_ty!(ty, ctx, dyn SizedType);
-        sized.size(ctx)
+        let sized = try_cast_ty!(ty, ctx, dyn MaybeSizedType);
+        sized.size(ctx).unwrap()
     }
 
     fn size_bits(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let sized = try_cast_ty!(ty, ctx, dyn SizedType);
-        sized.size_bits(ctx)
+        let sized = try_cast_ty!(ty, ctx, dyn MaybeSizedType);
+        sized.size_bits(ctx).unwrap()
     }
 
     fn unpacked_size_bits(&self, ctx: &Context) -> usize {

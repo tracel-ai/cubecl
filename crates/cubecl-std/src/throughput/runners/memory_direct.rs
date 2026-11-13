@@ -87,8 +87,13 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     // compiler is free to sink such a copy out of the loop and perform it once
     // — leaving the probe reporting a bandwidth the hardware never moved.
     let mut start = 0;
+    // The cubes each cube has moved along the launch, once per walk of the
+    // buffer, so a line comes back only after a whole buffer of traffic (see
+    // `memory_probe::moved_pos`).
+    let mut moved = 0usize;
 
     for _ in 0..n_iter {
+        let pos = memory_probe::moved_pos(moved);
         for step in 0..steps {
             // Coalesced spreads one step's addresses across adjacent threads,
             // which is only fast where those threads share a real plane. A
@@ -97,7 +102,7 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
             let base = if blocked {
                 ABSOLUTE_POS * steps + step
             } else {
-                ABSOLUTE_POS + (step * stride)
+                pos + (step * stride)
             };
 
             if base < window {
@@ -113,6 +118,7 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
         start += window;
         if start >= len {
             start -= len;
+            moved = memory_probe::moved_further(moved);
         }
     }
 }

@@ -1,6 +1,7 @@
 #![allow(clippy::approx_constant)]
 
 use core::fmt::Display;
+use cubecl_common::powi_portable;
 use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_type};
@@ -80,6 +81,26 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
+        test_binary_impl!($test_name, $float_type, $binary_func, [$({
+            input_vectorization: $input_vectorization,
+            out_vectorization: $out_vectorization,
+            lhs: $lhs,
+            rhs: $rhs,
+            expected: $expected
+        }),*], 0.001);
+    };
+    (
+        $test_name:ident,
+        $float_type:ident,
+        $binary_func:expr,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            lhs: $lhs:expr,
+            rhs: $rhs:expr,
+            expected: $expected:expr
+        }),*],
+        $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
@@ -113,7 +134,7 @@ macro_rules! test_binary_impl {
                     )
                 };
 
-                assert_equals_approx::<F>(&client, output_handle, $expected, 0.001);
+                assert_equals_approx::<F>(&client, output_handle, $expected, $epsilon);
             }
             )*
         }
@@ -250,6 +271,37 @@ test_binary_impl!(
             expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2]
         }
     ]
+);
+
+// `f16` holds 180 to within 0.125, as in `test_degrees`.
+test_binary_impl!(
+    test_atan2d,
+    F,
+    atan2d,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 0., 1., -1., 1., -1., 1., 0.],
+            rhs: as_type![F: 1., 0., 0., 1., -1., -1., -1.],
+            expected: as_type![F: 0., 90., -90., 45., -135., 135., 180.]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 90., -90., 45.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 90., -90., 45.]
+        }
+    ],
+    0.3
 );
 
 test_binary_impl!(
@@ -539,7 +591,7 @@ pub fn test_powi_constants<R: Runtime, F: Float + num_traits::Float + CubeElemen
         } else {
             as_type![F: -2., -1., 0.5, 2.]
         };
-        let expected = input.map(|x| num_traits::Float::powi(x, exponent));
+        let expected = input.map(|x| powi_portable(x, exponent));
         for lanes in [1, 2, 4] {
             let input_handle = client.create_from_slice(F::as_bytes(input));
             let output = client.empty(size_of_val(input));
@@ -662,48 +714,130 @@ fn test_powi_int_cases<I: Int + Powi<i32> + CubeElement + Display>(
     }
 }
 
+/// Wrapping non-negative powers and truncated negative powers share the signed-exponent API.
 pub fn test_powi_int<R: Runtime>(client: Client) {
-    test_powi_int_cases(&client, &[3i32, 2, -3, 7], &[2, 3, 3, 0], &[9, 8, -27, 1]);
-
-    // Exercise truncation, signed overflow, exponent bit 31, and unsigned bases.
     macro_rules! check {
-        ($ty:ty, $lhs:expr, $rhs:expr) => {{
-            let lhs: [$ty; 8] = $lhs;
-            let rhs: [i32; 8] = $rhs;
-            let expected: [$ty; 8] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i] as u32));
-            test_powi_int_cases(&client, &lhs, &rhs, &expected);
+        ($ty:ty, $cases:expr) => {{
+            let cases: [($ty, i32, $ty); _] = $cases;
+            test_powi_int_cases(
+                &client,
+                &cases.map(|(base, _, _)| base),
+                &cases.map(|(_, exp, _)| exp),
+                &cases.map(|(_, _, expected)| expected),
+            );
         }};
     }
-    check!(
-        i8,
-        [-3, 127, -128, 0, 3, -1, 1, 7],
-        [3, 2, 1, 0, 7, -1, i32::MIN, 0]
-    );
-    check!(
-        u16,
-        [65535, 256, 3, 0, 1, 7, 2, 5],
-        [2, 2, 10, 0, -1, 0, 16, 3]
-    );
-    check!(
-        i32,
-        [i32::MAX, i32::MIN, -3, 0, 3, -1, 1, 7],
-        [2, 1, 3, 0, 20, -1, i32::MIN, 0]
-    );
-    check!(
-        u32,
-        [u32::MAX, 65536, 3, 0, 1, 7, 2, 5],
-        [2, 2, 20, 0, -1, 0, 32, 3]
-    );
-    check!(
-        i64,
-        [i64::MAX, i64::MIN, -3, 0, 3, -1, 3, 4294967297],
-        [2, 1, 3, 0, 40, -1, i32::MIN, 2]
-    );
-    check!(
-        u64,
-        [u64::MAX, 4294967297, 3, 0, 3, 7, 2, 5],
-        [2, 2, 40, 0, -1, 0, 64, 3]
-    );
+
+    // Keep positive and negative exponents in the same vector to exercise per-lane selection.
+    macro_rules! signed {
+        ($ty:ty) => {
+            check!(
+                $ty,
+                [
+                    (3, 2, 9),
+                    (3, -1, 0),
+                    (-3, 3, -27),
+                    (-3, -3, 0),
+                    (<$ty>::MAX, 2, 1),
+                    (<$ty>::MIN, 1, <$ty>::MIN),
+                    (0, 0, 1),
+                    (0, -1, 0),
+                    (3, 40, 12_157_665_459_056_928_801u64 as $ty),
+                    (2, <$ty>::BITS as i32, 0),
+                    (3, 7, 2187u16 as $ty),
+                    (1, i32::MIN, 1),
+                    (-1, -1, -1),
+                    (-1, -2, 1),
+                    (-1, i32::MIN, 1),
+                    (3, i32::MIN, 0),
+                ]
+            );
+        };
+    }
+    signed!(i8);
+    signed!(i16);
+    signed!(i32);
+    signed!(i64);
+
+    // An unsigned maximum must not be mistaken for -1, for either exponent parity.
+    macro_rules! unsigned {
+        ($ty:ty) => {
+            check!(
+                $ty,
+                [
+                    (<$ty>::MAX, 2, 1),
+                    (<$ty>::MAX, -1, 0),
+                    (<$ty>::MAX, -2, 0),
+                    (<$ty>::MAX, i32::MIN, 0),
+                    (3, 40, 12_157_665_459_056_928_801u64 as $ty),
+                    (3, -1, 0),
+                    (2, <$ty>::BITS as i32, 0),
+                    (3, i32::MIN, 0),
+                    (0, 0, 1),
+                    (0, -1, 0),
+                    (1, -1, 1),
+                    (1, i32::MIN, 1),
+                ]
+            );
+        };
+    }
+    unsigned!(u8);
+    unsigned!(u16);
+    unsigned!(u32);
+    unsigned!(u64);
+}
+
+#[cube(launch_unchecked)]
+fn test_powi_unsigned_kernel<I: Int, N: Size>(
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<u32, N>],
+    output: &mut [Vector<I, N>],
+) {
+    if ABSOLUTE_POS < rhs.len() {
+        output[ABSOLUTE_POS] = polyfills::powi_unsigned(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+pub fn test_powi_unsigned<R: Runtime>(client: Client) {
+    use cubecl_ir::features::TypeUsage;
+
+    // Exponents above `i32::MAX` stay powers, for signed and unsigned bases alike.
+    let rhs: [u32; 4] = [3_000_000_001, 1 << 31, u32::MAX, (1 << 31) + 1];
+    macro_rules! check {
+        ($ty:ty, $lhs:expr) => {{
+            let lhs: [$ty; 4] = $lhs;
+            let expected: [$ty; 4] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i]));
+
+            let uses = <$ty>::supported_uses(&client);
+            if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
+                for vectorization in [1, 4] {
+                    let output_handle = client.empty(core::mem::size_of_val(&expected));
+                    let lhs_handle = client.create_from_slice(<$ty>::as_bytes(&lhs));
+                    let rhs_handle = client.create_from_slice(u32::as_bytes(&rhs));
+                    unsafe {
+                        test_powi_unsigned_kernel::launch_unchecked::<$ty>(
+                            &client,
+                            CubeCount::Static(1, 1, 1),
+                            CubeDim::new_1d((expected.len() / vectorization) as u32),
+                            vectorization,
+                            BufferArg::from_raw_parts(lhs_handle, expected.len()),
+                            BufferArg::from_raw_parts(rhs_handle, expected.len()),
+                            BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
+                        )
+                    };
+                    assert_equals_exact::<$ty>(&client, output_handle, &expected);
+                }
+            }
+        }};
+    }
+    check!(i8, [3, -1, -3, -1]);
+    check!(u8, [3, u8::MAX, 5, u8::MAX]);
+    check!(i16, [3, -1, -3, -1]);
+    check!(u16, [3, u16::MAX, 5, u16::MAX]);
+    check!(i32, [3, -1, -3, -1]);
+    check!(u32, [3, u32::MAX, 5, u32::MAX]);
+    check!(i64, [3, -1, -3, -1]);
+    check!(u64, [3, u64::MAX, 5, u64::MAX]);
 }
 
 #[cube(launch_unchecked)]
@@ -1014,7 +1148,10 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
 /// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
 /// infinity (not `+0`), `0.0 / v` is `NaN` for `v = 0`, and `v * 0.0` keeps the
 /// sign of `v`.
+#[allow(clippy::eq_op)]
 pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
+    // `v - v` is the point: it checks the subtraction isn't folded to zero.
+    #[allow(clippy::eq_op)]
     #[cube(launch_unchecked)]
     fn folds<F: Float>(x: &[F], out: &mut [F]) {
         if ABSOLUTE_POS < x.len() {
@@ -1033,9 +1170,12 @@ pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
     // Vulkan and Metal unless the shader opts into preserving them, which wgpu does not. The
     // shader compilers fold under that latitude (`NaN - NaN` and `0 / 0` read back as `0`,
     // `-4 * 0` as `+0`). What this test guards — that cubecl's own IR does not fold them —
-    // holds on every backend; the results wgpu does promise are still checked there. The
-    // runtime name says which backend, whatever compiler it picked.
-    let strict_ieee = !client.name().starts_with("wgpu");
+    // holds on every backend; the results wgpu does promise are still checked there. Native
+    // Metal compiles the same MSL with the driver's fast math, as wgpu does, so it is not strict
+    // either. The runtime name says which backend, whatever compiler it picked.
+    let strict_ieee = !["wgpu", "metal"]
+        .iter()
+        .any(|runtime| client.name().starts_with(runtime));
 
     macro_rules! check {
         ($ty: ty) => {{
@@ -1131,6 +1271,7 @@ macro_rules! testgen_binary {
             add_test!(test_max);
             add_test!(test_min);
             add_test!(test_atan2);
+            add_test!(test_atan2d);
             add_test!(test_fma);
             add_test!(test_fma_from_sub);
         }
@@ -1194,6 +1335,7 @@ macro_rules! testgen_binary_untyped {
             add_test!(test_mulhi);
             add_test!(test_dp4a);
             add_test!(test_powi_int);
+            add_test!(test_powi_unsigned);
             add_test!(test_powi_negative_near_one);
             add_test!(test_signed_remainder);
             add_test!(test_self_div);

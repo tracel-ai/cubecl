@@ -6,6 +6,10 @@
 //! `f::harness::<R>(1)` instead of writing a kernel, buffers and a read back by
 //! hand.
 //!
+//! A `usize` or `isize` is passed by value at the kernel's address width, but
+//! can't be read back, since that width is the device's rather than the host's.
+//! It can't be returned or be the element of a slice or array.
+//!
 //! A slice is uploaded from a host slice of the same type, and a mutable one
 //! is written back into it after the launch, as if the function ran on the
 //! host. An `Array` is uploaded from a host slice too, and copied into an
@@ -50,6 +54,12 @@ const RUNTIME_SCALARS: &[&str] = &[
 /// Scalars that are only valid as comptime arguments, since they aren't plain
 /// old data the host can read back.
 const COMPTIME_SCALARS: &[&str] = &["bool", "usize", "isize"];
+
+/// Comptime scalars that can also be passed by value at runtime, at the
+/// kernel's address width. They still can't be read back, since that width is
+/// the device's rather than the host's, so they can't be in a slice, an array
+/// or a return.
+const INPUT_SCALARS: &[&str] = &["usize", "isize"];
 
 /// The generic bounds a harness can be instantiated over.
 const GENERIC_BOUNDS: &[&str] = &["Float", "Int", "Numeric"];
@@ -267,6 +277,14 @@ impl Launch {
                     }
                     _ => return None,
                 }
+            } else if let Type::Path(path) = &param.ty
+                && path.qself.is_none()
+                && path
+                    .path
+                    .get_ident()
+                    .is_some_and(|ident| INPUT_SCALARS.contains(&ident.to_string().as_str()))
+            {
+                HarnessValue::Scalar(param.ty.clone())
             } else {
                 classify(&param.ty)?
             };
@@ -613,6 +631,26 @@ mod tests {
     }
 
     #[test]
+    fn address_scalars_are_runtime_inputs() {
+        let plan = plan(parse_quote! {
+            fn f(i: usize, j: isize, #[comptime] n: usize) -> u32 { 0 }
+        })
+        .unwrap();
+
+        assert_eq!(
+            plan.params
+                .iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                HarnessValue::Scalar(parse_quote!(usize)),
+                HarnessValue::Scalar(parse_quote!(isize)),
+                HarnessValue::Comptime(parse_quote!(usize)),
+            ]
+        );
+    }
+
+    #[test]
     fn generic_scalar_functions_are_pure() {
         let plan = plan(parse_quote! {
             fn f<F: Float, I: Int>(x: F, y: I, z: u32) -> F { x }
@@ -739,7 +777,10 @@ mod tests {
             parse_quote! { fn f(x: u32) -> bool { true } },
             parse_quote! { fn f(x: u32) -> (u32, bool) { (x, true) } },
             parse_quote! { fn f(x: u32) -> (u32, ()) { (x, ()) } },
-            parse_quote! { fn f(x: usize) -> u32 { 0 } },
+            parse_quote! { fn f(x: u32) -> usize { 0 } },
+            parse_quote! { fn f(x: u32) -> (u32, isize) { (x, 0) } },
+            parse_quote! { fn f(x: Array<isize>) -> u32 { 0 } },
+            parse_quote! { fn f(x: &mut [usize]) {} },
             parse_quote! { fn f(x: &u32) -> u32 { 0 } },
             parse_quote! { fn f(x: &[u32]) {} },
             parse_quote! { fn f(x: &[bool]) -> u32 { 0 } },

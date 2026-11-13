@@ -3,7 +3,7 @@ use crate::config::streaming::StreamingConfig;
 
 use super::{
     autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig,
-    throughput::ThroughputConfig,
+    throughput::ThroughputConfig, transport::TransportConfig,
 };
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -44,6 +44,10 @@ pub struct CubeClRuntimeConfig {
     /// Which named environment to warm into.
     #[serde(default)]
     pub environment: super::environment::EnvironmentConfig,
+
+    /// Configuration for the transport between devices.
+    #[serde(default)]
+    pub transport: TransportConfig,
 }
 
 impl RuntimeConfig for CubeClRuntimeConfig {
@@ -170,6 +174,26 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
+            self.compilation.dump_dir = Some(dir.into());
+        }
+
+        if let Some(enabled) = env_bool("CUBECL_TIME_PASSES") {
+            self.compilation.time_passes = enabled;
+        }
+
+        if let Some(level) = env_variant("CUBECL_DEBUG_INFO") {
+            self.compilation.debug_info = Some(level);
+        }
+
+        if let Some(format) = env_variant("CUBECL_SPIRV_DEBUG_FORMAT") {
+            self.compilation.spirv_debug_format = format;
+        }
+
+        if let Ok(dir) = std::env::var("CUBECL_SOURCE_CACHE") {
+            self.compilation.source_cache = Some(dir.into());
+        }
+
         if let Some(enabled) = env_bool("CUBECL_THROUGHPUT_CACHE") {
             self.throughput.disable_cache = !enabled;
         }
@@ -201,8 +225,27 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             self.autotune.bench.adaptive = enabled;
         }
 
+        if let Some(mode) = env_variant("CUBECL_DEVICE_TRANSPORT") {
+            self.transport.device = mode;
+        }
+
         self
     }
+}
+
+/// The variant of `T` that the environment variable `name` names with its `serde` name, as in
+/// `cubecl.toml`. `None` when the variable is unset or names no variant, as for [`env_bool`].
+#[cfg(std_io)]
+fn env_variant<T: serde::de::DeserializeOwned>(name: &str) -> Option<T> {
+    variant(&std::env::var(name).ok()?)
+}
+
+/// The variant of `T` with the `serde` name `value`.
+#[cfg(std_io)]
+fn variant<T: serde::de::DeserializeOwned>(value: &str) -> Option<T> {
+    use serde::de::{IntoDeserializer, value::Error};
+
+    T::deserialize(IntoDeserializer::<Error>::into_deserializer(value)).ok()
 }
 
 /// A boolean environment variable, or `None` when it is unset or unreadable.

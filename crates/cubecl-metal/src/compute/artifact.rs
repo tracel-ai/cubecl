@@ -14,8 +14,8 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
 use objc2_metal::{
-    MTLCompileOptions, MTLComputePipelineState, MTLDevice, MTLLanguageVersion, MTLLibrary,
-    MTLMathFloatingPointFunctions, MTLMathMode,
+    MTLCompileOptions, MTLComputePipelineDescriptor, MTLComputePipelineState, MTLDevice,
+    MTLLibrary, MTLPipelineOption,
 };
 
 /// Compiles kernels to MSL for one Metal device, and has the device build
@@ -158,9 +158,11 @@ impl MetalArtifactCompiler {
 
         let source_ns = NSString::from_str(source);
 
+        // The driver's default options, as wgpu-msl compiles the same MSL with: its newest
+        // language version and fast math, so the two Metal runtimes give the same results.
         let library = self
             .device
-            .newLibraryWithSource_options_error(&source_ns, Some(&msl_compile_options()))
+            .newLibraryWithSource_options_error(&source_ns, Some(&MTLCompileOptions::new()))
             .map_err(|err| CompilationError::Generic {
                 reason: format!("Failed to compile MSL: {:?}", err.localizedDescription()),
                 backtrace: BackTrace::capture(),
@@ -174,9 +176,19 @@ impl MetalArtifactCompiler {
             }
         })?;
 
+        // Every pipeline can be replayed from an indirect command buffer, which
+        // is what a captured graph is: whether a launch ends up in one is not
+        // known when its kernel is compiled.
+        let descriptor = MTLComputePipelineDescriptor::new();
+        descriptor.setComputeFunction(Some(&function));
+        descriptor.setSupportIndirectCommandBuffers(true);
         let pipeline = self
             .device
-            .newComputePipelineStateWithFunction_error(&function)
+            .newComputePipelineStateWithDescriptor_options_reflection_error(
+                &descriptor,
+                MTLPipelineOption::None,
+                None,
+            )
             .map_err(|err| CompilationError::Generic {
                 reason: format!(
                     "Failed to create compute pipeline: {:?}",
@@ -202,18 +214,4 @@ impl MetalArtifactCompiler {
 
         Ok(pipeline)
     }
-}
-
-/// The options the driver compiles MSL with. Made per compilation: they are
-/// a few setters, and an options object is not shared across threads.
-fn msl_compile_options() -> Retained<MTLCompileOptions> {
-    let msl_compile_options = MTLCompileOptions::new();
-    // MSL 3.2 for lambdas.
-    msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_2);
-    // Compile with IEEE-safe math by default; per-op fast math is opted into separately.
-    // `mathMode` disables FP reassociation/contraction, `mathFloatingPointFunctions`
-    // keeps math functions precise.
-    msl_compile_options.setMathMode(MTLMathMode::Safe);
-    msl_compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
-    msl_compile_options
 }

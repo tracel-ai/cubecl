@@ -1,14 +1,15 @@
 use cubecl_ir::{
     NoSideEffects,
-    dialect::memory::AddressSpaceAttr,
-    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+    dialect::memory::MemoryScopeAttr,
+    interfaces::{
+        Deterministic,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+    },
     prelude::*,
 };
 use cubecl_opt::analyses::dataflow_solver::{
     DataflowSolver, SolverConfig,
-    dead_code::DeadCodeAnalysis,
-    sccp::SparseConstantPropagationAnalysis,
-    value_numbering::{ValueClassAnalysis, ValueNumberLattice, ValueNumberingAnalysis},
+    value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
 };
 use expect_test::expect;
 use itertools::Itertools;
@@ -19,10 +20,10 @@ use pliron::{
 
 #[pliron_op(
     name = "value_numbering.memory_def",
-    format = "attr($def_address_space, $AddressSpaceAttr) `:` type($0)",
+    format = "attr($def_address_space, $MemoryScopeAttr) `:` type($0)",
     interfaces = [NOpdsInterface<0>, OneResultInterface, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (def_address_space: AddressSpaceAttr)
+    attributes = (def_address_space: MemoryScopeAttr)
 )]
 #[op_traits(NoSideEffects)] // Has side effects, but should trigger memory check instead
 pub struct MemoryDefInSpaceOp;
@@ -31,17 +32,18 @@ pub struct MemoryDefInSpaceOp;
 impl MemoryEffectsOp for MemoryDefInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_def_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::WriteAllInSpace(space)]
+        vec![MemoryEffect::Write(space.into())]
     }
 }
 
 #[pliron_op(
     name = "value_numbering.memory_use",
-    format = "attr($use_address_space, $AddressSpaceAttr) `:` type($0)",
+    format = "attr($use_address_space, $MemoryScopeAttr) `:` type($0)",
     interfaces = [NOpdsInterface<0>, OneResultInterface, NRegionsInterface<0>],
     verifier = "succ",
-    attributes = (use_address_space: AddressSpaceAttr)
+    attributes = (use_address_space: MemoryScopeAttr)
 )]
+#[op_interfaces(Deterministic)]
 #[op_traits(NoSideEffects)]
 pub struct MemoryUseInSpaceOp;
 
@@ -49,7 +51,7 @@ pub struct MemoryUseInSpaceOp;
 impl MemoryEffectsOp for MemoryUseInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_use_address_space(ctx).unwrap().0;
-        vec![MemoryEffect::ReadAllInSpace(space)]
+        vec![MemoryEffect::Read(space.into())]
     }
 }
 
@@ -60,9 +62,6 @@ fn run_numbering_on_text(ctx: &mut Context, input: &str) -> Result<DataflowSolve
     verify_operation(op, ctx)?;
 
     let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
-    solver.load(SparseConstantPropagationAnalysis::default());
-    solver.load(ValueClassAnalysis::default());
     solver.load(ValueNumberingAnalysis::default());
     solver.initialize_and_run(ctx, op).unwrap();
 

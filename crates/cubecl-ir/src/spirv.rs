@@ -1,11 +1,11 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
-    NoMemoryEffect, PropagatesUniformity,
+    CanMaterialize, NoMemoryEffect, PropagatesUniformity,
     interfaces::{
-        AlignedType, MaybeVectorizedType, ScalarizableType, TypedExt,
+        AlignedType, ConstantLike, MaybeVectorizedType, ScalarizableType, TypedExt,
         memory_slot::PromotableRegionOpInterface,
-        side_effects::{MemoryEffect, MemoryEffectsOp},
+        side_effects::{MemoryEffect, MemoryEffectsOp, MemoryLocation},
         uniformity::{UniformOpInterface, Uniformity},
     },
     scalar,
@@ -24,13 +24,23 @@ use pliron::{
     value::Value,
 };
 use pliron_spirv::{
-    ops::{AccessChainOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, LoopOp, SelectionOp},
+    ops::{
+        AccessChainOp, AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, LoopOp,
+        SelectionOp,
+    },
     spirv::StorageClass,
     types::{ArrayType, FloatType, PointerType, VectorType, khr::CooperativeMatrixType},
 };
 
+#[op_interface_impl]
+impl ConstantLike for AddressOfOp {}
+CanMaterialize!(AddressOfOp);
+
+CanMaterialize!(InBoundsAccessChainOp);
 NoMemoryEffect!(InBoundsAccessChainOp);
 PropagatesUniformity!(InBoundsAccessChainOp);
+
+CanMaterialize!(AccessChainOp);
 NoMemoryEffect!(AccessChainOp);
 PropagatesUniformity!(AccessChainOp);
 
@@ -39,7 +49,9 @@ impl MemoryEffectsOp for LoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let ptr = self.get_operand_pointer(ctx);
         let Ok(ptr_ty) = TypedHandle::<PointerType>::from_handle(ptr.get_type(ctx), ctx) else {
-            return vec![MemoryEffect::Read(self.get_operand_pointer(ctx))];
+            return vec![MemoryEffect::Read(MemoryLocation::exact_pointer(
+                self.get_operand_pointer(ctx),
+            ))];
         };
         let storage_class = ptr_ty.deref(ctx).storage_class;
         match storage_class {
@@ -51,11 +63,14 @@ impl MemoryEffectsOp for LoadOp {
             | StorageClass::ShaderRecordBufferKHR
             | StorageClass::IncomingCallableDataKHR
             | StorageClass::IncomingRayPayloadKHR => vec![],
-            _ => vec![MemoryEffect::Read(self.get_operand_pointer(ctx))],
+            _ => vec![MemoryEffect::Read(MemoryLocation::exact_pointer(
+                self.get_operand_pointer(ctx),
+            ))],
         }
     }
 }
 
+CanMaterialize!(LoadOp);
 PropagatesUniformity!(LoadOp);
 
 #[op_interface_impl]
@@ -80,6 +95,7 @@ impl UniformOpInterface for GlobalVariableOp {
     }
 }
 
+CanMaterialize!(GlobalVariableOp);
 scalar!(FloatType);
 
 #[type_interface_impl]

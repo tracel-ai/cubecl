@@ -30,6 +30,27 @@ fn test_concurrent_increment() {
     let count = context.submit_blocking(move |state| state.counter).unwrap();
     assert_eq!(count, thread_count);
 }
+
+#[test]
+fn test_spawn_returns_the_result() {
+    let context = DeviceFixture::new(
+        DeviceHandle::<TestDeviceState<1>>::new,
+        DeviceHandle::<TestDeviceState<1>>::shutdown,
+    );
+
+    let first = context.spawn(|state| {
+        state.counter += 1;
+        state.counter
+    });
+    let second = context.spawn(|state| {
+        state.counter += 1;
+        state.counter
+    });
+
+    assert_eq!(first.join().unwrap(), 1);
+    assert_eq!(second.join().unwrap(), 2);
+}
+
 #[test]
 fn test_recursive_execution_different_state() {
     let context = DeviceFixture::new(

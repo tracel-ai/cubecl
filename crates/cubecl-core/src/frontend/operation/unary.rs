@@ -367,6 +367,7 @@ impl_abs!(e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64; FAbsOp::ne
 impl_abs_nop!(u8, u16, u32, u64, usize);
 
 define_unary_func!(Exp, exp, ExpOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Exp2, exp2, Exp2Op, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(Log, ln, LogOp, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(Log1p, log1p, Log1pOp, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(Expm1, exp_m1, Expm1Op, f16, bf16, flex32, tf32, f32, f64);

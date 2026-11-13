@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
-    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
     PathSegment, QSelf, Token, Type,
 };
 
@@ -154,7 +154,7 @@ pub enum Expression {
     },
     ArrayInit {
         init: Box<Expression>,
-        len: Box<Expression>,
+        len: Box<Expr>,
     },
     Reference {
         inner: Box<Expression>,
@@ -221,6 +221,8 @@ pub struct MatchArm {
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
+    /// The source span of `ret`, for its debug location.
+    pub ret_span: Option<Span>,
 }
 
 impl Expression {

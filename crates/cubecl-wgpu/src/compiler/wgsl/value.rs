@@ -8,11 +8,19 @@ pub trait WgslValue {
 
 impl WgslValue for Value {
     fn name(&self, ctx: &Context) -> Identifier {
-        self.unique_name(ctx)
+        sanitize_name(self.unique_name(ctx))
     }
 
     fn fmt_left(&self, ctx: &Context) -> String {
         let name = self.name(ctx);
         format!("let {}", name)
     }
+}
+
+fn sanitize_name(name: Identifier) -> Identifier {
+    // WGSL reserves `__` as a prefix, so any variable starting with that would be a compile error
+    if name.as_ref().starts_with("__") {
+        return Identifier::try_new(format!("v{}", name.as_ref())).unwrap();
+    }
+    name
 }

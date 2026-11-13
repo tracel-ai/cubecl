@@ -28,8 +28,9 @@ pub trait EventApi: Send + Sync + 'static {
     ///
     /// No `Send` bound: a stream is held by the profiler, which lives inside a
     /// server the backend already asserts is `Send` as a whole. Only the event
-    /// crosses threads on its own.
-    type Stream: Copy;
+    /// crosses threads on its own. Compared to tell which windows a launch
+    /// opens (see [`EventProfiler::launching`](super::EventProfiler::launching)).
+    type Stream: Copy + PartialEq;
 
     /// The backend as a reader of a log line sees it.
     const BACKEND: &'static str;

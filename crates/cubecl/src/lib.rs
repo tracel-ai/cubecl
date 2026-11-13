@@ -67,15 +67,13 @@ pub use cubecl_environment::records;
 /// kernels it compiles and the tunes it measures, its launches discarded.
 pub use cubecl_runtime::execution;
 
-/// The kernels a workload launches, collected while it replays: what an
-/// environment shipped for it has to keep.
-pub use cubecl_runtime::launched;
+pub use cubecl_server::prune;
 
-/// Watching what the runtime runs: the launch observer, and the profiling
+/// Watching what the runtime runs: the execution observer, and the profiling
 /// logger's levels.
 ///
 /// Re-exported because a caller attributing kernels to its own work reaches for
-/// [`LaunchObservation`](cubecl_runtime::logging::LaunchObservation) and has no
+/// [`ExecutionObservation`](cubecl_runtime::logging::ExecutionObservation) and has no
 /// other reason to depend on `cubecl-runtime` directly.
 pub use cubecl_runtime::logging;
 
@@ -86,6 +84,9 @@ pub use device::{Device, RuntimeId};
 
 #[cfg(feature = "stdlib")]
 pub use cubecl_std as std;
+
+#[cfg(feature = "tile")]
+pub use cubecl_tile as tile;
 
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
@@ -99,7 +100,7 @@ pub use cubecl_hip as hip;
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;
 
-#[cfg(feature = "metal-native")]
+#[cfg(feature = "metal")]
 pub use cubecl_metal as metal;
 
 /// The runtime this build tests on.

@@ -74,14 +74,14 @@ kernel moving far less than the top of it cannot reach the top of it.
 | -------------- | -------------- | ---------------------------- |
 | `wgpu`         | `WgpuRuntime`  | WGSL                         |
 | `vulkan`       | `WgpuRuntime`  | SPIR-V                       |
-| `metal`        | `WgpuRuntime`  | MSL (via wgpu)               |
+| `wgpu-msl`     | `WgpuRuntime`  | MSL (via wgpu)               |
 | `webgpu`       | `WgpuRuntime`  | WebGPU                       |
 | `cuda`         | `CudaRuntime`  | NVIDIA                       |
 | `hip` / `rocm` | `HipRuntime`   | AMD                          |
 | `cpu`          | `CpuRuntime`   | CPU (MLIR)                   |
-| `metal-native` | `MetalRuntime` | Apple (native Metal backend) |
+| `metal`        | `MetalRuntime` | Apple (native Metal backend) |
 
-The `wgpu`, `vulkan`, `metal` and `webgpu` features all run on `WgpuRuntime`;
+The `wgpu`, `vulkan`, `wgpu-msl` and `webgpu` features all run on `WgpuRuntime`;
 the feature only selects which compiler/adapter is used. Enabling more than one
 runtime backend at once simply runs the benchmark on each.
 

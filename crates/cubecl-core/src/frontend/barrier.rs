@@ -42,7 +42,9 @@ impl CubePrimitive for Barrier {
     fn from_const_value(_value: cubecl_ir::ConstantValue) -> Self {
         unreachable!("Can't create from const value")
     }
+}
 
+impl ConstantTyped for Barrier {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         BarrierType::get(scope.ctx(), BarrierLevel::Cube).into()
     }
@@ -262,6 +264,23 @@ impl Barrier {
             let barrier = self.value(scope);
             let arrival_count = arrival_count.read_value(scope);
             let op = InitOp::new(scope.ctx_mut(), barrier, arrival_count);
+            scope.register(&op);
+        })
+    }
+
+    /// Ends the barrier's lifetime, so a barrier initialized in its place afterwards is a new
+    /// one. A shared barrier is reused in place where its declaration sits in a loop, and an
+    /// `mbarrier` initialized again without this keeps its old phase, so a wait on the new one's
+    /// first phase may never complete.
+    ///
+    /// # Note
+    ///
+    /// No synchronization or election is performed. Every unit must be done with the barrier,
+    /// none waiting on it, and one unit invalidates it, before the one that initializes it again.
+    pub fn invalidate(&self) {
+        intrinsic!(|scope| {
+            let barrier = self.value(scope);
+            let op = InvalidateOp::new(scope.ctx_mut(), barrier);
             scope.register(&op);
         })
     }

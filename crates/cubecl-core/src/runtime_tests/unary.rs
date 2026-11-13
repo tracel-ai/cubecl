@@ -553,6 +553,27 @@ test_unary_impl!(test_exp, F, Vector::exp, [
     }
 ]);
 
+test_unary_impl!(test_exp2, F, Vector::exp2, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., -1., 3., 0.5, -0.5, -10., 1.5],
+        expected: as_type![F: 1., 2., 0.5, 8., 1.414_213_6, 0.707_106_77, 0.000_976_562_5, 2.828_427_1]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., -1., 3., 0.5, -0.5, -10., 1.5],
+        expected: as_type![F: 1., 2., 0.5, 8., 1.414_213_6, 0.707_106_77, 0.000_976_562_5, 2.828_427_1]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., -1., 3., 0.5, -0.5, -10., 1.5],
+        expected: as_type![F: 1., 2., 0.5, 8., 1.414_213_6, 0.707_106_77, 0.000_976_562_5, 2.828_427_1]
+    }
+]);
+
 test_unary_impl!(test_ln, F, Vector::ln, [
     {
         input_vectorization: 1,
@@ -657,6 +678,134 @@ test_unary_impl!(test_sqrt, F, Vector::sqrt, [
         expected: as_type![F: 0., 1., 2., 3.]
     }
 ]);
+
+// Multiples of 90 are where `sin(to_radians(x))` misses 0 and ±1.
+test_unary_impl!(test_sind, F, sind, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 30., 90., 180., -90., 270., 360., 390.],
+        expected: as_type![F: 0., 0.5, 1., 0., -1., -1., 0., 0.5]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 30., 90., 180., -90., 270., 360., 390.],
+        expected: as_type![F: 0., 0.5, 1., 0., -1., -1., 0., 0.5]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 30., 90., 180., -90., 270., 360., 390.],
+        expected: as_type![F: 0., 0.5, 1., 0., -1., -1., 0., 0.5]
+    }
+]);
+
+test_unary_impl!(test_cosd, F, cosd, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 60., 90., 180., -90., 270., 360., 120.],
+        expected: as_type![F: 1., 0.5, 0., -1., 0., 0., 1., -0.5]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 60., 90., 180., -90., 270., 360., 120.],
+        expected: as_type![F: 1., 0.5, 0., -1., 0., 0., 1., -0.5]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 60., 90., 180., -90., 270., 360., 120.],
+        expected: as_type![F: 1., 0.5, 0., -1., 0., 0., 1., -0.5]
+    }
+]);
+
+test_unary_impl!(test_tand, F, tand, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 45., 60., -45., 135., 180., 225., -30.],
+        expected: as_type![F: 0., 1., 1.732_050_8, -1., -1., 0., 1., -0.577_350_26]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 45., 60., -45., 135., 180., 225., -30.],
+        expected: as_type![F: 0., 1., 1.732_050_8, -1., -1., 0., 1., -0.577_350_26]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 45., 60., -45., 135., 180., 225., -30.],
+        expected: as_type![F: 0., 1., 1.732_050_8, -1., -1., 0., 1., -0.577_350_26]
+    }
+]);
+
+// `f16` holds 180 to within 0.125, as in `test_degrees`.
+test_unary_impl!(test_asind, F, asind, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 0.5, 1., -0.5, -1., 0.707_106_77, -0.866_025_4, 0.],
+        expected: as_type![F: 0., 30., 90., -30., -90., 45., -60., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 0.5, 1., -0.5, -1., 0.707_106_77, -0.866_025_4, 0.],
+        expected: as_type![F: 0., 30., 90., -30., -90., 45., -60., 0.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 0.5, 1., -0.5, -1., 0.707_106_77, -0.866_025_4, 0.],
+        expected: as_type![F: 0., 30., 90., -30., -90., 45., -60., 0.]
+    }
+], 0.3);
+
+test_unary_impl!(test_acosd, F, acosd, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1., 0.5, 0., -0.5, -1., 0.707_106_77, -0.866_025_4, 1.],
+        expected: as_type![F: 0., 60., 90., 120., 180., 45., 150., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 1., 0.5, 0., -0.5, -1., 0.707_106_77, -0.866_025_4, 1.],
+        expected: as_type![F: 0., 60., 90., 120., 180., 45., 150., 0.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 1., 0.5, 0., -0.5, -1., 0.707_106_77, -0.866_025_4, 1.],
+        expected: as_type![F: 0., 60., 90., 120., 180., 45., 150., 0.]
+    }
+], 0.3);
+
+test_unary_impl!(test_atand, F, atand, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., -1., 1.732_050_8, -0.577_350_26, 1000., -1000., 0.],
+        expected: as_type![F: 0., 45., -45., 60., -30., 89.942_7, -89.942_7, 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., -1., 1.732_050_8, -0.577_350_26, 1000., -1000., 0.],
+        expected: as_type![F: 0., 45., -45., 60., -30., 89.942_7, -89.942_7, 0.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., -1., 1.732_050_8, -0.577_350_26, 1000., -1000., 0.],
+        expected: as_type![F: 0., 45., -45., 60., -30., 89.942_7, -89.942_7, 0.]
+    }
+], 0.3);
 
 test_unary_impl!(test_degrees, F, Vector::to_degrees, [
     {
@@ -1129,6 +1278,7 @@ macro_rules! testgen_unary {
             add_test!(test_cosh);
             add_test!(test_tanh);
             add_test!(test_exp);
+            add_test!(test_exp2);
             add_test!(test_ln);
             add_test!(test_asin);
             add_test!(test_acos);
@@ -1138,6 +1288,12 @@ macro_rules! testgen_unary {
             add_test!(test_atanh);
             add_test!(test_degrees);
             add_test!(test_radians);
+            add_test!(test_sind);
+            add_test!(test_cosd);
+            add_test!(test_tand);
+            add_test!(test_asind);
+            add_test!(test_acosd);
+            add_test!(test_atand);
             add_test!(test_normalize);
             add_test!(test_magnitude);
             add_test!(test_vector_sum);

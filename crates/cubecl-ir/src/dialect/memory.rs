@@ -39,13 +39,14 @@ use crate::{
     attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
-        IndexableType, TriviallyUnrollable, TypedExt,
+        Deterministic, IndexableType, TrivialOp, TriviallyUnrollable, TypedExt,
         aliasing::AliasingOp,
         memory_slot::{
             DeletionKind, DestructurableAccessorOpInterface, DestructurableConstructorOpInterface,
             DestructurableTypeInterface, DestructurableValueSlot, LogicalResult,
             SafeMemorySlotAccessOpInterface, ValueSlot,
         },
+        side_effects::{Extent, MemoryEffect, MemoryEffectsOp, MemoryScope},
         uniformity::{UniformOpInterface, Uniformity},
     },
     prelude::*,
@@ -56,6 +57,10 @@ use crate::{
 #[pliron_attr(name = "memory.address_space", format = "$0", verifier = "succ")]
 #[derive(new, From, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct AddressSpaceAttr(pub AddressSpace);
+
+#[pliron_attr(name = "memory.scope", format = "$0", verifier = "succ")]
+#[derive(new, From, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub struct MemoryScopeAttr(pub MemoryScope);
 
 #[cube_op(name = "memory.declare_variable", format = "custom")]
 #[result_ty(from_inputs = variable_ptr_ty)]
@@ -271,7 +276,7 @@ fn variable_ptr_ty(
     format = "$0 `[` $1 `]` opt_attr($checked, $UnitAttr) ` : ` type($0)"
 )]
 #[result_ty(from_inputs = |ctx, base, _| indexed_ptr_ty(ctx, base))]
-#[op_interfaces(OperandNOfType<0, PointerType>, OperandNOfType<1, IndexType>)]
+#[op_interfaces(OperandNOfType<0, PointerType>, OperandNOfType<1, IndexType>, TrivialOp)]
 #[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct IndexOp {
     pub base: Value,
@@ -365,7 +370,7 @@ pub struct UnrelatedAllocInfo;
 
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
-#[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
+#[op_interfaces(Deterministic, OperandNOfType<0, PointerType>, TriviallyUnrollable)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]
@@ -438,7 +443,8 @@ pub struct StoreOp {
 
 impl Verify for StoreOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let ptr_value_ty = ptr_value_ty(ctx, &self.ptr(ctx));
         let value_ty = self.value(ctx).get_type(ctx);
         if ptr_value_ty != value_ty {
@@ -499,11 +505,23 @@ impl SafeMemorySlotAccessOpInterface for StoreOp {
 #[op_interfaces(OperandNOfType<0, PointerType>, SameOperandsType)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CopyOp {
-    #[operand(ptr_read)]
     pub source: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub len: IndexAttr,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for CopyOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let extent = match self.source(ctx).get_type(ctx).unwrap_ptr(ctx).try_size(ctx) {
+            Some(size) => Extent::Exact(size * self.len(ctx).0),
+            None => Extent::Unknown,
+        };
+        vec![
+            MemoryEffect::Read((self.source(ctx), extent).into()),
+            MemoryEffect::Write((self.destination(ctx), extent).into()),
+        ]
+    }
 }
 
 #[op_interface_impl]

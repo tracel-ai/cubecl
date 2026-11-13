@@ -94,6 +94,10 @@ pub struct Graph<D: GraphDriver> {
     /// lifetime for the same reason: a memcpy node keeps the raw host
     /// pointer, and every replay reads through it again.
     _retained_host: Vec<Bytes>,
+    /// The memory of other devices the recorded launches bind, kept in place on
+    /// its owner for the graph's lifetime: every replay dereferences the same
+    /// addresses.
+    _retained_peers: Vec<BufferBinding>,
     /// The buffers the recorded launches write, deduplicated. A replay that
     /// fails to enqueue runs none of those launches, so it leaves every one of
     /// these as it was — claiming them is what makes a later read of one fail,
@@ -325,6 +329,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // raw pointers, so they live with the graph; on a window that seals
         // no graph they drop here, since its copies never ran and never will.
         let retained_host = stream.capturing().take_retained_host();
+        let retained_peers = stream.capturing().take_retained_peers();
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
         let signal = stream.signal();
@@ -351,6 +356,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                     exec,
                     _guards: guards,
                     _retained_host: retained_host,
+                    _retained_peers: retained_peers,
                     written,
                 })
             }

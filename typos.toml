@@ -23,6 +23,14 @@ ue4m3 = "ue4m3"
 ue8m0 = "ue8m0"
 ue8m0x2 = "ue8m0x2"
 
+[default.extend-words]
+# `arange`, a tensor holding 0, 1, 2…: `assert_matmul_arange` in the tile tests.
+arange = "arange"
+# N-dimensional: `Tile::nd`, `nd_transparent`.
+nd = "nd"
+# Partition counts along m and n: `(pm, pn, gm, gn)` in the tile matmul tests.
+pn = "pn"
+
 [files]
 extend-exclude = [
     "crates/cubecl-opt/tests", # Many false positives because of abbreviated names

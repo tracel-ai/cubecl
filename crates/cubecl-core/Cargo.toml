@@ -11,6 +11,7 @@ license.workspace = true
 name = "cubecl-core"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-core"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -29,11 +30,18 @@ export_tests = [
 ]
 nvidia = ["cubecl-ir/nvidia"]
 persistence = ["cubecl-runtime/persistence"]
-std = ["cubecl-runtime/std", "pliron/std", "cubecl-environment/std"]
+std = [
+    "cubecl-runtime/std",
+    "pliron/std",
+    "cubecl-environment/std",
+    "dep:sanitize-filename",
+]
 template = []
 tokio = ["cubecl-runtime/tokio"]
 
 tracing = ["dep:tracing", "cubecl-runtime/tracing", "cubecl-ir/tracing"]
+warn-redundant-comptime = ["cubecl-macros/warn-redundant-comptime"]
+warn-redundant-allow = ["cubecl-macros/warn-redundant-allow"]
 
 [dependencies]
 # Runtime Deps
@@ -61,6 +69,7 @@ num-complex = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
+sanitize-filename = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true, optional = true }

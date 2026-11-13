@@ -62,7 +62,8 @@ impl CubePrimitive for TensorLayout {
     fn from_const_value(_: cubecl_ir::ConstantValue) -> Self {
         panic!("Can't construct tensor layout from constant")
     }
-
+}
+impl ConstantTyped for TensorLayout {
     fn __expand_as_type(_scope: &Scope) -> TypeHandle {
         unimplemented!()
     }
@@ -83,7 +84,8 @@ impl CubePrimitive for TensorReinterpret {
     fn from_const_value(_: cubecl_ir::ConstantValue) -> Self {
         panic!("Can't construct tensor layout from constant")
     }
-
+}
+impl ConstantTyped for TensorReinterpret {
     fn __expand_as_type(_scope: &Scope) -> TypeHandle {
         unimplemented!()
     }

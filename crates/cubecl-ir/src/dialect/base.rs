@@ -1,4 +1,4 @@
-use core::cell::Ref;
+use core::{any::Any, cell::Ref, hash::Hash};
 
 use crate::{
     EnumSet, FastMath,
@@ -48,6 +48,7 @@ pub trait BlockPtrExt: Sized {
     fn arguments(self, ctx: &Context) -> Vec<Value>;
     fn is_empty(&self, ctx: &Context) -> bool;
     fn is_entry_block(&self, ctx: &Context) -> bool;
+    fn is_exit_block(&self, ctx: &Context) -> bool;
     fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
         &self,
         ctx: &Context,
@@ -61,6 +62,11 @@ pub trait RegionPtrExt: Sized {
 
 pub trait OperationExt {
     fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>>;
+}
+
+pub trait UniquedExt<T> {
+    fn map(&self, ctx: &Context, update: impl FnOnce(T) -> T) -> Self;
+    fn update<R>(&mut self, ctx: &Context, update: impl FnOnce(&mut T) -> R) -> R;
 }
 
 impl OperationPtrExt for Ptr<Operation> {
@@ -174,6 +180,12 @@ impl BlockPtrExt for Ptr<BasicBlock> {
             .is_some_and(|region| region.deref(ctx).get_entry_block() == Some(*self))
     }
 
+    fn is_exit_block(&self, ctx: &Context) -> bool {
+        self.deref(ctx)
+            .get_terminator(ctx)
+            .is_some_and(|it| it.deref(ctx).get_num_successors() == 0)
+    }
+
     fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
         &self,
         ctx: &Context,
@@ -194,6 +206,20 @@ impl RegionPtrExt for Ptr<Region> {
 
     fn is_empty(&self, ctx: &Context) -> bool {
         self.entry_node(ctx).is_none()
+    }
+}
+
+impl<T: Any + Hash + Eq + Send + Clone> UniquedExt<T> for Uniqued<T> {
+    fn map(&self, ctx: &Context, map: impl FnOnce(T) -> T) -> Self {
+        let new = map(self.get(ctx).clone());
+        Uniqued::new(ctx, new)
+    }
+
+    fn update<R>(&mut self, ctx: &Context, update: impl FnOnce(&mut T) -> R) -> R {
+        let mut new = self.get(ctx).clone();
+        let res = update(&mut new);
+        *self = Uniqued::new(ctx, new);
+        res
     }
 }
 
@@ -227,6 +253,7 @@ use pliron::{
     op::{OpInterfaceMarker, OpObj, op_impls},
     region::Region,
     r#type::TypeHandle,
+    uniqued_any::Uniqued,
     value::Use,
 };
 pub(crate) use pure_unop;

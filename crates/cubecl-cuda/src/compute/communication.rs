@@ -5,20 +5,28 @@
 //! rank in one is — is the shared
 //! [`Collectives`](cubecl_server::command::Collectives)'.
 
-use core::ffi::c_int;
-use std::{collections::HashMap, sync::OnceLock};
+use core::{ffi::c_int, fmt::Display};
+use std::{
+    collections::HashMap,
+    sync::{Once, OnceLock},
+};
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError},
+    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError, TransportProvider},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
-use cubecl_server::command::{CollectiveDriver, Elements};
+use cubecl_server::{
+    command::{CollectiveDriver, Elements, StreamSignal},
+    runtime::Runtime,
+};
 use cudarc::nccl::sys::ncclDataType_t as NcclDataType;
 use std::mem::MaybeUninit;
 
+use crate::CudaRuntime;
 use crate::compute::driver::Cuda;
+use crate::compute::events::Fence;
 use crate::compute::storage::gpu::GpuResource;
 
 /// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
@@ -33,9 +41,6 @@ fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
     }
 }
 
-/// What a collective that only moves data names its buffers as, whatever they hold.
-pub const BYTES: ElemType = ElemType::UInt(UIntKind::U8);
-
 /// NCCL 2.10.3, the first with bfloat16.
 const NCCL_BF16_VERSION: c_int = 21003;
 
@@ -44,30 +49,6 @@ const NCCL_FP8_REDUCTION_VERSION: c_int = 22902;
 
 /// NCCL reduces FP8 only on Hopper and newer.
 const NCCL_FP8_REDUCTION_ARCH: u32 = 90;
-
-/// The elements of `dtype` that `size` bytes hold, as NCCL names them.
-///
-/// # Errors
-///
-/// [`ServerError::Generic`] for an element type NCCL has no data type for, and for a size that
-/// is not whole elements, whose last bytes NCCL would leave out.
-fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<NcclDataType>, ServerError> {
-    let data_type = nccl_dtype(dtype).ok_or_else(|| ServerError::Generic {
-        reason: format!("NCCL has no data type for {dtype:?}, so no collective over it"),
-        backtrace: BackTrace::capture(),
-    })?;
-    let width = dtype.size() as u64;
-    if !size.is_multiple_of(width) {
-        return Err(ServerError::Generic {
-            reason: format!("{size} bytes are not whole {dtype:?} elements"),
-            backtrace: BackTrace::capture(),
-        });
-    }
-    Ok(Elements {
-        data_type,
-        count: (size / width) as usize,
-    })
-}
 
 /// The NCCL this process loads, which may predate types this crate names, and the device it
 /// runs on.
@@ -81,6 +62,7 @@ impl Nccl {
     pub fn new(arch_version: u32) -> Option<Self> {
         // SAFETY: the call only tries to `dlopen` each candidate name.
         if !unsafe { cudarc::nccl::sys::is_culib_present() } {
+            log_host_fallback("NCCL is not installed");
             return None;
         }
         match cudarc::nccl::result::get_nccl_version() {
@@ -89,9 +71,7 @@ impl Nccl {
                 arch_version,
             }),
             Err(err) => {
-                log::warn!(
-                    "NCCL loaded but gave no version, so transfers go through the host: {err:?}"
-                );
+                log_host_fallback(format_args!("NCCL loaded but gave no version: {err:?}"));
                 None
             }
         }
@@ -100,6 +80,7 @@ impl Nccl {
     /// The transport NCCL gives a device that supports `types`.
     pub fn transport(&self, types: impl Iterator<Item = ElemType>) -> DeviceTransport {
         DeviceTransport {
+            provider: TransportProvider::Nccl,
             reduces: types.filter(|dtype| self.reduces(*dtype)).collect(),
         }
     }
@@ -114,6 +95,24 @@ impl Nccl {
             dtype => nccl_dtype(dtype).is_some(),
         }
     }
+}
+
+/// Logs once per process, and only where there is more than one CUDA device to move data
+/// between, that `cause` sends transfers between them through the host and runs no collective
+/// between them.
+fn log_host_fallback(cause: impl Display) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        if CudaRuntime::enumerate_devices(0).len() > 1 {
+            const FALLBACK: &str = "Transfers between CUDA devices go through the host, which is \
+                                    much slower, and cubecl runs no collective between them";
+            match cfg!(windows) {
+                // NCCL does not ship for Windows, where nobody can act on the fallback.
+                true => log::info!("{FALLBACK}: NCCL does not run on Windows."),
+                false => log::warn!("{FALLBACK}: {cause}. Installing NCCL fixes both."),
+            }
+        }
+    });
 }
 
 /// The NCCL data type for `dtype`.
@@ -162,7 +161,15 @@ impl CollectiveDriver for Cuda {
     type Communicator = cudarc::nccl::sys::ncclComm_t;
     type UniqueId = cudarc::nccl::sys::ncclUniqueId;
     type DataType = NcclDataType;
-    type CommStream = cudarc::driver::sys::CUstream;
+
+    const LIBRARY: &'static str = TransportProvider::Nccl.name();
+
+    fn wait_for(
+        stream: StreamSignal<Self>,
+        queued_on: StreamSignal<Self>,
+    ) -> Result<(), ServerError> {
+        Fence::new(queued_on).wait_async(stream)
+    }
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
         let mut ids = UNIQUE_IDS_MAP.get_or_init(Default::default).lock();
@@ -200,8 +207,8 @@ impl CollectiveDriver for Cuda {
         }
     }
 
-    fn elements(dtype: ElemType, size: u64) -> Result<Elements<Self::DataType>, ServerError> {
-        nccl_elements(dtype, size)
+    fn data_type(dtype: ElemType) -> Option<Self::DataType> {
+        nccl_dtype(dtype)
     }
 
     fn all_reduce(
@@ -210,7 +217,7 @@ impl CollectiveDriver for Cuda {
         dst: &GpuResource,
         elements: Elements<Self::DataType>,
         op: ReduceOperation,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
         // SAFETY: both pointers are live device allocations, `comm` was joined
         // by `join` above, and `stream` is the dedicated collective stream.
@@ -237,7 +244,7 @@ impl CollectiveDriver for Cuda {
         src: &GpuResource,
         dst: &GpuResource,
         elements: Elements<Self::DataType>,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
         // SAFETY: both pointers are live device allocations, `dst` holding one `src` per rank,
         // `comm` was joined by `join` above, and `stream` is the dedicated collective stream.
@@ -261,7 +268,7 @@ impl CollectiveDriver for Cuda {
         dst: &GpuResource,
         elements: Elements<Self::DataType>,
         op: ReduceOperation,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
         // SAFETY: both pointers are live device allocations, `src` holding one `dst` per rank,
         // `comm` was joined by `join` above, and `stream` is the dedicated collective stream.
@@ -286,7 +293,7 @@ impl CollectiveDriver for Cuda {
         dst: &GpuResource,
         elements: Elements<Self::DataType>,
         root: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
         // NCCL reads the send buffer on the root only, so the other ranks name their own.
         let src = src.unwrap_or(dst);
@@ -313,8 +320,15 @@ impl CollectiveDriver for Cuda {
         dst: &GpuResource,
         elements: Elements<Self::DataType>,
         ranks: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
+        // Its sends would read chunks its receives are overwriting.
+        if src.ptr < dst.ptr + dst.size && dst.ptr < src.ptr + src.size {
+            return Err(ServerError::Generic {
+                reason: "an all_to_all's source and destination overlap".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
         let chunk = src.size / ranks as u64;
         // One send and one receive per rank, itself included, grouped so NCCL pairs them as one
         // operation; older releases have no `ncclAlltoAll`.
@@ -356,7 +370,7 @@ impl CollectiveDriver for Cuda {
         src: &GpuResource,
         elements: Elements<Self::DataType>,
         peer: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
         // SAFETY: `src.ptr` is a live device allocation, `comm` was joined by
         // `join` above, and `stream` is the stream transfers run on.
@@ -382,7 +396,7 @@ impl CollectiveDriver for Cuda {
         dst: &GpuResource,
         elements: Elements<Self::DataType>,
         peer: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
         // SAFETY: `dst.ptr` is a live device allocation, `comm` was joined by
         // `join` above, and `stream` is the stream transfers run on.
@@ -446,7 +460,7 @@ mod tests {
     #[test]
     fn nccl_refuses_a_partial_element() {
         let f32 = ElemType::Float(FloatKind::F32);
-        assert_eq!(nccl_elements(f32, 12).map(|it| it.count).ok(), Some(3));
-        assert!(nccl_elements(f32, 6).is_err());
+        assert_eq!(Cuda::elements(f32, 12).map(|it| it.count).ok(), Some(3));
+        assert!(Cuda::elements(f32, 6).is_err());
     }
 }

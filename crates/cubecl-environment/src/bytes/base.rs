@@ -93,6 +93,15 @@ pub trait AllocationController {
     /// Returns memory property for the current allocation.
     fn property(&self) -> AllocationProperty;
 
+    /// Whether these bytes may share backing storage with another owner that can write to it.
+    ///
+    /// Holding a guard that restricts when that owner may write does not change this property.
+    /// Returns `false` when the exposed bytes are independent of such storage, including after
+    /// copy-on-write. Sharing immutable storage alone does not make this return `true`.
+    ///
+    /// This query must not materialize storage or invalidate previously returned memory.
+    fn may_alias_mutable_storage(&self) -> bool;
+
     /// Returns a mutable view of the memory of the whole allocation, subject to `policy`.
     ///
     /// Returns [`AccessError::WouldCopy`] if satisfying the access would require a copy
@@ -468,6 +477,14 @@ impl Bytes {
     pub fn property(&self) -> AllocationProperty {
         self.controller.property()
     }
+
+    /// Whether these bytes may share backing storage with another owner that can write to it.
+    ///
+    /// See [`AllocationController::may_alias_mutable_storage`]. This query does not materialize the bytes.
+    pub fn may_alias_mutable_storage(&self) -> bool {
+        self.controller.may_alias_mutable_storage()
+    }
+
     /// Creates the type from its raw parts.
     ///
     /// # Safety

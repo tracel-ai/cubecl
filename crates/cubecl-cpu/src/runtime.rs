@@ -264,7 +264,10 @@ impl DeviceService for CpuServer {
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
         #[cfg(compilation_cache)]
-        let store = cubecl_server::compiler::ArtifactStore::new("cpu", &fingerprint);
+        let store = cubecl_server::compiler::ArtifactStore::new(
+            cubecl_server::compiler::ArtifactRoot::Cpu,
+            &fingerprint,
+        );
 
         CpuServer::new(
             mem_properties,

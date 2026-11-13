@@ -2,7 +2,7 @@ use core::cell::RefMut;
 
 use alloc::{boxed::Box, vec::Vec};
 use cubecl_ir::{
-    interfaces::side_effects::{MemoryEffect, ModRefResult},
+    interfaces::side_effects::{Extent, MemoryEffect, ModRefResult},
     prelude::*,
 };
 use pliron::{context::Context, pass::AnalysisManager, value::Value};
@@ -37,7 +37,7 @@ impl AliasResult {
 }
 
 pub trait AliasAnalysis {
-    fn alias(&self, ctx: &Context, lhs: Value, rhs: Value) -> AliasResult;
+    fn alias(&self, ctx: &Context, lhs: (Value, Extent), rhs: (Value, Extent)) -> AliasResult;
     fn mod_ref(&self, ctx: &Context, location: &MemoryEffect, rhs: &MemoryEffect) -> ModRefResult;
 }
 
@@ -51,7 +51,7 @@ impl AliasAnalysisStack {
         self.analyses.push(Box::new(analysis));
     }
 
-    pub fn alias(&self, ctx: &Context, lhs: Value, rhs: Value) -> AliasResult {
+    pub fn alias(&self, ctx: &Context, lhs: (Value, Extent), rhs: (Value, Extent)) -> AliasResult {
         let mut result = AliasResult::MayAlias;
         for analysis in self.analyses.iter() {
             result = analysis.alias(ctx, lhs, rhs);
@@ -81,6 +81,9 @@ impl AliasAnalysisStack {
                     effect_res &= analysis.mod_ref(ctx, lhs_effect, rhs_effect);
                 }
                 result |= effect_res;
+                if result == ModRefResult::ModRef {
+                    return result;
+                }
             }
         }
 

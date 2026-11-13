@@ -1,5 +1,3 @@
-use cubecl_common::bytes::Bytes;
-
 /// Defines the thresholds that determine when a [`PendingDropQueue`] should be
 /// flushed.
 ///
@@ -30,12 +28,12 @@ pub(crate) struct FlushingPolicyState {
 }
 
 impl FlushingPolicyState {
-    /// Record a newly staged [`Bytes`] allocation.
-    pub(crate) fn register(&mut self, bytes: &Bytes) {
+    /// Record a newly staged allocation of `len` bytes.
+    pub(crate) fn register(&mut self, len: usize) {
         self.bytes_count = self.bytes_count.saturating_add(1);
         self.bytes_size = self
             .bytes_size
-            .saturating_add(u32::try_from(bytes.len()).unwrap_or(u32::MAX));
+            .saturating_add(u32::try_from(len).unwrap_or(u32::MAX));
     }
 
     /// Reset all counters, typically called after a flush.
@@ -52,7 +50,6 @@ impl FlushingPolicyState {
 
 #[cfg(test)]
 mod policy_tests {
-    use std::vec;
 
     use super::*;
 
@@ -80,7 +77,7 @@ mod policy_tests {
     fn flush_when_count_threshold_reached() {
         let mut s = state();
         for _ in 0..4 {
-            s.register(&Bytes::from_elems(vec![0u8]));
+            s.register(1);
         }
         assert!(s.should_flush(&policy()));
     }
@@ -88,7 +85,7 @@ mod policy_tests {
     #[test]
     fn flush_when_size_threshold_reached() {
         let mut s = state();
-        s.register(&Bytes::from_elems(vec![0u8; 101]));
+        s.register(101);
         assert!(s.should_flush(&policy()));
     }
 
@@ -96,8 +93,8 @@ mod policy_tests {
     fn flush_triggered_by_whichever_limit_comes_first() {
         let mut s = state();
         // Only 2 allocations but already over the size limit.
-        s.register(&Bytes::from_elems(vec![0u8; 60]));
-        s.register(&Bytes::from_elems(vec![0u8; 60]));
+        s.register(60);
+        s.register(60);
         assert!(s.should_flush(&policy()));
     }
 
@@ -109,7 +106,7 @@ mod policy_tests {
             bytes_count: u32::MAX,
             bytes_size: u32::MAX - 1,
         };
-        s.register(&Bytes::from_elems(vec![0u8; 8]));
+        s.register(8);
         assert_eq!(s.bytes_count, u32::MAX);
         assert_eq!(s.bytes_size, u32::MAX);
         assert!(s.should_flush(&policy()));
@@ -119,7 +116,7 @@ mod policy_tests {
     fn reset_clears_state() {
         let mut s = state();
         for _ in 0..4 {
-            s.register(&Bytes::from_elems(vec![0u8]));
+            s.register(1);
         }
         assert!(s.should_flush(&policy()));
         s.reset();

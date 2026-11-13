@@ -61,6 +61,9 @@ pub trait EventStreamBackend: 'static {
 /// when bindings (e.g., buffers) are shared across different streams.
 #[derive(Debug)]
 pub struct MultiStream<B: EventStreamBackend> {
+    /// Declared first, so it drops first: its thread is joined while the streams whose events
+    /// it waits on, and whose pinned memory it releases, still exist.
+    gc: GcThread<B>,
     /// The map of stream IDs to their corresponding stream wrappers.
     streams: StreamPool<EventStreamBackendWrapper<B>>,
     /// Every failure the device is still holding, and the write scope's
@@ -69,7 +72,6 @@ pub struct MultiStream<B: EventStreamBackend> {
     /// The logger used by the server.
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
-    gc: GcThread<B>,
     shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
 }
 
@@ -154,16 +156,24 @@ impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
     }
 }
 
+/// The thread that waits each [`GcTask`]'s event and then releases what it
+/// holds, joined when dropped.
+///
+/// Joined, not detached: its waits and releases call into the device's runtime,
+/// so it is done before the streams that fed it are, rather than racing whatever
+/// tears that runtime down after them, as a process exiting does.
 #[derive(Debug)]
 struct GcThread<B: EventStreamBackend> {
-    sender: SyncSender<GcTask<B>>,
+    /// `None` once dropped, which ends the thread's loop.
+    sender: Option<SyncSender<GcTask<B>>>,
+    thread: Option<cubecl_environment::thread::JoinHandle<()>>,
 }
 
 impl<B: EventStreamBackend> GcThread<B> {
     fn new() -> GcThread<B> {
         let (sender, recv) = std::sync::mpsc::sync_channel::<GcTask<B>>(8);
 
-        cubecl_environment::thread::spawn(move || {
+        let thread = cubecl_environment::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
                 match B::wait_event_sync(event.event) {
                     Ok(()) => core::mem::drop(event.to_drop),
@@ -172,10 +182,30 @@ impl<B: EventStreamBackend> GcThread<B> {
             }
         });
 
-        GcThread { sender }
+        GcThread {
+            sender: Some(sender),
+            thread: Some(thread),
+        }
     }
+
     fn register(&self, task: GcTask<B>) {
-        self.sender.send(task).unwrap()
+        self.sender
+            .as_ref()
+            .expect("the sender lives until the thread is dropped")
+            .send(task)
+            .unwrap()
+    }
+}
+
+impl<B: EventStreamBackend> Drop for GcThread<B> {
+    fn drop(&mut self) {
+        // Closing the channel ends the loop once the queued tasks are released.
+        core::mem::drop(self.sender.take());
+        if let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            log::warn!("the stream garbage collector panicked");
+        }
     }
 }
 
@@ -241,7 +271,7 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
 
     /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
-        self.gc.sender.send(gc).unwrap();
+        self.gc.register(gc);
     }
 }
 
@@ -280,11 +310,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub fn new(logger: Arc<ServerLogger>, backend: B, max_streams: u8) -> Self {
         let wrapper = EventStreamBackendWrapper { backend };
         Self {
+            gc: GcThread::new(),
             streams: StreamPool::new(wrapper, max_streams, 1),
             failures: Failures::new(logger.clone()),
             logger,
             max_streams: max_streams as usize,
-            gc: GcThread::new(),
             shared_bindings_pool: Vec::new(),
         }
     }
@@ -296,7 +326,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
     /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
-        self.gc.sender.send(gc).unwrap();
+        self.gc.register(gc);
     }
 
     /// The backend stream on `stream_id`'s slot when that slot was ever

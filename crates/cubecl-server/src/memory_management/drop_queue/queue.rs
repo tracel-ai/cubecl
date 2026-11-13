@@ -1,4 +1,4 @@
-use crate::server::ServerError;
+use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
 
@@ -63,14 +63,24 @@ pub trait Fence: Sized {
 pub struct PendingDropQueue<E: Fence> {
     /// Fence signalling that the device has consumed everything in `pending`.
     fence: Option<E>,
-    /// Bytes from the *previous* flush cycle, kept alive until `event` fires.
-    pending: Vec<Bytes>,
-    /// Bytes queued in the *current* cycle, not yet associated with a fence.
-    staged: Vec<Bytes>,
+    /// What the *previous* flush cycle held, kept alive until `event` fires.
+    pending: Vec<Held>,
+    /// What the *current* cycle holds, not yet associated with a fence.
+    staged: Vec<Held>,
     /// The configuration of the queue.
     policy: FlushingPolicy,
     /// The current state of the policy.
     policy_state: FlushingPolicyState,
+}
+
+/// What the queue keeps alive until the device is done with it.
+#[derive(Debug)]
+enum Held {
+    /// Host memory an upload reads.
+    Bytes(#[allow(unused)] Bytes),
+    /// Memory of another device a kernel binds: held, it stays allocated and
+    /// in place there.
+    Peer(#[allow(unused)] BufferBinding),
 }
 
 impl<E: Fence> core::fmt::Debug for PendingDropQueue<E> {
@@ -111,8 +121,30 @@ impl<F: Fence> PendingDropQueue<F> {
     /// [`Window`](crate::command::Window), which carry the capture-deferral
     /// rule a backend touching the queue directly would have to remember.
     pub(crate) fn push(&mut self, bytes: Bytes) {
-        self.policy_state.register(&bytes);
-        self.staged.push(bytes);
+        self.policy_state.register(bytes.len());
+        self.staged.push(Held::Bytes(bytes));
+    }
+
+    /// Keep `binding`, memory of another device, allocated and in place
+    /// until the device finished the work queued so far, the kernel that
+    /// binds it included.
+    ///
+    /// It counts toward the policy as an entry and not by its size: holding it
+    /// costs this device nothing, and a size-driven flush after each large
+    /// peer buffer would make every such launch wait on the one before. A
+    /// sync drains whatever peer memory is still held, so it does not stay
+    /// pinned on its owner for as long as this stream idles.
+    pub(crate) fn hold_peer(&mut self, binding: BufferBinding) {
+        self.policy_state.register(0);
+        self.staged.push(Held::Peer(binding));
+    }
+
+    /// Whether the queue holds memory of another device.
+    pub(crate) fn holds_peers(&self) -> bool {
+        self.staged
+            .iter()
+            .chain(&self.pending)
+            .any(|held| matches!(held, Held::Peer(_)))
     }
 
     /// Returns `true` when the staged batch is large enough to justify a

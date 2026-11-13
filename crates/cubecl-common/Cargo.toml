@@ -11,6 +11,7 @@ license.workspace = true
 name = "cubecl-common"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -60,6 +61,9 @@ xxhash-rust = { workspace = true, features = [
     "xxh3",
     "const_xxh3",
 ], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }

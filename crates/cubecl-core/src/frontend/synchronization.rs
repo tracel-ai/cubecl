@@ -1,8 +1,9 @@
+pub use crate::ir::dialect::synchronization::{MemoryOrder, SyncScope};
 use crate::{
     frontend::{NativeExpand, element::Atomic},
     ir::{
         Scope,
-        dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+        dialect::synchronization::{FenceOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp},
     },
     prelude::{CubePrimitive, Numeric},
     unexpanded,
@@ -44,6 +45,27 @@ pub mod sync_plane {
     }
 }
 
+/// [`sync_plane()`] over storage memory (input args) as well as shared memory.
+///
+/// The units of the plane meet, and every write one of them made to storage before it is visible
+/// to the others after it. Only the units of the plane must reach it, unlike [`sync_storage()`],
+/// so a window a plane holds can hand its own units what they wrote to global memory. It orders
+/// nothing for other planes or other cubes.
+///
+/// Warning: as with [`sync_plane()`], a target without plane-level synchronization (WebGPU) lowers
+/// it to a cube barrier, which every unit of the cube must reach.
+pub fn sync_plane_storage() {
+    unexpanded!()
+}
+
+pub mod sync_plane_storage {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        scope.register(&SyncPlaneStorageOp::new(scope.ctx_mut()));
+    }
+}
+
 /// [`sync_cube`] over storage memory (input args) rather than shared memory, and the one
 /// synchronization that reaches past the cube.
 ///
@@ -56,9 +78,12 @@ pub mod sync_plane {
 ///
 /// **Only where the runtime says so.** WebGPU's memory model promises nothing across workgroups,
 /// so on a backend whose
-/// [`device_memory_scope`](cubecl_ir::Features::device_memory_scope) is `false` this is a cube
+/// [`device_memory_scope`] is `false` this is a cube
 /// barrier and no more, and a cube reading another's writes may read them stale. Ask before
 /// launching a kernel that depends on the promise.
+///
+/// [`sync_cube`]: fn@sync_cube
+/// [`device_memory_scope`]: cubecl_ir::features::Features::device_memory_scope
 pub fn sync_storage() {}
 
 pub mod sync_storage {
@@ -66,6 +91,46 @@ pub mod sync_storage {
 
     pub fn expand(scope: &Scope) {
         scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Device));
+    }
+}
+
+/// [`sync_storage`] at system scope: the release and acquire also reach the host and kernels on
+/// other devices that bind this memory.
+///
+/// Every unit of the cube must reach it. What this cube wrote before it, to its own device's
+/// storage or to a peer's, is visible to a kernel on another device that synchronizes at system
+/// scope after reading the signal this cube then publishes, and what such a kernel published
+/// before its signal is visible here once this cube read the signal and called it. Signal through
+/// an atomic at [`SyncScope::System`], such as [`Atomic::store_at`] and [`Atomic::load_at`]: a
+/// device-scope atomic does not reach the other device.
+///
+/// On a runtime that shares no memory between devices this is [`sync_storage`].
+pub fn sync_system() {}
+
+pub mod sync_system {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::System));
+    }
+}
+
+/// One unit's memory fence at `sync`: no barrier, so no unit waits for another and it is valid in
+/// divergent code. A hand-off through it needs an atomic flag whose access scope (see
+/// [`Atomic::load_at`] and [`Atomic::store_at`]) covers both units. At [`Unit`](SyncScope::Unit)
+/// scope it emits nothing, and WebGPU and Metal reject it at compile time.
+#[allow(unused_variables)]
+pub fn fence(order: MemoryOrder, sync: SyncScope) {
+    unexpanded!()
+}
+
+pub mod fence {
+    use super::*;
+
+    pub fn expand(scope: &Scope, order: MemoryOrder, sync: SyncScope) {
+        if sync != SyncScope::Unit {
+            scope.register(&FenceOp::new(scope.ctx_mut(), order, sync));
+        }
     }
 }
 
@@ -92,6 +157,9 @@ pub mod sync_async_proxy_shared {
 /// [`sync_cube`] plus a plain load.
 ///
 /// Use [`workgroup_uniform_load_atomic`] for `Atomic<E>`.
+///
+/// [`sync_cube`]: fn@sync_cube
+/// [`workgroup_uniform_load_atomic`]: fn@workgroup_uniform_load_atomic
 #[allow(unused_variables)]
 pub fn workgroup_uniform_load<E: CubePrimitive>(reference: &E) -> E {
     unexpanded!()
@@ -119,6 +187,8 @@ pub mod workgroup_uniform_load {
 /// Atomic counterpart of [`workgroup_uniform_load`]: barrier + atomic load,
 /// returning the underlying numeric (WGSL's atomic `workgroupUniformLoad`
 /// overload).
+///
+/// [`workgroup_uniform_load`]: fn@workgroup_uniform_load
 #[allow(unused_variables)]
 pub fn workgroup_uniform_load_atomic<E: CubePrimitive<Scalar: Numeric>>(
     reference: &Atomic<E>,

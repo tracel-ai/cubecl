@@ -27,6 +27,10 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+/// The source directory of the kernel debug data.
+#[cfg(feature = "std")]
+pub mod debug_source;
+
 /// Various identifier types used in `CubeCL`.
 pub mod id;
 
@@ -59,7 +63,8 @@ pub mod storage;
 /// `CubeCL` config module.
 pub mod config;
 
-pub use cubecl_common::benchmark;
+/// Benchmarks: one device's, and one timed on several devices at once.
+pub mod benchmark;
 
 /// Logging utilities to be used by a compute server.
 pub mod logging;
@@ -72,7 +77,6 @@ pub mod compiler;
 /// Device identity and properties.
 pub mod description;
 pub mod execution;
-pub mod launched;
 /// The payload every error type carries when the device is poisoned.
 pub mod poison;
 /// Runtime trait and related types

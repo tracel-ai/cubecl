@@ -5,7 +5,13 @@
 
 use cubecl_core::{
     frontend::reinterpret_value,
-    ir::{Scope, dialect::atomic::*, interfaces::TypedExt, prelude::*, types::VectorType},
+    ir::{
+        Scope,
+        dialect::{atomic::*, synchronization::SyncScope},
+        interfaces::TypedExt,
+        prelude::*,
+        types::VectorType,
+    },
 };
 use pliron::{
     builtin::types::{IntegerType, Signedness},
@@ -108,9 +114,14 @@ macro_rules! atomic_binop {
                 let vec = atom_vec(ctx, value);
                 let ftz = atom_ftz(ctx, value);
                 let ty = $atom_ty(ctx, value);
+                // PTX's default scope is the GPU's; `.sys` also reaches the host and peers.
+                let sys = match atomic_scope(ctx, self.get_operation()) {
+                    SyncScope::System => ".sys",
+                    _ => "",
+                };
                 let value = as_registers(scope, value);
 
-                let ptx = format!("atom.relaxed.{}{ftz}{vec}.{ty} $0, [$1], $2;", $op);
+                let ptx = format!("atom.relaxed{sys}.{}{ftz}{vec}.{ty} $0, [$1], $2;", $op);
                 let op = InlinePtxOp::new_volatile(
                     ctx,
                     Some(value.get_type(ctx)),
@@ -124,12 +135,53 @@ macro_rules! atomic_binop {
     };
 }
 
+/// An add whose old value nothing reads: `red`, which hands nothing back, so the add issues and the
+/// thread moves on, where `atom` waits for the old value to return. PTX adds a vector by `red`
+/// into global memory only, which is the only memory vector atomics address.
+macro_rules! atomic_add {
+    ($ty: ty) => {
+        #[op_interface_impl]
+        impl LowerOpAfterUnroll<Cuda> for $ty {
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                let ctx = scope.ctx_mut();
+                let ptr = self.ptr(ctx);
+                let value = self.value(ctx);
+                let result = self.get_result(ctx);
+                let out_ty = result.get_type(ctx);
+                let vec = atom_vec(ctx, value);
+                let ftz = atom_ftz(ctx, value);
+                let ty = atom_ty(ctx, value);
+                let unread = result.num_uses(ctx) == 0;
+                let registers = as_registers(scope, value);
+                if unread {
+                    let space = if vec.is_empty() { "" } else { ".global" };
+                    let ptx = format!("red.relaxed.gpu{space}.add{ftz}{vec}.{ty} [$0], $1;");
+                    let op = InlinePtxOp::new_volatile(ctx, None, ptx, vec![ptr, registers]);
+                    op.set_clobbers(ctx, vec!["memory".to_string()]);
+                    scope.register(&op);
+                    // Nothing reads the result; the value added stands in for it.
+                    return vec![value];
+                }
+                let ptx = format!("atom.relaxed.add{ftz}{vec}.{ty} $0, [$1], $2;");
+                let op = InlinePtxOp::new_volatile(
+                    ctx,
+                    Some(registers.get_type(ctx)),
+                    ptx,
+                    vec![ptr, registers],
+                );
+                scope.register(&op);
+                vec![reinterpret_value(scope, op.result(ctx).unwrap(), out_ty)]
+            }
+        }
+    };
+}
+
 packable!(AtomicFAddOp);
 packable!(AtomicFMinOp);
 packable!(AtomicFMaxOp);
 
-atomic_binop!(AtomicIAddOp, "add", atom_ty);
-atomic_binop!(AtomicFAddOp, "add", atom_ty);
+atomic_add!(AtomicIAddOp);
+atomic_add!(AtomicFAddOp);
 atomic_binop!(AtomicSMinOp, "min", atom_ty_cmp);
 atomic_binop!(AtomicUMinOp, "min", atom_ty_cmp);
 atomic_binop!(AtomicFMinOp, "min", atom_ty_cmp);

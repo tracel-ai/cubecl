@@ -148,7 +148,7 @@ pub fn expand_u_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
 #[cube]
 fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
     let half_bits = T::size_bits().comptime() / 2;
-    let low_mask = Vector::new(T::new(comptime!((1i64 << half_bits) - 1)));
+    let low_mask = Vector::new(T::new((1i64 << half_bits) - 1));
     let shift = Vector::new(T::new(half_bits as i64));
 
     let lhs_low = lhs & low_mask;
@@ -302,22 +302,22 @@ fn powi_constant<T: Float, N: Size>(base: Vector<T, N>, #[comptime] exp: i32) ->
     let mut factor = base;
     let mut result = Vector::one();
     #[unroll]
-    for bit in 0..comptime!(32 - magnitude.leading_zeros()) {
-        if comptime!(magnitude & (1 << bit) != 0) {
-            if comptime!(bit == magnitude.trailing_zeros()) {
+    for bit in 0..(32 - magnitude.leading_zeros()) {
+        if magnitude & (1 << bit) != 0 {
+            if bit == magnitude.trailing_zeros() {
                 result = factor;
             } else {
                 result *= factor;
             }
         }
-        if comptime!(bit + 1 < 32 - magnitude.leading_zeros()) {
+        if bit + 1 < 32 - magnitude.leading_zeros() {
             factor *= factor;
         }
     }
-    if comptime!(exp < 0) {
+    if exp < 0 {
         let reciprocal = Vector::one() / result;
         result = reciprocal * reciprocal;
-        if comptime!(exp & 1 != 0) {
+        if exp & 1 != 0 {
             result /= base;
         }
     }
@@ -370,27 +370,50 @@ fn powi_runtime<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> V
     result
 }
 
-/// Wrapping integer power, interpreting the exponent as `u32`.
+/// Integer power with a signed exponent.
+///
+/// A non-negative exponent gives the wrapping power, like [`powi_unsigned`]. A negative exponent
+/// gives `1 / base^|exp|` truncated toward zero: 1 for a base of 1, 1 or -1 by the exponent's
+/// parity for a base of -1, and 0 for any other base, including 0.
 #[cube]
 pub fn powi_int<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let one = Vector::<T, N>::one();
+    // Read as `u32`, a negative exponent keeps its parity, so the wrapping power is already the
+    // truncated one for a base of 1 or -1.
+    let power = powi_unsigned(base, Vector::<u32, N>::cast_from(exp));
+
+    // Only a signed base can be -1. For an unsigned one, `T::new(-1)` would be its maximum value.
+    let dtype = elem_type_of::<T>().comptime();
+    let unit_base = if dtype.is_signed_int() {
+        base.equal(&one).or(base.equal(&Vector::new(T::new(-1))))
+    } else {
+        base.equal(&one)
+    };
+    let truncated = select_many(unit_base, power, Vector::zero());
+
+    select_many(exp.less_than(&Vector::zero()), truncated, power)
+}
+
+/// Wrapping integer power with an unsigned exponent, like the primitive `wrapping_pow`.
+#[cube]
+pub fn powi_unsigned<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<u32, N>) -> Vector<T, N> {
     // Use unsigned arithmetic so intermediate squares wrap on C++ backends too.
     // Narrow integers can use u32: truncating the final result preserves their low bits
     // and avoids C++ integer promotion turning multiplication into signed arithmetic.
     if T::size_bits().comptime() <= 32 {
-        Vector::cast_from(powi_int_unsigned::<u32, N>(Vector::cast_from(base), exp))
+        Vector::cast_from(powi_unsigned_wide::<u32, N>(Vector::cast_from(base), exp))
     } else {
-        Vector::cast_from(powi_int_unsigned::<u64, N>(Vector::cast_from(base), exp))
+        Vector::cast_from(powi_unsigned_wide::<u64, N>(Vector::cast_from(base), exp))
     }
 }
 
 // Only instantiate with u32 or u64 to keep multiplication unsigned on every backend.
 #[cube]
-fn powi_int_unsigned<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+fn powi_unsigned_wide<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<u32, N>) -> Vector<T, N> {
     let one_u = Vector::<u32, N>::new(1);
     let one_t = Vector::<T, N>::new(T::from_int(1));
 
-    // Integer powers use an unsigned exponent, matching primitive integer `pow` semantics.
-    let mut exp = Vector::<u32, N>::cast_from(exp);
+    let mut exp = exp;
     let mut result = one_t;
     let mut factor = base;
 
@@ -418,7 +441,7 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 pub fn cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     let zero = Vector::<T, N>::zero();
     let mag = input.abs();
-    let approx = mag.powf(Vector::new(T::new(comptime!(1.0 / 3.0))));
+    let approx = mag.powf(Vector::new(T::new(1.0 / 3.0)));
     let refined = (approx + approx + mag / (approx * approx)) / Vector::new(T::new(3.0));
     let root = select_many(mag.equal(&zero).or(mag.is_inf()), approx, refined);
     select_many(input.less_than(&zero), -root, root)

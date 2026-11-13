@@ -8,7 +8,9 @@ macro_rules! hip_op {
         }
     };
 }
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
+use cubecl_core::ir::dialect::synchronization::{
+    FenceOp, MemoryOrder, SyncOp, SyncPlaneStorageOp, SyncScope,
+};
 pub(super) use hip_op;
 
 macro_rules! hip_op_with_out {
@@ -44,9 +46,35 @@ __builtin_amdgcn_wave_barrier();\n"
         // As on CUDA: `__syncthreads` is the block's own ordering, and the fence is what makes
         // this block's writes visible to the others.
         SyncScope::Device => "__threadfence();\n__syncthreads();\n",
+        // The same at the system's scope, which reaches the host and peer devices.
+        SyncScope::System => "__threadfence_system();\n__syncthreads();\n__threadfence_system();\n",
         SyncScope::Unit => "",
     }
     .into()
+});
+
+hip_op!(FenceOp, |op, ctx| {
+    let order = match op.order(ctx).0 {
+        MemoryOrder::Acquire => "__ATOMIC_ACQUIRE",
+        MemoryOrder::Release => "__ATOMIC_RELEASE",
+        MemoryOrder::AcqRel => "__ATOMIC_ACQ_REL",
+    };
+    let scope = match op.scope(ctx).0 {
+        SyncScope::Plane => "wavefront",
+        SyncScope::Cube => "workgroup",
+        SyncScope::Device => "agent",
+        SyncScope::System => "",
+        SyncScope::Unit => unreachable!("a unit fence is dropped at expansion"),
+    };
+    format!("__builtin_amdgcn_fence({order}, \"{scope}\");\n")
+});
+
+// The plane barrier's wavefront fence orders every address space, global included.
+hip_op!(SyncPlaneStorageOp, |_, _| {
+    "
+__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");
+__builtin_amdgcn_wave_barrier();\n"
+        .into()
 });
 
 /// HIP's stand-in for CUDA's `__fadd_rn` family: HIP's own `__fadd_rn` is a plain `+`, which clang

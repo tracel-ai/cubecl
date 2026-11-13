@@ -1,6 +1,8 @@
 use super::{ConstantValue, ExpandValue};
 use crate::{
-    AddressType, ContextExt, Scope, typed_vec_attr,
+    AddressType, ContextExt, Scope,
+    interfaces::side_effects::MemoryScope,
+    typed_vec_attr,
     types::{scalar::*, spirv::ClampMode},
 };
 use alloc::vec::Vec;
@@ -415,7 +417,9 @@ impl ElemType {
                 FloatKind::UE8M0 => 0.5 * (ue8m0::MAX.to_f64() - ue8m0::MIN.to_f64()),
                 FloatKind::F16 => half::f16::EPSILON.to_f64(),
                 FloatKind::BF16 => 0.0078125, // bf16 epsilon ≈ 2^-7
-                FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => f32::EPSILON.into(),
+                FloatKind::Flex32 | FloatKind::F32 => f32::EPSILON.into(),
+                // Ten bits of mantissa: what an `f32` rounded for a tf32 instruction keeps.
+                FloatKind::TF32 => 2f64.powi(-10),
                 FloatKind::F64 => f64::EPSILON,
             },
             ElemType::Index | ElemType::Int(_) | ElemType::UInt(_) => 1.0, // step of 1
@@ -460,6 +464,16 @@ pub enum AddressSpace {
 }
 
 typed_vec_attr!(AddressSpace, "cube.address_spaces", AddressSpaceVecAttr);
+
+impl AddressSpace {
+    pub fn memory_scope(&self) -> MemoryScope {
+        match self {
+            AddressSpace::Global(_) => MemoryScope::Global,
+            AddressSpace::Shared => MemoryScope::Shared,
+            AddressSpace::Local => MemoryScope::Local,
+        }
+    }
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, PartialOrd, Ord)]
