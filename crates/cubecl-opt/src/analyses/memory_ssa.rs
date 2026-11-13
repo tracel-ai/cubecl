@@ -79,11 +79,8 @@ struct MemoryOpAnalyzer<'a> {
 
 fn effect_is_def(effect: &MemoryEffect) -> bool {
     match effect {
-        MemoryEffect::Read(_) | MemoryEffect::ReadAllInSpace(_) | MemoryEffect::ReadAll => false,
-        MemoryEffect::Write(_)
-        | MemoryEffect::WriteAllInSpace(_)
-        | MemoryEffect::WriteAll
-        | MemoryEffect::Opaque => true,
+        MemoryEffect::Read(_) | MemoryEffect::MakeAvailable(_) => false,
+        MemoryEffect::Write(_) | MemoryEffect::MakeVisible(_) | MemoryEffect::Opaque => true,
     }
 }
 

@@ -46,6 +46,7 @@ use crate::{
             DestructurableTypeInterface, DestructurableValueSlot, LogicalResult,
             SafeMemorySlotAccessOpInterface, ValueSlot,
         },
+        side_effects::{Extent, MemoryEffect, MemoryEffectsOp, MemoryScope},
         uniformity::{UniformOpInterface, Uniformity},
     },
     prelude::*,
@@ -56,6 +57,10 @@ use crate::{
 #[pliron_attr(name = "memory.address_space", format = "$0", verifier = "succ")]
 #[derive(new, From, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct AddressSpaceAttr(pub AddressSpace);
+
+#[pliron_attr(name = "memory.scope", format = "$0", verifier = "succ")]
+#[derive(new, From, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub struct MemoryScopeAttr(pub MemoryScope);
 
 #[cube_op(name = "memory.declare_variable", format = "custom")]
 #[result_ty(from_inputs = variable_ptr_ty)]
@@ -500,11 +505,23 @@ impl SafeMemorySlotAccessOpInterface for StoreOp {
 #[op_interfaces(OperandNOfType<0, PointerType>, SameOperandsType)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CopyOp {
-    #[operand(ptr_read)]
     pub source: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub len: IndexAttr,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for CopyOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let extent = match self.source(ctx).get_type(ctx).unwrap_ptr(ctx).try_size(ctx) {
+            Some(size) => Extent::Exact(size * self.len(ctx).0),
+            None => Extent::Unknown,
+        };
+        vec![
+            MemoryEffect::Read((self.source(ctx), extent).into()),
+            MemoryEffect::Write((self.destination(ctx), extent).into()),
+        ]
+    }
 }
 
 #[op_interface_impl]

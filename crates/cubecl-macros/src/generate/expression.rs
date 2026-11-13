@@ -93,19 +93,20 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() => {
-                let op = format_ident!("__expand_{}_method", operator.op_name());
+                // The target doesn't go through `IntoExpand`: a comptime target would become a
+                // temporary that takes the update and is dropped. It stays plain Rust, which no
+                // compound assignment accepts, so the kernel is rejected at compile time. Only the
+                // method name carries the user's span, so the error points at the assignment.
+                let op = format_ident!("__expand_{}_method", operator.op_name(), span = *span);
                 let mut operands = Operands::new(context);
-                let left = operands.track(context, |context| into_expand(left.to_tokens(context)));
+                let left = operands.track(context, |context| left.to_tokens(context));
                 let right =
                     operands.track(context, |context| into_expand(right.to_tokens(context)));
-                let rhs = match operator.is_cmp() {
-                    true => quote![&#right],
-                    false => quote![#right],
-                };
-                let value = then_position(quote![_value], operands.position(context, *span));
+                let right = then_position(right, operands.position(context, *span));
+                // The value first: it may read the target, which the call borrows mutably.
                 quote! {{
-                    let _value = #rhs;
-                    #left.#op(scope, #value)
+                    let _value = #right;
+                    #left.#op(scope, _value)
                 }}
             }
             Expression::Binary {
