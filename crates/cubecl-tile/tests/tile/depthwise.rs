@@ -30,7 +30,7 @@ use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
 /// What runs on the cells the last level cuts out: a sixteen-scalar register block, no edge
 /// specialization, no unit fan-out: the lines here run along the channel, not along `K`.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 // Output positions, window taps, and the one channel axis every operand shares.
 const B: Axis = Axis(5);
@@ -61,7 +61,7 @@ fn depthwise_kernel(
             for cell in plane {
                 let mut out = out
                     .at(&cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                 out.mm(&input.at(&cell), &weight.at(&cell));
             }
         }

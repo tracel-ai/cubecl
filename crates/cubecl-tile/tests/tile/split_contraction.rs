@@ -39,7 +39,7 @@ const KB: Axis = Axis(2);
 const KI: Axis = Axis(3);
 
 /// The leaf's register block, held fixed across every kernel here.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The split contraction: a batched matmul whose batch is the split index, writing one partial
 /// per split. One region per cube, contracted whole at the leaf, so `mm` owns the init and
@@ -58,7 +58,7 @@ fn split_partials(
     for region in space.over(&level) {
         let mut partials_cube = partials
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         partials_cube.mm(&a.at(&region), &b.at(&region));
     }
 }
@@ -328,7 +328,7 @@ fn atomic_split_matmul<E: Numeric>(
     let c = out.tile(&space);
     // The accumulator mirrors the output's grid at this level: opened above the walk, one
     // fragment per region, drained once through the sink after it.
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
@@ -356,7 +356,7 @@ fn atomic_split_matmul_by_unit<E: Numeric>(
     let c = out.tile(&space);
     // Opened above both walks, so it holds what one unit of one cube sums: its own columns
     // against that cube's slice of the contraction.
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for cube in space.over(&cubes) {
         for unit in cube.over(&plane_units) {
             let mut acc_unit = acc.at(&unit);
@@ -685,7 +685,7 @@ fn atomic_split_matmul_in_place<E: Numeric>(
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_region.mm(&a.at(&region), &b.at(&region));
     }
 }

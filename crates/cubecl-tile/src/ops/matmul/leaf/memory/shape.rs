@@ -139,7 +139,7 @@ impl ContractShape {
         self.batch_extents().iter().product()
     }
 
-    /// The block's size in scalars, as [`RegisterBlock::budget`] counts it.
+    /// The block's size in scalars, as [`SoftwareMatmul::budget`] counts it.
     pub(crate) fn scalars(&self) -> usize {
         self.mr * self.nr * self.contracted_per_step * self.aw * self.spread
     }

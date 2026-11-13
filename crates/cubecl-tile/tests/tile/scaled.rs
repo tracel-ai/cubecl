@@ -47,7 +47,7 @@ const KB: Axis = Axis(2);
 const KI: Axis = Axis(3);
 
 /// The register block the contractions here run under, but for the wide-lhs one.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c = (a ⊗ s) · b`, with `s` at whatever granularity its own projection states.
 #[cube(launch)]
@@ -68,7 +68,7 @@ fn scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
@@ -93,7 +93,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -117,7 +117,7 @@ fn factored_matmul<E: Numeric>(
     c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
-    #[comptime] registers: Option<RegisterBlock>,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a
@@ -161,7 +161,7 @@ fn two_level_scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         match side {
             Scaled::Lhs => c_r.mma(
                 &a.at(&region)
@@ -333,7 +333,7 @@ fn two_levels_multiply_in_order() {
 /// result is the same product.
 #[test]
 fn a_decoded_operands_global_scale_leaves_for_the_sum() {
-    check_factored(Some(REGISTER_BLOCK), 4);
+    check_factored(Some(SOFTWARE_MATMUL), 4);
 }
 
 /// [`factored_matmul`] in cmma fragments: a cmma sum is scaled only through shared memory, so the
@@ -364,7 +364,7 @@ fn per_tensor_factor(
     let (a, factor) = if whole {
         a.factor_whole()
     } else {
-        let sum = c.register_accumulator::<f32>(&a, &b, REGISTER_BLOCK, Semiring::SUM_PROD);
+        let sum = c.register_accumulator::<f32>(&a, &b, SOFTWARE_MATMUL, Semiring::SUM_PROD);
         a.factor(&sum)
     };
     out[0] = factor.whole();
@@ -456,7 +456,7 @@ fn check_per_tensor_factor(whole: bool) {
 /// `c = (a ⊗ blocks ⊗ global) · b` over `size × size`, summed in a register block of
 /// `registers` or the device's matrix instruction, written through `factor` and `scaled` as a
 /// kernel writes any sum, against the host product.
-fn check_factored(registers: Option<RegisterBlock>, size: usize) {
+fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
     let (rows, cols, block, blocks) = (size, size, 8, 2);
     let depth = block * blocks;
 
@@ -1532,7 +1532,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(REGISTER_BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -1680,14 +1680,14 @@ fn wide_lhs_scaled_matmul(
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c.at(&region).accumulating(
-            comptime!(RegisterBlock::new(64).component_fanout()),
+            comptime!(SoftwareMatmul::new(64).component_fanout()),
             Semiring::SUM_PROD,
         );
         match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r
                 .accumulating(
-                    comptime!(RegisterBlock::new(64).component_fanout()),
+                    comptime!(SoftwareMatmul::new(64).component_fanout()),
                     Semiring::SUM_PROD,
                 )
                 .mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
@@ -2129,7 +2129,7 @@ fn chunked_scaled_matmul<E: Numeric>(
     scale: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] registers: Option<RegisterBlock>,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
     #[define(E)] _dtype: ElemType,
@@ -2497,7 +2497,7 @@ fn check_chunked(arm: Arm, scales: TileScales, read: UnitRead) {
     };
     let chunks_level = levels[2].clone();
     let registers = match arm {
-        Arm::Registers => Some(REGISTER_BLOCK),
+        Arm::Registers => Some(SOFTWARE_MATMUL),
         Arm::Landing => None,
     };
     let launcher = implied(&client, Partitioning::new(w.space(), levels), Form::Static);
@@ -3340,7 +3340,7 @@ fn staged_scaled_matmul(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });

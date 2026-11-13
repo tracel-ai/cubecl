@@ -20,7 +20,7 @@ use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Projection, RegisterBlock, Scratch, Semiring, Space, StageStorage,
+    Axis, Levels, Partitioning, Projection, Scratch, Semiring, SoftwareMatmul, Space, StageStorage,
     Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
@@ -314,7 +314,7 @@ fn unit_attention(
             let mut acc = out_u.register_accumulator::<f32>(
                 &bias_u,
                 &v_u,
-                comptime!(RegisterBlock::new(rows * value)),
+                comptime!(SoftwareMatmul::new(rows * value)),
                 Semiring::SUM_PROD,
             );
             let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
@@ -328,7 +328,7 @@ fn unit_attention(
                 let mut score = bias_s.register_accumulator::<f32>(
                     &q_s,
                     &k_s,
-                    comptime!(RegisterBlock::new(rows * block_keys)),
+                    comptime!(SoftwareMatmul::new(rows * block_keys)),
                     Semiring::SUM_PROD,
                 );
                 score.mma(&q_s, &k_s);
@@ -398,7 +398,7 @@ fn unit_attention_over_scaled_keys(
             let mut acc = out_u.register_accumulator::<f32>(
                 &bias_u,
                 &v_u,
-                comptime!(RegisterBlock::new(rows * value)),
+                comptime!(SoftwareMatmul::new(rows * value)),
                 Semiring::SUM_PROD,
             );
             let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
@@ -412,7 +412,7 @@ fn unit_attention_over_scaled_keys(
                 let mut score = bias_s.register_accumulator::<f32>(
                     &q_s,
                     &k_s,
-                    comptime!(RegisterBlock::new(rows * block_keys)),
+                    comptime!(SoftwareMatmul::new(rows * block_keys)),
                     Semiring::SUM_PROD,
                 );
                 let (k_s, k_scale) = k_s.factor(&score);

@@ -92,7 +92,7 @@ pub struct MatmulFeatures {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
-    /// Warpgroup MMA (Hopper's `wgmma.mma_async`): four planes multiply a tile of `B`, and
+    /// Plane group MMA (Hopper's `wgmma.mma_async`): four planes multiply a tile of `B`, and
     /// optionally `A`, read straight from shared memory through matrix descriptors, and
     /// accumulate asynchronously in registers.
     pub wgmma: BTreeSet<WgmmaConfig>,
@@ -235,7 +235,7 @@ pub struct CubeMmaConfig {
     pub units_per_block: Option<u32>,
 }
 
-/// Shape and element types of a valid warpgroup MMA configuration.
+/// Shape and element types of a valid plane group MMA configuration.
 /// `m` and `k` are fixed by the element types, and `n` may be any multiple of `n_granularity` up
 /// to `n_max`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -269,7 +269,7 @@ impl WgmmaConfig {
     }
 }
 
-/// The element types of a warpgroup MMA.
+/// The element types of a plane group MMA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WgmmaElems {

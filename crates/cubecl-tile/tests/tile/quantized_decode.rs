@@ -62,7 +62,7 @@ fn quantized_decode(
             for unit in plane {
                 let mut out_unit = out_plane
                     .at(&unit)
-                    .accumulating(comptime!(RegisterBlock::new(budget)), Semiring::SUM_PROD);
+                    .accumulating(comptime!(SoftwareMatmul::new(budget)), Semiring::SUM_PROD);
                 out_unit.mma(
                     &w_plane.at(&unit).mul(&scale_plane.at(&unit)),
                     &x_plane.at(&unit),
@@ -95,7 +95,7 @@ fn quantized_decode_promoted<E: Numeric>(
     let acc = out.register_accumulator::<E>(
         &w,
         &x,
-        comptime!(RegisterBlock::new(budget)),
+        comptime!(SoftwareMatmul::new(budget)),
         Semiring::SUM_PROD,
     );
     for cube in space {

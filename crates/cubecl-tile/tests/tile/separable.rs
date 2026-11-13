@@ -27,7 +27,7 @@ const TAP: [Axis; 3] = [Axis(2), Axis(3), Axis(4)];
 
 /// The software instruction every leaf here runs under: a 16-cell budget, no edge split, no unit
 /// fan-out.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 const ROWS: usize = 2;
 const COLS: usize = 3;
@@ -105,7 +105,7 @@ fn separable_kernel<E: Float>(
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -136,7 +136,7 @@ fn separable_kernel_staged<E: Float>(
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let weights = weights.at(region);
         slot.consume(|input| {
             out.mm(&weights, input);
@@ -392,7 +392,7 @@ fn resample_kernel<E: Float>(
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -516,7 +516,7 @@ fn procedural_mask_kernel<E: Float>(
         .tile::<E>();
         output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD)
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD)
             .mma(&weights, &rhs);
     }
 }
@@ -587,7 +587,7 @@ fn resample_kernel_masked<E: Float>(
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -619,7 +619,7 @@ fn resample_kernel_masked_staged<E: Float>(
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let weights = weights.at(region);
         slot.consume(|input| {
             out.mm(&weights, input);
@@ -820,7 +820,7 @@ fn column_spanning_resample_kernel<E: Float>(
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -920,7 +920,7 @@ fn column_spanning_resample_kernel_masked<E: Float>(
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -1035,7 +1035,7 @@ fn zero_sum_fallback_kernel<E: Float>(
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -1124,7 +1124,7 @@ fn separable_scaled_kernel<E: Float>(
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let weights = weights.at(region);
         slot.consume(|input| {
             out.mm(&weights, input);
