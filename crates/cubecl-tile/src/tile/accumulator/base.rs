@@ -651,7 +651,13 @@ fn walk_contraction(place: &Placement, lhs: &Space, depth: usize) -> Placement {
     if lhs_leaf.contracted_extent(&place.space) == depth {
         return place.clone();
     }
-    let contracted = lhs_leaf.difference(&place.space);
+    // An axis the leaf holds one of, as a batch the operand carries and the output does not, is
+    // contracted in one step: only the axis the walk steps through is named.
+    let contracted: Vec<Axis> = lhs_leaf
+        .difference(&place.space)
+        .into_iter()
+        .filter(|&axis| lhs_leaf.extent(axis) > 1)
+        .collect();
     let [axis] = contracted.as_slice() else {
         panic!(
             "Tile::accumulator: the leaf {lhs_leaf:?} is walked in steps {depth} deep only where \
