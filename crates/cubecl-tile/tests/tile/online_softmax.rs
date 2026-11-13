@@ -19,8 +19,8 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Scratch, Semiring, SoftwareMatmul, Space, StageStorage, Stages,
-    Tile, TileSpec, TileTensor, TileTensorLaunch,
+    Axis, FragmentSource, Instruction, Levels, Partitioning, Scratch, Semiring, SoftwareMatmul,
+    Space, StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
@@ -357,6 +357,25 @@ fn run_cut<E: Float + CubeElement>(case: Case) {
     if !offered {
         ValidationResult::Skipped(format!("no m8n8k8 {e_ty:?} instruction summing in f32"))
             .enforce();
+        return;
+    }
+    // The tile keeps the score in registers only where the crate's transport adds a call the
+    // fragment API lacks: elsewhere, as on Metal, it drains it, and this kernel holds nothing.
+    let values = FragmentSource::Values(e_ty);
+    let held = Instruction::for_stage_accumulator(
+        client.properties(),
+        client.target_properties(),
+        values,
+        values,
+        f32_ty,
+        [8, 8, 8],
+    )
+    .map(|call| call.instruction);
+    if !matches!(held, Some(Instruction::Mma { .. })) {
+        ValidationResult::Skipped(format!(
+            "the tile keeps no {e_ty:?} score in registers here, it drains it ({held:?})"
+        ))
+        .enforce();
         return;
     }
     let Case {

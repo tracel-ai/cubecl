@@ -308,7 +308,25 @@ impl Instruction {
         let layout = &target.mma;
         let sum_is_next_a = layout.register_layout_a == layout.register_layout_acc
             && layout.register_duplication_a == layout.register_duplication_acc;
-        let mma_first = mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a);
+        // A sum contracted again is kept in the crate's transport only where that transport offers
+        // a call the fragment API does not. Where both offer the same calls, as Metal's one
+        // `8 × 8 × 8`, the sum is drained like any other: kept in the crate's transport, the next
+        // product reads the held cells in an unrolled walk, which tripled the compile time of
+        // attention's autotune on an M2 (417 s to 1360 s, 1.4 to 2.6 GB on fewer threads), for a
+        // speed no one has measured.
+        let own_calls = {
+            let matmul = &device.features.matmul;
+            let product = |s: &&MmaConfig| {
+                s.a_type == lhs_element && s.b_type == rhs_element && s.cd_type == sum
+            };
+            matmul
+                .mma
+                .iter()
+                .filter(product)
+                .any(|shape| !matmul.cmma.iter().filter(product).any(|c| c == shape))
+        };
+        let mma_first =
+            mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a && own_calls);
         let mma = Instruction::Mma {
             io: MmaIo::default(),
             operands: MmaOperands::Plain,
@@ -781,20 +799,18 @@ mod tests {
         assert_eq!(pick([32, 16, 16]), Some((mma(), [16, 8])));
     }
 
-    /// A sum contracted again goes through the crate's transport where it is the next `A`.
+    /// A sum contracted again goes through the crate's transport where it is the next `A` and the
+    /// transport offers a call the fragment API does not, as `sm_80`'s `16 × 8 × 16`; where both
+    /// offer the same calls, as Metal's `8 × 8 × 8`, it is drained like any sum, through the
+    /// fragment API.
     #[test]
-    fn a_stage_accumulators_sum_goes_through_mma() {
-        for (device, shape) in [(metal(), [8, 8, 8]), (cuda(), [16, 8, 16])] {
-            let instruction = Instruction::for_stage_accumulator(
-                &device,
-                &sum_is_next_a(),
-                HALF,
-                HALF,
-                F32,
-                shape,
-            );
-            assert_eq!(instruction.map(|pick| pick.instruction), Some(mma()));
-        }
+    fn a_stage_accumulators_sum_goes_through_mma_where_mma_adds_a_call() {
+        let pick = |device, shape| {
+            Instruction::for_stage_accumulator(&device, &sum_is_next_a(), HALF, HALF, F32, shape)
+                .map(|pick| pick.instruction)
+        };
+        assert_eq!(pick(cuda(), [16, 8, 16]), Some(mma()));
+        assert_eq!(pick(metal(), [8, 8, 8]), Some(Instruction::Cmma));
     }
 
     /// Where the accumulator is not the next `A`, keeping the sum in registers buys nothing.
