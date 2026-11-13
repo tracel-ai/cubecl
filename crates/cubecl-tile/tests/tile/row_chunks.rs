@@ -267,7 +267,8 @@ fn check(case: Case) {
         FragmentSource::Values(input),
         f32::elem_type_native(),
         [edge_m, edge_n, edge_k],
-    );
+    )
+    .map(|pick| pick.instruction);
     if chunks == RowChunks::Swizzled && picked == Some(Instruction::Cmma) {
         ValidationResult::Skipped(format!(
             "the fragment API reads this device's {edge_m}×{edge_n}×{edge_k} leaf, and no \

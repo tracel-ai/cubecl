@@ -188,10 +188,11 @@ pub(crate) enum OpenedBy {
 
 impl Instruction {
     /// What the sum [`Tile::accumulator`](crate::Tile::accumulator) opens contracts through on
-    /// `device` compiling for `target`: a sum in `sum` held by `holder`, of fragments loaded from
-    /// `lhs` and `rhs`, each call contracting `m × n × k`. The rule the kernel reads as it
-    /// expands; a host reads it to size what the kernel will hold. `None` where the device offers
-    /// no matrix instruction for the product, which a plane routine refuses.
+    /// `device` compiling for `target`, at the shape of one of its calls: a sum in `sum` held by
+    /// `holder`, of fragments loaded from `lhs` and `rhs`, over a leaf of `m × n × k`. The rule the
+    /// kernel reads as it expands; a host reads it to size what the kernel will hold.
+    /// `None` where the device offers no matrix instruction for the product, which a plane routine
+    /// refuses.
     pub fn for_accumulator(
         device: &DeviceProperties,
         target: &TargetProperties,
@@ -200,7 +201,7 @@ impl Instruction {
         rhs: FragmentSource,
         sum: ElemType,
         shape: [usize; 3],
-    ) -> Option<Self> {
+    ) -> Option<ShapedInstruction> {
         Self::for_plane(
             device,
             target,
@@ -217,7 +218,8 @@ impl Instruction {
     /// through, a sum contracted again as the next product's `A`, as an attention's score is:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
     /// first where `target` lays a fragment's `A` like its accumulator, so the sum lies where that
-    /// `A` does.
+    /// `A` does. Its leaf is one call: the tile does not cut a sum contracted again, whose cells
+    /// must line up with the next product's operand.
     pub fn for_stage_accumulator(
         device: &DeviceProperties,
         target: &TargetProperties,
@@ -236,6 +238,8 @@ impl Instruction {
             shape,
             OpenedBy::StageAccumulator,
         )
+        .filter(|call| call.shape == shape)
+        .map(|call| call.instruction)
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator) and
@@ -250,6 +254,11 @@ impl Instruction {
     /// - otherwise the fragment API first.
     ///
     /// A packed operand decoded on the way contracts at the other operand's element.
+    ///
+    /// The fragment API and this crate's transport each take the leaf whole where the device
+    /// offers that shape, or cut it into calls of their largest shape that does: a leaf one call
+    /// fills comes before one cut into several, whichever comes first above, so a leaf the size
+    /// of an instruction contracts through it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn for_plane(
         device: &DeviceProperties,
@@ -260,21 +269,25 @@ impl Instruction {
         sum: ElemType,
         [m, n, k]: [usize; 3],
         opened_by: OpenedBy,
-    ) -> Option<Self> {
+    ) -> Option<ShapedInstruction> {
+        let whole = |instruction| ShapedInstruction {
+            instruction,
+            shape: [m, n, k],
+        };
         if holder == ComputeScope::MMA_PLANE_GROUP {
-            return Some(Instruction::Wgmma);
+            return Some(whole(Instruction::Wgmma));
         }
         if let FragmentSource::Fragments(held) = lhs {
-            return Some(held);
+            return Some(whole(held));
         }
         if let FragmentSource::Fragments(held) = rhs {
-            return Some(held);
+            return Some(whole(held));
         }
         if let Some(form) = block_scaled(device, lhs, rhs, [m, n, k]) {
-            return Some(Instruction::Mma {
+            return Some(whole(Instruction::Mma {
                 io: MmaIo::default(),
                 operands: MmaOperands::BlockScaled(form),
-            });
+            }));
         }
         let (lhs_element, rhs_element) = (lhs.element(rhs)?, rhs.element(lhs)?);
         let [cmma, mma] = offered(device, target, lhs_element, rhs_element, sum, [m, n, k])?;
@@ -291,10 +304,42 @@ impl Instruction {
         let sum_is_next_a = layout.register_layout_a == layout.register_layout_acc
             && layout.register_duplication_a == layout.register_duplication_acc;
         let mma_first = mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a);
-        match mma_first {
-            true => mma.or(cmma),
-            false => cmma.or(mma),
-        }
+        let cmma = cmma.map(|[cm, cn]| ShapedInstruction {
+            instruction: Instruction::Cmma,
+            shape: [cm, cn, k],
+        });
+        let mma = mma.map(|[cm, cn]| ShapedInstruction {
+            instruction: Instruction::Mma {
+                io: MmaIo::default(),
+                operands: MmaOperands::Plain,
+            },
+            shape: [cm, cn, k],
+        });
+        let ordered = match mma_first {
+            true => [mma, cmma],
+            false => [cmma, mma],
+        };
+        let one_call = ordered
+            .into_iter()
+            .flatten()
+            .find(|call| call.shape == [m, n, k]);
+        one_call.or_else(|| ordered.into_iter().flatten().next())
+    }
+}
+
+/// An instruction at the `m × n × k` of one of its calls: the whole leaf, or one of the cells the
+/// tile cuts the leaf into.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ShapedInstruction {
+    pub instruction: Instruction,
+    pub shape: [usize; 3],
+}
+
+impl ShapedInstruction {
+    /// The `m × n` of the output one call fills.
+    pub fn cell(&self) -> [usize; 2] {
+        let [m, n, _] = self.shape;
+        [m, n]
     }
 }
 
@@ -351,11 +396,12 @@ pub(crate) fn code_of(kind: FloatKind) -> Option<QuantValue> {
     }
 }
 
-/// The fragment API and the crate's own transport, each where `device` offers it for
-/// `lhs · rhs` summed in `sum` at a fragment of `m × n × k`: the fragment API at that very shape,
-/// the crate's transport at `m × n` and a depth `k` is one call of, or whole calls of where it
-/// loads a deeper fragment of 16-bit values in lane runs on `target`. `None` where its planes have
-/// no single width.
+/// The cell the fragment API and the crate's own transport each fill per call of `lhs · rhs`
+/// summed in `sum` over a leaf of `m × n × k`, where `device` offers one: the leaf's own `m × n`
+/// where it offers that shape, else its largest shape whose edges each cut the leaf's (the fewest
+/// calls), the squarest of those. The fragment API's depth is `k`; the crate's transport's is `k`,
+/// or a depth `k` is whole calls of where it loads a deeper fragment of 16-bit values in lane runs
+/// on `target`. `None` where its planes have no single width.
 fn offered(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -363,7 +409,7 @@ fn offered(
     rhs: ElemType,
     sum: ElemType,
     [m, n, k]: [usize; 3],
-) -> Option<[Option<Instruction>; 2]> {
+) -> Option<[Option<[usize; 2]>; 2]> {
     let hardware = &device.hardware;
     let planes_of_one_width = device.features.plane.contains(Plane::Ops)
         && hardware.plane_size_min == hardware.plane_size_max;
@@ -372,27 +418,38 @@ fn offered(
     }
     let deep_loads = LaneMap::try_from(target).is_ok() && lhs.size_bits() == 16;
     let elements = |s: &&MmaConfig| s.a_type == lhs && s.b_type == rhs && s.cd_type == sum;
-    let edges = |s: &MmaConfig| [s.m, s.n].map(|e| e as usize) == [m, n];
+    let cell = |s: &MmaConfig| [s.m as usize, s.n as usize];
+    let cuts = |[cm, cn]: [usize; 2]| m.is_multiple_of(cm) && n.is_multiple_of(cn);
+    // The leaf's own shape, else the cutting cell with the fewest calls, the squarest of those.
+    let best = |cells: Vec<[usize; 2]>| {
+        cells.iter().copied().find(|&c| c == [m, n]).or_else(|| {
+            cells
+                .iter()
+                .copied()
+                .max_by_key(|&[cm, cn]| (cm * cn, core::cmp::Reverse(cm.abs_diff(cn))))
+        })
+    };
     let offered = &device.features.matmul;
     let cmma = offered
         .cmma
         .iter()
         .filter(elements)
-        .any(|s| edges(s) && s.k as usize == k)
-        .then_some(Instruction::Cmma);
+        .filter(|s| s.k as usize == k)
+        .map(cell)
+        .filter(|&c| cuts(c))
+        .collect();
     let mma = offered
         .mma
         .iter()
         .filter(elements)
-        .any(|s| {
+        .filter(|s| {
             let depth = s.k as usize;
-            edges(s) && (k == depth || (deep_loads && k.is_multiple_of(depth)))
+            k == depth || (deep_loads && k.is_multiple_of(depth))
         })
-        .then_some(Instruction::Mma {
-            io: MmaIo::default(),
-            operands: MmaOperands::Plain,
-        });
-    Some([cmma, mma])
+        .map(cell)
+        .filter(|&c| cuts(c))
+        .collect();
+    Some([best(cmma), best(mma)])
 }
 
 #[cfg(test)]
@@ -512,6 +569,7 @@ mod tests {
             F32,
             shape,
         )
+        .map(|call| call.instruction)
     }
 
     /// A drained sum goes through the vendor's fragment API.
@@ -519,6 +577,56 @@ mod tests {
     fn an_accumulators_sum_goes_through_cmma() {
         assert_eq!(picked(&metal(), HALF, [8, 8, 8]), Some(Instruction::Cmma));
         assert_eq!(picked(&cuda(), HALF, [16, 16, 16]), Some(Instruction::Cmma));
+    }
+
+    /// What a drained sum over `shape` contracts through, at the shape of one call.
+    fn cut(
+        device: &DeviceProperties,
+        lhs: FragmentSource,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
+        Instruction::for_plane(
+            device,
+            &sum_is_next_a(),
+            ComputeScope::Plane,
+            lhs,
+            HALF,
+            F32,
+            shape,
+            OpenedBy::Accumulator,
+        )
+    }
+
+    /// A leaf no instruction fills in one call is cut into calls of the largest shape that cuts
+    /// it, the squarest of those: the plane's tile is the kernel's, the cells the tile's.
+    #[test]
+    fn a_leaf_wider_than_any_instruction_is_cut_into_its_largest_cells() {
+        let (metal, cuda) = (metal(), cuda());
+        let pick =
+            |device, shape| cut(device, HALF, shape).map(|call| (call.instruction, call.cell()));
+        assert_eq!(pick(&metal, [16, 32, 8]), Some((Instruction::Cmma, [8, 8])));
+        assert_eq!(
+            pick(&cuda, [32, 32, 16]),
+            Some((Instruction::Cmma, [16, 16]))
+        );
+        // `32 × 8` fills a `32 × 8` leaf in one call, ahead of `16 × 8` cutting it in two.
+        assert_eq!(pick(&cuda, [32, 8, 16]), Some((Instruction::Cmma, [32, 8])));
+        // Only the manual mma cuts `16 × 24`, three calls along `n`.
+        assert_eq!(pick(&cuda, [16, 24, 16]), Some((mma(), [16, 8])));
+        // No instruction is 8 deep in `f16` there.
+        assert_eq!(pick(&cuda, [32, 8, 8]), None);
+    }
+
+    /// An instruction of the leaf's own shape fills it in one call, ahead of one the rule would
+    /// otherwise put first but which only cuts it: every leaf the size of an instruction keeps
+    /// its instruction.
+    #[test]
+    fn a_leaf_one_call_fills_takes_that_instruction() {
+        let landed = FragmentSource::Landed(F16);
+        let pick = |shape| cut(&cuda(), landed, shape).map(|call| (call.instruction, call.cell()));
+        assert_eq!(pick([16, 8, 16]), Some((mma(), [16, 8])));
+        assert_eq!(pick([16, 16, 16]), Some((Instruction::Cmma, [16, 16])));
+        assert_eq!(pick([32, 16, 16]), Some((mma(), [16, 8])));
     }
 
     /// A sum contracted again goes through the crate's transport where it is the next `A`.
@@ -583,7 +691,7 @@ mod tests {
             F32,
             [8, 8, 8],
         );
-        assert_eq!(pick, Some(mma()));
+        assert_eq!(pick.map(|call| call.instruction), Some(mma()));
     }
 
     /// An operand already held in fragments is read as it lies: the sum keeps their instruction.
@@ -605,7 +713,10 @@ mod tests {
             F32,
             [64, 128, 16],
         );
-        assert_eq!(instruction, Some(Instruction::Wgmma));
+        assert_eq!(
+            instruction.map(|call| call.instruction),
+            Some(Instruction::Wgmma)
+        );
     }
 
     /// A device offering only one transport is reached through it, whatever becomes of the sum.
