@@ -731,14 +731,22 @@ impl Tile {
         lhs: &Tile,
     ) -> Tile {
         let place = comptime!(Placement::new(space, depth, levels));
-        let instruction =
-            plane_pick::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator)).instruction;
+        let pick = plane_pick::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
+        let grid = comptime!(GridShape::new(&place, &lhs.place.space));
+        // The tile does not cut a sum contracted again: its cells must line up with the next
+        // product's operand ([`Instruction::for_stage_accumulator`]).
+        comptime!(assert!(
+            pick.cell == [grid.m, grid.n],
+            "Tile::placed_accumulator: no instruction fills its {:?} leaf in one call",
+            [grid.m, grid.n]
+        ));
+        let instruction = comptime!(pick.instruction);
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
             &place.space,
             comptime!(MatrixAxes::accumulator(&place.space, &lhs.place.space)),
             instruction,
-            comptime!(GridShape::new(&place, &lhs.place.space)),
+            grid,
             1usize,
             1usize,
             accumulation,

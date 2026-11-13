@@ -190,8 +190,9 @@ impl Instruction {
     /// What the sum [`Tile::accumulator`](crate::Tile::accumulator) opens contracts through on
     /// `device` compiling for `target`, and the cell of its leaf each call fills: a sum in `sum`
     /// held by `holder`, of fragments loaded from `lhs` and `rhs`, over a leaf of `m × n × k`. The
-    /// rule the kernel reads as it expands; a host reads it to size what the kernel will hold. `None` where the device offers
-    /// no matrix instruction for the product, which a plane routine refuses.
+    /// rule the kernel reads as it expands; a host reads it to size what the kernel will hold.
+    /// `None` where the device offers no matrix instruction for the product, which a plane routine
+    /// refuses.
     pub fn for_accumulator(
         device: &DeviceProperties,
         target: &TargetProperties,
@@ -217,7 +218,8 @@ impl Instruction {
     /// through, a sum contracted again as the next product's `A`, as an attention's score is:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
     /// first where `target` lays a fragment's `A` like its accumulator, so the sum lies where that
-    /// `A` does.
+    /// `A` does. Its leaf is one call: the tile does not cut a sum contracted again, whose cells
+    /// must line up with the next product's operand.
     pub fn for_stage_accumulator(
         device: &DeviceProperties,
         target: &TargetProperties,
@@ -225,7 +227,8 @@ impl Instruction {
         rhs: FragmentSource,
         sum: ElemType,
         shape: [usize; 3],
-    ) -> Option<PlanePick> {
+    ) -> Option<Self> {
+        let [m, n, _] = shape;
         Self::for_plane(
             device,
             target,
@@ -236,6 +239,8 @@ impl Instruction {
             shape,
             OpenedBy::StageAccumulator,
         )
+        .filter(|pick| pick.cell == [m, n])
+        .map(|pick| pick.instruction)
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator) and
@@ -624,7 +629,7 @@ mod tests {
                 F32,
                 shape,
             );
-            assert_eq!(instruction.map(|p| p.instruction), Some(mma()));
+            assert_eq!(instruction, Some(mma()));
         }
     }
 
@@ -639,7 +644,7 @@ mod tests {
             F32,
             [16, 16, 16],
         );
-        assert_eq!(instruction.map(|p| p.instruction), Some(Instruction::Cmma));
+        assert_eq!(instruction, Some(Instruction::Cmma));
     }
 
     /// An operand the TMA engine lands goes through the crate's transport even for a drained
@@ -713,8 +718,7 @@ mod tests {
                 HALF,
                 F32,
                 [16, 8, 16]
-            )
-            .map(|p| p.instruction),
+            ),
             Some(mma())
         );
     }
