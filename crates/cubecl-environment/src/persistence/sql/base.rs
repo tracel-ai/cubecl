@@ -103,7 +103,8 @@ pub(crate) enum Opening {
     Shared,
     /// Read and written by this process alone, which the engine refuses
     /// while another process has the file open
-    /// ([`SqlError::HeldByAnotherProcess`]).
+    /// ([`SqlError::HeldByAnotherProcess`]). Turso on Windows refuses this
+    /// mode because its legacy lock cannot exclude shared IOCP owners.
     ProcessLocal,
     /// A file this process alone writes and may compact (`VACUUM`): a bundle
     /// being staged.
