@@ -21,9 +21,16 @@ use cubecl::ir::{ExpandValue, VectorSize};
 use cubecl::std::tensor::{
     ErasedTensor, ErasedTensorExpand, ErasedTensorOperationsExpand, WriteOnly, WritesLines,
 };
-use cubecl::{prelude::*, unexpanded, zspace::shape};
+use cubecl::{
+    prelude::*,
+    unexpanded,
+    zspace::{Tiling, shape},
+};
 use cubecl_tile::kind::{GlobalOperand, Write};
-use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch, Unbound};
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand,
+    Transformed, TransformedOperand, Unbound, VectorAt, VectorTransform, VectorTransformLaunch,
+};
 use cubecl_tile::layout::RuntimeGeometry;
 use cubecl_tile::*;
 
@@ -51,8 +58,9 @@ struct DoubledArg<'a, E: Numeric> {
 #[cube]
 impl Destination for Doubled {
     type Arg<E: Numeric> = DoubledArg<'static, E>;
+    type Served<E: Numeric> = Tile;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         let mut geometry = RuntimeGeometry::new();
         #[unroll]
         for axis in 0..comptime!(arg.rank) {
@@ -72,8 +80,6 @@ impl Destination for Doubled {
         )
         .tile::<E>(comptime!(partitioning.levels().to_vec()))
     }
-
-    fn finish<E: Numeric>(_arg: &Self::Arg<E>) {}
 }
 
 /// What [`Doubled`] launches from: the tensor the values land in, and what the launcher derived
@@ -182,9 +188,10 @@ fn store<E: Float, V: Size, O: Destination>(
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let mut dst = O::tile::<E, V>(out, &space);
+    let dest = O::serve::<E, V>(out, &space);
+    let mut dst = dest.tile();
     dst.copy_from(&src);
-    O::finish::<E>(out);
+    dest.finish();
 }
 
 /// Cut so the store is not one contiguous run.
@@ -312,7 +319,8 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = O::tile::<E, Const<1>>(out, &space);
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let c = dest.tile();
     let acc = c.accumulator::<EA>(
         &a,
         &b,
@@ -324,7 +332,7 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
         acc_region.mma(&a.at(&region), &b.at(&region));
     }
     acc.drained_into(&c);
-    O::finish::<E>(out);
+    dest.finish();
 }
 
 fn run_contract(sink: bool) -> HostData {
@@ -447,14 +455,45 @@ struct TotaledArg<'a, E: Numeric> {
 #[cube]
 impl Destination for Totaled {
     type Arg<E: Numeric> = TotaledArg<'static, E>;
+    type Served<E: Numeric> = TotaledServed<E>;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
-        Doubled::tile::<E, V>(&arg.doubled, partitioning)
+    fn serve<E: Numeric, V: Size>(
+        arg: &Self::Arg<E>,
+        partitioning: &Partitioning,
+    ) -> TotaledServed<E> {
+        TotaledServed::<E> {
+            tile: Doubled::serve::<E, V>(&arg.doubled, partitioning),
+            values: arg.doubled.values,
+            arrivals: arg.arrivals,
+            total: arg.total,
+        }
+    }
+}
+
+/// [`Totaled`] as served to the kernel: the doubling tile, and the argument `finish` reads.
+#[derive(CubeType)]
+struct TotaledServed<E: Numeric> {
+    tile: Tile,
+    values: &'static Tensor<E>,
+    arrivals: &'static [Atomic<u32>],
+    total: &'static [Atomic<u32>],
+}
+
+#[cube]
+impl<E: Numeric> ServedDestination for TotaledServed<E> {
+    type Opened = Tile;
+
+    fn tile(&self) -> Tile {
+        self.tile.clone()
     }
 
-    fn finish<E: Numeric>(arg: &Self::Arg<E>) {
+    fn open(&self, _owner: &Region, _sum: &Tile) -> Tile {
+        self.tile.clone()
+    }
+
+    fn finish(&self) {
         sync_storage();
-        let before = arg.arrivals[0].fetch_add(1);
+        let before = self.arrivals[0].fetch_add(1);
         let mut last = Shared::<[u32]>::new_slice(1usize);
         if UNIT_POS == 0 {
             last[0] = 0;
@@ -469,10 +508,10 @@ impl Destination for Totaled {
             sync_storage();
             if UNIT_POS == 0 {
                 let mut sum = E::from_int(0);
-                for i in 0..arg.doubled.values.len() {
-                    sum += arg.doubled.values[i];
+                for i in 0..self.values.len() {
+                    sum += self.values[i];
                 }
-                arg.total[0].store(u32::cast_from(sum));
+                self.total[0].store(u32::cast_from(sum));
             }
         }
     }
@@ -581,5 +620,146 @@ fn every_unit_reaches_finish_and_the_last_cube_totals() {
         }
         assert_eq!(arrived, units, "{extra} extra cubes: units that finished");
         assert_eq!(total, want, "{extra} extra cubes: the total");
+    }
+}
+
+// ===========================================================================
+// Vectors stored through a transform
+// ===========================================================================
+
+/// Adds `100 * row + column` of the vector's first cell to each vector.
+struct AddPlace;
+
+#[cube]
+impl VectorTransform for AddPlace {
+    type Arg<E: Numeric> = ();
+
+    fn vector<E: Numeric, N: Size>(
+        _arg: &Self::Arg<E>,
+        at: &VectorAt,
+        value: Vector<E, N>,
+    ) -> Vector<E, N> {
+        value + Vector::new(E::cast_from(at.row() * 100 + at.column()))
+    }
+}
+
+impl VectorTransformLaunch for AddPlace {
+    type Operand = ();
+
+    fn arg<E: Numeric>(_operand: ()) {}
+}
+
+/// Each cube copies its box of the input into the destination.
+#[cube(launch)]
+fn store_boxes<E: Float, V: Size, O: Destination>(
+    input: &TileTensor<'_>,
+    out: &O::Arg<E>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
+    let src = input.tile(&space);
+    let dest = O::serve::<E, V>(out, &space);
+    let dst = dest.tile();
+    for cube in &space {
+        let mut boxed = dst.at(&cube);
+        boxed.copy_from(&src.at(&cube));
+    }
+    dest.finish();
+}
+
+/// Boxes of two rows by four columns: the six columns end inside the second box of each row.
+const BOX_COLS: usize = 4;
+/// The row stride of the pitched output, past its six columns.
+const PITCH: usize = 8;
+
+/// The input `row * COLS + col` stored into a pitched output through `Transformed<T>`.
+fn store_pitched<T: VectorTransformLaunch>(transform: T::Operand) -> Vec<f32> {
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(ROW, ROWS), (COL, COLS)]),
+            Levels::leaf(&[(ROW, 2), (COL, BOX_COLS)])
+                .cubes(&[ROW, COL])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let input = TestInput::builder(client.clone(), shape![ROWS, COLS])
+        .dtype(dtype)
+        .arange()
+        .generate_without_host_data();
+    let src = launcher
+        .arg(input.binding(), dtype)
+        .axes(&[ROW, COL])
+        .vectorize(WIDTH)
+        .build()
+        .unwrap();
+    let sink = launcher
+        .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
+        .axes(&[ROW, COL])
+        .vectorize(WIDTH)
+        .build_spec()
+        .unwrap();
+    let pitched = client.empty(ROWS * PITCH * size_of::<f32>());
+    let out = TensorBinding {
+        handle: pitched.clone().binding(),
+        strides: [PITCH, 1].into(),
+        shape: [ROWS, COLS].into(),
+        tiling: Tiling::UNTILED,
+    };
+    store_boxes::launch::<Transformed<T>>(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        WIDTH,
+        src.arg(),
+        Transformed::<T>::arg(TransformedOperand {
+            out: out.into_tensor_arg(),
+            transform,
+            sink,
+        }),
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    f32::from_bytes(&client.read_one_unchecked(pitched)).to_vec()
+}
+
+/// The identity transform stores each vector unchanged, placed by the output's row stride.
+#[test]
+fn the_identity_destination_stores_into_a_pitched_output() {
+    let stored = store_pitched::<()>(());
+    for row in 0..ROWS {
+        for col in 0..COLS {
+            assert_eq!(
+                stored[row * PITCH + col],
+                (row * COLS + col) as f32,
+                "wrong at [{row}, {col}]"
+            );
+        }
+    }
+}
+
+/// A transform sees each vector's row and column within the logical output, not within the pitched
+/// buffer. Composed transforms run in turn.
+#[test]
+fn transforms_see_each_vector_once_with_its_place() {
+    for (copies, stored) in [
+        (1, store_pitched::<AddPlace>(())),
+        (2, store_pitched::<(AddPlace, AddPlace)>(((), ()))),
+    ] {
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                let value = (row * COLS + col) as f32;
+                let vector_start = col - col % WIDTH;
+                let want = value + copies as f32 * (row * 100 + vector_start) as f32;
+                assert_eq!(
+                    stored[row * PITCH + col],
+                    want,
+                    "{copies} transform(s) wrong at [{row}, {col}]"
+                );
+            }
+        }
     }
 }

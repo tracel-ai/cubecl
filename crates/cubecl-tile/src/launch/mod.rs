@@ -12,12 +12,16 @@ pub(crate) mod vectorization;
 pub use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
 pub use arg::accumulate::{AccumulateArg, AccumulateArgLaunch};
 pub use arg::destination::{
-    Buffered, Destination, DestinationLaunch, SinkLaunch, SinkLaunchVisitor, TmaStored,
+    Buffered, Destination, DestinationLaunch, OpenedDestination, OpenedDestinationExpand,
+    ServedDestination, ServedDestinationExpand, SinkLaunch, SinkLaunchVisitor, TmaStored,
 };
 pub use arg::last_arrival::LastArrival;
 pub use arg::output::{Output, OutputArgs};
 pub use arg::relay::Relay;
 pub use arg::tma::{TmaBox, TmaCoordinates, TmaLanding, TmaTerm};
+pub use arg::transformed::{
+    Transformed, TransformedOperand, VectorAt, VectorTransform, VectorTransformLaunch,
+};
 pub use base::{Grid, spawnable};
 pub use binding::{Arg, Bound, Labelled, Unbound, Unlabelled};
 pub use refusal::Refusal;

@@ -1,30 +1,97 @@
 //! The [`Destination`] seam, through which a kernel stores into [`Output`] or a caller's own
-//! argument.
+//! argument, or hands each output tile it computes to the op that reads it.
 
 use cubecl::prelude::*;
 
 use crate::{
-    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileTensor, TileTensorLaunch,
-    kind::Write, launch::Unbound,
+    Bound, Output, OutputArgs, Partitioning, Refusal, Region, Tile, TileExpand, TileTensor,
+    TileTensorLaunch, kind::Write, launch::Unbound,
 };
 
-/// Which launch argument carries a kernel's output and how the kernel serves it as a [`Tile`].
+/// Which launch argument carries a kernel's output and how the kernel serves it: a storing
+/// destination serves the output as a [`Tile`], one that carries a state across the output tiles
+/// is the next op fused into the routine.
+///
+/// Three lifetimes, three types: [`Arg`](Self::Arg) at launch, [`ServedDestination`] built once
+/// per kernel by [`serve`](Self::serve), [`OpenedDestination`] per owner region.
 #[cube]
 pub trait Destination: Send + Sync + 'static {
     /// The launch argument carrying the output and its spec, at element `E`.
     type Arg<E: Numeric>: LaunchArg + CubeType;
+    /// The destination as served to the kernel, built once by [`serve`](Self::serve).
+    type Served<E: Numeric>: ServedDestination;
 
-    /// Serve the argument as a [`Tile`] under the kernel's one `partitioning`, stored in lines of
-    /// `V` where the argument does not state its own width.
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile;
+    /// Build the destination for the kernel, once, under its one `partitioning`, storing in lines
+    /// of `V` where the argument does not state its own width.
+    fn serve<E: Numeric, V: Size>(
+        arg: &Self::Arg<E>,
+        partitioning: &Partitioning,
+    ) -> Self::Served<E>;
+}
 
-    /// The closing counterpart of [`tile`](Self::tile). Every unit of every launched cube calls it
-    /// once, in uniform control flow, after its last use of the tile and with no unit having
-    /// exited, so a destination may synchronize the cube and use plane operations here. Stores
-    /// made through the tile are issued but not known to be visible to any other unit; making them
-    /// visible is the destination's job where it needs it. A TMA store has only been read out of
-    /// shared memory: its global writes are not known to be complete here.
-    fn finish<E: Numeric>(arg: &Self::Arg<E>);
+/// A [`Destination`] as served to a kernel, from the start of the kernel to its end.
+#[cube]
+pub trait ServedDestination: CubeType {
+    /// What an opened destination carries across the output tiles an owner region computes.
+    type Opened: OpenedDestination;
+
+    /// A tile over the routine's output space, holding no data: where the routine opens its
+    /// accumulators. A storing destination's is where the output lies.
+    fn tile(&self) -> Tile;
+
+    /// Open the destination once per owner region the routine chooses (a unit, a plane or a
+    /// cube), before its first output tile. `sum` is laid out as every sum
+    /// [`consume`](OpenedDestination::consume) will receive, which a state kept per slice follows.
+    fn open(&self, owner: &Region, sum: &Tile) -> Self::Opened;
+
+    /// Called once by every unit of every launched cube, in uniform control flow, after every
+    /// [`close`](OpenedDestination::close) and its last use of the tile, with no unit exited, so
+    /// a destination may synchronize the cube and use plane operations here. Stores made through
+    /// the tile are issued but not known to be visible to any other unit; making them visible is
+    /// the destination's job where it needs it.
+    /// A TMA store has only been read out of shared memory: its global writes are not known to be
+    /// complete here.
+    fn finish(&self);
+}
+
+/// A [`ServedDestination`] opened for one owner region, from its first output tile to its last.
+#[cube]
+pub trait OpenedDestination: CubeType {
+    /// Consume the output tile at `at`, once per finished tile, in the order the owner computes
+    /// them, possibly in divergent control flow, so it may not use plane operations or
+    /// synchronize unless the routine says otherwise. `sum` may carry scales
+    /// ([`Tile::scaled`]) that a draining reader applies and any other reader must.
+    fn consume(&mut self, at: &Region, sum: &Tile);
+
+    /// Close once per [`open`](ServedDestination::open), after the last
+    /// [`consume`](Self::consume) and before [`finish`](ServedDestination::finish), in the
+    /// control flow of the level it was opened at: a cube-level close may synchronize the cube.
+    fn close(&mut self);
+}
+
+/// A tile is the destination of a store: it opens to itself, and each sum drains where it lies.
+#[cube]
+impl ServedDestination for Tile {
+    type Opened = Tile;
+
+    fn tile(&self) -> Tile {
+        self.clone()
+    }
+
+    fn open(&self, _owner: &Region, _sum: &Tile) -> Tile {
+        self.clone()
+    }
+
+    fn finish(&self) {}
+}
+
+#[cube]
+impl OpenedDestination for Tile {
+    fn consume(&mut self, at: &Region, sum: &Tile) {
+        sum.drained_into(&self.at(at));
+    }
+
+    fn close(&mut self) {}
 }
 
 /// [`Destination`]'s host half: how what the launch built becomes the argument.
@@ -64,12 +131,11 @@ pub struct Buffered;
 #[cube]
 impl Destination for Buffered {
     type Arg<E: Numeric> = Output<'static, E>;
+    type Served<E: Numeric> = Tile;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         arg.tile(partitioning)
     }
-
-    fn finish<E: Numeric>(_arg: &Self::Arg<E>) {}
 }
 
 /// [`Write::Replace`] binds an [`Output::Tensor`], [`Write::Accumulate`] an [`Output::Atomic`].
@@ -97,12 +163,11 @@ pub struct TmaStored;
 #[cube]
 impl Destination for TmaStored {
     type Arg<E: Numeric> = TileTensor<'static>;
+    type Served<E: Numeric> = Tile;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         arg.tile(partitioning)
     }
-
-    fn finish<E: Numeric>(_arg: &Self::Arg<E>) {}
 }
 
 impl DestinationLaunch for TmaStored {
