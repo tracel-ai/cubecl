@@ -796,7 +796,10 @@ impl ExpressionCanonicalize for FmaOp {
             self.result_type(ctx),
             Self::get_opid_static(),
             operands,
-            Default::default(),
+            self.get_operation()
+                .deref(ctx)
+                .attributes
+                .clone_skip_outlined(ctx),
         )
     }
 }

@@ -76,7 +76,7 @@ that includes it, and nothing a function it calls allows brings it back:
 
 ```rust
 /// `a * b + c` rounded after each operation, as a host reference computes it.
-#[cube(forbid_fast_math = FastMath::AllowContraction)]
+#[cube(forbid_fast_math = FastMath::AllowContraction.into())]
 fn product_sum<F: Float>(a: F, b: F, c: F) -> F {
     a * b + c
 }

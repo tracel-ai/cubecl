@@ -399,7 +399,10 @@ macro_rules! invert_cmp_expression {
                     self.result_type(ctx),
                     <$to>::get_opid_static(),
                     operands,
-                    Default::default(),
+                    self.get_operation()
+                        .deref(ctx)
+                        .attributes
+                        .clone_skip_outlined(ctx),
                 )
             }
         }

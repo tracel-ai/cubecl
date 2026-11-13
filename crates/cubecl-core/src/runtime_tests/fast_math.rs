@@ -40,7 +40,7 @@ fn strict_product_sum<F: Float, N: Size>(
     product_sum(a, b, c, output);
 }
 
-#[cube(launch_unchecked, forbid_fast_math = FastMath::AllowContraction)]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::AllowContraction.into())]
 fn product_sum_forbidding_contraction<F: Float, N: Size>(
     a: &[Vector<F, N>],
     b: &[Vector<F, N>],
@@ -60,7 +60,7 @@ fn fast_product_sum<F: Float, N: Size>(
     product_sum(a, b, c, output);
 }
 
-#[cube(launch_unchecked, forbid_fast_math = FastMath::AllowContraction)]
+#[cube(launch_unchecked, forbid_fast_math = FastMath::AllowContraction.into())]
 fn fast_product_sum_forbidding_contraction<F: Float, N: Size>(
     a: &[Vector<F, N>],
     b: &[Vector<F, N>],
