@@ -50,8 +50,7 @@ Rounding is kept on every backend below except WGSL and Metal. `Inf`, `NaN` and 
 kept where `client.properties().features.ieee_special_values` is true.
 
 A kernel that says nothing gets each backend's default, which usually allows contraction: CubeCL
-fuses a product into the add that consumes it, and so may the driver. CubeCL's own folds may also
-ignore `Inf`, `NaN` and signed zero there, turning `0 * x` into `0`. A function that says nothing
+fuses a product into the add that consumes it, and so may the driver. A function that says nothing
 gets its caller's set. A function that gives a set gets exactly that set, so
 `FastMath::NotNaN.into()` alone also forbids contraction and can run slower than saying nothing.
 Operations CubeCL expands into several, such as `exp` on the CPU, carry the flags of the function

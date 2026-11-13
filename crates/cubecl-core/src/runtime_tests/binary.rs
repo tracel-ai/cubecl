@@ -1009,14 +1009,13 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
     assert_eq!(i32::from_bytes(&actual), expected);
 }
 
-/// In a kernel that allows no fast math, a runtime operand must not be rewritten through a
-/// constant zero or a reflexive identity. Each of these was a partial fold in the float dialect:
+/// A runtime operand must not be rewritten through a constant zero or a
+/// reflexive identity. Each of these was a partial fold in the float dialect:
 /// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
 /// infinity (not `+0`), `0.0 / v` is `NaN` for `v = 0`, and `v * 0.0` keeps the
 /// sign of `v`.
 pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
-    #[allow(clippy::eq_op)]
-    #[cube(launch_unchecked, fast_math = FastMath::none())]
+    #[cube(launch_unchecked)]
     fn folds<F: Float>(x: &[F], out: &mut [F]) {
         if ABSOLUTE_POS < x.len() {
             let v = x[ABSOLUTE_POS];
@@ -1029,9 +1028,14 @@ pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
         }
     }
 
-    // A device that cannot keep these lets the shader compiler fold them itself (`NaN - NaN` and
-    // `0 / 0` read back as `0`), so only the results it still promises are checked there.
-    let strict_ieee = client.properties().features.ieee_special_values;
+    // Not on wgpu: the shader still carries every one of these operations, but WGSL lets an
+    // implementation assume no NaN or infinity arises and ignore the sign of a zero, and so do
+    // Vulkan and Metal unless the shader opts into preserving them, which wgpu does not. The
+    // shader compilers fold under that latitude (`NaN - NaN` and `0 / 0` read back as `0`,
+    // `-4 * 0` as `+0`). What this test guards — that cubecl's own IR does not fold them —
+    // holds on every backend; the results wgpu does promise are still checked there. The
+    // runtime name says which backend, whatever compiler it picked.
+    let strict_ieee = !client.name().starts_with("wgpu");
 
     macro_rules! check {
         ($ty: ty) => {{
