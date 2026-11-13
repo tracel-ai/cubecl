@@ -6,6 +6,9 @@ name = "device_sharing"
 publish = false
 version.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 cuda = ["cubecl/cuda"]
 # An example with no runtime linked has nothing to run on, so the

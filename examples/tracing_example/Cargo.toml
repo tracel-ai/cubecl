@@ -7,6 +7,9 @@ readme.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 cuda = ["cubecl/cuda"]
 # An example with no runtime linked has nothing to run on, so the
@@ -16,10 +19,8 @@ default = ["wgpu"]
 wgpu = ["cubecl/wgpu"]
 
 [dependencies]
-cubecl = { workspace = true, default-features = true, features = [
-    "tracing",
-] }
 clap = { workspace = true, features = ["derive"] }
+cubecl = { workspace = true, default-features = true, features = ["tracing"] }
 
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 

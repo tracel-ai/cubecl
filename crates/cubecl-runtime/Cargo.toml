@@ -20,7 +20,6 @@ workspace = true
 autotune-checks = []
 persistence = ["std", "cubecl-environment/persistence"]
 # The native caches on SQLite instead of Turso; see `cubecl-environment`.
-rusqlite = ["persistence", "cubecl-environment/rusqlite"]
 channel-cell = []
 channel-mpsc = []
 channel-mutex = []
@@ -34,6 +33,7 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
+rusqlite = ["persistence", "cubecl-environment/rusqlite"]
 std = [
     "cubecl-common/std",
     "cubecl-environment/std",
@@ -55,16 +55,11 @@ cfg-if = { workspace = true }
 # `serde` and `hash` are needed unconditionally (StableHash in id/kernel/
 # compiler, PartialEq on BenchmarkComputations) — not just by the persistent
 # cache, so they can't live only in the desktop target section below.
-cubecl-common = { workspace = true, features = [
-    "serde",
-    "hash",
-] }
+cubecl-common = { workspace = true, features = ["serde", "hash"] }
 cubecl-environment = { workspace = true }
-cubecl-ir = { workspace = true, features = [
-    "serde",
-] }
-cubecl-zspace = { workspace = true }
+cubecl-ir = { workspace = true, features = ["serde"] }
 cubecl-monitoring = { workspace = true }
+cubecl-zspace = { workspace = true }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
@@ -78,17 +73,13 @@ toml = { workspace = true, optional = true }
 md-5 = { workspace = true, optional = true }
 
 foldhash = { workspace = true }
-buildid = { workspace = true }
 thiserror = { workspace = true }
 
 futures-util = { workspace = true, default-features = false }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
-cubecl-common = { workspace = true, features = [
-    "serde",
-    "hash",
-] }
+cubecl-common = { workspace = true, features = ["serde", "hash"] }
 cubecl-environment = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 

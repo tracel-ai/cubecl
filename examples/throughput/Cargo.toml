@@ -1,10 +1,13 @@
 [package]
 authors = []
-name = "throughput"
-publish = false
 edition.workspace = true
 license.workspace = true
+name = "throughput"
+publish = false
 version.workspace = true
+
+[lints]
+workspace = true
 
 [features]
 # An example with no runtime linked has nothing to run on, so the
@@ -13,20 +16,20 @@ version.workspace = true
 default = ["wgpu"]
 
 # wgpu family — all use `WgpuRuntime`; the sub-feature selects the compiler backend.
-wgpu = ["cubecl/wgpu"] # WGSL
-vulkan = ["wgpu", "cubecl/vulkan"] # SPIR-V
-wgpu-msl = ["wgpu", "cubecl/wgpu-msl"] # MSL (via wgpu)
+vulkan = ["wgpu", "cubecl/vulkan"]     # SPIR-V
 webgpu = ["wgpu", "cubecl/webgpu"]
+wgpu = ["cubecl/wgpu"]                 # WGSL
+wgpu-msl = ["wgpu", "cubecl/wgpu-msl"] # MSL (via wgpu)
 
 # Native backends.
 # `cuda` runs the LLVM backend, `cuda-cpp` the transpiler through NVRTC -- the same
 # split as `hip`/`hip-cpp`, and the point of comparison between the two paths.
+cpu = ["cubecl/cpu"]
 cuda = ["cubecl/cuda"]
 cuda-cpp = ["cuda", "cubecl/cuda-cpp"]
 hip = ["cubecl/hip"]
-rocm = ["hip"]
-cpu = ["cubecl/cpu"]
 metal = ["cubecl/metal"]
+rocm = ["hip"]
 
 [dependencies]
 cubecl = { workspace = true, default-features = true, features = ["stdlib"] }

@@ -200,7 +200,7 @@ pub fn test_sync_plane_storage<R: Runtime>(client: Client) {
 /// not its second hands back the previous round's value.
 #[cube(launch)]
 fn kernel_test_sync_plane_two_stores(out: &mut [u32], #[comptime] units: usize) {
-    let mut slots = Shared::<[u32]>::new_slice(comptime!(2 * units));
+    let mut slots = Shared::<[u32]>::new_slice(2 * units);
     let lane = UNIT_POS_PLANE as usize;
     let plane = PLANE_DIM as usize;
     let base = PLANE_POS as usize * 2 * plane;
