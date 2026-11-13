@@ -765,9 +765,8 @@ mod tests {
 
     #[test]
     fn a_forbid_removes_what_includes_it() {
-        let permissions = FastMathPermissions::allowing(FastMath::all()).within(
-            FastMathPermissions::forbidding(FastMath::AllowContraction),
-        );
+        let permissions = FastMathPermissions::allowing(FastMath::all())
+            .within(FastMathPermissions::forbidding(FastMath::AllowContraction));
         let allowed = permissions.resolve(EnumSet::empty());
 
         assert!(!allowed.contains(FastMath::AllowContraction));
