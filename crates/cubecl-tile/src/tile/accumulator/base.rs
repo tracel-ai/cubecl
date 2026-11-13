@@ -151,6 +151,7 @@ impl Tile {
     ) -> Tile {
         let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
         let pick = plane_pick::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, pick.depth));
         let place = comptime!(cut_into_cells(&place, &lhs.place.space, pick.cell));
         let instruction = comptime!(pick.instruction);
         if comptime!(instruction == Instruction::Wgmma) {
@@ -642,6 +643,26 @@ fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
     Placement::new(space.subspace(&order), place.depth, place.levels.clone())
 }
 
+/// `place`, the output's, with a level below its leaf walking the contraction in steps `depth`
+/// deep, where one call of its instruction takes less of it than the leaf holds: the tile's own
+/// walk, which the kernel never states. The leaf contracts one axis there.
+fn walk_contraction(place: &Placement, lhs: &Space, depth: usize) -> Placement {
+    let lhs_leaf = lhs.leaf(place.below());
+    if lhs_leaf.contracted_extent(&place.space) == depth {
+        return place.clone();
+    }
+    let contracted = lhs_leaf.difference(&place.space);
+    let [axis] = contracted.as_slice() else {
+        panic!(
+            "Tile::accumulator: the leaf {lhs_leaf:?} is walked in steps {depth} deep only where \
+             it contracts one axis; state the steps as a level below it"
+        )
+    };
+    let mut levels = place.levels.clone();
+    levels.push(Levels::leaf(&[(*axis, depth)]).walk_every(&[*axis]).level());
+    Placement::new(place.space.clone(), place.depth, levels)
+}
+
 /// `place`, the output's, with a level below its leaf cutting it into `cell`s, where one call of
 /// its instruction fills less than the leaf: the tile's own cut, which the kernel never states.
 /// The leaf's rows and columns are each one axis there.
@@ -736,9 +757,9 @@ impl Tile {
         // The tile does not cut a sum contracted again: its cells must line up with the next
         // product's operand ([`Instruction::for_stage_accumulator`]).
         comptime!(assert!(
-            pick.cell == [grid.m, grid.n],
+            pick.cell == [grid.m, grid.n] && pick.depth == grid.k,
             "Tile::placed_accumulator: no instruction fills its {:?} leaf in one call",
-            [grid.m, grid.n]
+            [grid.m, grid.n, grid.k]
         ));
         let instruction = comptime!(pick.instruction);
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));

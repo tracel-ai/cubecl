@@ -188,7 +188,8 @@ pub(crate) enum OpenedBy {
 
 impl Instruction {
     /// What the sum [`Tile::accumulator`](crate::Tile::accumulator) opens contracts through on
-    /// `device` compiling for `target`, and the cell of its leaf each call fills: a sum in `sum`
+    /// `device` compiling for `target`, the cell of its leaf each call fills and the depth it
+    /// takes: a sum in `sum`
     /// held by `holder`, of fragments loaded from `lhs` and `rhs`, over a leaf of `m × n × k`. The
     /// rule the kernel reads as it expands; a host reads it to size what the kernel will hold.
     /// `None` where the device offers no matrix instruction for the product, which a plane routine
@@ -218,8 +219,8 @@ impl Instruction {
     /// through, a sum contracted again as the next product's `A`, as an attention's score is:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
     /// first where `target` lays a fragment's `A` like its accumulator, so the sum lies where that
-    /// `A` does. Its leaf is one call: the tile does not cut a sum contracted again, whose cells
-    /// must line up with the next product's operand.
+    /// `A` does. Its leaf is one call, as deep as the leaf: the tile does not cut a sum contracted
+    /// again, whose cells must line up with the next product's operand.
     pub fn for_stage_accumulator(
         device: &DeviceProperties,
         target: &TargetProperties,
@@ -228,7 +229,7 @@ impl Instruction {
         sum: ElemType,
         shape: [usize; 3],
     ) -> Option<Self> {
-        let [m, n, _] = shape;
+        let [m, n, k] = shape;
         Self::for_plane(
             device,
             target,
@@ -239,7 +240,7 @@ impl Instruction {
             shape,
             OpenedBy::StageAccumulator,
         )
-        .filter(|pick| pick.cell == [m, n])
+        .filter(|pick| pick.cell == [m, n] && pick.depth == k)
         .map(|pick| pick.instruction)
     }
 
@@ -259,7 +260,10 @@ impl Instruction {
     /// The fragment API and this crate's transport each take the leaf whole where the device
     /// offers that shape, or cut it into calls of their largest shape that does: a leaf one call
     /// fills comes before one cut into several, whichever comes first above, so a leaf the size
-    /// of an instruction contracts through it. The pick says the cell one call fills.
+    /// of an instruction contracts through it. Each takes the leaf's whole depth where it can,
+    /// and only where neither can does the tile walk `K` in the steps of the deepest instruction
+    /// that cuts it: a leaf some call takes at its depth keeps that call. The pick says the cell
+    /// one call fills and the depth it takes.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn for_plane(
         device: &DeviceProperties,
@@ -274,6 +278,7 @@ impl Instruction {
         let whole = |instruction| PlanePick {
             instruction,
             cell: [m, n],
+            depth: k,
         };
         if holder == ComputeScope::MMA_PLANE_GROUP {
             return Some(whole(Instruction::Wgmma));
@@ -291,7 +296,7 @@ impl Instruction {
             }));
         }
         let (lhs_element, rhs_element) = (lhs.element(rhs)?, rhs.element(lhs)?);
-        let [cmma, mma] = offered(device, target, lhs_element, rhs_element, sum, [m, n, k])?;
+        let calls = offered(device, target, lhs_element, rhs_element, sum, [m, n, k])?;
         let read_by_mma = |source| {
             matches!(
                 source,
@@ -305,35 +310,66 @@ impl Instruction {
         let sum_is_next_a = layout.register_layout_a == layout.register_layout_acc
             && layout.register_duplication_a == layout.register_duplication_acc;
         let mma_first = mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a);
-        let cmma = cmma.map(|cell| PlanePick {
-            instruction: Instruction::Cmma,
-            cell,
-        });
-        let mma = mma.map(|cell| PlanePick {
-            instruction: Instruction::Mma {
-                io: MmaIo::default(),
-                operands: MmaOperands::Plain,
-            },
-            cell,
-        });
-        let ordered = match mma_first {
-            true => [mma, cmma],
-            false => [cmma, mma],
+        let mma = Instruction::Mma {
+            io: MmaIo::default(),
+            operands: MmaOperands::Plain,
         };
-        let one_call = ordered
-            .into_iter()
-            .flatten()
-            .find(|pick| pick.cell == [m, n]);
-        one_call.or_else(|| ordered.into_iter().flatten().next())
+        // Each transport's calls in the order it is preferred; within them, one call that fills
+        // the leaf first.
+        let pick = |[cmma_call, mma_call]: [Option<Call>; 2]| {
+            let picks = [
+                cmma_call.map(|call| call.picked(Instruction::Cmma)),
+                mma_call.map(|call| call.picked(mma)),
+            ];
+            let ordered = match mma_first {
+                true => [picks[1], picks[0]],
+                false => picks,
+            };
+            let one_call = ordered
+                .into_iter()
+                .flatten()
+                .find(|pick| pick.cell == [m, n] && pick.depth == k);
+            one_call.or_else(|| ordered.into_iter().flatten().next())
+        };
+        // A call as deep as the leaf comes before one the tile walks along `K`, whatever the
+        // transport: a leaf some call contracts at its depth keeps that call.
+        pick(calls.whole).or_else(|| pick(calls.walked))
     }
 }
 
-/// What a plane's sum contracts through, and the `m × n` cell of its output one call fills: the
-/// whole leaf, or one of the cells the tile cuts the leaf into.
+/// What a plane's sum contracts through, the `m × n` cell of its output one call fills, and how
+/// much of the contraction one call takes: the whole leaf, or one of the cells the tile cuts the
+/// leaf into, its whole depth or the steps the tile walks it in.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct PlanePick {
     pub instruction: Instruction,
     pub cell: [usize; 2],
+    pub depth: usize,
+}
+
+/// One transport's call over a leaf: the cell it fills and the depth of the contraction it takes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct Call {
+    cell: [usize; 2],
+    depth: usize,
+}
+
+impl Call {
+    /// This call through `instruction`.
+    fn picked(self, instruction: Instruction) -> PlanePick {
+        PlanePick {
+            instruction,
+            cell: self.cell,
+            depth: self.depth,
+        }
+    }
+}
+
+/// The calls the fragment API and the crate's own transport each offer over a leaf, `[cmma, mma]`:
+/// those that take its whole depth, and those the tile walks along `K` in steps of their own.
+struct Offered {
+    whole: [Option<Call>; 2],
+    walked: [Option<Call>; 2],
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -389,12 +425,14 @@ pub(crate) fn code_of(kind: FloatKind) -> Option<QuantValue> {
     }
 }
 
-/// The cell the fragment API and the crate's own transport each fill per call of `lhs · rhs`
-/// summed in `sum` over a leaf of `m × n × k`, where `device` offers one: the leaf's own `m × n`
-/// where it offers that shape, else its largest shape whose edges each cut the leaf's (the fewest
-/// calls), the squarest of those. The fragment API's depth is `k`; the crate's transport's is `k`,
-/// or a depth `k` is whole calls of where it loads a deeper fragment of 16-bit values in lane runs
-/// on `target`. `None` where its planes have no single width.
+/// The calls the fragment API and the crate's own transport each offer for `lhs · rhs` summed in
+/// `sum` over a leaf of `m × n × k`, where `device` offers one ([`Offered`]). A call fills the
+/// leaf's own `m × n` where the device offers that shape, else its largest shape whose edges each
+/// cut the leaf's (the fewest calls), the squarest of those. It takes the leaf's whole depth
+/// where its instruction is `k` deep, or where the crate's transport loads a deeper fragment of
+/// 16-bit values in lane runs on `target` and `k` is whole calls of it. Otherwise the deepest
+/// instruction whose depth cuts `k` is walked along it in its own steps. `None` where its planes
+/// have no single width.
 fn offered(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -402,7 +440,7 @@ fn offered(
     rhs: ElemType,
     sum: ElemType,
     [m, n, k]: [usize; 3],
-) -> Option<[Option<[usize; 2]>; 2]> {
+) -> Option<Offered> {
     let hardware = &device.hardware;
     let planes_of_one_width = device.features.plane.contains(Plane::Ops)
         && hardware.plane_size_min == hardware.plane_size_max;
@@ -411,38 +449,47 @@ fn offered(
     }
     let deep_loads = LaneMap::try_from(target).is_ok() && lhs.size_bits() == 16;
     let elements = |s: &&MmaConfig| s.a_type == lhs && s.b_type == rhs && s.cd_type == sum;
-    let cell = |s: &MmaConfig| [s.m as usize, s.n as usize];
-    let cuts = |[cm, cn]: [usize; 2]| m.is_multiple_of(cm) && n.is_multiple_of(cn);
+    let cuts = |s: &&MmaConfig| m.is_multiple_of(s.m as usize) && n.is_multiple_of(s.n as usize);
+    let walks = |s: &&MmaConfig| k.is_multiple_of(s.k as usize);
     // The leaf's own shape, else the cutting cell with the fewest calls, the squarest of those.
-    let best = |cells: Vec<[usize; 2]>| {
-        cells.iter().copied().find(|&c| c == [m, n]).or_else(|| {
-            cells
-                .iter()
-                .copied()
-                .max_by_key(|&[cm, cn]| (cm * cn, core::cmp::Reverse(cm.abs_diff(cn))))
+    let best_cell = |shapes: &[&MmaConfig]| {
+        let cells = shapes.iter().map(|s| [s.m as usize, s.n as usize]);
+        cells.clone().find(|&c| c == [m, n]).or_else(|| {
+            cells.max_by_key(|&[cm, cn]| (cm * cn, core::cmp::Reverse(cm.abs_diff(cn))))
         })
     };
+    // The best cell among the calls of `shapes` as deep as `depth`.
+    let at_depth = |shapes: &[&MmaConfig], depth: usize, whole: &dyn Fn(&MmaConfig) -> bool| {
+        let deep: Vec<&MmaConfig> = shapes.iter().copied().filter(|s| whole(s)).collect();
+        best_cell(&deep).map(|cell| Call { cell, depth })
+    };
+    // The deepest instruction cutting `k`, at its best cell.
+    let deepest = |shapes: &[&MmaConfig]| {
+        let depth = shapes.iter().map(|s| s.k as usize).max()?;
+        at_depth(shapes, depth, &|s| s.k as usize == depth)
+    };
     let offered = &device.features.matmul;
-    let cmma = offered
+    let cmma: Vec<&MmaConfig> = offered
         .cmma
         .iter()
         .filter(elements)
-        .filter(|s| s.k as usize == k)
-        .map(cell)
-        .filter(|&c| cuts(c))
+        .filter(cuts)
+        .filter(walks)
         .collect();
-    let mma = offered
+    let mma: Vec<&MmaConfig> = offered
         .mma
         .iter()
         .filter(elements)
-        .filter(|s| {
-            let depth = s.k as usize;
-            k == depth || (deep_loads && k.is_multiple_of(depth))
-        })
-        .map(cell)
-        .filter(|&c| cuts(c))
+        .filter(cuts)
+        .filter(walks)
         .collect();
-    Some([best(cmma), best(mma)])
+    Some(Offered {
+        whole: [
+            at_depth(&cmma, k, &|s| s.k as usize == k),
+            at_depth(&mma, k, &|s| s.k as usize == k || deep_loads),
+        ],
+        walked: [deepest(&cmma), deepest(&mma)],
+    })
 }
 
 #[cfg(test)]
@@ -603,6 +650,56 @@ mod tests {
         assert_eq!(pick(&cuda, [16, 24, 16]), Some((mma(), [16, 8])));
         // No instruction is 8 deep in `f16` there.
         assert_eq!(pick(&cuda, [32, 8, 8]), None);
+    }
+
+    /// A leaf deeper than every instruction is walked along `K` in the steps of the deepest one
+    /// that cuts its depth, at that one's best cell: the plane's depth is the kernel's, the steps
+    /// the tile's. Devices offering only the fragment API, which loads no fragment deeper than its
+    /// instruction.
+    #[test]
+    fn a_leaf_deeper_than_any_instruction_is_walked_in_its_steps() {
+        let fragment_api_only = |mut device: DeviceProperties| {
+            device.features.matmul.mma.clear();
+            device
+        };
+        let (metal, cuda) = (fragment_api_only(metal()), fragment_api_only(cuda()));
+        let pick =
+            |device, shape| cut(device, HALF, shape).map(|p| (p.instruction, p.cell, p.depth));
+        assert_eq!(
+            pick(&metal, [16, 32, 32]),
+            Some((Instruction::Cmma, [8, 8], 8))
+        );
+        assert_eq!(
+            pick(&cuda, [32, 32, 64]),
+            Some((Instruction::Cmma, [16, 16], 16))
+        );
+        // Not a whole number of steps of any instruction.
+        assert_eq!(pick(&cuda, [16, 16, 24]), None);
+    }
+
+    /// A call that takes the leaf's whole depth comes before one the tile walks, whichever the rule
+    /// would otherwise put first: where the crate's transport loads 16-bit fragments deeper than
+    /// its instruction, as on the mocked target, the manual mma takes a deep leaf whole, ahead of
+    /// the fragment API walked.
+    #[test]
+    fn a_call_taking_the_whole_depth_comes_before_a_walked_one() {
+        let pick = Instruction::for_accumulator(
+            &cuda(),
+            &sum_is_next_a(),
+            ComputeScope::Plane,
+            HALF,
+            HALF,
+            F32,
+            [16, 16, 64],
+        );
+        assert_eq!(
+            pick,
+            Some(PlanePick {
+                instruction: mma(),
+                cell: [16, 8],
+                depth: 64,
+            })
+        );
     }
 
     /// An instruction of the leaf's own shape fills it in one call, ahead of one the rule would
