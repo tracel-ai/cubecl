@@ -687,18 +687,18 @@ pub struct FastMathPermissions {
 
 impl FastMathPermissions {
     /// The backend's default and `allowed`.
-    pub fn allowing(allowed: EnumSet<FastMath>) -> Self {
+    pub fn allowing(allowed: impl Into<EnumSet<FastMath>>) -> Self {
         Self {
-            allowed,
+            allowed: allowed.into(),
             forbidden: EnumSet::empty(),
         }
     }
 
     /// The backend's default, less `forbidden`.
-    pub fn forbidding(forbidden: EnumSet<FastMath>) -> Self {
+    pub fn forbidding(forbidden: impl Into<EnumSet<FastMath>>) -> Self {
         Self {
             allowed: EnumSet::empty(),
-            forbidden,
+            forbidden: forbidden.into(),
         }
     }
 
@@ -766,7 +766,7 @@ mod tests {
     #[test]
     fn a_forbid_removes_what_includes_it() {
         let permissions = FastMathPermissions::allowing(FastMath::all()).within(
-            FastMathPermissions::forbidding(FastMath::AllowContraction.into()),
+            FastMathPermissions::forbidding(FastMath::AllowContraction),
         );
         let allowed = permissions.resolve(EnumSet::empty());
 
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn an_allow_in_a_callee_cannot_lift_its_callers_forbid() {
-        let permissions = FastMathPermissions::forbidding(FastMath::AllowContraction.into())
+        let permissions = FastMathPermissions::forbidding(FastMath::AllowContraction)
             .within(FastMathPermissions::allowing(FastMath::all()));
 
         assert!(
@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn an_allow_adds_to_the_backend_default() {
-        let permissions = FastMathPermissions::allowing(FastMath::ReducedPrecision.into());
+        let permissions = FastMathPermissions::allowing(FastMath::ReducedPrecision);
 
         assert_eq!(
             permissions.resolve(FastMath::AllowContraction.into()),
@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn a_forbid_alone_keeps_the_rest_of_the_backend_default() {
-        let permissions = FastMathPermissions::forbidding(FastMath::NotNaN.into());
+        let permissions = FastMathPermissions::forbidding(FastMath::NotNaN);
         let default = FastMath::AllowContraction | FastMath::NotNaN;
 
         assert_eq!(

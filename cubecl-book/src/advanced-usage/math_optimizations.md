@@ -48,7 +48,7 @@ Forbidding one optimization keeps the rest of the default:
 
 ```rust
 /// `a * b + c` rounded after each operation, as a host reference computes it.
-#[cube(forbid_fast_math = FastMath::AllowContraction.into())]
+#[cube(forbid_fast_math = FastMath::AllowContraction)]
 fn product_sum<F: Float>(a: F, b: F, c: F) -> F {
     a * b + c
 }

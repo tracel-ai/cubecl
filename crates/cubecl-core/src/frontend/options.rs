@@ -3,7 +3,7 @@ use cubecl_ir::{FastMath, FastMathPermissions, Scope};
 
 pub fn allow_fast_math_expand<R>(
     scope: &Scope,
-    value: EnumSet<FastMath>,
+    value: impl Into<EnumSet<FastMath>>,
     body: impl FnOnce(&Scope) -> R,
 ) -> R {
     scope.with_fast_math(FastMathPermissions::allowing(value), body)
@@ -11,7 +11,7 @@ pub fn allow_fast_math_expand<R>(
 
 pub fn forbid_fast_math_expand<R>(
     scope: &Scope,
-    value: EnumSet<FastMath>,
+    value: impl Into<EnumSet<FastMath>>,
     body: impl FnOnce(&Scope) -> R,
 ) -> R {
     scope.with_fast_math(FastMathPermissions::forbidding(value), body)
