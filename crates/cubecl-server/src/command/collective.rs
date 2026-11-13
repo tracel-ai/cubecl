@@ -218,7 +218,7 @@ pub struct Collectives<D: CollectiveDriver, E: EventApi> {
     /// The groups whose part here failed, each with the failure that broke it.
     broken: HashMap<CommunicationId, ServerError>,
     next_timing: Option<CommunicationTiming>,
-    /// The end of the last collective queued since the last sync, while it was timed.
+    /// The end of the last collective queued, while it was timed.
     last_end: Option<Mark<E>>,
 }
 
@@ -264,10 +264,12 @@ impl<D: CollectiveDriver, E: EventApi> Collectives<D, E> {
         self.last_end = end;
     }
 
-    /// Where the collectives queued since the last sync end, which a sync waits for: `None`
-    /// when the last one was untimed, or none was queued.
-    pub fn take_last_end(&mut self) -> Option<Mark<E>> {
-        self.last_end.take()
+    /// Where the collectives queued so far end, which a sync waits for: `None` when the last one
+    /// was untimed, or none was queued.
+    ///
+    /// Kept past a sync, since a sync on another compute stream waits for the same collectives.
+    pub fn last_end(&self) -> Option<&Mark<E>> {
+        self.last_end.as_ref()
     }
 
     /// Records that this device's part of a collective over `group` failed with `cause`. Its

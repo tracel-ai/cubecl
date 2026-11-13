@@ -758,10 +758,10 @@ fn a_sync_after_its_collectives_ended_waits_for_nothing() {
 
     assert_eq!(read(wait), cubecl_common::profile::Duration::ZERO);
 
-    let mut again = CommunicationTiming::default();
-    let nothing_queued = again.wait_window();
-    server.time_next_communication(again);
-    server.sync_collective(STREAM).unwrap();
+    let mut another_stream = CommunicationTiming::default();
+    let wait = another_stream.wait_window();
+    server.time_next_communication(another_stream);
+    server.sync_collective(StreamId { value: 2 }).unwrap();
 
-    assert!(cubecl_environment::future::block_on(nothing_queued.resolve()).is_none());
+    assert_eq!(read(wait), cubecl_common::profile::Duration::ZERO);
 }
