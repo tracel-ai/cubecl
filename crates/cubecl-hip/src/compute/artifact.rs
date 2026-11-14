@@ -7,7 +7,7 @@ use cubecl_core::{
     ir::{DeviceProperties, settings::DebugInfo},
     prelude::*,
 };
-use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::{formatter::format_cpp, shared::signature::forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::get_hip_include_path;
 use cubecl_server::compiler::{
@@ -244,6 +244,11 @@ fn compile_to_binary(
     }
     if line_tables {
         options.push(c"-gline-tables-only".as_ptr());
+    }
+    // The source's pragma already asks for it; the option covers code the pragma can't reach,
+    // such as the headers it includes.
+    if forbids_contraction(&source.to_string_lossy()) {
+        options.push(c"-ffp-contract=off".as_ptr());
     }
 
     // SAFETY: `program.0` is the handle created above, and `options` holds

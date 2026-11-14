@@ -5,7 +5,7 @@ use pliron::r#type::TypeHandle;
 use crate::{KernelExpansion, KernelIntegrator, prelude::KernelDefinition};
 use alloc::collections::BTreeMap;
 use cubecl_ir::{
-    DeviceProperties, ElemType, Scope, TargetProperties,
+    ContextExt as _, DeviceProperties, ElemType, Scope, TargetProperties,
     metadata::{INFO_ALIGN, Info, Metadata, SizedInfoField},
     pliron::value::Value,
     settings::KernelSettings,
@@ -94,6 +94,10 @@ impl KernelBuilder {
             debug.finish();
         }
         let info = self.create_info();
+        // Read by the fusion pass and the backends' own code generation.
+        self.scope
+            .ctx_mut()
+            .set_aux_ty(self.settings.float_contraction);
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,
             info,

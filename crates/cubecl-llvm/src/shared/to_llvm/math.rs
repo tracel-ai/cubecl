@@ -5,6 +5,7 @@ use cubecl_core::ir::dialect::{
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
+use cubecl_core::ir::settings::FloatContraction;
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -358,14 +359,12 @@ impl ToLLVMDialect for BoolNotOp {
     }
 }
 
-/// FMA contraction is enabled only on GPU targets.
+/// Lets LLVM fuse a product with the add or subtract that consumes it, on every target, unless
+/// the kernel turned [float contraction](FloatContraction) off.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
-    match ctx.target() {
-        #[cfg(feature = "amdgpu")]
-        LlvmTarget::AmdGpu => FastmathFlagsAttr(FastmathFlags::CONTRACT),
-        #[cfg(feature = "nvptx")]
-        LlvmTarget::Nvptx => FastmathFlagsAttr(FastmathFlags::CONTRACT),
-        LlvmTarget::Cpu => FastmathFlagsAttr::default(),
+    match ctx.float_contraction() {
+        FloatContraction::Allowed => FastmathFlagsAttr(FastmathFlags::CONTRACT),
+        FloatContraction::Off => FastmathFlagsAttr::default(),
     }
 }
 

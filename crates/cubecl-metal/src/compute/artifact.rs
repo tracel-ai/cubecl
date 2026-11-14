@@ -4,6 +4,7 @@
 use crate::MetalCompiler;
 use crate::compute::pipelines::MetalCompiledKernel;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
+use cubecl_cpp::shared::signature::forbids_contraction;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::compiler::{ArtifactCompiler, ArtifactId, CompilationRecording};
@@ -159,10 +160,17 @@ impl MetalArtifactCompiler {
         let source_ns = NSString::from_str(source);
 
         // The driver's default options, as wgpu-msl compiles the same MSL with: its newest
-        // language version and fast math, so the two Metal runtimes give the same results.
+        // language version and fast math, so the two Metal runtimes give the same results. Fast
+        // math contracts whatever the source's pragma says, so a kernel that turned contraction
+        // off compiles without it.
+        let options = MTLCompileOptions::new();
+        if forbids_contraction(source) {
+            #[allow(deprecated)]
+            options.setFastMathEnabled(false);
+        }
         let library = self
             .device
-            .newLibraryWithSource_options_error(&source_ns, Some(&MTLCompileOptions::new()))
+            .newLibraryWithSource_options_error(&source_ns, Some(&options))
             .map_err(|err| CompilationError::Generic {
                 reason: format!("Failed to compile MSL: {:?}", err.localizedDescription()),
                 backtrace: BackTrace::capture(),

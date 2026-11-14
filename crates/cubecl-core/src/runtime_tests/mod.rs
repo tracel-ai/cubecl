@@ -19,6 +19,7 @@ pub mod comparison;
 pub mod compile;
 pub mod complex;
 pub mod const_match;
+pub mod contraction;
 pub mod control_flow;
 pub mod debug;
 pub mod different_rank;
@@ -188,6 +189,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_remainder!();
+        cubecl_core::testgen_contraction!();
         cubecl_core::testgen_native_array!();
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
