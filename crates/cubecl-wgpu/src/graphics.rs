@@ -122,7 +122,8 @@ impl AutoGraphicsApi {
         cfg_if::cfg_if! {
             if #[cfg(target_family = "wasm")] {
                 alloc::vec![Backend::BrowserWebGpu]
-            } else if #[cfg(target_os = "macos")] {
+            } else if #[cfg(target_vendor = "apple")] {
+                // Metal is the only native API on every Apple OS, not just macOS.
                 alloc::vec![Backend::Metal]
             } else {
                 alloc::vec![Backend::Vulkan, Backend::Dx12, Backend::Gl]
