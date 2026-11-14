@@ -752,7 +752,7 @@ pub(crate) fn ld_matrix(
         // The 16×16 byte matrices of the `sm_120f` family, which PTX reads transposed only and
         // NVVM has no intrinsic for: inline PTX, two registers a matrix, each unit addressing one
         // of its rows.
-        LdMatrixForm::M16N16B8 if transpose => {
+        LdMatrixForm::M16N16B8 => {
             let zeros = (0..2 * factor)
                 .map(|_| {
                     let zero = i32_const_op(ctx, 0);

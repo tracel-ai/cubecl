@@ -3,7 +3,7 @@
 
 use cubecl::prelude::*;
 
-use super::leaf::{Side, deep_load, memory, run_keys};
+use super::leaf::{Side, deep_load, memory};
 use crate::tile::base::witnessed_space;
 use crate::*;
 
@@ -150,7 +150,7 @@ impl Descent {
         #[comptime] instruction: Instruction,
     ) {
         let load = deep_load(lhs, rhs);
-        let keys = run_keys(lhs);
+        let keys = lhs.rhs_keys();
         let lhs = PlanePartition::operand::<Lhs>(lhs, acc, instruction, load);
         let rhs = PlanePartition::operand::<Rhs>(
             rhs,
