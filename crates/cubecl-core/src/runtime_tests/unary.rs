@@ -1102,6 +1102,79 @@ test_unary_impl_fixed!(
     ]
 );
 
+pub fn test_log1p_f32<R: Runtime>(client: Client) {
+    #[cube(launch_unchecked)]
+    fn test_function<In: Size, Out: Size>(
+        input: &[Vector<f32, In>],
+        output: &mut [Vector<f32, Out>],
+    ) {
+        if ABSOLUTE_POS < input.len() {
+            output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].log1p());
+        }
+    }
+
+    // Small values where `(1 + x).ln()` is 0 or loses most of its bits, plus ordinary,
+    // large and edge inputs.
+    let input = &[
+        1.0e-8f32, -2.0e-8, 1.0e-5, -1.0e-5, 0.5, 10.0, 1.0e30, -0.999,
+    ];
+
+    for &(input_vectorization, out_vectorization) in &[(1usize, 1usize), (2, 2), (4, 4)] {
+        let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
+        let input_handle = client.create_from_slice(f32::as_bytes(input));
+
+        unsafe {
+            test_function::launch_unchecked(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d((input.len() / input_vectorization) as u32),
+                input_vectorization,
+                out_vectorization,
+                BufferArg::from_raw_parts(input_handle, input.len()),
+                BufferArg::from_raw_parts(output_handle.clone(), input.len()),
+            )
+        };
+
+        let actual = client.read_one_unchecked(output_handle);
+        let actual = f32::from_bytes(&actual);
+
+        for (i, &x) in input.iter().enumerate() {
+            assert_f32_ulp_le(actual[i], x.ln_1p(), 4);
+        }
+    }
+}
+
+pub fn test_log1p_f32_edges<R: Runtime>(client: Client) {
+    #[cube(launch_unchecked)]
+    fn test_function(input: &[f32], output: &mut [f32]) {
+        if ABSOLUTE_POS < input.len() {
+            output[ABSOLUTE_POS] = input[ABSOLUTE_POS].log1p();
+        }
+    }
+
+    let input = &[0.0f32, -1.0, f32::INFINITY, f32::NAN];
+    let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
+    let input_handle = client.create_from_slice(f32::as_bytes(input));
+
+    unsafe {
+        test_function::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(input.len() as u32),
+            BufferArg::from_raw_parts(input_handle, input.len()),
+            BufferArg::from_raw_parts(output_handle.clone(), input.len()),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output_handle);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 0.0);
+    assert_eq!(actual[1], f32::NEG_INFINITY);
+    assert_eq!(actual[2], f32::INFINITY);
+    assert!(actual[3].is_nan());
+}
+
 pub fn test_expm1_f32<R: Runtime>(client: Client) {
     #[cube(launch_unchecked)]
     fn test_function<In: Size, Out: Size>(
@@ -1365,6 +1438,18 @@ macro_rules! testgen_unary {
             fn test_expm1_f32() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::unary::test_expm1_f32::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_log1p_f32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::unary::test_log1p_f32::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_log1p_f32_edges() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::unary::test_log1p_f32_edges::<TestRuntime>(client);
             }
         }
     };
