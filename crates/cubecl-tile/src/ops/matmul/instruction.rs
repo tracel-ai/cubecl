@@ -305,16 +305,13 @@ impl Instruction {
             )
         };
         let mma_reads = read_by_mma(lhs) || read_by_mma(rhs);
-        let layout = &target.mma;
-        let sum_is_next_a = layout.register_layout_a == layout.register_layout_acc
-            && layout.register_duplication_a == layout.register_duplication_acc;
         // A sum contracted again is kept in the crate's transport only where that transport offers
         // a call the fragment API does not. Where both offer the same calls, as Metal's one
         // `8 × 8 × 8`, the sum is drained like any other: kept in the crate's transport, the next
-        // product reads the held cells in an unrolled walk, which tripled the compile time of
-        // attention's autotune on an M2 (417 s to 1360 s, 1.4 to 2.6 GB on fewer threads), for a
-        // speed no one has measured.
-        let own_calls = {
+        // product reads the held cells in an unrolled walk, which triples the compile time of
+        // attention's autotune on an M2 (417 s against 1360 s, 1.4 against 2.6 GB) for a speed no
+        // one has measured.
+        let mma_adds_calls = {
             let matmul = &device.features.matmul;
             let product = |s: &&MmaConfig| {
                 s.a_type == lhs_element && s.b_type == rhs_element && s.cd_type == sum
@@ -325,8 +322,10 @@ impl Instruction {
                 .filter(product)
                 .any(|shape| !matmul.cmma.iter().filter(product).any(|c| c == shape))
         };
-        let mma_first =
-            mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a && own_calls);
+        let mma_first = mma_reads
+            || (opened_by == OpenedBy::StageAccumulator
+                && accumulator_is_a(target)
+                && mma_adds_calls);
         let mma = Instruction::Mma {
             io: MmaIo::default(),
             operands: MmaOperands::Plain,
@@ -367,6 +366,12 @@ impl ShapedInstruction {
     pub fn cell(&self) -> [usize; 2] {
         let [m, n, _] = self.shape;
         [m, n]
+    }
+
+    /// The depth of the contraction one call takes: the leaf's whole depth, or one step of the
+    /// walk the tile takes along it.
+    pub fn depth(&self) -> usize {
+        self.shape[2]
     }
 }
 
@@ -417,11 +422,8 @@ fn held_run(
     let Instruction::Mma { .. } = held else {
         return None;
     };
-    let layout = &target.mma;
-    let held_as_a = layout.register_layout_a == layout.register_layout_acc
-        && layout.register_duplication_a == layout.register_duplication_acc;
     let element = rhs.element(rhs)?;
-    if !held_as_a || element.size_bits() != 16 {
+    if !accumulator_is_a(target) || element.size_bits() != 16 {
         return None;
     }
     let runs: Vec<&MmaConfig> = device
@@ -451,6 +453,14 @@ fn held_run(
         instruction: held,
         shape: [held_rows, width, depth],
     })
+}
+
+/// Whether `target` lays a manual-mma fragment's `A` as it lays its accumulator, so a sum held in
+/// registers is the `A` of the next product as it lies.
+fn accumulator_is_a(target: &TargetProperties) -> bool {
+    let layout = &target.mma;
+    layout.register_layout_a == layout.register_layout_acc
+        && layout.register_duplication_a == layout.register_duplication_acc
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -532,22 +542,14 @@ fn offered(
     let elements = |s: &&MmaConfig| s.a_type == lhs && s.b_type == rhs && s.cd_type == sum;
     let cuts = |s: &&MmaConfig| m.is_multiple_of(s.m as usize) && n.is_multiple_of(s.n as usize);
     let walks = |s: &&MmaConfig| k.is_multiple_of(s.k as usize);
-    // The leaf's own shape, else the cutting cell with the fewest calls, the squarest of those.
-    let best_cell = |shapes: &[&MmaConfig]| {
-        let cells = shapes.iter().map(|s| [s.m as usize, s.n as usize]);
-        cells.clone().find(|&c| c == [m, n]).or_else(|| {
-            cells.max_by_key(|&[cm, cn]| (cm * cn, core::cmp::Reverse(cm.abs_diff(cn))))
-        })
-    };
-    // The best cell among the calls of `shapes` as deep as `depth`.
-    let at_depth = |shapes: &[&MmaConfig], depth: usize, whole: &dyn Fn(&MmaConfig) -> bool| {
-        let deep: Vec<&MmaConfig> = shapes.iter().copied().filter(|s| whole(s)).collect();
-        best_cell(&deep).map(|cell| Call { cell, depth })
-    };
-    // The deepest instruction cutting `k`, at its best cell.
+    // The deepest instruction cutting `k`, as one step of the tile's walk.
     let deepest = |shapes: &[&MmaConfig]| {
         let depth = shapes.iter().map(|s| s.k as usize).max()?;
-        at_depth(shapes, depth, &|s| s.k as usize == depth)
+        best_call(
+            shapes.iter().filter(|s| s.k as usize == depth),
+            [m, n],
+            depth,
+        )
     };
     let offered = &device.features.matmul;
     let cmma: Vec<&MmaConfig> = offered
@@ -566,11 +568,34 @@ fn offered(
         .collect();
     Some(Offered {
         whole: [
-            at_depth(&cmma, k, &|s| s.k as usize == k),
-            at_depth(&mma, k, &|s| s.k as usize == k || deep_loads),
+            best_call(cmma.iter().filter(|s| s.k as usize == k), [m, n], k),
+            best_call(
+                mma.iter().filter(|s| s.k as usize == k || deep_loads),
+                [m, n],
+                k,
+            ),
         ],
         walked: [deepest(&cmma), deepest(&mma)],
     })
+}
+
+/// The call among `shapes` over a leaf of `m × n`, `depth` deep: the leaf's own `m × n` where one
+/// fills it, else the cell that cuts it in the fewest calls, the squarest of those.
+fn best_call<'a>(
+    shapes: impl Iterator<Item = &'a &'a MmaConfig>,
+    [m, n]: [usize; 2],
+    depth: usize,
+) -> Option<Call> {
+    shapes
+        .map(|s| [s.m as usize, s.n as usize])
+        .max_by_key(|&[cm, cn]| {
+            (
+                [cm, cn] == [m, n],
+                cm * cn,
+                core::cmp::Reverse(cm.abs_diff(cn)),
+            )
+        })
+        .map(|cell| Call { cell, depth })
 }
 
 #[cfg(test)]
@@ -750,7 +775,7 @@ mod tests {
         };
         let (metal, cuda) = (fragment_api_only(metal()), fragment_api_only(cuda()));
         let pick =
-            |device, shape| cut(device, HALF, shape).map(|p| (p.instruction, p.cell(), p.shape[2]));
+            |device, shape| cut(device, HALF, shape).map(|p| (p.instruction, p.cell(), p.depth()));
         assert_eq!(
             pick(&metal, [16, 32, 32]),
             Some((Instruction::Cmma, [8, 8], 8))
@@ -877,7 +902,8 @@ mod tests {
 
     /// A product on held cells reads a run of them as each call's `A`: at the held cells' rows,
     /// its leaf's own depth where the device offers it, else the deepest run that cuts the leaf,
-    /// which the tile walks. A held `16 × 8` cell on `sm_80` is read two at a time by `16 × 8 × 16`.
+    /// which the tile walks. A held `16 × 8` cell on `sm_80` is read two at a time by
+    /// `16 × 8 × 16`.
     #[test]
     fn a_product_on_held_cells_reads_runs_of_them() {
         let held = |cell| FragmentSource::Fragments {
@@ -885,7 +911,7 @@ mod tests {
             cell,
         };
         let pick = |device, cell, shape| {
-            cut(device, held(cell), shape).map(|p| (p.instruction, p.cell(), p.shape[2]))
+            cut(device, held(cell), shape).map(|p| (p.instruction, p.cell(), p.depth()))
         };
         let (metal, cuda) = (metal(), cuda());
         assert_eq!(pick(&metal, [8, 8], [8, 16, 32]), Some((mma(), [8, 8], 8)));

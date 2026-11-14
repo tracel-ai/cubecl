@@ -69,7 +69,7 @@ impl Descent {
 /// always, the crate's transport in lane runs, for 16-bit factors on a target whose instruction
 /// lane runs read, and the fragment API never.
 #[cube]
-fn loads_deep(
+fn fragment_loads_deep(
     #[comptime] fragment: Instruction,
     #[comptime] element: ElemType,
 ) -> comptime_type!(bool) {
@@ -98,7 +98,7 @@ impl Descent {
             TileKind::PlanePartition(p) => {
                 let grid = p.grid();
                 let fragment = p.frags.index(0usize).instruction();
-                let loads_deep = loads_deep(fragment, lhs.element);
+                let loads_deep = fragment_loads_deep(fragment, lhs.element);
                 comptime!(Descent::of(
                     grid,
                     fragment,
@@ -110,7 +110,7 @@ impl Descent {
             }
             TileKind::PlaneTile(t) => {
                 let fragment = t.instruction();
-                let loads_deep = loads_deep(fragment, lhs.element);
+                let loads_deep = fragment_loads_deep(fragment, lhs.element);
                 comptime!(Descent::of(
                     None,
                     fragment,
@@ -175,16 +175,14 @@ impl Descent {
         // expanded step by step.
         let contraction_only = comptime!(steps_contraction_only(&acc.place));
         let (lhs_memory, rhs_memory) = (lhs.is_memory(), rhs.is_memory());
-        if comptime!(contraction_only && lhs_memory && rhs_memory) {
-            for region in walk {
-                let mut acc_region = acc.at(&region);
-                Self::contract::<E, Lhs, Rhs>(&mut acc_region, &lhs.at(&region), &rhs.at(&region));
-            }
+        let walk = if comptime!(contraction_only && lhs_memory && rhs_memory) {
+            walk
         } else {
-            for region in walk.unrolled() {
-                let mut acc_region = acc.at(&region);
-                Self::contract::<E, Lhs, Rhs>(&mut acc_region, &lhs.at(&region), &rhs.at(&region));
-            }
+            walk.unrolled()
+        };
+        for region in walk {
+            let mut acc_region = acc.at(&region);
+            Self::contract::<E, Lhs, Rhs>(&mut acc_region, &lhs.at(&region), &rhs.at(&region));
         }
     }
 

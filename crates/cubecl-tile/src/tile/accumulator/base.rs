@@ -151,7 +151,7 @@ impl Tile {
     ) -> Tile {
         let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
         let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.shape[2]));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
         let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
         let instruction = comptime!(call.instruction);
         if comptime!(instruction == Instruction::Wgmma) {
@@ -759,7 +759,7 @@ impl Tile {
     ) -> Tile {
         let place = comptime!(Placement::new(space, depth, levels));
         let call = plane_call::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.shape[2]));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
         let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
         let grid = comptime!(GridShape::new(&place, &lhs.place.space));
         let instruction = comptime!(call.instruction);
