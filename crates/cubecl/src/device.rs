@@ -16,7 +16,8 @@ use cubecl_runtime::runtime::Runtime;
 
 pub use cubecl_core::device::DeviceId;
 pub use cubecl_runtime::device::{
-    AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
+    AmdDevice, CpuDevice, CudaDevice, MetalDevice, OpenClDevice, WgpuBackend, WgpuDevice,
+    WgpuDeviceKind,
 };
 
 pub use cubecl_runtime::runtime::{
@@ -54,6 +55,8 @@ pub enum Device {
     Wgpu(WgpuDevice),
     /// The device of the CPU runtime.
     Cpu(CpuDevice),
+    /// A device of the `OpenCL` runtime.
+    OpenCl(OpenClDevice),
 }
 
 /// Which runtime a [`Device`] belongs to.
@@ -74,6 +77,8 @@ pub enum RuntimeId {
     Wgpu = 3,
     /// The CPU runtime.
     Cpu = 4,
+    /// The `OpenCL` runtime.
+    OpenCl = 5,
 }
 
 /// A runtime's own device types get the low five bits of a [`DeviceId`]'s type
@@ -99,6 +104,7 @@ impl TryFrom<u16> for RuntimeId {
             2 => Ok(Self::Metal),
             3 => Ok(Self::Wgpu),
             4 => Ok(Self::Cpu),
+            5 => Ok(Self::OpenCl),
             other => Err(other),
         }
     }
@@ -207,6 +213,11 @@ impl Device {
     /// The `ROCm` device at `index`, counting the GPUs HIP reports.
     pub fn rocm(index: usize) -> Result<Self, DeviceUnavailable> {
         Self::named(RuntimeId::Hip, Self::Hip(AmdDevice::new(index)))
+    }
+
+    /// The `OpenCL` device at `index`, counting the devices the runtime can use, GPUs first.
+    pub fn opencl(index: usize) -> Result<Self, DeviceUnavailable> {
+        Self::named(RuntimeId::OpenCl, Self::OpenCl(OpenClDevice::new(index)))
     }
 
     /// The native Metal device `kind` names.
@@ -342,6 +353,8 @@ impl Device {
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::client(device),
             #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::client(device),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(ref device) => cubecl_opencl::OpenClRuntime::client(device),
             #[allow(unreachable_patterns)]
             ref other => panic!("{other:?} belongs to a runtime this build does not link"),
         }
@@ -367,6 +380,8 @@ impl Device {
             Self::Wgpu(_) => <cubecl_wgpu::WgpuRuntime>::can_read_tensor(shape, strides),
             #[cfg(feature = "cpu")]
             Self::Cpu(_) => cubecl_cpu::CpuRuntime::can_read_tensor(shape, strides),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(_) => cubecl_opencl::OpenClRuntime::can_read_tensor(shape, strides),
             #[allow(unreachable_patterns)]
             ref other => panic!("{other:?} belongs to a runtime this build does not link"),
         }
@@ -431,6 +446,12 @@ impl Device {
                 .into_iter()
                 .map(|id| Self::Cpu(DeviceIdentity::from_id(id))),
         );
+        #[cfg(feature = "opencl")]
+        devices.extend(
+            cubecl_opencl::OpenClRuntime::enumerate_all_devices()
+                .into_iter()
+                .map(|id| Self::OpenCl(DeviceIdentity::from_id(id))),
+        );
 
         devices
     }
@@ -443,6 +464,7 @@ impl Device {
             Self::Metal(_) => RuntimeId::Metal,
             Self::Wgpu(_) => RuntimeId::Wgpu,
             Self::Cpu(_) => RuntimeId::Cpu,
+            Self::OpenCl(_) => RuntimeId::OpenCl,
         }
     }
 
@@ -479,6 +501,8 @@ impl Device {
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::utilization(device),
             #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::utilization(device),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(ref device) => cubecl_opencl::OpenClRuntime::utilization(device),
             // Unlike `client`, a reason rather than a panic: watching a device must never take
             // the process down.
             #[allow(unreachable_patterns)]
@@ -510,6 +534,8 @@ impl Device {
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::temperature(device),
             #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::temperature(device),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(ref device) => cubecl_opencl::OpenClRuntime::temperature(device),
             #[allow(unreachable_patterns)]
             _ => Err(UtilizationUnavailable::RuntimeNotLinked),
         }
@@ -539,6 +565,8 @@ impl Device {
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::power(device),
             #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::power(device),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(ref device) => cubecl_opencl::OpenClRuntime::power(device),
             #[allow(unreachable_patterns)]
             _ => Err(UtilizationUnavailable::RuntimeNotLinked),
         }
@@ -572,6 +600,8 @@ impl Device {
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::description(device),
             #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::description(device),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(ref device) => cubecl_opencl::OpenClRuntime::description(device),
             #[allow(unreachable_patterns)]
             _ => None,
         }
@@ -594,6 +624,7 @@ impl Device {
             Ok(RuntimeId::Metal) => Self::Metal(cubecl_core::device::Device::from_id(inner)),
             Ok(RuntimeId::Wgpu) => Self::Wgpu(cubecl_core::device::Device::from_id(inner)),
             Ok(RuntimeId::Cpu) => Self::Cpu(cubecl_core::device::Device::from_id(inner)),
+            Ok(RuntimeId::OpenCl) => Self::OpenCl(cubecl_core::device::Device::from_id(inner)),
             Err(other) => {
                 panic!("device id {device_id} names the runtime tag {other}, which no runtime has")
             }
@@ -611,6 +642,7 @@ impl Device {
             Self::Metal(ref device) => device.to_id(),
             Self::Wgpu(ref device) => device.to_id(),
             Self::Cpu(ref device) => device.to_id(),
+            Self::OpenCl(ref device) => device.to_id(),
         };
 
         self.runtime().stamp(inner)
@@ -631,6 +663,8 @@ const LINKED: &[RuntimeId] = &[
     RuntimeId::Metal,
     #[cfg(feature = "wgpu")]
     RuntimeId::Wgpu,
+    #[cfg(feature = "opencl")]
+    RuntimeId::OpenCl,
     #[cfg(feature = "cpu")]
     RuntimeId::Cpu,
 ];
@@ -649,6 +683,8 @@ impl RuntimeId {
             Self::Wgpu => true,
             #[cfg(feature = "cpu")]
             Self::Cpu => true,
+            #[cfg(feature = "opencl")]
+            Self::OpenCl => true,
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -669,6 +705,8 @@ impl RuntimeId {
             Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::enumerate_devices_like(device_id),
             #[cfg(feature = "cpu")]
             Self::Cpu => cubecl_cpu::CpuRuntime::enumerate_devices_like(device_id),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl => cubecl_opencl::OpenClRuntime::enumerate_devices_like(device_id),
             #[allow(unreachable_patterns)]
             _ => alloc::vec::Vec::new(),
         }
@@ -690,6 +728,8 @@ impl RuntimeId {
             Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::find_device(device_id),
             #[cfg(feature = "cpu")]
             Self::Cpu => cubecl_cpu::CpuRuntime::find_device(device_id),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl => cubecl_opencl::OpenClRuntime::find_device(device_id),
             #[allow(unreachable_patterns)]
             _ => Err(0),
         }
@@ -713,6 +753,8 @@ impl RuntimeId {
             Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::is_available(),
             #[cfg(feature = "cpu")]
             Self::Cpu => cubecl_cpu::CpuRuntime::is_available(),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl => cubecl_opencl::OpenClRuntime::is_available(),
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -728,12 +770,13 @@ impl RuntimeId {
             Self::Metal => Device::Metal(Default::default()),
             Self::Wgpu => Device::Wgpu(Default::default()),
             Self::Cpu => Device::Cpu(Default::default()),
+            Self::OpenCl => Device::OpenCl(Default::default()),
         }
     }
 }
 
 /// No answer yet. No real id can collide with it: [`Device::to_id`] writes a
-/// runtime tag of 4 or less into bits 5 to 7, and this has all three set.
+/// runtime tag of 5 or less into bits 5 to 7, and this has all three set.
 #[cfg(any_runtime)]
 const UNPROBED: u32 = u32::MAX;
 
@@ -843,6 +886,11 @@ impl From<WgpuDevice> for Device {
 impl From<CpuDevice> for Device {
     fn from(device: CpuDevice) -> Self {
         Self::Cpu(device)
+    }
+}
+impl From<OpenClDevice> for Device {
+    fn from(device: OpenClDevice) -> Self {
+        Self::OpenCl(device)
     }
 }
 
@@ -973,6 +1021,7 @@ mod named_tests {
             RuntimeId::Metal,
             RuntimeId::Wgpu,
             RuntimeId::Cpu,
+            RuntimeId::OpenCl,
         ] {
             if runtime.is_linked() {
                 continue;
@@ -984,6 +1033,7 @@ mod named_tests {
                 RuntimeId::Metal => Device::metal(Default::default()),
                 RuntimeId::Wgpu => Device::wgpu(Default::default()),
                 RuntimeId::Cpu => Device::cpu(),
+                RuntimeId::OpenCl => Device::opencl(0),
             };
 
             assert_eq!(named, Err(DeviceUnavailable::NotLinked(runtime)));
@@ -1004,6 +1054,7 @@ mod named_tests {
         for named in [
             Device::cuda(far_past_any_machine),
             Device::rocm(far_past_any_machine),
+            Device::opencl(far_past_any_machine),
             Device::wgpu(WgpuDeviceKind::DiscreteGpu(far_past_any_machine)),
             Device::cuda(wider_than_the_id),
             Device::rocm(wider_than_the_id),
@@ -1038,6 +1089,7 @@ mod named_tests {
                 Device::wgpu(device.kind).and_then(|named| named.on(device.backend))
             }
             Device::Cpu(_) => Device::cpu(),
+            Device::OpenCl(device) => Device::opencl(device.index),
         };
 
         assert_eq!(named, Ok(Device::default()));

@@ -12,6 +12,13 @@ pub fn kernel_assign<F: Float>(output: &mut [F]) {
 }
 
 #[cube(launch)]
+pub fn kernel_assign_negative_zero<F: Float>(output: &mut [F]) {
+    if UNIT_POS == 0 {
+        output[0] = F::new(-0.0);
+    }
+}
+
+#[cube(launch)]
 pub fn kernel_assign_one_tuple<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
         let item = (F::new(5.0),);
@@ -177,6 +184,27 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Cli
     assert_eq!(actual[0], F::new(5.0));
 }
 
+/// A `-0.0` literal reaches memory with its sign bit set.
+pub fn test_kernel_assign_negative_zero<R: Runtime, F: Float + CubeElement>(client: Client) {
+    let handle = client.create_from_slice(F::as_bytes(&[F::new(1.0)]));
+
+    kernel_assign_negative_zero::launch::<F>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+    );
+
+    let actual = client.read_one(handle).unwrap();
+    let negative_zero = F::new(-0.0);
+    assert_ne!(F::as_bytes(&[negative_zero]), F::as_bytes(&[F::new(0.0)]));
+    assert_eq!(
+        &*actual,
+        F::as_bytes(&[negative_zero]),
+        "-0.0 lost its sign"
+    );
+}
+
 pub fn test_kernel_assign_one_tuple<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0)]));
 
@@ -275,6 +303,15 @@ macro_rules! testgen_assign {
             cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_assign_negative_zero() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::assign::test_kernel_assign_negative_zero::<
+                TestRuntime,
+                FloatType,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]

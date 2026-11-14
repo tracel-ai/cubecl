@@ -16,6 +16,8 @@ pub mod cuda;
 pub mod hip;
 #[cfg(feature = "metal")]
 pub mod metal;
+#[cfg(feature = "opencl")]
+pub mod opencl;
 pub mod target;
 
 #[cfg(feature = "metal")]

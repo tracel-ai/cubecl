@@ -45,11 +45,13 @@ pub enum ArtifactRoot {
     Metal,
     /// The SPIR-V wgpu compiles for Vulkan.
     Vulkan,
+    /// `OpenCL`'s programs: the C source and the device binary built from it.
+    OpenCl,
 }
 
 impl ArtifactRoot {
     /// Every root, each once.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Cpu,
         Self::Cuda,
         Self::CudaSources,
@@ -57,6 +59,7 @@ impl ArtifactRoot {
         Self::HipSources,
         Self::Metal,
         Self::Vulkan,
+        Self::OpenCl,
     ];
 
     /// The root as stored: the first segment of the namespace.
@@ -71,6 +74,7 @@ impl ArtifactRoot {
             Self::HipSources => "hip-second-line",
             Self::Metal => "metal",
             Self::Vulkan => "vulkan",
+            Self::OpenCl => "opencl",
         }
     }
 }

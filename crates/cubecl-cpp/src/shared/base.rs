@@ -142,6 +142,35 @@ where
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
     ) -> Result<Self::Representation, CompilationError> {
+        self.compile_with(kernel, compilation_options, |_| {})
+    }
+
+    fn extension(&self) -> &'static str {
+        "cpp"
+    }
+
+    fn lang_tag(&self) -> &'static str {
+        match T::target() {
+            Target::Cuda => "cuda",
+            Target::Hip => "hip",
+            Target::Metal => "msl",
+            Target::OpenCl => "opencl",
+        }
+    }
+}
+
+impl<T: CppTarget> CppCompiler<T>
+where
+    LowerBuiltins<T>: MatchRewrite,
+{
+    /// [`Compiler::compile`], with `aux` adding to the compilation's context what the target's
+    /// dialect reads beyond the shared options.
+    pub(crate) fn compile_with(
+        &mut self,
+        kernel: KernelDefinition,
+        compilation_options: &CompilationOptions,
+        aux: impl FnOnce(&mut Context),
+    ) -> Result<ComputeKernel, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
             let mut reason = "Can't compile cpp kernel\nCaused by:\n  ".to_string();
@@ -156,30 +185,14 @@ where
             });
         }
 
-        self.compile_ir(kernel, *compilation_options)
+        self.compile_ir(kernel, *compilation_options, aux)
     }
 
-    fn extension(&self) -> &'static str {
-        "cpp"
-    }
-
-    fn lang_tag(&self) -> &'static str {
-        match T::target() {
-            Target::Cuda => "cuda",
-            Target::Hip => "hip",
-            Target::Metal => "msl",
-        }
-    }
-}
-
-impl<T: CppTarget> CppCompiler<T>
-where
-    LowerBuiltins<T>: MatchRewrite,
-{
     fn compile_ir(
         self,
         kernel: KernelDefinition,
         compilation_options: CompilationOptions,
+        aux: impl FnOnce(&mut Context),
     ) -> Result<ComputeKernel, CompilationError> {
         let module = kernel.body.state().module;
         let module_op = module.get_operation();
@@ -199,6 +212,7 @@ where
             });
         }
         ctx.set_aux_ty(compilation_options);
+        aux(&mut ctx);
         ctx.set_aux_ty(state);
         ctx.set_aux_ty(T::target());
 
@@ -257,7 +271,7 @@ where
         // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
         let native_fp8 = match T::target() {
             Target::Cuda => EnumSet::all(),
-            Target::Hip | Target::Metal => EnumSet::empty(),
+            Target::Hip | Target::Metal | Target::OpenCl => EnumSet::empty(),
         };
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             native_fp8,
@@ -335,6 +349,10 @@ where
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
         let io = buffer_io(&ctx, entry_func);
+        let (has_info, has_dynamic_meta) = {
+            let info = &ctx.aux_ty::<CompilationState>().info;
+            (info.has_info(), info.has_dynamic_meta)
+        };
 
         // Emit here rather than lazily from `Display`, so an op that survives lowering with no
         // `OpToCPP` impl fails the compilation instead of panicking on the compiler thread.
@@ -366,6 +384,8 @@ where
             buffers,
             io,
             source,
+            has_info,
+            has_dynamic_meta,
         };
 
         dump.write("module.cpp", || {

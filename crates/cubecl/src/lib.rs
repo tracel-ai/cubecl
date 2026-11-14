@@ -103,6 +103,9 @@ pub use cubecl_cpu as cpu;
 #[cfg(feature = "metal")]
 pub use cubecl_metal as metal;
 
+#[cfg(feature = "opencl")]
+pub use cubecl_opencl as opencl;
+
 /// The runtime this build tests on.
 #[cfg(test_runtime_default)]
 pub type TestRuntime = cubecl_wgpu::WgpuRuntime;
@@ -127,6 +130,10 @@ pub type TestRuntime = hip::HipRuntime;
 #[cfg(test_runtime_metal)]
 pub type TestRuntime = metal::MetalRuntime;
 
+/// The runtime this build tests on.
+#[cfg(test_runtime_opencl)]
+pub type TestRuntime = opencl::OpenClRuntime;
+
 /// The client of [`test_device`], for the test that only wants one.
 ///
 /// ```no_run
@@ -138,7 +145,8 @@ pub type TestRuntime = metal::MetalRuntime;
     test_runtime_cpu,
     test_runtime_cuda,
     test_runtime_hip,
-    test_runtime_metal
+    test_runtime_metal,
+    test_runtime_opencl
 ))]
 pub fn test_client() -> client::Client {
     test_device().client()
@@ -179,4 +187,10 @@ pub fn test_device() -> Device {
 #[cfg(test_runtime_metal)]
 pub fn test_device() -> Device {
     Device::Metal(Default::default())
+}
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+#[cfg(test_runtime_opencl)]
+pub fn test_device() -> Device {
+    Device::OpenCl(Default::default())
 }
