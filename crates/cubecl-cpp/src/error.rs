@@ -6,6 +6,8 @@ pub enum CompileError {
     UnsupportedType(String),
     #[error("Encountered unsupported operation `{0}`")]
     UnsupportedOp(String),
+    #[error("Unsupported: {0}")]
+    Unsupported(String),
 }
 
 pub type Result<T> = core::result::Result<T, CompileError>;

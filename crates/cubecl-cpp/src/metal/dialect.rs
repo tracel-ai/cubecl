@@ -1,7 +1,7 @@
 use super::arch::MetalArchitecture;
 use crate::shared::{CppValue, SupportedMmaCombinations};
 use cubecl_core::ir::{
-    ElemType, FloatKind,
+    ElemType, FloatKind, IntKind, UIntKind,
     dialect::{
         general::PrintfOp,
         synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope},
@@ -111,6 +111,37 @@ pub fn supported_cmma_combinations_metal(_arch: &MetalArchitecture) -> Supported
             m: 8,
             n: 8,
             k: 8,
+        })
+        .collect()
+}
+
+/// The cooperative matrices that run as Metal 4 tensor operations (`matmul2d` on one SIMD group):
+/// every shape whose sides are 16 or 32, one of them 32, which is what the operation takes with
+/// both inputs held in registers. The lowering refuses every other product.
+pub fn supported_tensor_op_combinations_metal() -> SupportedMmaCombinations {
+    let (f16, bf16, f32) = (FloatKind::F16, FloatKind::BF16, FloatKind::F32);
+    let floats = [(f16, f16), (f16, f32), (bf16, bf16), (bf16, f32)]
+        .map(|(ab, cd)| (ElemType::Float(ab), ElemType::Float(cd)));
+    let integers = [ElemType::Int(IntKind::I8), ElemType::UInt(UIntKind::U8)]
+        .map(|ab| (ab, ElemType::Int(IntKind::I32)));
+    let sides = [16, 32];
+    let shapes = sides
+        .into_iter()
+        .cartesian_product(sides)
+        .cartesian_product(sides)
+        .map(|((m, n), k)| (m, n, k))
+        .filter(|&(m, n, k)| m == 32 || n == 32 || k == 32);
+    floats
+        .into_iter()
+        .chain(integers)
+        .cartesian_product(shapes)
+        .map(|((ab, cd_type), (m, n, k))| MmaConfig {
+            a_type: ab,
+            b_type: ab,
+            cd_type,
+            m,
+            n,
+            k,
         })
         .collect()
 }
