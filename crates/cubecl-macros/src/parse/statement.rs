@@ -6,7 +6,7 @@ use syn::{
 
 use crate::{
     expression::Expression,
-    parse::{asm::parse_asm_call, helpers::is_helper},
+    parse::{asm::parse_asm_call, desugar::MATCH_SCRUTINEE_MACRO, helpers::is_helper},
     scope::Context,
     statement::{DefineKind, Pattern, Statement},
 };
@@ -172,6 +172,11 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
         Ok(Expression::ExpressionMacro {
             ident: mac.path.get_ident().cloned().unwrap(),
             args,
+        })
+    } else if mac.path.is_ident(MATCH_SCRUTINEE_MACRO) {
+        let inner = Expression::from_expr(syn::parse2(mac.tokens)?, context)?;
+        Ok(Expression::CloneUnchecked {
+            inner: Box::new(inner),
         })
     } else if mac.path.is_ident("comment") {
         let content = syn::parse2::<LitStr>(mac.tokens)?;
