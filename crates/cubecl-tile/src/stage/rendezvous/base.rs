@@ -261,7 +261,8 @@ impl Meeting {
         }
     }
 
-    /// Fill staged `dst` from `src`, spread over the units `dst`'s level names ([`Level::copied_by`]).
+    /// Fill staged `dst` from `src`, spread over the units `dst`'s copy level names
+    /// ([`Level::copied_by`]).
     pub(crate) fn fill(&self, dst: &mut Tile, src: &Tile) {
         // Bound before the match, which borrows the kind.
         let space = comptime!(dst.place.space.clone());

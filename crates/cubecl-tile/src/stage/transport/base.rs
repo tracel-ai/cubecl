@@ -67,19 +67,20 @@ impl TransportKind {
     fn refuse_past_registers(self, dst: StoreForm, src: StoreForm) {
         assert!(
             !matches!(self, TransportKind::Scanned(_)),
-            "TransportKind: an async copy fills a whole, unmasked stage that replaces, and this \
-             destination is windowed, masked, summing or a sink"
+            "TransportKind: a copy moved memory to memory fills a whole, unmasked stage that \
+             replaces, and this destination is windowed, masked, summing or a sink"
         );
         assert!(
             dst.width == src.width,
-            "TransportKind: an async copy moves whole source lines, but this stage is served in \
-             {}-wide lines out of {}-wide ones",
+            "TransportKind: a copy moved memory to memory moves whole source lines, but this stage \
+             is served in {}-wide lines out of {}-wide ones",
             dst.width,
             src.width
         );
         assert!(
             src.addressed,
-            "TransportKind: an async copy reads its source by address, and this one is an erased call"
+            "TransportKind: a copy moved memory to memory reads its source by address, and this \
+             one is an erased call"
         );
     }
 
@@ -332,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "an async copy fills a whole, unmasked stage")]
+    #[should_panic(expected = "memory to memory fills a whole, unmasked stage")]
     fn an_async_copy_refuses_a_scan() {
         let masked = Access {
             overhang: Overhang::Masked,
@@ -343,7 +344,7 @@ mod tests {
 
     /// A padded stage assembles each line out of scalar cells, which no single copy moves.
     #[test]
-    #[should_panic(expected = "an async copy moves whole source lines")]
+    #[should_panic(expected = "memory to memory moves whole source lines")]
     fn an_async_copy_refuses_a_padded_stage() {
         kind(plain(4), asynchronous(plain(1)), &access());
     }

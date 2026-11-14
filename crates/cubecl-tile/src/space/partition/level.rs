@@ -131,13 +131,13 @@ impl Level {
         }
     }
 
-    /// The one axis of a copy's lines, which a copy's levels deal ([`copied_by`](Level::copied_by)).
+    /// The one axis of a copy's lines, which its level deals ([`copied_by`](Level::copied_by)).
     pub(crate) const COPIED: Axis = Axis(0);
 
-    /// The level a copy into or out of a window held by `holder` deals its lines by: line `w + t·n`
-    /// to unit `w` of the `n` units of one instance of `holder`, `units` of them where the launch
-    /// states it, so neighbouring units take neighbouring lines at once; every line to the one
-    /// unit of a window a unit holds.
+    /// The level a copy into or out of a window held by `holder` deals its lines by: line
+    /// `w + t·n` to unit `w` of the `n` units of one instance of `holder`, `units` of them where
+    /// the launch states it, so neighbouring units take neighbouring lines at once; every line to
+    /// the one unit of a window a unit holds.
     pub(crate) fn copied_by(holder: ComputeScope, units: Option<usize>) -> Level {
         match holder {
             ComputeScope::Unit => Level::every(&[(Level::COPIED, 1)]),
@@ -157,8 +157,9 @@ impl Level {
         }
     }
 
-    /// [`copied_by`](Level::copied_by) the cube, `units` of them where a binding states its launch's
-    /// count ([`TileSpec::units`](crate::TileSpec), `0` where it states none).
+    /// The level a copy into or out of a window the cube holds deals its lines by
+    /// ([`copied_by`](Level::copied_by)), `units` of them where a binding states its launch's count
+    /// ([`TileSpec::units`](crate::TileSpec), `0` where it states none).
     pub(crate) fn copied_by_cube(units: usize) -> Level {
         Level::copied_by(ComputeScope::Cube, (units > 0).then_some(units))
     }

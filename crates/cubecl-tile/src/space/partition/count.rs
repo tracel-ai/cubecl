@@ -14,9 +14,8 @@ pub(crate) enum Count {
     /// Tiles taken in turns by the units of one instance of `within`, `units` of them where the
     /// launch states it: unit `w` of `n` takes tiles `w`, `w + n`, and on. `tiles` of them where
     /// stated, every tile the level above hands down otherwise. A plane's units taking a stated
-    /// count, as many as the launch runs ([`Levels::units_distributed`](crate::Levels)), or a copy's
-    /// lines dealt to the units of the scope holding its window
-    /// ([`Level::copied_by`](crate::Level::copied_by)).
+    /// count ([`Levels::units_distributed`](crate::Levels)), or a copy's lines dealt to the units
+    /// of the scope holding its window ([`Level::copied_by`](crate::Level::copied_by)).
     InTurns {
         tiles: Option<usize>,
         within: ComputeScope,

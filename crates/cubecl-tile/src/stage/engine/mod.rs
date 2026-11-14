@@ -65,8 +65,8 @@ impl Memory {
                 landed.arrive_and_wait();
             }
             Landing::Bytes => comptime!(panic!(
-                "Tile::copy_from: a stage counted in bytes is filled from a tensor map's box \
-                 ([`Memory::load_box`])"
+                "Tile::copy_from: a stage counted in bytes is filled from a tensor map's box, by \
+                 Memory::load_box"
             )),
         }
     }

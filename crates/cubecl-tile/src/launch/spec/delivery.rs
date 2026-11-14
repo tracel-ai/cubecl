@@ -228,6 +228,8 @@ mod tests {
         device
     }
 
+    /// Who issues a move decides who meets on the slot's barrier: every unit, or the one that
+    /// announced the box's bytes.
     #[test]
     fn the_units_issue_their_own_lines_and_tma_the_whole_stage() {
         for delivery in [Delivery::SyncPerUnit, Delivery::AsyncPerUnit] {
@@ -247,6 +249,8 @@ mod tests {
         assert_eq!(Delivery::AsyncPerUnit.rendezvous(), Rendezvous::Barrier);
     }
 
+    /// A routine refused here never launches a kernel the device cannot run: an engine counts only
+    /// with the barrier its copies land on.
     #[test]
     fn an_engine_runs_where_the_device_has_it_and_a_barrier() {
         let (bare, engines) = (bare(), engines());
@@ -270,6 +274,8 @@ mod tests {
         );
     }
 
+    /// A stage held in registers between fetch and store is one the units write themselves: an
+    /// engine that writes memory directly has nothing to hold.
     #[test]
     fn a_register_prefetch_holds_only_what_the_units_load_themselves() {
         assert_eq!(Delivery::SyncPerUnit.holds(Prefetch::InRegisters), Ok(()));
@@ -282,6 +288,7 @@ mod tests {
         }
     }
 
+    /// A line the copy engine cannot move whole would be split into copies it does not make.
     #[test]
     fn the_copy_engine_moves_lines_of_4_8_or_16_bytes() {
         for bits in [32, 64, 128] {

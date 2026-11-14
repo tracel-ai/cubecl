@@ -43,9 +43,9 @@ pub(crate) enum Workers {
     Grid,
     /// This many workers, each taking a run of tiles ([`AllAcross`](Count::AllAcross)).
     Across(usize),
-    /// The units of one instance of `within`, taking the tiles in turns ([`InTurns`](Count::InTurns)),
-    /// `units` of them where the launch states it, the cube's last `fillers` planes' alone where it
-    /// sets them aside.
+    /// The units of one instance of `within`, taking the tiles in turns
+    /// ([`InTurns`](Count::InTurns)), `units` of them where the launch states it, the cube's last
+    /// `fillers` planes' alone where it sets them aside.
     Units {
         within: ComputeScope,
         units: Option<usize>,

@@ -542,8 +542,8 @@ impl Walk {
     }
 
     /// The steps every instance of `level` over `space` takes and the most any takes, where they
-    /// differ only by how an axis taken in turns splits among its units and the host knows both: the one
-    /// walk whose instance's step count is not a constant but is bounded by one.
+    /// differ only by how an axis taken in turns splits among its units and the host knows both:
+    /// the one walk whose instance's step count is not a constant but is bounded by one.
     fn bounds(space: &Space, level: &Level) -> Option<(usize, usize)> {
         let mut bounds = (1usize, 1usize);
         for axis in space.axes() {

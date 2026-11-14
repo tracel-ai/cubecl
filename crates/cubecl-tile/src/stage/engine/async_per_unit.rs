@@ -2,10 +2,11 @@
 //! than loading and storing them, so they land in the stage without passing through its
 //! registers, after the fill has returned, on the arrivals the slot's barrier counts.
 //!
-//! A unit takes as many lines as under the straight fill, but walks them in the source's order
-//! rather than the stage's. The copy bypasses L1, so neighbouring lanes must read neighbouring
-//! source bytes: walking a stage blocked into instruction tiles in its own order hands a warp a
-//! sliver of each of many rows, and reads more from DRAM than the stage holds.
+//! A unit takes as many lines as under the straight fill, but walks them in the window's logical
+//! row-major order rather than the stage's: the source's own order where it lays its axes out
+//! row-major. The copy bypasses L1, so neighbouring lanes must read neighbouring source bytes:
+//! walking a stage blocked into instruction tiles in its own order hands a warp a sliver of each
+//! of many rows, and reads more from DRAM than the stage holds.
 //!
 //! Nothing here waits: the slot's barrier is handed the copies and flips once they land
 //! ([`Meeting::release_write`](crate::Meeting)), or a blocking copy waits on one of its own
@@ -48,15 +49,15 @@ impl Memory {
         total: usize,
         #[comptime] fill: Level,
     ) {
-        // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic and
-        // `value` is not expanded at all.
+        // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic
+        // and `value` is not expanded at all.
         let width = W::value();
         let elem_size = I2::size().comptime();
         let bytes = comptime!(width * elem_size);
         comptime!(assert!(
             COPY_BYTES.contains(&bytes),
-            "Memory::async_lines: the copy engine moves 4, 8 or 16 bytes at once, and this stage's lines \
-         are {bytes}: serve the operand in lines one copy moves"
+            "Memory::async_lines: the copy engine moves 4, 8 or 16 bytes at once, and this stage's \
+             lines are {bytes}: serve the operand in lines one copy moves"
         ));
         for line in Walk::copy(&fill, total) {
             copy_line_async::<I2, W>(d, s, layout, line.coord(Level::COPIED));
