@@ -52,6 +52,11 @@ pub struct HardwareProperties {
     pub num_streaming_multiprocessors: Option<u32>,
     /// Number of available parallel cpu units, if the runtime is CPU.
     pub num_cpu_cores: Option<u32>,
+    /// The physical cores among `num_cpu_cores`, which a kernel whose units
+    /// each fill a core's arithmetic should count rather than the hardware
+    /// threads. `None` where the topology cannot be read; use
+    /// `.or(num_cpu_cores)` there.
+    pub num_cpu_physical_cores: Option<u32>,
     /// Bytes of the device's last level cache, and `None`, never `Some(0)`,
     /// where the runtime cannot read one.
     ///
@@ -999,6 +1004,7 @@ mod tests {
             max_cube_dim: (16, 16, 16),
             num_streaming_multiprocessors: None,
             num_cpu_cores: Some(16),
+            num_cpu_physical_cores: None,
             last_level_cache_size: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
