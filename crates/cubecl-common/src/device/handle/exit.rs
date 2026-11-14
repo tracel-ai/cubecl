@@ -33,7 +33,6 @@ mod handler {
     use alloc::vec::Vec;
     use core::any::TypeId;
     use core::sync::atomic::Ordering;
-    use std::sync::Once;
 
     /// A service to close at exit: where it runs, and the close of its type.
     struct ServiceAtExit {
@@ -44,8 +43,7 @@ mod handler {
 
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
 
-    static HANDLER: Once = Once::new();
-
+    #[cfg(not(miri))]
     unsafe extern "C" {
         /// The C library's, which every target with threads and `std` links.
         fn atexit(handler: extern "C" fn()) -> core::ffi::c_int;
@@ -57,29 +55,42 @@ mod handler {
         type_id: TypeId,
         close: fn(DeviceId) -> Result<(), ServiceCloseError>,
     ) {
-        HANDLER.call_once(|| {
-            // SAFETY: `close_on_exit` is a plain function taking nothing, which is what
-            // `atexit` takes, and it lives as long as the process.
-            if unsafe { atexit(close_on_exit) } != 0 {
-                log::warn!(
-                    "no exit handler for the device services: an exit from a thread other than \
-                     the main one may crash the process"
-                );
-            }
-        });
         let mut services = SERVICES.lock();
         let known = services
             .iter()
             .any(|service| service.device_id == device_id && service.type_id == type_id);
-        if !known {
-            services.push(ServiceAtExit {
-                device_id,
-                type_id,
-                close,
-            });
+        if known {
+            return;
+        }
+        services.push(ServiceAtExit {
+            device_id,
+            type_id,
+            close,
+        });
+        drop(services);
+        register_exit_handler();
+    }
+
+    /// Miri cannot call `atexit`, so under it no exit handler closes the services.
+    #[cfg(miri)]
+    fn register_exit_handler() {}
+
+    #[cfg(not(miri))]
+    fn register_exit_handler() {
+        // Registered again for each new service: exit handlers run newest first, so the latest
+        // one runs ahead of the teardown of every library loaded before this service started,
+        // whichever runtime started first. Only the first to run finds services to close.
+        // SAFETY: `close_on_exit` is a plain function taking nothing, which is what `atexit`
+        // takes, and it lives as long as the process.
+        if unsafe { atexit(close_on_exit) } != 0 {
+            log::warn!(
+                "no exit handler for the device services: an exit from a thread other than the \
+                 main one may crash the process"
+            );
         }
     }
 
+    #[cfg(not(miri))]
     extern "C" fn close_on_exit() {
         close_services();
     }

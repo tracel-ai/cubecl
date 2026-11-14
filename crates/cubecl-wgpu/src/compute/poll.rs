@@ -52,12 +52,33 @@ mod _impl {
         }
     }
 
+    /// How long a drop waits for the polling thread to let go of the device.
+    const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
     impl Drop for WgpuPoll {
+        /// Waits for the polling thread to stop, so the device and queue it holds are released
+        /// before the server's drop returns. A server closed as the process exits is dropped
+        /// just ahead of the driver's own exit teardown, which a thread still releasing the
+        /// device would race.
         fn drop(&mut self) {
             self.cancel_sender
                 .send(())
                 .expect("Failed to shutdown polling thread.");
             self.poll_thread.thread().unpark();
+
+            // A sync still in flight keeps the thread polling until it completes, so the wait
+            // is bounded rather than a join.
+            let start = std::time::Instant::now();
+            while !self.poll_thread.is_finished() {
+                if start.elapsed() >= STOP_TIMEOUT {
+                    log::warn!(
+                        "wgpu: the polling thread did not stop within {STOP_TIMEOUT:?}, leaving \
+                         it to release the device on its own"
+                    );
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
         }
     }
 }
