@@ -189,12 +189,12 @@ pub(super) fn load_ldmatrix_pair<
     }
 }
 
-/// Two 8-bit `B` fragments one instruction deep, side by side along their columns in `src`, a
-/// window over both whose rows are the fragments' `k`: one transposing `ldmatrix`
+/// Two 8-bit `B` fragments of 32 by 8 one instruction deep, side by side along their columns in
+/// `src`, a window over both whose rows are the fragments' `k`: one transposing `ldmatrix`
 /// (`m16n16.trans.b8`, two matrices), each matrix 16 rows of `k` by the pair's 16 columns. Unit
-/// `u` addresses row `u % 16` of matrix `u / 16`, which lands as the `k` its four cells a register
-/// sit at; it addresses the row `keys` reads there ([`key_row`]), so a `B` contracted with a run
-/// of 8-bit accumulators reads its rows in the run's order at no cost. Of each matrix, the first
+/// `u` addresses the `u`th row, which lands as the `k` its four cells a register sit at; it
+/// addresses the row `keys` reads there ([`key_row`]), so a `B` contracted with a run of 8-bit
+/// accumulators reads its rows in the run's order at no cost. Of each matrix, the first
 /// register holds the first fragment's columns and the second the second's, and the matrices are
 /// the fragments' two halves of `k`.
 #[cube]
@@ -215,13 +215,8 @@ pub(super) fn load_ldmatrix_b8_pair<
 ) {
     let width = src.vector_size();
     let (k, n) = comptime!(edges);
-    comptime!(assert!(
-        k == 32 && n == 8,
-        "MmaData::load: a transposing 8-bit ldmatrix pair reads two 32x8 B fragments, not {k}x{n}"
-    ));
     let view = src.fragment_matrix_packed::<T, W>(k, 2 * n);
-    let unit = UNIT_POS_PLANE;
-    let row = key_row(unit % 16 + 16 * (unit / 16), MatrixIdent::B, keys);
+    let row = key_row(UNIT_POS_PLANE, keys);
     let row_slice = view.line_slice(
         (row, 0u32),
         (

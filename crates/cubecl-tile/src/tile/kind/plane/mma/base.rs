@@ -841,30 +841,21 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     let whole = comptime!(covered_edges(&src.place.space, ident, edges) == edges);
     let stepped = src.rows_step_by_stride();
     let strided = comptime!(shared && !gathered && holds_served_values && whole && stepped);
+    // Only a `B` reads its rows in another order than they lie.
+    let keys = comptime!(match ident {
+        MatrixIdent::B => io.rhs_keys,
+        MatrixIdent::A | MatrixIdent::Accumulator => KeyOrder::AsLaid,
+    });
     match method {
         LoadMethod::Manual => {
             let size!(W) = src.vector_size();
             if strided {
                 load_strided::<T, W, N, A, B, CD>(
-                    src,
-                    fragment,
-                    def,
-                    ident,
-                    layout,
-                    edges,
-                    k_offset,
-                    io.rhs_keys,
+                    src, fragment, def, ident, layout, edges, k_offset, keys,
                 )
             } else {
                 load_manual::<T, W, N, A, B, CD>(
-                    src,
-                    fragment,
-                    def,
-                    ident,
-                    layout,
-                    edges,
-                    k_offset,
-                    io.rhs_keys,
+                    src, fragment, def, ident, layout, edges, k_offset, keys,
                 )
             }
         }
@@ -909,8 +900,9 @@ fn ldmatrix_serves<T: Numeric>(
 }
 
 /// Whether the transposing 8-bit `ldmatrix` (`m16n16.trans.b8`) reads a `B` fragment of `edges`
-/// out of `src`, a window over its rows of `k` each holding its columns: 16-byte rows of 8-bit
-/// values from shared memory, the window covering every row, on a device that offers the form.
+/// out of `src`, a window over its rows of `k` each holding its columns: a 32 by 8 fragment, one
+/// instruction of `m16n8k32` deep, of 16-byte rows of 8-bit values from shared memory, the window
+/// covering every row, on a device that offers the form.
 /// Each of its 16×16 matrices lands transposed, a unit's four cells a register running along `k`
 /// as the `B` holds them.
 #[cube]
@@ -935,7 +927,7 @@ fn transposing_ldmatrix_b8_serves<T: Numeric>(
             && holds_served_values
             && elem_size == 1
             && layout == MatrixLayout::RowMajor
-            && k.is_multiple_of(16)
+            && k == 32
             && n == 8
             && LDMATRIX_ROW_BYTES.is_multiple_of(served)
             && whole
@@ -1022,9 +1014,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     // where the lines hold whole vectors: it is then one load.
     // Rows read in a run's order are not consecutive: each is read on its own.
     let whole_vectors = comptime!(
-        vector_layout == layout
-            && served.is_multiple_of(vector_size)
-            && (ident != MatrixIdent::B || keys == KeyOrder::AsLaid)
+        vector_layout == layout && served.is_multiple_of(vector_size) && keys == KeyOrder::AsLaid
     );
     match &src.kind {
         TileKind::Memory(m) => {
@@ -1064,7 +1054,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
                             comptime!((i * vector_size + e) as u32),
                             ident,
                         );
-                        let row = key_row(row, ident, keys);
+                        let row = key_row(row, keys);
                         let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                         vector.insert(
                             e,
@@ -1091,16 +1081,16 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
 /// 16-wide half reads as `(unit's group) · 4 + (accumulator parity) · 2 + cell`, and the column is
 /// `accumulator · 8 + group · 2 + cell`.
 #[cube]
-pub(crate) fn key_row(row: u32, #[comptime] ident: MatrixIdent, #[comptime] keys: KeyOrder) -> u32 {
-    match comptime!((ident, keys)) {
-        (MatrixIdent::B, KeyOrder::AccumulatorRun) => {
+pub(crate) fn key_row(row: u32, #[comptime] keys: KeyOrder) -> u32 {
+    match keys {
+        KeyOrder::AsLaid => row,
+        KeyOrder::AccumulatorRun => {
             let within = row % 16u32;
             (row - within)
                 + ((within >> 1u32) & 1u32) * 8u32
                 + (within >> 2u32) * 2u32
                 + (within & 1u32)
         }
-        _ => row,
     }
 }
 
@@ -1149,8 +1139,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
         src.fragment_matrix_packed::<T, W>(rows, cols)
     };
     // Rows read in a run's order are not consecutive: each cell is read on its own.
-    let along_lines =
-        comptime!(vector_layout == layout && (ident != MatrixIdent::B || keys == KeyOrder::AsLaid));
+    let along_lines = comptime!(vector_layout == layout && keys == KeyOrder::AsLaid);
     // A window that serves its cells as they lie is read where they lie, at the register's width
     // or a lone cell; one that decodes them as it reads them (packed words, or values under
     // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
@@ -1217,7 +1206,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
             for e in 0..vector_size {
                 let elem_idx = i * vector_size + e;
                 let (row, col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
-                let (row, col) = along_k(key_row(row, ident, keys), col, ident, k_offset);
+                let (row, col) = along_k(key_row(row, keys), col, ident, k_offset);
                 let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
                 let covered =

@@ -384,10 +384,11 @@ impl Tile {
         }
     }
 
-    /// Whether this tile holds accumulators a contraction rereads as its `A` operand: a plane's
-    /// grid of them along `k`, or one ([`accumulators_as_a`](crate::tile::kind::plane::mma)).
-    pub(crate) fn holds_accumulators(&self) -> comptime_type!(bool) {
-        match &self.kind {
+    /// The order the `B` contracted with this tile, as its `A`, reads its rows in: a run of 8-bit
+    /// accumulators reread as the `A` holds its columns along its rows
+    /// ([`KeyOrder::AccumulatorRun`]); any other `A` holds each `k` where the instruction puts it.
+    pub(crate) fn rhs_keys(&self) -> comptime_type!(KeyOrder) {
+        let accumulators = match &self.kind {
             TileKind::PlanePartition(_) => comptime!(true),
             TileKind::PlaneTile(tile) => match tile {
                 PlaneTile::Mma(data) => match &data.fragment {
@@ -405,7 +406,11 @@ impl Tile {
             | TileKind::Procedural(_)
             | TileKind::TmaGmem(_)
             | TileKind::Lines(_) => comptime!(false),
-        }
+        };
+        comptime!(match accumulators && self.element.size() == 1 {
+            true => KeyOrder::AccumulatorRun,
+            false => KeyOrder::AsLaid,
+        })
     }
 
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.
