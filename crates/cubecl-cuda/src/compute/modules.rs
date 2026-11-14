@@ -87,7 +87,7 @@ impl CompilationTarget for CudaModules {
         id: &ArtifactId<()>,
         artifact: &CudaArtifact,
     ) -> Result<CudaCompiledKernel, CompilationError> {
-        dump_ptx(&id.kernel, &artifact.ptx);
+        dump_ptx(&id.kernel, &artifact.entrypoint_name, &artifact.ptx);
 
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
         let line_info = id.kernel.debug_info != DebugInfo::None;
@@ -201,12 +201,12 @@ fn load_module_op(line_info: bool) -> &'static str {
 }
 
 /// Writes the PTX for `kernel_id` under the directory named by `CUBECL_CUDA_DUMP_PTX`, if that
-/// variable is set.
+/// variable is set, in a file named by [`dump_file_name`].
 ///
 /// Both backends end up here, so the two can be diffed instruction for instruction. That is the
 /// comparison worth making: the PTX is deterministic, where a wall-clock measurement on a laptop
 /// GPU is not.
-fn dump_ptx(kernel_id: &KernelId, ptx: &[c_char]) {
+fn dump_ptx(kernel_id: &KernelId, entrypoint: &str, ptx: &[c_char]) {
     let Some(dir) = std::env::var_os("CUBECL_CUDA_DUMP_PTX") else {
         return;
     };
@@ -215,24 +215,46 @@ fn dump_ptx(kernel_id: &KernelId, ptx: &[c_char]) {
         return;
     }
 
-    // The id is a type path plus its settings, so it carries every character a path cannot.
-    let name: String = kernel_id
-        .to_string()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    // ...and is long enough to blow past NAME_MAX on its own.
-    let name = &name[name.len().saturating_sub(180)..];
-
     // SAFETY: the PTX handed to the driver is a null-terminated C string.
     let text = unsafe { CStr::from_ptr(ptx.as_ptr()) };
+    let name = dump_file_name(kernel_id, entrypoint);
     let _ = std::fs::write(dir.join(format!("{name}.ptx")), text.to_bytes());
+}
+
+/// The longest file name [`dump_file_name`] returns, the `.ptx` extension aside: well under
+/// `NAME_MAX` (255 bytes on the usual Linux file systems).
+const DUMP_NAME_MAX: usize = 180;
+
+/// The name, without extension, of the file the PTX of `kernel_id` is dumped to.
+///
+/// It is the kernel's entry point: its name and comptime arguments first, then the discriminator
+/// of [`KernelId::entrypoint_name`], a hash of the whole id. Every comptime variant of a kernel
+/// therefore gets its own file, named after the function the PTX defines. The id's `Display`
+/// does not do: it leaves the kernel's name out and ends with the names of the runtime
+/// arguments, which every variant shares.
+///
+/// The discriminator is added when the entry point does not already end with it, and shortening
+/// cuts the front part, so the hash always survives.
+fn dump_file_name(kernel_id: &KernelId, entrypoint: &str) -> String {
+    let discriminator = kernel_id.entrypoint_name("");
+    let base = entrypoint
+        .strip_suffix(&discriminator)
+        .unwrap_or(entrypoint);
+    // An entry point is a C identifier, but sanitize anyway: a path must not escape the directory.
+    let mut name: String = base
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .take(DUMP_NAME_MAX - discriminator.len())
+        .collect();
+    name.push_str(&discriminator);
+    name
 }
 
 #[cfg(test)]
 mod tests {
-    use super::cache_namespace;
+    use super::{DUMP_NAME_MAX, cache_namespace, dump_file_name};
     use crate::compiler::CudaBackend;
+    use cubecl_core::prelude::KernelId;
     use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 
     /// See [`super::cache_namespace`] for why this must hold.
@@ -251,5 +273,49 @@ mod tests {
             cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12080)),
             cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12090)),
         );
+    }
+
+    /// Comptime variants of one kernel share the id's runtime argument names; their dumps must
+    /// not overwrite each other.
+    #[test]
+    fn dump_file_name_separates_comptime_variants() {
+        struct Kernel;
+        let a = KernelId::new::<Kernel>().info((1u32, "f32"));
+        let b = KernelId::new::<Kernel>().info((2u32, "f32"));
+
+        let name_a = dump_file_name(&a, &a.entrypoint_name("factor_kernel_f_f32"));
+        let name_b = dump_file_name(&b, &b.entrypoint_name("factor_kernel_f_f32"));
+
+        assert_ne!(name_a, name_b);
+        assert!(name_a.starts_with("factor_kernel_f_f32_"), "{name_a}");
+        assert_eq!(name_a, a.entrypoint_name("factor_kernel_f_f32"));
+    }
+
+    /// An entry point without the id's discriminator, such as a fixed name, still gets one.
+    #[test]
+    fn dump_file_name_adds_a_missing_discriminator() {
+        struct Kernel;
+        let a = KernelId::new::<Kernel>().info(1u32);
+        let b = KernelId::new::<Kernel>().info(2u32);
+
+        assert_eq!(dump_file_name(&a, "main"), a.entrypoint_name("main"));
+        assert_ne!(dump_file_name(&a, "main"), dump_file_name(&b, "main"));
+    }
+
+    /// A long entry point is cut at the end of its name, never through the discriminator, and
+    /// nothing in it can name another directory.
+    #[test]
+    fn dump_file_name_keeps_the_discriminator_when_shortening() {
+        struct Kernel;
+        let id = KernelId::new::<Kernel>().info(7u32);
+        let discriminator = id.entrypoint_name("");
+        let long = format!("../{}", "k".repeat(400));
+
+        let name = dump_file_name(&id, &long);
+
+        assert_eq!(name.len(), DUMP_NAME_MAX);
+        assert!(name.ends_with(&discriminator), "{name}");
+        assert!(name.starts_with("___k"), "{name}");
+        assert!(!name.contains('/') && !name.contains('.'), "{name}");
     }
 }
