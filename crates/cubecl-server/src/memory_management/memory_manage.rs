@@ -230,9 +230,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         );
 
         // Dedicated buffers never wait for an explicit cleanup: freed is done.
-        if self.dedicated.reclaim(&mut self.storage, failures) {
-            self.storage.flush();
-        }
+        self.dedicated.reclaim(&mut self.storage, failures);
 
         self.pools.cleanup(
             &mut self.storage,
@@ -241,12 +239,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             failures,
         );
 
-        // The pools only queue their page deallocations in the storage; an
-        // explicit cleanup means "release the memory now", so push them to the
-        // driver instead of leaving them pending.
-        if cleanup == Cleanup::Explicit {
-            self.storage.flush();
-        }
+        // A pool deallocates a page only once nothing will use it again, and
+        // the storage only queues it: free it here, whatever the cleanup, or
+        // the pages an outdated pool gives back on a periodic one stay
+        // allocated until something else flushes the storage.
+        self.storage.flush();
     }
 
     /// Returns the storage from the specified binding

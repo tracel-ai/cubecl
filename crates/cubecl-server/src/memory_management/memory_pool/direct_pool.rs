@@ -91,23 +91,19 @@ impl DirectPool {
     /// what keeps a replayed allocation stream landing the same way twice. A
     /// slice that was never materialized has nothing behind its minted id, so
     /// it is dropped without troubling the driver.
-    ///
-    /// Answers whether any slice went back, so a caller knows the storage has
-    /// deallocations to flush.
     fn release_free<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         headroom: u64,
         failures: &mut ErrorGraph,
-    ) -> bool {
+    ) {
         let Some(ceiling) = self.reclaim_at else {
-            return false;
+            return;
         };
         let mut reserved = self.reserved();
         if reserved + headroom <= ceiling {
-            return false;
+            return;
         }
-        let mut released = false;
 
         for (index, entry) in self.slices.iter_mut().enumerate() {
             if reserved + headroom <= ceiling {
@@ -124,14 +120,11 @@ impl DirectPool {
             reserved -= slice.effective_size();
             *entry = None;
             self.vacant.push(index);
-            released = true;
         }
-        released
     }
 
     /// Bring the pool back under [`reclaim_at`](Self::reclaim_at): for a pool
-    /// whose watermark is zero, return every freed slice. Answers whether any
-    /// went back.
+    /// whose watermark is zero, return every freed slice.
     ///
     /// The only place slices go back outside an explicit cleanup: an
     /// allocation never releases one, so a reservation that must keep every
@@ -140,7 +133,7 @@ impl DirectPool {
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
-    ) -> bool {
+    ) {
         self.release_free(storage, 0, failures)
     }
 }
