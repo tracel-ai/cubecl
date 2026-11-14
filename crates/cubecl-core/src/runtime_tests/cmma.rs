@@ -1405,7 +1405,12 @@ pub fn test_cmma_manual<
     let actual = CD::from_bytes(&actual);
 
     // The reference multiplies the operands as the device holds them, so fp8 rounding is part of
-    // the expected value. Only the f32 accumulation order may differ.
+    // the expected value. A `bf16` or `f16` accumulator also rounds its sum at each of the `k` steps.
+    let tolerance = match CD::cube_type() {
+        ElemType::Float(FloatKind::BF16) => k as f64 * 2f64.powi(-8),
+        ElemType::Float(FloatKind::F16) => k as f64 * 2f64.powi(-11),
+        _ => 1e-5,
+    };
     let lhs_values: Vec<f64> = lhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
     let rhs_values: Vec<f64> = rhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
     assert_eq!(actual.len(), m * n, "the kernel wrote no tile");
@@ -1416,7 +1421,7 @@ pub fn test_cmma_manual<
         let magnitude: f64 = products.map(f64::abs).sum();
         let actual_val = actual_val.to_f64().unwrap();
         let difference = (expected_val - actual_val).abs();
-        if difference > magnitude * 1e-5 {
+        if difference > magnitude * tolerance {
             panic!(
                 "Expected != actual at position {position}: (expected: {expected_val}, actual: {actual_val}, difference: {difference})"
             )
