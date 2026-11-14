@@ -479,6 +479,39 @@ impl MmaData {
         }
     }
 
+    /// `self[r, c] = self[r, c] · exp(bias[r, c])` over this fragment, which lies at `origin` of a
+    /// tile over `space` ([`AxisSlices::mul_exp`]).
+    pub(crate) fn mul_exp_along<E: Float>(
+        &mut self,
+        bias: &Procedural,
+        #[comptime] space: &Space,
+        #[comptime] origin: (usize, usize),
+    ) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let (row0, col0) = comptime!(origin);
+        let acc = self.acc_registers_mut::<E>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut vector = acc[i];
+            #[unroll]
+            for e in 0..vector_size {
+                let (row, col) = def.position_of_nth(
+                    UNIT_POS_PLANE,
+                    comptime!((i * vector_size + e) as u32),
+                    MatrixIdent::Accumulator,
+                );
+                let cell = bias.value_at::<E>(
+                    row + comptime!(row0 as u32),
+                    col + comptime!(col0 as u32),
+                    space,
+                );
+                vector.insert(e, AxisSlices::mul_exp_cell::<E>(vector.extract(e), cell));
+            }
+            acc[i] = vector;
+        }
+    }
+
     /// `self[r, c] = exp(self[r, c] · scale + bias[r, c] − logsumexp[r, c])` over this fragment,
     /// which lies at `origin` of a tile over `space`: each cell reads `logsumexp` where `broadcast`
     /// puts it, a row's value or a column's ([`AxisSlices::probabilities`]).

@@ -35,6 +35,35 @@ impl Memory {
         }
     }
 
+    /// `self[i, s] = self[i, s] · exp(bias[i, s])` over this window over `space`, `axis` its
+    /// innermost ([`AxisSlices::mul_exp`]).
+    pub(crate) fn mul_exp_along<E: Float>(
+        &mut self,
+        bias: &Procedural,
+        #[comptime] space: &Space,
+        #[comptime] axis: Axis,
+    ) {
+        let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
+        let size!(W) = 1usize;
+        let mut view = self.flat_mut::<E, W>();
+        #[unroll]
+        for i in 0..slices {
+            let mut s = UNIT_POS_PLANE as usize;
+            while s < length {
+                let at = i * length + s;
+                let cell = bias.value_at::<E>(i as u32, s as u32, space);
+                view.write(
+                    at,
+                    Vector::cast_from(AxisSlices::mul_exp_cell::<E>(
+                        view.read(at).extract(0usize),
+                        cell,
+                    )),
+                );
+                s += PLANE_DIM as usize;
+            }
+        }
+    }
+
     /// Each slice's max over this window over `space`, `axis` its innermost, starting from
     /// `seed`'s.
     pub(crate) fn maxima_along<E: Float>(
