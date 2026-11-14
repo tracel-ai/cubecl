@@ -1,5 +1,6 @@
 //! Choosing the transport that moves one memory tile's cells into another's, and the copy.
-//! Cooperative fills assume every unit their destination names ([`FillUnits`]) runs them: the
+//! Cooperative fills assume every unit their destination's level names ([`Level::copied_by`])
+//! runs them: the
 //! cube's, or the plane's that owns the stage.
 
 use cubecl::prelude::*;
@@ -48,42 +49,38 @@ pub(crate) enum Scan {
 }
 
 impl TransportKind {
-    /// The transport `src` reaches `dst` by; panics on a pairing with no transport, or an async
-    /// copy on one that does not move each line whole
-    /// ([`refuse_async`](TransportKind::refuse_async)).
+    /// The transport `src` reaches `dst` by; panics on a pairing with no transport, or an engine
+    /// moving memory to memory on one that does not move each line whole
+    /// ([`refuse_past_registers`](TransportKind::refuse_past_registers)).
     pub(crate) fn new(dst: StoreForm, src: StoreForm, access: &Access, space: &Space) -> Self {
         let kind = Self::choose(dst, src, access, space);
-        match src.delivery {
-            Delivery::AsyncPerUnit => kind.refuse_async(dst, src),
-            Delivery::AsyncBulk => panic!(
-                "TransportKind: a bulk copy moves a stage that is one contiguous run in its \
-                 source's byte order, and no fill checks that yet"
-            ),
-            Delivery::SyncPerUnit | Delivery::Tma | Delivery::Procedural => {}
+        if src.delivery.route() == Route::MemoryToMemory {
+            kind.refuse_past_registers(dst, src);
         }
         kind
     }
 
-    /// An async copy moves a source line's bytes to one destination line, by address, without a
-    /// unit touching them: only a transport whose every line is such a move takes one. A scan
-    /// may sum into or window its destination, and a padded stage assembles each line out of
-    /// several source cells.
-    fn refuse_async(self, dst: StoreForm, src: StoreForm) {
+    /// An engine moving memory to memory, as the copy engine, moves a source line's bytes to one
+    /// destination line, by address, without a unit touching them: only a transport whose every
+    /// line is such a move takes one. A scan may sum into or window its destination, and a padded
+    /// stage assembles each line out of several source cells.
+    fn refuse_past_registers(self, dst: StoreForm, src: StoreForm) {
         assert!(
             !matches!(self, TransportKind::Scanned(_)),
-            "TransportKind: an async copy fills a whole, unmasked stage that replaces, and this \
-             destination is windowed, masked, summing or a sink"
+            "TransportKind: a copy moved memory to memory fills a whole, unmasked stage that \
+             replaces, and this destination is windowed, masked, summing or a sink"
         );
         assert!(
             dst.width == src.width,
-            "TransportKind: an async copy moves whole source lines, but this stage is served in \
-             {}-wide lines out of {}-wide ones",
+            "TransportKind: a copy moved memory to memory moves whole source lines, but this stage \
+             is served in {}-wide lines out of {}-wide ones",
             dst.width,
             src.width
         );
         assert!(
             src.addressed,
-            "TransportKind: an async copy reads its source by address, and this one is an erased call"
+            "TransportKind: a copy moved memory to memory reads its source by address, and this \
+             one is an erased call"
         );
     }
 
@@ -214,7 +211,7 @@ mod tests {
             whole: true,
             overhang: Overhang::Never,
             write: Write::Replace,
-            fill: FillUnits::cube(64),
+            copy: Level::copied_by_cube(64),
             storage: WindowStorage::Contiguous,
             delivery: Delivery::SyncPerUnit,
         }
@@ -336,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "an async copy fills a whole, unmasked stage")]
+    #[should_panic(expected = "memory to memory fills a whole, unmasked stage")]
     fn an_async_copy_refuses_a_scan() {
         let masked = Access {
             overhang: Overhang::Masked,
@@ -347,21 +344,9 @@ mod tests {
 
     /// A padded stage assembles each line out of scalar cells, which no single copy moves.
     #[test]
-    #[should_panic(expected = "an async copy moves whole source lines")]
+    #[should_panic(expected = "memory to memory moves whole source lines")]
     fn an_async_copy_refuses_a_padded_stage() {
         kind(plain(4), asynchronous(plain(1)), &access());
-    }
-
-    /// A bulk copy moves the stage as one run, which only a source laid out byte for byte like the
-    /// stage allows, and nothing checks that yet.
-    #[test]
-    #[should_panic(expected = "a bulk copy moves a stage that is one contiguous run")]
-    fn a_bulk_copy_is_refused_until_its_layout_is_checked() {
-        let bulk = StoreForm {
-            delivery: Delivery::AsyncBulk,
-            ..plain(4)
-        };
-        kind(plain(4), bulk, &access());
     }
 
     /// A destination whose gather partitions its buffer, as a block-split output's does, is

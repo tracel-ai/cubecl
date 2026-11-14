@@ -82,29 +82,28 @@ impl Level {
                     "Level: {axis:?} takes every tile on a plane's workers, whose count is the \
                      device's; state how many"
                 ),
-                (Coverage::Distribute(ComputeScope::Unit), Count::Distributed(_)) => assert!(
+                (Coverage::Distribute(ComputeScope::Unit), Count::InTurns { .. }) => assert!(
                     matches!(
                         cuts.iter().find(|&&(a, ..)| a == axis).map(|&(.., s)| s),
                         Some(Spread::Interleaved)
                     ),
-                    "Level: {axis:?} is distributed in turns to however many units the launch runs, so \
-                     the units take it interleaved"
+                    "Level: {axis:?} is taken in turns by units, so they take it interleaved"
                 ),
-                (_, Count::Distributed(_)) => panic!(
-                    "Level: {axis:?} is distributed in turns to however many units the launch runs, \
-                     which only a plane's units can be"
+                (_, Count::InTurns { .. }) => panic!(
+                    "Level: {axis:?} is taken in turns by units, which only a units level hands \
+                     them"
                 ),
                 _ => {}
             }
         }
         let distributed = cuts
             .iter()
-            .any(|&(_, _, count, _)| matches!(count, Count::Distributed(_)));
+            .any(|&(_, _, count, _)| matches!(count, Count::InTurns { .. }));
         assert!(
             !distributed
                 || (coverage == Coverage::Distribute(ComputeScope::Unit) && cuts.len() == 1),
-            "Level: an axis distributed to however many units the launch runs takes all of them, so \
-             the level distributes no other axis to the units; it distributes {}",
+            "Level: an axis taken in turns by units takes all of them, so the level distributes no \
+             other axis to the units; it distributes {}",
             cuts.len()
         );
         let cuts: Vec<_> = cuts
@@ -129,6 +128,82 @@ impl Level {
             order: CubeOrder::RowMajor,
             launch_span: None,
             reversed: Vec::new(),
+        }
+    }
+
+    /// The one axis of a copy's lines, which its level deals ([`copied_by`](Level::copied_by)).
+    pub(crate) const COPIED: Axis = Axis(0);
+
+    /// The level a copy into or out of a window held by `holder` deals its lines by: line
+    /// `w + t·n` to unit `w` of the `n` units of one instance of `holder`, `units` of them where
+    /// the launch states it, so neighbouring units take neighbouring lines at once; every line to
+    /// the one unit of a window a unit holds.
+    pub(crate) fn copied_by(holder: ComputeScope, units: Option<usize>) -> Level {
+        match holder {
+            ComputeScope::Unit => Level::every(&[(Level::COPIED, 1)]),
+            within => Level::new(
+                Coverage::Distribute(ComputeScope::Unit),
+                &[(
+                    Level::COPIED,
+                    1,
+                    Count::InTurns {
+                        tiles: None,
+                        within,
+                        units,
+                    },
+                    Spread::Interleaved,
+                )],
+            ),
+        }
+    }
+
+    /// The level a copy into or out of a window the cube holds deals its lines by
+    /// ([`copied_by`](Level::copied_by)), `units` of them where a binding states its launch's count
+    /// ([`TileSpec::units`](crate::TileSpec), `0` where it states none).
+    pub(crate) fn copied_by_cube(units: usize) -> Level {
+        Level::copied_by(ComputeScope::Cube, (units > 0).then_some(units))
+    }
+
+    /// The level a copy into a cube's stage deals its lines by where the cube sets `planes` planes
+    /// aside to fill its stages: to their units alone, the cube's last.
+    pub(crate) fn copied_by_fillers(planes: usize) -> Level {
+        let mut level = Level::copied_by(ComputeScope::Cube, None);
+        level.fillers = planes;
+        level
+    }
+
+    /// This copy's level narrowed to `holder`'s units where they are fewer: a plane's window of a
+    /// buffer the cube copies is the plane's to copy.
+    pub(crate) fn held_by(self, holder: ComputeScope) -> Level {
+        match holder < self.copied_within() {
+            true => Level::copied_by(holder, None),
+            false => self,
+        }
+    }
+
+    /// The scope whose units a copy's level deals its lines to: a unit where it walks them all.
+    pub(crate) fn copied_within(&self) -> ComputeScope {
+        match self.count(Level::COPIED) {
+            Some(Count::InTurns { within, .. }) => within,
+            _ => ComputeScope::Unit,
+        }
+    }
+
+    /// The units a copy's level deals its lines to: the scope they are the units of, how many where
+    /// the launch states it, and the filling planes at the end of the cube they are confined to.
+    pub(crate) fn copied_units(&self) -> (ComputeScope, Option<usize>, usize) {
+        match self.count(Level::COPIED) {
+            Some(Count::InTurns { within, units, .. }) => (within, units, self.fillers),
+            _ => (ComputeScope::Unit, Some(1), 0),
+        }
+    }
+
+    /// The turns each unit takes over `lines` of a copy dealt by this level, the last of them
+    /// ragged, where the count of its units is known.
+    pub(crate) fn copy_turns(&self, lines: usize) -> Option<usize> {
+        match self.count(Level::COPIED) {
+            Some(Count::InTurns { units, .. }) => units.map(|units| lines.div_ceil(units)),
+            _ => Some(lines),
         }
     }
 
@@ -478,7 +553,7 @@ impl Level {
     pub(crate) fn instances_along(&self, space: &Space, axis: Axis) -> Option<usize> {
         match self.count(axis) {
             None => Some(1),
-            Some(Count::Distributed(_)) => None,
+            Some(Count::InTurns { units, .. }) => units,
             Some(count) => match count.stated() {
                 Some(n) => Some(n),
                 None if !space.contains(axis) => None,

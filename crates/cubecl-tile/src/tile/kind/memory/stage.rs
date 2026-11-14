@@ -59,18 +59,14 @@ impl StageOwner {
     /// The units that fill one copy of the stage, where the cube holds `cube_units` (`0` when
     /// unknown): all of them, the filling planes', or one plane's share. A share that is not a
     /// whole count is unknown, which a fill walks rolled.
-    pub(crate) fn fill(self, cube_units: usize) -> FillUnits {
+    pub(crate) fn fill(self, cube_units: usize) -> Level {
         match self {
-            StageOwner::Cube { fillers: 0 } => FillUnits::cube(cube_units),
-            StageOwner::Cube { fillers } => FillUnits::filling_planes(fillers),
-            StageOwner::Plane { planes } => FillUnits {
-                scope: ComputeScope::Plane,
-                count: match cube_units.is_multiple_of(planes) {
-                    true => cube_units / planes,
-                    false => 0,
-                },
-                fillers: 0,
-            },
+            StageOwner::Cube { fillers: 0 } => Level::copied_by_cube(cube_units),
+            StageOwner::Cube { fillers: planes } => Level::copied_by_fillers(planes),
+            StageOwner::Plane { planes } => Level::copied_by(
+                ComputeScope::Plane,
+                (cube_units > 0 && cube_units.is_multiple_of(planes)).then(|| cube_units / planes),
+            ),
         }
     }
 }
@@ -272,7 +268,7 @@ impl Memory {
     fn smem_over<T: Numeric, H: Numeric, S: CubePrimitive<Scalar = H>>(
         #[comptime] space: &Space,
         #[comptime] vector_size: usize,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
         smem: &Shared<[S]>,
         #[comptime] packing: Packing,
         #[comptime] form: StageForm,
@@ -305,7 +301,7 @@ impl Memory {
     pub(crate) fn smem_backed<T: Numeric>(
         #[comptime] space: &Space,
         #[comptime] vector_size: usize,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
         backing: Backing,
         #[comptime] packing: Packing,
         #[comptime] form: StageForm,
@@ -340,7 +336,7 @@ impl Memory {
                     whole: true,
                     overhang,
                     write,
-                    fill,
+                    copy: fill,
                     storage: WindowStorage::Stored(Storage::Strided),
                     // Read as a source, a stage is copied out by the units that read it.
                     delivery: Delivery::SyncPerUnit,
@@ -385,7 +381,7 @@ impl Memory {
         let tile = Memory::smem_over::<T, _, _>(
             space,
             1usize,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             &window,
             comptime!(Packing::Plain),
             form,
@@ -957,11 +953,16 @@ mod tests {
     #[test]
     fn a_plane_fills_with_its_share_of_the_units() {
         let plane = StageOwner::Plane { planes: 4 };
-        assert_eq!(plane.fill(128).count, 32);
-        assert_eq!(plane.fill(0).count, 0);
-        assert_eq!(plane.fill(130).count, 0);
-        assert_eq!(plane.fill(128).scope, ComputeScope::Plane);
-        assert_eq!(StageOwner::CUBE.fill(128), FillUnits::cube(128));
+        assert_eq!(
+            plane.fill(128),
+            Level::copied_by(ComputeScope::Plane, Some(32))
+        );
+        assert_eq!(plane.fill(0), Level::copied_by(ComputeScope::Plane, None));
+        assert_eq!(plane.fill(130), Level::copied_by(ComputeScope::Plane, None));
+        assert_eq!(
+            StageOwner::CUBE.fill(128),
+            Level::copied_by(ComputeScope::Cube, Some(128))
+        );
     }
 
     /// A cube's stage under planes set aside is filled by their units alone, the planes at the
@@ -969,9 +970,8 @@ mod tests {
     #[test]
     fn a_cube_setting_planes_aside_fills_with_their_units() {
         let fill = StageOwner::Cube { fillers: 1 }.fill(160);
-        assert_eq!(fill, FillUnits::filling_planes(1));
-        assert_eq!(fill.scope, ComputeScope::Cube);
-        assert_eq!(fill.count, 0);
+        assert_eq!(fill, Level::copied_by_fillers(1));
+        assert_eq!(fill.copied_units().1, None);
     }
 
     /// Every plane's copy starts on the buffer's alignment: a copy of lines shorter than it is

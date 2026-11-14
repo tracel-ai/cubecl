@@ -16,7 +16,7 @@ use super::{Form, implied, uncut};
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::std::tensor::TensorHandle;
 use cubecl::{prelude::*, zspace::Shape};
-use cubecl_tile::launch::{Bound, Delivery, Refusal};
+use cubecl_tile::launch::{Bound, Refusal};
 use cubecl_tile::layout::{PageEntry, PhysicalAxisMap};
 use cubecl_tile::*;
 
@@ -949,16 +949,6 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
         refusal(e.binding(), &[B, S, F], (B, S), 1),
         Some(Refusal::PagingOfAnEmptyPool)
     );
-    let f = pool([POOL, 3, 4]);
-    let by_runs = placed(
-        launcher
-            .arg(f.binding(), f32::elem_type_native())
-            .axes(&[B, S, F])
-            .delivery(Delivery::AsyncBulk)
-            .build(),
-        (B, S),
-    );
-    assert_eq!(by_runs, Some(Refusal::PagingMovedByRuns));
 }
 
 /// The pool is bound as it lies, so where its pages sit among its dims is no matter: pages inner

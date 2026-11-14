@@ -5,7 +5,7 @@ use core::fmt::{self, Display, Formatter};
 use cubecl::zspace::{MetadataError, Tiling};
 
 use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
-use crate::{Axis, LineMisfit};
+use crate::{Axis, Delivery, LineMisfit};
 
 /// Why a launch cannot run as described, or an operand cannot be bound to it.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -75,6 +75,15 @@ pub enum Refusal {
     /// `fillers` planes are set aside to fill a walk's stages, and the device has no barrier type
     /// for the two roles to meet on.
     FillersWithoutBarriers { fillers: u32 },
+    /// A delivery whose engine, or the barrier what it moves lands on, the device does not have
+    /// ([`Delivery::runs_on`](crate::launch::Delivery::runs_on)).
+    DeliveryNotOnDevice(Delivery),
+    /// A ring holding its next stage in the units' registers, filled by a delivery the units do
+    /// not load and store themselves ([`Delivery::holds`](crate::launch::Delivery::holds)).
+    PrefetchPastDelivery(Delivery),
+    /// Lines `bits` long, which the copy engine does not move whole
+    /// ([`Delivery::moves_lines`](crate::launch::Delivery::moves_lines)).
+    LineNotCopied { bits: usize },
     /// A TMA box edge past the descriptor's per-axis limit `most`.
     BoxPastDescriptor {
         axis: Axis,
@@ -276,6 +285,21 @@ impl Display for Refusal {
                 f,
                 "Launcher: {fillers} plane(s) are set aside to fill a walk's stages, and this \
                  device carries no barrier type for the two roles to meet on"
+            ),
+            Refusal::DeliveryNotOnDevice(delivery) => write!(
+                f,
+                "Delivery: this device has no engine for {delivery:?}, or no barrier for what it \
+                 moves to land on"
+            ),
+            Refusal::PrefetchPastDelivery(delivery) => write!(
+                f,
+                "Delivery: a stage held in the units' registers is one they load and store \
+                 themselves, and {delivery:?} moves it without them"
+            ),
+            Refusal::LineNotCopied { bits } => write!(
+                f,
+                "Delivery: the copy engine moves lines of 4, 8 or 16 bytes, and these are {bits} \
+                 bits"
             ),
             Refusal::BoxPastDescriptor { axis, edge, most } => write!(
                 f,
