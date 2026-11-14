@@ -1032,23 +1032,30 @@ mod custom_channel {
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
             let mut idle_count: u32 = 0;
             loop {
-                let index = self.state.available_index.fetch_add(1, Ordering::Acquire) as usize;
-                if index >= CHANNEL_MAX_TASK {
-                    // The queue is full; back off until the server flushes/swaps buffers.
-                    if idle_count < SPIN_BUDGET_CLIENT {
-                        spin_loop();
-                    } else if idle_count < SPIN_BUDGET_CLIENT + YIELD_BUDGET_CLIENT {
-                        std::thread::yield_now();
-                    } else {
-                        std::thread::sleep(SLEEP_STEP_CLIENT);
+                // Claim a slot only when one looks free. While the queue is full, waiting
+                // clients then only read the index, so its cache line stays shared until the
+                // server resets it, instead of every client writing it on every iteration and
+                // pulling the line, which `enqueued_count` and `queue_ptr` share, away from the
+                // server and from each other.
+                if (self.state.available_index.load(Ordering::Relaxed) as usize) < CHANNEL_MAX_TASK
+                {
+                    let index = self.state.available_index.fetch_add(1, Ordering::Acquire) as usize;
+                    if index < CHANNEL_MAX_TASK {
+                        self.state.init_task_at(index, func);
+                        self.state.enqueued(1);
+                        return Ok(());
                     }
-                    idle_count = idle_count.saturating_add(1);
-                    continue;
                 }
 
-                self.state.init_task_at(index, func);
-                self.state.enqueued(1);
-                return Ok(());
+                // The queue is full; back off until the server flushes/swaps buffers.
+                if idle_count < SPIN_BUDGET_CLIENT {
+                    spin_loop();
+                } else if idle_count < SPIN_BUDGET_CLIENT + YIELD_BUDGET_CLIENT {
+                    std::thread::yield_now();
+                } else {
+                    std::thread::sleep(SLEEP_STEP_CLIENT);
+                }
+                idle_count = idle_count.saturating_add(1);
             }
         }
 
@@ -2213,5 +2220,41 @@ mod tests {
     #[test]
     fn test_a_payload_that_keeps_panicking_as_it_drops_leaves_the_runner_serving() {
         assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(3)), Ok(1));
+    }
+
+    /// Many clients submitting at once, most of them waiting on a full queue: every task
+    /// still gets a slot of its own and runs exactly once.
+    #[test]
+    #[cfg(not(miri))]
+    fn test_contended_submits_each_run_once() {
+        const THREADS: usize = 8;
+        const TASKS: usize = 1000;
+
+        let handle = mock_fixture();
+        let runs = Arc::new(
+            (0..THREADS * TASKS)
+                .map(|_| AtomicUsize::new(0))
+                .collect::<Vec<_>>(),
+        );
+
+        std::thread::scope(|s| {
+            for thread in 0..THREADS {
+                let handle = &handle;
+                let runs = &runs;
+                s.spawn(move || {
+                    for task in 0..TASKS {
+                        let runs = Arc::clone(runs);
+                        handle.submit(move |_| {
+                            runs[thread * TASKS + task].fetch_add(1, Ordering::SeqCst);
+                        });
+                    }
+                });
+            }
+        });
+        let _ = handle.submit_blocking(|_| {});
+
+        for (index, count) in runs.iter().enumerate() {
+            assert_eq!(count.load(Ordering::SeqCst), 1, "task {index}");
+        }
     }
 }
