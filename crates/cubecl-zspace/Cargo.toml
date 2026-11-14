@@ -26,6 +26,5 @@ default = []
 std = []
 
 [dependencies]
-smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
-derive-new = { workspace = true }
+smallvec = { workspace = true, features = ["serde"] }

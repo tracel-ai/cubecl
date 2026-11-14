@@ -1,10 +1,13 @@
 [package]
 authors = []
-name = "device_identity"
-publish = false
 edition.workspace = true
 license.workspace = true
+name = "device_identity"
+publish = false
 version.workspace = true
+
+[lints]
+workspace = true
 
 [features]
 # Vulkan and DirectX 12 are both wgpu, so the default reaches every GPU API but CUDA and ROCm.
@@ -12,9 +15,9 @@ version.workspace = true
 default = ["wgpu"]
 wgpu = ["cubecl/wgpu"]
 # Also reads a Vulkan card's LUID on Windows.
-vulkan = ["cubecl/vulkan"]
 cuda = ["cubecl/cuda"]
 rocm = ["cubecl/rocm"]
+vulkan = ["cubecl/vulkan"]
 
 [dependencies]
 cubecl = { workspace = true, default-features = true }

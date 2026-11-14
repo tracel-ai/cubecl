@@ -2301,7 +2301,7 @@ pub fn kernel_ldmatrix_form_registers(
     #[comptime] transpose: bool,
     #[comptime] rows: usize,
 ) {
-    let words = comptime![rows * 4];
+    let words = rows * 4;
     let mut stage = Shared::<[u32]>::new_aligned_slice(words, 16usize);
     let lane = UNIT_POS_PLANE as usize;
     let mut i = lane;
@@ -2320,7 +2320,7 @@ pub fn kernel_ldmatrix_form_registers(
         num_matrices,
         transpose,
     );
-    let count = comptime![num_matrices * form.registers_per_matrix()];
+    let count = num_matrices * form.registers_per_matrix();
     #[unroll]
     for r in 0..count {
         output[lane * count + r] = registers[r].extract(0usize);
@@ -2329,8 +2329,8 @@ pub fn kernel_ldmatrix_form_registers(
 
 #[cube(launch)]
 pub fn kernel_stmatrix_m16n8_registers(output: &mut [u32], #[comptime] num_matrices: usize) {
-    let rows = comptime![num_matrices * 8];
-    let words = comptime![rows * 4];
+    let rows = num_matrices * 8;
+    let words = rows * 4;
     let mut stage = Shared::<[u32]>::new_aligned_slice(words, 16usize);
     let lane = UNIT_POS_PLANE as usize;
 

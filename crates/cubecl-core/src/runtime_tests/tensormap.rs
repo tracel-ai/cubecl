@@ -82,18 +82,18 @@ fn tensormap_load_swizzled(
 ) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let size = comptime![layout.rows * layout.k];
+    let size = layout.rows * layout.k;
     // TMA writes shared memory at 128-byte boundaries, past the 16 a tile without swizzle needs.
-    let alignment = comptime![layout.alignment().max(128)];
+    let alignment = layout.alignment().max(128);
     let mut tile: Shared<[half::f16]> = Shared::new_aligned_slice(size, alignment);
 
-    let contiguous = comptime![size / lines];
+    let contiguous = size / lines;
     let panel = comptime![layout.panel_elems(F16_BYTES)];
-    let panel_size = comptime![lines * panel];
+    let panel_size = lines * panel;
     let expected = select(UNIT_POS == 0, comptime![(size * F16_BYTES) as u32], 0);
     if UNIT_POS == 0 {
         #[unroll]
-        for p in 0..comptime![contiguous / panel] {
+        for p in 0..contiguous / panel {
             let start = p * panel_size;
             barrier.tma_load_2d(
                 input,
@@ -108,7 +108,7 @@ fn tensormap_load_swizzled(
 
     let k_major = comptime![layout.major == crate::wgmma::Major::K];
     #[unroll]
-    for i in 0..comptime![size.div_ceil(128)] {
+    for i in 0..size.div_ceil(128) {
         let index = i * 128 + UNIT_POS as usize;
         if index < size {
             let line = index / contiguous;

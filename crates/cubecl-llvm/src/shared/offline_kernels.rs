@@ -1154,7 +1154,7 @@ pub(crate) enum WaitCase {
 fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case: WaitCase) {
     let stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
     let tile = stage.as_slice();
-    match comptime![case] {
+    match case {
         WaitCase::OneBranchStores => {
             let first = tma_store_2d(tile, output, 0, 0);
             if count > 1 {
