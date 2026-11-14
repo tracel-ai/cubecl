@@ -62,9 +62,7 @@ pub async fn try_request_vulkan_device(
     adapter: &wgpu::Adapter,
 ) -> Result<Option<(wgpu::Device, wgpu::Queue)>, crate::WgpuInitError> {
     let limits = adapter.limits();
-    let features = adapter
-        .features()
-        .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
+    let features = super::compute_features(adapter);
     unsafe {
         let hal_adapter = adapter.as_hal::<hal::api::Vulkan>().ok_or_else(|| {
             crate::WgpuInitError::InvalidConfiguration {
