@@ -3,6 +3,7 @@
 use crate::{
     nvptx::{
         address::NvptxSpace,
+        inline_asm::InlineAsm,
         registers::{
             RegisterForm, call_returning_registers, extract_lane, insert_lane, load_fragment,
             poison, store_fragment, vector_bits,
@@ -736,20 +737,41 @@ pub(crate) fn ld_matrix(
     let factor = op.factor(ctx).0;
     let transpose = op.transpose(ctx).0;
     let form = op.form(ctx).0;
-    if form != LdMatrixForm::M8N8B16 {
-        return input_err!(op.loc(ctx), MatrixMoveFormUnsupported(format!("{form:?}")));
-    }
-
     let (out_vec_ty, _) = registers_as_vector(ctx, operands_info, out_arr);
     let source = NvptxSpace::Shared.cast(ctx, rw, ptr);
     let word = i32_ty(ctx);
-
-    let name = format!(
-        "llvm.nvvm.ldmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",
-        transpose_name(transpose),
-        llvm_mangled_ty(ctx, source.get_type(ctx)),
-    );
-    let regs = call_returning_registers(ctx, rw, &name, vec![word; factor], vec![source]);
+    let regs = match form {
+        LdMatrixForm::M8N8B16 => {
+            let name = format!(
+                "llvm.nvvm.ldmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",
+                transpose_name(transpose),
+                llvm_mangled_ty(ctx, source.get_type(ctx)),
+            );
+            call_returning_registers(ctx, rw, &name, vec![word; factor], vec![source])
+        }
+        // The 16×16 byte matrices of the `sm_120f` family, which PTX reads transposed only and
+        // NVVM has no intrinsic for: inline PTX, two registers a matrix, each unit addressing one
+        // of its rows.
+        LdMatrixForm::M16N16B8 if transpose => {
+            let zeros = (0..2 * factor)
+                .map(|_| {
+                    let zero = i32_const_op(ctx, 0);
+                    insert(ctx, rw, &zero)
+                })
+                .collect();
+            // A shared-space address is 32 bits wide, the register PTX names it in.
+            let address = llvm::PtrToIntOp::new(ctx, source, word);
+            let address = insert(ctx, rw, &address);
+            let mut asm = InlineAsm::new(zeros).convergent();
+            let address = asm.input(address);
+            let template = format!(
+                "ldmatrix.sync.aligned.m16n16.x{factor}.trans.shared::cta.b8 {}, [{address}];",
+                asm.tied_operands()
+            );
+            asm.emit(ctx, rw, &template)
+        }
+        _ => return input_err!(op.loc(ctx), MatrixMoveFormUnsupported(format!("{form:?}"))),
+    };
 
     let value = RegisterForm::Word.join(ctx, rw, &regs, out_vec_ty);
     let out_array_ty = registers_array_ty(ctx, operands_info, out_arr);
