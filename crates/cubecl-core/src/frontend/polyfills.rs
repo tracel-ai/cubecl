@@ -238,19 +238,62 @@ fn simple_pow<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vecto
     })
 }
 
+/// `powf` with the special cases of C99 Annex F.9.4.4 (IEEE 754 `pow`, and Rust's `powf`).
+///
+/// The native pow this falls back to (`GLSL.std.450 Pow`, WGSL `pow`) is only defined for a
+/// positive base; drivers commonly compute `exp2(exp * log2(base))`, which turns most of the cases
+/// below into NaN. So the native pow only ever sees `|base|`, and every other case is selected:
+///
+/// | base                   | exp                       | result                         |
+/// |------------------------|---------------------------|--------------------------------|
+/// | any, NaN included      | ±0                        | 1                              |
+/// | 1                      | any, NaN included         | 1                              |
+/// | NaN                    | any other                 | NaN                            |
+/// | any other              | NaN                       | NaN                            |
+/// | -1                     | ±inf                      | 1                              |
+/// | `0 < abs(base) < 1`    | +inf / -inf               | +0 / +inf                      |
+/// | `abs(base) > 1`        | +inf / -inf               | +inf / +0                      |
+/// | ±0                     | `< 0` / `> 0`             | +inf / +0                      |
+/// | ±inf                   | `< 0` / `> 0`             | +0 / +inf                      |
+/// | finite `< 0`           | finite non-integer        | NaN                            |
+/// | `< 0`, -0 included     | odd integer               | the negated result for `abs(base)` |
+/// | otherwise              |                           | `abs(base)^exp`                |
 #[cube]
 pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    let modulo = exp.mod_floor(Vector::new(T::new(2.0)));
-    let is_even = modulo.equal(&Vector::zero());
-    let is_odd = modulo.equal(&Vector::one());
-    let is_neg_base = base.less_than(&Vector::zero());
+    let zero = Vector::<T, N>::zero();
+    let one = Vector::<T, N>::one();
+    let inf = Vector::new(T::new(f64::INFINITY));
+    let abs_base = base.abs();
+    // ±inf when the base is ±0, keeping its sign; finite otherwise.
+    let recip = one / base;
 
-    let even_res = simple_pow(base.abs(), exp);
-    let odd_neg_res = -(simple_pow(-base, exp));
-    let default = simple_pow(base, exp);
+    // The native pow only sees `abs(base)`, where it's defined.
+    let magnitude = simple_pow(abs_base, exp);
+    // ±0 and ±inf bases: `abs(base)` to a positive power, its reciprocal to a negative one.
+    let zero_or_inf = abs_base.equal(&zero).or(abs_base.equal(&inf));
+    let special = select_many(exp.less_than(&zero), recip.abs(), abs_base);
+    let magnitude = select_many(zero_or_inf, special, magnitude);
+    // ±1 to any power, ±inf included, has magnitude 1, where `log2(1) * inf` would be NaN.
+    let magnitude = select_many(abs_base.equal(&one), one, magnitude);
 
-    let sel1 = select_many(is_odd.vec_and(is_neg_base), odd_neg_res, default);
-    select_many(is_even, even_res, sel1)
+    // A negative base, -0 and -inf included, to an odd integer power is negative.
+    // `mod_floor` is NaN for an infinite exponent, so that's never odd.
+    let is_odd = exp.mod_floor(Vector::new(T::new(2.0))).equal(&one);
+    let is_negative = base.less_than(&zero).or(recip.less_than(&zero));
+    let result = select_many(is_odd.vec_and(is_negative), -magnitude, magnitude);
+
+    // A finite negative base to a finite non-integer power has no real result.
+    let finite_negative = base.less_than(&zero).vec_and(abs_base.less_than(&inf));
+    let non_integer = exp
+        .floor()
+        .not_equal(&exp)
+        .vec_and(exp.abs().less_than(&inf));
+    let nan = Vector::new(T::new(f64::NAN));
+    let result = select_many(finite_negative.vec_and(non_integer), nan, result);
+    let result = select_many(base.is_nan().or(exp.is_nan()), nan, result);
+
+    // Except that `x^±0` and `1^y` are 1, NaN included.
+    select_many(exp.equal(&zero).or(base.equal(&one)), one, result)
 }
 
 /// Integer powers by squaring, without converting the exponent to a float.
