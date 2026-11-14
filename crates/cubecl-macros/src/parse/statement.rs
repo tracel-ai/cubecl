@@ -7,7 +7,7 @@ use syn::{
 use crate::{
     expression::Expression,
     parse::{asm::parse_asm_call, helpers::is_helper},
-    scope::Context,
+    scope::{ConstShape, Context},
     statement::{DefineKind, Pattern, Statement},
 };
 
@@ -47,10 +47,16 @@ impl Statement {
                         mutability,
                     } = parse_pat(local.pat)?;
                     let is_mut = mutability.is_some();
-                    let is_const = init.as_ref().is_some_and(|init| init.is_const());
+                    let is_const = init.as_ref().is_some_and(|init| init.is_const()) && !is_mut;
+                    let const_shape = match (is_const, &ty, &init) {
+                        (false, _, _) => ConstShape::Value,
+                        (true, Some(ty), _) => ConstShape::of_type(ty),
+                        (true, None, Some(init)) => init.const_shape(),
+                        (true, None, None) => ConstShape::Value,
+                    };
 
                     let variable =
-                        context.push_variable(ident, ty, is_const && !is_mut, !is_ref && is_mut);
+                        context.push_variable(ident, ty, is_const, !is_ref && is_mut, const_shape);
                     Self::Local {
                         variable,
                         init,

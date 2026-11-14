@@ -13,7 +13,7 @@ use crate::{
         branch::{expand_if_let, expand_while_loop},
         helpers::is_comptime_attr,
     },
-    scope::{ClosureScope, Context},
+    scope::{ClosureScope, ConstShape, Context},
 };
 
 use super::{
@@ -581,6 +581,7 @@ pub(crate) fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
                 None,
                 false,
                 pat.by_ref.is_none() && pat.mutability.is_some(),
+                ConstShape::Value,
             );
         }
         Pat::Or(pat) => pat
