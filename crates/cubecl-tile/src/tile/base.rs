@@ -1595,11 +1595,18 @@ impl TileExpand {
     pub(crate) fn __expand_fragment_source_method(&self, scope: &Scope) -> FragmentSource {
         match &self.kind {
             TileKindExpand::PlaneTile(tile) => {
-                return FragmentSource::Fragments(tile.__expand_instruction_method(scope));
+                let edges = MatrixAxes::edges(&self.place.space);
+                return FragmentSource::Fragments {
+                    instruction: tile.__expand_instruction_method(scope),
+                    cell: [edges.rows(&self.place.space), edges.cols(&self.place.space)],
+                };
             }
             TileKindExpand::PlanePartition(partition) => {
                 let first = partition.frags.__expand_index_method(scope, 0usize.into());
-                return FragmentSource::Fragments(first.__expand_instruction_method(scope));
+                return FragmentSource::Fragments {
+                    instruction: first.__expand_instruction_method(scope),
+                    cell: [partition.rows, partition.cols],
+                };
             }
             _ => {}
         }
