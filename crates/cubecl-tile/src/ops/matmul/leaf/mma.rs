@@ -23,8 +23,13 @@ impl MmaData {
         let (lhs_layout, rhs_layout) =
             comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
         let load = deep_load(lhs, rhs);
+        let keys = run_keys(lhs);
+        let rhs_io = comptime!(MmaIo {
+            rhs_keys: keys,
+            ..io
+        });
         let a = lhs.mma_operand::<L>(MatrixIdent::A, m, n, k, lhs_layout, io, operands, load);
-        let b = rhs.mma_operand::<R>(MatrixIdent::B, m, n, k, rhs_layout, io, operands, load);
+        let b = rhs.mma_operand::<R>(MatrixIdent::B, m, n, k, rhs_layout, rhs_io, operands, load);
 
         match &mut self.fragment {
             MmaFragment::Acc(acc) => match (&a.fragment, &b.fragment) {
@@ -123,6 +128,18 @@ impl Tile {
             }
         }
     }
+}
+
+/// The order the `B` contracted with `lhs` reads its rows in: a run of 8-bit accumulators reread
+/// as the `A` holds its columns along its rows ([`KeyOrder::AccumulatorRun`]); any other `A`
+/// holds each `k` where the instruction puts it.
+#[cube]
+pub(crate) fn run_keys(lhs: &Tile) -> comptime_type!(KeyOrder) {
+    let held = lhs.holds_accumulators();
+    comptime!(match held && lhs.element.size() == 1 {
+        true => KeyOrder::AccumulatorRun,
+        false => KeyOrder::AsLaid,
+    })
 }
 
 /// How a contraction loads its factors' fragments where they are deeper than its instruction:

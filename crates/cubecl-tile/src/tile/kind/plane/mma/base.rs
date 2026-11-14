@@ -1,14 +1,14 @@
 //! The manual-mma encoding of a plane tile ([`MmaData`]) and its fragment↔memory transports.
 
 use cubecl::{
-    cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
+    cmma::{LdMatrixForm, MatrixIdent, MatrixLayout, MmaDefinition},
     prelude::*,
 };
 
 use super::block_scaled::*;
 use super::widths::*;
 use crate::tile::kind::plane::load_matrix::{
-    LDMATRIX_ROW_BYTES, PairAxis, along_k, load_ldmatrix, load_ldmatrix_pair,
+    LDMATRIX_ROW_BYTES, PairAxis, along_k, load_ldmatrix, load_ldmatrix_b8_pair, load_ldmatrix_pair,
 };
 use crate::*;
 
@@ -349,7 +349,10 @@ impl MmaData {
         let (m, n, k) = comptime!((self.m, self.n, self.k));
         let io = comptime!(self.io);
         let steps = lane_run_steps::<T>(m, n, k);
-        let serves = ldmatrix_serves::<T>(src, MatrixIdent::B, (k, n));
+        let layout = comptime!(self.layout);
+        let serves_16 = ldmatrix_serves::<T>(src, MatrixIdent::B, (k, n));
+        let serves_8 = transposing_ldmatrix_b8_serves::<T>(src, (k, n), layout);
+        let serves = comptime!(serves_16 || serves_8);
         let rhs = match &self.fragment {
             MmaFragment::Rhs(_) => comptime!(true),
             MmaFragment::Lhs(_)
@@ -373,32 +376,43 @@ impl MmaData {
     ) {
         let (m, n, k) = comptime!((self.m, self.n, self.k));
         let layout = comptime!(self.layout);
+        let keys = comptime!(self.io.rhs_keys);
         let def = MmaDefinition::<T, T, T>::new(m, n, k);
         let size!(W) = src.vector_size();
+        let bytes = T::size().comptime();
+        let (first, other) = (
+            self.rhs_registers_mut::<T>(),
+            second.rhs_registers_mut::<T>(),
+        );
+        if comptime!(bytes == 1) {
+            comptime!(assert!(
+                along == PairAxis::Cols,
+                "MmaData::load_pair_window: 8-bit `B`s pair along their columns"
+            ));
+            load_ldmatrix_b8_pair::<T, W, NR, T, T, T>(src, first, other, &def, (k, n), keys)
+        } else {
+            load_ldmatrix_pair::<T, W, NR, T, T, T>(
+                src,
+                first,
+                other,
+                &def,
+                MatrixIdent::B,
+                layout,
+                (k, n),
+                along,
+            )
+        }
+    }
+
+    /// A `B` fragment's registers, which only a `B` holds.
+    fn rhs_registers_mut<T: Numeric>(&mut self) -> &mut Array<Vector<T, NR>> {
         match &mut self.fragment {
-            MmaFragment::Rhs(first) => match &mut second.fragment {
-                MmaFragment::Rhs(other) => load_ldmatrix_pair::<T, W, NR, T, T, T>(
-                    src,
-                    first.at_mut::<T>(),
-                    other.at_mut::<T>(),
-                    &def,
-                    MatrixIdent::B,
-                    layout,
-                    (k, n),
-                    along,
-                ),
-                MmaFragment::Lhs(_)
-                | MmaFragment::Acc(_)
-                | MmaFragment::LhsBlockScaled(..)
-                | MmaFragment::RhsBlockScaled(..) => {
-                    panic!("MmaData::load_pair_window: a `B` pairs with a `B`")
-                }
-            },
+            MmaFragment::Rhs(fragment) => fragment.at_mut::<T>(),
             MmaFragment::Lhs(_)
             | MmaFragment::Acc(_)
             | MmaFragment::LhsBlockScaled(..)
             | MmaFragment::RhsBlockScaled(..) => {
-                panic!("MmaData::load_pair_window: only a `B` loads in pairs")
+                panic!("MmaData::load_pair_window: only a `B` loads in pairs, beside a `B`")
             }
         }
     }
@@ -832,10 +846,26 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
             let size!(W) = src.vector_size();
             if strided {
                 load_strided::<T, W, N, A, B, CD>(
-                    src, fragment, def, ident, layout, edges, k_offset,
+                    src,
+                    fragment,
+                    def,
+                    ident,
+                    layout,
+                    edges,
+                    k_offset,
+                    io.rhs_keys,
                 )
             } else {
-                load_manual::<T, W, N, A, B, CD>(src, fragment, def, ident, layout, edges, k_offset)
+                load_manual::<T, W, N, A, B, CD>(
+                    src,
+                    fragment,
+                    def,
+                    ident,
+                    layout,
+                    edges,
+                    k_offset,
+                    io.rhs_keys,
+                )
             }
         }
         LoadMethod::LoadMatrix => {
@@ -876,6 +906,52 @@ fn ldmatrix_serves<T: Numeric>(
             && row_cells.is_multiple_of(served)
             && whole
     )
+}
+
+/// Whether the transposing 8-bit `ldmatrix` (`m16n16.trans.b8`) reads a `B` fragment of `edges`
+/// out of `src`, a window over its rows of `k` each holding its columns: 16-byte rows of 8-bit
+/// values from shared memory, the window covering every row, on a device that offers the form.
+/// Each of its 16×16 matrices lands transposed, a unit's four cells a register running along `k`
+/// as the `B` holds them.
+#[cube]
+fn transposing_ldmatrix_b8_serves<T: Numeric>(
+    src: &Tile,
+    #[comptime] edges: (usize, usize),
+    #[comptime] layout: MatrixLayout,
+) -> comptime_type!(bool) {
+    let offered = offers_ldmatrix_form(LdMatrixForm::M16N16B8);
+    let gathered = src.gathered();
+    let shared = src.is_shared();
+    let element = src.stage_element();
+    let holds_served_values = comptime!(element.holds_values());
+    let served = src.vector_size();
+    let elem_size = T::size().comptime();
+    let whole = comptime!(covered_edges(&src.place.space, MatrixIdent::B, edges) == edges);
+    let (k, n) = comptime!(edges);
+    comptime!(
+        offered
+            && shared
+            && !gathered
+            && holds_served_values
+            && elem_size == 1
+            && layout == MatrixLayout::RowMajor
+            && k.is_multiple_of(16)
+            && n == 8
+            && LDMATRIX_ROW_BYTES.is_multiple_of(served)
+            && whole
+    )
+}
+
+/// Whether the device offers `ldmatrix` in `form`, read off its properties at expansion.
+#[cube]
+fn offers_ldmatrix_form(#[comptime] form: LdMatrixForm) -> comptime_type!(bool) {
+    intrinsic!(|scope| {
+        scope
+            .state()
+            .device_properties
+            .as_ref()
+            .is_some_and(|properties| properties.features.matmul.ldmatrix_forms.contains(&form))
+    })
 }
 
 /// Whether the device offers `ldmatrix` for `T`, read off its properties at expansion.
@@ -925,6 +1001,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     #[comptime] layout: MatrixLayout,
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
+    #[comptime] keys: KeyOrder,
 ) {
     let num_vectors = def.vectors_per_lane(ident);
     let vector_size = def.vector_size(ident);
@@ -943,7 +1020,12 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     });
     // A register vector along the lines starts at a multiple of its size, and so does every row
     // where the lines hold whole vectors: it is then one load.
-    let whole_vectors = comptime!(vector_layout == layout && served.is_multiple_of(vector_size));
+    // Rows read in a run's order are not consecutive: each is read on its own.
+    let whole_vectors = comptime!(
+        vector_layout == layout
+            && served.is_multiple_of(vector_size)
+            && (ident != MatrixIdent::B || keys == KeyOrder::AsLaid)
+    );
     match &src.kind {
         TileKind::Memory(m) => {
             let stride = m.row_stride_at(rank - 2);
@@ -982,6 +1064,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
                             comptime!((i * vector_size + e) as u32),
                             ident,
                         );
+                        let row = key_row(row, ident, keys);
                         let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                         vector.insert(
                             e,
@@ -1002,6 +1085,25 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     }
 }
 
+/// The row a `B` fragment reads for its cell at `row` under `keys`: the row itself, or, where its
+/// `A` is a run of 8-bit accumulators ([`accumulators_as_a`]), the accumulator column the `A` holds
+/// at that `k`. Each `A` vector there holds two accumulators' vectors side by side, so `k` within a
+/// 16-wide half reads as `(unit's group) · 4 + (accumulator parity) · 2 + cell`, and the column is
+/// `accumulator · 8 + group · 2 + cell`.
+#[cube]
+pub(crate) fn key_row(row: u32, #[comptime] ident: MatrixIdent, #[comptime] keys: KeyOrder) -> u32 {
+    match comptime!((ident, keys)) {
+        (MatrixIdent::B, KeyOrder::AccumulatorRun) => {
+            let within = row % 16u32;
+            (row - within)
+                + ((within >> 1u32) & 1u32) * 8u32
+                + (within >> 2u32) * 2u32
+                + (within & 1u32)
+        }
+        _ => row,
+    }
+}
+
 /// Manual load: each unit reads its own cells of `src` through the matrix view, `k_offset` along
 /// `k` into a window deeper than one instruction.
 #[cube]
@@ -1013,6 +1115,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     #[comptime] layout: MatrixLayout,
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
+    #[comptime] keys: KeyOrder,
 ) {
     let num_vectors = def.vectors_per_lane(ident);
     let vector_size = def.vector_size(ident);
@@ -1045,7 +1148,9 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     } else {
         src.fragment_matrix_packed::<T, W>(rows, cols)
     };
-    let along_lines = comptime!(vector_layout == layout);
+    // Rows read in a run's order are not consecutive: each cell is read on its own.
+    let along_lines =
+        comptime!(vector_layout == layout && (ident != MatrixIdent::B || keys == KeyOrder::AsLaid));
     // A window that serves its cells as they lie is read where they lie, at the register's width
     // or a lone cell; one that decodes them as it reads them (packed words, or values under
     // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
@@ -1112,7 +1217,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
             for e in 0..vector_size {
                 let elem_idx = i * vector_size + e;
                 let (row, col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
-                let (row, col) = along_k(row, col, ident, k_offset);
+                let (row, col) = along_k(key_row(row, ident, keys), col, ident, k_offset);
                 let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
                 let covered =
@@ -1223,8 +1328,14 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
 /// columns is, and the operand holds its columns' shares one after another, so a product
 /// contracting its own output reads it without moving a cell between units. A run of one is an
 /// accumulator as deep as it is wide; a longer run is what lets the product contract on an
-/// instruction deeper than the accumulators are wide. A wider operand's `A` lays its cells
-/// otherwise (a `tf32` one along the columns first), and is refused.
+/// instruction deeper than the accumulators are wide.
+///
+/// An 8-bit `A` holds twice an accumulator vector's cells in each of its vectors, along one row
+/// as the accumulator's are: each holds two accumulators' vectors of the same row side by side,
+/// so no cell moves between units, but the columns it holds at each `k` are not the instruction's.
+/// The `B` it is contracted with reads its rows in that order ([`KeyOrder::AccumulatorRun`]). A
+/// wider operand's `A` lays its cells otherwise (a `tf32` one along the columns first), and is
+/// refused.
 #[cube]
 pub(crate) fn accumulators_as_a<L: Numeric>(
     accs: &Sequence<PlaneTile>,
@@ -1255,9 +1366,19 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
     let a_width = a_def.vector_size(MatrixIdent::A);
     let bytes = L::size().comptime();
     comptime!(assert!(
-        bytes == 2,
-        "accumulators_as_a: an accumulator's cells sit where the A operand's do for 16-bit \
-         operands; a {bytes}-byte operand's A lays them otherwise"
+        bytes <= 2 && a_width.is_multiple_of(acc_width),
+        "accumulators_as_a: an accumulator's cells sit along the A operand's rows for 16- and \
+         8-bit operands; a {bytes}-byte operand's A lays them otherwise"
+    ));
+    // Accumulator vectors one `A` vector holds side by side, on the same row. The 8-bit placement,
+    // and the order its `B` reads its rows in ([`key_row`]), are the `mma.sync` layouts': two
+    // accumulator vectors a unit, a row each, and four `A` vectors, rows alternating.
+    let side_by_side = comptime!(a_width / acc_width);
+    comptime!(assert!(
+        side_by_side == 1 || (side_by_side == 2 && acc_regs == 2 && a_regs == 4),
+        "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \
+         {acc_regs} vectors of {acc_width} is laid out unlike the `mma.sync` layouts its rows \
+         are placed for"
     ));
     let acc_cells = comptime!(acc_regs * acc_width);
     comptime!(assert!(
@@ -1288,8 +1409,10 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         for i in 0..acc_regs {
             #[unroll]
             for e in 0..acc_width {
-                let cell = comptime!(j * acc_cells + i * acc_width + e);
-                let (register, slot) = comptime!((cell / a_width, cell % a_width));
+                let (register, slot) = comptime!((
+                    i + acc_regs * (j / side_by_side),
+                    acc_width * (j % side_by_side) + e
+                ));
                 let mut vector = registers[register];
                 vector.insert(slot, acc[i].extract(e));
                 registers[register] = vector;

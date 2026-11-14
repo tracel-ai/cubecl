@@ -384,6 +384,30 @@ impl Tile {
         }
     }
 
+    /// Whether this tile holds accumulators a contraction rereads as its `A` operand: a plane's
+    /// grid of them along `k`, or one ([`accumulators_as_a`](crate::tile::kind::plane::mma)).
+    pub(crate) fn holds_accumulators(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::PlanePartition(_) => comptime!(true),
+            TileKind::PlaneTile(tile) => match tile {
+                PlaneTile::Mma(data) => match &data.fragment {
+                    MmaFragment::Acc(_) => comptime!(true),
+                    MmaFragment::Lhs(_)
+                    | MmaFragment::Rhs(_)
+                    | MmaFragment::LhsBlockScaled(..)
+                    | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+                },
+                PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                    comptime!(false)
+                }
+            },
+            TileKind::Memory(_)
+            | TileKind::Procedural(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.
     pub fn is_shared(&self) -> comptime_type!(bool) {
         match &self.kind {
