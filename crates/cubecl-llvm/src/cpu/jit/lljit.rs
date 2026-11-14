@@ -5,7 +5,10 @@
 #[cfg(feature = "jitdump")]
 use super::perf_support::enable_perf_support;
 use super::symbols::{JitSymbols, SymbolSizes};
-use crate::shared::llvm_module::error_message;
+use crate::{
+    cpu::synchronization::{CUBE_BARRIER_SYMBOL, cube_barrier},
+    shared::llvm_module::error_message,
+};
 use llvm_sys::{
     core::{LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMessage},
     error::LLVMErrorRef,
@@ -16,7 +19,10 @@ use llvm_sys::{
         LLVMObjectFileIsSymbolIteratorAtEnd,
     },
     orc2::{
-        LLVMOrcExecutionSessionRef, LLVMOrcObjectLayerRef, LLVMOrcObjectTransformLayerSetTransform,
+        LLVMJITEvaluatedSymbol, LLVMJITSymbolFlags, LLVMJITSymbolGenericFlags,
+        LLVMOrcAbsoluteSymbols, LLVMOrcCSymbolMapPair, LLVMOrcDisposeMaterializationUnit,
+        LLVMOrcExecutionSessionRef, LLVMOrcJITDylibDefine, LLVMOrcObjectLayerRef,
+        LLVMOrcObjectTransformLayerSetTransform,
         ee::{
             LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManagerReserveAlloc,
             LLVMOrcRTDyldObjectLinkingLayerRegisterJITEventListener,
@@ -25,7 +31,7 @@ use llvm_sys::{
             LLVMOrcCreateLLJIT, LLVMOrcCreateLLJITBuilder, LLVMOrcDisposeLLJIT,
             LLVMOrcLLJITAddObjectFile, LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator,
             LLVMOrcLLJITGetMainJITDylib, LLVMOrcLLJITGetObjTransformLayer, LLVMOrcLLJITLookup,
-            LLVMOrcLLJITRef,
+            LLVMOrcLLJITMangleAndIntern, LLVMOrcLLJITRef,
         },
     },
     prelude::LLVMMemoryBufferRef,
@@ -104,11 +110,44 @@ impl Jit {
             sizes
         });
 
-        Ok(Self {
+        let jit = Self {
             jit,
             runtime_dyld,
             sizes,
-        })
+        };
+        jit.define_runtime_symbols()?;
+        Ok(jit)
+    }
+
+    /// Bind runtime helpers for both newly compiled and cached objects. Symbolic calls keep
+    /// persisted objects independent of the addresses of this process.
+    fn define_runtime_symbols(&self) -> Result<(), String> {
+        // SAFETY: the JIT is live, and the helper remains valid for the life of the process.
+        // AbsoluteSymbols takes the interned name; JITDylibDefine takes the materialization
+        // unit on success only.
+        unsafe {
+            let mut symbol = LLVMOrcCSymbolMapPair {
+                Name: LLVMOrcLLJITMangleAndIntern(self.jit, CUBE_BARRIER_SYMBOL.as_ptr()),
+                Sym: LLVMJITEvaluatedSymbol {
+                    Address: cube_barrier as *const () as usize as u64,
+                    Flags: LLVMJITSymbolFlags {
+                        GenericFlags: LLVMJITSymbolGenericFlags::LLVMJITSymbolGenericFlagsExported
+                            as u8
+                            | LLVMJITSymbolGenericFlags::LLVMJITSymbolGenericFlagsCallable as u8,
+                        TargetFlags: 0,
+                    },
+                },
+            };
+            let symbols = LLVMOrcAbsoluteSymbols(&mut symbol, 1);
+            let result = error_message(LLVMOrcJITDylibDefine(
+                LLVMOrcLLJITGetMainJITDylib(self.jit),
+                symbols,
+            ));
+            if result.is_err() {
+                LLVMOrcDisposeMaterializationUnit(symbols);
+            }
+            result
+        }
     }
 
     /// The code model of the objects this JIT links. `RuntimeDyld` puts the GOT entries and the

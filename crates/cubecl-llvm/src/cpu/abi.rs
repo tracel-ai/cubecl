@@ -13,6 +13,10 @@ use cubecl_opt::passes::pre::LCMPre;
 use cubecl_runtime::config::compilation::F16Evaluation;
 use std::rc::Rc;
 
+/// Version of the host kernel ABI. Version 1 replaces the two atomic barrier counters with
+/// an opaque blocking barrier. Unversioned cached objects use the old counter layout.
+pub const CPU_KERNEL_ABI_VERSION: u32 = 1;
+
 pub struct TableArgs {
     /// Shared memory required for a launch.
     shared_memories: Rc<RefCell<SharedMemories>>,

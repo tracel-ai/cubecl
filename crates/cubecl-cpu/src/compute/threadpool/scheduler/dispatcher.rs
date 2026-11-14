@@ -43,7 +43,7 @@ impl DispatcherScheduler {
 
     /// Spawns workers until at least `n` exist. Overflow workers past the core
     /// count round-robin over the active cores, so a cube with more units than
-    /// cores still gets one thread per unit — required so the `sync_cube` spin
+    /// cores still gets one thread per unit — required so the blocking `sync_cube`
     /// barrier never queues two units of the same cube behind each other.
     pub fn ensure_workers(&mut self, n: usize) {
         while self.tx.len() < n {

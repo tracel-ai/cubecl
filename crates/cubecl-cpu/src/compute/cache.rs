@@ -54,6 +54,9 @@ impl From<SharedMemoriesLayout> for SharedMemories {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(crate = "cubecl_server::serde")]
 pub struct CpuCacheEntry {
+    /// Missing in objects compiled before the blocking barrier ABI.
+    #[serde(default)]
+    pub abi_version: u32,
     pub object: Bytes,
     pub entrypoint_name: String,
     pub cube_dim: CubeDim,

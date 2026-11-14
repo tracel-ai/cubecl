@@ -53,6 +53,102 @@ pub fn add_scalar_kernel(output: &mut [u32], input: &[u32], #[comptime] scalar: 
     }
 }
 
+#[cube(launch)]
+fn cached_barrier(output: &mut [u32]) {
+    let mut shared = Shared::new_slice(8usize);
+    shared[UNIT_POS as usize] = CUBE_POS as u32 * CUBE_DIM + UNIT_POS;
+    sync_cube();
+    output[ABSOLUTE_POS] = shared[((UNIT_POS + 1) % CUBE_DIM) as usize];
+}
+
+/// A cached barrier resolves the host helper in each JIT. An object from the former counter
+/// ABI must be recompiled before the runtime hands it a pointer to a blocking barrier.
+#[test]
+fn test_barrier_cache_reload_and_legacy_abi_recovery() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempDir::new("barrier");
+    let _ = CubeClRuntimeConfig::try_set(CubeClRuntimeConfig {
+        compilation: CompilationConfig {
+            cache: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    cubecl_environment::environment::set_root(&temp.path);
+    records::configure(RecordsConfig {
+        level: RecordLevel::Basic,
+        ..Default::default()
+    });
+
+    let launch = |device| {
+        let client = Client::load::<CpuServer>(DeviceId::new(0, device));
+        let output = client.empty(24 * size_of::<u32>());
+        cached_barrier::launch(
+            &client,
+            CubeCount::Static(3, 1, 1),
+            CubeDim::new_1d(8),
+            unsafe { BufferArg::from_raw_parts(output.clone(), 24) },
+        );
+        let bytes = client.read_one(output).unwrap();
+        let expected: Vec<_> = (0..3)
+            .flat_map(|cube| (0..8).map(move |unit| cube * 8 + (unit + 1) % 8))
+            .collect();
+        assert_eq!(u32::from_bytes(&bytes), expected);
+        client.properties().identity.fingerprint.clone()
+    };
+
+    let fingerprint = launch(60);
+    launch(61);
+
+    let database = Database::open_active().unwrap();
+    let recs = Records::new(&database);
+    let outcomes: Vec<_> = recs
+        .read::<CompilationRecord>()
+        .into_iter()
+        .map(|entry| entry.record.outcome)
+        .collect();
+    assert_eq!(
+        outcomes,
+        [CompilationOutcome::Compiled, CompilationOutcome::Loaded]
+    );
+
+    let mut store: Store<KernelCacheKey, CpuCacheEntry> =
+        compilation_store("cpu", &fingerprint).unwrap();
+    let mut entries = Vec::new();
+    store.scan(|key, value| entries.push((key, value)));
+    assert_eq!(entries.len(), 1);
+    let (key, mut entry) = entries.pop().unwrap();
+    assert_eq!(
+        entry.abi_version,
+        cubecl_llvm::cpu::abi::CPU_KERNEL_ABI_VERSION
+    );
+    // This is the version serde assigns when an older entry has no abi_version field.
+    entry.abi_version = 0;
+    store.purge_key(&key);
+    store.insert(key, entry).unwrap();
+    store.sync();
+    drop(store);
+
+    launch(62);
+    let all_records = recs.read::<CompilationRecord>();
+    assert_eq!(all_records.len(), 3);
+    assert_eq!(all_records[2].record.outcome, CompilationOutcome::Compiled);
+
+    let mut store: Store<KernelCacheKey, CpuCacheEntry> =
+        compilation_store("cpu", &fingerprint).unwrap();
+    let mut entries = Vec::new();
+    store.scan(|key, value| entries.push((key, value)));
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].1.abi_version,
+        cubecl_llvm::cpu::abi::CPU_KERNEL_ABI_VERSION
+    );
+    records::configure(RecordsConfig {
+        level: RecordLevel::Off,
+        ..Default::default()
+    });
+}
+
 /// Asserts that the cold launch compiles and records `CompilationOutcome::Compiled`,
 /// and the warm launch in Server Instance 2 hits the cache, records `CompilationOutcome::Loaded`,
 /// and produces byte-for-byte identical output.
