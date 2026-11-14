@@ -2,6 +2,7 @@
 //! no device, no runtime, only the stored bytes.
 
 use cubecl_environment::bundle::{BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
+use cubecl_environment::environment::BuildStamp;
 use cubecl_environment::persistence::{Access, Database, Origin};
 use cubecl_environment::records::{self, MarkRecord, Record, Session, SessionId, Stamp, Stamped};
 use cubecl_environment::stream::StreamId;
@@ -258,7 +259,7 @@ fn fixture(dir: &Path) -> PathBuf {
                     key: KernelCacheKey {
                         id,
                         variant: 0,
-                        build_id: 1,
+                        built_by: BuildStamp { hash: 1 },
                     },
                     outcome: outcome.0,
                     work: outcome.1,
@@ -298,7 +299,7 @@ fn fixture(dir: &Path) -> PathBuf {
         &cbor(&KernelCacheKey {
             id: MATMUL,
             variant: 0,
-            build_id: 1,
+            built_by: BuildStamp { hash: 1 },
         }),
         &[0; 64],
         Origin::Local,
@@ -355,6 +356,7 @@ fn fixture(dir: &Path) -> PathBuf {
             devices: vec!["hip-gfx1151".to_string()],
             ..Default::default()
         }],
+        saved_by: None,
     }
     .write_to(&database)
     .expect("writes the manifest");
@@ -390,7 +392,7 @@ fn the_summary_totals_every_namespace_by_root() {
     let summary = inspector.summary();
 
     assert_eq!(summary.entries(), 13);
-    assert_eq!(summary.autotune_keys(), 4);
+    assert_eq!(summary.autotune_answers(), 4);
     let roots: Vec<(String, u64)> = summary
         .roots()
         .into_iter()
@@ -788,8 +790,8 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
             .all(|row| row.root().as_str() != "records")
     );
     assert_eq!(
-        stripped.autotune_keys(),
-        Inspector::new(file).summary().autotune_keys()
+        stripped.autotune_answers(),
+        Inspector::new(file).summary().autotune_answers()
     );
     assert_eq!(
         stripped.manifest.expect("an export carries one").name,
@@ -922,7 +924,7 @@ fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
                 key: KernelCacheKey {
                     id: MATMUL,
                     variant: 0,
-                    build_id: 2,
+                    built_by: BuildStamp { hash: 2 },
                 },
                 outcome: CompilationOutcome::Compiled,
                 work: Duration::from_millis(90),
@@ -1295,7 +1297,7 @@ fn pruning_keeps_the_newest_sessions_records() {
             .all(|key| key.tune.is_none())
     );
     assert!(inspector.kernels().kernels.is_empty());
-    assert_eq!(summary.autotune_keys(), 4, "the caches are untouched");
+    assert_eq!(summary.autotune_answers(), 4, "the caches are untouched");
 }
 
 /// Pruning a shipped file in place leaves it shipped: out of WAL, so it

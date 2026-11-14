@@ -31,11 +31,23 @@ use crate::sync::{Arc, LazyLock, Mutex};
 
 pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
+mod build_stamp;
+pub use build_stamp::*;
+
+mod environment_bundle;
+pub use environment_bundle::*;
+
 mod id;
 pub use id::*;
 
+#[cfg(native_cache)]
+mod scratch_file;
+
 mod prune;
 pub use prune::*;
+
+mod summary;
+pub use summary::*;
 
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";
@@ -360,7 +372,15 @@ impl Bundle {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
+/// A database that refuses the count reads as empty, and the database logs
+/// why.
 pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
+    active_namespaces().unwrap_or_default()
+}
+
+/// [`namespaces`], failing when the active environment's database opened and
+/// refused the count.
+pub(crate) fn active_namespaces() -> Result<Vec<crate::persistence::NamespaceSummary>, String> {
     #[cfg(any(native_cache, browser_cache))]
     if crate::persistence::database::database().is_ok() {
         return crate::persistence::database::summary();
@@ -368,7 +388,7 @@ pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
 
     // No database means nothing was ever written durably; whatever this
     // process warmed is in memory.
-    crate::persistence::MemoryStorage::namespaces()
+    Ok(crate::persistence::MemoryStorage::namespaces())
 }
 
 #[cfg(test)]

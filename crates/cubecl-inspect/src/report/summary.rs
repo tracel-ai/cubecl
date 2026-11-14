@@ -1,6 +1,6 @@
-use super::{Activity, AutotuneTable};
+use super::Activity;
 use cubecl_environment::bundle::BundleManifest;
-use cubecl_environment::persistence::NamespaceSummary;
+use cubecl_environment::persistence::{NamespaceContent, NamespaceSummary};
 use cubecl_environment::records::Session;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -104,11 +104,11 @@ impl Summary {
         self.namespaces.iter().map(|row| row.entries).sum()
     }
 
-    /// How many keys the file holds a tuned answer for.
-    pub fn autotune_keys(&self) -> u64 {
+    /// The autotune answers the file holds, one per key and candidate list.
+    pub fn autotune_answers(&self) -> u64 {
         self.namespaces
             .iter()
-            .filter(|row| row.root().as_str() == AutotuneTable::ROOT)
+            .filter(|row| row.root().content() == NamespaceContent::AutotuneAnswers)
             .map(|row| row.entries)
             .sum()
     }

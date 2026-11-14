@@ -35,7 +35,7 @@ impl From<KernelCacheKey> for KernelInstance {
     fn from(key: KernelCacheKey) -> Self {
         Self {
             id: KernelHash(key.id),
-            build: BuildHash(key.build_id),
+            build: BuildHash(key.built_by.hash),
         }
     }
 }
@@ -357,7 +357,7 @@ mod tests {
             key: KernelCacheKey {
                 id: 1,
                 variant: 0,
-                build_id: 2,
+                built_by: cubecl_environment::environment::BuildStamp { hash: 2 },
             },
             ir: None,
             outcome: CompilationOutcome::Compiled,

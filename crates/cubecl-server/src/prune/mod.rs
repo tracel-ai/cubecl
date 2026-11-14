@@ -11,7 +11,7 @@
 //! kernel another build compiled with the records of what its work launched,
 //! and the build records the caller does not keep. The autotune answers stay.
 //!
-//! "Build" is the compiled program, as [`build_id_hash`](crate::compiler::build_id_hash) names it: a kernel is
+//! "Build" is the compiled program, as its [`BuildStamp`](cubecl_environment::environment::BuildStamp) names it: a kernel is
 //! stored under the build that compiled it, and another build's is loaded
 //! only where a backend reuses an artifact by its source, as CUDA's and HIP's
 //! do; such a kernel compiles again after a prune. An environment in which

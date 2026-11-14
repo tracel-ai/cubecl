@@ -1,6 +1,8 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::environment::BuildStamp;
+
 /// The `meta` key the manifest is stored under.
 #[cfg(native_cache)]
 pub(super) const MANIFEST_KEY: &str = "manifest";
@@ -107,6 +109,36 @@ pub struct BundleManifest {
     /// The environments the bundle was captured on, informational in v1.
     #[serde(default, rename = "environments")]
     pub environments: Vec<EnvironmentInfo>,
+    /// The executable that exported the bundle, which tells a reader whether
+    /// its own build saved it; `None` when the manifest names none.
+    ///
+    /// Written as the stamp's 32 hexadecimal digits: the manifest is JSON a
+    /// person or a tool outside Rust reads, and a 128-bit integer loses
+    /// digits in a JSON reader that parses numbers as doubles.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "hex_stamp")]
+    pub saved_by: Option<BuildStamp>,
+}
+
+/// [`BundleManifest::saved_by`] as hexadecimal text.
+mod hex_stamp {
+    use super::BuildStamp;
+    use alloc::string::{String, ToString};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+
+    pub fn serialize<S: Serializer>(
+        stamp: &Option<BuildStamp>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        stamp.map(|stamp| stamp.to_string()).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<BuildStamp>, D::Error> {
+        Option::<String>::deserialize(deserializer)?
+            .map(|hex| hex.parse().map_err(D::Error::custom))
+            .transpose()
+    }
 }
 
 /// Description of one environment a bundle was captured on. Informational:
@@ -212,5 +244,33 @@ impl BundleManifest {
 
         crate::persistence::database::meta_set(connection, MANIFEST_KEY, &content)
             .map_err(BundleError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The stamp a manifest carries is written as text, so a JSON reader
+    /// that parses numbers as doubles keeps every digit, and reads back as
+    /// the same stamp.
+    #[test]
+    fn the_saving_stamp_is_written_as_hex_text() {
+        let stamp = BuildStamp {
+            hash: u128::MAX - 7,
+        };
+        let manifest = BundleManifest {
+            schema: MANIFEST_SCHEMA,
+            name: "saved".into(),
+            cubecl_version: "0.12.0".into(),
+            created_unix_secs: None,
+            environments: Vec::new(),
+            saved_by: Some(stamp),
+        };
+
+        let json = serde_json::to_value(&manifest).unwrap();
+        assert_eq!(json["saved_by"], serde_json::json!(stamp.to_string()));
+        let read = BundleManifest::parse(json.to_string().as_bytes()).unwrap();
+        assert_eq!(read.saved_by, Some(stamp));
     }
 }

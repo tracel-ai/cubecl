@@ -5,7 +5,7 @@ use cubecl_common::device::ServiceId;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
-use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Namespace, NamespaceRoot, Store, StoreOptions};
 #[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,7 @@ use cubecl_environment::collections::HashMap;
 
 /// Bumped when tables are named another way.
 #[cfg(persistence)]
-static TABLES: NamespaceVersion = NamespaceVersion::new(ROOT, LAYOUT_PREFIX, 1);
+static TABLES: NamespaceVersion = NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 1);
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
@@ -157,9 +157,6 @@ pub enum TuneCacheResult {
     /// No operation is found yet.
     Miss,
 }
-
-/// The root of every tuner's table namespace.
-pub const ROOT: &str = "autotune";
 
 /// What the segment numbering a table layout starts with, as in `layout-v1`.
 pub const LAYOUT_PREFIX: &str = "layout-v";
@@ -430,5 +427,110 @@ impl<K: AutotuneKey> TuneCache<K> {
             ),
         }
         false
+    }
+}
+
+#[cfg(all(test, persistence))]
+mod tests {
+    use super::*;
+    use alloc::boxed::Box;
+    use alloc::string::ToString;
+    use cubecl_environment::persistence::MemoryStorage;
+
+    const KEY: &str = "matmul-64x64";
+    /// Sorts before [`CURRENT`], so a table read in key order meets it first.
+    const STALE: &str = "0000-older-list";
+    const CURRENT: &str = "ffff-current-list";
+
+    /// An answer stored under an older candidate list is never served for
+    /// the current one, even when it sorts first: the lookup asks for the key
+    /// and the list together, and misses until the current list is answered.
+    #[test]
+    fn an_answer_to_an_older_list_is_never_served() {
+        let table = "tune-cache-tests/stale-first";
+        plant(table, KEY, STALE, 1);
+        let mut cache = TuneCache::over(table);
+
+        assert!(matches!(
+            cache.look_up(&KEY.to_string(), CURRENT),
+            TuneCacheResult::Miss
+        ));
+
+        plant(table, KEY, CURRENT, 2);
+        let mut cache = TuneCache::over(table);
+        assert!(matches!(
+            cache.look_up(&KEY.to_string(), CURRENT),
+            TuneCacheResult::Hit { fastest_index: 2 }
+        ));
+    }
+
+    /// Storing an answer to the current list leaves the key's answer to an
+    /// older list in the table: an environment never loses an answer, and the
+    /// older one only costs a row, since no lookup for the current list reads
+    /// it.
+    #[test]
+    fn a_stored_answer_leaves_the_answers_to_older_lists() {
+        let table = "tune-cache-tests/kept";
+        plant(table, KEY, STALE, 1);
+        let mut cache = TuneCache::over(table);
+        cache.look_up(&KEY.to_string(), CURRENT);
+
+        assert!(cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(2)));
+
+        assert_eq!(stored(table), [pair(KEY, STALE), pair(KEY, CURRENT)]);
+    }
+
+    impl TuneCache<String> {
+        /// A cache over the in-memory table `table`.
+        fn over(table: &str) -> Self {
+            Self {
+                in_memory_cache: HashMap::new(),
+                lost: Vec::new(),
+                persistent_cache: Some(answers(table)),
+                table: table.into(),
+                generation: cubecl_environment::environment::generation(),
+            }
+        }
+    }
+
+    /// The store of the in-memory table `table`, read lazily as a tuner's is.
+    fn answers(table: &str) -> Store<PersistentCacheKey<String>, PersistentCacheValue> {
+        Store::new(
+            StoreOptions::new()
+                .storage_with(Box::new(MemoryStorage::new(table)), Namespace::new(table))
+                .cache(CacheOption::Lazy),
+        )
+    }
+
+    /// Stores in `table`, as a tune of `checksum`'s list would, `fastest_index`
+    /// as the answer to `key`.
+    fn plant(table: &str, key: &str, checksum: &str, fastest_index: usize) {
+        answers(table)
+            .insert(pair(key, checksum), answer(fastest_index))
+            .unwrap();
+    }
+
+    fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
+        PersistentCacheKey {
+            key: key.to_string(),
+            checksum: checksum.into(),
+        }
+    }
+
+    fn answer(fastest_index: usize) -> PersistentCacheValue {
+        PersistentCacheValue {
+            fastest_index,
+            results: Vec::new(),
+            bounds: None,
+            limit: None,
+        }
+    }
+
+    /// Every answer `table` holds, by key and list.
+    fn stored(table: &str) -> Vec<PersistentCacheKey<String>> {
+        let mut stored = Vec::new();
+        answers(table).scan(|key, _| stored.push(key));
+        stored.sort_by(|a, b| (&a.key, &a.checksum).cmp(&(&b.key, &b.checksum)));
+        stored
     }
 }
