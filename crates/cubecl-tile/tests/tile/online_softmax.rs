@@ -575,8 +575,13 @@ fn run<E: Float + CubeElement>(case: Case) {
 /// steps the keys `run` leaves at a time. The score contracts `m16n8k16` on each leaf of a run,
 /// and the value the run at once, `m16n8k8` for a run of one and `m16n8k16` for a run of two.
 fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize) {
+    run_registers_at(E::elem_type_native(), case, ending, run)
+}
+
+/// [`run_registers`] with every operand at `e_ty`, an element no `Float` type stands for (an
+/// 8-bit float) included.
+fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
     let client: Client = cubecl::test_device().client();
-    let e_ty = E::elem_type_native();
     let f32_ty = f32::elem_type_native();
     let offered = |k: u32| {
         client.properties().features.matmul.mma.iter().any(|cfg| {
@@ -586,10 +591,12 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
                 && [cfg.m, cfg.n, cfg.k] == [16, 8, k]
         })
     };
+    // The score's instruction is as deep as a register holds its operand's cells in two rows.
+    let depth = 32 / e_ty.size();
     let value_depth = 8 * run as u32;
-    if !(offered(16) && offered(value_depth)) {
+    if !(offered(depth as u32) && offered(value_depth)) {
         ValidationResult::Skipped(format!(
-            "no m16n8k16 and m16n8k{value_depth} {e_ty:?} instructions summing in f32"
+            "no m16n8k{depth} and m16n8k{value_depth} {e_ty:?} instructions summing in f32"
         ))
         .enforce();
         return;
@@ -606,7 +613,7 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
         causal,
         ..
     } = case;
-    let (m, n, depth) = (16, 8, 16);
+    let (m, n) = (16, 8);
     let launcher = implied(
         &client,
         Partitioning::new(
@@ -630,7 +637,7 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
         Form::Static,
     );
     let (q_data, k_data, v_data, q_handle, k_handle, v_handle) =
-        inputs::<E>(&client, queries, keys, attended, head, value, false);
+        inputs_at(&client, e_ty, queries, keys, attended, head, value, false);
     let out_handle = TestInput::builder(client.clone(), Shape::new([queries, value]))
         .dtype(f32_ty)
         .zeros()
@@ -686,8 +693,24 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
     match ending {
-        Ending::Normalized => check(
-            &out, &q_data, &k_data, &v_data, queries, keys, attended, head, value, causal, false,
+        // Operands and probabilities of `e_ty`: a few of its ulps through two contractions, three
+        // bits of mantissa an 8-bit float's.
+        Ending::Normalized => check_within(
+            &out,
+            &q_data,
+            &k_data,
+            &v_data,
+            queries,
+            keys,
+            attended,
+            head,
+            value,
+            causal,
+            false,
+            match e_ty.size() {
+                1 => 6e-2,
+                _ => 2e-2,
+            },
         ),
         Ending::Undivided => {
             let max = HostData::from_tensor_handle(&client, max_handle, HostDataType::F32);
@@ -720,7 +743,37 @@ fn inputs<E: Float + CubeElement>(
     cubecl::std::tensor::TensorHandle,
     cubecl::std::tensor::TensorHandle,
 ) {
-    let e_ty = E::elem_type_native();
+    inputs_at(
+        client,
+        E::elem_type_native(),
+        queries,
+        keys,
+        attended,
+        head,
+        value,
+        transposed_keys,
+    )
+}
+
+/// [`inputs`] at `e_ty`.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn inputs_at(
+    client: &Client,
+    e_ty: ElemType,
+    queries: usize,
+    keys: usize,
+    attended: usize,
+    head: usize,
+    value: usize,
+    transposed_keys: bool,
+) -> (
+    HostData,
+    HostData,
+    HostData,
+    cubecl::std::tensor::TensorHandle,
+    cubecl::std::tensor::TensorHandle,
+    cubecl::std::tensor::TensorHandle,
+) {
     let wobble =
         |i: usize, salt: usize| ((i * 2654435761 + salt * 40503) % 2048) as f32 / 512. - 2.;
     let key_cell = |j: usize, d: usize| match j < attended {
@@ -811,7 +864,8 @@ fn reference_row(
     (max, sum, out)
 }
 
-/// `out` against the attention computed on the host ([`reference_row`]).
+/// `out` against the attention computed on the host ([`reference_row`]), for `f16` operands and
+/// probabilities: a few ulps of each through two contractions.
 #[allow(clippy::too_many_arguments)]
 fn check(
     out: &HostData,
@@ -825,6 +879,38 @@ fn check(
     value: usize,
     causal: bool,
     transposed_keys: bool,
+) {
+    check_within(
+        out,
+        q_data,
+        k_data,
+        v_data,
+        queries,
+        keys,
+        attended,
+        head,
+        value,
+        causal,
+        transposed_keys,
+        2e-2,
+    );
+}
+
+/// [`check`], each output within `tolerance` of the host's relative to one plus its size.
+#[allow(clippy::too_many_arguments)]
+fn check_within(
+    out: &HostData,
+    q_data: &HostData,
+    k_data: &HostData,
+    v_data: &HostData,
+    queries: usize,
+    keys: usize,
+    attended: usize,
+    head: usize,
+    value: usize,
+    causal: bool,
+    transposed_keys: bool,
+    tolerance: f64,
 ) {
     for i in 0..queries {
         let (_, _, row) = reference_row(
@@ -842,10 +928,8 @@ fn check(
         );
         for (c, &expected) in row.iter().enumerate() {
             let actual = out.get_f32(&[i, c]) as f64;
-            // f16 operands and probabilities: a few ulps of each through two contractions.
-            let tolerance = 2e-2 * (1. + expected.abs());
             assert!(
-                (actual - expected).abs() <= tolerance,
+                (actual - expected).abs() <= tolerance * (1. + expected.abs()),
                 "out[{i}, {c}] = {actual}, expected {expected}"
             );
         }
@@ -1271,6 +1355,18 @@ fn register_plane_attention_hands_its_undivided_state_by_rows() {
 
 /// The value contracting two of the score's fragments at once, `m16n8k16` reading both as its
 /// `A`: causally and past the attended keys, so the masked cells of a run weigh nothing.
+/// An 8-bit score's run of four fragments is the `A` of one `m16n8k32` call: its cells lie along
+/// the rows, the value reading its keys in their order.
+#[test]
+fn register_plane_attention_contracts_a_run_of_four_8_bit_score_fragments() {
+    run_registers_at(
+        ElemType::Float(cubecl::ir::FloatKind::E4M3),
+        REGISTER_PREFILL,
+        Ending::Normalized,
+        4,
+    );
+}
+
 #[test]
 fn register_plane_attention_contracts_a_run_of_two_score_fragments() {
     run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized, 2);
