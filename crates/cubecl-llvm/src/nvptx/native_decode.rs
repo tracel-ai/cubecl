@@ -1,9 +1,11 @@
-//! NVPTX's own minifloat decode: a pair of values an instruction, where the software codec spends a
-//! handful of integer operations a value.
+//! NVPTX's own minifloat conversions, a pair of values an instruction where the software codec
+//! spends a handful of integer operations a value: the decode of every minifloat it converts, and
+//! the encode of `f32` to fp8.
 
 use crate::{
     nvptx::registers::{extract_lane, insert_lane, poison},
     prelude::*,
+    shared::plane::bitcast,
     shared::{intrinsic::call_op, native_decode::NativeDecode, to_llvm::general::convert_float},
 };
 use cubecl_core::ir::nvidia::SmArch;
@@ -29,6 +31,17 @@ impl NativeDecode {
             NativeDecode::E2M1x2 => "llvm.nvvm.e2m1x2.to.f16x2.rn",
             NativeDecode::E4M3 => "llvm.nvvm.e4m3x2.to.f16x2.rn",
             NativeDecode::E5M2 => "llvm.nvvm.e5m2x2.to.f16x2.rn",
+        }
+    }
+
+    /// The intrinsic converting two `f32`s to a pair of this format in an `i16`, the second
+    /// argument in the low byte (PTX `cvt.rn.satfinite.{e4m3,e5m2}x2.f32`, the first operand in the
+    /// upper half).
+    fn f32_pair_to(self) -> &'static str {
+        match self {
+            NativeDecode::E4M3 => "llvm.nvvm.ff.to.e4m3x2.rn",
+            NativeDecode::E5M2 => "llvm.nvvm.ff.to.e5m2x2.rn",
+            NativeDecode::E2M1x2 => unreachable!("e2m1x2 is encoded by the software codec"),
         }
     }
 
@@ -113,4 +126,80 @@ pub(crate) fn decode(
         _ => halves,
     };
     convert_float(ctx, rw, halves, ty)
+}
+
+/// `input`, `f32`s, as the fp8 codes of `format` in `ty`, a byte each: encoded a pair at a time,
+/// rounded to nearest and saturating at the format's largest finite value, the first value of a
+/// pair in its low byte as [`decode`] reads it back. An even count of values is the pairs' words
+/// side by side, bitcast to bytes, so a register of four codes is two words joined, not four bytes
+/// placed one by one.
+pub(crate) fn encode(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    format: NativeDecode,
+    input: Value,
+    ty: TypeHandle,
+) -> Value {
+    let lanes = input
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|vector| vector.num_elements() as usize);
+    let count = lanes.unwrap_or(1);
+    let word_ty: TypeHandle = IntegerType::get(ctx, 16, Signedness::Signless).into();
+    let byte_ty: TypeHandle = IntegerType::get(ctx, 8, Signedness::Signless).into();
+    let lane = |ctx: &mut Context, rw: &mut DialectConversionRewriter, at: usize| match lanes {
+        Some(_) => extract_lane(ctx, rw, input, at),
+        None => input,
+    };
+    // Each pair's word, the second value paired with the first where it is missing.
+    let words: Vec<Value> = (0..count)
+        .step_by(2)
+        .map(|first| {
+            let low = lane(ctx, rw, first);
+            let high = match first + 1 < count {
+                true => lane(ctx, rw, first + 1),
+                false => low,
+            };
+            let convert = call_op(ctx, format.f32_pair_to(), word_ty, vec![high, low]);
+            insert(ctx, rw, &convert)
+        })
+        .collect();
+    match (lanes, count.is_multiple_of(2)) {
+        (Some(_), true) => {
+            let words_ty: TypeHandle =
+                LlvmVectorType::get(ctx, word_ty, (count / 2) as u32, VectorTypeKind::Fixed).into();
+            let mut joined = poison(ctx, rw, words_ty);
+            for (at, &word) in words.iter().enumerate() {
+                joined = insert_lane(ctx, rw, joined, word, at);
+            }
+            bitcast(ctx, rw, joined, ty)
+        }
+        _ => {
+            let shift = insert_int_const(ctx, rw, 16, 8);
+            let byte_of = |ctx: &mut Context, rw: &mut DialectConversionRewriter, at: usize| {
+                let word = words[at / 2];
+                let part = match at % 2 {
+                    1 => {
+                        let shifted = llvm::LShrOp::new(ctx, word, shift);
+                        insert(ctx, rw, &shifted)
+                    }
+                    _ => word,
+                };
+                let byte = llvm::TruncOp::new(ctx, part, byte_ty);
+                insert(ctx, rw, &byte)
+            };
+            match lanes {
+                Some(_) => {
+                    let mut codes = poison(ctx, rw, ty);
+                    for at in 0..count {
+                        let byte = byte_of(ctx, rw, at);
+                        codes = insert_lane(ctx, rw, codes, byte, at);
+                    }
+                    codes
+                }
+                None => byte_of(ctx, rw, 0),
+            }
+        }
+    }
 }
