@@ -140,6 +140,9 @@ pub(crate) fn format_const(ctx: &Context, value: &AttrObj, ty: TypeHandle) -> St
             "(1.0f/0.0f)".into()
         } else if val.is_infinite() {
             "(-1.0f/0.0f)".into()
+        } else if val == 0.0 && val.is_sign_negative() {
+            // Zero prints as the integer `-0`, which is `+0.0` once converted.
+            "(-0.0f)".into()
         } else {
             attr.to_cpp(ctx)
         };
@@ -160,9 +163,9 @@ mod tests {
     use cubecl_core::ir::{ConstantValue, ElemType, FloatKind};
     use pliron::{attribute::boxed_attr_cast, builtin::ops::ConstantOp};
 
-    fn metal_constant(value: f64, kind: FloatKind) -> String {
+    fn constant(target: Target, value: f64, kind: FloatKind) -> String {
         let mut ctx = Context::new();
-        ctx.set_target(Target::Metal);
+        ctx.set_target(target);
         let attr = ConstantValue::Float(value).as_attribute(&ctx, ElemType::Float(kind));
         let op = ConstantOp::new(&mut ctx, boxed_attr_cast(attr).unwrap());
         let msl = OpToCPP::<Shared>::to_cpp(&op, &ctx);
@@ -172,11 +175,27 @@ mod tests {
     /// A bf16 literal compiles in MSL only as an explicit conversion from `float`, NaN included.
     #[test]
     fn a_metal_bf16_literal_converts_explicitly() {
-        assert_eq!(metal_constant(0.5, FloatKind::BF16), "bfloat(0.5);\n");
         assert_eq!(
-            metal_constant(f64::NAN, FloatKind::BF16),
+            constant(Target::Metal, 0.5, FloatKind::BF16),
+            "bfloat(0.5);\n"
+        );
+        assert_eq!(
+            constant(Target::Metal, f64::NAN, FloatKind::BF16),
             "bfloat((0.0f/0.0f));\n"
         );
-        assert_eq!(metal_constant(0.5, FloatKind::F16), "0.5;\n");
+        assert_eq!(constant(Target::Metal, 0.5, FloatKind::F16), "0.5;\n");
+    }
+
+    /// `-0.0` as a float literal, on every target: the integer `-0` would be `+0.0`.
+    #[test]
+    fn negative_zero_keeps_its_sign() {
+        for target in [Target::Cuda, Target::Hip, Target::Metal] {
+            assert_eq!(constant(target, -0.0, FloatKind::F32), "(-0.0f);\n");
+            assert_eq!(constant(target, 0.0, FloatKind::F32), "0;\n");
+        }
+        assert_eq!(
+            constant(Target::Metal, -0.0, FloatKind::BF16),
+            "bfloat((-0.0f));\n"
+        );
     }
 }
