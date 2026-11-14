@@ -190,6 +190,16 @@ impl WgpuStorage {
         }
         create_wgpu_buffer(&self.device, desc).map(|buffer| WgpuMemory::new(buffer, None))
     }
+
+    /// Bytes the device has left for the buffers this storage creates, when its driver says
+    /// so. `None` where it has no figure.
+    pub(crate) fn memory_available(&self) -> Option<u64> {
+        crate::backend::vulkan_memory::memory_available(
+            &self.device,
+            self.buffer_usages,
+            self.vk_storage,
+        )
+    }
 }
 
 /// Creates a buffer, or on native returns [`IoError::OutOfMemory`] when the device has no room for it.
