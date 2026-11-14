@@ -1,14 +1,21 @@
 //! AMDGPU matrix operations.
 
 use crate::{
-    amdgpu::plane::lane_id,
+    amdgpu::{
+        fragment::{
+            BF16, E4M3, E5M2, F16, F32, I8, I32, INSTRUCTION_M, INSTRUCTION_N, TILE_DEPTHS, U8,
+            fp8_name, fragment_slice, instruction_steps, shuffle,
+        },
+        mfma::{self, CodeReading, MfmaForm, emit_mfma},
+        plane::lane_id,
+    },
     prelude::*,
     shared::matrix::{convert_lanes, elem_type, registers_as_vector, registers_value},
     shared::plane::bitcast,
 };
 use cubecl_core::ir::{
-    ElemType, FloatKind, IntKind, UIntKind,
-    amd::AmdWmma,
+    ElemType,
+    amd::{AmdMatrixCore, AmdMfma, AmdWmma},
     dialect::matrix::{
         CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
         RowIndexOp, StMatrixOp, StoreOp,
@@ -26,41 +33,43 @@ pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
 #[derive(Debug, Error)]
 #[error(
-    "no WMMA lowering for a {}x{}x{} tile: one is {INSTRUCTION_M}x{INSTRUCTION_N} and a \
-     multiple of {INSTRUCTION_K} deep",
-    .0.m, .0.n, .0.k
+    "no matrix lowering for a {}x{}x{} tile: one is {INSTRUCTION_M}x{INSTRUCTION_N} and a \
+     multiple of {instruction_k} deep",
+    shape.m, shape.n, shape.k
 )]
-pub struct MatrixShapeUnsupported(MatrixShape);
+pub struct MatrixShapeUnsupported {
+    pub shape: MatrixShape,
+    pub instruction_k: usize,
+}
 
 #[derive(Debug, Error)]
-#[error("no {0:?} WMMA instruction multiplies {1:?} by {2:?} into {3:?}")]
-pub struct MatrixElemUnsupported(AmdWmma, ElemType, ElemType, ElemType);
+#[error("no {core:?} instruction multiplies {a:?} by {b:?} into {cd:?}")]
+pub struct MatrixElemUnsupported {
+    pub core: AmdMatrixCore,
+    pub a: ElemType,
+    pub b: ElemType,
+    pub cd: ElemType,
+}
+
+impl MatrixElemUnsupported {
+    /// The refusal of a product of these operand types on the context's matrix core.
+    fn of(ctx: &Context, a: TypeHandle, b: TypeHandle, cd: TypeHandle) -> Self {
+        Self {
+            core: ctx.matrix_core(),
+            a: elem_type(ctx, a),
+            b: elem_type(ctx, b),
+            cd: elem_type(ctx, cd),
+        }
+    }
+}
 
 /// RDNA3 pads 16-bit accumulators to 32-bit registers.
 fn pads_half_accumulator(generation: AmdWmma) -> bool {
     generation == AmdWmma::Rdna3
 }
 
-/// The shape of every WMMA form this lowering emits, on RDNA3 and RDNA4 alike.
-const INSTRUCTION_M: usize = 16;
-const INSTRUCTION_N: usize = 16;
+/// The depth of every WMMA form this lowering emits, on RDNA3 and RDNA4 alike.
 const INSTRUCTION_K: usize = 16;
-
-/// The tile depths offered: one instruction, or two in a row.
-const TILE_KS: [usize; 2] = [INSTRUCTION_K, 2 * INSTRUCTION_K];
-
-/// How many instructions a tile takes, where its output is one instruction's and its depth a
-/// whole number of them.
-///
-/// A deeper tile is cut into consecutive slices of each lane's fragment. On RDNA4 a lane holds
-/// its half's run of `k`, so a slice pairs `k` from both halves the instruction would not, but A
-/// and B are sliced alike and the products summed are the same.
-fn instruction_steps(shape: MatrixShape) -> Option<usize> {
-    let MatrixShape { m, n, k } = shape;
-    let output = m == INSTRUCTION_M && n == INSTRUCTION_N;
-    let depth = k > 0 && k.is_multiple_of(INSTRUCTION_K);
-    (output && depth).then_some(k / INSTRUCTION_K)
-}
 
 /// The WMMA instruction a tile's element types select.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,15 +81,6 @@ pub enum WmmaForm {
     /// 8-bit integer operands, each side signed or not, accumulating in `i32`.
     Int8 { a_signed: bool, b_signed: bool },
 }
-
-const F16: ElemType = ElemType::Float(FloatKind::F16);
-const BF16: ElemType = ElemType::Float(FloatKind::BF16);
-const F32: ElemType = ElemType::Float(FloatKind::F32);
-const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
-const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
-const I8: ElemType = ElemType::Int(IntKind::I8);
-const U8: ElemType = ElemType::UInt(UIntKind::U8);
-const I32: ElemType = ElemType::Int(IntKind::I32);
 
 impl WmmaForm {
     /// The form multiplying `a` by `b` into `cd` on `generation`, where it has one.
@@ -114,13 +114,13 @@ impl WmmaForm {
         elems
             .filter(|&(a, b, cd)| Self::of(generation, a, b, cd).is_some())
             .flat_map(|(a, b, cd)| {
-                TILE_KS.map(|k| MmaConfig {
+                TILE_DEPTHS.map(|depth| MmaConfig {
                     a_type: a,
                     b_type: b,
                     cd_type: cd,
                     m: INSTRUCTION_M as u32,
                     n: INSTRUCTION_N as u32,
-                    k: k as u32,
+                    k: (depth * INSTRUCTION_K) as u32,
                 })
             })
             .collect()
@@ -178,15 +178,6 @@ fn half_name(elem: ElemType) -> &'static str {
     }
 }
 
-/// AMD names `e4m3` `fp8` and `e5m2` `bf8`.
-fn fp8_name(elem: ElemType) -> &'static str {
-    match elem {
-        E4M3 => "fp8",
-        E5M2 => "bf8",
-        other => unreachable!("{other:?} is no fp8 WMMA element"),
-    }
-}
-
 /// The `i1` operands a WMMA intrinsic takes ahead of A, ahead of B and after the accumulator.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct WmmaFlags {
@@ -195,34 +186,36 @@ struct WmmaFlags {
     last: Option<bool>,
 }
 
-impl CtxWmma for Context {}
+impl CtxMatrixCore for Context {}
 
-pub trait CtxWmma: ContextExt {
-    fn wmma(&self) -> AmdWmma {
+pub trait CtxMatrixCore: ContextExt {
+    fn matrix_core(&self) -> AmdMatrixCore {
         *self
-            .aux_ty::<Option<AmdWmma>>()
+            .aux_ty::<Option<AmdMatrixCore>>()
             .as_ref()
-            .expect("matrix ops are only compiled for devices that have WMMA")
+            .expect("matrix ops are only compiled for devices that have WMMA or MFMA")
     }
-    fn set_wmma(&mut self, generation: Option<AmdWmma>) {
-        self.set_aux_ty(generation);
+    fn set_matrix_core(&mut self, core: Option<AmdMatrixCore>) {
+        self.set_aux_ty(core);
     }
 }
 
+/// Accumulator elements each lane holds on WMMA: a 16x16 output over 32 lanes.
 const ACCUMULATOR_REGISTERS: usize = 8;
 
 const LANES_PER_ROW: u32 = 16;
 
 /// Fragment size and element spacing per lane.
 fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
-    let generation = ctx.wmma();
-    match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => (generation.frag_ab_elems(matrix.shape.k), 1),
-        MatrixIdent::Accumulator => {
+    let core = ctx.matrix_core();
+    match (matrix.ident, core) {
+        (MatrixIdent::A | MatrixIdent::B, _) => (core.frag_ab_elems(matrix.shape.k), 1),
+        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(generation)) => {
             let half = matches!(elem_type(ctx, matrix.elem_ty), F16 | BF16);
             let padded = half && pads_half_accumulator(generation);
             (ACCUMULATOR_REGISTERS, if padded { 2 } else { 1 })
         }
+        (MatrixIdent::Accumulator, AmdMatrixCore::Mfma(_)) => (mfma::ACCUMULATOR_REGISTERS, 1),
     }
 }
 
@@ -259,10 +252,12 @@ fn add(ctx: &mut Context, rw: &mut DialectConversionRewriter, lhs: Value, rhs: V
     insert(ctx, rw, &op)
 }
 
+/// Where a lane sits: its place along a row of 16 lanes, and which of those rows it is in, the
+/// half of a WMMA wavefront or the group of an MFMA one.
 #[derive(Clone, Copy)]
 struct LanePosition {
     in_row: Value,
-    half: Value,
+    group: Value,
 }
 
 impl LanePosition {
@@ -270,11 +265,11 @@ impl LanePosition {
         let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
 
         let in_row = llvm::URemOp::new(ctx, lane, width);
-        let half = llvm::UDivOp::new(ctx, lane, width);
+        let group = llvm::UDivOp::new(ctx, lane, width);
 
         LanePosition {
             in_row: insert(ctx, rw, &in_row),
-            half: insert(ctx, rw, &half),
+            group: insert(ctx, rw, &group),
         }
     }
 
@@ -292,25 +287,39 @@ fn along(
     i: Value,
     lane: LanePosition,
 ) -> Value {
-    let half = lane.half;
-    match (matrix.ident, ctx.wmma()) {
-        (MatrixIdent::A | MatrixIdent::B, AmdWmma::Rdna3) => i,
-        (MatrixIdent::A | MatrixIdent::B, AmdWmma::Rdna4) => {
-            let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
-            let offset = mul(ctx, rw, half, per_half);
-            add(ctx, rw, i, offset)
+    let group = lane.group;
+    let core = ctx.matrix_core();
+    match (matrix.ident, core) {
+        (MatrixIdent::A | MatrixIdent::B, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => i,
+        // Every other core gives each lane group its own run of `k`.
+        (MatrixIdent::A | MatrixIdent::B, _) => {
+            in_group_run(ctx, rw, i, group, core.frag_ab_elems(matrix.shape.k))
         }
-        (MatrixIdent::Accumulator, AmdWmma::Rdna3) => {
+        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => {
             let two = insert_i32_const(ctx, rw, 2);
             let row = mul(ctx, rw, i, two);
-            add(ctx, rw, row, half)
+            add(ctx, rw, row, group)
         }
-        (MatrixIdent::Accumulator, AmdWmma::Rdna4) => {
-            let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
-            let offset = mul(ctx, rw, half, block);
-            add(ctx, rw, i, offset)
+        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna4)) => {
+            in_group_run(ctx, rw, i, group, ACCUMULATOR_REGISTERS)
+        }
+        (MatrixIdent::Accumulator, AmdMatrixCore::Mfma(_)) => {
+            in_group_run(ctx, rw, i, group, mfma::ACCUMULATOR_REGISTERS)
         }
     }
+}
+
+/// Element `i` of the run of `run` elements lane group `group` holds.
+fn in_group_run(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    i: Value,
+    group: Value,
+    run: usize,
+) -> Value {
+    let run = insert_i32_const(ctx, rw, run as i32);
+    let offset = mul(ctx, rw, group, run);
+    add(ctx, rw, i, offset)
 }
 
 fn element_index(
@@ -346,7 +355,7 @@ fn is_strided(ident: MatrixIdent, layout: MatrixLayout) -> bool {
 
 /// Vector access requires consecutive elements in both memory and registers.
 fn fragment_is_contiguous(
-    generation: AmdWmma,
+    core: AmdMatrixCore,
     matrix: &MatrixType,
     layout: MatrixLayout,
     step: usize,
@@ -356,7 +365,7 @@ fn fragment_is_contiguous(
     }
     match matrix.ident {
         MatrixIdent::A | MatrixIdent::B => true,
-        MatrixIdent::Accumulator => generation == AmdWmma::Rdna4,
+        MatrixIdent::Accumulator => core != AmdMatrixCore::Wmma(AmdWmma::Rdna3),
     }
 }
 
@@ -457,7 +466,7 @@ pub(crate) fn load(
     let align = scalar_alignment(ctx, ty.elem_ty);
     let lane = LanePosition::current(ctx, rw);
 
-    if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
+    if fragment_is_contiguous(ctx.matrix_core(), &ty, layout, step) {
         let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
         let ptr = element_ptr(ctx, rw, source, index, elem_ty);
         let frag = load_tile(ctx, rw, ptr, frag_ty, align);
@@ -506,7 +515,7 @@ pub(crate) fn store(
 
     let frag = load_fragment(ctx, rw, matrix, frag_ty);
 
-    if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
+    if fragment_is_contiguous(ctx.matrix_core(), &ty, layout, step) {
         let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
         let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
         store_tile(ctx, rw, ptr, frag, align);
@@ -529,44 +538,96 @@ pub(crate) fn store(
     Ok(())
 }
 
-/// The form multiplying these element types on the context's generation, or why there is none.
-fn wmma_form(
-    ctx: &Context,
-    a: TypeHandle,
-    b: TypeHandle,
-    cd: TypeHandle,
-) -> core::result::Result<WmmaForm, MatrixElemUnsupported> {
-    let generation = ctx.wmma();
-    let (a, b, cd) = (elem_type(ctx, a), elem_type(ctx, b), elem_type(ctx, cd));
-    WmmaForm::of(generation, a, b, cd).ok_or(MatrixElemUnsupported(generation, a, b, cd))
+/// The instruction a tile's element types select on the part's matrix core.
+#[derive(Clone, Copy, Debug)]
+enum MatrixForm {
+    Wmma(WmmaForm),
+    Mfma(MfmaForm, AmdMfma),
 }
 
-fn fragment_slice(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    fragment: Value,
-    step: usize,
-    width: usize,
-) -> Value {
-    shuffle(
-        ctx,
-        rw,
-        fragment,
-        (0..width).map(|i| (step * width + i) as i32).collect(),
-    )
-}
+impl MatrixForm {
+    /// The form a plain MMA of these element types lowers to on the context's matrix core, or
+    /// why there is none. A form reading its 8-bit floats as FNUZ is none: it would read OCP
+    /// bytes at half their value and a negative zero as NaN.
+    fn plain(
+        ctx: &Context,
+        a: TypeHandle,
+        b: TypeHandle,
+        cd: TypeHandle,
+    ) -> core::result::Result<Self, MatrixElemUnsupported> {
+        let form = Self::any(ctx, a, b, cd)?;
+        match form.code_reading() {
+            CodeReading::Ocp => Ok(form),
+            CodeReading::Fnuz => Err(MatrixElemUnsupported::of(ctx, a, b, cd)),
+        }
+    }
 
-fn shuffle(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    fragment: Value,
-    mask: Vec<i32>,
-) -> Value {
-    let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
-    insert(ctx, rw, &op)
+    /// How the form reads its 8-bit float bytes.
+    fn code_reading(&self) -> CodeReading {
+        match self {
+            MatrixForm::Wmma(_) => CodeReading::Ocp,
+            MatrixForm::Mfma(form, _) => form.code_reading(),
+        }
+    }
+
+    /// The form multiplying these element types on the context's matrix core, FNUZ forms among
+    /// them, or why there is none.
+    fn any(
+        ctx: &Context,
+        a: TypeHandle,
+        b: TypeHandle,
+        cd: TypeHandle,
+    ) -> core::result::Result<Self, MatrixElemUnsupported> {
+        let (a_elem, b_elem, cd_elem) = (elem_type(ctx, a), elem_type(ctx, b), elem_type(ctx, cd));
+        Self::of(ctx.matrix_core(), a_elem, b_elem, cd_elem)
+            .ok_or_else(|| MatrixElemUnsupported::of(ctx, a, b, cd))
+    }
+
+    /// The form multiplying `a` by `b` into `cd` on `core`, FNUZ forms among them, where it has
+    /// one.
+    fn of(core: AmdMatrixCore, a: ElemType, b: ElemType, cd: ElemType) -> Option<Self> {
+        match core {
+            AmdMatrixCore::Wmma(generation) => {
+                WmmaForm::of(generation, a, b, cd).map(MatrixForm::Wmma)
+            }
+            AmdMatrixCore::Mfma(generation) => {
+                MfmaForm::of(generation, a, b, cd).map(|form| MatrixForm::Mfma(form, generation))
+            }
+        }
+    }
+
+    /// How deep one instruction is.
+    fn instruction_k(&self) -> usize {
+        match self {
+            MatrixForm::Wmma(_) => INSTRUCTION_K,
+            MatrixForm::Mfma(form, generation) => form.instruction_k(*generation),
+        }
+    }
+
+    /// Emits the instructions for a tile, or `None` where no whole number of them makes its
+    /// shape.
+    fn emit(
+        self,
+        ctx: &mut Context,
+        rw: &mut DialectConversionRewriter,
+        shape: MatrixShape,
+        operands: (Value, Value, Value),
+        cd_ty: TypeHandle,
+    ) -> Option<Value> {
+        match self {
+            MatrixForm::Wmma(form) => emit_wmma(ctx, rw, form, shape, operands, cd_ty),
+            MatrixForm::Mfma(form, generation) => {
+                emit_mfma(ctx, rw, (form, generation), shape, operands)
+            }
+        }
+    }
 }
 
 /// Emits the instructions for a tile, or `None` where no whole number of them makes its shape.
+///
+/// A deeper tile is cut into consecutive slices of each lane's fragment. On RDNA4 a lane holds
+/// its half's run of `k`, so a slice pairs `k` from both halves the instruction would not, but A
+/// and B are sliced alike and the products summed are the same.
 fn emit_wmma(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -575,8 +636,8 @@ fn emit_wmma(
     (a_val, b_val, c_val): (Value, Value, Value),
     cd_ty: TypeHandle,
 ) -> Option<Value> {
-    let steps = instruction_steps(shape)?;
-    let slice_width = ctx.wmma().frag_ab_elems(INSTRUCTION_K);
+    let steps = instruction_steps(shape, INSTRUCTION_K)?;
+    let slice_width = ctx.matrix_core().frag_ab_elems(INSTRUCTION_K);
 
     let fragment_cd_ty = cd_ty;
     let c_val = wmma_operand(ctx, rw, c_val);
@@ -666,7 +727,7 @@ pub(crate) fn multiply_accumulate(
     let b_frag_ty = fragment_ty(ctx, &b_ty);
     let cd_frag_ty = fragment_ty(ctx, &c_ty);
 
-    let form = match wmma_form(ctx, a_ty.elem_ty, b_ty.elem_ty, c_ty.elem_ty) {
+    let form = match MatrixForm::plain(ctx, a_ty.elem_ty, b_ty.elem_ty, c_ty.elem_ty) {
         Ok(form) => form,
         Err(err) => return input_err!(op.loc(ctx), err),
     };
@@ -676,8 +737,12 @@ pub(crate) fn multiply_accumulate(
     let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
 
     let shape = a_ty.shape;
-    let Some(result) = emit_wmma(ctx, rw, form, shape, (a_val, b_val, c_val), cd_frag_ty) else {
-        return input_err!(op.loc(ctx), MatrixShapeUnsupported(shape));
+    let Some(result) = form.emit(ctx, rw, shape, (a_val, b_val, c_val), cd_frag_ty) else {
+        let unsupported = MatrixShapeUnsupported {
+            shape,
+            instruction_k: form.instruction_k(),
+        };
+        return input_err!(op.loc(ctx), unsupported);
     };
     store_fragment(ctx, rw, d, result);
 
@@ -812,7 +877,7 @@ pub(crate) fn mma_manual(
     let (b_ty, b_elem) = registers_as_vector(ctx, operands_info, b);
     let (cd_ty, cd_elem) = registers_as_vector(ctx, operands_info, c);
 
-    let form = match wmma_form(ctx, a_elem, b_elem, cd_elem) {
+    let form = match MatrixForm::plain(ctx, a_elem, b_elem, cd_elem) {
         Ok(form) => form,
         Err(err) => return input_err!(op.loc(ctx), err),
     };
@@ -822,8 +887,12 @@ pub(crate) fn mma_manual(
     let c_val = registers_value(ctx, rw, c, cd_ty);
 
     let shape = op.shape(ctx).0;
-    let Some(result) = emit_wmma(ctx, rw, form, shape, (a_val, b_val, c_val), cd_ty) else {
-        return input_err!(op.loc(ctx), MatrixShapeUnsupported(shape));
+    let Some(result) = form.emit(ctx, rw, shape, (a_val, b_val, c_val), cd_ty) else {
+        let unsupported = MatrixShapeUnsupported {
+            shape,
+            instruction_k: form.instruction_k(),
+        };
+        return input_err!(op.loc(ctx), unsupported);
     };
     store_fragment(ctx, rw, d, result);
 
@@ -861,7 +930,7 @@ mod tests {
         let f16 = f16(&mut ctx);
 
         for (generation, elems) in [(AmdWmma::Rdna3, 16), (AmdWmma::Rdna4, 8)] {
-            ctx.set_wmma(Some(generation));
+            ctx.set_matrix_core(Some(AmdMatrixCore::Wmma(generation)));
             let a = matrix(MatrixIdent::A, f16, 16);
             assert_eq!(fragment_layout(&ctx, &a), (elems, 1), "{generation:?}");
         }
@@ -878,7 +947,7 @@ mod tests {
             (AmdWmma::Rdna4, f16, 1),
             (AmdWmma::Rdna4, f32, 1),
         ] {
-            ctx.set_wmma(Some(generation));
+            ctx.set_matrix_core(Some(AmdMatrixCore::Wmma(generation)));
             let acc = matrix(MatrixIdent::Accumulator, elem, 16);
             assert_eq!(
                 fragment_layout(&ctx, &acc),
@@ -886,31 +955,6 @@ mod tests {
                 "{generation:?}"
             );
         }
-    }
-
-    fn shape(m: usize, n: usize, k: usize) -> MatrixShape {
-        MatrixShape { m, n, k }
-    }
-
-    #[test]
-    fn a_tile_deeper_than_the_instruction_is_several_of_them() {
-        assert_eq!(instruction_steps(shape(16, 16, 16)), Some(1));
-        assert_eq!(instruction_steps(shape(16, 16, 32)), Some(2));
-    }
-
-    #[test]
-    fn a_tile_that_does_not_divide_has_no_lowering() {
-        assert_eq!(instruction_steps(shape(16, 16, 24)), None);
-        assert_eq!(instruction_steps(shape(16, 16, 8)), None);
-        assert_eq!(instruction_steps(shape(16, 16, 0)), None);
-    }
-
-    /// Every instruction writes a 16x16 output, so a tile of any other has no lowering.
-    #[test]
-    fn a_tile_of_another_output_shape_has_no_lowering() {
-        assert_eq!(instruction_steps(shape(32, 8, 16)), None);
-        assert_eq!(instruction_steps(shape(16, 8, 32)), None);
-        assert_eq!(instruction_steps(shape(32, 32, 16)), None);
     }
 
     #[test]
@@ -1001,32 +1045,32 @@ mod tests {
         let acc32 = matrix(MatrixIdent::Accumulator, f32, 16);
 
         assert!(fragment_is_contiguous(
-            AmdWmma::Rdna3,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3),
             &a,
             MatrixLayout::RowMajor,
             1
         ));
         assert!(!fragment_is_contiguous(
-            AmdWmma::Rdna3,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3),
             &a,
             MatrixLayout::ColMajor,
             1
         ));
 
         assert!(!fragment_is_contiguous(
-            AmdWmma::Rdna3,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3),
             &acc32,
             MatrixLayout::ColMajor,
             1
         ));
         assert!(fragment_is_contiguous(
-            AmdWmma::Rdna4,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4),
             &acc32,
             MatrixLayout::ColMajor,
             1
         ));
         assert!(!fragment_is_contiguous(
-            AmdWmma::Rdna4,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4),
             &acc16,
             MatrixLayout::ColMajor,
             2
@@ -1056,3 +1100,8 @@ macro_rules! unsupported_tile_move {
 
 unsupported_tile_move!(ld_matrix, LdMatrixOp);
 unsupported_tile_move!(st_matrix, StMatrixOp);
+
+mod quantized;
+
+pub(crate) use quantized::mma_quantized;
+pub use quantized::{QuantizedShapeUnsupported, quantized_configs};

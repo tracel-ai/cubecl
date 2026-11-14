@@ -1444,3 +1444,7 @@ pub mod execute_elementwise_op {
         ));
     }
 }
+
+mod quantized;
+
+pub use quantized::{QuantizedMma, QuantizedMmaExpand};

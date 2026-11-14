@@ -12,10 +12,11 @@ use cubecl::{
 };
 
 use alloc::{vec, vec::Vec};
+use cubecl_common::quant::scheme::QuantValue;
 use cubecl_common::{e2m1, e2m1x2, e4m3, ue8m0};
 use cubecl_ir::{
     OpaqueType,
-    features::{MmaConfig, ScaledMmaConfig},
+    features::{MmaConfig, QuantizedMmaConfig, ScaledMmaConfig},
     types::{MatrixIdent, MatrixLayout},
 };
 use half::{bf16, f16};
@@ -971,16 +972,22 @@ pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
 //     assert_eq!(expected, actual);
 // }
 
+/// Casting an `f32` accumulator to `f16` needs an `f16` accumulator fragment, which CDNA's MFMA
+/// does not have.
 pub fn test_cmma_cast_f16<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
-    if !client.features().matmul.cmma.contains(&MmaConfig {
+    let cmma = &client.features().matmul.cmma;
+    let accumulator = |cd_type| MmaConfig {
         a_type: ElemType::Float(FloatKind::F16),
         b_type: ElemType::Float(FloatKind::F16),
-        cd_type: ElemType::Float(FloatKind::F32),
+        cd_type,
         m: 16,
         k: 16,
         n: 16,
-    }) {
-        // We can't execute the test, skip.
+    };
+    let f32_and_f16 = [FloatKind::F32, FloatKind::F16]
+        .map(|kind| cmma.contains(&accumulator(ElemType::Float(kind))));
+    if f32_and_f16 != [true, true] {
+        println!("Unsupported, skipping");
         return;
     }
 
@@ -1599,6 +1606,298 @@ pub fn test_cmma_manual_fp8_matches_cpu_reference<
                 "out[{row}][{col}]: expected {expected}, got {actual}"
             );
         }
+    }
+}
+
+/// Each lane of the plane loads the elements of role `ident` it holds into `registers`, from
+/// `source`, where a row is `row_stride` elements after the one before it and a column
+/// `col_stride`.
+#[cube]
+pub fn plane_load_quantized_registers<A: Scalar, B: Scalar, S: Scalar, E: Scalar, N: Size>(
+    def: &cmma::QuantizedMma<A, B, S>,
+    source: &[E],
+    row_stride: u32,
+    col_stride: u32,
+    registers: &mut Array<Vector<E, N>>,
+    #[comptime] ident: MatrixIdent,
+) {
+    let lane = UNIT_POS_PLANE;
+    let size = def.vector_size(ident);
+    let elems = def.elems_per_lane(ident);
+    let count = comptime!(elems / size);
+    #[unroll]
+    for i in 0..count {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size {
+            let (row, col) = def.position_of_nth(lane, (i * size + j) as u32, ident);
+            reg.insert(j, source[(row * row_stride + col * col_stride) as usize]);
+        }
+        registers[i] = reg;
+    }
+}
+
+/// Each lane of the plane stores the sums it holds of `registers` into `destination`, where a
+/// row is `row_stride` elements after the one before it and a column `col_stride`.
+#[cube]
+pub fn plane_store_quantized_sums<A: Scalar, B: Scalar, S: Scalar, N: Size>(
+    def: &cmma::QuantizedMma<A, B, S>,
+    registers: &Array<Vector<f32, N>>,
+    destination: &mut [f32],
+    row_stride: u32,
+    col_stride: u32,
+) {
+    let lane = UNIT_POS_PLANE;
+    let size = def.vector_size(MatrixIdent::Accumulator);
+    let elems = def.elems_per_lane(MatrixIdent::Accumulator);
+    let count = comptime!(elems / size);
+    #[unroll]
+    for i in 0..count {
+        let reg = registers[i];
+        #[unroll]
+        for j in 0..size {
+            let nth = (i * size + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, MatrixIdent::Accumulator);
+            destination[(row * row_stride + col * col_stride) as usize] = reg.extract(j);
+        }
+    }
+}
+
+/// Each lane of the plane loads the scales it holds of one operand into `registers`, from
+/// `scales`, one per row of `A` or column of `B`.
+#[cube]
+pub fn plane_load_quantized_scales<A: Scalar, B: Scalar, S: Scalar>(
+    def: &cmma::QuantizedMma<A, B, S>,
+    scales: &[S],
+    registers: &mut Array<S>,
+    #[comptime] ident: MatrixIdent,
+) {
+    let lane = UNIT_POS_PLANE;
+    #[unroll]
+    for i in 0..def.scales_per_lane() {
+        let index = def.scale_index_of_nth(lane, i as u32, ident);
+        registers[i] = scales[index as usize];
+    }
+}
+
+/// One quantized tile product by one plane: the codes of `A` and `B`, their scales (one per row
+/// of `A` and column of `B`, the tile lying within one block) and the accumulator `c` loaded
+/// into the lanes' registers, multiplied, and the sums stored into `out`. Every operand is
+/// addressed through its strides between rows and between columns, `c` and `out` alike.
+///
+/// Per plane, it reads the `m × k` codes of `A` and the `k × n` of `B`, `m + n` scales and the
+/// `m × n` `f32` of `c`, and writes the `m × n` `f32` of `out`.
+#[cube(launch)]
+pub fn kernel_quantized_mma<A: Scalar, B: Scalar, S: Scalar>(
+    codes_a: &[A],
+    codes_b: &[B],
+    scales_a: &[S],
+    scales_b: &[S],
+    c: &[f32],
+    out: &mut [f32],
+    a_rows: u32,
+    a_cols: u32,
+    b_rows: u32,
+    b_cols: u32,
+    c_rows: u32,
+    c_cols: u32,
+    #[comptime] config: QuantizedMmaConfig,
+) {
+    let def = cmma::QuantizedMma::<A, B, S>::new(config);
+
+    let size!(NA) = def.vector_size(MatrixIdent::A);
+    let size!(NB) = def.vector_size(MatrixIdent::B);
+    let size!(NC) = def.vector_size(MatrixIdent::Accumulator);
+    let mut registers_a = Array::<Vector<A, NA>>::new(def.vectors_per_lane(MatrixIdent::A));
+    let mut registers_b = Array::<Vector<B, NB>>::new(def.vectors_per_lane(MatrixIdent::B));
+    let mut registers_c =
+        Array::<Vector<f32, NC>>::new(def.vectors_per_lane(MatrixIdent::Accumulator));
+    let mut lane_scales_a = Array::<S>::new(def.scales_per_lane());
+    let mut lane_scales_b = Array::<S>::new(def.scales_per_lane());
+
+    plane_load_quantized_registers(
+        &def,
+        codes_a,
+        a_rows,
+        a_cols,
+        &mut registers_a,
+        MatrixIdent::A,
+    );
+    plane_load_quantized_registers(
+        &def,
+        codes_b,
+        b_rows,
+        b_cols,
+        &mut registers_b,
+        MatrixIdent::B,
+    );
+    plane_load_quantized_registers(
+        &def,
+        c,
+        c_rows,
+        c_cols,
+        &mut registers_c,
+        MatrixIdent::Accumulator,
+    );
+    plane_load_quantized_scales(&def, scales_a, &mut lane_scales_a, MatrixIdent::A);
+    plane_load_quantized_scales(&def, scales_b, &mut lane_scales_b, MatrixIdent::B);
+
+    let registers_d = def.execute(
+        &registers_a,
+        &registers_b,
+        &lane_scales_a,
+        &lane_scales_b,
+        &registers_c,
+    );
+    plane_store_quantized_sums(&def, &registers_d, out, c_rows, c_cols);
+}
+
+/// The small values the codes take: every 8-bit float format holds the float ones exactly, a
+/// negative zero among them, which MI300 reads as NaN unless it is cleared, and `i8` the integer
+/// ones.
+const QUANTIZED_FLOAT_VALUES: [f64; 12] = [
+    -0.0, 0.0, 0.25, -0.5, 1.0, -1.5, 2.0, -3.0, 4.0, 6.0, -0.25, 1.5,
+];
+const QUANTIZED_INTEGER_VALUES: [f64; 12] = [
+    0.0, 1.0, -1.0, 2.0, -3.0, 4.0, -5.0, 7.0, -8.0, 3.0, -2.0, 6.0,
+];
+
+/// The values codes of `elem` take.
+fn quantized_values(elem: ElemType) -> [f64; 12] {
+    match elem {
+        ElemType::Float(_) => QUANTIZED_FLOAT_VALUES,
+        _ => QUANTIZED_INTEGER_VALUES,
+    }
+}
+
+/// `count` of `values`, spread so that no two neighbours repeat a pattern the layout could hide.
+fn quantized_codes(values: [f64; 12], count: usize, salt: usize) -> Vec<f64> {
+    (0..count)
+        .map(|index| values[(index * 7 + salt * 5 + index / 13) % values.len()])
+        .collect()
+}
+
+/// Powers of two from 2^-4 to 2^4, exact in every scale type.
+fn quantized_scale(index: usize, salt: usize) -> f64 {
+    let exponent = ((index * 3 + salt) % 9) as i32 - 4;
+    2f64.powi(exponent)
+}
+
+/// Every quantized MMA the device offers whose codes are held in `A` and `B` and whose scales in
+/// `S` equals the CPU's product of the decoded codes under the decoded scales, added to a
+/// nonzero accumulator.
+///
+/// The codes are small values every 8-bit format holds exactly, a negative zero among the float
+/// ones, so the products and their sums are exact in `f32` and a code read at the wrong value,
+/// or a negative zero read as NaN, shows up as a wrong cell rather than as rounding. The scales
+/// are powers of two, exact in every scale type. Configurations that differ only in what the
+/// registers do not see, the block size and which 8-bit integer value, lower alike, so one of
+/// each depth runs.
+pub fn test_quantized_mma<
+    R: Runtime,
+    A: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
+    B: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
+    S: CubeElement + Scalar + NumCast + num_traits::ToPrimitive,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    let held = |value: QuantValue| ElemType::from_quant_value(value);
+    let mut depths = alloc::collections::BTreeSet::new();
+    let configs: Vec<QuantizedMmaConfig> = client
+        .features()
+        .matmul
+        .quantized_mma
+        .iter()
+        .filter(|config| {
+            held(config.a) == A::cube_type()
+                && held(config.b) == B::cube_type()
+                && ElemType::from_scale_dtype(config.scales) == S::cube_type()
+        })
+        .filter(|config| depths.insert(config.k))
+        .copied()
+        .collect();
+    if configs.is_empty() {
+        println!(
+            "Skipping quantized mma for a: {:?} b: {:?} scales: {:?}: not advertised",
+            A::cube_type(),
+            B::cube_type(),
+            S::cube_type()
+        );
+        return;
+    }
+
+    let decoded = |value: &dyn num_traits::ToPrimitive| value.to_f64().unwrap();
+    let (lhs_salt, rhs_salt, lhs_scale_salt, rhs_scale_salt) = (1, 2, 1, 4);
+    for config in configs {
+        let (m, n, k) = (config.m as usize, config.n as usize, config.k as usize);
+        // `A` row major, `B` column major (`rhs[col][l]` at `col * k + l`), `c` row major:
+        // each a stride between rows, then one between columns.
+        let (a_rows, a_cols) = (k as u32, 1);
+        let (b_rows, b_cols) = (1, k as u32);
+        let (c_rows, c_cols) = (n as u32, 1);
+        let lhs = quantized_codes(quantized_values(A::cube_type()), m * k, lhs_salt);
+        let rhs = quantized_codes(quantized_values(B::cube_type()), n * k, rhs_salt);
+        let c: Vec<f32> = (0..m * n).map(|index| (index % 11) as f32 - 5.0).collect();
+
+        let lhs_typed: Vec<A> = lhs.iter().map(|value| A::from(*value).unwrap()).collect();
+        let rhs_typed: Vec<B> = rhs.iter().map(|value| B::from(*value).unwrap()).collect();
+        let lhs_scales: Vec<S> = (0..m)
+            .map(|row| S::from(quantized_scale(row, lhs_scale_salt)).unwrap())
+            .collect();
+        let rhs_scales: Vec<S> = (0..n)
+            .map(|col| S::from(quantized_scale(col, rhs_scale_salt)).unwrap())
+            .collect();
+
+        // The reference reads every code and scale back from its type, so it multiplies what
+        // the device was handed.
+        let expected: Vec<f32> = (0..m * n)
+            .map(|index| {
+                let (row, col) = (index / n, index % n);
+                let dot: f64 = (0..k)
+                    .map(|l| decoded(&lhs_typed[row * k + l]) * decoded(&rhs_typed[col * k + l]))
+                    .sum();
+                let scale = decoded(&lhs_scales[row]) * decoded(&rhs_scales[col]);
+                (c[index] as f64 + dot * scale) as f32
+            })
+            .collect();
+
+        let lhs_handle = client.create_from_slice(A::as_bytes(&lhs_typed));
+        let rhs_handle = client.create_from_slice(B::as_bytes(&rhs_typed));
+        let lhs_scales_handle = client.create_from_slice(S::as_bytes(&lhs_scales));
+        let rhs_scales_handle = client.create_from_slice(S::as_bytes(&rhs_scales));
+        let c_handle = client.create_from_slice(f32::as_bytes(&c));
+        let out = client.empty(m * n * size_of::<f32>());
+
+        unsafe {
+            kernel_quantized_mma::launch::<A, B, S>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                cube_dimensions,
+                BufferArg::from_raw_parts(lhs_handle, m * k),
+                BufferArg::from_raw_parts(rhs_handle, n * k),
+                BufferArg::from_raw_parts(lhs_scales_handle, m),
+                BufferArg::from_raw_parts(rhs_scales_handle, n),
+                BufferArg::from_raw_parts(c_handle, m * n),
+                BufferArg::from_raw_parts(out.clone(), m * n),
+                a_rows,
+                a_cols,
+                b_rows,
+                b_cols,
+                c_rows,
+                c_cols,
+                config,
+            )
+        };
+
+        let actual = client.read_one_unchecked(out);
+        let actual = f32::from_bytes(&actual);
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "{config:?}: the kernel wrote its output"
+        );
+        assert_eq!(actual, expected.as_slice(), "{config:?}");
     }
 }
 
@@ -3073,6 +3372,37 @@ macro_rules! testgen_cmma {
             test::<e4m3, e5m2, f32>();
             test::<e5m2, e4m3, f32>();
             test::<e5m2, e5m2, f32>();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_quantized_mma() {
+            use cubecl_common::{e4m3, e5m2, ue8m0};
+            use cubecl_core::num_traits::{ToPrimitive, cast::NumCast};
+            use half::{bf16, f16};
+
+            fn test<
+                A: CubeElement + Scalar + NumCast + ToPrimitive,
+                B: CubeElement + Scalar + NumCast + ToPrimitive,
+                S: CubeElement + Scalar + NumCast + ToPrimitive,
+            >() {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_quantized_mma::<TestRuntime, A, B, S>(
+                    client,
+                    cube_dimensions,
+                )
+            }
+
+            // Every scale type, under 8-bit integer codes and under 8-bit float ones.
+            test::<i8, i8, f32>();
+            test::<i8, i8, f16>();
+            test::<i8, i8, bf16>();
+            test::<i8, i8, ue8m0>();
+            test::<i8, i8, e4m3>();
+            test::<e4m3, e4m3, f32>();
+            test::<e4m3, e5m2, ue8m0>();
+            test::<e5m2, e4m3, bf16>();
+            test::<e5m2, e5m2, e4m3>();
         }
 
         #[$crate::runtime_tests::test_log::test]
