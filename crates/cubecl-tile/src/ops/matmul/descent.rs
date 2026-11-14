@@ -150,8 +150,14 @@ impl Descent {
         #[comptime] instruction: Instruction,
     ) {
         let load = deep_load(lhs, rhs);
+        let keys = lhs.rhs_keys();
         let lhs = PlanePartition::operand::<Lhs>(lhs, acc, instruction, load);
-        let rhs = PlanePartition::operand::<Rhs>(rhs, acc, instruction, load);
+        let rhs = PlanePartition::operand::<Rhs>(
+            rhs,
+            acc,
+            comptime!(instruction.reading_keys(keys)),
+            load,
+        );
         for cell in acc.walk().unrolled() {
             let mut acc_cell = acc.at(&cell);
             Self::contract::<E, Lhs, Rhs>(&mut acc_cell, &lhs.at(&cell), &rhs.at(&cell));
