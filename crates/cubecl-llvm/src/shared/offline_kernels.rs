@@ -326,6 +326,31 @@ pub(crate) fn e4m3_decode_kernel() -> impl CubeKernel {
     )
 }
 
+/// Four `f32` cast to `e4m3` and stored as one word: what a stage of probabilities beside `e4m3`
+/// values holds.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn e4m3_encode(values: &[Vector<f32, Const<4>>], out: &mut [u32]) {
+    let codes = Vector::<cubecl_core::e4m3, Const<4>>::cast_from(values[ABSOLUTE_POS]);
+    out[ABSOLUTE_POS] = u32::reinterpret(codes);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn e4m3_encode_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    e4m3_encode::E4m3Encode::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Scales `input` into `output` and counts the units into `tally`, dropping what the count was:
 /// an accumulation no cube waits on.
 #[cube(launch)]
