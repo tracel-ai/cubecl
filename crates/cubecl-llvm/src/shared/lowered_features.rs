@@ -152,10 +152,12 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
         floats || integers || tf32 || fp8
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
-    // `test_cmma_manual` checks them element by element.
+    // `test_cmma_manual` checks them element by element, and
+    // `test_ldmatrix_forms_place_each_byte_where_ptx_says` the 8-bit transposing `ldmatrix`
+    // (inline PTX, which NVVM has no intrinsic for).
     matmul
         .ldmatrix_forms
-        .retain(|form| *form == LdMatrixForm::M8N8B16);
+        .retain(|form| matches!(form, LdMatrixForm::M8N8B16 | LdMatrixForm::M16N16B8));
     matmul
         .stmatrix_forms
         .retain(|form| *form == StMatrixForm::M8N8B16);
