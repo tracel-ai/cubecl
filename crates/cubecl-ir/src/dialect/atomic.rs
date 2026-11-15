@@ -12,7 +12,8 @@ use pliron::{context::Ptr, dict_key, operation::Operation};
 
 dict_key!(
     /// Key of the scope an atomic synchronizes at, when it is not the device's.
-    ATTR_KEY_ATOMIC_SCOPE, "atomic_scope"
+    ATTR_KEY_ATOMIC_SCOPE,
+    "atomic_scope"
 );
 
 /// The scope the atomic `op` synchronizes at: [`SyncScope::Device`] unless
