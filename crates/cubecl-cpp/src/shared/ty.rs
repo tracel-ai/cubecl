@@ -8,7 +8,9 @@ use cubecl_core::ir::{
     interfaces::TypedExt,
     match_ty,
     prelude::*,
-    types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType, scalar::*},
+    types::{
+        ArrayType, AtomicType, PointerType, RuntimeArrayType, StructType, VectorType, scalar::*,
+    },
 };
 use pliron::{
     builtin::{
@@ -223,6 +225,10 @@ shared_ty!(RuntimeArrayType, |ty, ctx| ty.inner.to_cpp(ctx));
 
 shared_ty!(ArrayType, |ty, ctx| {
     format!("array<{}, {}>", ty.inner.to_cpp(ctx), ty.length)
+});
+
+shared_ty!(StructType, |ty, _| {
+    format!("struct_{:x}", ty.stable_hash())
 });
 
 pub fn ptr_constness(ctx: &Context, addr_space: AddressSpace) -> &'static str {

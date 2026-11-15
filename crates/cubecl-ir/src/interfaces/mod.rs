@@ -619,6 +619,7 @@ impl<T: Typed> TypedExt for T {}
 
 pub trait TypeExt {
     fn as_ptr(&self, ctx: &Context) -> PointerType;
+    fn map_ptr(&self, ctx: &Context, new_inner: TypeHandle) -> TypeHandle;
 }
 
 impl TypeExt for TypeHandle {
@@ -626,6 +627,11 @@ impl TypeExt for TypeHandle {
         *TypedHandle::from_handle(*self, ctx)
             .expect("Should be pointer")
             .deref(ctx)
+    }
+
+    fn map_ptr(&self, ctx: &Context, new_inner: TypeHandle) -> TypeHandle {
+        let this_ty = self.as_ptr(ctx);
+        PointerType::get(ctx, new_inner, this_ty.address_space).to_handle()
     }
 }
 

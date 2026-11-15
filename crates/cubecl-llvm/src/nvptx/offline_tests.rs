@@ -4,7 +4,8 @@ use crate::shared::offline_kernels::{
     ProductA, Wait, bf16_math_kernel, carried_sum_around_walk_kernel, counted_walk_kernel,
     fence_poll_kernel, fence_send_kernel, keep_largest_kernel, keep_largest_rounds_kernel,
     mma_rounds_kernel, nested_calls_kernel, nested_calls_with_source_kernel, plane_moves_kernel,
-    relay_kernel, scale_kernel, strided_walk_kernel, tally_kernel, tile_product_kernel,
+    relay_kernel, scale_kernel, strided_walk_kernel, struct_fields_kernel, tally_kernel,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -72,6 +73,31 @@ fn e4m3_decodes_on_the_part_where_it_converts() {
     );
     let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 80);
     assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
+}
+
+/// The fields of a buffer struct load at constant offsets from one struct address, not from an
+/// address of their own each.
+#[test]
+fn struct_fields_load_at_offsets_from_the_struct() {
+    let ptx = ptx_of(struct_fields_kernel(), 60);
+    let loads: Vec<&str> = ptx
+        .lines()
+        .filter(|line| line.contains("ld.global"))
+        .collect();
+    assert_eq!(loads.len(), 4, "one load per field:\n{ptx}");
+    fn base(line: &str) -> Option<&str> {
+        line.split('[').nth(1)?.split(['+', ']']).next()
+    }
+    assert!(
+        loads.iter().all(|line| base(line) == base(loads[0])),
+        "one address for the record:\n{ptx}"
+    );
+    for offset in ["+4]", "+8]", "+12]"] {
+        assert!(
+            loads.iter().any(|line| line.contains(offset)),
+            "a field at {offset}:\n{ptx}"
+        );
+    }
 }
 
 #[test]

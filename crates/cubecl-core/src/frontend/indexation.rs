@@ -1,10 +1,8 @@
 use core::ops::{Index, IndexMut};
 
-use cubecl_ir::{ExpandValue, Scope, dialect::memory::IndexOp, pliron::value::Value};
+use cubecl_ir::Scope;
 
-use crate::frontend::ReadValue;
-
-use super::{CubeType, NativeExpand, index_expand};
+use super::CubeType;
 
 /// Trait bound that can be used to guarantee the expand also implements `IndexExpand`
 pub trait CubeIndex<I: CubeType>:
@@ -65,36 +63,4 @@ where
     T::ExpandType:
         IndexMutExpand<I::ExpandType, Output = <<T as Index<I>>::Output as CubeType>::ExpandType>,
 {
-}
-
-pub(crate) fn expand_index_native<'a, O>(
-    scope: &Scope,
-    list: Value,
-    index: NativeExpand<usize>,
-    checked: bool,
-) -> &'a O
-where
-    O: From<ExpandValue> + 'static,
-{
-    let index = index.read_value(scope);
-    let val: ExpandValue = index_expand(scope, list, index, checked).into();
-
-    scope.create_kernel_ref(val.into())
-}
-
-pub(crate) fn expand_index_mut_native<'a, O>(
-    scope: &Scope,
-    list: Value,
-    index: NativeExpand<usize>,
-    checked: bool,
-) -> &'a mut O
-where
-    O: From<ExpandValue> + 'static,
-{
-    let index = index.read_value(scope);
-
-    let index_op = IndexOp::maybe_checked(scope.ctx_mut(), list, index, checked);
-    let out: ExpandValue = scope.register_with_result(&index_op).into();
-
-    scope.create_kernel_ref(out.into())
 }

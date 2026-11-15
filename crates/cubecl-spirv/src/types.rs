@@ -18,7 +18,7 @@ use pliron::{
 };
 use pliron_spirv::types::{
     ArrayType as SpirvArrayType, FloatType, PointerType as SpirvPointerType,
-    RuntimeArrayType as SpirvRuntimeArrayType, VectorType as SpirvVectorType,
+    RuntimeArrayType as SpirvRuntimeArrayType, StructType, VectorType as SpirvVectorType,
     khr::CooperativeMatrixType, nv,
 };
 use rspirv::spirv::{
@@ -160,7 +160,7 @@ impl ToSpirvDialectType for ArrayType {
 
     fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
         let stride = self.inner.size(ctx) as u32;
-        let inner = ty_to_spirv_dialect(ctx, self.inner);
+        let inner = ty_to_spirv_dialect_explicit_layout(ctx, self.inner);
         SpirvArrayType::get(ctx, self.length as u32, inner, Some(stride)).to_handle()
     }
 }
@@ -174,7 +174,7 @@ impl ToSpirvDialectType for RuntimeArrayType {
 
     fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
         let stride = self.inner.size(ctx) as u32;
-        let inner = ty_to_spirv_dialect(ctx, self.inner);
+        let inner = ty_to_spirv_dialect_explicit_layout(ctx, self.inner);
         SpirvRuntimeArrayType::get(ctx, inner, Some(stride)).to_handle()
     }
 }
@@ -182,6 +182,11 @@ impl ToSpirvDialectType for RuntimeArrayType {
 #[type_interface_impl]
 impl ToSpirvDialectType for PointerType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        // Buffer memory has an explicit layout: a pointer into a buffer names the strided
+        // types the buffer is declared with (`target::buffer_ty`).
+        if let AddressSpace::Global(_) = self.address_space {
+            return self.to_spirv_ty_explicit_layout(ctx);
+        }
         let inner = ty_to_spirv_dialect(ctx, self.inner);
         let storage_class = match self.address_space {
             AddressSpace::Global(_) => StorageClass::PhysicalStorageBuffer,
@@ -229,6 +234,23 @@ impl ToSpirvDialectType for MatrixType {
             MatrixIdent::Accumulator => (self.shape.m, self.shape.n, MatrixAccumulatorKHR),
         };
         CooperativeMatrixType::get(ctx, component, scope, rows as u32, cols as u32, use_).into()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for cubecl_ir::types::StructType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        self.to_spirv_ty_explicit_layout(ctx)
+    }
+
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        let field_types = self
+            .fields
+            .iter()
+            .map(|field| ty_to_spirv_dialect_explicit_layout(ctx, field.ty))
+            .collect();
+        let offsets = self.fields.iter().map(|field| field.offset as u32);
+        StructType::get(ctx, field_types, offsets.collect(), vec![], vec![]).to_handle()
     }
 }
 
