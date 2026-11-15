@@ -87,6 +87,9 @@ impl DeviceService for MetalServer {
         );
 
         cubecl_cpp::metal::register_metal_features(&mut device_props);
+        if has_neural_accelerators(&metal_device) {
+            cubecl_cpp::metal::register_metal_tensor_op_features(&mut device_props);
+        }
 
         let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
@@ -219,6 +222,12 @@ fn resolve(
         MetalDevice::Existing(id) => crate::device::get_existing_device(id)
             .ok_or("Existing device not found. Use register_device() first."),
     }
+}
+
+/// Whether the GPU runs Metal 4's tensor operations on neural accelerators (Apple10, the M5's
+/// family): earlier Apple GPUs emulate them, slower than the simdgroup matrix.
+fn has_neural_accelerators(device: &ProtocolObject<dyn MTLDevice>) -> bool {
+    device.supportsFamily(MTLGPUFamily::Metal4) && device.supportsFamily(MTLGPUFamily::Apple10)
 }
 
 fn ensure_metal3(device: &ProtocolObject<dyn MTLDevice>) {

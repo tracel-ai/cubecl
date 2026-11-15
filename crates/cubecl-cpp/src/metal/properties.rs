@@ -6,7 +6,7 @@ use cubecl_core::ir::{
 use crate::{
     metal::{
         arch::MetalArchitecture, mma::supported_mma_combinations_metal,
-        supported_cmma_combinations_metal,
+        supported_cmma_combinations_metal, supported_tensor_op_combinations_metal,
     },
     shared::{register_mma_features, register_wmma_features},
 };
@@ -78,4 +78,9 @@ pub fn register_metal_features(props: &mut DeviceProperties) {
     register_wmma_features(combinations, props);
     let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
     register_mma_features(combinations, props);
+}
+
+/// The cooperative matrices Metal 4's tensor operations run, for a runtime whose device has them.
+pub fn register_metal_tensor_op_features(props: &mut DeviceProperties) {
+    register_wmma_features(supported_tensor_op_combinations_metal(), props);
 }
