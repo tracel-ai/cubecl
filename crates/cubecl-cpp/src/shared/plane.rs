@@ -22,7 +22,7 @@ macro_rules! lower_unop {
         #[op_interface_impl]
         impl LowerOp for $ty {
             fn should_lower(&self, ctx: &Context) -> bool {
-                ctx.target() != Target::Metal
+                !matches!(ctx.target(), Target::Metal | Target::OpenCl)
             }
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 let input = self.input(scope.ctx());
@@ -71,6 +71,26 @@ packable!(plane::ShuffleDownOp);
 
 unrolling!(plane::AllOp);
 unrolling!(plane::AnyOp);
+
+// Reductions and scans run lane by lane where a target keeps them (Metal, OpenCL).
+unrolling!(plane::ISumOp);
+unrolling!(plane::FSumOp);
+unrolling!(plane::IProdOp);
+unrolling!(plane::FProdOp);
+unrolling!(plane::SMinOp);
+unrolling!(plane::UMinOp);
+unrolling!(plane::FMinOp);
+unrolling!(plane::SMaxOp);
+unrolling!(plane::UMaxOp);
+unrolling!(plane::FMaxOp);
+unrolling!(plane::InclusiveISumOp);
+unrolling!(plane::InclusiveFSumOp);
+unrolling!(plane::InclusiveIProdOp);
+unrolling!(plane::InclusiveFProdOp);
+unrolling!(plane::ExclusiveISumOp);
+unrolling!(plane::ExclusiveFSumOp);
+unrolling!(plane::ExclusiveIProdOp);
+unrolling!(plane::ExclusiveFProdOp);
 
 #[cube_op(name = "cpp.activemask")]
 #[result_ty(argument)]

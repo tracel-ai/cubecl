@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
     CanMaterialize, Pure,
+    attributes::EntrypointInterface,
     attributes::{FuncInterface, IndexAttr},
     dialect::general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp},
     ident,
@@ -93,6 +94,11 @@ impl Pass for LowerInfoPass {
             (info.has_info(), info.has_dynamic_meta)
         };
         let func = op.as_op::<FuncOp>(ctx).unwrap();
+        // Only kernels take the info: a helper function (an elementwise closure) is handed what it
+        // uses as arguments, and its callers pass no info.
+        if func.get_entrypoint_abi(ctx).is_none() {
+            return Ok(PassResult::default());
+        }
         let entry_block = func.get_entry_block(ctx);
         let supports_features = ctx.aux_ty::<CompilationOptions>().supports_features;
 

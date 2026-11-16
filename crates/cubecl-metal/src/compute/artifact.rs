@@ -133,6 +133,15 @@ impl ArtifactCompiler for MetalArtifactCompiler {
             pipeline: Some(pipeline),
         })
     }
+
+    const PREPARES: bool = true;
+
+    /// Builds a stored kernel's library and pipeline from its MSL.
+    fn prepare(&self, _id: &ArtifactId<()>, artifact: &mut MetalArtifact) {
+        if artifact.pipeline.is_none() {
+            artifact.pipeline = self.build(&artifact.entry).ok();
+        }
+    }
 }
 
 impl MetalArtifactCompiler {

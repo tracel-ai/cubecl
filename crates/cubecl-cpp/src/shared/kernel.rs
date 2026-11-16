@@ -16,6 +16,11 @@ pub struct ComputeKernel {
     /// The emitted source, rendered once during `compile_ir` where emission errors can still
     /// fail the compilation.
     pub source: String,
+    /// The kernel takes the info struct (scalars and static metadata), after its buffers and its
+    /// dynamic metadata.
+    pub has_info: bool,
+    /// The kernel takes the dynamic metadata, after its buffers.
+    pub has_dynamic_meta: bool,
 }
 
 impl Display for ComputeKernel {

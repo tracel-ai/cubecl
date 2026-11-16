@@ -45,6 +45,7 @@ cubecl-macros = { path = "crates/cubecl-macros", version = "0.12.0-pre.2", defau
 cubecl-macros-internal = { path = "crates/cubecl-macros-internal", version = "0.12.0-pre.2", default-features = false }
 cubecl-metal = { path = "crates/cubecl-metal", version = "0.12.0-pre.2", default-features = false }
 cubecl-monitoring = { path = "crates/cubecl-monitoring", version = "0.12.0-pre.2", default-features = false }
+cubecl-opencl = { path = "crates/cubecl-opencl", version = "0.12.0-pre.2", default-features = false }
 cubecl-opt = { path = "crates/cubecl-opt", version = "0.12.0-pre.2", default-features = false }
 cubecl-runtime = { path = "crates/cubecl-runtime", version = "0.12.0-pre.2", default-features = false }
 cubecl-server = { path = "crates/cubecl-server", version = "0.12.0-pre.2", default-features = false }

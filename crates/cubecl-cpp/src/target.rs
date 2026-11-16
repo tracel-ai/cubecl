@@ -8,6 +8,7 @@ pub enum Target {
     Cuda,
     Hip,
     Metal,
+    OpenCl,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -18,6 +19,9 @@ pub struct Cuda;
 pub struct Hip;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Metal;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenCl;
 
 impl Target {
     pub fn ty_prefix(&self, ctx: &Context, ty: impl Typed) -> &'static str {
@@ -33,14 +37,14 @@ impl Target {
     pub fn half_prefix(&self) -> &'static str {
         match self {
             Target::Cuda | Target::Hip => "h",
-            Target::Metal => "",
+            Target::Metal | Target::OpenCl => "",
         }
     }
 
     pub fn half2_prefix(&self) -> &'static str {
         match self {
             Target::Cuda | Target::Hip => "h2",
-            Target::Metal => "",
+            Target::Metal | Target::OpenCl => "",
         }
     }
 }
@@ -62,6 +66,12 @@ impl CppTarget for Hip {
 impl CppTarget for Metal {
     fn target() -> Target {
         Target::Metal
+    }
+}
+
+impl CppTarget for OpenCl {
+    fn target() -> Target {
+        Target::OpenCl
     }
 }
 
@@ -89,6 +99,10 @@ macro_rules! dispatch_target {
             }
             $crate::target::Target::Metal => {
                 type Target = $crate::target::Metal;
+                $expr
+            }
+            $crate::target::Target::OpenCl => {
+                type Target = $crate::target::OpenCl;
                 $expr
             }
         }

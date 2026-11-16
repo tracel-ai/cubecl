@@ -1,0 +1,54 @@
+[package]
+categories = ["science"]
+description = "OpenCL runtime for CubeCL"
+edition.workspace = true
+keywords = ["gpu", "opencl"]
+license.workspace = true
+name = "cubecl-opencl"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-opencl"
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+default = [
+    "std",
+    "cubecl-server/default",
+    "cubecl-common/default",
+    "cubecl-core/default",
+]
+persistence = ["cubecl-server/persistence"]
+std = [
+    "cubecl-server/std",
+    "cubecl-common/std",
+    "cubecl-core/std",
+    "cubecl-cpp/std",
+]
+
+[dependencies]
+cubecl-common = { workspace = true }
+cubecl-environment = { workspace = true }
+cubecl-core = { workspace = true }
+cubecl-ir = { workspace = true }
+cubecl-server = { workspace = true, features = ["storage-bytes"] }
+cubecl-cpp = { workspace = true, features = ["opencl"] }
+
+# The OpenCL library is loaded at run time (the ICD loader): nothing to link, on any platform.
+cl3 = { version = "0.13.2", default-features = false, features = ["dynamic"] }
+opencl-sys = { version = "0.6.5", default-features = false }
+
+# Utilities
+log = { workspace = true }
+bytemuck = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+cubecl-core = { workspace = true, default-features = true, features = ["export_tests"] }
+cubecl-std = { workspace = true, default-features = true, features = ["export_tests"] }
+half = { workspace = true }
+test-log = { workspace = true, features = ["trace"] }
+paste = { workspace = true }
+
+[lints]
+workspace = true

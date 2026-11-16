@@ -179,7 +179,7 @@ pub fn test_plane_sum<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();
@@ -211,7 +211,7 @@ pub fn test_plane_inclusive_sum<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();
@@ -248,7 +248,7 @@ pub fn test_plane_exclusive_sum<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();
@@ -285,7 +285,7 @@ pub fn test_plane_prod<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
@@ -322,7 +322,7 @@ pub fn test_plane_inclusive_prod<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
@@ -363,7 +363,7 @@ pub fn test_plane_exclusive_prod<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
@@ -404,11 +404,12 @@ pub fn test_plane_max<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();
-    input[16] = 999.0; // I don't want the max to always be the last element.
+    let middle = input.len() / 2;
+    input[middle] = 999.0; // I don't want the max to always be the last element.
 
     let mut expected = input.clone();
 
@@ -438,11 +439,12 @@ pub fn test_plane_min<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();
-    input[16] = -5.0; // I don't want the min to always be the first element.
+    let middle = input.len() / 2;
+    input[middle] = -5.0; // I don't want the min to always be the first element.
 
     let mut expected = input.clone();
 
@@ -507,7 +509,7 @@ pub fn test_plane_all<
     client: Client,
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| (x % 5) as f64) // the predicate is x < 5 which is always satisfied at this step.
         .collect();
@@ -537,7 +539,7 @@ pub fn test_plane_any<
     client: Client,
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| (x % 5) as f64) // the predicate is x > 5 which is never satisfied at this step.
         .collect();
@@ -573,7 +575,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: Client) {
         kernel_ballot::launch(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(32),
+            CubeDim::new_1d(client.properties().hardware.plane_size_max),
             TensorArg::from_raw_parts(handle.clone(), strides.into(), shape.into()),
         )
     }
@@ -617,8 +619,9 @@ pub fn test_plane_elect<
 >(
     client: Client,
 ) {
-    let plane_size = 32;
-    let input = vec![0.0; plane_size as usize];
+    let plane_size = client.properties().hardware.plane_size_max;
+    // one plane: one lane elected, which adds to element 20
+    let input = vec![0.0; 32];
 
     let mut expected = input.clone();
     expected[20] = 1.0;
@@ -638,7 +641,7 @@ pub fn test_plane_broadcast<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();
@@ -698,7 +701,7 @@ pub fn test_plane_shuffle_xor<
     client: Client,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| x as f64)
         .collect();

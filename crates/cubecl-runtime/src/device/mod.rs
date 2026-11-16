@@ -11,6 +11,7 @@ mod cuda;
 mod hardware_identity;
 mod hip;
 mod metal;
+mod opencl;
 mod wgpu;
 
 pub use cpu::CpuDevice;
@@ -18,6 +19,7 @@ pub use cuda::CudaDevice;
 pub use hardware_identity::HardwareIdentity;
 pub use hip::AmdDevice;
 pub use metal::MetalDevice;
+pub use opencl::OpenClDevice;
 pub use wgpu::{WgpuBackend, WgpuDevice, WgpuDeviceKind};
 
 pub use cubecl_common::device::DeviceId;

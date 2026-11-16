@@ -28,6 +28,8 @@ pub(crate) fn handle_command(
                 "cubecl-cuda".to_string(),
                 "cubecl-hip".to_string(),
                 "cubecl-metal".to_string(),
+                // builds anywhere (the OpenCL library loads at run time); its tests need a device
+                "cubecl-opencl".to_string(),
             ]);
         }
         base_commands::test::handle_command(args.try_into().unwrap(), env, context)?;

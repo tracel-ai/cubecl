@@ -363,7 +363,7 @@ macro_rules! nan_extreme {
                 match ctx.target() {
                     Target::Cuda => !(ty.is_half(ctx) || ty.is_float32(ctx)),
                     Target::Hip => !ty.is_float16(ctx),
-                    Target::Metal => true,
+                    Target::Metal | Target::OpenCl => true,
                 }
             }
 

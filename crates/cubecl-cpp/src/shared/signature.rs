@@ -86,7 +86,7 @@ shared_op_with_out!(LoadDynMetaOp, |op, ctx| {
 #[cube_op(name = "cpp.declare_vector", format = "attr($vector_ty, $TypeAttr)")]
 #[result_ty(none)]
 pub struct DeclareVectorOp {
-    vector_ty: TypeAttr,
+    pub vector_ty: TypeAttr,
 }
 
 shared_op!(DeclareVectorOp, |op, ctx| {
@@ -347,6 +347,7 @@ macro_rules! nested_include_types {
 nested_include_types!(Cuda);
 nested_include_types!(Hip);
 nested_include_types!(Metal);
+nested_include_types!(OpenCl);
 
 /// Run on module
 #[derive(Default)]

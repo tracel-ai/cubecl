@@ -26,6 +26,7 @@ default = [
     "cubecl-cpu?/default",
     "cubecl-hip?/default",
     "cubecl-metal?/default",
+    "cubecl-opencl?/default",
     "cubecl-wgpu?/default",
 ]
 std = [
@@ -35,6 +36,7 @@ std = [
     "cubecl-cuda?/std",
     "cubecl-hip?/std",
     "cubecl-metal?/std",
+    "cubecl-opencl?/std",
     "cubecl-tile?/std",
     "cubecl-wgpu?/std",
 ]
@@ -58,6 +60,7 @@ persistence = [
     "cubecl-cuda?/persistence",
     "cubecl-hip?/persistence",
     "cubecl-metal?/persistence",
+    "cubecl-opencl?/persistence",
     "cubecl-wgpu?/persistence",
 ]
 # The native caches on SQLite instead of Turso; see `cubecl-environment`.
@@ -84,6 +87,7 @@ hip-cpp = ["cubecl-hip?/cpp"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 # cubecl's own Metal runtime. `wgpu-msl` is wgpu compiling the same MSL.
 metal = ["cubecl-metal"]
+opencl = ["cubecl-opencl"]
 # The perf jitdump of the `cpu` runtime, for `CUBECL_JIT_SYMBOLS=perf`. Linux only.
 jitdump = ["cubecl-cpu?/jitdump"]
 # No effect, kept for compatibility: compiler dumps are always built. Set `CUBECL_DEBUG_PLIRON`.
@@ -119,4 +123,5 @@ cubecl-cpu = { workspace = true, optional = true }
 cubecl-cuda = { workspace = true, optional = true }
 cubecl-hip = { workspace = true, optional = true }
 cubecl-metal = { workspace = true, optional = true }
+cubecl-opencl = { workspace = true, optional = true }
 cubecl-wgpu = { workspace = true, optional = true }

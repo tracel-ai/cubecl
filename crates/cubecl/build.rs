@@ -9,6 +9,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(test_runtime_cuda)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_hip)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_metal)");
+    println!("cargo:rustc-check-cfg=cfg(test_runtime_opencl)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_wgpu)");
 
     let map = BTreeMap::from([
@@ -23,6 +24,7 @@ fn main() {
             cfg!(feature = "metal")
                 && std::env::var("CARGO_CFG_TARGET_VENDOR").is_ok_and(|vendor| vendor == "apple"),
         ),
+        ("opencl", cfg!(feature = "opencl")),
         ("wgpu", cfg!(feature = "wgpu")),
     ]);
 

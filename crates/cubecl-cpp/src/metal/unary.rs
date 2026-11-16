@@ -38,7 +38,6 @@ metal_op_with_out!(LeadingZerosBitsOp, |op, ctx| {
     format!("clz({})", op.input(ctx).name(ctx))
 });
 
-unrolling!(TrailingZerosBitsOp);
 metal_op_with_out!(TrailingZerosBitsOp, |op, ctx| {
     format!("ctz({})", op.input(ctx).name(ctx))
 });
