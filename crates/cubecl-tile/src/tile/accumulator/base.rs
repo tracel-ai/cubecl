@@ -149,21 +149,25 @@ impl Tile {
         rhs: &Tile,
         #[comptime] semiring: Semiring,
     ) -> Tile {
-        let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
-        let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
-        let instruction = comptime!(call.instruction);
-        if comptime!(instruction == Instruction::Wgmma) {
-            comptime!(assert_groups_own_their_box(&self.place));
-        }
-        let vector_size = self.vector_size();
-        accumulator_in::<EA>(
-            &place,
+        drained_accumulator::<EA>(self, lhs, rhs, semiring, comptime!(OpenedBy::Accumulator))
+    }
+
+    /// A drained sum whose fragments this crate's transport loads first
+    /// ([`Instruction::for_transport_accumulator`](crate::Instruction::for_transport_accumulator)),
+    /// for a stage the fragment API does not load, such as a step gathered across several axes.
+    /// Otherwise [`accumulator`](Tile::accumulator).
+    pub fn transport_accumulator<EA: Numeric>(
+        &self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] semiring: Semiring,
+    ) -> Tile {
+        drained_accumulator::<EA>(
+            self,
             lhs,
-            instruction,
-            vector_size,
-            1usize,
-            comptime!(Accumulation::Contraction(semiring)),
+            rhs,
+            semiring,
+            comptime!(OpenedBy::TransportFirst),
         )
     }
 
@@ -764,6 +768,33 @@ impl Tile {
         acc.init_identity::<EA>(accumulation.monoid());
         acc
     }
+}
+
+/// [`Tile::accumulator`] and its sibling over `out`, the instruction picked as `opened_by` asks.
+#[cube]
+fn drained_accumulator<EA: Numeric>(
+    out: &Tile,
+    lhs: &Tile,
+    rhs: &Tile,
+    #[comptime] semiring: Semiring,
+    #[comptime] opened_by: OpenedBy,
+) -> Tile {
+    let place = comptime!(rows_along(&out.place, &lhs.place.space, &rhs.place.space));
+    let call = plane_call::<EA>(&place, lhs, rhs, opened_by);
+    let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+    let instruction = comptime!(call.instruction);
+    if comptime!(instruction == Instruction::Wgmma) {
+        comptime!(assert_groups_own_their_box(&out.place));
+    }
+    let vector_size = out.vector_size();
+    accumulator_in::<EA>(
+        &place,
+        lhs,
+        instruction,
+        vector_size,
+        1usize,
+        comptime!(Accumulation::Contraction(semiring)),
+    )
 }
 
 /// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts

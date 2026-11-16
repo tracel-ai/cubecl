@@ -184,6 +184,9 @@ pub(crate) enum OpenedBy {
     /// [`Tile::stage_accumulator`](crate::Tile::stage_accumulator) and its sibling: a sum
     /// contracted again as the next product's `A`.
     StageAccumulator,
+    /// [`Tile::transport_accumulator`](crate::Tile::transport_accumulator): a drained sum whose
+    /// fragments this crate's transport loads first.
+    TransportFirst,
 }
 
 impl Instruction {
@@ -211,6 +214,30 @@ impl Instruction {
             sum,
             shape,
             OpenedBy::Accumulator,
+        )
+    }
+
+    /// What the sum [`Tile::transport_accumulator`](crate::Tile::transport_accumulator) opens
+    /// contracts through: [`for_accumulator`](Self::for_accumulator)'s rule, except that this
+    /// crate's transport comes first, for a stage the fragment API does not load.
+    pub fn for_transport_accumulator(
+        device: &DeviceProperties,
+        target: &TargetProperties,
+        holder: ComputeScope,
+        lhs: FragmentSource,
+        rhs: FragmentSource,
+        sum: ElemType,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
+        Self::for_plane(
+            device,
+            target,
+            holder,
+            lhs,
+            rhs,
+            sum,
+            shape,
+            OpenedBy::TransportFirst,
         )
     }
 
@@ -303,7 +330,9 @@ impl Instruction {
         let layout = &target.mma;
         let sum_is_next_a = layout.register_layout_a == layout.register_layout_acc
             && layout.register_duplication_a == layout.register_duplication_acc;
-        let mma_first = mma_reads || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a);
+        let mma_first = mma_reads
+            || opened_by == OpenedBy::TransportFirst
+            || (opened_by == OpenedBy::StageAccumulator && sum_is_next_a);
         let cmma = cmma.map(|[cm, cn]| ShapedInstruction {
             instruction: Instruction::Cmma,
             shape: [cm, cn, k],
@@ -627,6 +656,45 @@ mod tests {
         assert_eq!(pick([16, 8, 16]), Some((mma(), [16, 8])));
         assert_eq!(pick([16, 16, 16]), Some((Instruction::Cmma, [16, 16])));
         assert_eq!(pick([32, 16, 16]), Some((mma(), [16, 8])));
+    }
+
+    /// A leaf no instruction fills in one call is cut by the transport where asked, and by the
+    /// fragment API where the device offers no manual mma. A leaf one call fills keeps that call.
+    #[test]
+    fn a_transport_accumulators_sum_goes_through_mma_where_offered() {
+        let ask = |device: &DeviceProperties, transport_first, shape| {
+            let open = match transport_first {
+                true => Instruction::for_transport_accumulator,
+                false => Instruction::for_accumulator,
+            };
+            open(
+                device,
+                &sum_is_next_a(),
+                ComputeScope::Plane,
+                HALF,
+                HALF,
+                F32,
+                shape,
+            )
+            .map(|call| (call.instruction, call.cell()))
+        };
+        let mut cmma_only = cuda();
+        cmma_only.features.matmul.mma.clear();
+        let cut = [32, 32, 16];
+        assert_eq!(
+            ask(&cuda(), false, cut),
+            Some((Instruction::Cmma, [16, 16]))
+        );
+        assert_eq!(ask(&cuda(), true, cut), Some((mma(), [16, 8])));
+        assert_eq!(
+            ask(&cmma_only, true, cut),
+            Some((Instruction::Cmma, [16, 16]))
+        );
+        let whole = [16, 16, 16];
+        assert_eq!(
+            ask(&cuda(), true, whole),
+            Some((Instruction::Cmma, [16, 16]))
+        );
     }
 
     /// A sum contracted again goes through the crate's transport where it is the next `A`.
