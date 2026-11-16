@@ -60,14 +60,15 @@ impl Memory {
         maxima
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` over this window over `space`, `axis`
-    /// its innermost ([`AxisSlices::exp2_scaled_minus_cell`]).
-    pub(crate) fn exp2_scaled_minus_along<E: Float>(
+    /// `self[i, s] = function(self[i, s] · scale − offsets[i])` over this window over `space`, `axis`
+    /// its innermost ([`AxisSlices::scaled_minus_cell`]).
+    pub(crate) fn scaled_minus_along<E: Float>(
         &mut self,
         scale: E,
         offsets: &Array<E>,
         #[comptime] space: &Space,
         #[comptime] axis: Axis,
+        #[comptime] function: CellFunction,
     ) {
         let (count, length) = comptime!((space.slices_along(axis), space.extent(axis)));
         let size!(W) = 1usize;
@@ -77,10 +78,11 @@ impl Memory {
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;
-                let cell = AxisSlices::exp2_scaled_minus_cell::<E>(
+                let cell = AxisSlices::scaled_minus_cell::<E>(
                     view.read(at).extract(0usize),
                     scale,
                     offsets[i],
+                    function,
                 );
                 view.write(at, Vector::cast_from(cell));
                 s += PLANE_DIM as usize;

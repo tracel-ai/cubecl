@@ -4,6 +4,17 @@ use cubecl::prelude::*;
 
 use crate::*;
 
+/// The function each cell of a tile cut into slices goes through once it is scaled and its
+/// slice's offset taken off it ([`AxisSlices::scaled_minus`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum CellFunction {
+    /// `2^x`, the exponential as the hardware computes it: an infinite offset sends its slice's
+    /// cells to zero.
+    Exp2,
+    /// `max(x, 0)`.
+    Relu,
+}
+
 /// Who keeps a tile's slices, and so how a slice is read whole.
 #[allow(clippy::large_enum_variant)]
 #[expect(
@@ -144,21 +155,27 @@ impl AxisSlices {
         }
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])`: one multiply-add and one
-    /// [`exp2`](Exp2::exp2) a cell, the exponential as the hardware computes it. An infinite
-    /// offset sends its slice's cells to zero.
-    pub(crate) fn exp2_scaled_minus<E: Float>(&mut self, scale: E, offsets: &Array<E>) {
+    /// `self[i, s] = function(self[i, s] · scale − offsets[i])`: one multiply-add and the
+    /// function a cell ([`scaled_minus_cell`](Self::scaled_minus_cell)).
+    pub(crate) fn scaled_minus<E: Float>(
+        &mut self,
+        scale: E,
+        offsets: &Array<E>,
+        #[comptime] function: CellFunction,
+    ) {
         match &mut self.kind {
-            AxisSlicesKind::Registers(block) => block.exp2_scaled_minus_along::<E>(scale, offsets),
+            AxisSlicesKind::Registers(block) => {
+                block.scaled_minus_along::<E>(scale, offsets, function)
+            }
             AxisSlicesKind::Window(window) => {
-                window.exp2_scaled_minus_along::<E>(scale, offsets, &self.space, self.axis)
+                window.scaled_minus_along::<E>(scale, offsets, &self.space, self.axis, function)
             }
             AxisSlicesKind::Fragments(partition) => {
-                partition.exp2_scaled_minus_along::<E>(scale, offsets)
+                partition.scaled_minus_along::<E>(scale, offsets, function)
             }
             AxisSlicesKind::Fragment(tile) => {
                 let mut fragment = tile.manual_fragment();
-                fragment.exp2_scaled_minus_along(scale, offsets, 0usize)
+                fragment.scaled_minus_along(scale, offsets, 0usize, function)
             }
         }
     }
@@ -326,9 +343,18 @@ impl AxisSlices {
         }
     }
 
-    /// `2^(value · scale − offset)`, a cell of [`exp2_scaled_minus`](Self::exp2_scaled_minus).
-    pub(crate) fn exp2_scaled_minus_cell<E: Float>(value: E, scale: E, offset: E) -> E {
-        (value * scale - offset).exp2()
+    /// `function(value · scale − offset)`, a cell of [`scaled_minus`](Self::scaled_minus).
+    pub(crate) fn scaled_minus_cell<E: Float>(
+        value: E,
+        scale: E,
+        offset: E,
+        #[comptime] function: CellFunction,
+    ) -> E {
+        let shifted = value * scale - offset;
+        match comptime!(function) {
+            CellFunction::Exp2 => shifted.exp2(),
+            CellFunction::Relu => shifted.max(E::from_int(0)),
+        }
     }
 
     /// `exp(value − slice)`, zero where `slice` is itself masked: a slice with nothing live yet,

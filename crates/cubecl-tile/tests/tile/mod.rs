@@ -37,6 +37,7 @@ mod reduce_scaled;
 mod references;
 mod register_attention;
 mod relay;
+mod relu_weights;
 mod routed;
 mod row_chunks;
 mod scaled;

@@ -306,7 +306,7 @@ impl<E: Float> OnlineSoftmax<E> {
             let live = max[i] > E::min_value();
             offsets[i] = select(live, max[i] * log2_e, E::new(f64::INFINITY));
         }
-        slices.exp2_scaled_minus::<E>(scale * log2_e, &offsets);
+        slices.scaled_minus::<E>(scale * log2_e, &offsets, CellFunction::Exp2);
     }
 
     /// Move the slices' sum and max on past a block whose probabilities `slices` holds, under the
