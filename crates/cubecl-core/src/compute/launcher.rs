@@ -1,6 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::frontend::BufferExtent;
 use crate::prelude::{BufferArg, PeerArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
@@ -206,32 +205,17 @@ impl KernelLauncher {
         elem_size: usize,
         vector_size: usize,
     ) -> Option<BufferBinding> {
-        let array = match array {
-            BufferArg::Handle { handle, .. } => handle,
+        let (handle, buffer_len) = match array {
+            BufferArg::Handle { handle, .. } => handle.into_kernel_binding(elem_size, vector_size),
             BufferArg::Alias { input_pos, .. } => {
                 self.alias_io(input_pos);
                 return None;
             }
         };
 
-        let size = array.handle.size_in_used();
-        let buffer_len = match array.extent {
-            BufferExtent::Handle => size / elem_size as u64,
-            BufferExtent::Declared => {
-                let length = array.length[0] as u64;
-                let scalar_size = (elem_size / vector_size) as u64;
-                assert!(
-                    length * scalar_size <= size,
-                    "A buffer declared with {length} scalars is bound to a handle of {size} \
-                     bytes, which holds {} scalars",
-                    size / scalar_size,
-                );
-                length / vector_size as u64
-            }
-        };
         let address_type = self.address_type;
         self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
-        Some(array.handle)
+        Some(handle)
     }
 
     /// Push a buffer in memory shared with peers to the state. It is bound as a peer binding

@@ -480,6 +480,9 @@ pub fn kernel_alias_len(input: &[u32], output: &mut [u32]) {
 /// The scalars a buffer is declared with, on a handle that holds `HANDLE_SCALARS`.
 const DECLARED_SCALARS: usize = 8;
 const HANDLE_SCALARS: usize = 16;
+/// A vector size that does not divide `PARTIAL_SCALARS`, which leaves a trailing partial vector.
+const PARTIAL_VECTOR_SIZE: usize = 4;
+const PARTIAL_SCALARS: usize = 6;
 
 /// What `buf.len()` reads in a kernel taking vectors of `vector_size`, for a buffer declared
 /// with `declared` scalars on a handle of `HANDLE_SCALARS`.
@@ -513,9 +516,9 @@ pub fn test_buffer_len_is_the_declared_length<R: Runtime>(client: Client) {
         );
     }
     assert_eq!(
-        buffer_len_seen(&client, 4, 6),
-        1,
-        "6 scalars in vectors of 4"
+        buffer_len_seen(&client, PARTIAL_VECTOR_SIZE, PARTIAL_SCALARS),
+        (PARTIAL_SCALARS / PARTIAL_VECTOR_SIZE) as u32,
+        "{PARTIAL_SCALARS} scalars in vectors of {PARTIAL_VECTOR_SIZE}"
     );
 }
 
@@ -559,6 +562,7 @@ fn launch_panic(launch: impl FnOnce() + Send + 'static) -> String {
 
 /// A declared length past the end of the handle is refused before anything runs.
 pub fn test_buffer_len_beyond_the_handle_panics<R: Runtime>(client: Client) {
+    let expected = alloc::format!("which holds {HANDLE_SCALARS} scalars");
     for vector_size in [1, 4] {
         let input = client.create_from_slice(f32::as_bytes(&[1.0; HANDLE_SCALARS]));
         let output = client.create_from_slice(u32::as_bytes(&[0]));
@@ -574,7 +578,7 @@ pub fn test_buffer_len_beyond_the_handle_panics<R: Runtime>(client: Client) {
             );
         });
         assert!(
-            message.contains("which holds 16 scalars"),
+            message.contains(&expected),
             "at {vector_size} scalars a vector, got: {message}"
         );
     }

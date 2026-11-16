@@ -16,14 +16,14 @@ pub struct BufferCompilationArg {
 /// Its length counts scalars of the storage type, whatever the vector size of the kernel
 /// parameter it is bound to.
 pub struct BufferBinding {
-    pub handle: cubecl_runtime::server::BufferBinding,
-    pub(crate) length: [usize; 1],
-    pub(crate) extent: BufferExtent,
+    handle: cubecl_runtime::server::BufferBinding,
+    length: [usize; 1],
+    extent: BufferExtent,
 }
 
 /// How much of its handle a kernel sees through a buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BufferExtent {
+enum BufferExtent {
     /// The declared length, which may stop short of the handle's end.
     Declared,
     /// The whole handle. A tensor viewed as a buffer still reaches its memory through its
@@ -55,6 +55,7 @@ impl BufferArg {
     ///
     /// The kernel sees `length`, counted in scalars of the storage type: a kernel taking vectors
     /// of `N` scalars sees the `length / N` whole vectors it holds.
+    /// A packed type is one scalar: a buffer of `e2m1x2` counts its pairs, one byte each.
     ///
     /// # Safety
     ///
@@ -157,17 +158,45 @@ impl BufferBinding {
         }
     }
 
-    /// A tensor's memory as a buffer of `length` scalars, its shape's product. The kernel sees
-    /// the whole handle, see [`BufferExtent::Handle`].
-    pub(crate) fn from_tensor_binding(
-        handle: cubecl_runtime::server::BufferBinding,
-        length: usize,
-    ) -> Self {
-        Self {
-            handle,
-            length: [length],
-            extent: BufferExtent::Handle,
+    /// The handle, and the length the kernel sees in its own elements of `elem_size` bytes, each
+    /// a vector of `vector_size` scalars.
+    ///
+    /// # Panics
+    ///
+    /// When the handle is too small to hold the declared length. The caller broke the contract
+    /// of the `unsafe` constructor, so the launch stops there instead of queuing an error.
+    pub fn into_kernel_binding(
+        self,
+        elem_size: usize,
+        vector_size: usize,
+    ) -> (cubecl_runtime::server::BufferBinding, u64) {
+        let length = self.kernel_len(elem_size, vector_size);
+        (self.handle, length)
+    }
+
+    /// The length the kernel sees, in its own elements.
+    fn kernel_len(&self, elem_size: usize, vector_size: usize) -> u64 {
+        match self.extent {
+            BufferExtent::Handle => self.handle.size_in_used() / elem_size as u64,
+            BufferExtent::Declared => {
+                self.declared_kernel_len(elem_size / vector_size, vector_size)
+            }
         }
+    }
+
+    /// The whole vectors of `vector_size` scalars of `scalar_size` bytes the declared length
+    /// holds, once checked against the handle.
+    fn declared_kernel_len(&self, scalar_size: usize, vector_size: usize) -> u64 {
+        let length = self.length[0] as u64;
+        let scalar_size = scalar_size as u64;
+        let size = self.handle.size_in_used();
+        assert!(
+            length * scalar_size <= size,
+            "A buffer declared with {length} scalars is bound to a handle of {size} bytes, which \
+             holds {} scalars",
+            size / scalar_size,
+        );
+        length / vector_size as u64
     }
 
     /// Return the handle as a tensor instead of a buffer.
@@ -222,5 +251,18 @@ impl<C: CubePrimitive> LaunchArg for [C] {
         let slice_var =
             slice::from_raw_parts::<C>(scope, buffer, 0usize.into_expand(scope), len.into());
         slice_var.expand.into()
+    }
+}
+
+/// A tensor's memory as a buffer of its shape's product scalars. The kernel sees the whole handle,
+/// see [`BufferExtent::Handle`].
+impl From<TensorBinding> for BufferBinding {
+    fn from(tensor: TensorBinding) -> Self {
+        let length = tensor.size();
+        Self {
+            handle: tensor.handle,
+            length: [length],
+            extent: BufferExtent::Handle,
+        }
     }
 }

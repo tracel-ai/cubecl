@@ -222,12 +222,9 @@ impl TensorArg {
     /// sees the buffer it aliases.
     pub fn into_buffer_arg(self) -> BufferArg {
         match self {
-            TensorArg::Handle { handle } => {
-                let size = handle.size();
-                BufferArg::Handle {
-                    handle: BufferBinding::from_tensor_binding(handle.handle, size),
-                }
-            }
+            TensorArg::Handle { handle } => BufferArg::Handle {
+                handle: handle.into(),
+            },
             TensorArg::Alias {
                 input_pos, shape, ..
             } => BufferArg::Alias {
@@ -266,9 +263,8 @@ impl TensorBinding {
     /// The kernel sees the whole handle, since a strided tensor reaches its memory through its
     /// strides and not its shape.
     pub fn into_buffer_arg(self) -> BufferArg {
-        let size = self.shape.iter().product();
         BufferArg::Handle {
-            handle: BufferBinding::from_tensor_binding(self.handle, size),
+            handle: self.into(),
         }
     }
 
