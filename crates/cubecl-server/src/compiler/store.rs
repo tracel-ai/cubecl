@@ -3,17 +3,10 @@
 use super::{ArtifactRoot, KernelCacheKey};
 use crate::id::KernelId;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_environment::environment::BuildStamp;
 #[cfg(compilation_cache)]
 use cubecl_environment::persistence::{CacheOption, StoreOptions};
 use cubecl_environment::persistence::{Namespace, Store, StoreKey, StoreValue};
-
-/// Platform-specific build identifier, changes on rebuild
-pub type BuildId = Option<&'static [u8]>;
-
-/// Pre-hashed build ID
-pub fn build_id_hash() -> StableHash {
-    StableHasher::hash_one(&buildid::build_id())
-}
 
 /// A store for compiled artifacts under `root`, or `None` when compilation
 /// caching is disabled or the target has nowhere durable to put them.
@@ -102,7 +95,7 @@ pub struct ArtifactStore<A> {
     by_kernel: Option<Store<KernelCacheKey, A>>,
     /// Maps a source's hash to the key of the kernel that first finalized it.
     by_source: Option<Store<StableHash, KernelCacheKey>>,
-    build_id: StableHash,
+    built_by: BuildStamp,
 }
 
 impl<A: StoreValue> ArtifactStore<A> {
@@ -112,7 +105,7 @@ impl<A: StoreValue> ArtifactStore<A> {
         Self {
             by_kernel: compilation_store(root, fingerprint),
             by_source: None,
-            build_id: build_id_hash(),
+            built_by: BuildStamp::current(),
         }
     }
 
@@ -127,7 +120,7 @@ impl<A: StoreValue> ArtifactStore<A> {
         Self {
             by_kernel,
             by_source,
-            build_id: build_id_hash(),
+            built_by: BuildStamp::current(),
         }
     }
 
@@ -144,7 +137,7 @@ impl<A: StoreValue> ArtifactStore<A> {
 
     /// Takes the artifact kept for `kernel` out of the store, to be loaded.
     pub fn take(&mut self, kernel: &KernelId) -> Option<A> {
-        let key = KernelCacheKey::new(kernel, self.build_id);
+        let key = KernelCacheKey::new(kernel, self.built_by);
         let artifact = self.by_kernel.as_mut()?.remove(&key)?;
         log::trace!("Using the compilation store");
         Some(artifact)
@@ -152,7 +145,7 @@ impl<A: StoreValue> ArtifactStore<A> {
 
     /// Takes the artifact kept for `id` (kernel and variant) out of the store, to be loaded.
     pub fn take_variant<V: core::hash::Hash>(&mut self, id: &super::ArtifactId<V>) -> Option<A> {
-        let key = KernelCacheKey::from_artifact_id(id, self.build_id);
+        let key = KernelCacheKey::from_artifact_id(id, self.built_by);
         let artifact = self.by_kernel.as_mut()?.remove(&key)?;
         log::trace!("Using the compilation store for variant");
         Some(artifact)
@@ -167,14 +160,14 @@ impl<A: StoreValue> ArtifactStore<A> {
         let Some(by_kernel) = self.by_kernel.as_mut() else {
             return false;
         };
-        let key = KernelCacheKey::from_artifact_id(id, self.build_id);
+        let key = KernelCacheKey::from_artifact_id(id, self.built_by);
         store_compiled(by_kernel, key, artifact)
     }
 
     /// Purges a corrupted or invalid entry for `kernel`.
     pub fn purge(&mut self, kernel: &KernelId) {
         if let Some(by_kernel) = self.by_kernel.as_mut() {
-            let key = KernelCacheKey::new(kernel, self.build_id);
+            let key = KernelCacheKey::new(kernel, self.built_by);
             by_kernel.purge_key(&key);
         }
     }
@@ -182,7 +175,7 @@ impl<A: StoreValue> ArtifactStore<A> {
     /// Purges a corrupted or invalid entry for `id` (kernel and variant).
     pub fn purge_variant<V: core::hash::Hash>(&mut self, id: &super::ArtifactId<V>) {
         if let Some(by_kernel) = self.by_kernel.as_mut() {
-            let key = KernelCacheKey::from_artifact_id(id, self.build_id);
+            let key = KernelCacheKey::from_artifact_id(id, self.built_by);
             by_kernel.purge_key(&key);
         }
     }
@@ -203,7 +196,7 @@ impl<A: StoreValue> ArtifactStore<A> {
         // only there, and the compilation stores are lazy.
         let key = *by_source.get_mut(&hash)?;
 
-        let artifact = if key.build_id == self.build_id {
+        let artifact = if key.built_by == self.built_by {
             by_kernel.get_mut(&key)?.clone()
         } else {
             by_source.purge_key(&hash);
@@ -220,7 +213,7 @@ impl<A: StoreValue> ArtifactStore<A> {
         let Some(by_kernel) = self.by_kernel.as_mut() else {
             return false;
         };
-        let key = KernelCacheKey::new(kernel, self.build_id);
+        let key = KernelCacheKey::new(kernel, self.built_by);
         let stored = store_compiled(by_kernel, key, artifact);
         if let Some(source) = source
             && let Some(by_source) = self.by_source.as_mut()
@@ -257,7 +250,7 @@ mod tests {
         ArtifactStore {
             by_kernel: Some(lazy("kernels")),
             by_source: Some(lazy("sources")),
-            build_id: build_id_hash(),
+            built_by: BuildStamp::current(),
         }
     }
 
@@ -290,14 +283,18 @@ mod tests {
     fn an_earlier_build_is_moved() {
         let root = tempfile::tempdir().unwrap();
         let mut store = store(root.path());
-        let current = store.build_id;
+        let current = store.built_by;
         let kernel = KernelId::new::<First>();
-        store.build_id = StableHasher::hash_one(&"an earlier build");
+        store.built_by = BuildStamp {
+            hash: StableHasher::hash_one(&"an earlier build"),
+        };
         store.keep(&kernel, 7, Some("shared"));
 
-        store.build_id = current;
+        store.built_by = current;
         assert_eq!(store.take_by_source("shared"), Some(7));
-        store.build_id = StableHasher::hash_one(&"an earlier build");
+        store.built_by = BuildStamp {
+            hash: StableHasher::hash_one(&"an earlier build"),
+        };
         assert_eq!(store.take(&kernel), None, "moved out");
     }
 }

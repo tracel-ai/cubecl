@@ -103,6 +103,24 @@ pub enum DebugInfo {
     Full,
 }
 
+/// Whether the compiler may contract a float multiply and the add or subtract that consumes it
+/// into one fused multiply-add, rounding once instead of twice.
+///
+/// Contraction is allowed by default on every backend. A kernel that must give the same bits
+/// as an uncontracted reference, on every backend and vector size, turns it off with
+/// `#[cube(no_contraction)]` or [`KernelSettings::no_contraction`]. Explicit `fma` calls are
+/// fused either way.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum FloatContraction {
+    /// Products may fuse with the add or subtract that consumes them.
+    #[default]
+    Allowed,
+    /// Every product and every sum is rounded on its own.
+    Off,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KernelSettings {
     /// The cube dim of the kernel
@@ -117,6 +135,8 @@ pub struct KernelSettings {
     pub cluster_dim: Option<Dim3>,
     /// Execution mode
     pub execution_mode: ExecutionMode,
+    /// Whether float multiply-adds may be fused.
+    pub float_contraction: FloatContraction,
 }
 
 impl KernelSettings {
@@ -128,6 +148,7 @@ impl KernelSettings {
             debug_info: DebugInfo::None,
             cluster_dim: None,
             execution_mode,
+            float_contraction: FloatContraction::Allowed,
         }
     }
 }
@@ -167,6 +188,14 @@ impl KernelSettings {
     /// Set cluster dim
     pub fn cluster_dim(mut self, cluster_dim: Dim3) -> Self {
         self.cluster_dim = Some(cluster_dim);
+        self
+    }
+
+    /// Round every float product and sum on its own: no multiply-add is fused unless the
+    /// kernel calls `fma`.
+    #[must_use]
+    pub fn no_contraction(mut self) -> Self {
+        self.float_contraction = FloatContraction::Off;
         self
     }
 }

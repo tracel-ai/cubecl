@@ -55,7 +55,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     /// unrolls within [`TOP_K_UNROLL_BUDGET`]. A value with a NaN, rare, walks in the full order,
     /// and that walk stays a loop: unrolled beside the first, it would double the walks' code.
     /// For a list in registers, the loop turns the list instead of picking a slot at run time
-    /// ([`walk_turning`](Self::walk_turning)).
+    /// (`walk_turning`).
     pub fn insert(
         &mut self,
         value: Vector<E, N>,

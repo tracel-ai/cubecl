@@ -495,7 +495,7 @@ impl TileTensorLaunch {
         self
     }
 
-    /// This tensor map of `u32` words read as [words](Packing::Words) of `field`, several to a word
+    /// This tensor map of `u32` words read as words (`Packing::Words`) of `field`, several to a word
     /// along the axis they scale: what a TMA engine moves of block scales a block-scaled
     /// instruction takes a word at a time, which a stage holds as they lie.
     ///

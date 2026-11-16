@@ -69,9 +69,10 @@ fn every_byte_decodes_as_the_host_type() {
 #[test]
 fn values_encode_as_the_host_type() {
     let client = common::client_evaluating(None);
+    // A multiple of four magnitudes, so the values fill whole vectors at every width.
     let magnitudes = [
-        0.0f32, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0,
-        100.0,
+        0.0f32, 0.125, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0,
+        7.0, 12.0, 100.0, 1000.0,
     ];
     let values: Vec<f32> = magnitudes
         .iter()

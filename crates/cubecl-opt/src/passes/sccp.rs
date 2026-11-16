@@ -13,6 +13,7 @@ use crate::analyses::dataflow_solver::{
     DataflowSolver, SmallPtrVec, SolverConfig,
     sccp::{ConstantLattice, SparseConstantPropagationAnalysis},
 };
+use crate::passes::sink_broadcast::SinkBroadcast;
 
 fn const_value(solver: &DataflowSolver, value: Value) -> Option<AttrObj> {
     let lattice = solver.lookup_state::<ConstantLattice>(value)?;
@@ -121,6 +122,13 @@ impl Pass for SCCPPass {
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
+        // A vector op on broadcasts alone only folds once it is scalar.
+        res.ir_changed |= apply_match_rewrite(
+            ctx,
+            &mut KeepLocation(&mut SinkBroadcast),
+            RewriterOrder::default(),
+            op,
+        )?;
         res.ir_changed |= sccp(op, ctx)?;
         res.ir_changed |= apply_match_rewrite(
             ctx,

@@ -36,6 +36,7 @@ use cubecl_ir::{
         CanonicalizePass, InheritLocationPass, LowerOpsPass, visit_all_ops_of_type,
         visit_all_ops_of_type_mut,
     },
+    settings::FloatContraction,
     settings::{DebugInfo, Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
@@ -73,8 +74,11 @@ use pliron::{
 use pliron_spirv::{
     ToSpirvOp,
     attrs::VerCapExtAttr,
-    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
-    ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
+    decorations::{
+        DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
+        set_decoration_uniform_id,
+    },
+    ops::{EntryPointOp, ExecutionModeOp, FAddOp, FMulOp, FSubOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
@@ -432,6 +436,23 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+/// Keeps the driver from fusing a float add, subtract or multiply into a multiply-add, when the
+/// kernel turned [float contraction](FloatContraction) off.
+pub(crate) fn decorate_contraction(ctx: &Context, op: Ptr<Operation>) {
+    if ctx.float_contraction() == FloatContraction::Allowed {
+        return;
+    }
+    let is_float_arith = op.as_op::<FAddOp>(ctx).is_some()
+        || op.as_op::<FSubOp>(ctx).is_some()
+        || op.as_op::<FMulOp>(ctx).is_some();
+    if !is_float_arith {
+        return;
+    }
+    if let Some(can_decorate) = op_cast::<dyn DecoratableOp>(&*op.dyn_op(ctx)) {
+        set_decoration_no_contraction(can_decorate, ctx);
+    }
 }
 
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {

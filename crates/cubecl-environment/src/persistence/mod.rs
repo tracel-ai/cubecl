@@ -19,9 +19,11 @@ pub mod storage;
 pub use storage::*;
 
 mod namespace;
+mod namespace_root;
 mod store;
 
 pub use namespace::Namespace;
+pub use namespace_root::*;
 pub use store::*;
 
 /// The database file shared by every namespace of an environment.

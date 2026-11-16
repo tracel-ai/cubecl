@@ -1,8 +1,9 @@
 //! The kernels the work launched, recorded per build.
 
-use super::{build_id_hash, persistent_store};
+use super::persistent_store;
 use crate::id::KernelId;
 use cubecl_common::hash::StableHash;
+use cubecl_environment::environment::BuildStamp;
 use cubecl_environment::persistence::{Namespace, Store};
 
 /// The kernels the work launched in the active environment, by the stable
@@ -30,15 +31,15 @@ impl WorkLaunchStore {
     pub const ROOT: &'static str = "launched";
 
     /// The namespace the kernels `build`'s work launched are recorded under.
-    pub fn namespace(build: StableHash) -> Namespace {
-        Namespace::scoped(Self::ROOT, alloc::format!("{build:032x}"))
+    pub fn namespace(build: BuildStamp) -> Namespace {
+        Namespace::scoped(Self::ROOT, alloc::format!("{build}"))
     }
 
     /// The records of this build in the active environment, or `None` when
     /// compilation caching is disabled or the target has nowhere durable to
     /// put them.
     pub(crate) fn new() -> Option<Self> {
-        persistent_store(Self::namespace(build_id_hash())).map(|store| Self { store })
+        persistent_store(Self::namespace(BuildStamp::current())).map(|store| Self { store })
     }
 
     /// Record that the work launched `kernel`. A storage that refuses the
