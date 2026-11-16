@@ -24,7 +24,7 @@ pub(crate) fn is_exiting() -> bool {
 }
 
 #[cfg(multi_threading)]
-pub(crate) use handler::close_at_exit;
+pub(crate) use handler::{close_at_exit, forget_device};
 
 #[cfg(multi_threading)]
 mod handler {
@@ -33,69 +33,120 @@ mod handler {
     use alloc::vec::Vec;
     use core::any::TypeId;
     use core::sync::atomic::Ordering;
-    use std::sync::Once;
+    use core::time::Duration;
+    use std::time::Instant;
+
+    /// The close of a service type: closes it on a device, waiting up to the given time for its
+    /// runner.
+    type Close = fn(DeviceId, Duration) -> Result<(), ServiceCloseError>;
 
     /// A service to close at exit: where it runs, and the close of its type.
+    #[derive(Debug)]
     struct ServiceAtExit {
         device_id: DeviceId,
         type_id: TypeId,
-        close: fn(DeviceId) -> Result<(), ServiceCloseError>,
+        close: Close,
     }
+
+    /// How long the exit waits, for all the services together, for their runners to reach the
+    /// closes. A runner stuck in a call delays the exit by this much at most, however many
+    /// services it holds.
+    const EXIT_CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
 
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
 
-    static HANDLER: Once = Once::new();
-
+    #[cfg(not(miri))]
     unsafe extern "C" {
         /// The C library's, which every target with threads and `std` links.
         fn atexit(handler: extern "C" fn()) -> core::ffi::c_int;
     }
 
     /// Closes the service `type_id` on `device_id`, with `close`, as the process exits.
-    pub(crate) fn close_at_exit(
-        device_id: DeviceId,
-        type_id: TypeId,
-        close: fn(DeviceId) -> Result<(), ServiceCloseError>,
-    ) {
-        HANDLER.call_once(|| {
-            // SAFETY: `close_on_exit` is a plain function taking nothing, which is what
-            // `atexit` takes, and it lives as long as the process.
-            if unsafe { atexit(close_on_exit) } != 0 {
-                log::warn!(
-                    "no exit handler for the device services: an exit from a thread other than \
-                     the main one may crash the process"
-                );
-            }
-        });
+    ///
+    /// A service that started while the exit was already closing the others, past the check
+    /// that refuses to start one, is closed right away: the exit has taken its list already.
+    pub(crate) fn close_at_exit(device_id: DeviceId, type_id: TypeId, close: Close) {
         let mut services = SERVICES.lock();
+        // Read under the lock `close_services` sets it under: either this service is in the
+        // list the exit takes, or the exit has started and this one closes itself.
+        if EXITING.load(Ordering::Acquire) {
+            drop(services);
+            close_service(device_id, close, EXIT_CLOSE_TIMEOUT);
+            return;
+        }
         let known = services
             .iter()
             .any(|service| service.device_id == device_id && service.type_id == type_id);
-        if !known {
-            services.push(ServiceAtExit {
-                device_id,
-                type_id,
-                close,
-            });
+        if known {
+            return;
+        }
+        let new_type = services.iter().all(|service| service.type_id != type_id);
+        services.push(ServiceAtExit {
+            device_id,
+            type_id,
+            close,
+        });
+        drop(services);
+        // A runtime loads its libraries as its first service starts, so a handler per service
+        // type keeps the newest-first order ahead of their teardown without one per device.
+        if new_type {
+            register_exit_handler();
         }
     }
 
+    /// Forgets the services of `device_id`, which were shut down: none is left to close at
+    /// exit.
+    pub(crate) fn forget_device(device_id: DeviceId) {
+        SERVICES
+            .lock()
+            .retain(|service| service.device_id != device_id);
+    }
+
+    /// Miri cannot call `atexit`, so under it no exit handler closes the services.
+    #[cfg(miri)]
+    fn register_exit_handler() {}
+
+    #[cfg(not(miri))]
+    fn register_exit_handler() {
+        // Registered again for each new service type: exit handlers run newest first, so the
+        // latest one runs ahead of the teardown of every library loaded before that service
+        // started, whichever runtime started first. Only the first to run finds services to
+        // close.
+        // SAFETY: `close_on_exit` is a plain function taking nothing, which is what `atexit`
+        // takes, and it lives as long as the process.
+        if unsafe { atexit(close_on_exit) } != 0 {
+            log::warn!(
+                "no exit handler for the device services: an exit from a thread other than the \
+                 main one may crash the process"
+            );
+        }
+    }
+
+    #[cfg(not(miri))]
     extern "C" fn close_on_exit() {
         close_services();
     }
 
-    /// No service starts from here on, and every one that asked is closed. The list is taken,
-    /// so whichever of the guard and the handler runs second finds nothing to close.
+    /// No service starts from here on, and every one that asked is closed, all within
+    /// [`EXIT_CLOSE_TIMEOUT`]. The list is taken, so whichever of the guard and the handler runs
+    /// second finds nothing to close.
     fn close_services() {
-        EXITING.store(true, Ordering::Release);
-        let services = core::mem::take(&mut *SERVICES.lock());
+        let services = {
+            let mut services = SERVICES.lock();
+            EXITING.store(true, Ordering::Release);
+            core::mem::take(&mut *services)
+        };
+        let deadline = Instant::now() + EXIT_CLOSE_TIMEOUT;
         for service in services {
-            if let Err(error) = (service.close)(service.device_id) {
-                log::warn!(
-                    "a service on device {:?} was not closed before exit: {error:?}",
-                    service.device_id
-                );
-            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            close_service(service.device_id, service.close, remaining);
+        }
+    }
+
+    /// Closes one service with `close`, logging a close that failed or ran out of time.
+    fn close_service(device_id: DeviceId, close: Close, timeout: Duration) {
+        if let Err(error) = close(device_id, timeout) {
+            log::warn!("a service on device {device_id:?} was not closed before exit: {error:?}");
         }
     }
 
