@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, vec::Vec};
 
+use crate::frontend::into_kernel_binding;
 use crate::prelude::{BufferArg, PeerArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
@@ -7,7 +8,7 @@ use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{
-    BufferBinding, CubeCount, KernelResource, PeerBinding, TensorMapBinding,
+    BufferBinding, CubeCount, KernelResource, PeerAccess, PeerBinding, TensorMapBinding,
 };
 use cubecl_runtime::{client::Client, kernel::CubeKernel, server::KernelArguments};
 
@@ -186,40 +187,58 @@ impl KernelLauncher {
     }
 
     /// Push a new input array to the state.
-    pub fn register_buffer(&mut self, array: BufferArg, elem_size: usize) {
-        if let Some(tensor) = self.process_buffer(array, elem_size) {
+    ///
+    /// `elem_size` is the size in bytes of the kernel's element, a whole vector of `vector_size`
+    /// scalars for a vectorized buffer.
+    pub fn register_buffer(&mut self, array: BufferArg, elem_size: usize, vector_size: usize) {
+        if let Some(tensor) = self.process_buffer(array, elem_size, vector_size) {
             self.push_resource(KernelResource::Buffer(tensor));
         }
     }
 
-    fn process_buffer(&mut self, array: BufferArg, elem_size: usize) -> Option<BufferBinding> {
-        let array = match array {
-            BufferArg::Handle { handle, .. } => handle,
+    /// The kernel sees a buffer's declared length, counted in its own elements: a vectorized
+    /// buffer of `length` scalars holds `length / vector_size` whole vectors, and a trailing
+    /// partial vector is out of its reach, as it is on a vectorized tensor. An alias registers no
+    /// length of its own, the kernel reads the one of the buffer it aliases.
+    fn process_buffer(
+        &mut self,
+        array: BufferArg,
+        elem_size: usize,
+        vector_size: usize,
+    ) -> Option<BufferBinding> {
+        let (handle, buffer_len) = match array {
+            BufferArg::Handle { handle, .. } => into_kernel_binding(handle, elem_size, vector_size),
             BufferArg::Alias { input_pos, .. } => {
                 self.alias_io(input_pos);
                 return None;
             }
         };
 
-        let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
         self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
-        Some(array.handle)
+        Some(handle)
     }
 
     /// Push a buffer in memory shared with peers to the state. It is bound as a peer binding
     /// whichever device it lives on, which is what tells the client the kernel declared it
     /// shared; on its own device, the client binds it as an ordinary buffer.
-    pub fn register_peer(&mut self, buffer: PeerArg, elem_size: usize) {
+    pub fn register_peer(
+        &mut self,
+        buffer: PeerArg,
+        elem_size: usize,
+        vector_size: usize,
+        required_access: PeerAccess,
+    ) {
         let binding = self
             .process_buffer(
                 BufferArg::Handle {
                     handle: buffer.handle,
                 },
                 elem_size,
+                vector_size,
             )
             .expect("a handle is no alias");
-        let peer = PeerBinding::new(binding)
+        let peer = PeerBinding::new(binding, required_access)
             .expect("a peer argument is built from a handle shared with its peers");
         self.push_resource(KernelResource::Peer(peer));
     }

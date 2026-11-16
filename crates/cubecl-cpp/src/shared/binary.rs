@@ -7,7 +7,7 @@ use cubecl_core::{
             cmp::*,
             general::{BoolAndOp, BoolOrOp},
             math::*,
-            memory::{self, IndexOp},
+            memory::{self, IndexOp, StructFieldOp},
         },
         interfaces::TypedExt,
         prelude::*,
@@ -475,6 +475,9 @@ no_half!(RhypotOp);
 
 shared_op_with_out!(IndexOp, |op, ctx| {
     format!("&{}", fmt_index(ctx, op.base(ctx), op.index(ctx)))
+});
+shared_op_with_out!(StructFieldOp, |op, ctx| {
+    format!("&{}->_{}", op.base(ctx).name(ctx), op.field(ctx).0)
 });
 
 pub fn fmt_index(ctx: &Context, list: Value, index: Value) -> String {

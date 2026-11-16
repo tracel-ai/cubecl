@@ -42,6 +42,20 @@ impl Geometry {
         }
     }
 
+    /// Elements from the first it addresses to past its last: its extents' product where its dims
+    /// lie back to back, more where a stride pads one apart; zero for a buffer of no element.
+    pub fn span(&self) -> usize {
+        if self.shape.contains(&0) {
+            return 0;
+        }
+        self.shape
+            .iter()
+            .zip(&self.strides)
+            .map(|(extent, stride)| (extent - 1) * stride)
+            .sum::<usize>()
+            + 1
+    }
+
     /// This geometry with its dims stated as pieces of logical dims, as `tiling` says.
     pub(crate) fn with_tiling(mut self, tiling: Tiling) -> Self {
         self.tiling = tiling;
@@ -181,6 +195,19 @@ impl Geometry {
         extents
     }
 
+    /// Elements that lie back to back from the first: the dims taken finest stride first, each
+    /// while it steps by what the finer ones hold. A stride padded past that run ends it.
+    pub(crate) fn dense_run(&self) -> usize {
+        let mut run = 1;
+        for (_, (extent, stride)) in self.addressing_dims_by_stride().into_iter().rev() {
+            if stride != run {
+                break;
+            }
+            run *= extent;
+        }
+        run
+    }
+
     /// The dims with extent above one and non-zero stride, as `(index, (extent, stride))`,
     /// coarsest stride first.
     pub(crate) fn addressing_dims_by_stride(
@@ -307,6 +334,15 @@ mod tests {
     const M: Axis = Axis(0);
     const N: Axis = Axis(1);
     const K: Axis = Axis(2);
+
+    /// A geometry's span is the elements its strides reach, padding included, and zero when it
+    /// holds none.
+    #[test]
+    fn a_span_reaches_past_the_last_element_its_strides_address() {
+        assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
+        assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
+        assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
+    }
 
     #[test]
     fn stride_order_reorders_the_dims_and_their_labels() {

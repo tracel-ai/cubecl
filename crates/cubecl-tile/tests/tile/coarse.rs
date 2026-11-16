@@ -28,8 +28,8 @@ const DEPTH: usize = 32;
 /// Contracted values per coarse value: the quantization block, in the shape this stands in for.
 const BLOCK: usize = 8;
 const BLOCKS: usize = DEPTH / BLOCK;
-/// The leaf's register block.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+/// The software matmul the leaf runs.
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c = a · b` with `a` coarse along the contracted axis: one value per block of `K`, read by
 /// every `k` the block covers.
@@ -48,7 +48,7 @@ fn coarse_lhs_matmul(
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_region.mma(&a.at(&region), &b.at(&region));
     }
 }

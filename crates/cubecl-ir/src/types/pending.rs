@@ -10,8 +10,8 @@ use crate::{aligned, sized};
 #[pliron_attr(name = "cube.async_group", format, verifier = "succ")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum AsyncGroup {
-    /// Warpgroup MMAs. A group completes once its MMAs wrote their accumulators.
-    Warpgroup,
+    /// Plane group MMAs. A group completes once its MMAs wrote their accumulators.
+    PlaneGroup,
     /// Bulk copies from shared memory, TMA stores among them. A group completes once its copies
     /// read their shared memory, which may then be written again. Their writes to global memory
     /// may still be in flight, and are visible once the kernel ends.

@@ -12,7 +12,7 @@ use cubecl_ir::{
     interfaces::{
         TypedExt,
         aliasing::AliasingOp,
-        side_effects::{MemoryEffect, MemoryEffectsOp},
+        side_effects::{MemoryEffect, MemoryEffectsOp, MemoryLocation, MemoryScope},
     },
     prelude::*,
     types::PointerType,
@@ -186,21 +186,30 @@ impl Analysis for GlobalVisibility {
                     if let Some(effects) = op_cast::<dyn MemoryEffectsOp>(op_dyn.as_ref()) {
                         for effect in effects.memory_effects(ctx) {
                             match effect {
-                                MemoryEffect::Read(affects) => state.check_read(ctx, affects),
-                                MemoryEffect::Write(affects) => state.check_write(ctx, affects),
+                                MemoryEffect::Read(MemoryLocation::Pointer(affects, _)) => {
+                                    state.check_read(ctx, affects)
+                                }
+                                MemoryEffect::Write(MemoryLocation::Pointer(affects, _)) => {
+                                    state.check_write(ctx, affects)
+                                }
                                 // Inline asm: it names no pointer, so it can
                                 // touch any buffer the kernel holds.
-                                MemoryEffect::ReadAllInSpace(AddressSpace::Global(_)) => {
+                                MemoryEffect::Read(MemoryLocation::Scope(scope))
+                                    if scope.contains(MemoryScope::Global) =>
+                                {
                                     state.read_all();
                                 }
-                                MemoryEffect::WriteAllInSpace(AddressSpace::Global(_)) => {
+                                MemoryEffect::Write(MemoryLocation::Scope(scope))
+                                    if scope.contains(MemoryScope::Global) =>
+                                {
                                     state.write_all();
                                 }
-                                MemoryEffect::ReadAll => state.read_all(),
-                                MemoryEffect::WriteAll => state.write_all(),
+                                MemoryEffect::Read(MemoryLocation::All) => state.read_all(),
+                                MemoryEffect::Write(MemoryLocation::All) => state.write_all(),
                                 // Not affecting global
-                                MemoryEffect::ReadAllInSpace(_)
-                                | MemoryEffect::WriteAllInSpace(_) => {}
+                                MemoryEffect::Read(_) | MemoryEffect::Write(_) => {}
+                                // Doesn't impact pointer visibility
+                                MemoryEffect::MakeAvailable(_) | MemoryEffect::MakeVisible(_) => {}
                                 MemoryEffect::Opaque => {
                                     // Untracked op in a nested region, should normally be treated
                                     // conservatively but this is a rare case where we can be

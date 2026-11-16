@@ -20,7 +20,6 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3, e5m2};
 
 use crate::tile::uncut;
-use cubecl_tile::Instruction;
 use cubecl_tile::kind::Field;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
@@ -39,7 +38,7 @@ const NB: Axis = Axis(4);
 const NI: Axis = Axis(5);
 
 /// The register block every contraction here runs under.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// A packed operand copied into a plain one: the words unpack at the read, and nothing in the
 /// kernel, the spec or the launch mentions a scale.
@@ -68,7 +67,7 @@ fn packed_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -95,7 +94,7 @@ fn nvfp4_shaped_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -262,7 +261,7 @@ fn packed_matmul_rhs(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&x.at(&region), &w.at(&region));
     }
 }
@@ -287,7 +286,7 @@ fn native_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -314,12 +313,10 @@ fn packed_one_row_product<E: Numeric>(
         let w = w.at(&cube);
         let c = c.at(&cube);
         // The accumulator lives in registers across the whole walk and drains once.
-        let acc = c.accumulator::<E>(
+        let acc = c.register_accumulator::<E>(
             &x,
             &values,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for step in cube {
@@ -348,7 +345,7 @@ fn packed_matmul_byte_scales(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -372,12 +369,10 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
+        let acc = c.register_accumulator::<E>(
             &x,
             &values,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for step in cube {
@@ -391,7 +386,6 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
 /// The prefill shape on the tensor cores: a packed weight on the rhs with byte scales, landed
 /// unpacked and scaled by the plane's units, contracted through the plain cmma instruction.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
@@ -406,7 +400,7 @@ fn packed_cmma_rhs<E: Numeric>(
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&x, &w, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
     // The level cuts the columns into two fragments and walks `K`: unrolled, so each region
     // selects its fragment at comptime.
     for region in space.over(&level).unrolled() {
@@ -419,7 +413,6 @@ fn packed_cmma_rhs<E: Numeric>(
 /// [`packed_cmma_rhs`] with the weight dequantized at `element` by the kernel, before it
 /// contracts.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs_dequantized<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
@@ -433,7 +426,7 @@ fn packed_cmma_rhs_dequantized<E: Numeric>(
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&x, &w, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_r = acc.at(&region);
         let w_r = acc_r.dequantized(&w.at(&region), element);
@@ -2043,14 +2036,8 @@ fn packed_one_row_product_unscaled<E: Numeric>(
         let x = x.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
-            &x,
-            &w,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &w, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -3220,7 +3207,7 @@ fn decoded_lines<N: Size>(
     let at = ABSOLUTE_POS;
     let (row, line) = (at / lines, at % lines);
     if at < output.len() {
-        output[at] = match comptime!(read) {
+        output[at] = match read {
             LineRead::Masked => decoded.read(row, line),
             LineRead::Untested => decoded.read_unchecked(row, line),
         };
@@ -3381,10 +3368,10 @@ fn a_packed_operand_is_bound_at_its_words() {
     );
 }
 
-/// A word-wide float field staged once for a walk at `decoded`, as an attention stages its query,
-/// and the stage copied out as it holds it.
+/// A float field staged once for a walk at `decoded`, as an attention stages its query and its
+/// cache, and the stage copied out as it holds it.
 #[cube(launch)]
-fn word_field_staged_for_a_walk(
+fn field_staged_for_a_walk(
     input: &TileTensor<'_>,
     output: &TileTensor<'_>,
     space: Partitioning,
@@ -3402,11 +3389,15 @@ fn word_field_staged_for_a_walk(
     out.copy_cast_from(&staged);
 }
 
-/// `f32` values bound as their words, one a word, staged for a walk at `decoded` and copied out.
-fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> Vec<f32> {
+/// An 8 by 16 tile of `field` values packed into `words`, staged for a walk at `decoded` and
+/// copied out, as wide a line as a word holds values: the width the packed source is served at.
+fn staged_for_a_walk(
+    words: Vec<u32>,
+    field: Field,
+    decoded: Option<cubecl::ir::ElemType>,
+) -> Vec<f32> {
     let (rows, cols) = (8, 16);
     let client = cubecl::test_device().client();
-    let words: Vec<u32> = values.iter().map(|value| value.to_bits()).collect();
     let input = TensorHandle::new_contiguous(
         vec![rows, cols],
         client.create(Bytes::from_elems(words)),
@@ -3427,7 +3418,7 @@ fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> V
         ),
         Form::Static,
     );
-    word_field_staged_for_a_walk::launch(
+    field_staged_for_a_walk::launch(
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
@@ -3435,12 +3426,12 @@ fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> V
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
-            TileSpec::direct(&[M, N]).packed(Field::Float(FloatKind::F32)),
+            TileSpec::direct(&[M, N]).packed(field),
         ),
         TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
-            1,
+            field.per_word(),
             TileSpec::direct(&[M, N]),
         ),
         launcher.partitioning_arg(),
@@ -3465,7 +3456,34 @@ fn a_word_wide_field_staged_for_a_walk_holds_the_element_its_kernel_names() {
         .map(|&value| f16::from_f32(value).to_f32())
         .collect();
     assert_ne!(rounded, values, "the values must be finer than f16 keeps");
+    let words: Vec<u32> = values.iter().map(|value| value.to_bits()).collect();
+    let (field, f16) = (
+        Field::Float(FloatKind::F32),
+        cubecl::ir::ElemType::Float(FloatKind::F16),
+    );
+    assert_eq!(staged_for_a_walk(words.clone(), field, Some(f16)), rounded);
+    assert_eq!(staged_for_a_walk(words, field, None), values);
+}
+
+/// **A stage for a walk holds `e4m3` fields, four a word, as the values its kernel names.** A
+/// matrix fragment loads `e4m3` values at `f16` from a stage of `f16` values, which their fill
+/// decodes, where from a stage of their words it would pick each cell apart.
+#[test]
+fn e4m3_fields_staged_for_a_walk_hold_the_element_their_kernel_names() {
+    let values: Vec<f32> = (0..8 * 16)
+        .map(|i| e4m3::from_f32((i as f32 - 64.0) / 8.0).to_f32())
+        .collect();
+    let words: Vec<u32> = values
+        .chunks(4)
+        .map(|word| {
+            word.iter().enumerate().fold(0u32, |acc, (j, &value)| {
+                acc | (u32::from(e4m3::from_f32(value).to_bits()) << (j * 8))
+            })
+        })
+        .collect();
     let f16 = cubecl::ir::ElemType::Float(FloatKind::F16);
-    assert_eq!(staged_for_a_walk(&values, Some(f16)), rounded);
-    assert_eq!(staged_for_a_walk(&values, None), values);
+    assert_eq!(
+        staged_for_a_walk(words, Field::from(FloatKind::E4M3), Some(f16)),
+        values
+    );
 }

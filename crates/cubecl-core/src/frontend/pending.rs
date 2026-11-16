@@ -1,6 +1,6 @@
 //! Work a kernel issued that completes later.
 //!
-//! Some operations run asynchronously: a warpgroup MMA, a TMA store. The kernel goes on while
+//! Some operations run asynchronously: a plane group MMA, a TMA store. The kernel goes on while
 //! they run, and must not touch what they read or write until they complete. Such an operation
 //! returns a [`Pending`], which holds what the work produces, or `()`, and gives it back from
 //! [`Pending::wait`] once the work is done with what the kernel must not touch:
@@ -17,7 +17,7 @@
 //! between the operation and the wait on every path that leads to it: a wait in a pipelined loop
 //! lets the newer groups run on.
 //!
-//! What "done" means depends on the work. A warpgroup MMA is done once it wrote its accumulator.
+//! What "done" means depends on the work. A plane group MMA is done once it wrote its accumulator.
 //! A TMA store is done once it read its shared memory source: its writes to global memory may
 //! still be in flight, and are visible once the kernel ends. [`Pending::wait_complete`] also
 //! waits for those writes, for a kernel that hands them to another cube.

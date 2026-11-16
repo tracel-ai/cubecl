@@ -16,9 +16,9 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Semiring, Space,
-    StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
-    ops::{matmul::MmaIo, softmax::OnlineSoftmax},
+    Axis, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
+    TileSpec, TileTensor, TileTensorLaunch,
+    ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -54,7 +54,6 @@ impl Reads for CausalExpand {
 /// Every unit owning `rows` queries: their dot product of the output and its gradient, then, a
 /// step of keys at a time, the gradient against their scores.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn by_queries(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -80,9 +79,7 @@ fn by_queries(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let mut delta_u = delta.at(&unit);
@@ -94,16 +91,20 @@ fn by_queries(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &query_s,
+                    &key_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&query_s, &key_s);
                 score
                     .along(S)
                     .probabilities::<f32>(scale, &bias_s, &logsumexp_u);
-                let mut gradient = bias_s.accumulator::<f32>(
+                let mut gradient = bias_s.register_accumulator::<f32>(
                     &out_gradient_s,
                     &value_s,
-                    instruction,
+                    config,
                     Semiring::SUM_PROD,
                 );
                 gradient.mma(&out_gradient_s, &value_s);
@@ -119,7 +120,6 @@ fn by_queries(
 /// Every unit owning `rows` keys, its scores held keys first: a step of queries at a time, the
 /// gradient against their scores, each query's logsumexp and dot product read along the slices.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn by_keys(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -144,9 +144,7 @@ fn by_keys(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u, value_u) = (query.at(&unit), key.at(&unit), value.at(&unit));
@@ -157,16 +155,20 @@ fn by_keys(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&key_s, &query_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &key_s,
+                    &query_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&key_s, &query_s);
                 score
                     .along(Q)
                     .probabilities::<f32>(scale, &bias_s, &logsumexp_u.at(&step));
-                let mut gradient = bias_s.accumulator::<f32>(
+                let mut gradient = bias_s.register_accumulator::<f32>(
                     &value_s,
                     &out_gradient_s,
-                    instruction,
+                    config,
                     Semiring::SUM_PROD,
                 );
                 gradient.mma(&value_s, &out_gradient_s);
@@ -184,7 +186,6 @@ fn by_keys(
 /// scores taken in the registers that hold them, then drained. Keys first, each cell reads its
 /// query's logsumexp and dot product along its column; queries first, along its row.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn by_plane_fragments(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -199,10 +200,6 @@ fn by_plane_fragments(
     space: Partitioning,
     #[comptime] keys_first: bool,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::default(),
-        operands: MmaOperands::Plain,
-    });
     // The plane owns `rows` and walks `cols`; the score is `rows · colsᵀ` over the head, its
     // gradient against the probabilities `rows' · cols'ᵀ` over the value.
     let (owned, walked) = comptime!(match keys_first {
@@ -218,7 +215,7 @@ fn by_plane_fragments(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let (rows, cols, rows_gradient, cols_gradient) = match comptime!(keys_first) {
+    let (rows, cols, rows_gradient, cols_gradient) = match keys_first {
         true => (
             key.clone(),
             query.clone(),
@@ -245,17 +242,12 @@ fn by_plane_fragments(
                     .stage_for(&walk, StageStorage::Strided, None);
             rows_gradient_s.copy_from(&rows_gradient.at(&plane));
             sync_plane();
-            let scores = Tile::stage_accumulator::<f32>(
-                &walk,
-                comptime!(vec![owned, walked]),
-                &rows_s,
-                instruction,
-            );
+            let scores =
+                Tile::stage_accumulator::<f32>(&walk, comptime!(vec![owned, walked]), &rows_s);
             let gradients = Tile::stage_accumulator::<f32>(
                 &walk,
                 comptime!(vec![owned, walked]),
                 &rows_gradient_s,
-                instruction,
             );
             let (bias_p, logsumexp_p) = (bias.at(&plane), logsumexp.at(&plane));
             let (delta_p, score_gradient_p) = (delta.at(&plane), score_gradient.at(&plane));
@@ -303,7 +295,6 @@ fn by_plane_fragments(
 /// Every unit owning `rows` queries, taking its scores into an online softmax a step of keys at
 /// a time and leaving each query's logsumexp behind.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn logsumexp_of(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
@@ -321,9 +312,7 @@ fn logsumexp_of(
         Causal { keys, queries },
     )
     .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u, bias_u) = (query.at(&unit), key.at(&unit), bias.at(&unit));
@@ -331,8 +320,12 @@ fn logsumexp_of(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &query_s,
+                    &key_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&query_s, &key_s);
                 softmax.step(&score, &bias_s, scale);
             }

@@ -31,7 +31,6 @@ const KI: Axis = Axis(3);
 /// strip of rows, this plane's group of rows, this unit's rows against its share of the
 /// contraction, the leaf running under a block of `budget` scalars.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn quantized_decode(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
@@ -63,7 +62,7 @@ fn quantized_decode(
             for unit in plane {
                 let mut out_unit = out_plane
                     .at(&unit)
-                    .accumulating(comptime!(RegisterBlock::new(budget)), Semiring::SUM_PROD);
+                    .accumulating(comptime!(SoftwareMatmul::new(budget)), Semiring::SUM_PROD);
                 out_unit.mma(
                     &w_plane.at(&unit).mul(&scale_plane.at(&unit)),
                     &x_plane.at(&unit),
@@ -80,7 +79,6 @@ fn quantized_decode(
 /// the accumulator, so a rhs lined along the contraction sums a whole step into one cell and
 /// `RegisterData::mma_scaled` refuses it; the shipping shape thus keeps its accumulator in memory.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn quantized_decode_promoted<E: Numeric>(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
@@ -94,12 +92,10 @@ fn quantized_decode_promoted<E: Numeric>(
     let x = x.tile(&space);
     let scale = scale.tile(&space);
     let out = out.tile(&space);
-    let acc = out.accumulator::<E>(
+    let acc = out.register_accumulator::<E>(
         &w,
         &x,
-        comptime!(Instruction::Registers {
-            config: RegisterBlock::new(budget)
-        }),
+        comptime!(SoftwareMatmul::new(budget)),
         Semiring::SUM_PROD,
     );
     for cube in space {

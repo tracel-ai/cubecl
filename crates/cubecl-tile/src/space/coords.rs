@@ -75,7 +75,7 @@ impl Coords<u32> {
         let mut out = Coords::<u32>::new();
 
         #[unroll]
-        for p in 0..comptime!(values.len()) {
+        for p in 0..values.len() {
             out.push(comptime!(values[p] as u32).runtime());
         }
 
@@ -83,18 +83,31 @@ impl Coords<u32> {
     }
 
     /// The coordinates of a flat row-major index `i` over these extents.
-    /// The leading entry skips the modulo so the divide stays constant for constant extents.
+    ///
+    /// No coordinate more significant than the first whose extents before it are all a constant
+    /// one holds anything, so that one skips the modulo, and those before it are zero: a window
+    /// one row high over a row of runtime length reads its index as is, with no division by the
+    /// length. An index past the extents still lands outside them, on that coordinate. The last
+    /// coordinate is always computed, so even a window of constant ones has one that does.
     pub(crate) fn unravel(&self, i: u32) -> Coords<u32> {
         let n = self.len();
         let mut out = Coords::<u32>::new();
 
         #[unroll]
         for p in 0..n {
-            let quot = i.divided_by(self.product(comptime!(((p + 1)..n).collect::<Vec<_>>())));
-            if comptime!(p == 0) {
-                out.push(quot);
+            let earlier = self
+                .product(comptime!((0..p).collect::<Vec<_>>()))
+                .constant();
+            let own = self.at(p).constant();
+            if comptime!(p + 1 < n && earlier == Some(1) && own == Some(1)) {
+                out.push(0u32);
             } else {
-                out.push(quot.remainder(self.at(p)));
+                let quot = i.divided_by(self.product(comptime!(((p + 1)..n).collect::<Vec<_>>())));
+                if comptime!(earlier == Some(1)) {
+                    out.push(quot);
+                } else {
+                    out.push(quot.remainder(self.at(p)));
+                }
             }
         }
 

@@ -40,7 +40,7 @@ pub(crate) fn cube_positions(
     #[comptime] order: CubeOrder,
 ) -> (usize, usize) {
     let (count_x, count_y) = cubes;
-    match comptime!(order.canonicalize()) {
+    match order.canonicalize() {
         CubeOrder::RowMajor => (flat.remainder(count_x), flat.divided_by(count_x)),
         CubeOrder::SwizzleRow(width) => {
             let (step, along) = swizzle_ragged(flat, count_y, comptime!(width as u32), count_x);

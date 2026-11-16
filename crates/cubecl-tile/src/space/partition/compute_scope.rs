@@ -8,7 +8,7 @@ pub enum ComputeScope {
     Unit,
     Plane,
     /// `planes` consecutive planes, the first a multiple of `planes`, issuing one instruction
-    /// together: a warpgroup MMA's four.
+    /// together: a plane group MMA's four.
     PlaneGroup {
         planes: usize,
     },
@@ -16,9 +16,9 @@ pub enum ComputeScope {
 }
 
 impl ComputeScope {
-    /// The four planes of a warpgroup, which issue each warpgroup MMA together
+    /// The plane group that issues each plane group MMA: four planes together
     /// ([`Instruction::Wgmma`](crate::Instruction::Wgmma)).
-    pub const WARPGROUP: Self = Self::PlaneGroup { planes: 4 };
+    pub const MMA_PLANE_GROUP: Self = Self::PlaneGroup { planes: 4 };
 
     /// The planes one instance of this scope spans, where it spans whole planes.
     pub fn planes(self) -> Option<usize> {
@@ -35,7 +35,7 @@ impl ComputeScope {
     /// This instance's position within `compute_scope`: which plane or plane group of the cube,
     /// or which unit of the plane.
     pub fn position(#[comptime] compute_scope: ComputeScope) -> usize {
-        match comptime!(compute_scope) {
+        match compute_scope {
             ComputeScope::Plane => UNIT_POS_Y as usize,
             ComputeScope::PlaneGroup { planes } => UNIT_POS_Y as usize / planes,
             ComputeScope::Unit => UNIT_POS_X as usize,
@@ -52,7 +52,7 @@ impl ComputeScope {
     /// ([`Partitioning::cube_dim`](crate::Partitioning::cube_dim)), so a unit's position in it is
     /// `UNIT_POS_X`, and a group's planes are consecutive `y`s.
     pub fn unit(#[comptime] compute_scope: ComputeScope) -> usize {
-        match comptime!(compute_scope) {
+        match compute_scope {
             ComputeScope::Cube => UNIT_POS as usize,
             ComputeScope::PlaneGroup { planes } => {
                 (UNIT_POS_Y as usize % planes) * CUBE_DIM_X as usize + UNIT_POS_X as usize

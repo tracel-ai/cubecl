@@ -1,21 +1,24 @@
-//! The software instruction's execution and unrolling configuration ([`RegisterBlock`]).
+//! How the software matmul runs ([`SoftwareMatmul`]): its register budget and unrolling.
 
-/// Execution and unrolling configuration for the software instruction.
+/// How the software matmul runs: the matrix product a unit computes in its own registers, with
+/// no matrix instruction. Its register budget and unrolling choices.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct RegisterBlock {
+pub struct SoftwareMatmul {
     /// Scalar register budget for the accumulator block; blocks over budget stay rolled.
     /// Also limits the tap count eligible for gather-loop unrolling.
     pub budget: usize,
     /// Whether to generate a fast in-bounds path plus checked fallback for edge tiles.
     pub split_edge: bool,
-    /// Whether to walk K as (line, component) rather than as a flat scalar walk.
+    /// Whether an lhs read per cell (per row in the direct nest) is walked as (vector, component)
+    /// at fixed component positions rather than flat. The gather leaf walks an lhs free of the
+    /// columns that way regardless.
     pub component_fanout: bool,
     /// Whether a block contracting an rhs lined along `K` keeps one partial a lane, summed once at
     /// the drain, rather than summing each run into a one-wide cell every step.
     pub partials: bool,
 }
 
-impl RegisterBlock {
+impl SoftwareMatmul {
     /// A budget with neither specialization turned on.
     pub const fn new(budget: usize) -> Self {
         Self {
@@ -34,7 +37,7 @@ impl RegisterBlock {
         }
     }
 
-    /// Walk `K` as (line, component) rather than as a flat scalar walk.
+    /// Walk an lhs read per cell as (vector, component) rather than flat.
     pub const fn component_fanout(self) -> Self {
         Self {
             component_fanout: true,

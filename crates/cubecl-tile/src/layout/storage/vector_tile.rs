@@ -296,8 +296,8 @@ impl VectorTile {
         #[comptime] space: &Space,
         #[comptime] tile: &VectorTile,
     ) -> Coords<u32> {
-        let rank = comptime!(space.rank());
-        let place = Coords::constant(comptime!(tile.counts(space))).unravel(line);
+        let rank = space.rank();
+        let place = Coords::constant(tile.counts(space)).unravel(line);
         let mut coords = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
@@ -312,7 +312,7 @@ impl VectorTile {
         #[comptime] space: &Space,
         #[comptime] tile: &VectorTile,
     ) -> CoordsDyn {
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let mut index = CoordsDyn::new();
         #[unroll]
         for p in 0..rank {
@@ -323,7 +323,7 @@ impl VectorTile {
     }
 }
 
-/// `load.count(&space)`, `load.start(line, &space)`, `load.index(&coords, &space)`: written out by
+/// `load.count(space)`, `load.start(line, space)`, `load.index(&coords, space)`: written out by
 /// hand, since a compile-time value has no kernel-side twin for `#[cube]` to hang a method on.
 impl VectorTile {
     /// How many loads a window spanning `space` holds.

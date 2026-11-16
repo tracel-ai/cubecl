@@ -139,15 +139,24 @@ impl ContractShape {
         self.batch_extents().iter().product()
     }
 
-    /// The block's size in scalars, as [`RegisterBlock::budget`] counts it.
+    /// The block's size in scalars, as [`SoftwareMatmul::budget`] counts it.
     pub(crate) fn scalars(&self) -> usize {
         self.mr * self.nr * self.contracted_per_step * self.aw * self.spread
     }
 
+    /// The fastest contracted axis, the one a walk steps innermost.
+    pub(crate) fn fastest_axis(&self) -> Axis {
+        self.reduce[self.reduce.len() - 1]
+    }
+
+    /// The fastest contracted axis's extent, in scalars.
+    pub(crate) fn fastest_extent(&self) -> usize {
+        self.reduce_extents[self.reduce_extents.len() - 1]
+    }
+
     /// Whether the unit fan-out's fixed extracts stay in step with the flat walk's coordinate.
     pub(crate) fn component_index_exact(&self) -> bool {
-        self.reduce.len() == 1
-            || self.reduce_extents[self.reduce_extents.len() - 1].is_multiple_of(self.lw)
+        self.reduce.len() == 1 || self.fastest_extent().is_multiple_of(self.lw)
     }
 }
 

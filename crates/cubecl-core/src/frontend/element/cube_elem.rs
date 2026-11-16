@@ -64,7 +64,7 @@ pub trait CubePrimitive:
 
 /// Types that contain all the information needed to construct a runtime type. Implemented for most
 /// native types, but not `Array<T>` because it has a size defined at construction.
-pub trait ConstantTyped: CubeType<ExpandType = NativeExpand<Self>> + Sized {
+pub trait ConstantTyped: CubeType + Sized {
     /// Return the element type to use on GPU.
     fn as_type() -> TypeHandle {
         unexpanded!()

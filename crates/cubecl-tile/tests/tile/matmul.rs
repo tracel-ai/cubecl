@@ -10,7 +10,6 @@ use crate::support::{
 use cubecl::{ir::ElemType, prelude::*, std::tensor::TensorHandle, zspace::shape};
 
 use cubecl_tile::launch::Grid;
-use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::space::CubeOrder;
 use cubecl_tile::stage::{Prefetch, RowChunks};
 use cubecl_tile::*;
@@ -48,23 +47,6 @@ pub(crate) fn require_cmma_8x8x8(client: &Client, operands: ElemType, sum: ElemT
     supported
 }
 
-/// The manual-mma twin of [`require_cmma_8x8x8_f32`]. The *shape*, not just the feature: a
-/// backend can advertise manual mma and offer only `16x16x16` (gfx1151 does), and running `8x8x8`
-/// there is an instruction the hardware lacks: it reads back zeros, which looks like a leaf bug.
-fn require_mma_8x8x8_f32(client: &Client) -> bool {
-    let f32_ty = f32::elem_type_native();
-    let supported = client.properties().features.matmul.mma.iter().any(|cfg| {
-        cfg.a_type == f32_ty
-            && cfg.b_type == f32_ty
-            && cfg.cd_type == f32_ty
-            && (cfg.m, cfg.n, cfg.k) == (8, 8, 8)
-    });
-    if !supported {
-        ValidationResult::Skipped("backend offers no 8x8x8 f32 manual mma".to_string()).enforce();
-    }
-    supported
-}
-
 // Matmul's axes: the labels this client gives the engine's opaque `Axis`. `B`
 // is the leading batch axis; `M`/`N`/`K` are the matrix axes.
 const M: Axis = Axis(0);
@@ -82,7 +64,7 @@ const K2: Axis = Axis(6);
 
 /// The software instruction most tests contract through: a 16-cell budget, no edge split, no
 /// unit fan-out.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The kernel-side level of one cube naming nothing: the whole space is its box.
 fn one_cube() -> Level {
@@ -144,7 +126,7 @@ fn matmul_in_place<E: Numeric>(
     #[comptime] outer: Level,
     #[comptime] runs: Option<Level>,
     #[comptime] inner: Level,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -152,29 +134,13 @@ fn matmul_in_place<E: Numeric>(
     let b = b.tile(&space);
     let c = c.tile(&space);
     for outer in space.over(&outer) {
-        match comptime!(runs.clone()) {
+        match runs.clone() {
             Some(runs) => {
                 for run in outer.over(&runs) {
-                    contract_in_place::<E>(
-                        &a,
-                        &b,
-                        &c,
-                        &run,
-                        comptime!(inner.clone()),
-                        config,
-                        semiring,
-                    );
+                    contract_in_place::<E>(&a, &b, &c, &run, inner.clone(), config, semiring);
                 }
             }
-            None => contract_in_place::<E>(
-                &a,
-                &b,
-                &c,
-                &outer,
-                comptime!(inner.clone()),
-                config,
-                semiring,
-            ),
+            None => contract_in_place::<E>(&a, &b, &c, &outer, inner.clone(), config, semiring),
         }
     }
 }
@@ -188,7 +154,7 @@ fn contract_in_place<E: Numeric>(
     c: &Tile,
     owned: &Region,
     #[comptime] inner: Level,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     // This instance's windows of `c`, each initialized once: the level projected onto `c`'s
@@ -196,7 +162,7 @@ fn contract_in_place<E: Numeric>(
     let c_o = c.at(owned);
     for region in c_o.over(&inner) {
         let mut c_w = c_o.at(&region);
-        c_w.init::<E>(Monoid::identity::<E>(comptime!(semiring.add())));
+        c_w.init::<E>(Monoid::identity::<E>(semiring.add()));
     }
     for region in owned.over(&inner) {
         let mut c_r = c.at(&region).accumulating(config, semiring);
@@ -222,13 +188,13 @@ fn matmul_smem_ring(
     let b = b.tile(&space);
     let c = c.tile(&space);
     for cube in space.over(&cubes) {
-        match comptime!(runs.clone()) {
+        match runs.clone() {
             Some(runs) => {
                 for run in cube.over(&runs) {
-                    contract_staged(&a, &b, &c, &run, comptime!(steps.clone()), depth);
+                    contract_staged(&a, &b, &c, &run, steps.clone(), depth);
                 }
             }
-            None => contract_staged(&a, &b, &c, &cube, comptime!(steps.clone()), depth),
+            None => contract_staged(&a, &b, &c, &cube, steps.clone(), depth),
         }
     }
 }
@@ -256,7 +222,7 @@ fn contract_staged(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
@@ -288,7 +254,7 @@ fn matmul_smem_ring_scheduled(
             let mut c_w = c.at(&region);
             c_w.zero();
         }
-        let walk = match comptime!(unrolled) {
+        let walk = match unrolled {
             true => cube.over(&steps).unrolled(),
             false => cube.over(&steps),
         };
@@ -320,7 +286,7 @@ fn matmul_smem_ring_scheduled(
 #[cube]
 fn contract_on_the_last_unit(c: &Tile, a: &Tile, b: &Tile) {
     if UNIT_POS == CUBE_DIM - 1 {
-        let mut c = c.clone().accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+        let mut c = c.clone().accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c.mma(a, b);
     }
 }
@@ -344,7 +310,7 @@ fn matmul_smem_ring_accumulate(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
@@ -370,7 +336,7 @@ fn matmul_lhs_smem_ring(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let b_r = b.at(region);
         slot.consume(|a_s| {
             c_r.mma(a_s, &b_r);
@@ -410,7 +376,7 @@ fn matmul_padded_rhs_stage(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         let a_r = a.at(region);
         slot.consume(|b_s| {
             c_r.mma(&a_r, b_s);
@@ -455,7 +421,7 @@ fn matmul_padded_lhs_stage_two_levels(
         stages.pipelined(walk, |slot, region| {
             let mut c_r = c_o
                 .at(region)
-                .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
             let b_r = b_o.at(region);
             slot.consume(|a_s| {
                 c_r.mma(a_s, &b_r);
@@ -489,7 +455,7 @@ fn matmul_two_levels_smem_then_in_place(
             for cell in region.over(&inner) {
                 let mut c_r = c_o
                     .at(&cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                 c_r.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -519,23 +485,16 @@ fn matmul_two_levels_smem_then_smem(
         c_w.zero();
     }
     let walk = space.over(&outer);
-    let mut stages = Stages::smem(&walk, &a, &b, comptime!(storage.clone()), depth_outer, None);
+    let mut stages = Stages::smem(&walk, &a, &b, storage.clone(), depth_outer, None);
     stages.pipelined(walk, |slot, region| {
         let c_o = c.at(region);
         slot.consume(|a_s, b_s| {
             let cells = region.over(&inner);
-            let mut inner_ring = Stages::smem(
-                &cells,
-                a_s,
-                b_s,
-                comptime!(storage.clone()),
-                depth_inner,
-                None,
-            );
+            let mut inner_ring = Stages::smem(&cells, a_s, b_s, storage.clone(), depth_inner, None);
             inner_ring.pipelined(cells, |slot, cell| {
                 let mut c_r = c_o
                     .at(cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                 slot.consume(|a_i, b_i| {
                     c_r.mma(a_i, b_i);
                 });
@@ -554,19 +513,14 @@ fn promoted_matmul_in_place<EA: Numeric>(
     c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config }),
-        semiring,
-    );
+    let acc = c.register_accumulator::<EA>(&a, &b, config, semiring);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         acc_r.mma(&a.at(&region), &b.at(&region));
@@ -582,7 +536,7 @@ fn promoted_matmul_two_levels_in_place<EA: Numeric>(
     b: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -593,12 +547,7 @@ fn promoted_matmul_two_levels_in_place<EA: Numeric>(
             let c_p = c.at(&plane);
             let a_p = a.at(&plane);
             let b_p = b.at(&plane);
-            let acc = c_p.accumulator::<EA>(
-                &a_p,
-                &b_p,
-                comptime!(Instruction::Registers { config }),
-                Semiring::SUM_PROD,
-            );
+            let acc = c_p.register_accumulator::<EA>(&a_p, &b_p, config, Semiring::SUM_PROD);
             for step in plane {
                 let mut acc_s = acc.at(&step);
                 acc_s.mma(&a_p.at(&step), &b_p.at(&step));
@@ -624,14 +573,7 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for outer in space.over(&outer) {
         let acc_o = acc.at(&outer);
         let a_o = a.at(&outer);
@@ -667,44 +609,9 @@ fn cmma_matmul_k_walk<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);
-    stages.pipelined(walk, |slot, region| {
-        let mut acc_r = acc.at(region);
-        slot.consume(|a_s, b_s| {
-            acc_r.mma(a_s, b_s);
-        });
-    });
-    acc.drained_into(&c);
-}
-
-/// [`cmma_matmul_k_walk`] through the manual-mma instruction, whose fragment transports are
-/// `io`'s.
-#[cube(launch)]
-fn mma_matmul_k_walk<E: Numeric>(
-    a: &TileTensor<'_>,
-    b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
-    space: Partitioning,
-    #[comptime] level: Level,
-    #[comptime] io: MmaIo,
-    #[define(E)] _dtype: ElemType,
-) {
-    let a = a.tile(&space);
-    let b = b.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Mma {
-            io,
-            operands: MmaOperands::Plain,
-        }),
-        Semiring::SUM_PROD,
-    );
-    let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut acc_r = acc.at(region);
         slot.consume(|a_s, b_s| {
@@ -731,7 +638,7 @@ fn cmma_matmul_two_levels_planes<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&outer);
     let mut stages = Stages::smem(
         &walk,
@@ -779,7 +686,7 @@ fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
         &walk,
@@ -831,7 +738,7 @@ fn cmma_matmul_partition_in_one_call<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
         &walk,
@@ -881,7 +788,7 @@ fn cmma_matmul_five_levels<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
         &walk,
@@ -1708,7 +1615,7 @@ fn check_matmul_cpu(m: usize, n: usize, k: usize, levels: Vec<Level>) {
         launcher.partitioning().level(0),
         runs,
         inner,
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -1760,7 +1667,7 @@ fn matmul_cpu_dynamic_k() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -1811,7 +1718,7 @@ fn register_matmul_unit_spread_n() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2296,7 +2203,7 @@ fn matmul_direct_vectorized() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2498,7 +2405,7 @@ fn register_matmul_promoted_accumulator() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         dtype,
     );
@@ -2545,7 +2452,7 @@ fn tropical_matmul_in_place() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::MIN_SUM,
         f32::elem_type_native(),
     );
@@ -2604,7 +2511,7 @@ fn tropical_matmul_promoted() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::MAX_SUM,
         dtype,
     );
@@ -2671,7 +2578,7 @@ fn register_matmul_promoted_cube_plane() {
         b.arg(&launcher, 2),
         c.arg(&launcher, 2),
         launcher.partitioning_arg(),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2743,12 +2650,10 @@ fn plane_staged_matmul<E: Numeric>(
             let c_p = c.at(&plane);
             let a_p = a.at(&plane);
             let b_p = b.at(&plane);
-            let acc = c_p.accumulator::<E>(
+            let acc = c_p.register_accumulator::<E>(
                 &a_p,
                 &b_p,
-                comptime!(Instruction::Registers {
-                    config: REGISTER_BLOCK
-                }),
+                comptime!(SOFTWARE_MATMUL),
                 Semiring::SUM_PROD,
             );
             let walk = plane.walk();
@@ -2764,19 +2669,18 @@ fn plane_staged_matmul<E: Numeric>(
     }
 }
 
-/// One body, whatever a plane contracts through: the instruction is an argument, stated once to
-/// [`Tile::accumulator`].
+/// One body, whatever a plane sums into: a register block of `registers`, or the matrix
+/// instruction the device offers where `None`, picked by [`Tile::accumulator`].
 ///
-/// The kernel a derivation writes when it elects a form from what the device offers. It matches
-/// on nothing: the register form reads its operands out of the tiles it was handed and the
-/// matrix forms load fragments, and that difference is the engine's.
+/// Past the accumulator it matches on nothing: the register form reads its operands out of the
+/// tiles it was handed and the matrix forms load fragments, and that difference is the engine's.
 #[cube(launch)]
-fn matmul_on_a_stated_instruction<EA: Numeric>(
+fn matmul_on_either_sum<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     c: &TileTensor<'_>,
     space: Partitioning,
-    #[comptime] instruction: Instruction,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -2787,7 +2691,12 @@ fn matmul_on_a_stated_instruction<EA: Numeric>(
             let c_p = c.at(&plane);
             let a_p = a.at(&plane);
             let b_p = b.at(&plane);
-            let acc = c_p.accumulator::<EA>(&a_p, &b_p, instruction, Semiring::SUM_PROD);
+            let acc = match registers {
+                Some(config) => {
+                    c_p.register_accumulator::<EA>(&a_p, &b_p, config, Semiring::SUM_PROD)
+                }
+                None => c_p.accumulator::<EA>(&a_p, &b_p, Semiring::SUM_PROD),
+            };
             for step in plane {
                 let mut acc_s = acc.at(&step);
                 acc_s.mma(&a_p.at(&step), &b_p.at(&step));
@@ -2797,13 +2706,13 @@ fn matmul_on_a_stated_instruction<EA: Numeric>(
     }
 }
 
-/// The register form of [`matmul_on_a_stated_instruction`], which every device runs.
+/// The register form of [`matmul_on_either_sum`], which every device runs.
 ///
-/// What it proves is that the pair is form-blind on the side that asks nothing of the hardware:
+/// What it proves is that the body is form-blind on the side that asks nothing of the hardware:
 /// `operand` hands a register block the tile it was given, so a kernel written for a fragment
-/// form runs unchanged without one; the cmma form is [`instruction_stated_once_runs_on_cmma`].
+/// form runs unchanged without one.
 #[test]
-fn instruction_stated_once_runs_in_registers() {
+fn one_body_runs_in_registers() {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 16usize);
     let (leaf_m, leaf_n, leaf_k) = (2usize, 2usize, 4usize);
@@ -2831,7 +2740,7 @@ fn instruction_stated_once_runs_in_registers() {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    matmul_on_a_stated_instruction::launch(
+    matmul_on_either_sum::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -2839,9 +2748,7 @@ fn instruction_stated_once_runs_in_registers() {
         b.arg(&launcher, 1),
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
-        Instruction::Registers {
-            config: REGISTER_BLOCK,
-        },
+        Some(SOFTWARE_MATMUL),
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2945,7 +2852,7 @@ fn register_matmul_lined_lhs() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -2982,7 +2889,7 @@ fn register_matmul_promoted_lined_lhs() {
         c.arg(&launcher, 2),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        REGISTER_BLOCK,
+        SOFTWARE_MATMUL,
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3031,7 +2938,7 @@ fn check_summing_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budg
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        RegisterBlock::new(budget),
+        SoftwareMatmul::new(budget),
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -3061,18 +2968,18 @@ fn register_matmul_summing_step_rolled() {
 /// the output between regions, hence [`a_promoted_folded_step_sums_wider_than_its_output`].
 #[test]
 fn register_matmul_promoted_summing_step() {
-    check_promoted_summing_step(RegisterBlock::new(64));
+    check_promoted_summing_step(SoftwareMatmul::new(64));
 }
 
 /// [`register_matmul_promoted_summing_step`] with the block opened for partials: each cell a line
 /// of the run's products, a lane each, summed once at the drain rather than every step.
 #[test]
 fn register_matmul_promoted_partials_step() {
-    check_promoted_summing_step(RegisterBlock::new(64).partials());
+    check_promoted_summing_step(SoftwareMatmul::new(64).partials());
 }
 
 /// A promoted block under `config` contracting two operands lined along `K` into a scalar output.
-fn check_promoted_summing_step(config: RegisterBlock) {
+fn check_promoted_summing_step(config: SoftwareMatmul) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 8usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3117,18 +3024,18 @@ fn check_promoted_summing_step(config: RegisterBlock) {
 /// the only way such a weight contracts.
 #[test]
 fn a_promoted_summing_step_sums_wider_than_its_output() {
-    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64));
+    check_a_promoted_step_sums_wider_than_its_output(SoftwareMatmul::new(64));
 }
 
 /// [`a_promoted_summing_step_sums_wider_than_its_output`] with the block opened for partials: the
 /// lanes are summed at the drain in `f32`, before the cast down to the output's `f16`.
 #[test]
 fn a_promoted_partials_step_sums_wider_than_its_output() {
-    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64).partials());
+    check_a_promoted_step_sums_wider_than_its_output(SoftwareMatmul::new(64).partials());
 }
 
 /// A `1x1` cell of an `f16` output summing `4096` products of one in `f32` under `config`.
-fn check_a_promoted_step_sums_wider_than_its_output(config: RegisterBlock) {
+fn check_a_promoted_step_sums_wider_than_its_output(config: SoftwareMatmul) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (1usize, 1usize, 4096usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3225,7 +3132,7 @@ fn register_matmul_summing_step_two_contracted_axes() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        RegisterBlock::new(64),
+        SoftwareMatmul::new(64),
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -3302,7 +3209,7 @@ fn register_matmul_unit_group_reduce() {
         one_cube(),
         None,
         launcher.partitioning().level(0),
-        RegisterBlock::new(edge * n),
+        SoftwareMatmul::new(edge * n),
         Semiring::SUM_PROD,
         f32::elem_type_native(),
     );
@@ -3349,7 +3256,7 @@ fn register_matmul_promoted_unit_group_reduce() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(edge * n),
+        SoftwareMatmul::new(edge * n),
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3394,7 +3301,7 @@ fn register_matmul_promoted_summing_step_unit_group_reduce() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(edge * n),
+        SoftwareMatmul::new(edge * n),
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3465,6 +3372,57 @@ fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
 #[test]
 fn cmma_matmul_staged_k_walk_transposed_operands() {
     check_cmma_matmul_k_walk_with(16, 1, 1, StageLayout::Strided, Transposed::Both);
+}
+
+/// A plane holding a tile wider than any instruction, its nest stating no instruction: the tile
+/// cuts the plane's `16 × 32` into the calls of the instruction it picks (`8 × 8` cells on Metal),
+/// and the drain lays each cell where it lies.
+#[test]
+fn a_plane_tile_wider_than_its_instruction_is_cut_by_the_tile() {
+    let client = cubecl::test_device().client();
+    if !require_cmma_8x8x8_f32(&client) {
+        return;
+    }
+
+    let (m, n, k) = (16usize, 32usize, 32usize);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, m), (N, n), (K, 8)])
+                .walk_every(&[M, N, K])
+                .build(),
+        ),
+        Form::Static,
+    );
+    for layout in [StageLayout::Strided, StageLayout::Tiled] {
+        for v in [1, 4] {
+            let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+                .untiled()
+                .arange();
+            let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
+                .untiled()
+                .arange();
+            // Poisoned, not zeroed: the kernel zeroes the accumulator.
+            let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
+                .untiled()
+                .uniform(4242, 10., 100.);
+            cmma_matmul_k_walk::launch(
+                &client,
+                launcher.cube_count(),
+                launcher.cube_dim(),
+                a.arg(&launcher, v),
+                b.arg(&launcher, v),
+                c.arg(&launcher, v),
+                launcher.partitioning_arg(),
+                launcher.partitioning().level(0),
+                layout.storage(&launcher),
+                1,
+                f32::elem_type_native(),
+            );
+            assert_matmul_arange(&client, c.handle(), m, n, k);
+        }
+    }
 }
 
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
@@ -3569,14 +3527,13 @@ fn check_cmma_matmul_k_walk_with(
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-/// [`cmma_matmul_k_walk`] with the instruction stated rather than picked: one body, launched at
-/// a register block and at cmma.
+/// [`cmma_matmul_k_walk`] as one body, launched at a register block of `registers` and, where
+/// `None`, at the matrix instruction [`Tile::accumulator`] picks.
 ///
-/// The whole of the difference between the two is the argument. Nothing below matches on it —
-/// [`Tile::accumulator`] opens what the plane sums into, and `mma` reads the staged operands the
-/// way that accumulator wants them.
+/// The whole of the difference between the two is the accumulator. Nothing below matches on it:
+/// `mma` reads the staged operands the way that accumulator wants them.
 #[cube(launch)]
-fn staged_matmul_on_a_stated_instruction<E: Numeric>(
+fn staged_matmul_on_either_sum<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     c: &TileTensor<'_>,
@@ -3584,13 +3541,16 @@ fn staged_matmul_on_a_stated_instruction<E: Numeric>(
     #[comptime] level: Level,
     #[comptime] storage: StageStorage,
     #[comptime] depth: usize,
-    #[comptime] instruction: Instruction,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, instruction, Semiring::SUM_PROD);
+    let acc = match registers {
+        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SUM_PROD),
+        None => c.accumulator::<E>(&a, &b, Semiring::SUM_PROD),
+    };
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);
     stages.pipelined(walk, |slot, region| {
@@ -3602,20 +3562,33 @@ fn staged_matmul_on_a_stated_instruction<E: Numeric>(
     acc.drained_into(&c);
 }
 
-/// A grid of manual-mma fragments over `f16` operands, contracted out of a shared stage a slice of
+/// A grid of manual-mma fragments over `f16` operands, the instruction a `16×8` leaf gets,
+/// contracted out of a shared stage a slice of
 /// `K` at a time: each slice loads the grid's `B` fragments once, two to one `ldmatrix`, beside
 /// the `A` column. `B` is stored `{K, N}`, its fragments neighbours along the stage's columns, or
 /// `{N, K}`, neighbours along its rows; both read back the host's product, small integers summed
 /// exactly in `f32`.
 #[test]
 fn mma_grid_loads_b_fragments_two_at_a_time() {
+    check_b_fragments_two_at_a_time(16);
+}
+
+/// The same at `16x8x8`, whose `B` fragment is one matrix, so a pair is an x2 load that the
+/// plane's last sixteen units still hand an address to.
+#[test]
+fn mma_grid_loads_b_fragments_of_one_matrix_two_at_a_time() {
+    check_b_fragments_two_at_a_time(8);
+}
+
+/// [`mma_grid_loads_b_fragments_two_at_a_time`] at an instruction `depth` deep along `K`.
+fn check_b_fragments_two_at_a_time(depth: usize) {
     let client = cubecl::test_device().client();
     let (f16_ty, f32_ty) = (f16::elem_type_native(), f32::elem_type_native());
     let supported = client.properties().features.matmul.mma.iter().any(|cfg| {
         cfg.a_type == f16_ty
             && cfg.b_type == f16_ty
             && cfg.cd_type == f32_ty
-            && (cfg.m, cfg.n, cfg.k) == (16, 8, 16)
+            && (cfg.m, cfg.n, cfg.k as usize) == (16, 8, depth)
     }) && client
         .properties()
         .features
@@ -3623,9 +3596,9 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
         .ldmatrix
         .contains(&f16_ty);
     if !supported {
-        ValidationResult::Skipped(
-            "device offers no 16x8x16 f16 manual mma read by ldmatrix".into(),
-        )
+        ValidationResult::Skipped(format!(
+            "device offers no 16x8x{depth} f16 manual mma read by ldmatrix"
+        ))
         .enforce();
         return;
     }
@@ -3635,9 +3608,9 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
         &client,
         Partitioning::new(
             Space::new(&[(M, m), (N, n), (K, k)]),
-            Levels::leaf(&[(M, 16), (N, 8), (K, 16)])
+            Levels::leaf(&[(M, 16), (N, 8), (K, depth)])
                 .walk(&[(M, m / 16), (N, n / 8)])
-                .walk(&[(K, k / 16)])
+                .walk(&[(K, k / depth)])
                 .build(),
         ),
         Form::Static,
@@ -3673,7 +3646,7 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
         let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
             .untiled()
             .uniform(4242, 10., 100.);
-        staged_matmul_on_a_stated_instruction::launch(
+        staged_matmul_on_either_sum::launch(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
@@ -3684,10 +3657,7 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
             launcher.partitioning().level(0),
             StageStorage::Strided,
             1,
-            Instruction::Mma {
-                io: MmaIo::default(),
-                operands: MmaOperands::Plain,
-            },
+            None,
             f32_ty,
         );
         let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
@@ -3700,28 +3670,27 @@ fn mma_grid_loads_b_fragments_two_at_a_time() {
 
 /// The staged body at a register block, which every device runs.
 #[test]
-fn one_staged_body_at_a_register_block() {
-    check_staged_matmul_on_a_stated_instruction(Instruction::Registers {
-        config: REGISTER_BLOCK,
-    });
+fn one_staged_body_at_a_software_matmul() {
+    check_staged_matmul_on_either_sum(Some(SOFTWARE_MATMUL));
 }
 
-/// The same body at cmma, on a device that offers `8x8x8`.
+/// The same body at the matrix instruction the accumulator picks, cmma on a device that offers
+/// `8x8x8`.
 ///
-/// The pair of tests is the claim the stated instruction exists for: a kernel whose form is
-/// *data* is written once. Two tests rather than one loop, so a device without tensor cores
-/// reports the cmma leg as skipped instead of quietly running half the claim.
+/// The pair of tests is the claim: a kernel is written once, whatever its sum holds. Two tests
+/// rather than one loop, so a device without tensor cores reports the cmma leg as skipped instead
+/// of quietly running half the claim.
 #[test]
 fn one_staged_body_at_cmma() {
     let client = cubecl::test_device().client();
     if !require_cmma_8x8x8_f32(&client) {
         return;
     }
-    check_staged_matmul_on_a_stated_instruction(Instruction::Cmma);
+    check_staged_matmul_on_either_sum(None);
 }
 
-/// [`staged_matmul_on_a_stated_instruction`] against the arange reference, at whichever form.
-fn check_staged_matmul_on_a_stated_instruction(instruction: Instruction) {
+/// [`staged_matmul_on_either_sum`] against the arange reference, at whichever form.
+fn check_staged_matmul_on_either_sum(registers: Option<SoftwareMatmul>) {
     let client = cubecl::test_device().client();
     let (m, n, k, edge) = (8usize, 8usize, 16usize, 8usize);
     let launcher = implied(
@@ -3744,7 +3713,7 @@ fn check_staged_matmul_on_a_stated_instruction(instruction: Instruction) {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    staged_matmul_on_a_stated_instruction::launch(
+    staged_matmul_on_either_sum::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -3755,107 +3724,7 @@ fn check_staged_matmul_on_a_stated_instruction(instruction: Instruction) {
         launcher.partitioning().level(0),
         StageLayout::Tiled.storage(&launcher),
         1,
-        instruction,
-        f32::elem_type_native(),
-    );
-    assert_matmul_arange(&client, c.handle(), m, n, k);
-}
-
-/// The raw-mma twin of `cmma_matmul_staged_k_walk`: the same open → zero → mma → drain kernel,
-/// but the contraction runs through `MmaDefinition::execute` over register fragments rather than
-/// the cooperative `cmma::execute`.
-///
-/// Gated on the backend exposing the manual-mma feature (`features.matmul.mma`); uses the
-/// universal manual transport (`MmaIo::manual()`), so no `ldmatrix`/`stmatrix` path is
-/// taken. Run with `cargo test-metal` / `test-cuda` on a backend that advertises manual mma.
-#[test]
-fn mma_matmul_8x8x8() {
-    let client = cubecl::test_device().client();
-    if !require_mma_8x8x8_f32(&client) {
-        return;
-    }
-
-    let (m, n, k, edge) = (8usize, 8usize, 8usize, 8usize);
-    let launcher = implied(
-        &client,
-        Partitioning::new(
-            Space::new(&[(M, m), (N, n), (K, k)]),
-            Levels::leaf(&[(M, edge), (N, edge), (K, edge)])
-                .walk_every(&[M, N, K])
-                .build(),
-        ),
-        Form::Static,
-    );
-
-    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
-        .untiled()
-        .arange();
-    let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
-        .untiled()
-        .arange();
-    // Poisoned, not zeroed: the kernel zeroes the accumulator fragment.
-    let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
-        .untiled()
-        .uniform(4242, 10., 100.);
-
-    mma_matmul_k_walk::launch(
-        &client,
-        launcher.cube_count(),
-        launcher.cube_dim(),
-        a.arg(&launcher, 1),
-        b.arg(&launcher, 1),
-        c.arg(&launcher, 1),
-        launcher.partitioning_arg(),
-        launcher.partitioning().level(0),
-        MmaIo::manual(),
-        f32::elem_type_native(),
-    );
-    assert_matmul_arange(&client, c.handle(), m, n, k);
-}
-
-/// [`mma_matmul_8x8x8`] with a stage four instructions deep: the fragment is read off the shared
-/// stage one instruction's `k` at a time, whatever layout the target's registers take, and the
-/// steps sum into one accumulator.
-#[test]
-fn mma_matmul_8x8x8_four_instructions_deep() {
-    let client = cubecl::test_device().client();
-    if !require_mma_8x8x8_f32(&client) {
-        return;
-    }
-
-    let (m, n, k) = (8usize, 8usize, 32usize);
-    let launcher = implied(
-        &client,
-        Partitioning::new(
-            Space::new(&[(M, m), (N, n), (K, k)]),
-            Levels::leaf(&[(M, m), (N, n), (K, k)])
-                .walk_every(&[M, N, K])
-                .build(),
-        ),
-        Form::Static,
-    );
-
-    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
-        .untiled()
-        .arange();
-    let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
-        .untiled()
-        .arange();
-    // Poisoned, not zeroed: the kernel zeroes the accumulator fragment.
-    let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
-        .untiled()
-        .uniform(4242, 10., 100.);
-
-    mma_matmul_k_walk::launch(
-        &client,
-        launcher.cube_count(),
-        launcher.cube_dim(),
-        a.arg(&launcher, 1),
-        b.arg(&launcher, 1),
-        c.arg(&launcher, 1),
-        launcher.partitioning_arg(),
-        launcher.partitioning().level(0),
-        MmaIo::manual(),
+        registers,
         f32::elem_type_native(),
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -4117,13 +3986,27 @@ fn cmma_matmul_multi_fragment_partition() {
 /// walks the level below it, which steps `K` as well as the cells. Tensor-core only.
 #[test]
 fn cmma_matmul_partition_contracts_in_one_call() {
+    check_cmma_matmul_partition_in_one_call(32, 16);
+}
+
+/// A plane's partition of one fragment contracted in one call steps `K` as a grid does: one
+/// `8x8x8` fragment under a walk of two steps of `K`, never one fragment `16` deep, which a device
+/// offering only `8x8x8` (Metal) fails to compile. Tensor-core only.
+#[test]
+fn cmma_matmul_one_fragment_partition_steps_k() {
+    check_cmma_matmul_partition_in_one_call(16, 8);
+}
+
+/// [`cmma_matmul_partition_in_one_call`] on an `m × m` output, `k = 32` staged `16` at a time,
+/// each plane's partition `part` square, of `8x8x8` fragments.
+fn check_cmma_matmul_partition_in_one_call(m: usize, part: usize) {
     let client = cubecl::test_device().client();
     if !require_cmma_8x8x8_f32(&client) {
         return;
     }
 
-    let (m, n, k) = (32usize, 32usize, 32usize);
-    let (part, i, stage_k) = (16usize, 8usize, 16usize);
+    let (n, k) = (m, 32usize);
+    let (i, stage_k) = (8usize, 16usize);
     let launcher = implied(
         &client,
         Partitioning::new(

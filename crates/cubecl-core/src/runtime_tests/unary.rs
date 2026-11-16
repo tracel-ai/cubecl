@@ -679,6 +679,134 @@ test_unary_impl!(test_sqrt, F, Vector::sqrt, [
     }
 ]);
 
+// Multiples of 90 are where `sin(to_radians(x))` misses 0 and ±1.
+test_unary_impl!(test_sind, F, sind, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 30., 90., 180., -90., 270., 360., 390.],
+        expected: as_type![F: 0., 0.5, 1., 0., -1., -1., 0., 0.5]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 30., 90., 180., -90., 270., 360., 390.],
+        expected: as_type![F: 0., 0.5, 1., 0., -1., -1., 0., 0.5]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 30., 90., 180., -90., 270., 360., 390.],
+        expected: as_type![F: 0., 0.5, 1., 0., -1., -1., 0., 0.5]
+    }
+]);
+
+test_unary_impl!(test_cosd, F, cosd, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 60., 90., 180., -90., 270., 360., 120.],
+        expected: as_type![F: 1., 0.5, 0., -1., 0., 0., 1., -0.5]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 60., 90., 180., -90., 270., 360., 120.],
+        expected: as_type![F: 1., 0.5, 0., -1., 0., 0., 1., -0.5]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 60., 90., 180., -90., 270., 360., 120.],
+        expected: as_type![F: 1., 0.5, 0., -1., 0., 0., 1., -0.5]
+    }
+]);
+
+test_unary_impl!(test_tand, F, tand, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 45., 60., -45., 135., 180., 225., -30.],
+        expected: as_type![F: 0., 1., 1.732_050_8, -1., -1., 0., 1., -0.577_350_26]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 45., 60., -45., 135., 180., 225., -30.],
+        expected: as_type![F: 0., 1., 1.732_050_8, -1., -1., 0., 1., -0.577_350_26]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 45., 60., -45., 135., 180., 225., -30.],
+        expected: as_type![F: 0., 1., 1.732_050_8, -1., -1., 0., 1., -0.577_350_26]
+    }
+]);
+
+// `f16` holds 180 to within 0.125, as in `test_degrees`.
+test_unary_impl!(test_asind, F, asind, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 0.5, 1., -0.5, -1., 0.707_106_77, -0.866_025_4, 0.],
+        expected: as_type![F: 0., 30., 90., -30., -90., 45., -60., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 0.5, 1., -0.5, -1., 0.707_106_77, -0.866_025_4, 0.],
+        expected: as_type![F: 0., 30., 90., -30., -90., 45., -60., 0.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 0.5, 1., -0.5, -1., 0.707_106_77, -0.866_025_4, 0.],
+        expected: as_type![F: 0., 30., 90., -30., -90., 45., -60., 0.]
+    }
+], 0.3);
+
+test_unary_impl!(test_acosd, F, acosd, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1., 0.5, 0., -0.5, -1., 0.707_106_77, -0.866_025_4, 1.],
+        expected: as_type![F: 0., 60., 90., 120., 180., 45., 150., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 1., 0.5, 0., -0.5, -1., 0.707_106_77, -0.866_025_4, 1.],
+        expected: as_type![F: 0., 60., 90., 120., 180., 45., 150., 0.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 1., 0.5, 0., -0.5, -1., 0.707_106_77, -0.866_025_4, 1.],
+        expected: as_type![F: 0., 60., 90., 120., 180., 45., 150., 0.]
+    }
+], 0.3);
+
+test_unary_impl!(test_atand, F, atand, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., -1., 1.732_050_8, -0.577_350_26, 1000., -1000., 0.],
+        expected: as_type![F: 0., 45., -45., 60., -30., 89.942_7, -89.942_7, 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., -1., 1.732_050_8, -0.577_350_26, 1000., -1000., 0.],
+        expected: as_type![F: 0., 45., -45., 60., -30., 89.942_7, -89.942_7, 0.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., -1., 1.732_050_8, -0.577_350_26, 1000., -1000., 0.],
+        expected: as_type![F: 0., 45., -45., 60., -30., 89.942_7, -89.942_7, 0.]
+    }
+], 0.3);
+
 test_unary_impl!(test_degrees, F, Vector::to_degrees, [
     {
         input_vectorization: 1,
@@ -1124,6 +1252,59 @@ test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, Vector::trailing_zeros, 
     }
 ]);
 
+#[cube(launch_unchecked)]
+fn non_finite_constants_kernel<F: Float>(scalars: &mut [F], vectors: &mut [Vector<F, Const<4>>]) {
+    if ABSOLUTE_POS == 0 {
+        scalars[0] = F::new(f64::INFINITY);
+        scalars[1] = F::new(f64::NEG_INFINITY);
+        scalars[2] = F::new(f64::NAN);
+        vectors[0] = Vector::new(F::new(f64::INFINITY));
+        vectors[1] = Vector::new(F::new(f64::NEG_INFINITY));
+        vectors[2] = Vector::new(F::new(f64::NAN));
+    }
+}
+
+/// Infinite and NaN constants compile and keep their value, as scalars and vector splats.
+pub fn test_non_finite_constants<
+    R: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: Client,
+) {
+    let scalars = client.empty(3 * size_of::<F>());
+    let vectors = client.empty(3 * 4 * size_of::<F>());
+    unsafe {
+        non_finite_constants_kernel::launch_unchecked::<F>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(scalars.clone(), 3),
+            BufferArg::from_raw_parts(vectors.clone(), 3 * 4),
+        );
+    }
+
+    let scalars = client.read_one_unchecked(scalars);
+    let vectors = client.read_one_unchecked(vectors);
+    let scalars = F::from_bytes(&scalars);
+    let vectors = F::from_bytes(&vectors);
+    assert_eq!(scalars.len(), 3, "a failed launch reads back nothing");
+    for (i, value) in scalars.iter().chain(vectors).enumerate() {
+        // Each scalar, then each vector's four lanes: +inf, -inf, NaN.
+        let which = if i < 3 { i } else { (i - 3) / 4 };
+        let value = num_traits::ToPrimitive::to_f64(value).unwrap();
+        let ok = match which {
+            0 => value.is_infinite() && value.is_sign_positive(),
+            1 => value.is_infinite() && value.is_sign_negative(),
+            _ => value.is_nan(),
+        };
+        assert!(
+            ok,
+            "value {i} is {value}, expected {}",
+            ["inf", "-inf", "NaN"][which]
+        );
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_unary {
@@ -1143,6 +1324,7 @@ macro_rules! testgen_unary {
                 };
             }
 
+            add_test!(test_non_finite_constants);
             add_test!(test_sin);
             add_test!(test_cos);
             add_test!(test_tan);
@@ -1160,6 +1342,12 @@ macro_rules! testgen_unary {
             add_test!(test_atanh);
             add_test!(test_degrees);
             add_test!(test_radians);
+            add_test!(test_sind);
+            add_test!(test_cosd);
+            add_test!(test_tand);
+            add_test!(test_asind);
+            add_test!(test_acosd);
+            add_test!(test_atand);
             add_test!(test_normalize);
             add_test!(test_magnitude);
             add_test!(test_vector_sum);

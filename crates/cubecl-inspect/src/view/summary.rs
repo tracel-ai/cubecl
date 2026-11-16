@@ -30,10 +30,10 @@ impl fmt::Display for Text<'_, Summary> {
             f,
             "entries",
             format_args!(
-                "{} in {} namespaces, {} autotune keys",
+                "{} in {} namespaces, {} autotune answers",
                 summary.entries(),
                 summary.namespaces.len(),
-                summary.autotune_keys()
+                summary.autotune_answers()
             ),
         )?;
 
@@ -136,7 +136,7 @@ impl From<&[Summary]> for Table {
             ("built", Align::Left),
             ("cubecl", Align::Left),
             ("devices", Align::Left),
-            ("keys", Align::Right),
+            ("answers", Align::Right),
             ("entries", Align::Right),
             ("size", Align::Right),
             ("name", Align::Left),
@@ -151,7 +151,7 @@ impl From<&[Summary]> for Table {
                     .map(devices)
                     .filter(|devices| !devices.is_empty())
                     .unwrap_or_else(|| "-".to_string()),
-                summary.autotune_keys().to_string(),
+                summary.autotune_answers().to_string(),
                 summary.entries().to_string(),
                 ByteSize(summary.file_bytes).to_string(),
                 Maybe(summary.name()).to_string(),

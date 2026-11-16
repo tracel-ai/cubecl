@@ -3,13 +3,17 @@ use crate::{
     device::HardwareIdentity,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
-    logging::ProfileLevel,
+    logging::{
+        CollectivePath, Communication, ExecutionId, ExecutionKind, ExecutionPlace, ExecutionScope,
+        ProfileLevel, StreamRole, TransferRoute, WaitTarget,
+    },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CommunicationSkips, CommunicationTiming,
+        ComputeWait, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
+        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding,
+        PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
+        ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -27,7 +31,7 @@ use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
     device_handle::{CallError, CallResultExt, DeviceHandle},
-    profile::ProfileDuration,
+    profile::{Instant, ProfileDuration},
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
@@ -323,24 +327,26 @@ impl Client {
             service.service == own.service,
             "a peer buffer of {service} was launched on {own}, of another runtime"
         );
+        let access = self.reaches_peer(service.device);
+        let required = peer.required_access();
         assert!(
-            self.reaches_peer(service.device),
-            "{own} cannot address the memory of {:?}: check `can_access_peer` before \
-             launching with a buffer of another device",
+            access >= required,
+            "{own} has {access:?} access to the memory of {:?}, short of the {required:?} \
+             its peer parameter needs: check `peer_access` before launching with a buffer \
+             of another device",
             service.device
         );
         KernelResource::Peer(peer)
     }
 
-    /// Whether kernels here can address the memory of `device`, cached per pair.
-    fn reaches_peer(&self, device: DeviceId) -> bool {
+    fn reaches_peer(&self, device: DeviceId) -> PeerAccess {
         if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
             return *reaches;
         }
         let reaches = self
             .device
-            .submit_blocking(move |server| server.can_access_peer(device))
-            .unwrap_or(false);
+            .submit_blocking(move |server| server.peer_access(device))
+            .unwrap_or(PeerAccess::None);
         self.utilities.peer_access.write().insert(device, reaches);
         reaches
     }
@@ -973,14 +979,14 @@ impl Client {
             });
     }
 
-    /// Whether kernels launched through this client can load, store and run
-    /// atomics on memory `peer` [shared](Self::share_with_peers).
-    pub fn can_access_peer(&self, peer: &Self) -> bool {
+    /// What kernels launched through this client can do with memory `peer`
+    /// [shared](Self::share_with_peers): none for itself or another runtime.
+    pub fn peer_access(&self, peer: &Self) -> PeerAccess {
         let peer_device = peer.device.device_id();
         if peer.service_id().service != self.service_id().service
             || peer_device == self.device.device_id()
         {
-            return false;
+            return PeerAccess::None;
         }
         self.reaches_peer(peer_device)
     }
@@ -1099,6 +1105,16 @@ impl Client {
         self.utilities.device_transport.is_some()
     }
 
+    /// Whether a [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard) holds the device, so
+    /// its collectives queue nothing.
+    pub fn skips_communication(&self) -> bool {
+        self.utilities.communication_skips.any()
+    }
+
+    pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
+        &self.utilities.communication_skips
+    }
+
     /// Panics on the caller when the runtime has no device transport.
     fn expect_device_transport(&self, operation: Collective) {
         // The server refuses too, but on the device thread, where the channel turns the panic into
@@ -1130,11 +1146,19 @@ impl Client {
             return;
         }
         let stream_id = self.stream_id();
+        let timing = crate::logging::times_communications().then(|| {
+            let mut timing = CommunicationTiming::default();
+            self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
+            timing
+        });
 
         self.device.submit(move |server| {
             // Logged rather than unwrapped: a panic on the server thread is
             // reduced to a log line by the channel's catch_unwind anyway, so
             // report deliberately instead of through a swallowed unwind.
+            if let Some(timing) = timing {
+                server.time_next_communication(timing);
+            }
             if let Err(err) = server.sync_collective(stream_id) {
                 log::error!("sync_collective failed: {err}");
             }
@@ -1150,7 +1174,8 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it.
+    /// queueing them stops with it. It queues nothing while this device skips communication,
+    /// whatever its peers do, since reading theirs would load their clients on every call.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1171,7 +1196,17 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
+        if self.skips_communication() {
+            self.record_collective(collective, &device_ids, size, CollectivePath::Skipped);
+            return;
+        }
         self.prepare_collective(collective, device_ids.clone());
+        let _collective = ExecutionScope::under(self.record_collective(
+            collective,
+            &device_ids,
+            size,
+            self.native_path(),
+        ));
         self.queue_all_reduce(
             src,
             dst,
@@ -1179,6 +1214,78 @@ impl Client {
             device_ids,
             ComputeWait::AtSync,
         );
+    }
+
+    /// Issues `collective` over `members`, `bytes` each, for its parts to name as their parent.
+    /// Every member runs this client's runtime.
+    fn record_collective(
+        &self,
+        collective: Collective,
+        members: &[DeviceId],
+        bytes: u64,
+        path: CollectivePath,
+    ) -> Option<ExecutionId> {
+        let communication = crate::logging::issue(|| {
+            ExecutionKind::Communication(Communication::Collective {
+                operation: collective,
+                members: members
+                    .iter()
+                    .map(|device| ServiceId {
+                        device: *device,
+                        ..self.service_id()
+                    })
+                    .collect(),
+                bytes,
+                path,
+            })
+        })?;
+        Some(communication.id)
+    }
+
+    /// How this runtime runs a collective, which only a runtime with a device transport does.
+    fn native_path(&self) -> CollectivePath {
+        let transport = self
+            .utilities
+            .device_transport
+            .as_ref()
+            .expect("checked before the collective was prepared");
+        CollectivePath::Native(transport.provider)
+    }
+
+    /// Issues this device's part of the communication open on this thread, on `stream`, and the
+    /// compute stream's wait for it when that is `Now`. Returns where the server sends their
+    /// windows, while the observer times communications.
+    fn issue_part(&self, stream: StreamRole, wait: ComputeWait) -> Option<CommunicationTiming> {
+        let part = crate::logging::issue(|| ExecutionKind::Part {
+            place: ExecutionPlace {
+                service: self.service_id(),
+                stream,
+            },
+        })?;
+        if !crate::logging::times_communications() {
+            return None;
+        }
+        let mut timing = CommunicationTiming::default();
+        crate::logging::notify_unread(&part, timing.part_window());
+        if let ComputeWait::Now = wait {
+            self.issue_wait(WaitTarget::Part(part.id), &mut timing);
+        }
+        Some(timing)
+    }
+
+    /// Issues this device's compute stream reaching the point where it needs `awaits`, with its
+    /// window in `timing`.
+    fn issue_wait(&self, awaits: WaitTarget, timing: &mut CommunicationTiming) {
+        let wait = crate::logging::issue(|| ExecutionKind::Wait {
+            place: ExecutionPlace {
+                service: self.service_id(),
+                stream: StreamRole::Compute(self.stream_id()),
+            },
+            awaits,
+        });
+        if let Some(wait) = wait {
+            crate::logging::notify_unread(&wait, timing.wait_window());
+        }
     }
 
     fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
@@ -1208,7 +1315,7 @@ impl Client {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::AllReduce, move |server, stream_id| {
+        self.queue_collective(Collective::AllReduce, wait, move |server, stream_id| {
             server.all_reduce(src, dst, reduction, stream_id, device_ids, wait)
         });
     }
@@ -1217,9 +1324,11 @@ impl Client {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::AllGather, move |server, stream_id| {
-            server.all_gather(src, dst, stream_id, device_ids)
-        });
+        self.queue_collective(
+            Collective::AllGather,
+            ComputeWait::Now,
+            move |server, stream_id| server.all_gather(src, dst, stream_id, device_ids),
+        );
     }
 
     fn queue_reduce_scatter(
@@ -1232,9 +1341,13 @@ impl Client {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::ReduceScatter, move |server, stream_id| {
-            server.reduce_scatter(src, dst, reduction, stream_id, device_ids)
-        });
+        self.queue_collective(
+            Collective::ReduceScatter,
+            ComputeWait::Now,
+            move |server, stream_id| {
+                server.reduce_scatter(src, dst, reduction, stream_id, device_ids)
+            },
+        );
     }
 
     fn queue_broadcast(
@@ -1248,28 +1361,38 @@ impl Client {
         src.iter()
             .chain([&dst])
             .for_each(|binding| self.expect_local(binding));
-        self.queue_collective(Collective::Broadcast, move |server, stream_id| {
-            server.broadcast(src, dst, stream_id, root, device_ids)
-        });
+        self.queue_collective(
+            Collective::Broadcast,
+            ComputeWait::Now,
+            move |server, stream_id| server.broadcast(src, dst, stream_id, root, device_ids),
+        );
     }
 
     fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
-        self.queue_collective(Collective::AllToAll, move |server, stream_id| {
-            server.all_to_all(src, dst, stream_id, device_ids)
-        });
+        self.queue_collective(
+            Collective::AllToAll,
+            ComputeWait::Now,
+            move |server, stream_id| server.all_to_all(src, dst, stream_id, device_ids),
+        );
     }
 
-    /// Queues this device's part of `collective`.
+    /// Issues and queues this device's part of `collective`, which its compute stream waits for
+    /// as `wait` says.
     fn queue_collective(
         &self,
         collective: Collective,
+        wait: ComputeWait,
         part: impl FnOnce(&mut dyn Server, StreamId) -> Result<(), ServerError> + Send + 'static,
     ) {
         let stream_id = self.stream_id();
+        let timing = self.issue_part(StreamRole::Collective, wait);
         self.device.submit(move |server| {
+            if let Some(timing) = timing {
+                server.time_next_communication(timing);
+            }
             // The tainted destination is the report; an unwrap would only become a warning here.
             if let Err(err) = part(server, stream_id) {
                 log::error!(
@@ -1283,6 +1406,9 @@ impl Client {
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
+    ///
+    /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
+    /// waits on the source, whose queue may hold a transfer waiting on the destination's.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
@@ -1307,28 +1433,40 @@ impl Client {
             src_descriptor.handle.size_in_used(),
         );
         let handle_cloned = handle.clone();
+        let (report, outcome) = SendOutcome::channel();
+        let _transfer = ExecutionScope::communication(|| Communication::Transfer {
+            from: self.service_id(),
+            to: dst_server.service_id(),
+            bytes: src_descriptor.handle.size_in_used(),
+            route: TransferRoute::Device,
+        });
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
+        let timing = self.issue_part(StreamRole::Transfer, ComputeWait::Now);
         self.device.submit(move |server_src| {
-            // A refused send has no local buffer to answer for, so the log is
-            // the whole local report. The peer's posted recv is left waiting
-            // on its communication stream — the recv cannot be recalled from
-            // here, and cross-device failure propagation needs a design pass
-            // of its own — so the wedge is named loudly rather than hidden
-            // behind a swallowed unwrap.
-            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
-                log::error!(
-                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
-                );
+            if let Some(timing) = timing {
+                server_src.time_next_communication(timing);
+            }
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
+            {
+                log::error!("send to {device_id_dst:?} failed: {err}");
             }
         });
+        // Flushed before the recv is queued: called from the destination's own thread, the recv
+        // runs at once and waits on this send.
+        self.device.flush_queue();
 
+        let timing = dst_server.issue_part(StreamRole::Transfer, ComputeWait::Now);
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src) {
+            if let Some(timing) = timing {
+                server_dst.time_next_communication(timing);
+            }
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, outcome)
+            {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );
@@ -1337,7 +1475,6 @@ impl Client {
 
         // On a pair's first transfer, the send and the recv each wait in the join for the other, so
         // neither may sit in a queue behind work that waits on this thread.
-        self.device.flush_queue();
         dst_server.device.flush_queue();
 
         handle
@@ -1391,14 +1528,15 @@ impl Client {
             }
         }
 
-        crate::launched::note(|| kernel.id());
-
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
         let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
         // So is where its kernels count: the device runs it later, and an
         // override closing in between must not change that.
         let issued = crate::execution::IssuedRecorder::new();
+        // And what it is issued for: a race's launch loads a kernel the work
+        // may never pick, and the server records only the work's.
+        let purpose = crate::execution::LaunchPurpose::issued();
 
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
@@ -1409,19 +1547,23 @@ impl Client {
         // which the caller's own context still exists, and attributing a
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
-        if crate::logging::is_observing() {
-            crate::logging::notify_launch(kernel.name());
-        }
+        let execution = crate::logging::issue(|| ExecutionKind::Kernel {
+            place: ExecutionPlace {
+                service: self.service_id(),
+                stream: StreamRole::Compute(stream_id),
+            },
+            name: kernel.name(),
+        });
 
         // An observer asking for timing gets the profiled path even with the
         // profiling logger off — the two are separate readers of the same
         // measurement, and making one depend on the other's configuration
         // would mean a caller could not time launches without also logging
         // them somewhere it did not choose.
-        let observed_timing = timed && crate::logging::timing_wanted();
+        let observed = execution.filter(|_| timed && crate::logging::timing_wanted());
 
         match level {
-            None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
+            None | Some(ProfileLevel::ExecutionOnly) if observed.is_none() => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -1430,8 +1572,10 @@ impl Client {
                         None
                     };
 
-                    issued.apply(|| unsafe {
-                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                    purpose.apply(|| {
+                        issued.apply(|| unsafe {
+                            state.launch(kernel, count, bindings, stream_id, launch_mode)
+                        })
                     });
 
                     if let Some(info) = execution_info {
@@ -1465,8 +1609,16 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| {
-                                issued_profiled.apply(|| unsafe {
-                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                purpose.apply(|| {
+                                    issued_profiled.apply(|| unsafe {
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
+                                    })
                                 })
                             })
                             .unwrap_or_resume()
@@ -1491,14 +1643,16 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    issued.apply(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
+                                    purpose.apply(|| {
+                                        issued.apply(|| unsafe {
+                                            state.launch(
+                                                kernel,
+                                                count,
+                                                bindings,
+                                                stream_id,
+                                                launch_mode,
+                                            )
+                                        })
                                     });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);
@@ -1526,8 +1680,10 @@ impl Client {
                 // does not change what the logger writes, and `ExecutionOnly` is
                 // documented as the kernels that ran without their timings, so
                 // it logs the execution and never the profile.
-                if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
-                    crate::logging::notify_profiled(name, profile);
+                if let Some(execution) = &observed
+                    && matches!(level, None | Some(ProfileLevel::ExecutionOnly))
+                {
+                    crate::logging::notify_profiled(execution, profile);
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
@@ -1538,7 +1694,7 @@ impl Client {
                 // The observer is told first because resolving consumes it: the
                 // logger's copy is the one that can be deferred, an observer's
                 // cannot be recovered afterwards.
-                let profile = if observed_timing {
+                let profile = if let Some(execution) = &observed {
                     // The observer asked to keep its measurements and cannot:
                     // the logger reads this one, so the observer is told a
                     // duration and its kernels stop overlapping.
@@ -1546,7 +1702,7 @@ impl Client {
                     // Comes back already resolved rather than measured again:
                     // the logger and the observer are two readers of one
                     // measurement, and a second would not be the same launch.
-                    crate::logging::read_and_notify_timed(name, profile)
+                    crate::logging::read_and_notify_timed(execution, profile)
                 } else {
                     profile
                 };
@@ -2043,6 +2199,16 @@ impl Client {
         let elem_size = src_descriptor.elem_size;
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
+        let transfer = crate::logging::issue(|| {
+            ExecutionKind::Communication(Communication::Transfer {
+                from: self.service_id(),
+                to: dst_server.service_id(),
+                bytes: src_descriptor.handle.size_in_used(),
+                route: TransferRoute::Host,
+            })
+        })
+        .filter(|_| crate::logging::times_communications())
+        .map(|transfer| (transfer, Instant::now()));
 
         let read = self
             .device
@@ -2050,6 +2216,10 @@ impl Client {
             .closed_as_error();
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
+        if let Some((transfer, started)) = transfer {
+            let read = ProfileDuration::new_system_time(started, Instant::now());
+            crate::logging::notify_unread(&transfer, read);
+        }
 
         // The allocation belongs to the destination: it is initialized and
         // written there, so it takes that device's layout policy, stream and

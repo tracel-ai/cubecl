@@ -7,12 +7,12 @@ use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     ir::{ElemType, FloatKind},
     prelude::*,
-    quant::scheme::QuantValue,
 };
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
 use super::widths::*;
+use crate::ops::matmul::instruction::code_of;
 use crate::tile::kind::plane::load_matrix::LDMATRIX_ROW_BYTES;
 use crate::*;
 
@@ -21,7 +21,7 @@ const LDMATRIX_ROW_WORDS: usize = LDMATRIX_ROW_BYTES / size_of::<u32>();
 
 /// Bind a block-scaled fragment's widths in role `ident`: its values' and its scales'.
 #[cube]
-pub(crate) fn register_block_scaled_sizes(
+pub(crate) fn register_scaled_sizes(
     def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
     #[comptime] ident: MatrixIdent,
 ) {
@@ -42,7 +42,7 @@ pub(crate) fn register_block_scaled_sizes(
 /// Bind the elements `form` names: each role's codes and the scales', so either fragment's
 /// instruction names both inputs.
 #[cube]
-pub(crate) fn register_block_scaled_elements(#[comptime] form: BlockScaledOperands) {
+pub(crate) fn register_scaled_elements(#[comptime] form: BlockScaledOperands) {
     intrinsic!(|scope| {
         scope.register_type::<LhsCodes>(ElemType::Float(form.lhs));
         scope.register_type::<RhsCodes>(ElemType::Float(form.rhs));
@@ -59,12 +59,7 @@ pub(crate) fn block_scaled_definition<CD: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> MmaDefinition<LhsCodes, RhsCodes, CD> {
-    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(
-        m,
-        n,
-        k,
-        comptime!(k / form.block),
-    )
+    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(m, n, k, k / form.block)
 }
 
 /// Refuses `src`, loaded into a fragment of `T` in role `ident`, as an operand of the device's
@@ -179,17 +174,6 @@ fn refuse_unless_block_scaled<T: Numeric>(
     });
 }
 
-/// The code a register element of a block-scaled instruction holds: `e2m1x2` two `e2m1`. `None`
-/// for one no stored field holds.
-fn code_of(kind: FloatKind) -> Option<QuantValue> {
-    match kind {
-        FloatKind::E2M1x2 | FloatKind::E2M1 => Some(QuantValue::E2M1),
-        FloatKind::E4M3 => Some(QuantValue::E4M3),
-        FloatKind::E5M2 => Some(QuantValue::E5M2),
-        _ => None,
-    }
-}
-
 /// Codes one register of the block-scaled instruction of `m × n × k` over `form` holds in role
 /// `ident`.
 #[cube]
@@ -200,7 +184,7 @@ fn codes_per_register(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> comptime_type!(usize) {
-    register_block_scaled_elements(form);
+    register_scaled_elements(form);
     let def = block_scaled_definition::<f32>(form, m, n, k);
     let elements = def.vector_size(ident);
     comptime!(elements * BlockScaledOperands::values_per_element(form.codes(ident)))
@@ -254,7 +238,6 @@ fn offers_block_scaled(
 /// load each, straight into the register; scales stored one to a value are read and narrowed one
 /// at a time.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     src: &Tile,
     values: &mut Array<Vector<C, NV>>,
@@ -340,11 +323,7 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
                     comptime!((i * per_register * per_element) as u32),
                     ident,
                 );
-                let (window_row, window_col) = if comptime!(transposed) {
-                    (col, row)
-                } else {
-                    (row, col)
-                };
+                let (window_row, window_col) = if transposed { (col, row) } else { (row, col) };
                 let at =
                     TileMatrix::value_coords(window_row, window_col, 0usize, &space, axes, 1usize);
                 // The window's columns run along `k` whichever its layout.
@@ -364,18 +343,18 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
         // The step's scales as the operand stores them: one word, the register itself
         // (`assert_block_scaled` holds a word to a step's scales).
         let at = TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, axes, 1usize);
-        let word = factor.word_at(&at, comptime!(space.clone()));
+        let word = factor.word_at(&at, space.clone());
         scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
     } else {
         let mut register = Vector::<BlockScale, NS>::empty();
         #[unroll]
-        for b in 0..comptime!(k / form.block) {
+        for b in 0..(k / form.block) {
             // The window's rows are the served axis whichever its layout: an `A`'s rows, a
             // `B`'s columns lying col-major.
             let along_k = comptime!((b * form.block) as u32);
             let at =
                 TileMatrix::value_coords(served, along_k.runtime(), 0usize, &space, axes, 1usize);
-            let scale = factor.at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked));
+            let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
             register.insert(b, BlockScale::cast_from(scale));
         }
         scales[0] = register;
@@ -393,7 +372,6 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
 /// The address is the window's own arrangement of the row ([`Masked::line_slice`]), so a swizzled
 /// stage is read where its fill wrote it.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     src: &Tile,
     words: &Masked<'_, Vector<u32, WP>, CoordsDyn>,
@@ -408,7 +386,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
 ) {
     let space = comptime!(src.place.space.clone());
     let load = src.vector_tile();
-    let rank = comptime!(space.rank());
+    let rank = space.rank();
     // An element of the register holds `per_element` codes, an `e2m1x2` two; a register is one
     // word.
     let per_register = def.vector_size(ident);
@@ -423,7 +401,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
         ident,
     );
     // The window's rows are the served axis whichever its layout, its words along `k`.
-    let (window_row, window_col) = if comptime!(transposed) {
+    let (window_row, window_col) = if transposed {
         (col + row_in_matrix, row)
     } else {
         (row + row_in_matrix, col)
@@ -473,7 +451,6 @@ fn loads_words_as_matrix() -> comptime_type!(bool) {
 /// `MmaDefinition::execute_scaled`, each fragment's registers named at the elements it holds
 /// ([`MmaFragment::LhsBlockScaled`]).
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn mma_execute_block_scaled<A: Numeric>(
     lhs: &Raw<Registers<NLB>>,
     lhs_scales: &Raw<Registers<NSB>>,
@@ -485,7 +462,7 @@ pub(crate) fn mma_execute_block_scaled<A: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) {
-    register_block_scaled_elements(form);
+    register_scaled_elements(form);
     let def = block_scaled_definition::<A>(form, m, n, k);
     let out = def.execute_scaled(
         lhs.at::<LhsCodes>(),

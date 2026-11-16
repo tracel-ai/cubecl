@@ -7,6 +7,7 @@ pub(crate) mod indexed;
 pub(crate) mod monoid;
 pub(crate) mod semiring;
 pub(crate) mod top_k;
+pub(crate) mod top_values;
 
 pub(crate) use constant::Integer;
 pub(crate) use constant::{

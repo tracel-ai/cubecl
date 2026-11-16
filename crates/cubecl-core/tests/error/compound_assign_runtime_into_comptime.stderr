@@ -1,0 +1,38 @@
+error[E0599]: a compound assignment can't change the comptime binding `u32`
+  --> tests/error/compound_assign_runtime_into_comptime.rs:16:9
+   |
+16 |         word ^= perm[0];
+   |         ^^^^ this binding is comptime
+   |
+   = note: the following trait bounds were not satisfied:
+           `u32: RuntimeBinding`
+           which is required by `u32: cubecl_core::frontend::BitXorAssignExpand<NativeExpand<u32>>`
+   = note: a comptime binding is plain Rust: it would change once while the kernel expands, not each time the kernel runs
+   = note: make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`
+   = note: for a change meant to happen while the kernel expands, write `x = comptime!(x + y);`
+
+error[E0599]: a compound assignment can't change the comptime binding `u32`
+  --> tests/error/compound_assign_runtime_into_comptime.rs:18:5
+   |
+18 |     word += perm[1];
+   |     ^^^^ this binding is comptime
+   |
+   = note: the following trait bounds were not satisfied:
+           `u32: RuntimeBinding`
+           which is required by `u32: cubecl_core::frontend::AddAssignExpand<NativeExpand<u32>>`
+   = note: a comptime binding is plain Rust: it would change once while the kernel expands, not each time the kernel runs
+   = note: make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`
+   = note: for a change meant to happen while the kernel expands, write `x = comptime!(x + y);`
+
+error[E0599]: a compound assignment can't change the comptime binding `u32`
+  --> tests/error/compound_assign_runtime_into_comptime.rs:21:9
+   |
+21 |         offset += cycle;
+   |         ^^^^^^ this binding is comptime
+   |
+   = note: the following trait bounds were not satisfied:
+           `u32: RuntimeBinding`
+           which is required by `u32: cubecl_core::frontend::AddAssignExpand<NativeExpand<u32>>`
+   = note: a comptime binding is plain Rust: it would change once while the kernel expands, not each time the kernel runs
+   = note: make the binding runtime where it is declared, e.g. `let mut x = value.runtime();`
+   = note: for a change meant to happen while the kernel expands, write `x = comptime!(x + y);`

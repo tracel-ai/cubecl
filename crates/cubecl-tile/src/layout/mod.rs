@@ -5,6 +5,7 @@
 pub(crate) mod compaction;
 pub(crate) mod paging;
 pub(crate) mod projection;
+pub(crate) mod reads;
 pub(crate) mod row_arrangement;
 pub(crate) mod storage;
 
@@ -17,6 +18,6 @@ pub use compaction::Compaction;
 pub use paging::{PageEntry, Paging};
 pub use projection::{DimsBuilder, Divisor, Offset, PhysicalAxisMap, Scale, split};
 pub use storage::{
-    ElemAlignment, LineMisfit, RuntimeGeometry, StorageLevels, StoragePartitioning, TileMisfit,
-    VectorTile,
+    ElemAlignment, LineMisfit, RuntimeGeometry, Stagger, StorageLevels, StoragePartitioning,
+    TileMisfit, VectorTile,
 };

@@ -68,8 +68,12 @@ impl Factor {
     }
 
     /// The one scale every value shares: the product down the chain, no scale of which varies
-    /// along any axis.
-    pub(crate) fn whole(&self) -> f32 {
+    /// along any axis. What a sum held outside any tile, in a unit's own registers, is multiplied
+    /// by where it takes on the per-tensor scale [`Tile::factor`](crate::Tile::factor) took out of
+    /// an operand it summed; `1` where the factor holds no scale.
+    ///
+    /// Expansion panics on a factor holding a scale that varies along an axis.
+    pub fn whole(&self) -> f32 {
         unexpanded!()
     }
 
@@ -164,6 +168,13 @@ impl FactorExpand {
             kept_beside: from.kept_beside,
             ..self
         }
+    }
+
+    /// Whether the values were marked as staged as they are stored, their scales, if any, kept
+    /// beside them ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)): a reader
+    /// decodes them as it loads.
+    pub(crate) fn is_kept_beside(&self) -> bool {
+        self.kept_beside
     }
 
     /// This factor, its scales kept beside the values by a stage.
@@ -332,7 +343,7 @@ impl FactorExpand {
         product.unwrap_or_else(|| ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into())
     }
 
-    pub(crate) fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
+    pub fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
         let mut product: NativeExpand<f32> =
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
         for scale in self.chain() {
@@ -455,7 +466,7 @@ impl FactorExpand {
             .expect("Factor::word_at: the innermost scales are no words of block scales");
         scale
             .clone()
-            .__expand_scale_for_method::<u32>(scope, coords, values, Guard::Checked)
+            .__expand_scale_for_method::<u32>(scope, coords, &values, Guard::Checked)
     }
 
     pub(crate) fn __expand_write_at_method<N: Size>(
@@ -468,7 +479,7 @@ impl FactorExpand {
         let mut scale = self
             .innermost_tile()
             .expect("Factor::write_at: these values carry no scale to write");
-        scale.__expand_write_scales_for_method::<N>(scope, coords, values, scales);
+        scale.__expand_write_scales_for_method::<N>(scope, coords, &values, scales);
     }
 
     pub(crate) fn __expand_calibrate_from_method<F: Float>(
@@ -494,7 +505,7 @@ impl Tile {
     pub(crate) fn write_scales_for<N: Size>(
         &mut self,
         coords: &Coords<u32>,
-        #[comptime] values: Space,
+        #[comptime] values: &Space,
         scales: Vector<f32, N>,
     ) {
         let own = self.scale_coords(coords, values);
@@ -558,7 +569,7 @@ fn scale_for(
 ) -> NativeExpand<f32> {
     scale
         .clone()
-        .__expand_scale_for_method::<f32>(scope, coords, values.clone(), guard)
+        .__expand_scale_for_method::<f32>(scope, coords, values, guard)
 }
 
 /// The all-zero coordinate of `space`: where a scale covering a whole region is read.

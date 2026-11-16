@@ -30,12 +30,15 @@ impl GraphDriver for Hip {
     type Executable = Executable;
 
     fn begin(stream: &mut Stream) -> Result<(), ServerError> {
-        // SAFETY: `stream.sys` is a valid HIP stream; global capture mode
-        // records every launch issued on it until `hipStreamEndCapture`.
+        // SAFETY: `stream.sys` is a valid HIP stream; capture records every
+        // launch issued on it until `hipStreamEndCapture`.
+        // Thread-local, not global: devices recording one collective step each
+        // hold a window open at once, and under global mode the first to close
+        // is refused instantiation while a peer's window still records.
         let status = unsafe {
             cubecl_hip_sys::hipStreamBeginCapture(
                 stream.sys,
-                cubecl_hip_sys::hipStreamCaptureMode_hipStreamCaptureModeGlobal,
+                cubecl_hip_sys::hipStreamCaptureMode_hipStreamCaptureModeThreadLocal,
             )
         };
         Ok(checked("hipStreamBeginCapture", status)?)

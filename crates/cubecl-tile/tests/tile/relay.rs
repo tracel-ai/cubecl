@@ -4,15 +4,12 @@
 //! narrower output through a cast, as a relay's last turn copies it.
 
 use super::{Form, implied};
-use crate::support::{HostData, HostDataType, StridedLayout, TestInput, ValidationResult};
-use cubecl::{
-    features::AtomicUsage,
-    ir::{ElemType, Type},
-    prelude::*,
-    zspace::shape,
-};
+use crate::support::{HostData, HostDataType, StridedLayout, TestInput, hands_off_between_cubes};
+use cubecl::{ir::ElemType, prelude::*, zspace::shape};
 use cubecl_tile::kind::Write;
-use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch};
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand,
+};
 use cubecl_tile::*;
 
 const ROW: Axis = Axis(0);
@@ -22,7 +19,7 @@ const N: Axis = Axis(1);
 const K: Axis = Axis(2);
 
 /// The leaf's register block in the relay's contraction.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// Rows and columns every case holds, cut by tiles of [`TILE`] that overhang both.
 const ROWS: usize = 5;
@@ -42,8 +39,10 @@ fn store<E: Float, V: Size, O: Destination>(
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let mut dst = O::tile::<E, V>(out, &space);
+    let dest = O::serve::<E, V>(out, &space);
+    let mut dst = dest.tile();
     dst.copy_from(&src);
+    dest.finish();
 }
 
 /// `out` written with `input` cast to the output's element.
@@ -218,14 +217,7 @@ fn relayed_split_matmul(
     let b = b.tile(&space);
     let mut out = out.tile(&space);
     let c = relay.tile();
-    let acc = c.accumulator::<f32>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<f32>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for cube in &space {
         for step in cube.walk() {
             let mut acc_step = acc.at(&step);
@@ -235,23 +227,6 @@ fn relayed_split_matmul(
     relay.take();
     acc.drained_into(&c);
     relay.pass(&mut out);
-}
-
-/// Whether this device hands one cube's writes to another within a dispatch and stores and adds
-/// `u32`s atomically, the two things the relay needs; reported rather than silently passed.
-pub(super) fn relays(client: &cubecl::client::Client) -> bool {
-    let hands_off = client.properties().features.device_memory_scope;
-    let usage = client
-        .properties()
-        .atomic_type_usage(Type::atomic(ElemType::UInt(cubecl::ir::UIntKind::U32)));
-    let counts = usage.contains(AtomicUsage::LoadStore) && usage.contains(AtomicUsage::Add);
-    if !(hands_off && counts) {
-        ValidationResult::Skipped(
-            "device has no device-scope storage sync or no u32 atomic store and add".to_string(),
-        )
-        .enforce();
-    }
-    hands_off && counts
 }
 
 /// `a · b` over an `m × n` output of `8 × 8` boxes, `K` split across `splits` cubes a box, run
@@ -356,7 +331,7 @@ fn assert_relayed(got: &HostData, (m, n, k): (usize, usize, usize), what: &str) 
 #[test]
 fn a_relay_sums_every_run_of_a_split_contraction() {
     let client = cubecl::test_device().client();
-    if !relays(&client) {
+    if !hands_off_between_cubes(&client) {
         return;
     }
     let dims = (16usize, 16usize, 64usize);
@@ -372,7 +347,7 @@ fn a_relay_sums_every_run_of_a_split_contraction() {
 #[test]
 fn a_cube_whose_run_is_empty_takes_no_turn() {
     let client = cubecl::test_device().client();
-    if !relays(&client) {
+    if !hands_off_between_cubes(&client) {
         return;
     }
     let dims = (8usize, 16usize, 40usize);
@@ -385,7 +360,7 @@ fn a_cube_whose_run_is_empty_takes_no_turn() {
 #[test]
 fn a_relay_runs_again_on_the_counters_it_left() {
     let client = cubecl::test_device().client();
-    if !relays(&client) {
+    if !hands_off_between_cubes(&client) {
         return;
     }
     let dims = (16usize, 8usize, 32usize);

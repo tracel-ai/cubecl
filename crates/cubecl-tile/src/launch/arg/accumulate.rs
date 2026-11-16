@@ -37,11 +37,11 @@ impl<'a, E: Numeric> AccumulateArg<'a, E> {
             sink,
             geometry,
             comptime!(self.width),
-            comptime!(space.space().clone()),
+            space.space().clone(),
             comptime!(self.spec.clone()),
             Write::Accumulate,
         )
-        .tile::<E>(comptime!(space.levels().to_vec()))
+        .tile::<E>(space.levels().to_vec())
     }
 }
 

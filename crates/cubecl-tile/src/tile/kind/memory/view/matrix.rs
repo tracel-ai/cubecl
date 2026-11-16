@@ -56,10 +56,10 @@ impl TileMatrix {
         #[comptime] axes: MatrixAxes,
         i: usize,
     ) -> Self {
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         // Rounded up like the buffer's own load count, so a checked read covers a partial last
         // load.
-        let counts = comptime!(load.counts(space));
+        let counts = load.counts(space);
         // A row, or a column, steps the innermost axis of its group, so a load may reach along that
         // axis and no other: the loads of a group are then consecutive rows (or columns), in order.
         // An axis of one inside a group steps nothing, so the innermost is the last one past one.
@@ -82,12 +82,7 @@ impl TileMatrix {
                 .product::<usize>()
         );
         let cols = comptime!(counts[axes.col_split..rank].iter().product::<usize>());
-        let extents = Self::leading_extents(
-            bound,
-            comptime!(space),
-            composition,
-            comptime!(axes.row_split),
-        );
+        let extents = Self::leading_extents(bound, comptime!(space), composition, axes.row_split);
 
         Self::new(
             extents.unravel(i.cast::<u32>()),
@@ -107,7 +102,7 @@ impl TileMatrix {
         #[comptime] axes: MatrixAxes,
         #[comptime] vector_size: usize,
     ) -> Coords<u32> {
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let mut coords = Coords::<u32>::new();
         let batches = Coords::constant(comptime!(
             (0..axes.row_split)
@@ -156,7 +151,7 @@ impl TileMatrix {
         #[comptime] rows: usize,
         #[comptime] cols: usize,
     ) -> Self {
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let split = comptime!(MatrixAxes::whole(space, rows, cols, vector_size).col_split);
 
         Self::new(
@@ -164,7 +159,7 @@ impl TileMatrix {
             Coords::constant(comptime!(line_extents(space, vector_size, 0, split))),
             Coords::constant(comptime!(line_extents(space, vector_size, split, rank))),
             rows,
-            comptime!(cols / vector_size),
+            cols / vector_size,
         )
     }
 
@@ -180,7 +175,7 @@ impl TileMatrix {
         #[unroll]
         for p in 0..upto {
             // A partition's windows tile, so the window still sizes every logical axis.
-            if comptime!(composition == Composition::Overlapping) {
+            if comptime!(composition != Composition::Disjoint) {
                 out.push(comptime!(space.extent_at(p) as u32));
             } else {
                 out.push(bound.at(p));
@@ -237,7 +232,7 @@ impl Tile {
         i: usize,
     ) -> MatrixView<'_, Vector<T, W>> {
         let g = self.mem("matrix");
-        let layout = g.batch_matrix(comptime!(self.place.space.clone()), axes, i);
+        let layout = g.batch_matrix(&self.place.space, axes, i);
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 
@@ -248,7 +243,7 @@ impl Tile {
         #[comptime] cols: usize,
     ) -> MatrixView<'_, Vector<T, W>> {
         let g = self.mem("fragment_matrix");
-        let layout = g.whole_matrix(comptime!(self.place.space.clone()), rows, cols);
+        let layout = g.whole_matrix(&self.place.space, rows, cols);
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 }

@@ -32,6 +32,7 @@ mod generate;
 mod operator;
 mod parse;
 mod paths;
+mod redundant_allow;
 mod scope;
 mod statement;
 
@@ -101,6 +102,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 
     let tokens = match item.clone() {
         Item::Fn(kernel) => {
+            let warning = redundant_allow::warning(&kernel.attrs);
             let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
             ReplaceDefines.visit_item_mut(&mut item);
@@ -115,6 +117,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
                 #extra_allow
                 #item
                 #kernel
+                #warning
             }));
         }
         Item::Trait(kernel_trait) => {

@@ -83,6 +83,15 @@ impl MatrixAxes {
         }
     }
 
+    /// The position a matrix's rows step along: the innermost axis of the row group longer than
+    /// one, as an axis of one in a window may carry any stride.
+    pub(crate) fn row_axis(&self, space: &Space) -> usize {
+        (self.row_split..self.col_split)
+            .rev()
+            .find(|&p| !matches!(space.extent_raw(space.axis_at(p)), Extent::Static(1)))
+            .unwrap_or(self.col_split.saturating_sub(1))
+    }
+
     /// The row edge these axes give in `space`.
     pub(crate) fn rows(&self, space: &Space) -> usize {
         (self.row_split..self.col_split)

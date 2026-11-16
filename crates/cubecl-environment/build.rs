@@ -12,6 +12,10 @@ fn main() {
         native_cache: { all(feature = "persistence", std_io) },
         // Browser durable persistence.
         browser_cache: { all(target_family = "wasm", feature = "persistence") },
+        // The engine under the database files: SQLite natively when asked
+        // for, Turso otherwise and always in the browser.
+        sqlite_engine: { all(native_cache, feature = "rusqlite") },
+        turso_engine: { all(any(native_cache, browser_cache), not(all(native_cache, feature = "rusqlite"))) },
         // Tokio runtime support (never on wasm).
         tokio_rt: { all(feature = "tokio", not(target_family = "wasm")) },
         // TODO: We can't yet activate it for everything because of how error handling is done in matmul.

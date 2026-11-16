@@ -6,7 +6,7 @@ use crate::{self as cubecl, prelude::*, unexpanded};
 use core::marker::PhantomData;
 use cubecl_ir::{
     dialect::matrix::{
-        WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, warpgroup_elems_per_unit,
+        WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, plane_group_elems_per_unit,
     },
     features::WgmmaElems,
     types::{MatrixShape, pending::AsyncGroup},
@@ -16,14 +16,14 @@ use pliron::builtin::attributes::TypeAttr;
 
 use alloc::format;
 
-pub use cubecl_ir::dialect::matrix::{WARPGROUP_M, WARPGROUP_UNITS};
+pub use cubecl_ir::dialect::matrix::{PLANE_GROUP_M, PLANE_GROUP_UNITS};
 
 /// The accumulator's elements come in runs of two adjacent columns of a row.
 const ACCUMULATOR_RUN: u32 = 2;
 /// The fragment's elements come in runs of one 32-bit register.
 const FRAGMENT_RUN_BYTES: usize = 4;
 
-/// The 64-bit descriptor of a tile in shared memory, which a warpgroup MMA reads `A` or `B`
+/// The 64-bit descriptor of a tile in shared memory, which a plane group MMA reads `A` or `B`
 /// through.
 #[derive(CubeType, Clone, Copy)]
 pub struct MatrixDescriptor<E: Scalar> {
@@ -49,7 +49,7 @@ impl<E: Scalar> MatrixDescriptor<E> {
     ) -> Self {
         intrinsic!(|scope| {
             if let Err(err) = layout.validate(E::elem_type(scope).size()) {
-                scope.push_error(format!("a warpgroup MMA can't read the tile: {err}"));
+                scope.push_error(format!("a plane group MMA can't read the tile: {err}"));
             }
             let ptr = unsafe { *tile.__expand_as_ptr_method(scope) }.value(scope);
             let op = WgmmaDescriptorOp::new(
@@ -90,7 +90,7 @@ impl<E: Scalar> MatrixDescriptor<E> {
     }
 }
 
-/// The registers each unit of a warpgroup holds of a `64 x n` accumulator.
+/// The registers each unit of a plane group holds of a `64 x n` accumulator.
 #[derive(CubeType, Clone)]
 pub struct Accumulator<CD: Numeric> {
     registers: Array<CD>,
@@ -104,7 +104,7 @@ impl<CD: Numeric> Accumulator<CD> {
     /// A zeroed `64 x n` accumulator. `n` is a multiple of 8 up to 256, or of 16 for the integer
     /// types.
     pub fn new(#[comptime] n: usize) -> Self {
-        let len = comptime![warpgroup_elems_per_unit(n)];
+        let len = comptime![plane_group_elems_per_unit(n)];
         let mut registers = Array::new(len);
         #[unroll]
         for i in 0..len {
@@ -121,7 +121,7 @@ impl<CD: Numeric> Accumulator<CD> {
     /// The elements each unit holds.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> comptime_type!(usize) {
-        intrinsic!(|_| warpgroup_elems_per_unit(self.n))
+        intrinsic!(|_| plane_group_elems_per_unit(self.n))
     }
 
     /// The `nth` element this unit holds.
@@ -130,7 +130,7 @@ impl<CD: Numeric> Accumulator<CD> {
     }
 
     /// The `(row, col)` of the `nth` element `unit` holds. `unit` is the unit's position in its
-    /// warpgroup, `0..128`.
+    /// plane group, `0..128`.
     ///
     /// Each plane holds 16 rows. A unit holds two adjacent elements of its row `lane / 4` of
     /// them, then the same in row `lane / 4 + 8`, then moves on 8 columns.
@@ -143,7 +143,7 @@ impl<CD: Numeric> Accumulator<CD> {
         intrinsic!(|scope| {
             fence_operand(scope, &self.registers);
             scope.register(&WgmmaFenceOp::new(scope.ctx_mut()));
-            PendingExpand::ready(scope, AsyncGroup::Warpgroup, self)
+            PendingExpand::ready(scope, AsyncGroup::PlaneGroup, self)
         })
     }
 }
@@ -216,9 +216,9 @@ impl<CD: Numeric> PendingValue for Accumulator<CD> {
 
     /// Waits for every MMA issued into the accumulator, committed or not. It commits them and
     /// waits on that last group, so the token [`Accumulator::start`] made is never read, and the
-    /// wait covers every warpgroup MMA group of the unit.
+    /// wait covers every plane group MMA group of the unit.
     fn __expand_wait_for(scope: &Scope, pending: PendingExpand<Self>) -> AccumulatorExpand<CD> {
-        let token = GroupToken::commit(scope, AsyncGroup::Warpgroup);
+        let token = GroupToken::commit(scope, AsyncGroup::PlaneGroup);
         token.__expand_wait_method(scope);
         // The MMAs wrote the registers behind the compiler's back: no read moves above the wait.
         fence_operand(scope, &pending.value.registers);
@@ -267,10 +267,10 @@ impl<CD: Numeric> Pending<Accumulator<CD>> {
     /// with no copy written after the fence the MMAs to come read past.
     pub fn reset(&mut self) {
         intrinsic!(|scope| {
-            let token = GroupToken::commit(scope, AsyncGroup::Warpgroup);
+            let token = GroupToken::commit(scope, AsyncGroup::PlaneGroup);
             token.__expand_wait_method(scope);
             fence_operand(scope, &self.value.registers);
-            let len = warpgroup_elems_per_unit(self.value.n);
+            let len = plane_group_elems_per_unit(self.value.n);
             zero_registers::expand::<CD>(scope, &mut self.value.registers, len);
             fence_operand(scope, &self.value.registers);
             scope.register(&WgmmaFenceOp::new(scope.ctx_mut()));
@@ -280,7 +280,7 @@ impl<CD: Numeric> Pending<Accumulator<CD>> {
     /// Commits the MMAs issued since the last commit into a group, and returns its completion.
     /// Once it resolves, the MMAs are done reading their tiles and fragments.
     pub fn commit(&mut self) -> Pending<()> {
-        intrinsic!(|scope| PendingExpand::commit(scope, AsyncGroup::Warpgroup, ()))
+        intrinsic!(|scope| PendingExpand::commit(scope, AsyncGroup::PlaneGroup, ()))
     }
 }
 
@@ -314,7 +314,7 @@ fn issue<A: Scalar, B: Scalar, CD: Numeric>(
         cd: CD::elem_type(scope),
     };
     let shape = MatrixShape {
-        m: WARPGROUP_M,
+        m: PLANE_GROUP_M,
         n: acc.n,
         k: WgmmaTileLayout::k_step(elems.a.size()),
     };
@@ -348,7 +348,8 @@ fn issue<A: Scalar, B: Scalar, CD: Numeric>(
 fn check_covers(scope: &Scope, operand: &str, layout: WgmmaTileLayout, rows: usize, k: usize) {
     if layout.rows < rows || layout.k < k {
         scope.push_error(format!(
-            "a warpgroup MMA reads {rows} rows and {k} of K of {operand}, but its tile is {} x {}",
+            "a plane group MMA reads {rows} rows and {k} of K of {operand}, but its tile is \
+             {} x {}",
             layout.rows, layout.k
         ));
     }
@@ -363,13 +364,13 @@ fn check_supported(scope: &Scope, elems: WgmmaElems, shape: MatrixShape) {
         let WgmmaElems { a, b, cd } = elems;
         let MatrixShape { m, n, k } = shape;
         scope.push_error(format!(
-            "the device doesn't support a {m}x{n}x{k} warpgroup MMA of {a:?} x {b:?} into \
+            "the device doesn't support a {m}x{n}x{k} plane group MMA of {a:?} x {b:?} into \
              {cd:?}; supported configurations: {wgmma:?}"
         ));
     }
 }
 
-/// The registers each unit of a warpgroup holds of a `64 x k` tile of `A`, for
+/// The registers each unit of a plane group holds of a `64 x k` tile of `A`, for
 /// [`Pending::execute_registers`]. `k` is [`WgmmaTileLayout::k_step`].
 #[derive(CubeType)]
 pub struct Fragment<A: Scalar> {
@@ -417,7 +418,7 @@ impl<A: Scalar> Fragment<A> {
 
 /// The elements of `A` of `elem_size` bytes each unit holds for one MMA.
 fn fragment_elems(elem_size: usize) -> usize {
-    warpgroup_elems_per_unit(WgmmaTileLayout::k_step(elem_size))
+    plane_group_elems_per_unit(WgmmaTileLayout::k_step(elem_size))
 }
 
 /// The `(row, col)` of the `nth` element `unit` holds, in runs of `run` adjacent elements.

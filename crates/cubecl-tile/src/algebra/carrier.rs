@@ -41,7 +41,7 @@ where
     fn combine(lhs: T, rhs: T, #[comptime] monoid: Monoid) -> T {
         let elem = elem_type_of::<T>();
         let float = comptime!(elem.is_float());
-        match comptime!(monoid) {
+        match monoid {
             Monoid::Sum => lhs + rhs,
             Monoid::Prod => lhs * rhs,
             Monoid::Max => {
@@ -66,9 +66,9 @@ where
     }
 
     fn across(value: T, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> T {
-        match comptime!(share) {
+        match share {
             UnitShare::Repeated | UnitShare::Whole => value,
-            UnitShare::Plane => match comptime!(monoid) {
+            UnitShare::Plane => match monoid {
                 Monoid::Sum => plane_sum(value),
                 Monoid::Prod => plane_prod(value),
                 Monoid::Max => plane_keeping_nan::<T>(value, plane_max(value), monoid),
@@ -79,8 +79,7 @@ where
                 #[unroll]
                 for bit in 0..comptime!(usize::BITS - unit_bits.leading_zeros()) {
                     if comptime!(unit_bits & (1 << bit) != 0) {
-                        total = monoid
-                            .combine::<T>(total, plane_shuffle_xor(total, comptime!(1u32 << bit)));
+                        total = monoid.combine::<T>(total, plane_shuffle_xor(total, 1u32 << bit));
                     }
                 }
                 total
@@ -104,11 +103,11 @@ fn plane_keeping_nan<T: CubePrimitive<Scalar: Numeric> + Cast + Carrier>(
 ) -> T {
     let elem = elem_type_of::<T>();
     if comptime!(elem.is_float()) {
-        let far = match comptime!(monoid) {
+        let far = match monoid {
             Monoid::Max => T::cast_from(f32::NEG_INFINITY),
             _ => T::cast_from(f32::INFINITY),
         };
-        let nan_or_far = match comptime!(monoid) {
+        let nan_or_far = match monoid {
             Monoid::Max => max_keeping_nan::<T>(min_keeping_nan::<T>(value, far), far),
             _ => min_keeping_nan::<T>(max_keeping_nan::<T>(value, far), far),
         };

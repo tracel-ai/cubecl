@@ -1,3 +1,5 @@
+use cubecl_common::hash::{StableHash, StableHasher};
+use derive_new::new;
 use pliron::{
     attribute::AttrObj,
     derive::{pliron_type, type_interface_impl},
@@ -6,12 +8,14 @@ use pliron::{
 
 use crate::{
     AddressSpace, aligned,
+    attributes::IndexAttr,
     interfaces::{
-        AlignedType, HasElementType, IndexableType, MaybePackedType, MaybeVectorizedType,
-        ScalarizableType, SizedType, TypedExt, memory_slot::DestructurableTypeInterface,
+        AlignedType, HasElementType, IndexableType, MaybePackedType, MaybeSizedType,
+        MaybeVectorizedType, ScalarizableType, TypedExt, memory_slot::DestructurableTypeInterface,
+        not_packed,
     },
     prelude::*,
-    sized,
+    scalar, sized,
     types::aggregate::index_attr,
 };
 
@@ -64,9 +68,9 @@ impl AlignedType for VectorType {
 }
 
 #[type_interface_impl]
-impl SizedType for VectorType {
-    fn size(&self, ctx: &Context) -> usize {
-        self.inner.size(ctx) * self.vectorization
+impl MaybeSizedType for VectorType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        Some(self.inner.try_size(ctx)? * self.vectorization)
     }
 }
 
@@ -128,9 +132,9 @@ impl AlignedType for AtomicType {
 }
 
 #[type_interface_impl]
-impl SizedType for AtomicType {
-    fn size(&self, ctx: &Context) -> usize {
-        self.inner.size(ctx)
+impl MaybeSizedType for AtomicType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        self.inner.try_size(ctx)
     }
 }
 
@@ -209,9 +213,9 @@ impl AlignedType for ArrayType {
 }
 
 #[type_interface_impl]
-impl SizedType for ArrayType {
-    fn size(&self, ctx: &Context) -> usize {
-        self.inner.size(ctx) * self.length
+impl MaybeSizedType for ArrayType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        Some(self.inner.try_size(ctx)? * self.length)
     }
 }
 
@@ -248,6 +252,65 @@ impl DestructurableTypeInterface for ArrayType {
 
     fn type_at_index(&self, _ctx: &Context, _index: &AttrObj) -> TypeHandle {
         self.inner
+    }
+}
+
+#[pliron_type(
+    name = "cube.struct",
+    format = "`<size :` $size `, align: ` $align `, fields: [` vec($fields, Char(`,`)) `]>`",
+    generate_get = true,
+    verifier = "succ"
+)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+pub struct StructType {
+    pub size: u64,
+    pub align: u64,
+    pub fields: Vec<StructField>,
+}
+
+#[format("`<` $ty `, offset: ` $offset `>`")]
+#[derive(new, Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct StructField {
+    pub ty: TypeHandle,
+    pub offset: u64,
+}
+
+scalar!(StructType);
+not_packed!(StructType);
+
+impl StructType {
+    pub fn stable_hash(&self) -> StableHash {
+        StableHasher::hash_one(self)
+    }
+}
+
+#[type_interface_impl]
+impl AlignedType for StructType {
+    fn align(&self, _: &Context) -> usize {
+        self.align as usize
+    }
+}
+
+#[type_interface_impl]
+impl MaybeSizedType for StructType {
+    fn size(&self, _: &Context) -> Option<usize> {
+        Some(self.size as usize)
+    }
+}
+
+#[type_interface_impl]
+impl DestructurableTypeInterface for StructType {
+    fn subelement_index_map(&self, _: &Context) -> Option<HMap<AttrObj, TypeHandle>> {
+        let mut out = HMap::new();
+        for (i, field) in self.fields.iter().enumerate() {
+            out.insert(index_attr(i), field.ty);
+        }
+        Some(out)
+    }
+
+    fn type_at_index(&self, _: &Context, index: &AttrObj) -> TypeHandle {
+        let field = index.downcast_ref::<IndexAttr>().unwrap().0;
+        self.fields[field].ty
     }
 }
 

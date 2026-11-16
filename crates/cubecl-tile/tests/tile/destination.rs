@@ -16,14 +16,16 @@
 use core::marker::PhantomData;
 
 use super::{Form, implied};
-use crate::support::{HostData, HostDataType, TestInput, TileInput};
+use crate::support::{HostData, HostDataType, TestInput, TileInput, hands_off_between_cubes};
 use cubecl::ir::{ExpandValue, VectorSize};
 use cubecl::std::tensor::{
     ErasedTensor, ErasedTensorExpand, ErasedTensorOperationsExpand, WriteOnly, WritesLines,
 };
 use cubecl::{prelude::*, unexpanded, zspace::shape};
 use cubecl_tile::kind::{GlobalOperand, Write};
-use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch, Unbound};
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand, Unbound,
+};
 use cubecl_tile::layout::RuntimeGeometry;
 use cubecl_tile::*;
 
@@ -51,8 +53,9 @@ struct DoubledArg<'a, E: Numeric> {
 #[cube]
 impl Destination for Doubled {
     type Arg<E: Numeric> = DoubledArg<'static, E>;
+    type Served<E: Numeric> = Tile;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         let mut geometry = RuntimeGeometry::new();
         #[unroll]
         for axis in 0..comptime!(arg.rank) {
@@ -180,8 +183,10 @@ fn store<E: Float, V: Size, O: Destination>(
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let mut dst = O::tile::<E, V>(out, &space);
+    let dest = O::serve::<E, V>(out, &space);
+    let mut dst = dest.tile();
     dst.copy_from(&src);
+    dest.finish();
 }
 
 /// Cut so the store is not one contiguous run.
@@ -293,7 +298,7 @@ fn one_kernel_stores_into_a_buffer_or_a_caller_sink() {
 const M: Axis = Axis(2);
 const N: Axis = Axis(3);
 const K: Axis = Axis(4);
-const BLOCK: RegisterBlock = RegisterBlock::new(16);
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The promoted matmul over any destination: `K` sums in registers and the drain is the only
 /// touch of the output, which is the shape of a kernel a fused epilogue is handed to.
@@ -301,7 +306,7 @@ const BLOCK: RegisterBlock = RegisterBlock::new(16);
 fn contract<E: Numeric, EA: Numeric, O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &O::Arg<E>,
+    out: &O::Arg<E>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -309,18 +314,15 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = O::tile::<E, Const<1>>(c, &space);
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let c = dest.tile();
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
     }
     acc.drained_into(&c);
+    dest.finish();
 }
 
 fn run_contract(sink: bool) -> HostData {
@@ -419,5 +421,194 @@ fn a_contraction_drains_into_a_caller_sink() {
                 2.0 * expected
             );
         }
+    }
+}
+
+// ===========================================================================
+// A destination that finishes
+// ===========================================================================
+
+/// [`Doubled`] that also totals what the launch stored once every unit has finished.
+struct Totaled;
+
+/// [`Totaled`]'s launch argument: the doubling destination, the units that have arrived, and the
+/// cell the total lands in. The total is read from the one binding the stores go through.
+#[derive(CubeType, CubeLaunch)]
+struct TotaledArg<'a, E: Numeric> {
+    doubled: DoubledArg<'a, E>,
+    arrivals: &'a [Atomic<u32>],
+    total: &'a [Atomic<u32>],
+}
+
+/// Every unit counts itself in after publishing its stores. The cube holding the last unit to
+/// count in acquires and sums, the protocol of a merge by the last arrival.
+#[cube]
+impl Destination for Totaled {
+    type Arg<E: Numeric> = TotaledArg<'static, E>;
+    type Served<E: Numeric> = TotaledServed<E>;
+
+    fn serve<E: Numeric, V: Size>(
+        arg: &Self::Arg<E>,
+        partitioning: &Partitioning,
+    ) -> TotaledServed<E> {
+        TotaledServed::<E> {
+            tile: Doubled::serve::<E, V>(&arg.doubled, partitioning),
+            values: arg.doubled.values,
+            arrivals: arg.arrivals,
+            total: arg.total,
+        }
+    }
+}
+
+/// [`Totaled`] as served to the kernel: the doubling tile, and the argument `finish` reads.
+#[derive(CubeType)]
+struct TotaledServed<E: Numeric> {
+    tile: Tile,
+    values: &'static Tensor<E>,
+    arrivals: &'static [Atomic<u32>],
+    total: &'static [Atomic<u32>],
+}
+
+#[cube]
+impl<E: Numeric> ServedDestination for TotaledServed<E> {
+    type Opened = Tile;
+
+    fn tile(&self) -> Tile {
+        self.tile.clone()
+    }
+
+    fn open(&self, _owner: &Region, _sum: &Tile) -> Tile {
+        self.tile.clone()
+    }
+
+    fn finish(&self) {
+        sync_storage();
+        let before = self.arrivals[0].fetch_add(1);
+        let mut last = Shared::<[u32]>::new_slice(1usize);
+        if UNIT_POS == 0 {
+            last[0] = 0;
+        }
+        sync_cube();
+        if before as usize + 1 == CUBE_COUNT * CUBE_DIM as usize {
+            last[0] = 1;
+        }
+        sync_cube();
+        // Uniform across the cube: only the cube holding the last unit sums.
+        if last[0] == 1 {
+            sync_storage();
+            if UNIT_POS == 0 {
+                let mut sum = E::from_int(0);
+                for i in 0..self.values.len() {
+                    sum += self.values[i];
+                }
+                self.total[0].store(u32::cast_from(sum));
+            }
+        }
+    }
+}
+
+/// What [`Totaled`] launches from.
+struct TotaledOperand {
+    doubled: DoubledOperand,
+    arrivals: BufferArg,
+    total: BufferArg,
+}
+
+impl DestinationLaunch for Totaled {
+    type Operand = TotaledOperand;
+
+    fn arg<E: Numeric>(operand: TotaledOperand) -> TotaledArgLaunch<'static, E> {
+        TotaledArgLaunch::new(
+            Doubled::arg(operand.doubled),
+            operand.arrivals,
+            operand.total,
+        )
+    }
+}
+
+/// What [`Totaled`] left after [`store`] over [`store_space`] with `extra` cubes beyond the one
+/// its grid needs: the stored values, the units that arrived, the units launched and the total;
+/// `None` where the device cannot hand one cube's stores to another. The walk has no cube level,
+/// so every extra cube repeats the whole store.
+fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
+    let client = cubecl::test_device().client();
+    if !hands_off_between_cubes(&client) {
+        return None;
+    }
+    let dtype = f32::elem_type_native();
+    let launcher = store_space();
+    let CubeCount::Static(x, y, z) = launcher.cube_count() else {
+        panic!("a static space spawns a static grid");
+    };
+    let dim = launcher.cube_dim();
+    let units = (x + extra) * y * z * dim.num_elems();
+    let input = TestInput::builder(client.clone(), shape![ROWS, COLS])
+        .dtype(dtype)
+        .arange()
+        .generate_without_host_data();
+    let src = launcher
+        .arg(input.binding(), dtype)
+        .axes(&[ROW, COL])
+        .vectorize(WIDTH)
+        .build()
+        .unwrap();
+    let output = TestInput::builder(client.clone(), shape![ROWS, COLS])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let derived = launcher
+        .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
+        .axes(&[ROW, COL])
+        .vectorize(WIDTH)
+        .build_spec()
+        .unwrap();
+    let arrivals = client.create_from_slice(u32::as_bytes(&[0u32]));
+    let total = client.create_from_slice(u32::as_bytes(&[0u32]));
+    let out = Totaled::arg(TotaledOperand {
+        doubled: DoubledOperand {
+            values: output.clone().binding().into_tensor_arg(),
+            sink: derived,
+        },
+        arrivals: unsafe { BufferArg::from_raw_parts(arrivals.clone(), 1) },
+        total: unsafe { BufferArg::from_raw_parts(total.clone(), 1) },
+    });
+    store::launch::<Totaled>(
+        &client,
+        CubeCount::Static(x + extra, y, z),
+        dim,
+        WIDTH,
+        src.arg(),
+        out,
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    let stored = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    let arrived = u32::from_bytes(&client.read_one_unchecked(arrivals))[0];
+    let total = u32::from_bytes(&client.read_one_unchecked(total))[0];
+    Some((stored, arrived, units, total))
+}
+
+/// Every unit of every cube, extra cubes included, reaches [`Destination::finish`], and exactly
+/// one cube finds itself holding the last unit and totals the output. Every cube stores every
+/// value here, so it does not prove a store is visible across cubes.
+#[test]
+fn every_unit_reaches_finish_and_the_last_cube_totals() {
+    let cells = ROWS * COLS;
+    let want = (cells * (cells - 1)) as u32;
+    for extra in [0, 3] {
+        let Some((stored, arrived, units, total)) = run_totaled(extra) else {
+            continue;
+        };
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                assert_eq!(
+                    stored.get_f32(&[row, col]),
+                    2.0 * (row * COLS + col) as f32,
+                    "{extra} extra cubes: the store is wrong at [{row}, {col}]"
+                );
+            }
+        }
+        assert_eq!(arrived, units, "{extra} extra cubes: units that finished");
+        assert_eq!(total, want, "{extra} extra cubes: the total");
     }
 }

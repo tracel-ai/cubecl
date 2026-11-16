@@ -30,12 +30,15 @@ impl GraphDriver for Cuda {
     type Executable = Executable;
 
     fn begin(stream: &mut Stream) -> Result<(), ServerError> {
-        // SAFETY: `stream.sys` is a valid CUDA stream; global capture mode
-        // records every launch issued on it until `cuStreamEndCapture`.
+        // SAFETY: `stream.sys` is a valid CUDA stream; capture records every
+        // launch issued on it until `cuStreamEndCapture`.
+        // Thread-local, not global: devices recording one collective step each
+        // hold a window open at once, and under global mode the first to close
+        // is refused instantiation while a peer's window still records.
         let status = unsafe {
             cudarc::driver::sys::cuStreamBeginCapture_v2(
                 stream.sys,
-                cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL,
+                cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_THREAD_LOCAL,
             )
         };
         checked("cuStreamBeginCapture", status)

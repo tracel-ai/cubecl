@@ -14,7 +14,7 @@ pub(crate) enum CubeAxis {
 impl CubeAxis {
     /// This cube's position on grid dimension `dim`.
     pub(crate) fn position(#[comptime] dim: CubeAxis) -> usize {
-        let cube_pos = match comptime!(dim) {
+        let cube_pos = match dim {
             CubeAxis::X => CUBE_POS_X,
             CubeAxis::Y => CUBE_POS_Y,
             CubeAxis::Z => CUBE_POS_Z,

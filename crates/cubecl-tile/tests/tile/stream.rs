@@ -251,7 +251,7 @@ const KK: Axis = Axis(4);
 const BB: Axis = Axis(5);
 
 /// The leaf's register block, held fixed across every kernel here.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// One step of the contraction into `acc`'s cell at `region`.
 #[cube]
@@ -280,23 +280,21 @@ fn stream_matmul<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = out.tile(&space);
-    let portion = space.over(&outer).portion(comptime!(inner.clone()));
+    let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
         let (from, steps) = portion.steps(i);
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
-        let acc = c_region.accumulator::<E>(
+        let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
-            match comptime!(leaf.clone()) {
+            match leaf.clone() {
                 Some(leaf) => {
                     for step in cell.over(&leaf) {
                         contract(&acc, &a_region, &b_region, &step);
@@ -325,19 +323,17 @@ fn stream_matmul_staged_rhs<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = out.tile(&space);
-    let portion = space.over(&outer).portion(comptime!(inner.clone()));
+    let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
         let (from, steps) = portion.steps(i);
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
-        let acc = c_region.accumulator::<E>(
+        let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         let cells = region.over(&inner).range(from, steps);
@@ -377,12 +373,10 @@ fn stream_matmul_prefix<E: Numeric>(
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
-        let acc = c_region.accumulator::<E>(
+        let acc = c_region.register_accumulator::<E>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&inner).range(from, steps) {
@@ -819,18 +813,16 @@ fn merged_stream_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let mut out = out.tile(&space);
-    let portion = space.walk().portion(comptime!(steps.clone()));
+    let portion = space.walk().portion(steps.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
         let (from, count) = portion.steps(i);
         let merge = slots.last_arrival::<Const<1>>(&space, &portion, i, arrivals);
         let (a_region, b_region) = (a.at(&region), b.at(&region));
-        let acc = merge.tile().accumulator::<f32>(
+        let acc = merge.tile().register_accumulator::<f32>(
             &a_region,
             &b_region,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
+            comptime!(SOFTWARE_MATMUL),
             Semiring::SUM_PROD,
         );
         for cell in region.over(&steps).range(from, count) {

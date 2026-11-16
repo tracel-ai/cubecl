@@ -156,9 +156,9 @@ impl Space {
 impl Space {
     /// The runtime operation space: the comptime space plus the runtime `sizes` of its
     /// `Dynamic` axes (aligned to axis order; empty when fully `Static`).
-    pub(crate) fn with_sizes(#[comptime] space: Space, sizes: Sequence<usize>) -> Space {
+    pub(crate) fn with_sizes(#[comptime] space: &Space, sizes: Sequence<usize>) -> Space {
         Space {
-            shape: comptime!(space.shape.clone()),
+            shape: space.shape.clone(),
             sizes,
         }
     }

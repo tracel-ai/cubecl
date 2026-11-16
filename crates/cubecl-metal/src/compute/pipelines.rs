@@ -3,7 +3,9 @@
 
 use crate::compute::artifact::{MetalArtifact, MetalArtifactCompiler, MslCacheEntry};
 use cubecl_core::prelude::*;
-use cubecl_server::compiler::{ArtifactId, ArtifactStore, CompilationError, CompilationTarget};
+use cubecl_server::compiler::{
+    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget,
+};
 use cubecl_server::kernel::BufferIOAttr;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -53,7 +55,7 @@ impl MetalPipelines {
 
         Self {
             compiler,
-            msl_store: ArtifactStore::new("metal", format!("msl_{device_key}")),
+            msl_store: ArtifactStore::new(ArtifactRoot::Metal, format!("msl_{device_key}")),
         }
     }
 }

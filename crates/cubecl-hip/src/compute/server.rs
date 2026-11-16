@@ -19,9 +19,9 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        PeerBinding, ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, Handle, KernelArguments,
+        KernelResource, PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction,
+        SendOutcome, SendReport, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future;
@@ -61,7 +61,7 @@ pub struct HipServer {
     peers: HashSet<DeviceId>,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities>,
-    collectives: Collectives<Hip>,
+    collectives: Collectives<Hip, crate::compute::events::Hip>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
 }
@@ -479,14 +479,19 @@ impl ServerCommunication for HipServer {
         CollectiveServer::sync_collective(self, stream_id)
     }
 
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        CollectiveServer::time_next_communication(self, timing)
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
     fn send(
         &mut self,
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -495,15 +500,14 @@ impl ServerCommunication for HipServer {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src)
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
     }
 
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
         let own = AmdDevice::from_id(self.device_id).index as i32;
         let other = AmdDevice::from_id(peer).index as i32;
-        // Kernels on two devices hand data off through system-scope atomics
-        // on one's memory, so plain loads and stores are not enough.
         let attribute = |attribute| {
             let mut value = 0;
             // SAFETY: `value` is a valid stack variable HIP writes through.
@@ -512,8 +516,13 @@ impl ServerCommunication for HipServer {
             };
             checked("hipDeviceGetP2PAttribute", status).is_ok() && value != 0
         };
-        attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrAccessSupported)
-            && attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrNativeAtomicSupported)
+        if !attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrAccessSupported) {
+            PeerAccess::None
+        } else if attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrNativeAtomicSupported) {
+            PeerAccess::MemoryAndAtomics
+        } else {
+            PeerAccess::Memory
+        }
     }
 
     fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
@@ -562,13 +571,18 @@ impl HipServer {
 
 impl CollectiveServer for HipServer {
     type Driver = Hip;
+    type Events = crate::compute::events::Hip;
 
     fn device_id(&self) -> DeviceId {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Hip> {
+    fn collectives(&mut self) -> &mut Collectives<Hip, crate::compute::events::Hip> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut crate::compute::events::EventProfiler {
+        &mut self.ctx.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<HipStreamBackend> {

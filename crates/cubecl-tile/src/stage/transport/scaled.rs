@@ -12,10 +12,11 @@ impl Tile {
     /// loads ([`vector_tile`](Tile::vector_tile)), a run or a rectangle of its stored tiles. The
     /// source may carry extra axes only if each is one wide.
     pub(crate) fn copy_scaled_from<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        // It decodes in the unit that loads each line; an async copy lands the bytes as they lie.
+        // It decodes in the unit that loads each line; an engine moving memory to memory lands the
+        // bytes as they lie.
         let delivery = src.delivery();
         comptime!(assert!(
-            !delivery.is_async(),
+            delivery.route() == Route::Registers,
             "Tile::dequantize_from: a decoding copy cannot be delivered {delivery:?}; deliver it \
              SyncPerUnit, or stage it as it lies and decode out of the stage"
         ));
@@ -52,7 +53,7 @@ impl Tile {
         let size!(VW) = vw;
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
-        let along = comptime!(dst.axis_at(dst.rank() - 1));
+        let along = dst.axis_at(dst.rank() - 1);
         let varies = src.factor.varies_along(comptime!(along));
         comptime!(check_scaled_copy(
             "Tile::dequantize_from",
@@ -64,49 +65,19 @@ impl Tile {
         ));
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
-        let fill = self.fill_units();
+        let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
-        let units = comptime!(fill.count);
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
-        // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
-        // runtime stride stalls each store on Metal's in-order pipe.
-        if comptime!(units > 0 && loads.div_ceil(units) <= 8) {
-            #[unroll]
-            for t in 0..comptime!(loads.div_ceil(units)) {
-                let line = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if comptime!((t + 1) * units <= loads) {
-                    src.decode_load_into::<S, O, I, WP, VW>(
-                        &stored,
-                        &mut out,
-                        line,
-                        comptime!(dst.clone()),
-                        comptime!(lands.clone()),
-                    );
-                } else {
-                    if line < comptime!(loads as u32) {
-                        src.decode_load_into::<S, O, I, WP, VW>(
-                            &stored,
-                            &mut out,
-                            line,
-                            comptime!(dst.clone()),
-                            comptime!(lands.clone()),
-                        );
-                    }
-                }
-            }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for line in range_stepped(first, comptime!(loads as u32), stride) {
-                src.decode_load_into::<S, O, I, WP, VW>(
-                    &stored,
-                    &mut out,
-                    line,
-                    comptime!(dst.clone()),
-                    comptime!(lands.clone()),
-                );
-            }
+        // The loads dealt to the units that fill, as a straight fill's lines are.
+        for load in Walk::copy(&fill, comptime!(loads).runtime()) {
+            src.decode_load_into::<S, O, I, WP, VW>(
+                &stored,
+                &mut out,
+                load.coord(Level::COPIED) as u32,
+                &dst,
+                lands.clone(),
+            );
         }
     }
 
@@ -117,7 +88,7 @@ impl Tile {
         stored: &Masked<'_, Vector<I, WP>, CoordsDyn>,
         out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
         line: u32,
-        #[comptime] dst: Space,
+        #[comptime] dst: &Space,
         #[comptime] lands: VectorTile,
     ) {
         let load = self.vector_tile();
@@ -128,14 +99,14 @@ impl Tile {
         let packing = comptime!(stored_as.placed());
         let lift = comptime!(packing.lift() as f32);
         let space = comptime!(self.place.space.clone());
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let mem = self.mem("Tile::dequantize_from");
         let start = load.start(line, &space);
         let held = stored.read(load.index(&start, &space));
         // The destination lines this load holds, `offset` their place in it, and where they land.
         #[unroll]
-        for c in 0..comptime!(sw / vw) {
-            let offset = comptime!(c * vw);
+        for c in 0..(sw / vw) {
+            let offset = c * vw;
             let mut at = Coords::<u32>::new();
             let mut to = Coords::<u32>::new();
             #[unroll]
@@ -143,22 +114,22 @@ impl Tile {
                 let inner = comptime!(load.offset_along(offset, space.axis_at(p)) as u32);
                 let coord = start.at(p) + inner;
                 at.push(coord);
-                if comptime!(dst.contains(space.axis_at(p))) {
+                if dst.contains(space.axis_at(p)) {
                     to.push(coord);
                 }
             }
             let values = values_at::<S, I, WP, VW>(held, offset, packing);
-            let scale =
-                self.factor
-                    .at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked))
-                    * lift;
+            let scale = self
+                .factor
+                .at_coords(&at, space.clone(), comptime!(Guard::Checked))
+                * lift;
             // Multiplied in `f32`, rounded to `S` once: a placed `e2m1` value is a lift short,
             // which the scale carries, and the lift times a scale is past a half's range where
             // its product with the value is not.
             let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
                 * Vector::<f32, VW>::cast_from(scale);
             let decoded = Vector::<O, VW>::cast_from(scaled);
-            out.write(lands.index(&to, &dst), decoded);
+            out.write(lands.index(&to, dst), decoded);
         }
     }
 }

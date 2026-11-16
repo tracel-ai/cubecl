@@ -55,13 +55,17 @@ pub use algebra::indexed::Indexed;
 pub use algebra::monoid::Monoid;
 pub use algebra::semiring::Semiring;
 pub use algebra::top_k::{TOP_K_UNROLL_BUDGET, TopK};
+pub use algebra::top_values::TopValues;
 pub use launch::arg::tensor::{TileTensor, TileTensorLaunch};
 pub use launch::base::Launcher;
 pub use launch::spec::TileSpec;
 pub use layout::projection::Projection;
+pub use layout::reads::{MicroTile, OperandReads};
 pub use layout::storage::Geometry;
-pub use ops::matmul::instruction::{BlockScaledOperands, Instruction, MmaOperands};
-pub use ops::matmul::register_block::RegisterBlock;
+pub use ops::matmul::instruction::{
+    BlockScaledOperands, FragmentSource, Instruction, MmaOperands, ShapedInstruction,
+};
+pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use space::axis::Axis;
 pub use space::base::Space;
 pub use space::partition::base::Partitioning;
@@ -75,4 +79,5 @@ pub use tile::accumulator::base::Scratch;
 pub use tile::base::{Tile, TileExpand};
 pub use tile::factor::{Factor, FactorExpand};
 pub use tile::index::Indexing;
+pub use tile::kind::plane::mma::lane_runs::LaneMap;
 pub use tile::slices::{AxisSlices, AxisSlicesExpand};

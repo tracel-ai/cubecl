@@ -236,6 +236,18 @@ impl<T: CubePrimitive, const N: usize> ConstantTyped for [T; N] {
     }
 }
 
+impl<T: CubePrimitive + HostShareable, const N: usize> HostShareable for [T; N] {
+    fn __expand_runtime_place(scope: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        let slice = slice::from_raw_parts::<T>(
+            scope,
+            field_ptr.value(scope),
+            0usize.into_expand(scope),
+            N.into_expand(scope),
+        );
+        slice.expand.into()
+    }
+}
+
 impl<T: CubePrimitive> ReadValue for NativeExpand<Array<T>> {
     fn read_value(&self, scope: &Scope) -> Value {
         read_value(scope, self.__extract_list(scope))
@@ -315,6 +327,14 @@ impl<T: CubePrimitive> Deref for ArrayExpand<T> {
 
     fn deref(&self) -> &Self::Target {
         unsafe { self.as_type_ref_unchecked() }
+    }
+}
+
+impl<T: CubePrimitive, const N: usize> DerefExpand for NativeExpand<[T; N]> {
+    type Target = Self;
+
+    fn __expand_deref_method(&self, scope: &Scope) -> NativeExpand<[T; N]> {
+        self.__expand_clone_method(scope)
     }
 }
 

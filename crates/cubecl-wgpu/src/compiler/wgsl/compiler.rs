@@ -1,6 +1,6 @@
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{
-    self, EnableFeaturesPass,
+    self, DeclareStructTypesPass, EnableFeaturesPass,
     builtin::{LowerBuiltinsPass, WorkgroupLayout},
     lower::LowerOpsWgslPass,
     metadata::declare_info,
@@ -8,6 +8,7 @@ use crate::compiler::wgsl::{
 };
 use cubecl_server::kernel::BufferIOAttr;
 
+use crate::compiler::contraction::warn_unkept_no_contraction;
 use cubecl_core::{
     WgpuCompilationOptions,
     codegen::KernelDump,
@@ -115,6 +116,12 @@ impl WgslCompiler {
         let entry_func = value.body.state().entry_func;
         let module_op = module.get_operation();
         let mut ctx = value.body.into_context().expect("Should be unique");
+        warn_unkept_no_contraction(
+            &ctx,
+            &value.settings.kernel_name,
+            "WGSL cannot keep the driver from fusing multiply-adds: the kernel's own products \
+             are kept apart, but the driver may still contract them",
+        );
         ctx.set_aux_ty(value.info);
         let cube_dim = value.settings.cube_dim;
         let layout = WorkgroupLayout::new(&ctx, module_op, &cube_dim);
@@ -171,6 +178,7 @@ impl WgslCompiler {
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.add_pass(DeclareStructTypesPass);
         passes.add_pass(EnableFeaturesPass);
 
         passes.run(module_op, &mut ctx, &mut analyses)?;

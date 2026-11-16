@@ -55,7 +55,7 @@ impl Window {
     pub(crate) fn axes_in_bounds(&self, pos: &CoordsDyn, #[comptime] axes: Vec<usize>) -> bool {
         let mut valid = true;
         #[unroll]
-        for a in 0..comptime!(axes.len()) {
+        for a in 0..axes.len() {
             let i = comptime!(axes[a]);
             if comptime!(self.boundaries.get(i).copied().flatten() == Some(Boundary::Zero)) {
                 valid = valid && self.axis_in_bounds(pos[i], i);
@@ -165,7 +165,7 @@ impl SourceWindow {
     ) -> bool {
         let mut valid = true;
         #[unroll]
-        for a in 0..comptime!(axes.len()) {
+        for a in 0..axes.len() {
             let i = comptime!(axes[a]);
             if comptime!(self.boundaries.get(i).copied().flatten() == Some(Boundary::Zero)) {
                 valid = valid && self.axis_in_bounds(stage_origin.at(i), pos[i], i);

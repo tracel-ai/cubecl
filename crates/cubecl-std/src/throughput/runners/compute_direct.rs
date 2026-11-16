@@ -23,7 +23,7 @@ pub fn build_kernel(
                 CubeCount::Static(config.cube_count as u32, 1, 1),
                 config.cube_dim,
                 config.vector_size,
-                BufferArg::from_raw_parts(out.clone(), 1),
+                BufferArg::from_raw_parts(out.clone(), config.vector_size),
                 iterations,
                 use_fma,
                 dtype,

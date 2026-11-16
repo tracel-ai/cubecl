@@ -161,15 +161,15 @@ mod tests {
 
     /// One dim's index for a coordinate: `Σ axis·coefficient + offset`.
     fn index(p: &Projection, dim: usize, coordinate: &[(Axis, usize)]) -> isize {
-        let sum: usize = coordinate
+        let sum: isize = coordinate
             .iter()
-            .map(|&(axis, at)| at * p.scale(dim, axis))
+            .map(|&(axis, at)| at as isize * p.scale(dim, axis))
             .sum();
         let offset = match p.offset(dim) {
             Offset::Static(o) => o,
             Offset::Dynamic => unreachable!("nothing here builds a dynamic offset"),
         };
-        sum as isize + offset
+        sum + offset
     }
 
     #[test]

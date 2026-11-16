@@ -120,11 +120,7 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
     }
 
     fn close<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
-        let runner_id = RunnerId {
-            device: device_id,
-            stage: S::stage(),
-        };
-        close_service(runner_id, TypeId::of::<S>())
+        close_service_of::<S>(device_id, Release::Drop, SHUTDOWN_JOIN_TIMEOUT)
     }
 }
 
@@ -453,7 +449,13 @@ impl ChannelDeviceState {
             device_client.flush();
         };
 
-        let service = recv.recv().unwrap();
+        // The initialization drops its callback unanswered only by panicking.
+        let service = recv.recv().map_err(|_| {
+            ServiceCreationError::new(std::format!(
+                "the initialization of the device service {} panicked; its panic is logged",
+                core::any::type_name::<S>()
+            ))
+        })?;
 
         let service = match service {
             Ok(service) => service,
@@ -466,6 +468,14 @@ impl ChannelDeviceState {
         };
 
         channels.insert(key, channel.clone());
+        // Released before asking for the exit close, which may close the service right away and
+        // wait on its runner, whose queued work may need a handle of its own.
+        drop(guard_channel);
+
+        // Asked here, once per service, rather than by each handle: started, the service has
+        // loaded its runtime's libraries, so the close runs ahead of their exit teardown.
+        #[cfg(multi_threading)]
+        exit::close_at_exit(device_id, type_id, close_at_exit::<S>);
 
         Ok(channel)
     }
@@ -579,6 +589,11 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
     // before the servers can exit.
     drop(channels);
 
+    // Its services are gone, so there is nothing left to close at exit. A service started on
+    // the device again asks anew.
+    #[cfg(multi_threading)]
+    exit::forget_device(device_id);
+
     for (runner_id, runner) in runners {
         runner.client.request_shutdown();
         drop(runner.client);
@@ -596,14 +611,51 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
     wait_for_device_shutdown(device_id);
 }
 
+/// What a close does with the service it takes out of its runner.
+#[derive(Clone, Copy, Debug)]
+enum Release {
+    /// Drops it, freeing what it holds.
+    Drop,
+    /// Leaks it. The process is exiting and frees everything anyway, while a drop would run the
+    /// runtime's teardown as its libraries are being torn down too.
+    Leak,
+}
+
+/// Closes `S` on `device_id` as the process exits, waiting up to `timeout` for its runner: the
+/// work queued ahead of the close runs, later calls are refused, and the service is leaked
+/// rather than dropped.
+fn close_at_exit<S: DeviceService>(
+    device_id: DeviceId,
+    timeout: Duration,
+) -> Result<(), ServiceCloseError> {
+    close_service_of::<S>(device_id, Release::Leak, timeout)
+}
+
+fn close_service_of<S: DeviceService>(
+    device_id: DeviceId,
+    release: Release,
+    timeout: Duration,
+) -> Result<(), ServiceCloseError> {
+    let runner_id = RunnerId {
+        device: device_id,
+        stage: S::stage(),
+    };
+    close_service(runner_id, TypeId::of::<S>(), release, timeout)
+}
+
 /// Closes the service `type_id` on `runner_id`, though clients of it remain, waiting up to
-/// [`SHUTDOWN_JOIN_TIMEOUT`] for the runner to reach the close.
+/// `timeout` for the runner to reach the close.
 ///
 /// The close is one more task on the runner, so everything queued ahead of it runs first, and
 /// every call queued after it is answered [`CallError::closed`]: no caller is left waiting. The
 /// runner keeps serving its other services, which may belong to another runtime on a colliding
 /// [`DeviceId`]. A runner never started, or already gone, has nothing to close.
-fn close_service(runner_id: RunnerId, type_id: TypeId) -> Result<(), ServiceCloseError> {
+fn close_service(
+    runner_id: RunnerId,
+    type_id: TypeId,
+    release: Release,
+    timeout: Duration,
+) -> Result<(), ServiceCloseError> {
     let client = match RUNNERS
         .lock()
         .as_ref()
@@ -613,36 +665,39 @@ fn close_service(runner_id: RunnerId, type_id: TypeId) -> Result<(), ServiceClos
         None => return Ok(()),
     };
     if is_device_runner_thread(&runner_id) {
-        return remove_service(type_id);
+        return remove_service(type_id, release);
     }
 
     let (sender, recv) = oneshot::channel();
     let close = move || {
-        let _ = sender.send(remove_service(type_id));
+        let _ = sender.send(remove_service(type_id, release));
     };
     if client.enqueue(close).is_err() {
         return Ok(());
     }
     client.flush();
-    match recv.recv_timeout(SHUTDOWN_JOIN_TIMEOUT) {
+    match recv.recv_timeout(timeout) {
         Ok(closed) => closed,
         Err(oneshot::RecvTimeoutError::Disconnected) => Ok(()),
         Err(oneshot::RecvTimeoutError::Timeout) => Err(ServiceCloseError::new(std::format!(
-            "device runner {runner_id:?} did not reach the close within {SHUTDOWN_JOIN_TIMEOUT:?}"
+            "device runner {runner_id:?} did not reach the close within {timeout:?}"
         ))),
     }
 }
 
-/// Takes the service `type_id` out of this runner thread and leaves it closed.
-fn remove_service(type_id: TypeId) -> Result<(), ServiceCloseError> {
+/// Takes the service `type_id` out of this runner thread, leaves it closed, and releases it.
+fn remove_service(type_id: TypeId, release: Release) -> Result<(), ServiceCloseError> {
     let open = STATES.with(|states| match states.try_borrow_mut() {
         Ok(mut map) => Ok(map.insert(type_id, ServiceSlot::Closed)),
         Err(_) => Err(ServiceCloseError::new(
             "a service cannot be closed from inside a call on its own runner".into(),
         )),
     })?;
-    // Dropped once the map is released: dropping a service may call another one on this thread.
-    drop(open);
+    // Released once the map is: dropping a service may call another one on this thread.
+    match release {
+        Release::Drop => drop(open),
+        Release::Leak => core::mem::forget(open),
+    }
     Ok(())
 }
 
@@ -761,6 +816,21 @@ mod task {
         assert!(core::mem::offset_of!(Task, data) == 0);
     };
 
+    /// Logs the panic of a task nobody waits on, then drops its payload.
+    ///
+    /// The payload is dropped under `catch_unwind` too: a payload whose `Drop` panics would
+    /// otherwise unwind out of the runner thread and end it, leaving every task queued behind
+    /// it, and every caller waiting on one, waiting forever. A payload that panics again as it
+    /// drops is leaked rather than dropped a second time.
+    fn discard_panic(payload: Box<dyn core::any::Any + Send>) {
+        let error = CallError::from_panic(payload);
+        log::warn!("{error:?}");
+        if let Err(again) = catch_unwind(AssertUnwindSafe(move || drop(error))) {
+            log::warn!("dropping the payload of a task's panic panicked too; leaking it");
+            core::mem::forget(again);
+        }
+    }
+
     impl Task {
         pub fn new(large_data_ptr: *mut u8) -> Self {
             Self {
@@ -788,7 +858,7 @@ mod task {
                     // SAFETY: Paired with the ptr::write to data above.
                     let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
                     if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("{:?}", CallError::from_panic(payload));
+                        discard_panic(payload);
                     }
                 };
             } else if fits_arena {
@@ -802,7 +872,7 @@ mod task {
                         std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
                     if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("{:?}", CallError::from_panic(payload));
+                        discard_panic(payload);
                     }
                 };
             } else {
@@ -815,6 +885,9 @@ mod task {
         }
 
         /// Runs the task.
+        ///
+        /// A panic in the task never unwinds out of this call: the runner thread outlives
+        /// every task it runs, so nothing queued behind a panic is left unanswered.
         ///
         /// The task must be initialized and run only once per initialization.
         /// Tasks must run, otherwise we will create memory leaks since we don't
@@ -2146,5 +2219,48 @@ mod tests {
 
         assert!(closed.is_err());
         assert!(handle.submit_blocking(|_| ()).is_ok());
+    }
+
+    /// A panic payload whose `Drop` panics with another such payload, `depth` deep.
+    struct PanicsAsItDrops(u32);
+
+    impl Drop for PanicsAsItDrops {
+        fn drop(&mut self) {
+            if self.0 > 0 {
+                std::panic::panic_any(PanicsAsItDrops(self.0 - 1));
+            }
+        }
+    }
+
+    /// Submits a task nobody waits on that panics with `payload`, then waits, bounded so a
+    /// runner that died fails the test instead of hanging it, for a call queued behind it.
+    fn call_after_a_panic_of(
+        payload: fn() -> PanicsAsItDrops,
+    ) -> Result<usize, std::string::String> {
+        let handle = mock_fixture();
+        handle.submit(move |_| std::panic::panic_any(payload()));
+        let caller = (*handle).clone();
+        let (answered, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = answered.send(caller.submit_blocking(|state| state.counter + 1));
+        });
+        match answer.recv_timeout(Duration::from_secs(30)) {
+            Ok(result) => result.map_err(|error| std::format!("{error:?}")),
+            Err(_) => Err("the call queued behind the panic was never answered".into()),
+        }
+    }
+
+    /// The runner outlives a task whose panic payload panics as the runner drops it, so the
+    /// call queued behind that task is answered.
+    #[test]
+    fn test_a_payload_that_panics_as_it_drops_leaves_the_runner_serving() {
+        assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(1)), Ok(1));
+    }
+
+    /// A payload that panics again as its own panic's payload drops is leaked, and the runner
+    /// still answers what is queued behind it.
+    #[test]
+    fn test_a_payload_that_keeps_panicking_as_it_drops_leaves_the_runner_serving() {
+        assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(3)), Ok(1));
     }
 }

@@ -127,6 +127,8 @@ impl_type_hash!(
     internment::Intern<T: ?Sized>,
     bumpalo::Bump,
     pliron::value::Value,
+    pliron::r#type::TypeHandle,
+    pliron::uniqued_any::Uniqued<T>,
 );
 
 macro_rules! impl_type_hash_tuple {

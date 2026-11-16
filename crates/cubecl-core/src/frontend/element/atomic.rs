@@ -350,3 +350,9 @@ impl<Inner: CubePrimitive> ConstantTyped for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> NativeAssign for Atomic<Inner> {}
+
+impl<Inner: CubePrimitive + HostShareable> HostShareable for Atomic<Inner> {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}

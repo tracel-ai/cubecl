@@ -71,14 +71,8 @@ fn buffer_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::gathered(
-        tensor,
-        comptime!(space.space().clone()),
-        spec,
-        coefficients,
-        offsets,
-    )
-    .tile::<E>(comptime!(space.levels().to_vec()))
+    GlobalOperand::gathered(tensor, space.space(), spec, coefficients, offsets)
+        .tile::<E>(space.levels().to_vec())
 }
 
 /// A codebook's table, `entries` long along its one axis, outside the kernel's space.
@@ -89,7 +83,7 @@ fn table_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(Space::new(&[(spec.axes()[0], entries)]));
-    GlobalOperand::tensor(tensor, comptime!(space.clone()), spec).tile::<E>(comptime!(Vec::new()))
+    GlobalOperand::tensor(tensor, space.clone(), spec).tile::<E>(comptime!(Vec::new()))
 }
 
 /// [`buffer_tile`] over a pool of pages, read as the sequences `table` names.
@@ -101,8 +95,8 @@ fn paged_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::paged(tensor, table, comptime!(space.space().clone()), spec)
-        .tile::<E>(comptime!(space.levels().to_vec()))
+    GlobalOperand::paged(tensor, table, space.space().clone(), spec)
+        .tile::<E>(space.levels().to_vec())
 }
 
 /// A tensor map, served as a TMA-filled tile.
@@ -115,14 +109,15 @@ fn tensor_map_tile<E: Numeric>(
     #[comptime] width: usize,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    let own = comptime!(space.space().subspace(spec.axes()));
+    let own = space.space().subspace(spec.axes());
     let data = TmaData::from_tensor_map(
         map,
         layout,
-        comptime!(own.rank()),
-        comptime!(spec.units),
-        comptime!(spec.packing),
+        own.rank(),
+        spec.units,
+        spec.packing,
         width,
+        spec.projection.clone(),
     );
     Tile::new::<E>(
         TileKind::new_TmaGmem(data),
@@ -495,6 +490,26 @@ impl TileTensorLaunch {
              this is not one"
         );
         Arc::make_mut(&mut self.spec).packing = Packing::Packed {
+            field: field.into(),
+        };
+        self
+    }
+
+    /// This tensor map of `u32` words read as [words](Packing::Words) of `field`, several to a word
+    /// along the axis they scale: what a TMA engine moves of block scales a block-scaled
+    /// instruction takes a word at a time, which a stage holds as they lie.
+    ///
+    /// # Panics
+    ///
+    /// On an argument that is not a tensor map of `u32` words.
+    pub fn words(mut self, field: impl Into<Field>) -> Self {
+        assert!(
+            matches!(self.values, ValuesLaunch::TensorMap { .. })
+                && self.element == u32::elem_type_native(),
+            "TileTensorLaunch::words: a tensor map of u32 words is read as words of scales, and \
+             this is not one"
+        );
+        Arc::make_mut(&mut self.spec).packing = Packing::Words {
             field: field.into(),
         };
         self

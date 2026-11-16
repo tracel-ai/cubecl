@@ -60,6 +60,35 @@ impl TileTensorLaunch {
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
+        Self::with_coordinates(tensor_map, TileSpec::direct(axes), extents, coordinates)
+    }
+
+    /// [`tensor_map_folded`](Self::tensor_map_folded) over an operand read through `projection`,
+    /// its logical axes the tile's, `extents` along each: what a gather of the same buffer reads,
+    /// stated for a descriptor. A stage of it is the compacted window the projection reads (a
+    /// word of scales every few blocks, say), which the engine lands as it lies: the box must be
+    /// that window, row-major.
+    ///
+    /// # Panics
+    ///
+    /// As [`tensor_map_folded`](Self::tensor_map_folded).
+    pub fn tensor_map_with_coordinates_through(
+        tensor_map: TensorMapArg<Tiled>,
+        projection: Projection,
+        extents: &[u32],
+        coordinates: TmaCoordinates,
+    ) -> Self {
+        Self::with_coordinates(tensor_map, TileSpec::new(projection), extents, coordinates)
+    }
+
+    /// The body both descriptors with coordinates share, over `spec`'s logical axes.
+    fn with_coordinates(
+        tensor_map: TensorMapArg<Tiled>,
+        spec: TileSpec,
+        extents: &[u32],
+        coordinates: TmaCoordinates,
+    ) -> Self {
+        let axes = spec.projection.logical_axes().to_vec();
         assert_eq!(
             extents.len(),
             axes.len(),
@@ -81,7 +110,7 @@ impl TileTensorLaunch {
         Self::of_tensor_map(
             tensor_map,
             VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaFoldedLayout>>(layout),
-            TileSpec::direct(axes),
+            spec,
         )
     }
 }
@@ -149,20 +178,21 @@ impl Layout for TmaFoldedLayout {
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
         let coordinates = comptime!(self.coordinates.clone());
         let mut src = CoordsDyn::new();
+        // Indexed: an unrolled loop walks a comptime list by its positions.
+        #[allow(clippy::needless_range_loop)]
         #[unroll]
-        for d in 0..comptime!(coordinates.dims.len()) {
+        for d in 0..coordinates.dims.len() {
             let terms = comptime!(coordinates.dims[d].clone());
             let mut coordinate = 0u32;
-            // Indexed: an unrolled loop walks a comptime list by its positions.
             #[allow(clippy::needless_range_loop)]
             #[unroll]
-            for t in 0..comptime!(terms.len()) {
+            for t in 0..terms.len() {
                 let term = comptime!(terms[t]);
-                let mut value = pos[comptime!(term.position)] * comptime!(term.scale);
-                if comptime!(term.modulus != 0) {
-                    value %= comptime!(term.modulus);
+                let mut value = pos[term.position] * term.scale;
+                if term.modulus != 0 {
+                    value %= term.modulus;
                 }
-                coordinate += value / comptime!(term.divisor);
+                coordinate += value / term.divisor;
             }
             src.push(coordinate);
         }

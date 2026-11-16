@@ -8,6 +8,7 @@ use cubecl::ir::{ElemType, ExpandValue, Scope};
 use cubecl::prelude::*;
 use cubecl::unexpanded;
 
+use super::constant::{Constant, ConstantExpand};
 use super::{FactorReads, Recipe, RecipeCoords, RecipeCoordsExpand, RecipeExpand, SeparableExpand};
 use crate::Axis;
 use crate::tile::held::read_as;
@@ -80,6 +81,9 @@ pub(crate) struct ErasedRecipe;
 pub(crate) struct ErasedRecipeExpand {
     state: Arc<dyn RecipeCall>,
     separable: Option<Arc<dyn SeparableCall>>,
+    /// Whether the recipe is zero everywhere ([`Procedural::zero`](super::Procedural::zero)): what
+    /// a read may skip.
+    zero: bool,
 }
 
 impl ErasedRecipe {
@@ -93,6 +97,18 @@ impl ErasedRecipe {
                 _computes: PhantomData,
             }),
             separable: None,
+            zero: false,
+        }
+    }
+
+    /// A recipe zero everywhere, computing at `T`: it reads as zeros and says it is zero.
+    pub(crate) fn __expand_zero<T: Numeric>(scope: &Scope) -> ErasedRecipeExpand {
+        let zero = ConstantExpand::<T> {
+            value: T::from_int(0).into_expand(scope),
+        };
+        ErasedRecipeExpand {
+            zero: true,
+            ..Self::__expand_new::<T, Constant<T>>(scope, zero)
         }
     }
 
@@ -110,6 +126,7 @@ impl ErasedRecipe {
         ErasedRecipeExpand {
             state: recipe.clone(),
             separable: Some(recipe),
+            zero: false,
         }
     }
 
@@ -120,6 +137,11 @@ impl ErasedRecipe {
 
     /// One factor per contracted axis if the recipe is separable, else `None`.
     pub(crate) fn factorization(&self) -> comptime_type!(Option<usize>) {
+        unexpanded!()
+    }
+
+    /// Whether this recipe is zero everywhere.
+    pub(crate) fn is_zero(&self) -> comptime_type!(bool) {
         unexpanded!()
     }
 
@@ -149,6 +171,10 @@ impl ErasedRecipeExpand {
         self.separable
             .as_ref()
             .map(|separable| separable.call_factors(scope))
+    }
+
+    pub(crate) fn __expand_is_zero_method(&self, _scope: &Scope) -> bool {
+        self.zero
     }
 
     pub(crate) fn __expand_factor_method<E: Numeric>(

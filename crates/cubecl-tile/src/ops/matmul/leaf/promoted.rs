@@ -16,11 +16,11 @@ impl RegisterData {
         &mut self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma"));
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         // A load stored across several columns reads as their runs along the contraction.
         let rhs_load = rhs.vector_tile();
         let vw = comptime!(rhs_load.run_length());
@@ -60,12 +60,12 @@ impl RegisterData {
         let size!(L) = lw;
 
         let operands = comptime!(Space::merge(&[&lhs.place.space, &rhs.place.space]));
-        let kc = comptime!(operands.contracted_extent(&out));
+        let kc = operands.contracted_extent(out);
         let (mr, nr) = comptime!((self.mr, self.nr));
 
         // Read the column edge off the operands so a split column group stays one edge.
-        let acc_axes = comptime!(MatrixAxes::accumulator(&out, &lhs.place.space));
-        let cols = comptime!(acc_axes.cols(&out));
+        let acc_axes = comptime!(MatrixAxes::accumulator(out, &lhs.place.space));
+        let cols = acc_axes.cols(out);
         let lhs_axes =
             comptime!(MatrixAxes::new(&lhs.place.space, mr, kc).unwrap_or_else(|e| panic!("{e}")));
         let rhs_axes = comptime!(if lined_along_k {
@@ -80,22 +80,25 @@ impl RegisterData {
         // The scalars the block holds: a line a cell, one value where a cell sums a run, a run's
         // partials where it keeps them.
         let unroll = comptime!(mr * nr * self.vector_size <= config.budget);
-        let component_fanout = comptime!(config.component_fanout);
+        let component_fanout = config.component_fanout;
 
+        // Every value this block reads is read under its factor, so an `e2m1` operand is read
+        // placed, its lift carried by the factor: one multiply a scale, not one a value.
+        let (lhs, rhs) = (lhs.placed(), rhs.placed());
         let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, 0usize);
         let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, 0usize);
         let lhs_scales = lhs.reader(
             lhs_axes,
             0usize,
             comptime!(Side::Lhs),
-            comptime!(out.clone()),
+            out.clone(),
             comptime!(acc_axes),
         );
         let rhs_scales = rhs.reader(
             rhs_axes,
             0usize,
             comptime!(Side::Rhs),
-            comptime!(out.clone()),
+            out.clone(),
             comptime!(acc_axes),
         );
 
@@ -128,15 +131,23 @@ impl RegisterData {
     ///
     /// Every cell of `lhs` is a whole value, whatever it summed: a block that summed runs of its
     /// contraction into its cells is one value wide. This block's lines are neighbours along the
-    /// columns `rhs` is lined along.
+    /// columns `rhs` is lined along. `rhs` is read as its values lie: values under scales are
+    /// refused, since the contraction would read them without.
     pub(crate) fn mma_block<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,
         lhs: &RegisterData,
         rhs: &Tile,
     ) {
+        let scaled = rhs.factor.scaled();
+        if comptime!(scaled) {
+            panic!(
+                "RegisterData::mma_block: the rhs carries scales this contraction would read \
+                 without; take them out (`Tile::factor`) and apply them to the sum (`Tile::scaled`)"
+            )
+        }
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma_block"));
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         comptime!(assert!(
             self.contracted_per_step == 1,
             "RegisterData::mma_block: this block's lines are neighbours along the rhs's columns, \
