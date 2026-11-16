@@ -315,7 +315,8 @@ fn source_from_another_stream<R: Runtime>() {
 
 fn later_devices<R: Runtime>() {
     let device_ids = R::enumerate_devices(0);
-    if device_ids.len() < 2 {
+    // Two would leave the last device alone, the group `broken_group` breaks for the process.
+    if device_ids.len() < 3 {
         return;
     }
     let Some(group) = group_of::<R>(&device_ids[1..]) else {
