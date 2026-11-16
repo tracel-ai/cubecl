@@ -342,17 +342,22 @@ impl MmaData {
         }
     }
 
-    /// Whether this fragment loads out of `src`, its window, beside a neighbour of its grid in
-    /// one `ldmatrix` ([`load_pair_window`](Self::load_pair_window)): a plain `B` one instruction
-    /// deep, which the instruction loads by `ldmatrix`, holds two of the four matrices one reads.
-    pub(crate) fn pairs_from<T: Numeric>(&self, src: &Tile) -> comptime_type!(bool) {
+    /// Whether this fragment loads out of `src`, its window, beside its neighbour along `along`
+    /// in one `ldmatrix` ([`load_pair_window`](Self::load_pair_window)): a plain `B` one
+    /// instruction deep, which the instruction loads by `ldmatrix`, holds two of the four
+    /// matrices one reads. An 8-bit `B` pairs only along its columns.
+    pub(crate) fn pairs_from<T: Numeric>(
+        &self,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) -> comptime_type!(bool) {
         let (m, n, k) = comptime!((self.m, self.n, self.k));
         let io = comptime!(self.io);
         let steps = lane_run_steps::<T>(m, n, k);
         let layout = comptime!(self.layout);
         let serves_16 = ldmatrix_serves::<T>(src, MatrixIdent::B, (k, n));
         let serves_8 = transposing_ldmatrix_b8_serves::<T>(src, (k, n), layout);
-        let serves = comptime!(serves_16 || serves_8);
+        let serves = comptime!(serves_16 || (serves_8 && along == PairAxis::Cols));
         let rhs = match &self.fragment {
             MmaFragment::Rhs(_) => comptime!(true),
             MmaFragment::Lhs(_)
@@ -1364,7 +1369,7 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
     // accumulator vectors a unit, a row each, and four `A` vectors, rows alternating.
     let side_by_side = comptime!(a_width / acc_width);
     comptime!(assert!(
-        side_by_side == 1 || (side_by_side == 2 && acc_regs == 2 && a_regs == 4),
+        side_by_side == 1 || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
         "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \
          {acc_regs} vectors of {acc_width} is laid out unlike the `mma.sync` layouts its rows \
          are placed for"
