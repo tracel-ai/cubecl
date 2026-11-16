@@ -21,10 +21,16 @@ pub struct ExecutionScope {
 impl ExecutionScope {
     /// Issues the communication `communication` builds, and opens a scope under it.
     pub fn communication(communication: impl FnOnce() -> Communication) -> Self {
-        let replaced = issue(|| ExecutionKind::Communication(communication()))
-            .map(|execution| parent::replace(Some(execution.id)));
+        Self::under(
+            issue(|| ExecutionKind::Communication(communication())).map(|execution| execution.id),
+        )
+    }
+
+    /// Opens a scope under `parent`, an execution already issued, possibly on another thread.
+    /// Inert when there is none, leaving whatever scope this thread has open.
+    pub(crate) fn under(parent: Option<ExecutionId>) -> Self {
         Self {
-            replaced,
+            replaced: parent.map(|parent| parent::replace(Some(parent))),
             _on_this_thread: PhantomData,
         }
     }

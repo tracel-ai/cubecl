@@ -4,8 +4,8 @@ use crate::{
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::{
-        CollectivePath, Communication, ExecutionKind, ExecutionPlace, ExecutionScope, ProfileLevel,
-        StreamRole, TransferRoute, WaitTarget,
+        CollectivePath, Communication, ExecutionId, ExecutionKind, ExecutionPlace, ExecutionScope,
+        ProfileLevel, StreamRole, TransferRoute, WaitTarget,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
@@ -1197,12 +1197,16 @@ impl Client {
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
         if self.skips_communication() {
-            let _skipped =
-                self.collective_scope(collective, &device_ids, size, CollectivePath::Skipped);
+            self.record_collective(collective, &device_ids, size, CollectivePath::Skipped);
             return;
         }
         self.prepare_collective(collective, device_ids.clone());
-        let _collective = self.collective_scope(collective, &device_ids, size, self.native_path());
+        let _collective = ExecutionScope::under(self.record_collective(
+            collective,
+            &device_ids,
+            size,
+            self.native_path(),
+        ));
         self.queue_all_reduce(
             src,
             dst,
@@ -1212,27 +1216,30 @@ impl Client {
         );
     }
 
-    /// Issues `collective` over `members`, `bytes` each, as the parent of what this thread issues
-    /// until the scope drops. Every member runs this client's runtime.
-    fn collective_scope(
+    /// Issues `collective` over `members`, `bytes` each, for its parts to name as their parent.
+    /// Every member runs this client's runtime.
+    fn record_collective(
         &self,
         collective: Collective,
         members: &[DeviceId],
         bytes: u64,
         path: CollectivePath,
-    ) -> ExecutionScope {
-        ExecutionScope::communication(|| Communication::Collective {
-            operation: collective,
-            members: members
-                .iter()
-                .map(|device| ServiceId {
-                    device: *device,
-                    ..self.service_id()
-                })
-                .collect(),
-            bytes,
-            path,
-        })
+    ) -> Option<ExecutionId> {
+        let communication = crate::logging::issue(|| {
+            ExecutionKind::Communication(Communication::Collective {
+                operation: collective,
+                members: members
+                    .iter()
+                    .map(|device| ServiceId {
+                        device: *device,
+                        ..self.service_id()
+                    })
+                    .collect(),
+                bytes,
+                path,
+            })
+        })?;
+        Some(communication.id)
     }
 
     /// How this runtime runs a collective, which only a runtime with a device transport does.
