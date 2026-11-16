@@ -27,12 +27,12 @@ use pliron::{
 };
 
 use crate::{
-    AddressSpace, CanMaterialize, HasSideEffects, Pure,
+    CanMaterialize, HasSideEffects, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{general::SymbolUserOpVerifyErr, synchronization::SyncScope},
     interfaces::{
         TypedExt,
-        side_effects::{MemoryEffect, MemoryEffectsOp},
+        side_effects::{Extent, MemoryEffect, MemoryEffectsOp, MemoryLocation, MemoryScope},
         synchronizes,
     },
     prelude::*,
@@ -78,27 +78,43 @@ pub struct FillOp {
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct LoadOp {
-    #[operand(ptr_write)]
     pub matrix: Value,
-    #[operand(ptr_read)]
     pub source: Value,
     pub stride: Value,
     pub layout: MatrixLayoutAttr,
 }
 synchronizes!(LoadOp, SyncScope::Plane);
 
+#[op_interface_impl]
+impl MemoryEffectsOp for LoadOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![
+            MemoryEffect::Read((self.source(ctx), Extent::Unknown).into()),
+            MemoryEffect::Write(MemoryLocation::exact_pointer(self.matrix(ctx))),
+        ]
+    }
+}
+
 #[cube_op(name = "matrix.store")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct StoreOp {
-    #[operand(ptr_read)]
     pub matrix: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub stride: Value,
     pub layout: MatrixLayoutAttr,
 }
 synchronizes!(StoreOp, SyncScope::Plane);
+
+#[op_interface_impl]
+impl MemoryEffectsOp for StoreOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![
+            MemoryEffect::Read(MemoryLocation::exact_pointer(self.matrix(ctx))),
+            MemoryEffect::Write((self.destination(ctx), Extent::Unknown).into()),
+        ]
+    }
+}
 
 #[cube_op(name = "matrix.multiply_accumulate")]
 #[result_ty(none)]
@@ -150,9 +166,7 @@ pub struct ColIndexOp {
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct LdMatrixOp {
-    #[operand(ptr_read)]
     pub ptr: Value,
-    #[operand(ptr_write)]
     pub out_arr: Value,
     pub factor: IndexAttr,
     pub transpose: BoolAttr,
@@ -160,19 +174,39 @@ pub struct LdMatrixOp {
 }
 synchronizes!(LdMatrixOp, SyncScope::Plane);
 
+#[op_interface_impl]
+impl MemoryEffectsOp for LdMatrixOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![
+            // Actual elements loaded by current thread are implementation defined
+            MemoryEffect::Read((self.ptr(ctx), Extent::Unknown).into()),
+            MemoryEffect::Write(MemoryLocation::exact_pointer(self.out_arr(ctx))),
+        ]
+    }
+}
+
 #[cube_op(name = "matrix.stmatrix")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 #[op_interfaces(OperandNOfType<0, ArrayType>, OperandNOfType<1, PointerType>)]
 pub struct StMatrixOp {
     pub registers: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub factor: IndexAttr,
     pub transpose: BoolAttr,
     pub form: StMatrixFormAttr,
 }
 synchronizes!(StMatrixOp, SyncScope::Plane);
+
+#[op_interface_impl]
+impl MemoryEffectsOp for StMatrixOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![
+            // Actual elements stored by current thread are implementation defined
+            MemoryEffect::Write((self.destination(ctx), Extent::Unknown).into()),
+        ]
+    }
+}
 
 #[cube_op(name = "matrix.mma_manual")]
 #[result_ty(none)]
@@ -312,6 +346,15 @@ pub struct WgmmaDescriptorOp {
 pub struct WgmmaFenceOp {}
 plane_group_synchronizes!(WgmmaFenceOp);
 
+#[op_interface_impl]
+impl MemoryEffectsOp for WgmmaFenceOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::MakeAvailable(MemoryLocation::Scope(
+            MemoryScope::Local.into(),
+        ))]
+    }
+}
+
 /// Commits every plane group MMA issued and not yet committed into one group.
 #[cube_op(name = "matrix.wgmma_commit_group")]
 #[result_ty(none)]
@@ -327,6 +370,16 @@ pub struct WgmmaWaitGroupOp {
     pub max_pending: IndexAttr,
 }
 plane_group_synchronizes!(WgmmaWaitGroupOp);
+
+#[op_interface_impl]
+impl MemoryEffectsOp for WgmmaWaitGroupOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        vec![
+            MemoryEffect::Read((MemoryScope::Local | MemoryScope::Shared).into()),
+            MemoryEffect::MakeVisible(MemoryLocation::Scope(MemoryScope::Local.into())),
+        ]
+    }
+}
 
 /// Pins the registers of an array in place: no access to them moves across it. An MMA in flight
 /// owns its accumulator until the wait that retires it, so the compiler must neither read the
@@ -368,14 +421,14 @@ impl MemoryEffectsOp for WgmmaOp {
         // The descriptors carry addresses the analyses cannot follow, so the operation reads
         // any of shared memory.
         let mut effects = vec![
-            MemoryEffect::Read(self.accumulator(ctx)),
-            MemoryEffect::Write(self.accumulator(ctx)),
-            MemoryEffect::ReadAllInSpace(AddressSpace::Shared),
+            MemoryEffect::Read(MemoryLocation::exact_pointer(self.accumulator(ctx))),
+            MemoryEffect::Write(MemoryLocation::exact_pointer(self.accumulator(ctx))),
+            MemoryEffect::Read(MemoryScope::Shared.into()),
         ];
         // `A` in registers is read out of its array.
         let a = self.a(ctx);
         if a.is_ptr(ctx) {
-            effects.push(MemoryEffect::Read(a));
+            effects.push(MemoryEffect::Read(MemoryLocation::exact_pointer(a)));
         }
         effects
     }
@@ -485,8 +538,8 @@ impl Parsable for ElementwiseOp {
 impl MemoryEffectsOp for ElementwiseOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         vec![
-            MemoryEffect::Read(self.matrix_in(ctx)),
-            MemoryEffect::Write(self.matrix_out(ctx)),
+            MemoryEffect::Read(MemoryLocation::exact_pointer(self.matrix_in(ctx))),
+            MemoryEffect::Write(MemoryLocation::exact_pointer(self.matrix_out(ctx))),
         ]
     }
 }

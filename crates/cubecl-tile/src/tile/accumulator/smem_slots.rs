@@ -66,7 +66,7 @@ impl Tile {
         let source = Memory::smem_backed::<Served>(
             &space,
             width,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             Backing::new_ReadCall(RawCall::of::<Served>(
                 ErasedTensor::<Served, ReadOnly>::of_smem_slots_sum::<A, W>(&values, writers),
             )),
@@ -103,7 +103,7 @@ impl<A: Numeric> SmemSlotsAccumulation<A> {
         let sink = Memory::smem_backed::<A>(
             &space,
             width,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             Backing::new_WriteCall(RawCall::of::<A>(
                 ErasedTensor::<A, WriteOnly>::of_smem_slot::<W>(&self.values, writer * slot, slot),
             )),

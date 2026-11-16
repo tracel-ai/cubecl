@@ -399,7 +399,11 @@ impl StatedLevel {
                     }
                     (Takes::Every, _) => Count::All,
                     (Takes::Stated, _) => Count::Stated(count),
-                    (Takes::DistributedToUnits, _) => Count::Distributed(count),
+                    (Takes::DistributedToUnits, _) => Count::InTurns {
+                        tiles: Some(count),
+                        within: ComputeScope::Plane,
+                        units: None,
+                    },
                 };
                 (axis, tile, count, self.spread(axis))
             })
@@ -624,7 +628,14 @@ mod tests {
             .cubes(&[M, N])
             .build();
         assert_eq!(levels[0].tile(N), Some(256));
-        assert_eq!(levels[2].count(N), Some(Count::Distributed(64)));
+        assert_eq!(
+            levels[2].count(N),
+            Some(Count::InTurns {
+                tiles: Some(64),
+                within: ComputeScope::Plane,
+                units: None
+            })
+        );
         assert_eq!(
             levels[2].coverage(),
             Coverage::Distribute(ComputeScope::Unit)
@@ -641,7 +652,16 @@ mod tests {
         let _ = Level::new(
             Coverage::Distribute(ComputeScope::Unit),
             &[
-                (M, 4, Count::Distributed(8), Spread::Interleaved),
+                (
+                    M,
+                    4,
+                    Count::InTurns {
+                        tiles: Some(8),
+                        within: ComputeScope::Plane,
+                        units: None,
+                    },
+                    Spread::Interleaved,
+                ),
                 (N, 4, Count::Stated(4), Spread::Contiguous),
             ],
         );

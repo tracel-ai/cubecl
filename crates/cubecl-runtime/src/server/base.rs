@@ -1128,6 +1128,16 @@ pub trait ServerCommunication {
         Err(ServerError::no_device_transport(Collective::SyncCollective))
     }
 
+    /// Times the next collective part, [`send`](Self::send), [`recv`](Self::recv) or
+    /// [`sync_collective`](Self::sync_collective) called on this server, which the caller calls
+    /// right after this in the same submitted task.
+    ///
+    /// Whichever comes next takes `timing`, timed or refused, so a timing it cannot use is
+    /// dropped rather than attached to a later one. The default drops it: a runtime with no
+    /// transport between its devices has nothing to time.
+    #[allow(unused_variables)]
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {}
+
     /// Initialize the communication between the devices in `device_ids`.
     ///
     /// # Arguments
@@ -1375,6 +1385,65 @@ impl SendOutcome {
                 backtrace: BackTrace::capture(),
             })
         })
+    }
+}
+
+/// Where a server sends the device windows of one communication part and of a compute stream's
+/// wait, for an observer that times communications
+/// ([`KernelsAndCommunications`](crate::logging::Timed::KernelsAndCommunications)).
+///
+/// The observer holds each window unread from the moment it is issued. One the server never
+/// sends, for a part refused before it ran or recorded inside a graph capture, reads back empty.
+#[derive(Debug, Default)]
+pub struct CommunicationTiming {
+    part: Option<Sender<ProfileDuration>>,
+    wait: Option<Sender<ProfileDuration>>,
+}
+
+impl CommunicationTiming {
+    /// Asks for the part's window, which reads back once the server has sent it.
+    pub fn part_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.part)
+    }
+
+    /// Asks for the wait's window, which reads back once the server has sent it.
+    pub fn wait_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.wait)
+    }
+
+    fn window(sender: &mut Option<Sender<ProfileDuration>>) -> ProfileDuration {
+        let (sent, received) = bounded(1);
+        *sender = Some(sent);
+        ProfileDuration::new_device_time_maybe(async move {
+            received.recv().await.ok()?.resolve().await
+        })
+    }
+
+    /// Whether the part's window is asked for.
+    pub fn times_part(&self) -> bool {
+        self.part.is_some()
+    }
+
+    /// Whether the wait's window is asked for.
+    pub fn times_wait(&self) -> bool {
+        self.wait.is_some()
+    }
+
+    /// Sends the part's window, if it is asked for.
+    pub fn part_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.part.take(), window);
+    }
+
+    /// Sends the wait's window, if it is asked for.
+    pub fn wait_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.wait.take(), window);
+    }
+
+    fn send(sender: Option<Sender<ProfileDuration>>, window: ProfileDuration) {
+        // An observer that dropped the window unread has no use for it.
+        if let Some(sender) = sender {
+            let _ = sender.try_send(window);
+        }
     }
 }
 

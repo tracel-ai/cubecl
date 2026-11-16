@@ -29,12 +29,13 @@ pub use cubecl_core::ir::{
     AddressSpace, Builtin, NamedRewrite, OpInserter, Scope,
     attributes::{BufferIOAttr, EntrypointInterface, FuncInterface, IndexAttr, ZeroAttr},
     interfaces::{
-        AlignedType, MaterializableOp, ScalarType, ScalarizableType, SizedType, TypedExt,
+        AlignedType, MaterializableOp, MaybeSizedType, ScalarType, ScalarizableType, TypedExt,
     },
     prelude::*,
     settings::Dim3,
     types::{
-        ArrayType as CubeArrayType, PointerType as CubePointerType, VectorType as CubeVectorType,
+        ArrayType as CubeArrayType, PointerType as CubePointerType, StructType as CubeStructType,
+        VectorType as CubeVectorType,
         scalar::{BoolType, IndexType},
     },
 };
@@ -65,7 +66,7 @@ pub use pliron_llvm::{
     ops as llvm,
     types::{
         ArrayType as LlvmArrayType, FuncType, PointerType as LlvmPointerType,
-        VectorType as LlvmVectorType, VectorTypeKind, VoidType,
+        StructType as LlvmStructType, VectorType as LlvmVectorType, VectorTypeKind, VoidType,
     },
 };
 pub use thiserror::Error;

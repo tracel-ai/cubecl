@@ -80,7 +80,7 @@ pub fn lower_sync_cube(scope: &Scope, op: Ptr<Operation>) {
 pub fn uses_cube_barrier(ctx: &Context, op: Ptr<Operation>) -> bool {
     let mut found = false;
     visit_all_ops_of_type::<SyncOp, _>(ctx, &mut found, op, |ctx, found, sync| {
-        *found |= sync.scope(ctx).0 == SyncScope::Cube;
+        *found |= sync.scope(ctx).0 >= SyncScope::Cube;
     });
     found
 }

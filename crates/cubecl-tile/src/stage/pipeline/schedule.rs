@@ -69,7 +69,12 @@ pub enum Prefetch {
 impl Prefetch {
     /// Scalars one unit holds when `units` prefetch `elements` values read `width` at a time.
     pub fn scalars(elements: usize, units: usize, width: usize) -> usize {
-        UnitLines::new(elements.div_ceil(width), units).scalars(width)
+        let turns = Level::copied_by_cube(units)
+            .copy_turns(elements.div_ceil(width))
+            .expect(
+                "Prefetch::scalars: a register prefetch deals its lines to a known count of units",
+            );
+        turns * width
     }
 
     /// Whether a register prefetch of `scalars` a unit, over both operands, is accepted.
