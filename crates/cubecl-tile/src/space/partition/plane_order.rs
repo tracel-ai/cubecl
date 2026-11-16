@@ -30,6 +30,9 @@ pub struct PlaneOrder {
     block_order: CubeOrder,
     /// The launch's `y`.
     planes_per_cube: usize,
+    /// At most this many cubes, their planes walking the tiles past the launch's grid-stride
+    /// ([`capped`](PlaneOrder::capped)); every block a cube of its own where `None`.
+    cubes: Option<usize>,
 }
 
 impl PlaneOrder {
@@ -48,7 +51,33 @@ impl PlaneOrder {
             block,
             block_order: block_order.canonicalize(),
             planes_per_cube,
+            cubes: None,
         }
+    }
+
+    /// This order launching at most `cubes` cubes: a plane then walks a tile, then the one a whole
+    /// launch of planes further, until it runs past the last, as a persistent kernel's do. Fewer,
+    /// longer-lived planes, where a launch of a plane a tile spends its time starting planes. The
+    /// blocks are one cube's each and span one axis.
+    pub fn capped(self, cubes: usize) -> Self {
+        assert!(
+            cubes > 0,
+            "PlaneOrder::capped: a launch holds at least one cube"
+        );
+        assert!(
+            self.block.len() == 1,
+            "PlaneOrder::capped: the planes walk the tiles of one axis grid-stride, not {}",
+            self.block.len()
+        );
+        Self {
+            cubes: Some(cubes),
+            ..self
+        }
+    }
+
+    /// The most cubes the launch holds, where [`capped`](Self::capped).
+    pub(crate) fn cap(&self) -> Option<usize> {
+        self.cubes
     }
 
     /// This order with the launch's cubes holding `planes` planes each, which need not be a
@@ -105,6 +134,7 @@ impl PlaneOrder {
     pub(crate) fn grid(&self, level: &Level, space: &Space) -> (usize, usize) {
         let planes = self.blocks(level, space) * self.block_planes();
         let cubes = planes.div_ceil(self.planes_per_cube).max(1);
+        let cubes = self.cubes.map_or(cubes, |cap| cubes.min(cap));
         if cubes <= CUBES_PER_GRID_DIMENSION {
             return (cubes, 1);
         }
@@ -126,6 +156,10 @@ impl PlaneOrder {
             .is_multiple_of(self.block_along(axis));
         if ragged {
             return true;
+        }
+        // A capped launch's planes stop at the last tile rather than run past it.
+        if self.cubes.is_some() {
+            return false;
         }
         if Self::spare_blocks_land_past(level, self.block_order) != axis {
             return false;

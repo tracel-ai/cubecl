@@ -150,6 +150,11 @@ impl Level {
             tile.len() > 1 || !order.block_order().swizzles(),
             "Level::spanning_launch: the blocks of one axis have one order; a swizzle takes two"
         );
+        // A capped launch's planes take the tiles in turns: a whole launch of planes apart.
+        let spread = match order.cap() {
+            Some(_) => Spread::Interleaved,
+            None => Spread::Contiguous,
+        };
         let cuts: Vec<_> = tile
             .iter()
             .map(|&(axis, tile)| {
@@ -159,7 +164,7 @@ impl Level {
                     Cut {
                         tile,
                         count: Count::All,
-                        spread: Spread::Contiguous,
+                        spread,
                     },
                 )
             })

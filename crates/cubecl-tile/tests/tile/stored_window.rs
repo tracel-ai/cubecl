@@ -6,6 +6,7 @@ use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::std::tensor::layout::CoordsDyn;
 use cubecl::{bytes::Bytes, prelude::*, std::tensor::TensorHandle};
 use cubecl_tile::kind::Storage;
+use cubecl_tile::launch::Refusal;
 use cubecl_tile::layout::{StorageLevels, StoragePartitioning};
 use cubecl_tile::*;
 
@@ -122,6 +123,50 @@ fn a_unit_inside_a_window_across_two_stored_tiles_reads_its_own_scales() {
         .tile(&[(N, TILE_COLUMNS)])
         .grid(&[KB, N]);
     check_copy(storage, &[N, KB]);
+}
+
+/// The same operand one plane's columns wide, under a launch whose cube holds two planes: the
+/// launch overhangs `N`, and the units' level is the storage tile's, where a window is read as
+/// one unmasked run. The binding is refused rather than expanded into a kernel that would read
+/// the storage tiles past the operand's end.
+#[test]
+fn an_overhanging_launch_refuses_an_operand_read_inside_its_storage_tile() {
+    let client = cubecl::test_device().client();
+    let plane = client.properties().hardware.plane_size_max as usize;
+    if !plane.is_multiple_of(PLANE_COLUMNS) {
+        ValidationResult::Skipped(format!(
+            "a {plane}-unit plane does not split into {PLANE_COLUMNS}-unit rows of columns"
+        ))
+        .enforce();
+        return;
+    }
+    let units_down_k = plane / PLANE_COLUMNS;
+    let (cols, blocks) = (PLANE_COLUMNS, 4 * units_down_k);
+    let launcher = launcher(&client, cols, blocks, units_down_k);
+    let storage = StorageLevels::new(&[(KI, 8)])
+        .tile(&[(KI, BLOCK / 8), (KB, 4), (N, TILE_COLUMNS)])
+        .grid(&[KI, KB, N]);
+    let axes = [N, KB, KI];
+    let geometry = storage
+        .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
+        .unwrap();
+    let cells = cols * blocks * BLOCK;
+    let dtype = f32::elem_type_native();
+    let input = TensorHandle::new(
+        client.create(Bytes::from_elems(vec![0f32; cells])),
+        geometry.shape().to_vec(),
+        geometry.strides().to_vec(),
+        dtype,
+    );
+    let mut binding = input.binding();
+    binding.tiling = geometry.tiling();
+
+    let refused = launcher.arg(binding, dtype).axes(&axes).build();
+
+    assert_eq!(
+        refused.map(|_| ()),
+        Err(Refusal::CheckedInsideStorageTile { level: 3 })
+    );
 }
 
 /// An operand over `axes` of two planes' columns and one step of blocks of `K`, stored as

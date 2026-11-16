@@ -19,7 +19,7 @@ use rustc_apfloat::ieee::{self, IeeeFloat, NonfiniteBehavior};
 use crate::{
     ComplexKind, ContextExt, ElemType, FloatKind, IntKind, UIntKind, aligned,
     apfloat::{APFloat, APFloatType, apfloat_type},
-    interfaces::{AlignedType, MaybePackedType, ScalarType, SizedType, not_packed},
+    interfaces::{AlignedType, MaybePackedType, MaybeSizedType, ScalarType, not_packed},
     scalar, sized,
 };
 
@@ -34,9 +34,9 @@ impl AlignedType for IntegerType {
 }
 
 #[type_interface_impl]
-impl SizedType for IntegerType {
-    fn size(&self, _ctx: &Context) -> usize {
-        self.width().div_ceil(8) as usize
+impl MaybeSizedType for IntegerType {
+    fn size(&self, _ctx: &Context) -> Option<usize> {
+        Some(self.width().div_ceil(8) as usize)
     }
 }
 
@@ -80,14 +80,14 @@ not_packed!(IndexType);
 #[type_interface_impl]
 impl AlignedType for IndexType {
     fn align(&self, ctx: &Context) -> usize {
-        self.size(ctx)
+        self.size(ctx).unwrap()
     }
 }
 
 #[type_interface_impl]
-impl SizedType for IndexType {
-    fn size(&self, ctx: &Context) -> usize {
-        ctx.address_type().size()
+impl MaybeSizedType for IndexType {
+    fn size(&self, ctx: &Context) -> Option<usize> {
+        Some(ctx.address_type().size())
     }
 }
 
@@ -115,13 +115,13 @@ macro_rules! float_type {
         }
 
         #[type_interface_impl]
-        impl SizedType for $ty {
-            fn size(&self, _ctx: &Context) -> usize {
-                $size
+        impl MaybeSizedType for $ty {
+            fn size(&self, _ctx: &Context) -> Option<usize> {
+                Some($size)
             }
 
-            fn size_bits(&self, _ctx: &Context) -> usize {
-                $size_bits
+            fn size_bits(&self, _ctx: &Context) -> Option<usize> {
+                Some($size_bits)
             }
         }
     };

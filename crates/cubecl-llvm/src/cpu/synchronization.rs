@@ -15,7 +15,8 @@ use pliron::dict_key;
 
 dict_key!(
     /// Kernel argument for the cube barrier state.
-    ATTR_SYNC_CUBE_STATE, "sync_cube_state"
+    ATTR_SYNC_CUBE_STATE,
+    "sync_cube_state"
 );
 
 /// Number of barrier counters required per launch.
@@ -79,7 +80,7 @@ pub fn lower_sync_cube(scope: &Scope, op: Ptr<Operation>) {
 pub fn uses_cube_barrier(ctx: &Context, op: Ptr<Operation>) -> bool {
     let mut found = false;
     visit_all_ops_of_type::<SyncOp, _>(ctx, &mut found, op, |ctx, found, sync| {
-        *found |= sync.scope(ctx).0 == SyncScope::Cube;
+        *found |= sync.scope(ctx).0 >= SyncScope::Cube;
     });
     found
 }

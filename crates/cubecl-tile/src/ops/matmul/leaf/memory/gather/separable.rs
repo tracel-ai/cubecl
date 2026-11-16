@@ -8,6 +8,7 @@ use crate::*;
 
 use super::base::{FactorReuse, GatherProblem};
 use super::coords::{cell_position, offset_last};
+use crate::ops::matmul::leaf::Side;
 
 /// Contract a separable procedural rhs, caching each factor's 1-D tap walk at its maximal reuse
 /// level (block, row, column or cell).
@@ -188,9 +189,8 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                                 i as u32,
                                 n as u32,
                                 &reduce_coords,
-                                &problem.rhs_space,
+                                comptime!(Side::Rhs),
                                 problem.clone(),
-                                problem.block.vw,
                             ),
                             problem.block.reduce.clone(),
                         );
@@ -225,9 +225,8 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                             i as u32,
                             0u32,
                             &reduce_coords,
-                            &problem.rhs_space,
+                            comptime!(Side::Rhs),
                             problem.clone(),
-                            problem.block.vw,
                         ),
                         problem.block.reduce.clone(),
                     );
@@ -274,9 +273,8 @@ fn rhs_anchor(
             row,
             col,
             &factor_coords(problem.factors.unwrap(), 0usize, 0usize),
-            &problem.rhs_space,
+            comptime!(Side::Rhs),
             problem.clone(),
-            problem.block.vw,
         ),
         problem.block.reduce.clone(),
     )
@@ -307,9 +305,8 @@ fn factor_walk<EL: Numeric>(
                     row,
                     col,
                     &factor_coords(problem.factors.unwrap(), factor, k),
-                    &problem.lhs_space,
+                    comptime!(Side::Lhs),
                     problem.clone(),
-                    1usize,
                 );
                 weights[offset + comptime!(k)] = lhs.separable_factor::<EL>(pos, factor);
             }
@@ -324,9 +321,8 @@ fn factor_walk<EL: Numeric>(
                     row,
                     col,
                     &reduce_coords,
-                    &problem.lhs_space,
+                    comptime!(Side::Lhs),
                     problem.clone(),
-                    1usize,
                 );
                 let weight = lhs.separable_factor::<EL>(lhs_pos, factor);
                 let weight = match comptime!(normalization.taps) {
@@ -336,9 +332,8 @@ fn factor_walk<EL: Numeric>(
                             row,
                             col,
                             &reduce_coords,
-                            &problem.rhs_space,
+                            comptime!(Side::Rhs),
                             problem.clone(),
-                            problem.block.vw,
                         );
                         let physical_pos =
                             rhs_map.advance(anchor, rhs_pos, problem.block.reduce.clone());

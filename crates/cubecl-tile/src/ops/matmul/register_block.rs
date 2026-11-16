@@ -8,7 +8,9 @@ pub struct RegisterBlock {
     pub budget: usize,
     /// Whether to generate a fast in-bounds path plus checked fallback for edge tiles.
     pub split_edge: bool,
-    /// Whether to walk K as (line, component) rather than as a flat scalar walk.
+    /// Whether an lhs read per cell (per row in the direct nest) is walked as (vector, component)
+    /// at fixed component positions rather than flat. The gather leaf walks an lhs free of the
+    /// columns that way regardless.
     pub component_fanout: bool,
     /// Whether a block contracting an rhs lined along `K` keeps one partial a lane, summed once at
     /// the drain, rather than summing each run into a one-wide cell every step.
@@ -34,7 +36,7 @@ impl RegisterBlock {
         }
     }
 
-    /// Walk `K` as (line, component) rather than as a flat scalar walk.
+    /// Walk an lhs read per cell as (vector, component) rather than flat.
     pub const fn component_fanout(self) -> Self {
         Self {
             component_fanout: true,

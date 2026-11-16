@@ -39,6 +39,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
     // Constant units let the backend merge an `mr`-row fan-out's repeated line reads into one.
     let fixed = along_k || (component_fanout && lw > 1) || lw == 1;
 
+    #[unroll(unroll)]
     for line in 0..lines {
         if along_k {
             rank1_update::<E, EL, L, ER, V, RL>(

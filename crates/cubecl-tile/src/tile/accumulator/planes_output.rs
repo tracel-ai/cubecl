@@ -73,6 +73,8 @@ impl<A: Numeric> PlanesOutput<A> {
     /// `plane`'s place among the planes sharing its box.
     fn writer(&self, plane: &Region) -> usize {
         let mut writer = 0usize;
+        // Indexed: an unrolled loop walks a comptime list by its positions.
+        #[allow(clippy::needless_range_loop)]
         #[unroll]
         for i in 0..comptime!(self.sharing.len()) {
             let (axis, count) = comptime!(self.sharing[i]);

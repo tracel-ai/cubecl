@@ -29,6 +29,11 @@ impl CubePrimitive for e2m1 {
         e2m1::from_f64(value)
     }
 }
+impl HostShareable for e2m1 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}
 impl ConstantTyped for e2m1 {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         Float4E2M1Type::get(scope.ctx()).into()
@@ -73,6 +78,11 @@ impl CubePrimitive for e2m1x2 {
         let val = e2m1::from_f64(value).to_bits();
         // Fill both values, not sure this is ever useful but it works
         e2m1x2::from_bits(val | (val << 4))
+    }
+}
+impl HostShareable for e2m1x2 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
     }
 }
 impl ConstantTyped for e2m1x2 {

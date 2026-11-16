@@ -5,7 +5,10 @@ use crate::{
     CanMaterialize, HasSideEffects,
     attributes::{BoolAttr, IndexAttr},
     dialect::synchronization::SyncScope,
-    interfaces::Synchronizes,
+    interfaces::{
+        Synchronizes,
+        side_effects::{Extent, MemoryEffect, MemoryEffectsOp, MemoryLocation},
+    },
     prelude::*,
     types::{PointerType, barrier::BarrierTokenType},
 };
@@ -15,51 +18,104 @@ use crate::{
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct InitOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
     pub arrival_count: Value,
+}
+
+// Opaque so we can't know exact memory effects. Treat it as atomic read-update.
+fn barrier_effects(ptr: Value) -> Vec<MemoryEffect> {
+    vec![
+        MemoryEffect::Read(MemoryLocation::exact_pointer(ptr)),
+        MemoryEffect::Write(MemoryLocation::exact_pointer(ptr)),
+        MemoryEffect::MakeAvailable(MemoryLocation::exact_pointer(ptr)),
+        MemoryEffect::MakeVisible(MemoryLocation::exact_pointer(ptr)),
+    ]
+}
+
+/// Ends a barrier's lifetime, so its memory may hold a new one: an `mbarrier` must be invalidated
+/// before it is initialized again in place.
+#[cube_op(name = "barrier.invalidate")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct InvalidateOp {
+    // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
+    pub barrier: Value,
 }
 
 #[cube_op(name = "barrier.memcpy_async")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct MemCopyAsyncOp {
-    // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
     pub barrier: Value,
-    #[operand(ptr_read)]
     pub source: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub source_length: Value,
     pub cooperative: BoolAttr,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for MemCopyAsyncOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let mut effects = barrier_effects(self.barrier(ctx));
+        effects.extend(vec![
+            MemoryEffect::Read((self.source(ctx), Extent::Unknown).into()),
+            MemoryEffect::Write((self.destination(ctx), Extent::Unknown).into()),
+        ]);
+        effects
+    }
 }
 
 #[cube_op(name = "barrier.memcpy_async_tx")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct MemCopyAsyncTxOp {
-    // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
     pub barrier: Value,
-    #[operand(ptr_read)]
     pub source: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub source_length: Value,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for MemCopyAsyncTxOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let mut effects = barrier_effects(self.barrier(ctx));
+        effects.extend(vec![
+            MemoryEffect::Read((self.source(ctx), Extent::Unknown).into()),
+            MemoryEffect::Write((self.destination(ctx), Extent::Unknown).into()),
+        ]);
+        effects
+    }
 }
 
 #[cube_op(name = "barrier.copy_async")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CopyAsyncOp {
-    #[operand(ptr_read)]
     pub source: Value,
-    #[operand(ptr_write)]
     pub destination: Value,
     pub source_length: Value,
     pub copy_length: IndexAttr,
     pub checked: BoolAttr,
+}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for CopyAsyncOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let length = self.copy_length(ctx).0;
+        if self.checked(ctx).0 {
+            vec![
+                MemoryEffect::Read((self.source(ctx), Extent::AtMost(length)).into()),
+                MemoryEffect::Write((self.destination(ctx), Extent::AtMost(length)).into()),
+            ]
+        } else {
+            vec![
+                MemoryEffect::Read((self.source(ctx), Extent::Exact(length)).into()),
+                MemoryEffect::Write((self.destination(ctx), Extent::Exact(length)).into()),
+            ]
+        }
+    }
 }
 
 #[cube_op(name = "barrier.arrive")]
@@ -67,7 +123,7 @@ pub struct CopyAsyncOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ArriveOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
 }
 
@@ -76,7 +132,7 @@ pub struct ArriveOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ArriveAndExpectTxOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
     pub arrive_count_update: Value,
     pub transaction_count_update: Value,
@@ -94,7 +150,7 @@ fn token_ty(ctx: &Context, barrier: &Value) -> TypeHandle {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CommitCopyAsyncOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
 }
 
@@ -103,7 +159,7 @@ pub struct CommitCopyAsyncOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ExpectTxOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
     pub transaction_count_update: Value,
 }
@@ -113,7 +169,7 @@ pub struct ExpectTxOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WaitOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
     pub token: Value,
 }
@@ -136,7 +192,7 @@ impl Synchronizes for WaitOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WaitParityOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
     pub phase: Value,
 }
@@ -159,7 +215,7 @@ impl Synchronizes for WaitParityOp {
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ArriveAndWaitOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
-    #[operand(ptr_read, ptr_write)]
+    #[operand(ptr_read, ptr_write, make_visible, make_available)]
     pub barrier: Value,
 }
 
