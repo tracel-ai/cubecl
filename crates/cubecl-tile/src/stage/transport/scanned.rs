@@ -23,21 +23,20 @@ impl Memory {
         }
     }
 
-    /// Cooperative cyclic flat scan across the units that share this fill ([`FillUnits`]); a
+    /// Cooperative cyclic flat scan across the units this fill's level names
+    /// ([`Level::copied_by`]); a
     /// packed source unpacks.
     fn scan_unpacked<T: Numeric, WP: Size, W: Size>(&mut self, src: &Memory) {
-        let fill = comptime!(self.access.fill);
+        let fill = comptime!(self.access.copy.clone());
         let s = src.flat_unpacked::<T, WP, W>();
         let mut d = self.flat_mut::<T, W>();
         let total = d.shape();
-        // One line per unit, striding by the units that fill: the distribution must stay
-        // disjoint, or a destination that adds (`Accumulate`, `Relay`) takes a value more than once.
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
+        // The lines dealt to the units that fill: the deal is disjoint, so a destination that adds
+        // (`Accumulate`, `Relay`) takes each value once.
+        for line in Walk::copy(&fill, total) {
+            let i = line.coord(Level::COPIED);
             // `src` zeroes reads past its bound; the staged buffer writes the full padded cell.
             d.write(i, s.read(i));
-            i += stride;
         }
     }
 
@@ -67,18 +66,16 @@ impl Memory {
             self.store.vector_size,
             src.access.overhang.masks()
         ));
-        let fill = comptime!(self.access.fill);
+        let fill = comptime!(self.access.copy.clone());
         let size!(W) = comptime!(self.store.vector_size);
         let s = src.flat_unpacked::<S, W, W>();
         let mut d = self.flat_mut::<T, W>();
         let total = d.shape();
-        // The units that share this window, as the uncast scan strides: a window of one plane's
-        // is moved by that plane alone, and a destination that adds takes each line once.
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
+        // Dealt to the units that share this window, as the uncast scan is: a window of one
+        // plane's is moved by that plane alone, and a destination that adds takes each line once.
+        for line in Walk::copy(&fill, total) {
+            let i = line.coord(Level::COPIED);
             d.write(i, Vector::<T, W>::cast_from(s.read(i)));
-            i += stride;
         }
     }
 }
