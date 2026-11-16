@@ -63,11 +63,13 @@ pub struct PeerArg {
 }
 
 impl PeerArg {
-    /// `handle`, of `length` elements, for a [`Peer`] parameter.
+    /// `handle`, of `length` scalars of the storage type, for a [`Peer`] parameter. The kernel
+    /// sees `length`, as for [`BufferArg::from_raw_parts`].
     ///
     /// # Safety
     ///
-    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
+    /// The kernel trusts `length` for its bounds, so `handle` must hold `length` initialized
+    /// scalars for the kernel to read them.
     ///
     /// # Panics
     ///
@@ -89,15 +91,19 @@ impl<C: CubePrimitive> LaunchArg for Peer<[C]> {
     type CompilationArg = PeerCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
-        let (elem_size, required_access) = launcher.with_scope(|scope| {
+        let (elem_size, vector_size, required_access) = launcher.with_scope(|scope| {
             let required_access = if C::__expand_as_type(scope).is_atomic(scope.ctx()) {
                 PeerAccess::MemoryAndAtomics
             } else {
                 PeerAccess::Memory
             };
-            (C::__expand_size(scope), required_access)
+            (
+                C::__expand_size(scope),
+                C::__expand_vector_size(scope),
+                required_access,
+            )
         });
-        launcher.register_peer(arg, elem_size, required_access);
+        launcher.register_peer(arg, elem_size, vector_size, required_access);
         PeerCompilationArg
     }
 
