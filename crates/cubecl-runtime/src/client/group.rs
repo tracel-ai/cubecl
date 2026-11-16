@@ -2,7 +2,7 @@
 //! once, or by each member for itself.
 
 use super::{Client, PEER_ORDER};
-use crate::logging::CollectivePath;
+use crate::logging::{CollectivePath, ExecutionId, ExecutionScope};
 use crate::server::{
     Collective, CollectiveBuffer, ComputeWait, DeviceTransport, Handle, Overlap, ReduceOperation,
     Reduction, Server,
@@ -13,8 +13,8 @@ use cubecl_ir::ElemType;
 use thiserror::Error;
 
 /// The clients of distinct devices of one runtime that run collectives together: for a caller
-/// holding every member's buffers, or through [`members`](Self::members) for each member queueing
-/// its own part.
+/// holding every member's buffers, or through [`parts`](Self::parts) for each member queueing its
+/// own part.
 ///
 /// Member `i` is rank `i`, in ascending device order. Work queued after a collective reads its
 /// result, but per-device `all_reduce` calls are not ordered against it, and on a device both use
@@ -226,18 +226,26 @@ impl ClientGroup {
         self.exchange(Exchange::AllToAll, buffers);
     }
 
-    /// Every member, rank `i` at position `i`, each queueing its own part of the collectives over
-    /// the group: for a caller that reaches each member's buffers from somewhere else, such as
-    /// that device's own thread.
+    /// Every member's part of one `exchange` over sources of `bytes` each, rank `i` at position
+    /// `i`: for a caller that reaches each member's buffers from somewhere else, such as that
+    /// device's own thread. The collective is recorded here, once, and each part belongs to it
+    /// whichever thread queues it.
     ///
     /// Sets the group up on every device first, so that no part queued afterwards reaches its
-    /// device before the group it runs over.
-    pub fn members(&self) -> Vec<GroupMember> {
-        self.clients[0].prepare_collective(Collective::CommInit, self.device_ids.clone());
+    /// device before the group it runs over. Every member queues its part, and the members queue
+    /// their parts of successive collectives in one order: a part dropped unqueued, or queued out
+    /// of order, hangs its peers. Two callers making parts over one group agree on that order
+    /// themselves.
+    #[must_use = "every member queues its part, or its peers wait for it forever"]
+    pub fn parts(&self, exchange: Exchange, bytes: u64) -> Vec<MemberPart> {
+        exchange.expect_reduces(self);
+        let run = self.record(exchange.collective(), bytes);
         (0..self.clients.len())
-            .map(|rank| GroupMember {
+            .map(|rank| MemberPart {
                 group: self.clone(),
                 rank,
+                exchange,
+                run,
             })
             .collect()
     }
@@ -348,6 +356,25 @@ impl ClientGroup {
         );
     }
 
+    /// Decides whether `collective` over the group runs, setting the group up when it does, and
+    /// records it with `bytes` per member.
+    fn record(&self, collective: Collective, bytes: u64) -> CollectiveRun {
+        let first = &self.clients[0];
+        if self.skips_communication() {
+            first.record_collective(collective, &self.device_ids, bytes, CollectivePath::Skipped);
+            return CollectiveRun::Skipped;
+        }
+        // Outside any lock: setting the group up takes the peer-ordering lock itself.
+        first.prepare_collective(collective, self.device_ids.clone());
+        let recorded = first.record_collective(
+            collective,
+            &self.device_ids,
+            bytes,
+            CollectivePath::Native(self.transport.provider),
+        );
+        CollectiveRun::Native { recorded }
+    }
+
     /// Prepares every member, then queues each member's part before anything else can queue.
     fn queue<Part>(
         &self,
@@ -356,23 +383,10 @@ impl ClientGroup {
         parts: Vec<Part>,
         mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
     ) {
-        if self.skips_communication() {
-            let _skipped = self.clients[0].collective_scope(
-                collective,
-                &self.device_ids,
-                bytes,
-                CollectivePath::Skipped,
-            );
+        let CollectiveRun::Native { recorded } = self.record(collective, bytes) else {
             return;
-        }
-        // Outside the lock, which setting the group up takes itself.
-        self.clients[0].prepare_collective(collective, self.device_ids.clone());
-        let _collective = self.clients[0].collective_scope(
-            collective,
-            &self.device_ids,
-            bytes,
-            CollectivePath::Native(self.transport.provider),
-        );
+        };
+        let _collective = ExecutionScope::under(recorded);
         let _order = PEER_ORDER.lock();
         for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
             queue_part(member, client, part, self.device_ids.clone());
@@ -385,64 +399,67 @@ impl ClientGroup {
     }
 }
 
-/// One member of a [`ClientGroup`], queueing its own part of each collective over the group.
+/// One member's part of a collective over a [`ClientGroup`], made by [`ClientGroup::parts`] and
+/// queued by that member.
 ///
-/// Every member queues its part of every collective over the group, and in one order on every
-/// member: the members wait for each other on their devices, so a part queued out of order, or
-/// never, hangs the others. Two callers queueing over one group agree on that order themselves.
-/// Each part is checked against its own member's buffers only: sources of different sizes on
+/// The members wait for each other on their devices, so every part is queued, and in one order on
+/// every member, which is the caller's to keep: the order the parts were made does not set it. A
+/// part is checked against its own member's buffers only: sources of different sizes on
 /// different members fail on the devices instead.
-#[derive(Clone)]
-pub struct GroupMember {
+#[must_use = "every member queues its part, or its peers wait for it forever"]
+pub struct MemberPart {
     group: ClientGroup,
     rank: usize,
+    exchange: Exchange,
+    run: CollectiveRun,
 }
 
-impl GroupMember {
-    /// This member's rank in its group.
-    pub fn rank(&self) -> usize {
-        self.rank
-    }
-
-    /// This member's part of [`ClientGroup::all_reduce`].
-    pub fn all_reduce(&self, buffers: MemberBuffers, dtype: ElemType, op: ReduceOperation) {
-        self.exchange(Exchange::AllReduce(Reduction { dtype, op }), buffers);
-    }
-
-    /// This member's part of [`ClientGroup::all_gather`].
-    pub fn all_gather(&self, buffers: MemberBuffers) {
-        self.exchange(Exchange::AllGather, buffers);
-    }
-
-    /// This member's part of [`ClientGroup::reduce_scatter`].
-    pub fn reduce_scatter(&self, buffers: MemberBuffers, dtype: ElemType, op: ReduceOperation) {
-        self.exchange(Exchange::ReduceScatter(Reduction { dtype, op }), buffers);
-    }
-
-    /// This member's part of [`ClientGroup::all_to_all`].
-    pub fn all_to_all(&self, buffers: MemberBuffers) {
-        self.exchange(Exchange::AllToAll, buffers);
-    }
-
+impl MemberPart {
     /// Checks and queues this member's part, then hands it to its device at once: the peers
     /// queueing theirs wait in it on their devices until it arrives.
-    fn exchange(&self, exchange: Exchange, buffers: MemberBuffers) {
-        exchange.expect_part(&self.group, self.rank, &buffers);
-        if self.group.skips_communication() {
+    pub fn queue(self, buffers: MemberBuffers) {
+        self.exchange.expect_part(&self.group, self.rank, &buffers);
+        let CollectiveRun::Native { recorded } = self.run else {
             return;
-        }
+        };
+        let _collective = ExecutionScope::under(recorded);
         let client = &self.group.clients[self.rank];
-        exchange.queue(client, buffers, self.group.device_ids.clone());
+        self.exchange
+            .queue(client, buffers, self.group.device_ids.clone());
         client.device.flush_queue();
     }
 }
 
-/// A collective every member contributes a source to and receives a destination from.
+impl core::fmt::Debug for MemberPart {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MemberPart")
+            .field("rank", &self.rank)
+            .field("exchange", &self.exchange)
+            .field("run", &self.run)
+            .finish()
+    }
+}
+
+/// How a collective over a [`ClientGroup`] runs, decided once when it was recorded.
 #[derive(Debug, Clone, Copy)]
-enum Exchange {
+enum CollectiveRun {
+    /// Over the device transport, its parts under the collective recorded while observed.
+    Native { recorded: Option<ExecutionId> },
+    /// Not at all: a member's device skips communication.
+    Skipped,
+}
+
+/// A collective every member contributes a source to and receives a destination from, as
+/// [`ClientGroup`]'s methods of the same name run it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exchange {
+    /// [`ClientGroup::all_reduce`].
     AllReduce(Reduction),
+    /// [`ClientGroup::all_gather`].
     AllGather,
+    /// [`ClientGroup::reduce_scatter`].
     ReduceScatter(Reduction),
+    /// [`ClientGroup::all_to_all`].
     AllToAll,
 }
 
@@ -460,9 +477,7 @@ impl Exchange {
     /// and sized for its source.
     fn expect_part(self, group: &ClientGroup, rank: usize, buffers: &MemberBuffers) {
         let collective = self.collective();
-        if let Self::AllReduce(reduction) | Self::ReduceScatter(reduction) = self {
-            group.expect_reduces(collective, reduction.dtype);
-        }
+        self.expect_reduces(group);
         let in_place = match self {
             Self::AllReduce(_) => InPlace::Allowed,
             _ => InPlace::Refused,
@@ -492,6 +507,12 @@ impl Exchange {
             &buffers.dst,
             dst,
         );
+    }
+
+    fn expect_reduces(self, group: &ClientGroup) {
+        if let Self::AllReduce(reduction) | Self::ReduceScatter(reduction) = self {
+            group.expect_reduces(self.collective(), reduction.dtype);
+        }
     }
 
     /// Queues one member's part on `client`, its compute stream waiting for it before anything

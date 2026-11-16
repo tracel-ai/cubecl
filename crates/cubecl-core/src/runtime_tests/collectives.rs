@@ -3,9 +3,9 @@ use alloc::{string::ToString, vec, vec::Vec};
 use core::time::Duration;
 use cubecl_common::device::{Device, DeviceId};
 use cubecl_runtime::{
-    client::{Client, ClientGroup, ClientGroupError, MemberBuffers},
+    client::{Client, ClientGroup, ClientGroupError, Exchange, MemberBuffers},
     runtime::Runtime,
-    server::{Handle, ReduceOperation},
+    server::{Handle, ReduceOperation, Reduction},
 };
 use std::sync::{
     Mutex, MutexGuard, PoisonError,
@@ -542,9 +542,8 @@ fn offset_buffers<R: Runtime>() {
     });
 }
 
-/// Gathers `values(member, LEN)` from every member, checking each holds them all in order.
-/// Each member queues its part of all four exchanges from a thread of its own, the last member's
-/// thread first, so no member's part waits on the caller of another's.
+/// Each member queues its part of all four exchanges, made on this thread, from a thread of its
+/// own, the last member's thread first, so no member's part waits on the caller of another's.
 fn members_on_their_own_threads<R: Runtime>() {
     let Some(group) = group::<R>() else {
         return;
@@ -555,39 +554,45 @@ fn members_on_their_own_threads<R: Runtime>() {
     let exchanged = |from: usize, to: usize| -> Vec<f32> {
         values(from, members * LEN)[to * LEN..(to + 1) * LEN].to_vec()
     };
-    let threads: Vec<_> = group
-        .members()
+    let sum = Reduction {
+        dtype: F32,
+        op: ReduceOperation::Sum,
+    };
+    let (chunk_bytes, whole_bytes) = (
+        (LEN * size_of::<f32>()) as u64,
+        (members * LEN * size_of::<f32>()) as u64,
+    );
+    let parts: Vec<_> = group
+        .parts(Exchange::AllReduce(sum), chunk_bytes)
+        .into_iter()
+        .zip(group.parts(Exchange::AllGather, chunk_bytes))
+        .zip(group.parts(Exchange::ReduceScatter(sum), whole_bytes))
+        .zip(group.parts(Exchange::AllToAll, whole_bytes))
+        .enumerate()
+        .collect();
+    let threads: Vec<_> = parts
         .into_iter()
         .rev()
-        .map(|member| {
-            let client = group.clients()[member.rank()].clone();
+        .map(|(rank, (((reduce, gather), scatter), all_to_all))| {
+            let client = group.clients()[rank].clone();
             std::thread::spawn(move || {
-                let rank = member.rank();
                 let reduced = unwritten(&client, LEN);
-                member.all_reduce(
-                    MemberBuffers {
-                        src: from_values(&client, &values(rank, LEN)),
-                        dst: reduced.clone(),
-                    },
-                    F32,
-                    ReduceOperation::Sum,
-                );
+                reduce.queue(MemberBuffers {
+                    src: from_values(&client, &values(rank, LEN)),
+                    dst: reduced.clone(),
+                });
                 let gathered = unwritten(&client, members * LEN);
-                member.all_gather(MemberBuffers {
+                gather.queue(MemberBuffers {
                     src: from_values(&client, &values(rank, LEN)),
                     dst: gathered.clone(),
                 });
                 let scattered = unwritten(&client, LEN);
-                member.reduce_scatter(
-                    MemberBuffers {
-                        src: from_values(&client, &values(rank, members * LEN)),
-                        dst: scattered.clone(),
-                    },
-                    F32,
-                    ReduceOperation::Sum,
-                );
+                scatter.queue(MemberBuffers {
+                    src: from_values(&client, &values(rank, members * LEN)),
+                    dst: scattered.clone(),
+                });
                 let exchanged = unwritten(&client, members * LEN);
-                member.all_to_all(MemberBuffers {
+                all_to_all.queue(MemberBuffers {
                     src: from_values(&client, &values(rank, members * LEN)),
                     dst: exchanged.clone(),
                 });
@@ -615,6 +620,7 @@ fn members_on_their_own_threads<R: Runtime>() {
     }
 }
 
+/// Gathers `values(member, LEN)` from every member, checking each holds them all in order.
 fn gather_every_member(group: &ClientGroup) {
     let members = group.clients().len();
     let buffers: Vec<_> = group

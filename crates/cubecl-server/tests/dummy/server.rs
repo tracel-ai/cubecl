@@ -666,7 +666,10 @@ impl<M: Marker> DummyServer<M> {
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn count_collective_part(&mut self) -> Result<(), ServerError> {
-        let timing = self.next_timing.take();
+        let timing = self
+            .next_timing
+            .take()
+            .filter(|_| !REFUSE_PROFILES.load(core::sync::atomic::Ordering::Relaxed));
         COLLECTIVE_PARTS
             .lock()
             .unwrap()
