@@ -38,6 +38,47 @@ impl Instruction {
             Self::Cmma | Self::Wgmma => false,
         }
     }
+
+    /// Planes that issue one call together: the plane group MMA's four, one elsewhere.
+    pub fn planes(self) -> usize {
+        match self {
+            Self::Wgmma => ComputeScope::MMA_PLANE_GROUP
+                .planes()
+                .expect("a plane group spans whole planes"),
+            Self::Registers { .. } | Self::Cmma | Self::Mma { .. } => 1,
+        }
+    }
+
+    /// How a sum this instruction contracts reaches its destination: a cmma fragment hides which
+    /// unit holds a cell, so its sum bounces through shared memory; every other instruction's units
+    /// hold their own cells and write them one at a time.
+    pub fn sum_drain(self) -> SumDrain {
+        match self {
+            Self::Cmma => SumDrain::Bounce,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => SumDrain::CellByCell,
+        }
+    }
+
+    /// The form a block-scaled instruction's operands take: each input's codes, the scales' type
+    /// and their block. `None` for any other instruction.
+    pub fn block_scaled_form(self) -> Option<BlockScaledOperands> {
+        match self {
+            Self::Mma { operands, .. } => operands.block_scaled(),
+            Self::Registers { .. } | Self::Cmma | Self::Wgmma => None,
+        }
+    }
+}
+
+/// How an instruction's sum reaches its destination ([`Instruction::sum_drain`]).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum SumDrain {
+    /// Through the fragment's own store, which writes its whole window, where the destination
+    /// replaces and the window lies inside it; elsewhere through a window of shared memory, each
+    /// fragment spilled there and its cells written on from it.
+    Bounce,
+    /// Each unit writing its own cells through the destination's write, one element at a time, so
+    /// the destination is bound one element wide.
+    CellByCell,
 }
 
 /// What a manual-mma instruction's operands are: the blueprint's choice, which every leaf reads, so
@@ -372,6 +413,20 @@ impl ShapedInstruction {
     /// walk the tile takes along it.
     pub fn depth(&self) -> usize {
         self.shape[2]
+    }
+}
+
+/// The instruction's kind and the shape of one call, as autotune names a plane: `cmma=16x16x16`.
+impl core::fmt::Display for ShapedInstruction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let [m, n, k] = self.shape;
+        let name = match self.instruction {
+            Instruction::Registers { .. } => "registers",
+            Instruction::Cmma => "cmma",
+            Instruction::Mma { .. } => "mma",
+            Instruction::Wgmma => "wgmma",
+        };
+        write!(f, "{name}={m}x{n}x{k}")
     }
 }
 
@@ -949,6 +1004,23 @@ mod tests {
             None
         );
         assert_eq!(pick(&cuda, [16, 8], [16, 8, 24]), None);
+    }
+
+    /// What a host sizes a plane by reads off the instruction: the plane group MMA spans four
+    /// planes, a cmma sum bounces through shared memory where every other is written cell by cell,
+    /// and a call is named by its kind and shape, which autotune keys a plane by.
+    #[test]
+    fn a_call_says_its_planes_its_drain_and_its_name() {
+        assert_eq!(Instruction::Wgmma.planes(), 4);
+        assert_eq!(Instruction::Cmma.planes(), 1);
+        assert_eq!(Instruction::Cmma.sum_drain(), SumDrain::Bounce);
+        assert_eq!(mma().sum_drain(), SumDrain::CellByCell);
+        assert_eq!(mma().block_scaled_form(), None);
+        let call = ShapedInstruction {
+            instruction: Instruction::Cmma,
+            shape: [16, 16, 16],
+        };
+        assert_eq!(call.to_string(), "cmma=16x16x16");
     }
 
     /// Plane groups of four issue the plane group MMA.
