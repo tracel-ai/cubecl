@@ -1151,15 +1151,20 @@ impl PlanePartition {
         }
     }
 
-    /// `self[r, c] = 2^(self[r, c] · scale − offsets[r])` over every fragment.
-    pub(crate) fn exp2_scaled_minus_along<E: Float>(&self, scale: E, offsets: &Array<E>) {
+    /// `self[r, c] = function(self[r, c] · scale − offsets[r])` over every fragment.
+    pub(crate) fn scaled_minus_along<E: Float>(
+        &self,
+        scale: E,
+        offsets: &Array<E>,
+        #[comptime] function: CellFunction,
+    ) {
         let rows = self.at(0usize, 0usize).rows_per_unit::<E>();
         #[unroll]
         for mi in 0..self.m_tiles {
             #[unroll]
             for ni in 0..self.n_tiles {
                 let mut fragment = self.at(mi, ni).manual_fragment();
-                fragment.exp2_scaled_minus_along(scale, offsets, comptime!(mi * rows));
+                fragment.scaled_minus_along(scale, offsets, comptime!(mi * rows), function);
             }
         }
     }

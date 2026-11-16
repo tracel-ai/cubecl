@@ -748,13 +748,14 @@ impl MmaData {
         sums
     }
 
-    /// `self[r, c] = 2^(self[r, c] · scale − offsets[first + r])`
-    /// ([`AxisSlices::exp2_scaled_minus_cell`]).
-    pub(crate) fn exp2_scaled_minus_along<E: Float>(
+    /// `self[r, c] = function(self[r, c] · scale − offsets[first + r])`
+    /// ([`AxisSlices::scaled_minus_cell`]).
+    pub(crate) fn scaled_minus_along<E: Float>(
         &mut self,
         scale: E,
         offsets: &Array<E>,
         #[comptime] first: usize,
+        #[comptime] function: CellFunction,
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
@@ -766,10 +767,11 @@ impl MmaData {
             for e in 0..vector_size {
                 vector.insert(
                     e,
-                    AxisSlices::exp2_scaled_minus_cell::<E>(
+                    AxisSlices::scaled_minus_cell::<E>(
                         vector.extract(e),
                         scale,
                         offsets[first + i],
+                        function,
                     ),
                 );
             }
