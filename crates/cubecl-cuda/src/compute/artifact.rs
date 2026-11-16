@@ -9,7 +9,7 @@ use cubecl_core::{
     prelude::*,
 };
 use cubecl_cpp::cuda::arch::CudaArchitecture;
-use cubecl_cpp::{formatter::format_cpp, shared::signature::forbids_contraction};
+use cubecl_cpp::{formatter::format_cpp, shared::signature::source_forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{
     ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording,
@@ -299,7 +299,7 @@ impl CudaArtifactCompiler {
             options.push(&cccl_include_option);
         }
         // NVRTC fuses multiply-adds by default, whatever the source's pragma says.
-        let contraction = forbids_contraction(source).then_some("--fmad=false");
+        let contraction = source_forbids_contraction(source).then_some("--fmad=false");
         options.extend(contraction);
 
         // SAFETY: Calling NVRTC FFI to create, compile, and extract PTX from a program.

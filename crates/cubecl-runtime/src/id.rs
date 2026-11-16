@@ -104,6 +104,24 @@ pub struct KernelId {
     pub(crate) info: Option<Info>,
 }
 
+/// Hashes `setting` into `state` once it leaves its default, so a kernel that keeps the default
+/// has the hash, entry point name and cache key it had before the setting existed.
+fn hash_unless_default<T: Default + PartialEq + Hash, H: Hasher>(setting: &T, state: &mut H) {
+    if *setting != T::default() {
+        setting.hash(state);
+    }
+}
+
+/// `-{setting:?}` once `setting` leaves its default, for the same reason as
+/// [`hash_unless_default`], and nothing otherwise.
+fn suffix_unless_default<T: Default + PartialEq + core::fmt::Debug>(setting: &T) -> String {
+    if *setting == T::default() {
+        String::new()
+    } else {
+        format!("-{setting:?}")
+    }
+}
+
 impl Hash for KernelId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.type_id.hash(state);
@@ -111,14 +129,8 @@ impl Hash for KernelId {
         self.cube_dim.hash(state);
         self.mode.hash(state);
         self.info.hash(state);
-        // A kernel without debug data keeps the hash it had before the level existed.
-        if self.debug_info != DebugInfo::None {
-            self.debug_info.hash(state);
-        }
-        // A kernel that allows contraction keeps the hash it had before the setting existed.
-        if self.float_contraction != FloatContraction::Allowed {
-            self.float_contraction.hash(state);
-        }
+        hash_unless_default(&self.debug_info, state);
+        hash_unless_default(&self.float_contraction, state);
     }
 }
 
@@ -188,18 +200,16 @@ impl KernelId {
     ///
     /// Can be used as a persistent kernel cache key.
     pub fn stable_format(&self) -> String {
-        let format = format!(
-            "{}-{}-{:?}-{:?}-{:?}",
-            self.type_name, self.address_type, self.cube_dim, self.mode, self.info
-        );
-        let format = match self.debug_info {
-            DebugInfo::None => format,
-            level => format!("{format}-{level:?}"),
-        };
-        match self.float_contraction {
-            FloatContraction::Allowed => format,
-            contraction => format!("{format}-{contraction:?}"),
-        }
+        format!(
+            "{}-{}-{:?}-{:?}-{:?}{}{}",
+            self.type_name,
+            self.address_type,
+            self.cube_dim,
+            self.mode,
+            self.info,
+            suffix_unless_default(&self.debug_info),
+            suffix_unless_default(&self.float_contraction),
+        )
     }
 
     /// Hash the key in a stable way that can be used between runs.
@@ -212,13 +222,8 @@ impl KernelId {
         self.cube_dim.hash(&mut hasher);
         self.mode.hash(&mut hasher);
         self.info.hash(&mut hasher);
-        // A kernel without debug data keeps its entry point name and cache key.
-        if self.debug_info != DebugInfo::None {
-            self.debug_info.hash(&mut hasher);
-        }
-        if self.float_contraction != FloatContraction::Allowed {
-            self.float_contraction.hash(&mut hasher);
-        }
+        hash_unless_default(&self.debug_info, &mut hasher);
+        hash_unless_default(&self.float_contraction, &mut hasher);
 
         hasher.finalize()
     }

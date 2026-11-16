@@ -4,7 +4,7 @@
 use crate::MetalCompiler;
 use crate::compute::pipelines::MetalCompiledKernel;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
-use cubecl_cpp::shared::signature::forbids_contraction;
+use cubecl_cpp::shared::signature::source_forbids_contraction;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::compiler::{ArtifactCompiler, ArtifactId, CompilationRecording};
@@ -164,10 +164,8 @@ impl MetalArtifactCompiler {
         // math contracts whatever the source's pragma says, so a kernel that turned contraction
         // off compiles without it.
         let options = MTLCompileOptions::new();
-        if forbids_contraction(source) {
-            #[allow(deprecated)]
-            options.setFastMathEnabled(false);
-        }
+        #[allow(deprecated)]
+        options.setFastMathEnabled(!source_forbids_contraction(source));
         let library = self
             .device
             .newLibraryWithSource_options_error(&source_ns, Some(&options))

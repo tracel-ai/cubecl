@@ -23,7 +23,7 @@ use pliron::opts::dce::SideEffects;
 /// Sinks vector broadcasts through the pure lane-wise ops that read them.
 pub type SinkBroadcastPass = MatchRewritePass<SinkBroadcast>;
 
-#[derive(Default, Clone, Copy, NamedRewrite)]
+#[derive(Default, Debug, Clone, Copy, NamedRewrite)]
 pub struct SinkBroadcast;
 
 /// The scalar `value` is a broadcast of, if it is one.
@@ -65,17 +65,22 @@ fn scalar_form(ctx: &Context, op: Ptr<Operation>) -> Option<(Vec<Value>, TypeHan
     let scalar_ty = result_ty.deref(ctx).downcast_ref::<VectorType>()?.inner;
 
     let operands = op.deref(ctx).operands().collect::<Vec<_>>();
-    let mut reads_vector = false;
-    let mut scalars = Vec::with_capacity(operands.len());
-    for operand in operands {
-        if is_vector(ctx, operand) {
-            reads_vector = true;
-            scalars.push(broadcast_input(ctx, operand)?);
-        } else {
-            scalars.push(operand);
-        }
-    }
+    let reads_vector = operands.iter().any(|&operand| is_vector(ctx, operand));
+    let scalars = operands
+        .into_iter()
+        .map(|operand| scalar_operand(ctx, operand))
+        .collect::<Option<Vec<_>>>()?;
     reads_vector.then_some((scalars, scalar_ty))
+}
+
+/// `operand` as one lane reads it: the scalar a vector broadcasts, or a scalar as it is. `None`
+/// for a vector that is no broadcast.
+fn scalar_operand(ctx: &Context, operand: Value) -> Option<Value> {
+    if is_vector(ctx, operand) {
+        broadcast_input(ctx, operand)
+    } else {
+        Some(operand)
+    }
 }
 
 impl MatchRewrite for SinkBroadcast {

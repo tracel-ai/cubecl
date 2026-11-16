@@ -12,6 +12,12 @@ use cubecl::prelude::*;
 /// The lanes of the widest vector the tests launch.
 const LANES: usize = 4;
 
+/// `1 + 2^-12`, whose square rounds differently on its own and fused with an add.
+const FACTOR: f32 = 1.0 + 1.0 / 4096.0;
+
+/// `-(1 + 2^-11)`, the rounded square of [`FACTOR`], negated.
+const ADDEND: f32 = -(1.0 + 1.0 / 2048.0);
+
 #[cube(launch_unchecked, no_contraction)]
 pub fn kernel_mul_add_rounded<N: Size>(
     a: &[Vector<f32, N>],
@@ -35,7 +41,7 @@ pub fn kernel_mul_add_through_folds<N: Size>(
     output: &mut [Vector<f32, N>],
 ) {
     output[0] = a[0] * Vector::new(1.0f32) + c[0] * d[0];
-    let constant = Vector::<f32, N>::new(-(1.0 + 0.00048828125)) * Vector::new(1.0f32);
+    let constant = Vector::<f32, N>::new(ADDEND) * Vector::new(1.0f32);
     output[1] = constant + c[1] * d[1];
 }
 
@@ -44,56 +50,77 @@ fn operand(value: f32, vector_size: usize) -> Vec<f32> {
     alloc::vec![value; 2 * vector_size]
 }
 
+/// The outputs of a two-output kernel at `vector_size`, launched by `launch` on a buffer of
+/// [`operand`]s per value and an output of two vectors.
+fn run(
+    client: &Client,
+    values: [f32; 3],
+    vector_size: usize,
+    launch: impl FnOnce([BufferArg; 3], BufferArg),
+) -> Vec<f32> {
+    let outputs = 2 * vector_size;
+    let operands = values.map(|value| {
+        let values = operand(value, vector_size);
+        let handle = client.create_from_slice(f32::as_bytes(&values));
+        // SAFETY: `handle` holds exactly `values.len()` f32s.
+        unsafe { BufferArg::from_raw_parts(handle, values.len()) }
+    });
+    let output = client.empty(outputs * core::mem::size_of::<f32>());
+    // SAFETY: `output` was allocated for exactly `outputs` f32s.
+    launch(operands, unsafe {
+        BufferArg::from_raw_parts(output.clone(), outputs)
+    });
+    f32::from_bytes(&client.read_one_unchecked(output)).to_vec()
+}
+
 /// `a * b + c` and `-c - a * b` for every lane of a vector of `vector_size`.
 fn mul_adds(client: &Client, vector_size: usize) -> Vec<f32> {
-    let factor = 1.0 + 2f32.powi(-12);
-    let addend = -(1.0 + 2f32.powi(-11));
-    let buffer = |values: Vec<f32>| {
-        let len = values.len();
-        let handle = client.create_from_slice(f32::as_bytes(&values));
-        unsafe { BufferArg::from_raw_parts(handle, len) }
-    };
-    let outputs = 2 * vector_size;
-    let output = client.empty(outputs * core::mem::size_of::<f32>());
-    unsafe {
-        kernel_mul_add_rounded::launch_unchecked(
-            client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(1),
-            vector_size,
-            buffer(operand(factor, vector_size)),
-            buffer(operand(factor, vector_size)),
-            buffer(operand(addend, vector_size)),
-            BufferArg::from_raw_parts(output.clone(), outputs),
-        )
-    };
-    f32::from_bytes(&client.read_one_unchecked(output)).to_vec()
+    run(
+        client,
+        [FACTOR, FACTOR, ADDEND],
+        vector_size,
+        |[a, b, c], output| {
+            // SAFETY: the kernel reads and writes indices 0 and 1 only, and every buffer holds two
+            // vectors of `vector_size`.
+            unsafe {
+                kernel_mul_add_rounded::launch_unchecked(
+                    client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(1),
+                    vector_size,
+                    a,
+                    b,
+                    c,
+                    output,
+                )
+            }
+        },
+    )
 }
 
 /// Both sums of `kernel_mul_add_through_folds` for every lane of a vector of `vector_size`.
 fn mul_adds_through_folds(client: &Client, vector_size: usize) -> Vec<f32> {
-    let factor = 1.0 + 2f32.powi(-12);
-    let addend = -(1.0 + 2f32.powi(-11));
-    let buffer = |values: Vec<f32>| {
-        let len = values.len();
-        let handle = client.create_from_slice(f32::as_bytes(&values));
-        unsafe { BufferArg::from_raw_parts(handle, len) }
-    };
-    let outputs = 2 * vector_size;
-    let output = client.empty(outputs * core::mem::size_of::<f32>());
-    unsafe {
-        kernel_mul_add_through_folds::launch_unchecked(
-            client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(1),
-            vector_size,
-            buffer(operand(addend, vector_size)),
-            buffer(operand(factor, vector_size)),
-            buffer(operand(factor, vector_size)),
-            BufferArg::from_raw_parts(output.clone(), outputs),
-        )
-    };
-    f32::from_bytes(&client.read_one_unchecked(output)).to_vec()
+    run(
+        client,
+        [ADDEND, FACTOR, FACTOR],
+        vector_size,
+        |[a, c, d], output| {
+            // SAFETY: the kernel reads and writes indices 0 and 1 only, and every buffer holds two
+            // vectors of `vector_size`.
+            unsafe {
+                kernel_mul_add_through_folds::launch_unchecked(
+                    client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(1),
+                    vector_size,
+                    a,
+                    c,
+                    d,
+                    output,
+                )
+            }
+        },
+    )
 }
 
 pub fn test_every_vector_size_fuses_the_same_products(client: Client) {
@@ -115,8 +142,12 @@ pub fn test_every_vector_size_fuses_the_same_products(client: Client) {
 }
 
 pub fn test_no_contraction_rounds_each_operation(client: Client) {
-    // WGSL has no way to keep the driver from fusing, and the drivers do.
-    if client.name().starts_with("wgpu<wgsl") {
+    // WGSL has no way to keep the driver from fusing, and wgpu compiles MSL with fast math,
+    // which fuses whatever the source asks.
+    if ["wgpu<wgsl", "wgpu<msl"]
+        .iter()
+        .any(|name| client.name().starts_with(name))
+    {
         return;
     }
     for vector_size in [1, LANES] {

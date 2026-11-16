@@ -255,9 +255,15 @@ pub trait HasElementType {
     fn element_type(&self, ctx: &Context) -> Option<TypeHandle>;
 }
 
+/// An op that an identity can replace with one of its operands, such as `x * 1` with `x`.
 #[op_interface]
 pub trait SimplifyInterface {
     verify_op_succ!();
+    /// The operand the op is equal to, given the constant each operand holds in every lane.
+    ///
+    /// The value returned must be one of the op's own operands. A vector operand's constant is
+    /// the scalar its lanes hold, so a vector op only folds to a value of its own type when the
+    /// result is an operand, never a value built from the constant.
     fn check_fold(&self, ctx: &Context, operand_attrs: &[Option<AttrObj>]) -> Option<Value>;
 }
 

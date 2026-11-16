@@ -366,6 +366,6 @@ pub fn contraction_pragma(ctx: &Context) -> &'static str {
 
 /// Whether `source` comes from a kernel that turned float contraction off, so its compiler
 /// must be told not to contract either.
-pub fn forbids_contraction(source: &str) -> bool {
+pub fn source_forbids_contraction(source: &str) -> bool {
     source.starts_with(NO_CONTRACTION_PRAGMA)
 }
