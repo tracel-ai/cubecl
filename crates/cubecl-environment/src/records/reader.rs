@@ -1,7 +1,7 @@
-use super::{EVERY_LAYOUT, ROOT, Record, SESSIONS, Session, SessionId, Stamped};
+use super::{ROOT, Record, SESSIONS, Session, SessionId, Stamped};
 use crate::bytes::Bytes;
 use crate::environment::{PruneTally, RecordPruning};
-use crate::persistence::{Database, encode};
+use crate::persistence::{Database, NamespaceContent, NamespaceRoot, encode};
 use alloc::vec::Vec;
 
 /// The records and sessions one database holds.
@@ -75,7 +75,8 @@ impl<'a> Records<'a> {
     /// The entries of every layout of records, and the bytes they take.
     fn entries(&self) -> RecordSize {
         let mut total = RecordSize::default();
-        for summary in self.database.summary() {
+        // A count the database refuses tallies nothing; the database logs why.
+        for summary in self.database.summary().unwrap_or_default() {
             if holds_records(&summary.namespace) {
                 total.entries += summary.entries;
                 total.bytes += summary.bytes;
@@ -133,5 +134,5 @@ struct RecordSize {
 /// Whether `namespace` holds records or sessions, of this layout or an earlier
 /// one.
 fn holds_records(namespace: &str) -> bool {
-    namespace.split('/').next() == Some(EVERY_LAYOUT)
+    NamespaceRoot::new(namespace).content() == NamespaceContent::Records
 }
