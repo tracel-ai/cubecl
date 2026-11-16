@@ -158,22 +158,6 @@ impl BufferBinding {
         }
     }
 
-    /// The handle, and the length the kernel sees in its own elements of `elem_size` bytes, each
-    /// a vector of `vector_size` scalars.
-    ///
-    /// # Panics
-    ///
-    /// When the handle is too small to hold the declared length. The caller broke the contract
-    /// of the `unsafe` constructor, so the launch stops there instead of queuing an error.
-    pub fn into_kernel_binding(
-        self,
-        elem_size: usize,
-        vector_size: usize,
-    ) -> (cubecl_runtime::server::BufferBinding, u64) {
-        let length = self.kernel_len(elem_size, vector_size);
-        (self.handle, length)
-    }
-
     /// The length the kernel sees, in its own elements.
     fn kernel_len(&self, elem_size: usize, vector_size: usize) -> u64 {
         match self.extent {
@@ -266,3 +250,26 @@ impl From<TensorBinding> for BufferBinding {
         }
     }
 }
+
+/// How the launcher reads a buffer binding, kept off the public API: only the crate re-exports it.
+mod kernel {
+    use super::BufferBinding;
+
+    /// The handle, and the length the kernel sees in its own elements of `elem_size` bytes, each
+    /// a vector of `vector_size` scalars.
+    ///
+    /// # Panics
+    ///
+    /// When the handle is too small to hold the declared length. The caller broke the contract
+    /// of the `unsafe` constructor, so the launch stops there instead of queuing an error.
+    pub fn into_kernel_binding(
+        binding: BufferBinding,
+        elem_size: usize,
+        vector_size: usize,
+    ) -> (cubecl_runtime::server::BufferBinding, u64) {
+        let length = binding.kernel_len(elem_size, vector_size);
+        (binding.handle, length)
+    }
+}
+
+pub(crate) use kernel::into_kernel_binding;

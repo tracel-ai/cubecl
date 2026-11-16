@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, vec::Vec};
 
+use crate::frontend::into_kernel_binding;
 use crate::prelude::{BufferArg, PeerArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
@@ -206,7 +207,7 @@ impl KernelLauncher {
         vector_size: usize,
     ) -> Option<BufferBinding> {
         let (handle, buffer_len) = match array {
-            BufferArg::Handle { handle, .. } => handle.into_kernel_binding(elem_size, vector_size),
+            BufferArg::Handle { handle, .. } => into_kernel_binding(handle, elem_size, vector_size),
             BufferArg::Alias { input_pos, .. } => {
                 self.alias_io(input_pos);
                 return None;
