@@ -8,7 +8,8 @@ use cubecl::ir::features::MmaConfig;
 use cubecl::ir::{DeviceProperties, ElemType, FloatKind, TargetProperties};
 
 use super::instruction::{FragmentSource, Instruction, OpenedBy, ShapedInstruction};
-use crate::{ComputeScope, Scratch};
+use crate::launch::Delivery;
+use crate::{ComputeScope, Scratch, StageStorage};
 
 /// The Step of a product a Scope holds: `m × n × k` of fragments loaded from `lhs` and `rhs`,
 /// summed in `sum`. A kernel's innermost loop covers it whole, and the Lowering computes it with
@@ -90,6 +91,23 @@ impl ProductStep {
             .map(|call| StepCost::of(call.instruction, call.cell()))
     }
 
+    /// How a stage its operands are staged through lays its cells out, asked for as `stated` and
+    /// filled by `delivery`, where this Step's sum is drained into an output: the arrangement asked
+    /// for, made one the instruction computing the Step reads and the fill writes
+    /// ([`RowChunks::read_by`](crate::stage::RowChunks)). What the kernel stages its operands as,
+    /// and what the host sizes the stage by ([`StageStorage::bytes`]). `None` where the Lowering
+    /// cannot compute the Step on `device` compiling for `target`.
+    pub fn stage_storage(
+        &self,
+        stated: StageStorage,
+        delivery: Delivery,
+        device: &DeviceProperties,
+        target: &TargetProperties,
+    ) -> Option<StageStorage> {
+        self.call(device, target, OpenedBy::Accumulator)
+            .map(|call| stated.read_by(call.instruction, delivery))
+    }
+
     /// The Lowering's call for this Step, opened by `opened_by`.
     fn call(
         &self,
@@ -157,9 +175,11 @@ impl core::fmt::Display for ProductStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Axis;
     use crate::ops::matmul::instruction::tests::{
         F32, HALF, cuda, metal, plain, shape, sum_is_next_a, sum_is_not_next_a,
     };
+    use crate::stage::RowChunks;
 
     fn sizes(device: &DeviceProperties) -> Vec<[usize; 3]> {
         ProductStep::sizes(device, ComputeScope::Plane, HALF, HALF, F32)
@@ -242,6 +262,69 @@ mod tests {
         );
         assert_eq!(
             narrow.kept_for(&narrow, &cuda(), &sum_is_not_next_a()),
+            None
+        );
+    }
+
+    /// A stage asked to swizzle its rows is padded where the fragment API computes the Step (an
+    /// M2's `8 × 8 × 8`, an `sm_80`'s `16 × 16 × 16`), and stays swizzled where the crate's
+    /// transport does (an `sm_80`'s `16 × 8 × 16`); a stage a TMA box fills lands its rows in order
+    /// rather than padded, swizzled ones as they are. A stage of lines is no tiled one and stays.
+    #[test]
+    fn a_stage_is_arranged_as_its_step_reads_it() {
+        let target = sum_is_next_a();
+        let tiled = |chunks| StageStorage::Tiled {
+            block: vec![(Axis(0), 16), (Axis(1), 16), (Axis(2), 32)],
+            chunks,
+        };
+        let staged = |step: ProductStep, device: &DeviceProperties, chunks, delivery| {
+            step.stage_storage(tiled(chunks), delivery, device, &target)
+        };
+        let sync = Delivery::SyncPerUnit;
+        assert_eq!(
+            staged(step([8, 8, 8]), &metal(), RowChunks::Swizzled, sync),
+            Some(tiled(RowChunks::Padded))
+        );
+        assert_eq!(
+            staged(step([16, 16, 16]), &cuda(), RowChunks::Swizzled, sync),
+            Some(tiled(RowChunks::Padded))
+        );
+        assert_eq!(
+            staged(step([16, 8, 16]), &cuda(), RowChunks::Swizzled, sync),
+            Some(tiled(RowChunks::Swizzled))
+        );
+        assert_eq!(
+            staged(
+                step([16, 16, 16]),
+                &cuda(),
+                RowChunks::Swizzled,
+                Delivery::Tma
+            ),
+            Some(tiled(RowChunks::InOrder))
+        );
+        assert_eq!(
+            staged(
+                step([16, 8, 16]),
+                &cuda(),
+                RowChunks::Swizzled,
+                Delivery::Tma
+            ),
+            Some(tiled(RowChunks::Swizzled))
+        );
+        assert_eq!(
+            staged(step([16, 8, 16]), &cuda(), RowChunks::Padded, Delivery::Tma),
+            Some(tiled(RowChunks::InOrder))
+        );
+        assert_eq!(
+            staged(step([8, 8, 8]), &metal(), RowChunks::InOrder, sync),
+            Some(tiled(RowChunks::InOrder))
+        );
+        assert_eq!(
+            step([8, 8, 8]).stage_storage(StageStorage::Strided, sync, &metal(), &target),
+            Some(StageStorage::Strided)
+        );
+        assert_eq!(
+            staged(step([16, 16, 16]), &plain(), RowChunks::Swizzled, sync),
             None
         );
     }

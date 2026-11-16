@@ -4,8 +4,8 @@
 //! manual mma transport (through `ldmatrix` where the device has it) or, in order or padded, the
 //! cmma one where the device offers the leaf's shape — a row-major rhs and a weight stored
 //! `{n, k}` alike. A swizzled stage only the manual mma reads, so where the accumulator picks cmma
-//! for the leaf (Metal's `8×8×8`) its case reports the test skipped. A global window is read
-//! manually.
+//! for the leaf (Metal's `8×8×8`) the stage is padded instead, as the Step arranges it
+//! ([`ProductStep::stage_storage`]). A global window is read manually.
 //!
 //! In `f16` (and `bf16` through `ldmatrix`) summed in `f32`, at `16×16×16` where the device offers
 //! it and at the shape it does otherwise (NVIDIA's manual mma is `16×8×16`); a device with no such
@@ -15,6 +15,7 @@
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{ir::ElemType, prelude::*, zspace::shape};
+use cubecl_tile::launch::Delivery;
 use cubecl_tile::stage::{Prefetch, RowChunks};
 use cubecl_tile::*;
 
@@ -256,27 +257,6 @@ fn check(case: Case) {
     let Some((edge_m, edge_n, edge_k)) = instruction_shape(&client, leaf, input, line_depth) else {
         return;
     };
-    // A drained sum picks its instruction before any stage exists, so where the fragment API offers
-    // the leaf (Metal's `8×8×8`) it reads the stage off a pointer and a stride, which a swizzled
-    // row is not: the kernel refuses as it expands. Reported, not run.
-    let picked = Instruction::for_accumulator(
-        client.properties(),
-        client.target_properties(),
-        space::ComputeScope::Plane,
-        FragmentSource::Values(input),
-        FragmentSource::Values(input),
-        f32::elem_type_native(),
-        [edge_m, edge_n, edge_k],
-    )
-    .map(|pick| pick.instruction);
-    if chunks == RowChunks::Swizzled && picked == Some(Instruction::Cmma) {
-        ValidationResult::Skipped(format!(
-            "the fragment API reads this device's {edge_m}×{edge_n}×{edge_k} leaf, and no \
-             swizzled stage"
-        ))
-        .enforce();
-        return;
-    }
     let (m, n, k) = (mn, mn, 128usize);
     // A row-major rhs's lines run along `N`, and a fragment narrower than a line starts inside one,
     // which the manual mma load refuses: reported, not run.
@@ -359,11 +339,27 @@ fn check(case: Case) {
         Form::Static,
     );
     // A stage holds the whole of `M` and `N`, `stage_k` of `K`; a block is one fragment's rows,
-    // `stage_k` deep, and the stage a grid of them wherever `mn` passes the fragment's edge.
-    let storage = StageStorage::Tiled {
-        block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
-        chunks,
+    // `stage_k` deep, and the stage a grid of them wherever `mn` passes the fragment's edge. Its
+    // rows are arranged as the Step's instruction reads them: a swizzle the fragment API cannot
+    // read (Metal's `8×8×8`) is padded instead.
+    let step = ProductStep {
+        shape: [edge_m, edge_n, edge_k],
+        holder: space::ComputeScope::Plane,
+        lhs: FragmentSource::Values(input),
+        rhs: FragmentSource::Values(input),
+        sum: f32::elem_type_native(),
     };
+    let storage = step
+        .stage_storage(
+            StageStorage::Tiled {
+                block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
+                chunks,
+            },
+            Delivery::default(),
+            client.properties(),
+            client.target_properties(),
+        )
+        .expect("the device offers the Step's instruction");
     let a_axes: &'static [Axis] = if lhs_transposed { &[K, M] } else { &[M, K] };
     let b_axes: &'static [Axis] = if transposed { &[N, K] } else { &[K, N] };
     let bind = |binding, element, axes: &'static [Axis], width| {
