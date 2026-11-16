@@ -498,6 +498,15 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
     assert_eq!(parts(), 2);
 }
 
+#[test_log::test]
+fn a_part_refuses_a_source_of_another_size_than_its_collective_on_the_caller() {
+    let group = transported_group();
+    let mut parts = group.parts(SUM, 8).into_iter();
+    let mut buffers = member_buffers(&group, 16, 16).into_iter();
+    let (part, buffers) = (parts.next().unwrap(), buffers.next().unwrap());
+    assert_refused("holds 16 bytes where it needs 8", || part.queue(buffers));
+}
+
 const SUM: Exchange = Exchange::AllReduce(Reduction {
     dtype: F32,
     op: ReduceOperation::Sum,

@@ -245,6 +245,7 @@ impl ClientGroup {
                 group: self.clone(),
                 rank,
                 exchange,
+                bytes,
                 run,
             })
             .collect()
@@ -404,13 +405,14 @@ impl ClientGroup {
 ///
 /// The members wait for each other on their devices, so every part is queued, and in one order on
 /// every member, which is the caller's to keep: the order the parts were made does not set it. A
-/// part is checked against its own member's buffers only: sources of different sizes on
-/// different members fail on the devices instead.
+/// part is checked against its own member's buffers, with a source of the size its collective
+/// was recorded with.
 #[must_use = "every member queues its part, or its peers wait for it forever"]
 pub struct MemberPart {
     group: ClientGroup,
     rank: usize,
     exchange: Exchange,
+    bytes: u64,
     run: CollectiveRun,
 }
 
@@ -418,6 +420,13 @@ impl MemberPart {
     /// Checks and queues this member's part, then hands it to its device at once: the peers
     /// queueing theirs wait in it on their devices until it arrives.
     pub fn queue(self, buffers: MemberBuffers) {
+        ClientGroup::expect_size(
+            self.exchange.collective(),
+            CollectiveBuffer::Source,
+            self.rank,
+            &buffers.src,
+            self.bytes,
+        );
         self.exchange.expect_part(&self.group, self.rank, &buffers);
         let CollectiveRun::Native { recorded } = self.run else {
             return;
@@ -435,6 +444,7 @@ impl core::fmt::Debug for MemberPart {
         f.debug_struct("MemberPart")
             .field("rank", &self.rank)
             .field("exchange", &self.exchange)
+            .field("bytes", &self.bytes)
             .field("run", &self.run)
             .finish()
     }
