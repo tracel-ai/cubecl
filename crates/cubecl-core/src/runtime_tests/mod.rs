@@ -23,6 +23,7 @@ pub mod control_flow;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
+pub mod f64_math;
 pub mod file;
 pub mod harness;
 pub mod index;

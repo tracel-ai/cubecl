@@ -5,6 +5,7 @@ pub mod branch;
 pub mod builtin;
 pub mod cmp;
 pub mod convert;
+pub mod f64_math;
 pub mod general;
 pub mod math;
 pub mod matrix;

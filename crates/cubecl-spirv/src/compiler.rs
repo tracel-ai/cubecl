@@ -30,7 +30,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
-    dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
+    dialect::{math, scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::{
         CanonicalizePass, InheritLocationPass, LowerOpsPass, visit_all_ops_of_type,
@@ -53,10 +53,13 @@ use cubecl_runtime::compiler::CompilationError;
 use pliron::{
     basic_block::BasicBlock,
     builtin::{
+        attributes::UnitAttr,
         op_interfaces::OneRegionInterface,
         ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
+    dict_key,
+    graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op},
     ident,
     identifier::Identifier,
     irbuild::{
@@ -72,16 +75,19 @@ use pliron::{
 };
 use pliron_spirv::{
     ToSpirvOp,
-    attrs::VerCapExtAttr,
-    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
+    attrs::{FPFastMathModeAttr, VerCapExtAttr},
+    decorations::{
+        DecoratableOp, get_decoration_fp_fast_math_mode, set_decoration_fp_fast_math_mode,
+        set_decoration_no_contraction, set_decoration_uniform, set_decoration_uniform_id,
+    },
     ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
     dr::Module,
     spirv::{
-        AddressingModel, Capability, ExecutionMode, ExecutionModel, MemoryModel, Scope,
-        StorageClass,
+        AddressingModel, Capability, ExecutionMode, ExecutionModel, FPFastMathMode, MemoryModel,
+        Scope, StorageClass,
     },
 };
 use std::{fmt::Debug, sync::Arc};
@@ -132,8 +138,9 @@ impl Compiler for SpirvCompiler {
             cube_dim: value.settings.cube_dim,
         });
 
-        let (module, bindings, io, shared_size) =
+        let (mut module, bindings, io, shared_size) =
             self.compile_kernel(&mut ctx, module, entry_func, value.settings, &dump)?;
+        declare_strict_f64_default(&mut module);
 
         let info_visibility = Visibility::Read;
         let immediate_size = match params_storage_class(&ctx, bindings.len()) {
@@ -321,9 +328,7 @@ impl SpirvCompiler {
         hoist_constants(ctx, spirv_module);
 
         // Make sure this is the last pass so it catches all ops
-        OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default()
-            .run(spirv_module_op, ctx, &mut analyses)
-            .unwrap();
+        collect_requirements(ctx, spirv_module, &mut analyses);
 
         // Something weird with the validation rules, can't be bothered to debug for the MVP.
         // Try to figure this out later.
@@ -434,6 +439,128 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
     );
 }
 
+/// Collects the version, capabilities and extensions the module needs.
+fn collect_requirements(ctx: &mut Context, module: SpirvModuleOp, analyses: &mut AnalysisManager) {
+    let op = module.get_operation();
+    let mut collect = OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default();
+    if uses_fast_math_decoration(ctx, module) {
+        // Decorations are not walked by the pass, so the capability is declared here. The pass then
+        // adds the extension and version it needs.
+        module.insert_capability(ctx, Capability::FloatControls2);
+    }
+    collect.run(op, ctx, analyses).unwrap();
+    if preserve_f64_special_values(ctx, module) {
+        // The execution mode needs a capability of its own.
+        collect.run(op, ctx, analyses).unwrap();
+    }
+}
+
+/// Whether any operation of the module carries an `FPFastMathMode` decoration.
+fn uses_fast_math_decoration(ctx: &Context, module: SpirvModuleOp) -> bool {
+    let mut found = false;
+    walk_op(
+        ctx,
+        &mut found,
+        &WALKCONFIG_PREORDER_FORWARD,
+        module.get_operation(),
+        |ctx, found, node| {
+            if let IRNode::Operation(op) = node {
+                let op = op.dyn_op(ctx);
+                let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*op) else {
+                    return;
+                };
+                *found |= get_decoration_fp_fast_math_mode(decoratable, ctx).is_some();
+            }
+        },
+    );
+    found
+}
+
+/// A driver may assume that no signed zero, infinity or NaN reaches a float operation, and fold a
+/// NaN test away, unless the kernel says otherwise. With `SPV_KHR_float_controls2`, the emulation
+/// says so through `FPFastMathMode` and `FPFastMathDefault`, and this mode, which that extension
+/// deprecates, is not used. Without it, a kernel that uses f64 declares `SignedZeroInfNanPreserve`
+/// where the device can honor it. Returns whether the mode was added.
+fn preserve_f64_special_values(ctx: &mut Context, module: SpirvModuleOp) -> bool {
+    let options = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
+    let supported =
+        options.supports_f64_signed_zero_inf_nan_preserve && !options.supports_fp_fast_math;
+    let uses_f64 = module
+        .get_vce(ctx)
+        .capabilities
+        .contains(&Capability::Float64);
+    if !(supported && uses_f64) {
+        return false;
+    }
+
+    let mut entry_points = vec![];
+    visit_all_ops_of_type::<FuncOp, _>(
+        ctx,
+        &mut entry_points,
+        module.get_operation(),
+        |ctx, names, func| {
+            if func.get_entrypoint_abi(ctx).is_some() {
+                names.push(func.get_symbol_name(ctx));
+            }
+        },
+    );
+    let block = module.get_body(ctx, 0);
+    for name in entry_points {
+        let mode =
+            ExecutionModeOp::new(ctx, name, ExecutionMode::SignedZeroInfNanPreserve, vec![64]);
+        mode.get_operation().insert_at_front(block, ctx);
+    }
+    true
+}
+
+dict_key!(
+    /// Marks a float operation that the driver must run as written: it may neither fuse it with
+    /// another operation nor assume that its operands are free of NaN, infinity and signed zero.
+    /// Error-free transformations and the special-value handling of the f64 emulation depend on it.
+    STRICT_FLOAT_ATTR,
+    "spirv_strict_float"
+);
+
+/// Makes `to` strict when `from`, the op it replaces, is marked with [`STRICT_FLOAT_ATTR`].
+///
+/// With `SPV_KHR_float_controls2`, `to` gets an empty `FPFastMathMode`: the driver may assume
+/// nothing. A driver can ignore that on a single operation, so [`declare_strict_f64_default`] adds
+/// the f64 default for the kernel as well. Without float controls 2, `to` gets `NoContraction` if
+/// it is arithmetic, and a comparison relies on the `SignedZeroInfNanPreserve` execution mode.
+pub(crate) fn decorate_strict_float(ctx: &Context, from: Ptr<Operation>, to: Ptr<Operation>) {
+    if from.get_attr::<UnitAttr>(ctx, &STRICT_FLOAT_ATTR).is_none() {
+        return;
+    }
+    let to_op = to.dyn_op(ctx);
+    let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*to_op) else {
+        return;
+    };
+    if !ctx
+        .aux_ty::<WgpuCompilationOptions>()
+        .vulkan
+        .supports_fp_fast_math
+    {
+        if is_float_arithmetic(ctx, from) {
+            set_decoration_no_contraction(decoratable, ctx);
+        }
+    } else {
+        set_decoration_fp_fast_math_mode(
+            decoratable,
+            ctx,
+            FPFastMathModeAttr::new(FPFastMathMode::NONE),
+        );
+    }
+}
+
+/// Float arithmetic, the operations `NoContraction` applies to.
+pub(crate) fn is_float_arithmetic(ctx: &Context, op: Ptr<Operation>) -> bool {
+    op.as_op::<math::FAddOp>(ctx).is_some()
+        || op.as_op::<math::FSubOp>(ctx).is_some()
+        || op.as_op::<math::FMulOp>(ctx).is_some()
+        || op.as_op::<math::FDivOp>(ctx).is_some()
+        || op.as_op::<math::FNegOp>(ctx).is_some()
+}
+
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {
     let Some(uniformity) = uniformity else {
         return;
@@ -453,5 +580,85 @@ pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Op
         }
     } else {
         op.set_attr(ctx, &DYNAMICALLY_UNIFORM_ATTR, uniformity);
+    }
+}
+
+/// Makes f64 strict by default in a kernel whose emulated f64 math carries `FPFastMathMode`.
+///
+/// NVIDIA ignores the `FPFastMathMode` of a single operation: it contracts and reassociates them,
+/// and assumes no NaN or infinity, whatever they say. It does honor `FPFastMathDefault`, so a kernel
+/// that uses the emulation also declares an empty default for f64, which keeps the emulation exact.
+/// A kernel without the emulation is left as it was.
+fn declare_strict_f64_default(module: &mut Module) {
+    use rspirv::{
+        dr::{Instruction, Operand},
+        spirv::{Decoration, Op},
+    };
+
+    let decorated = module.annotations.iter().any(|inst| {
+        inst.class.opcode == Op::Decorate
+            && inst.operands.get(1) == Some(&Operand::Decoration(Decoration::FPFastMathMode))
+    });
+    let find_type = |module: &Module, opcode: Op, operands: &[Operand]| {
+        module
+            .types_global_values
+            .iter()
+            .find(|inst| inst.class.opcode == opcode && inst.operands.starts_with(operands))
+            .and_then(|inst| inst.result_id)
+    };
+    let (true, Some(f64_ty)) = (
+        decorated,
+        find_type(module, Op::TypeFloat, &[Operand::LiteralBit32(64)]),
+    ) else {
+        return;
+    };
+
+    let mut bound = module.header.as_ref().map_or(1, |header| header.bound);
+    let mut new_id = || {
+        bound += 1;
+        bound - 1
+    };
+    let u32_operands = [Operand::LiteralBit32(32), Operand::LiteralBit32(0)];
+    let u32_ty = find_type(module, Op::TypeInt, &u32_operands).unwrap_or_else(|| {
+        let id = new_id();
+        module.types_global_values.push(Instruction::new(
+            Op::TypeInt,
+            None,
+            Some(id),
+            u32_operands.to_vec(),
+        ));
+        id
+    });
+    let none = new_id();
+    module.types_global_values.push(Instruction::new(
+        Op::Constant,
+        Some(u32_ty),
+        Some(none),
+        vec![Operand::LiteralBit32(FPFastMathMode::NONE.bits())],
+    ));
+
+    let entry_points = module
+        .entry_points
+        .iter()
+        .filter_map(|inst| match inst.operands.get(1) {
+            Some(Operand::IdRef(id)) => Some(*id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for entry in entry_points {
+        module.execution_modes.push(Instruction::new(
+            Op::ExecutionModeId,
+            None,
+            None,
+            vec![
+                Operand::IdRef(entry),
+                Operand::ExecutionMode(ExecutionMode::FPFastMathDefault),
+                Operand::IdRef(f64_ty),
+                Operand::IdRef(none),
+            ],
+        ));
+    }
+    if let Some(header) = module.header.as_mut() {
+        header.bound = bound;
     }
 }
