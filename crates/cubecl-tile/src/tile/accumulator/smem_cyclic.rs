@@ -73,7 +73,7 @@ impl Tile {
         let source = Memory::smem_backed::<Served>(
             &space,
             width,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             Backing::new_ReadCall(RawCall::of::<Served>(
                 ErasedTensor::<Served, ReadOnly>::of_smem_plain_load::<A, W>(&values),
             )),
@@ -111,7 +111,7 @@ impl<A: Numeric> SmemCyclicAccumulation<A> {
         let sink = Memory::smem_backed::<A>(
             &space,
             width,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             Backing::new_WriteCall(RawCall::of::<A>(
                 ErasedTensor::<A, WriteOnly>::of_smem_cyclic::<W>(&self.values, round == 0),
             )),
