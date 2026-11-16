@@ -1353,20 +1353,27 @@ fn register_plane_attention_hands_its_undivided_state_by_rows() {
     );
 }
 
-/// The value contracting two of the score's fragments at once, `m16n8k16` reading both as its
-/// `A`: causally and past the attended keys, so the masked cells of a run weigh nothing.
 /// An 8-bit score's run of four fragments is the `A` of one `m16n8k32` call: its cells lie along
-/// the rows, the value reading its keys in their order.
+/// the rows, the value reading its keys in their order. Causally and past the attended keys too,
+/// so the masked cells, at the keys the run holds them at, weigh nothing.
 #[test]
 fn register_plane_attention_contracts_a_run_of_four_8_bit_score_fragments() {
+    let e4m3 = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    run_registers_at(e4m3, REGISTER_PREFILL, Ending::Normalized, 4);
     run_registers_at(
-        ElemType::Float(cubecl::ir::FloatKind::E4M3),
-        REGISTER_PREFILL,
+        e4m3,
+        Case {
+            attended: 100,
+            causal: true,
+            ..REGISTER_PREFILL
+        },
         Ending::Normalized,
         4,
     );
 }
 
+/// The value contracting two of the score's fragments at once, `m16n8k16` reading both as its
+/// `A`: causally and past the attended keys, so the masked cells of a run weigh nothing.
 #[test]
 fn register_plane_attention_contracts_a_run_of_two_score_fragments() {
     run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized, 2);
