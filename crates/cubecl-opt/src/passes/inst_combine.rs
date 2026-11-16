@@ -1,13 +1,18 @@
 use cubecl_ir::{
-    NamedRewrite,
+    ContextExt as _, NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
     interfaces::TypedExt as _,
     prelude::{Inserter as _, Rewriter as _, *},
     rewrite::MatchRewritePass,
+    settings::FloatContraction,
     types::scalar::{Complex32Type, Complex64Type},
 };
 
-/// Combine a product and the add or subtract that consumes it into a single FMA operation.
+/// Combine a product and the add or subtract that consumes it into a single FMA operation,
+/// unless the kernel turned [float contraction](FloatContraction) off.
+///
+/// An add takes its left operand's product when both are lone products, else its right one,
+/// so which product fuses depends on operand order.
 pub type InstCombinePass = MatchRewritePass<InstCombine>;
 
 #[derive(Default, Clone, Copy, NamedRewrite)]
@@ -59,7 +64,7 @@ fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> 
 
 impl MatchRewrite for InstCombine {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        as_fma(ctx, op).is_some()
+        ctx.float_contraction() == FloatContraction::Allowed && as_fma(ctx, op).is_some()
     }
 
     fn rewrite(

@@ -80,11 +80,16 @@ impl SqliteBundle {
         &self.manifest
     }
 
-    /// Entry count and total size per namespace, for reporting: what the
-    /// file holds, without reading any of it.
-    pub fn summary(&self) -> Vec<NamespaceSummary> {
-        self.read("summarize", database::summarize)
-            .unwrap_or_default()
+    /// Entry count and total size per namespace: what the file holds,
+    /// without reading any of it.
+    ///
+    /// # Errors
+    ///
+    /// The database refused the count: it is corrupt, locked, or holds no
+    /// entries table.
+    pub fn summary(&self) -> Result<Vec<NamespaceSummary>, BundleError> {
+        let connection = connect(&self.database)?;
+        Ok(database::summarize(&connection)?)
     }
 
     /// Runs `read` on a fresh connection, logging a failure under `name`.

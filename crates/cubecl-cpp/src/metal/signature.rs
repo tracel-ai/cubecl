@@ -15,7 +15,10 @@ use pliron::{
 use crate::{
     metal::{BuiltInAttr, metal_op},
     shared::{
-        CompilationOptions, CppValue, branch::block_to_cpp, signature::LoadInfoOp, ty::TypeExtCPP,
+        CompilationOptions, CppValue,
+        branch::block_to_cpp,
+        signature::{LoadInfoOp, contraction_pragma},
+        ty::TypeExtCPP,
         type_definitions,
     },
 };
@@ -28,7 +31,8 @@ using namespace metal;
 ";
 
 metal_op!(ModuleOp, |op, ctx| {
-    let mut out = IMPORT.to_string();
+    let mut out = contraction_pragma(ctx).to_string();
+    out.push_str(IMPORT);
     type_definitions(&mut out, "long").unwrap();
     out.push_str(&block_to_cpp(ctx, op.get_body(ctx, 0)));
     out

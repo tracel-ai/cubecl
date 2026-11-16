@@ -3,6 +3,7 @@ use crate::{
     prelude::*,
 };
 use alloc::boxed::Box;
+use cubecl_ir::interfaces::TypedExt;
 use cubecl_zspace::Tiling;
 use serde::{Deserialize, Serialize};
 
@@ -12,9 +13,24 @@ pub struct BufferCompilationArg {
 }
 
 /// Buffer representation with a reference to the [server handle](cubecl_runtime::server::Handle).
+///
+/// Its length counts scalars of the storage type, whatever the vector size of the kernel
+/// parameter it is bound to.
 pub struct BufferBinding {
-    pub handle: cubecl_runtime::server::BufferBinding,
-    pub(crate) length: [usize; 1],
+    handle: cubecl_runtime::server::BufferBinding,
+    length: [usize; 1],
+    extent: BufferExtent,
+}
+
+/// How much of its handle a kernel sees through a buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BufferExtent {
+    /// The declared length, which may stop short of the handle's end.
+    Declared,
+    /// The whole handle. A tensor viewed as a buffer still reaches its memory through its
+    /// strides, so its shape is no bound on where it reads: a broadcast tensor's shape holds
+    /// more elements than its memory, a strided one's fewer than it spans.
+    Handle,
 }
 
 pub enum BufferArg {
@@ -24,10 +40,13 @@ pub enum BufferArg {
         handle: BufferBinding,
     },
     /// The buffer is aliasing another input buffer.
+    ///
+    /// The kernel reads the length of the buffer it aliases, `length` only answers
+    /// [`len`](BufferArg::len).
     Alias {
         /// The position of the input buffer.
         input_pos: usize,
-        /// The length of the underlying handle
+        /// The length of the aliased buffer, in scalars of the storage type.
         length: [usize; 1],
     },
 }
@@ -35,9 +54,18 @@ pub enum BufferArg {
 impl BufferArg {
     /// Create a new buffer argument.
     ///
+    /// The kernel sees `length`, counted in scalars of the storage type: a kernel taking vectors
+    /// of `N` scalars sees the `length / N` whole vectors it holds.
+    /// A packed type is one scalar: a buffer of `e2m1x2` counts its pairs, one byte each.
+    ///
     /// # Safety
     ///
-    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
+    /// The kernel trusts `length` for its bounds, so `handle` must hold `length` initialized
+    /// scalars for the kernel to read them.
+    ///
+    /// # Panics
+    ///
+    /// At launch, when `handle` is too small to hold `length` scalars.
     pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
         unsafe {
             BufferArg::Handle {
@@ -47,9 +75,12 @@ impl BufferArg {
     }
     /// Create a new buffer argument from a binding.
     ///
+    /// See [`from_raw_parts`](Self::from_raw_parts) for what `length` means.
+    ///
     /// # Safety
     ///
-    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
+    /// The kernel trusts `length` for its bounds, so `binding` must hold `length` initialized
+    /// scalars for the kernel to read them.
     pub unsafe fn from_raw_parts_binding(
         binding: cubecl_runtime::server::BufferBinding,
         length: usize,
@@ -61,7 +92,7 @@ impl BufferArg {
         }
     }
 
-    /// The buffer's length in elements, as it was declared.
+    /// The buffer's length in scalars of the storage type, as it was declared.
     pub fn len(&self) -> usize {
         match self {
             BufferArg::Handle { handle } => handle.length[0],
@@ -99,18 +130,24 @@ impl BufferArg {
 impl BufferBinding {
     /// Create a new buffer handle reference.
     ///
+    /// See [`BufferArg::from_raw_parts`] for what `length` means.
+    ///
     /// # Safety
     ///
-    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
+    /// The kernel trusts `length` for its bounds, so `handle` must hold `length` initialized
+    /// scalars for the kernel to read them.
     pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
         unsafe { Self::from_raw_parts_binding(handle.binding(), length) }
     }
 
     /// Create a new buffer handle reference.
     ///
+    /// See [`BufferArg::from_raw_parts`] for what `length` means.
+    ///
     /// # Safety
     ///
-    /// Specifying the wrong length or size, may lead to out-of-bounds reads and writes.
+    /// The kernel trusts `length` for its bounds, so `handle` must hold `length` initialized
+    /// scalars for the kernel to read them.
     pub unsafe fn from_raw_parts_binding(
         handle: cubecl_runtime::server::BufferBinding,
         length: usize,
@@ -118,7 +155,33 @@ impl BufferBinding {
         Self {
             handle,
             length: [length],
+            extent: BufferExtent::Declared,
         }
+    }
+
+    /// The length the kernel sees, in its own elements.
+    fn kernel_len(&self, elem_size: usize, vector_size: usize) -> u64 {
+        match self.extent {
+            BufferExtent::Handle => self.handle.size_in_used() / elem_size as u64,
+            BufferExtent::Declared => {
+                self.declared_kernel_len(elem_size / vector_size, vector_size)
+            }
+        }
+    }
+
+    /// The whole vectors of `vector_size` scalars of `scalar_size` bytes the declared length
+    /// holds, once checked against the handle.
+    fn declared_kernel_len(&self, scalar_size: usize, vector_size: usize) -> u64 {
+        let length = self.length[0] as u64;
+        let scalar_size = scalar_size as u64;
+        let size = self.handle.size_in_used();
+        assert!(
+            length * scalar_size <= size,
+            "A buffer declared with {length} scalars is bound to a handle of {size} bytes, which \
+             holds {} scalars",
+            size / scalar_size,
+        );
+        length / vector_size as u64
     }
 
     /// Return the handle as a tensor instead of a buffer.
@@ -152,7 +215,10 @@ impl<C: SliceElement> LaunchArg for [C] {
     type CompilationArg = BufferCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
-        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
+        let (elem_size, vector_size) = launcher.with_scope(|scope| {
+            let vector_size = C::__expand_as_type(scope).vector_size(scope.ctx());
+            (C::__expand_size(scope), vector_size)
+        });
         if elem_size == 0 {
             panic!("Can't register zero-sized type");
         }
@@ -160,7 +226,7 @@ impl<C: SliceElement> LaunchArg for [C] {
             BufferArg::Handle { .. } => None,
             BufferArg::Alias { input_pos, .. } => Some(*input_pos),
         };
-        launcher.register_buffer(arg, elem_size);
+        launcher.register_buffer(arg, elem_size, vector_size);
 
         BufferCompilationArg { inplace }
     }
@@ -177,3 +243,39 @@ impl<C: SliceElement> LaunchArg for [C] {
         slice_var.expand.into()
     }
 }
+
+/// A tensor's memory as a buffer of its shape's product scalars. The kernel sees the whole handle,
+/// see [`BufferExtent::Handle`].
+impl From<TensorBinding> for BufferBinding {
+    fn from(tensor: TensorBinding) -> Self {
+        let length = tensor.size();
+        Self {
+            handle: tensor.handle,
+            length: [length],
+            extent: BufferExtent::Handle,
+        }
+    }
+}
+
+/// How the launcher reads a buffer binding, kept off the public API: only the crate re-exports it.
+mod kernel {
+    use super::BufferBinding;
+
+    /// The handle, and the length the kernel sees in its own elements of `elem_size` bytes, each
+    /// a vector of `vector_size` scalars.
+    ///
+    /// # Panics
+    ///
+    /// When the handle is too small to hold the declared length. The caller broke the contract
+    /// of the `unsafe` constructor, so the launch stops there instead of queuing an error.
+    pub fn into_kernel_binding(
+        binding: BufferBinding,
+        elem_size: usize,
+        vector_size: usize,
+    ) -> (cubecl_runtime::server::BufferBinding, u64) {
+        let length = binding.kernel_len(elem_size, vector_size);
+        (binding.handle, length)
+    }
+}
+
+pub(crate) use kernel::into_kernel_binding;

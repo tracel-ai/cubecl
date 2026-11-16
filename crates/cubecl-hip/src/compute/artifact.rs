@@ -7,7 +7,7 @@ use cubecl_core::{
     ir::{DeviceProperties, settings::DebugInfo},
     prelude::*,
 };
-use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::{formatter::format_cpp, shared::signature::source_forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::get_hip_include_path;
 use cubecl_server::compiler::{
@@ -239,12 +239,12 @@ fn compile_to_binary(
     ];
     // Options built by hand, with no device probed, name no target: HIP RTC
     // then compiles for the calling thread's current device.
-    if !target.is_empty() {
-        options.push(target_option.as_ptr());
-    }
-    if line_tables {
-        options.push(c"-gline-tables-only".as_ptr());
-    }
+    options.extend((!target.is_empty()).then_some(target_option.as_ptr()));
+    options.extend(line_tables.then_some(c"-gline-tables-only".as_ptr()));
+    // The source's pragma already asks for it; the option covers code the pragma can't reach,
+    // such as the headers it includes.
+    let contraction = source_forbids_contraction(&source.to_string_lossy());
+    options.extend(contraction.then_some(c"-ffp-contract=off".as_ptr()));
 
     // SAFETY: `program.0` is the handle created above, and `options` holds
     // null-terminated pointers that outlive the call.

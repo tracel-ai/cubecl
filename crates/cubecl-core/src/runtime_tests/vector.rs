@@ -63,7 +63,7 @@ pub fn test_vector_index_assign<R: Runtime, F: Float + CubeElement>(client: Clie
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 vector_size,
-                BufferArg::from_raw_parts(handle.clone(), 1),
+                BufferArg::from_raw_parts(handle.clone(), vector_size),
             )
         }
 
@@ -98,7 +98,7 @@ pub fn test_vector_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Clien
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 vector_size,
-                BufferArg::from_raw_parts(handle.clone(), 1),
+                BufferArg::from_raw_parts(handle.clone(), vector_size),
             )
         }
 
@@ -135,7 +135,7 @@ pub fn test_vector_self_operand_folds<R: Runtime, F: Float + CubeElement>(client
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 vector_size,
-                BufferArg::from_raw_parts(handle.clone(), 1),
+                BufferArg::from_raw_parts(handle.clone(), vector_size),
             )
         }
 
@@ -171,9 +171,9 @@ pub fn test_vector_conditional<R: Runtime, F: Float + CubeElement>(client: Clien
             CubeCount::new_single(),
             CubeDim::new_1d(1),
             vector_size,
-            BufferArg::from_raw_parts(input.clone(), 2),
+            BufferArg::from_raw_parts(input.clone(), 2 * vector_size),
             BufferArg::from_raw_parts(flag, 1),
-            BufferArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(output.clone(), vector_size),
         )
     }
     let actual = client.read_one_unchecked(output.clone());
@@ -187,9 +187,9 @@ pub fn test_vector_conditional<R: Runtime, F: Float + CubeElement>(client: Clien
             CubeCount::new_single(),
             CubeDim::new_1d(1),
             vector_size,
-            BufferArg::from_raw_parts(input, 2),
+            BufferArg::from_raw_parts(input, 2 * vector_size),
             BufferArg::from_raw_parts(flag, 1),
-            BufferArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(output.clone(), vector_size),
         )
     }
     let actual = client.read_one_unchecked(output);
@@ -227,7 +227,7 @@ pub fn test_vector_extract_dynamic<R: Runtime, F: Float + CubeElement>(client: C
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 vector_size,
-                BufferArg::from_raw_parts(input.clone(), 1),
+                BufferArg::from_raw_parts(input.clone(), vector_size),
                 BufferArg::from_raw_parts(index, 1),
                 BufferArg::from_raw_parts(output.clone(), 1),
             )
@@ -275,7 +275,7 @@ pub fn test_vector_extract_dynamic_shared<R: Runtime, F: Float + CubeElement>(cl
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 vector_size,
-                BufferArg::from_raw_parts(input.clone(), 1),
+                BufferArg::from_raw_parts(input.clone(), vector_size),
                 BufferArg::from_raw_parts(index, 1),
                 BufferArg::from_raw_parts(output.clone(), 1),
             )
@@ -310,7 +310,7 @@ pub fn test_vector_insert_dynamic<R: Runtime, F: Float + CubeElement>(client: Cl
                 CubeDim::new_single(),
                 vector_size,
                 BufferArg::from_raw_parts(index, 1),
-                BufferArg::from_raw_parts(output.clone(), 1),
+                BufferArg::from_raw_parts(output.clone(), vector_size),
             )
         }
 
@@ -340,7 +340,7 @@ pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: Client) {
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 vector_size,
-                BufferArg::from_raw_parts(output.clone(), 1),
+                BufferArg::from_raw_parts(output.clone(), vector_size),
             )
         }
 
@@ -378,9 +378,9 @@ macro_rules! impl_vector_comparison {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d(1),
                         4,
-                        BufferArg::from_raw_parts(lhs, 1),
-                        BufferArg::from_raw_parts(rhs, 1),
-                        BufferArg::from_raw_parts(output.clone(), 1),
+                        BufferArg::from_raw_parts(lhs, 4),
+                        BufferArg::from_raw_parts(rhs, 4),
+                        BufferArg::from_raw_parts(output.clone(), 4),
                     )
                 };
 

@@ -3398,9 +3398,10 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_keeps_what_the_work_loaded() {
+    use cubecl_environment::environment::BuildStamp;
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_environment::persistence::{Database, Namespace, Origin};
-    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore, build_id_hash};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore};
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -3414,12 +3415,15 @@ fn a_prune_keeps_what_the_work_loaded() {
     tuner.check_tune(&key, &handles, &set, &client, None);
     let database = Database::open_active().unwrap();
 
-    let build = build_id_hash();
-    let artifact = |id: u128, variant: u128, build_id: u128| {
+    let build = BuildStamp::current();
+    let other = BuildStamp {
+        hash: build.hash ^ 1,
+    };
+    let artifact = |id: u128, variant: u128, built_by: BuildStamp| {
         cbor(&KernelCacheKey {
             id,
             variant,
-            build_id,
+            built_by,
         })
     };
     let (work, race) = (0x1111_u128, 0x2222_u128);
@@ -3427,7 +3431,7 @@ fn a_prune_keeps_what_the_work_loaded() {
         artifact(work, 0, build),
         artifact(work, 5, build),
         artifact(race, 0, build),
-        artifact(work, 0, build ^ 1),
+        artifact(work, 0, other),
     ];
     let artifacts = Namespace::scoped(ArtifactRoot::Cpu.as_str(), "fingerprint");
     for key in &stored {
@@ -3435,7 +3439,7 @@ fn a_prune_keeps_what_the_work_loaded() {
     }
     let (this_build, other_build) = (
         WorkLaunchStore::namespace(build),
-        WorkLaunchStore::namespace(build ^ 1),
+        WorkLaunchStore::namespace(other),
     );
     database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
     database.insert(
@@ -3447,6 +3451,20 @@ fn a_prune_keeps_what_the_work_loaded() {
     database.insert(
         cubecl_environment::records::ROOT,
         b"record",
+        b"value",
+        Origin::Local,
+    );
+    let autotune = || -> Vec<String> {
+        database
+            .namespaces()
+            .into_iter()
+            .filter(|namespace| namespace.starts_with("autotune/"))
+            .collect()
+    };
+    let [answers] = autotune().try_into().unwrap();
+    database.insert(
+        &answers,
+        b"an answer to an older candidate list",
         b"value",
         Origin::Local,
     );
@@ -3476,12 +3494,17 @@ fn a_prune_keeps_what_the_work_loaded() {
     );
     assert!(!present(&stored[2]), "only a race launched it");
     assert!(!present(&stored[3]), "another build compiled it");
-    let autotune = database
-        .namespaces()
-        .into_iter()
-        .filter(|namespace| namespace.starts_with("autotune/"))
-        .count();
-    assert_eq!(autotune, 1, "the answer stays");
+    assert_eq!(
+        autotune(),
+        std::slice::from_ref(&answers),
+        "the answers stay"
+    );
+    assert!(
+        database
+            .get(&answers, b"an answer to an older candidate list")
+            .is_some(),
+        "an answer no tuner reads any more stays too"
+    );
 }
 
 /// An application keeps its data in the environment beside the compilers',
@@ -3491,9 +3514,10 @@ fn a_prune_keeps_what_the_work_loaded() {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_leaves_an_applications_entries_alone() {
+    use cubecl_environment::environment::BuildStamp;
     use cubecl_environment::environment::{EnvironmentId, PruneOptions};
     use cubecl_environment::persistence::{Database, Origin};
-    use cubecl_server::compiler::{KernelCacheKey, build_id_hash};
+    use cubecl_server::compiler::KernelCacheKey;
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -3509,7 +3533,9 @@ fn a_prune_leaves_an_applications_entries_alone() {
     let lookalike = cbor(&KernelCacheKey {
         id: 1,
         variant: 0,
-        build_id: build_id_hash() ^ 1,
+        built_by: BuildStamp {
+            hash: BuildStamp::current().hash ^ 1,
+        },
     });
     let namespace = "my-application/0.1.0/settings";
     database.insert(namespace, b"setting", &lookalike, Origin::Local);

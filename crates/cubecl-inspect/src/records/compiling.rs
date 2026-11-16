@@ -150,7 +150,7 @@ mod tests {
                 key: KernelCacheKey {
                     id: 0,
                     variant: 0,
-                    build_id: 0,
+                    built_by: cubecl_environment::environment::BuildStamp { hash: 0 },
                 },
                 ir: None,
                 outcome: CompilationOutcome::Compiled,

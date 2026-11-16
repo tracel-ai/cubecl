@@ -1,3 +1,4 @@
+use cubecl_environment::persistence::NamespaceRoot;
 use cubecl_runtime::tune::LAYOUT_PREFIX;
 use serde::{Serialize, Serializer};
 use std::fmt;
@@ -112,9 +113,6 @@ impl TableNaming {
 }
 
 impl AutotuneTable {
-    /// The namespace's root.
-    pub const ROOT: &str = cubecl_runtime::tune::ROOT;
-
     /// The namespace the table is stored under.
     pub fn namespace(&self) -> String {
         let Self {
@@ -126,12 +124,17 @@ impl AutotuneTable {
         match naming {
             TableNaming::Hardware { layout } => format!(
                 "{}/{version}/{LAYOUT_PREFIX}{layout}/{device}/{tuner}",
-                Self::ROOT
+                NamespaceRoot::AUTOTUNE
             ),
             TableNaming::Fingerprinted { fingerprint } => {
-                format!("{}/{version}/{fingerprint}/{device}/{tuner}", Self::ROOT)
+                format!(
+                    "{}/{version}/{fingerprint}/{device}/{tuner}",
+                    NamespaceRoot::AUTOTUNE
+                )
             }
-            TableNaming::Device => format!("{}/{version}/{device}/{tuner}", Self::ROOT),
+            TableNaming::Device => {
+                format!("{}/{version}/{device}/{tuner}", NamespaceRoot::AUTOTUNE)
+            }
         }
     }
 
@@ -142,7 +145,9 @@ impl AutotuneTable {
     /// from an adapter's name may hold a `/`, a tuner's name and a device id
     /// never do.
     pub fn new(namespace: &str) -> Option<Self> {
-        let rest = namespace.strip_prefix(Self::ROOT)?.strip_prefix('/')?;
+        let rest = namespace
+            .strip_prefix(NamespaceRoot::AUTOTUNE)?
+            .strip_prefix('/')?;
         let (version, rest) = rest.split_once('/')?;
         let (rest, tuner) = rest.rsplit_once('/')?;
         let by_hardware = rest.split_once('/').and_then(|(layout, hardware)| {

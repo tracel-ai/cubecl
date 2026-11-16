@@ -27,7 +27,7 @@ pub fn run_test_read_global<R: Runtime>(client: Client, vector_size: usize) {
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             vector_size,
-            BufferArg::from_raw_parts(input, 4 / vector_size),
+            BufferArg::from_raw_parts(input, 4),
             BufferArg::from_raw_parts(output.clone(), 2),
         )
     }
@@ -60,7 +60,7 @@ pub fn run_test_write_global<R: Runtime>(client: Client, vector_size: usize) {
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             vector_size,
-            BufferArg::from_raw_parts(output.clone(), 4 / vector_size),
+            BufferArg::from_raw_parts(output.clone(), 4),
             BufferArg::from_raw_parts(input, 2),
         )
     }
@@ -138,7 +138,7 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: Client) {
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             4,
-            BufferArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(output.clone(), 4),
             BufferArg::from_raw_parts(input, 2),
         )
     }
