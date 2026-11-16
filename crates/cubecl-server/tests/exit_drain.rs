@@ -16,8 +16,20 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-/// Where the child writes once its queued kernel ran, set only in the child.
-const MARKER: &str = "CUBECL_TEST_EXIT_DRAIN_MARKER";
+/// The directory the child writes its markers in, set only in the child.
+const MARKER_DIR: &str = "CUBECL_TEST_EXIT_DRAIN_MARKER_DIR";
+
+/// Written by the child once it queued the kernel, before it returns.
+const LAUNCHED_MARKER: &str = "launched";
+
+/// Written by the kernel once it ran.
+const RAN_MARKER: &str = "ran";
+
+/// How long the kernel runs, long enough to still be queued when the child returns.
+const KERNEL_DURATION: Duration = Duration::from_millis(300);
+
+/// The bytes of the buffer the kernel is launched on.
+const BUFFER_SIZE_BYTES: usize = 4;
 
 /// Sleeps, then writes the marker.
 #[derive(Debug)]
@@ -27,8 +39,8 @@ struct SlowKernel {
 
 impl DummyKernel for SlowKernel {
     fn compute(&self, _resources: &mut [&mut BytesResource]) {
-        std::thread::sleep(Duration::from_millis(300));
-        std::fs::write(&self.marker, "ran").unwrap();
+        std::thread::sleep(KERNEL_DURATION);
+        std::fs::write(&self.marker, RAN_MARKER).unwrap();
     }
 
     fn id(&self) -> KernelId {
@@ -38,38 +50,44 @@ impl DummyKernel for SlowKernel {
 
 #[test]
 fn queued_work_runs_before_exit() {
-    match std::env::var_os(MARKER) {
-        Some(marker) => launch_slow_kernel_and_return(PathBuf::from(marker)),
+    match std::env::var_os(MARKER_DIR) {
+        Some(dir) => launch_slow_kernel_and_return(PathBuf::from(dir)),
         None => run_child(),
     }
 }
 
-fn launch_slow_kernel_and_return(marker: PathBuf) {
+fn launch_slow_kernel_and_return(dir: PathBuf) {
     let client = test_client(&DummyDevice);
-    let buffer = client.empty(4);
+    let buffer = client.empty(BUFFER_SIZE_BYTES);
     client.launch(
-        Box::new(KernelTask::new(SlowKernel { marker })),
+        Box::new(KernelTask::new(SlowKernel {
+            marker: dir.join(RAN_MARKER),
+        })),
         CubeCount::Static(1, 1, 1),
         KernelArguments::new().with_buffers(vec![buffer.binding()]),
     );
+    std::fs::write(dir.join(LAUNCHED_MARKER), LAUNCHED_MARKER).unwrap();
 }
 
 fn run_child() {
     let dir = tempfile::tempdir().unwrap();
-    let marker = dir.path().join("ran");
     let status = Command::new(std::env::current_exe().unwrap())
         .args([
             "queued_work_runs_before_exit",
             "--exact",
             "--test-threads=1",
         ])
-        .env(MARKER, &marker)
+        .env(MARKER_DIR, dir.path())
         .status()
         .unwrap();
 
     assert!(status.success(), "the child exited with {status}");
     assert!(
-        marker.exists(),
+        dir.path().join(LAUNCHED_MARKER).exists(),
+        "the child never launched the kernel: its test filter matched no test"
+    );
+    assert!(
+        dir.path().join(RAN_MARKER).exists(),
         "the work queued before exit never ran: the process ended first"
     );
 }

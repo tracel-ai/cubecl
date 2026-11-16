@@ -120,7 +120,7 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
     }
 
     fn close<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
-        close_service_of::<S>(device_id, Release::Drop)
+        close_service_of::<S>(device_id, Release::Drop, SHUTDOWN_JOIN_TIMEOUT)
     }
 }
 
@@ -468,6 +468,9 @@ impl ChannelDeviceState {
         };
 
         channels.insert(key, channel.clone());
+        // Released before asking for the exit close, which may close the service right away and
+        // wait on its runner, whose queued work may need a handle of its own.
+        drop(guard_channel);
 
         // Asked here, once per service, rather than by each handle: started, the service has
         // loaded its runtime's libraries, so the close runs ahead of their exit teardown.
@@ -586,6 +589,11 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
     // before the servers can exit.
     drop(channels);
 
+    // Its services are gone, so there is nothing left to close at exit. A service started on
+    // the device again asks anew.
+    #[cfg(multi_threading)]
+    exit::forget_device(device_id);
+
     for (runner_id, runner) in runners {
         runner.client.request_shutdown();
         drop(runner.client);
@@ -604,7 +612,7 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
 }
 
 /// What a close does with the service it takes out of its runner.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Release {
     /// Drops it, freeing what it holds.
     Drop,
@@ -613,25 +621,30 @@ enum Release {
     Leak,
 }
 
-/// Closes `S` on `device_id` as the process exits: the work queued ahead of the close runs,
-/// later calls are refused, and the service is leaked rather than dropped.
-fn close_at_exit<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
-    close_service_of::<S>(device_id, Release::Leak)
+/// Closes `S` on `device_id` as the process exits, waiting up to `timeout` for its runner: the
+/// work queued ahead of the close runs, later calls are refused, and the service is leaked
+/// rather than dropped.
+fn close_at_exit<S: DeviceService>(
+    device_id: DeviceId,
+    timeout: Duration,
+) -> Result<(), ServiceCloseError> {
+    close_service_of::<S>(device_id, Release::Leak, timeout)
 }
 
 fn close_service_of<S: DeviceService>(
     device_id: DeviceId,
     release: Release,
+    timeout: Duration,
 ) -> Result<(), ServiceCloseError> {
     let runner_id = RunnerId {
         device: device_id,
         stage: S::stage(),
     };
-    close_service(runner_id, TypeId::of::<S>(), release)
+    close_service(runner_id, TypeId::of::<S>(), release, timeout)
 }
 
 /// Closes the service `type_id` on `runner_id`, though clients of it remain, waiting up to
-/// [`SHUTDOWN_JOIN_TIMEOUT`] for the runner to reach the close.
+/// `timeout` for the runner to reach the close.
 ///
 /// The close is one more task on the runner, so everything queued ahead of it runs first, and
 /// every call queued after it is answered [`CallError::closed`]: no caller is left waiting. The
@@ -641,6 +654,7 @@ fn close_service(
     runner_id: RunnerId,
     type_id: TypeId,
     release: Release,
+    timeout: Duration,
 ) -> Result<(), ServiceCloseError> {
     let client = match RUNNERS
         .lock()
@@ -662,11 +676,11 @@ fn close_service(
         return Ok(());
     }
     client.flush();
-    match recv.recv_timeout(SHUTDOWN_JOIN_TIMEOUT) {
+    match recv.recv_timeout(timeout) {
         Ok(closed) => closed,
         Err(oneshot::RecvTimeoutError::Disconnected) => Ok(()),
         Err(oneshot::RecvTimeoutError::Timeout) => Err(ServiceCloseError::new(std::format!(
-            "device runner {runner_id:?} did not reach the close within {SHUTDOWN_JOIN_TIMEOUT:?}"
+            "device runner {runner_id:?} did not reach the close within {timeout:?}"
         ))),
     }
 }
