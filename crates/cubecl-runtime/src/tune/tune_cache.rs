@@ -449,7 +449,7 @@ mod tests {
     fn an_answer_to_an_older_list_is_never_served() {
         let table = "tune-cache-tests/stale-first";
         plant(table, KEY, STALE, 1);
-        let mut cache = TuneCache::over(table);
+        let mut cache = cache_over(table);
 
         assert!(matches!(
             cache.look_up(&KEY.to_string(), CURRENT),
@@ -457,7 +457,7 @@ mod tests {
         ));
 
         plant(table, KEY, CURRENT, 2);
-        let mut cache = TuneCache::over(table);
+        let mut cache = cache_over(table);
         assert!(matches!(
             cache.look_up(&KEY.to_string(), CURRENT),
             TuneCacheResult::Hit { fastest_index: 2 }
@@ -472,7 +472,7 @@ mod tests {
     fn a_stored_answer_leaves_the_answers_to_older_lists() {
         let table = "tune-cache-tests/kept";
         plant(table, KEY, STALE, 1);
-        let mut cache = TuneCache::over(table);
+        let mut cache = cache_over(table);
         cache.look_up(&KEY.to_string(), CURRENT);
 
         assert!(cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(2)));
@@ -480,16 +480,14 @@ mod tests {
         assert_eq!(stored(table), [pair(KEY, STALE), pair(KEY, CURRENT)]);
     }
 
-    impl TuneCache<String> {
-        /// A cache over the in-memory table `table`.
-        fn over(table: &str) -> Self {
-            Self {
-                in_memory_cache: HashMap::new(),
-                lost: Vec::new(),
-                persistent_cache: Some(answers(table)),
-                table: table.into(),
-                generation: cubecl_environment::environment::generation(),
-            }
+    /// A cache over the in-memory table `table`.
+    fn cache_over(table: &str) -> TuneCache<String> {
+        TuneCache {
+            in_memory_cache: HashMap::new(),
+            lost: Vec::new(),
+            persistent_cache: Some(answers(table)),
+            table: table.into(),
+            generation: cubecl_environment::environment::generation(),
         }
     }
 

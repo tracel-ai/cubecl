@@ -51,16 +51,10 @@ impl<'a> NamespaceRoot<'a> {
 
     /// What the namespace's entries are.
     pub fn content(self) -> NamespaceContent {
-        if let Some(root) = ArtifactRoot::ALL
-            .iter()
-            .find(|root| root.as_str() == self.0)
-        {
-            return root.content();
-        }
         match self.0 {
             Self::AUTOTUNE => NamespaceContent::AutotuneAnswers,
             crate::records::EVERY_LAYOUT => NamespaceContent::Records,
-            _ => NamespaceContent::Other,
+            root => ArtifactRoot::content_of(root),
         }
     }
 }
@@ -112,6 +106,16 @@ impl ArtifactRoot {
             Self::Metal => "metal",
             Self::Vulkan => "vulkan",
         }
+    }
+
+    /// What the namespaces under the root stored as `spelling` hold:
+    /// [`Other`](NamespaceContent::Other) when no compiler keeps artifacts
+    /// under it.
+    fn content_of(spelling: &str) -> NamespaceContent {
+        Self::ALL
+            .into_iter()
+            .find(|root| root.as_str() == spelling)
+            .map_or(NamespaceContent::Other, Self::content)
     }
 
     /// What the namespaces under the root hold.

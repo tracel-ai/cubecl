@@ -18,13 +18,15 @@ use std::{
 /// from, and the offset of their first byte.
 ///
 /// Public only to appear in [`AllocationController::file`]; the module is
-/// private, so nothing outside the crate names it, and its fields are the
-/// crate's.
+/// private, so nothing outside the crate names it or its fields.
 // Read only by the bundle readers, which the native cache builds.
 #[cfg_attr(not(native_cache), allow(dead_code))]
+#[derive(Debug)]
 pub struct FileWindow<'a> {
-    pub(crate) source: &'a FileSource,
-    pub(crate) offset: u64,
+    /// The file the bytes are read from.
+    pub source: &'a FileSource,
+    /// Where in the file the bytes start.
+    pub offset: u64,
 }
 
 // Read only by the bundle readers, which the native cache builds.
@@ -35,30 +37,27 @@ impl<'a> FileWindow<'a> {
     /// read from. A file opened and held proves it is still the one at its
     /// path only where the platform says which file a path names (Unix);
     /// elsewhere it answers `None`, and the caller reads the bytes instead.
-    pub(crate) fn whole_file(&self, len: u64) -> Option<&'a Path> {
+    ///
+    /// The path is checked when this is called, not when the caller opens
+    /// it: a file renamed over the path between the two is the one opened.
+    pub(crate) fn whole_file_of_len(&self, len: u64) -> Option<&'a Path> {
         if self.offset != 0 {
             return None;
         }
         let at_path = std::fs::metadata(self.source.path()).ok()?;
-        let whole = match self.source {
-            FileSource::Path(_) => at_path.len() == len,
-            FileSource::Opened { file, .. } => {
-                let held = file
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .metadata()
-                    .ok()?;
-                held.len() == len && same_file(&held, &at_path)
-            }
-        };
-        whole.then(|| self.source.path())
+        self.source
+            .is_whole_file_at(len, &at_path)?
+            .then(|| self.source.path())
     }
 }
 
 /// What a file allocation reads its bytes from.
+///
+/// Public only to appear in [`FileWindow`], for the same reason.
 // Read only by the bundle readers, which the native cache builds.
 #[cfg_attr(not(native_cache), allow(dead_code))]
-pub(crate) enum FileSource {
+#[derive(Debug)]
+pub enum FileSource {
     /// The file at a path, opened at each read: whatever file is there then.
     Path(PathBuf),
     /// A file opened once and held, beside the path it was opened at: a file
@@ -77,6 +76,17 @@ impl FileSource {
     fn path(&self) -> &Path {
         match self {
             Self::Path(path) | Self::Opened { path, .. } => path,
+        }
+    }
+
+    /// Whether the source is the whole file `at_path` describes, `len` bytes
+    /// long; `None` when the held file's metadata does not read.
+    // Read only by the bundle readers, which the native cache builds.
+    #[cfg_attr(not(native_cache), allow(dead_code))]
+    fn is_whole_file_at(&self, len: u64, at_path: &std::fs::Metadata) -> Option<bool> {
+        match self {
+            Self::Path(_) => Some(at_path.len() == len),
+            Self::Opened { file, .. } => is_held_file(file, len, at_path),
         }
     }
 
@@ -285,6 +295,19 @@ impl AllocationController for FileAllocationController {
 fn read_at(file: &mut File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
     file.seek(SeekFrom::Start(offset))?;
     file.read_exact(buf)
+}
+
+/// Whether the held `file` is `len` bytes long and is the file `at_path`
+/// describes; `None` when its metadata does not read.
+// Read only by the bundle readers, which the native cache builds.
+#[cfg_attr(not(native_cache), allow(dead_code))]
+fn is_held_file(file: &Mutex<File>, len: u64, at_path: &std::fs::Metadata) -> Option<bool> {
+    let held = file
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .metadata()
+        .ok()?;
+    Some(held.len() == len && same_file(&held, at_path))
 }
 
 /// Whether two files' metadata are of one file.

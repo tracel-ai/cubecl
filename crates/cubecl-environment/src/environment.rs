@@ -372,6 +372,7 @@ impl Bundle {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
+///
 /// A database that refuses the count reads as empty, and the database logs
 /// why.
 pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {

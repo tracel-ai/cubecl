@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 ///
 /// The name is drawn at random, so two calls on one environment at once
 /// never write or delete each other's file.
+#[derive(Debug)]
 pub(crate) struct ScratchFile {
     path: PathBuf,
 }
