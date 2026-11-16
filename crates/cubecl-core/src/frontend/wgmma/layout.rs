@@ -1,9 +1,9 @@
-//! The shared memory layouts a warpgroup MMA reads its operand tiles in.
+//! The shared memory layouts a plane group MMA reads its operand tiles in.
 
 use crate::{self as cubecl, prelude::*};
 use cubecl_runtime::tma::TensorMapSwizzle;
 
-use cubecl_ir::dialect::matrix::warpgroup_k;
+use cubecl_ir::dialect::matrix::plane_group_k;
 
 pub use cubecl_ir::dialect::matrix::{WgmmaMajor as Major, WgmmaSwizzle as Swizzle};
 
@@ -11,7 +11,7 @@ pub use cubecl_ir::dialect::matrix::{WgmmaMajor as Major, WgmmaSwizzle as Swizzl
 const CHUNK_BYTES: usize = 16;
 const PATTERN_LINES: usize = 8;
 
-/// A `rows x k` operand tile in shared memory, laid out the way a warpgroup MMA reads it. `rows`
+/// A `rows x k` operand tile in shared memory, laid out the way a plane group MMA reads it. `rows`
 /// runs along M for `A` and along N for `B`, and `major` names the contiguous dimension.
 ///
 /// The tile is cut along its contiguous dimension into panels as wide as the swizzle, 16 bytes
@@ -30,7 +30,7 @@ pub struct WgmmaTileLayout {
     pub k: usize,
 }
 
-/// A layout no warpgroup MMA can read.
+/// A layout no plane group MMA can read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WgmmaLayoutError {
     /// The lines of the contiguous dimension don't fill whole panels.
@@ -73,9 +73,9 @@ impl core::fmt::Display for WgmmaLayoutError {
 }
 
 impl WgmmaTileLayout {
-    /// The elements of K one warpgroup MMA reads.
+    /// The elements of K one plane group MMA reads.
     pub fn k_step(elem_size: usize) -> usize {
-        warpgroup_k(elem_size)
+        plane_group_k(elem_size)
     }
 
     /// The alignment, in bytes, the tile must start at. A TMA load or store also needs 128.
@@ -94,7 +94,7 @@ impl WgmmaTileLayout {
         self.panel_bytes() / elem_size
     }
 
-    /// Checks that a warpgroup MMA can read the tile.
+    /// Checks that a plane group MMA can read the tile.
     pub fn validate(&self, elem_size: usize) -> Result<(), WgmmaLayoutError> {
         if self.major == Major::MN && elem_size != 2 {
             return Err(WgmmaLayoutError::MnMajor { elem_size });

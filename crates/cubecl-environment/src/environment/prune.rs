@@ -12,11 +12,28 @@
 //! pruning itself is the runtime's, which knows the entries it stored.
 
 /// What a prune removes beyond the kernels this build's work never launched.
+///
+/// Built with [`new`](Self::new) and a setter per option, so an option added
+/// later breaks no caller.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct PruneOptions {
     /// Which of the environment's build records stay.
     #[serde(default)]
     pub records: RecordPruning,
+}
+
+impl PruneOptions {
+    /// The default prune: every build record goes.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Keep the build records `records` says.
+    pub fn records(mut self, records: RecordPruning) -> Self {
+        self.records = records;
+        self
+    }
 }
 
 /// Which of an environment's build records a prune keeps.

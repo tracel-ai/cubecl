@@ -124,9 +124,26 @@ pub trait CubeKernel: KernelMetadata {
 /// the panic takes the path a compiler's refusal takes, and the outputs carry the failure to
 /// whoever reads them; as [`ExpansionPanicked`](CompilationError::ExpansionPanicked) it is not
 /// a refusal, so a harness that skips refused kernels reports it instead.
+///
+/// In debug builds, it also checks that the kernel's [id](KernelMetadata::id) names the float
+/// contraction its definition compiles with: the id is the cache key, so an id that missed it
+/// would hand a kernel that turned contraction off the binary of one that allows it.
 pub fn define_kernel<K: CubeKernel + ?Sized>(
     kernel: &K,
 ) -> Result<KernelDefinition, CompilationError> {
+    let definition = expand_kernel(kernel)?;
+    debug_assert_eq!(
+        kernel.id().float_contraction,
+        definition.settings.float_contraction,
+        "the id of kernel `{}` must name the float contraction its settings ask for, with \
+         `KernelId::float_contraction`",
+        kernel.name(),
+    );
+    Ok(definition)
+}
+
+/// `kernel`'s definition, or its expansion's panic, as [`define_kernel`] describes.
+fn expand_kernel<K: CubeKernel + ?Sized>(kernel: &K) -> Result<KernelDefinition, CompilationError> {
     #[cfg(feature = "std")]
     {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernel.define())).map_err(

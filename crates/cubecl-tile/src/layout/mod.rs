@@ -5,6 +5,7 @@
 pub(crate) mod compaction;
 pub(crate) mod paging;
 pub(crate) mod projection;
+pub(crate) mod reads;
 pub(crate) mod row_arrangement;
 pub(crate) mod storage;
 

@@ -9,6 +9,7 @@ use cubecl_core::ir::{
     interfaces::{AlignedType, HasElementType, TypedExt},
     prelude::*,
     rewrite::visit_all_ops_of_type,
+    settings::FloatContraction,
     typed_vec_attr,
     types::{ArrayType, PointerType, RuntimeArrayType, StructType, VectorType, scalar::IndexType},
 };
@@ -435,4 +436,24 @@ pub fn buffers(ctx: &Context, entry_func: FuncOp) -> Vec<Visibility> {
         }
     }
     out
+}
+
+/// The first line of a kernel's source when the kernel turned float contraction off.
+///
+/// The compilers that honour it do so from the source alone, and the line keeps the source of
+/// such a kernel apart from one that allows contraction, so neither reuses the other's binary.
+pub const NO_CONTRACTION_PRAGMA: &str = "#pragma STDC FP_CONTRACT OFF\n";
+
+/// The line a module's source starts with for `ctx`'s [float contraction](FloatContraction).
+pub fn contraction_pragma(ctx: &Context) -> &'static str {
+    match ctx.float_contraction() {
+        FloatContraction::Allowed => "",
+        FloatContraction::Off => NO_CONTRACTION_PRAGMA,
+    }
+}
+
+/// Whether `source` comes from a kernel that turned float contraction off, so its compiler
+/// must be told not to contract either.
+pub fn source_forbids_contraction(source: &str) -> bool {
+    source.starts_with(NO_CONTRACTION_PRAGMA)
 }

@@ -64,7 +64,8 @@ impl Tile {
             match &self.kind {
                 TileKind::PlanePartition(partition) => {
                     let grid = partition.grid();
-                    match comptime!(Descent::of(grid, &self.place, &own, &own)) {
+                    let cmma = partition.is_cmma();
+                    match comptime!(Descent::of(grid, cmma, &self.place, &own, &own)) {
                         Descent::Here => {
                             operand.fragment_for::<Target>(&partition.at(0usize, 0usize), &out)
                         }
@@ -127,8 +128,8 @@ impl Tile {
                 "Tile::dequantized: a manual-mma sum decodes its factor as its contraction loads it"
             ),
             PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => panic!(
-                "Tile::dequantized: a register block and a warpgroup MMA read their operands where \
-                 they lie"
+                "Tile::dequantized: a register block and a plane group MMA read their operands \
+                 where they lie"
             ),
         };
         Tile::new::<T>(
@@ -250,9 +251,9 @@ impl Tile {
 
 #[cube]
 impl Tile {
-    /// Commit the warpgroup MMAs this accumulator issued since its last commit, and return their
+    /// Commit the plane group MMAs this accumulator issued since its last commit, and return their
     /// completion: once it resolves, they are done reading what they read, the stages a walk
-    /// holds for them among it. Only a warpgroup accumulator contracts asynchronously.
+    /// holds for them among it. Only a plane group accumulator contracts asynchronously.
     pub fn commit(&self) -> Pending<()> {
         let define!(Served) = self.element;
         match &self.kind {
@@ -261,26 +262,26 @@ impl Tile {
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
-            | TileKind::Lines(_) => panic!(
-                "Tile::commit: only a plane group's warpgroup accumulator contracts asynchronously"
-            ),
+            | TileKind::Lines(_) => {
+                panic!("Tile::commit: only a plane group's accumulator contracts asynchronously")
+            }
         }
     }
 }
 
 #[cube]
 impl Tile {
-    /// This memory window as a contraction's output: each unit's share tiled into `block`, summed
-    /// under `semiring`. A plane-resident accumulator states both when it is opened.
+    /// This memory window as a contraction's output: each unit's share contracted by `matmul`,
+    /// summed under `semiring`. A plane-resident accumulator states both when it is opened.
     pub fn accumulating(
         &self,
-        #[comptime] block: RegisterBlock,
+        #[comptime] matmul: SoftwareMatmul,
         #[comptime] semiring: Semiring,
     ) -> Tile {
         match &self.kind {
             TileKind::Memory(g) => {
                 let mut g = g.clone();
-                g.set_contraction(comptime!(Contraction { block, semiring }));
+                g.set_contraction(comptime!(WindowContraction { matmul, semiring }));
                 Tile {
                     kind: TileKind::new_Memory(g),
                     factor: self.factor.clone(),

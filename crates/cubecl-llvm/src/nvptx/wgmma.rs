@@ -1,4 +1,4 @@
-//! NVPTX warpgroup MMA, Hopper's asynchronous tensor core instructions.
+//! NVPTX plane group MMA, Hopper's asynchronous tensor core instructions.
 //!
 //! LLVM has intrinsics for the fence and for committing and waiting on groups, but none for
 //! `wgmma.mma_async` itself, so the MMA is inline PTX, as MLIR's NVVM dialect emits it.
@@ -15,8 +15,9 @@ use crate::{
 use cubecl_core::ir::{
     ElemType, FloatKind, IntKind, UIntKind,
     dialect::matrix::{
-        WARPGROUP_M, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp,
-        WgmmaMajor, WgmmaOp, WgmmaSwizzle, WgmmaWaitGroupOp, warpgroup_elems_per_unit, warpgroup_k,
+        PLANE_GROUP_M, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp,
+        WgmmaMajor, WgmmaOp, WgmmaSwizzle, WgmmaWaitGroupOp, plane_group_elems_per_unit,
+        plane_group_k,
     },
     features::{WgmmaConfig, WgmmaElems},
     nvidia::SmArch,
@@ -36,11 +37,11 @@ const A_REGISTER_BITS: usize = 4 * 32;
 const DESCRIPTOR_UNIT: usize = 16;
 const DESCRIPTOR_FIELD_MASK: u64 = 0x3FFF;
 
-/// A warpgroup MMA no PTX form takes.
+/// A plane group MMA no PTX form takes.
 #[derive(Debug, Error)]
 pub enum WgmmaError {
     #[error(
-        "no warpgroup MMA multiplies {:?} by {:?} into {:?} with shape {shape:?}; supported \
+        "no plane group MMA multiplies {:?} by {:?} into {:?} with shape {shape:?}; supported \
          configurations: {supported:?}",
         elems.a, elems.b, elems.cd
     )]
@@ -50,7 +51,7 @@ pub enum WgmmaError {
         supported: Vec<WgmmaConfig>,
     },
     #[error(
-        "a warpgroup MMA reads {operand} only K-major for {elem:?}: MN-major tiles are for \
+        "a plane group MMA reads {operand} only K-major for {elem:?}: MN-major tiles are for \
          16-bit elements"
     )]
     MnMajor {
@@ -58,26 +59,26 @@ pub enum WgmmaError {
         elem: ElemType,
     },
     #[error(
-        "the warpgroup MMA accumulator holds {found} elements per unit, and the instruction \
+        "the plane group MMA accumulator holds {found} elements per unit, and the instruction \
          takes {expected}"
     )]
     AccumulatorElems { found: usize, expected: usize },
     #[error(
-        "the warpgroup MMA `A` fragment holds {found} bits per unit, and the instruction takes \
+        "the plane group MMA `A` fragment holds {found} bits per unit, and the instruction takes \
          {A_REGISTER_BITS}"
     )]
     ARegisterBits { found: usize },
-    #[error("registers pinned for a warpgroup MMA fill whole 32-bit registers, not {bits} bits")]
+    #[error("registers pinned for a plane group MMA fill whole 32-bit registers, not {bits} bits")]
     UnalignedRegisters { bits: usize },
     #[error(
-        "a warpgroup MMA descriptor offset is a multiple of 16 bytes under 256 KiB, not {bytes}"
+        "a plane group MMA descriptor offset is a multiple of 16 bytes under 256 KiB, not {bytes}"
     )]
     DescriptorOffset { bytes: usize },
-    #[error("a warpgroup MMA matrix descriptor is a u64, not {0}")]
+    #[error("a plane group MMA matrix descriptor is a u64, not {0}")]
     DescriptorType(String),
 }
 
-/// The warpgroup MMA forms `arch` has: Hopper's alone, since Blackwell replaced them with
+/// The plane group MMA forms `arch` has: Hopper's alone, since Blackwell replaced them with
 /// `tcgen05`.
 pub fn configs(arch: SmArch) -> &'static [WgmmaConfig] {
     match arch.version() {
@@ -100,10 +101,10 @@ fn hopper_configs() -> Vec<WgmmaConfig> {
     // Every form reads 32 bytes of K, and takes any `n` that is a multiple of 8.
     let config = |a: ElemType, b, cd| WgmmaConfig {
         elems: WgmmaElems { a, b, cd },
-        m: WARPGROUP_M as u32,
+        m: PLANE_GROUP_M as u32,
         n_granularity: 8,
         n_max: N_MAX,
-        k: warpgroup_k(a.size()) as u32,
+        k: plane_group_k(a.size()) as u32,
     };
 
     let mut configs = vec![
@@ -130,7 +131,7 @@ fn hopper_configs() -> Vec<WgmmaConfig> {
     configs
 }
 
-/// Where a warpgroup MMA reads `A` from.
+/// Where a plane group MMA reads `A` from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WgmmaASource {
     /// A shared memory tile, through a descriptor.
@@ -139,7 +140,7 @@ pub enum WgmmaASource {
     Registers,
 }
 
-/// A warpgroup MMA PTX has a form for: the element types, the shape, and how the operands are
+/// A plane group MMA PTX has a form for: the element types, the shape, and how the operands are
 /// read. Its [`Display`](core::fmt::Display) is the instruction, without operands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WgmmaForm {
@@ -189,7 +190,7 @@ impl WgmmaForm {
 
     /// Checks that the accumulator holds the elements the instruction writes.
     pub fn check_accumulator(&self, elems: usize) -> core::result::Result<(), WgmmaError> {
-        let expected = warpgroup_elems_per_unit(self.n);
+        let expected = plane_group_elems_per_unit(self.n);
         if elems != expected {
             return Err(WgmmaError::AccumulatorElems {
                 found: elems,
@@ -243,7 +244,7 @@ impl core::fmt::Display for WgmmaForm {
         let WgmmaElems { a, b, cd } = self.elems;
         write!(
             f,
-            "wgmma.mma_async.sync.aligned.m{WARPGROUP_M}n{}k{}.{}.{}.{}",
+            "wgmma.mma_async.sync.aligned.m{PLANE_GROUP_M}n{}k{}.{}.{}.{}",
             self.n,
             self.k,
             ptx_type(cd),
@@ -261,7 +262,7 @@ fn transposed(major: WgmmaMajor) -> u32 {
     }
 }
 
-/// The PTX name of a warpgroup MMA element.
+/// The PTX name of a plane group MMA element.
 fn ptx_type(elem: ElemType) -> &'static str {
     match elem {
         ElemType::Float(FloatKind::F16) => "f16",
@@ -273,7 +274,7 @@ fn ptx_type(elem: ElemType) -> &'static str {
         ElemType::Int(IntKind::I8) => "s8",
         ElemType::UInt(UIntKind::U8) => "u8",
         ElemType::Int(IntKind::I32) => "s32",
-        other => unreachable!("{other:?} is in no warpgroup MMA configuration"),
+        other => unreachable!("{other:?} is in no plane group MMA configuration"),
     }
 }
 
@@ -523,7 +524,7 @@ mod tests {
 
     fn shape(n: usize, k: usize) -> MatrixShape {
         MatrixShape {
-            m: WARPGROUP_M,
+            m: PLANE_GROUP_M,
             n,
             k,
         }

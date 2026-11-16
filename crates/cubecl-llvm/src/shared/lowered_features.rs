@@ -3,11 +3,11 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and warpgroup MMA and
-//! Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
-//! consumer picks its algorithm off these properties — cubek's matmul selectors ask for `mma`
-//! before they ask anything else — and an advertisement that cannot be honoured is a launch that
-//! fails rather than one that falls back.
+//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and plane group MMA
+//! and Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than
+//! left to fail at compile time, because a consumer picks its algorithm off these properties —
+//! cubek's matmul selectors ask for `mma` before they ask anything else — and an advertisement that
+//! cannot be honoured is a launch that fails rather than one that falls back.
 //! The CPU runtime builds its properties from what this backend lowers, so it has nothing to
 //! narrow.
 
@@ -39,7 +39,7 @@ pub enum GpuTarget {
 /// Narrows `props` to what the LLVM backend lowers for `target`: the matrix forms that target
 /// has register shapes for, and nothing that neither target lowers. It also adds what only this
 /// backend lowers, which the C++ backend that built `props` never advertised: Hopper's
-/// warpgroup MMA.
+/// plane group MMA.
 pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
     props.features.matmul.wgmma.clear();
     // The quantized MMA lowers through AMDGPU's plain one alone, so only that target offers it.
@@ -101,14 +101,21 @@ fn is_half_or_single(ty: ElemType) -> bool {
 /// Keeps the matrix forms NVPTX has register shapes for.
 #[cfg(feature = "nvptx")]
 fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
-    // Both matrix families support f16, bf16 and TF32 operands. TF32 uses FP32 storage,
-    // rounded casts, and opaque i32 registers at the NVVM matrix call boundary; bf16 packs two
-    // `bfloat` lanes to an i32 register and accumulates in f32. Keep only the TF32 geometries
-    // NVVM implements.
+    // Both matrix families support f16, bf16 and TF32 operands, and the manual one FP8 too.
+    // TF32 uses FP32 storage, rounded casts, and opaque i32 registers at the NVVM matrix call
+    // boundary; bf16 packs two `bfloat` lanes to an i32 register and accumulates in f32; FP8
+    // packs four codes to an i32 register, as the integer bytes do. Keep only the TF32
+    // geometries NVVM implements.
     let byte = |ty: ElemType| {
         matches!(
             ty,
             ElemType::Int(IntKind::I8) | ElemType::UInt(UIntKind::U8)
+        )
+    };
+    let fp8 = |ty: ElemType| {
+        matches!(
+            ty,
+            ElemType::Float(FloatKind::E4M3) | ElemType::Float(FloatKind::E5M2)
         )
     };
 
@@ -140,7 +147,13 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
             && config.m == 16
             && config.n == 8
             && matches!(config.k, 4 | 8);
-        floats || integers || tf32
+        // The FP8 forms of `m16n8k32` into `f32`, any pairing of `e4m3` and `e5m2`, which the
+        // runtime advertises from Ada on.
+        let fp8 = fp8(config.a_type)
+            && fp8(config.b_type)
+            && config.cd_type == f32
+            && (config.m, config.n, config.k) == (16, 8, 32);
+        floats || integers || tf32 || fp8
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
     // `test_cmma_manual` checks them element by element.
@@ -583,9 +596,9 @@ mod nvptx_tma_tests {
         assert!(!props.features.copy_async);
     }
 
-    /// Hopper alone gets warpgroup MMA.
+    /// Hopper alone gets plane group MMA.
     #[test]
-    fn only_hopper_gets_warpgroup_mma() {
+    fn only_hopper_gets_plane_group_mma() {
         for (sm, expected) in [(80, false), (90, true), (100, false)] {
             let mut props = (*device_properties(32)).clone();
             let arch = SmArch::new(sm, true);

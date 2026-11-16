@@ -15,13 +15,14 @@ use crate::{
         CppValue,
         branch::block_to_cpp,
         define_array_polyfill,
+        signature::contraction_pragma,
         ty::{TypeExtCPP, TypedExtCPP},
         type_definitions,
     },
 };
 
 hip_op!(ModuleOp, |op, ctx| {
-    let mut out = String::new();
+    let mut out = contraction_pragma(ctx).to_string();
     type_definitions(&mut out, "long long").unwrap();
     define_array_polyfill(&mut out).unwrap();
     out.push_str(&compile_wmma_extensions(ctx, op.get_operation()));

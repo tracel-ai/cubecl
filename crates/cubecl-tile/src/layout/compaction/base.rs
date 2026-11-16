@@ -3,7 +3,7 @@
 use cubecl::zspace::SmallVec;
 
 use crate::algebra::gcd;
-use crate::{Axis, PhysicalAxisMap, Projection, Scale, Space};
+use crate::{Axis, Divisor, Offset, PhysicalAxisMap, Projection, Scale, Space};
 
 /// The compacted stage of a [`Projection`]: per physical axis, its cell count and source step,
 /// plus the projection addressing it.
@@ -38,12 +38,29 @@ impl Compaction {
             if stage_map.is_rational() {
                 // A rational axis has no single step: dense, sized at its widest bounds.
                 let d = stage_map.divisor().bound();
-                let field: usize = terms
+                let moving: Vec<_> = terms.iter().filter(|t| extent_of(t.axis) > 1).collect();
+                let field: usize = moving
                     .iter()
-                    .filter(|t| extent_of(t.axis) > 1)
                     .map(|t| (extent_of(t.axis) - 1) * t.scale.bound())
                     .sum();
-                extents.push(1 + field.div_ceil(d));
+                // A window starts on a multiple of its own extent, the windows tiling the axis:
+                // one axis at coefficient one, whole cells of a static divisor wide and not
+                // offset, starts on a cell and reads its extent's cells. Otherwise it may start
+                // partway into one and straddle one more; a dynamic divisor's cells are wider
+                // than its bound, so they may too.
+                let whole_cells = match moving.as_slice() {
+                    [term] => {
+                        term.scale.bound() == 1
+                            && matches!(stage_map.divisor(), Divisor::Static(_))
+                            && extent_of(term.axis).is_multiple_of(d)
+                            && axis_map.offset() == Offset::Static(0)
+                    }
+                    _ => false,
+                };
+                extents.push(match whole_cells {
+                    true => field.div_ceil(d).max(1),
+                    false => 1 + field.div_ceil(d),
+                });
                 steps.push(1);
                 physical.push(stage_map);
             } else {
@@ -356,6 +373,40 @@ mod tests {
         assert_eq!(c.extents(), &[8, 16]);
         assert!(c.projection().physical_axis(0).is_rational());
         assert_eq!(c.projection().divisor(0), Divisor::Static(3));
+    }
+
+    /// Words of block scales read a word every four blocks: a window of whole words starts on a
+    /// word, the windows tiling the axis, and holds exactly its words, which is what a box of them
+    /// lands. A window of part of a word may start partway into one and keeps the margin, as does
+    /// one under a dynamic divisor or an offset.
+    #[test]
+    fn a_window_of_whole_cells_holds_exactly_its_cells() {
+        let words =
+            |map: PhysicalAxisMap| Projection::new(&[OH, CI], &[PhysicalAxisMap::of(OH), map]);
+        let whole = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).over(4)),
+            1,
+            extents(128, 1, 8),
+        );
+        assert_eq!(whole.extents(), &[128, 2]);
+        let part = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).over(4)),
+            1,
+            extents(128, 1, 6),
+        );
+        assert_eq!(part.extents(), &[128, 3]);
+        let dynamic = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).over(Divisor::Dynamic { min: 4 })),
+            1,
+            extents(128, 1, 8),
+        );
+        assert_eq!(dynamic.extents(), &[128, 3]);
+        let offset = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).shifted(Offset::Dynamic).over(4)),
+            1,
+            extents(128, 1, 8),
+        );
+        assert_eq!(offset.extents(), &[128, 3]);
     }
 
     #[test]

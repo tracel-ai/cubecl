@@ -7,5 +7,6 @@ pub mod resolve_pending;
 pub mod scalar_extract;
 pub mod sccp;
 pub mod simple_cse;
+pub mod sink_broadcast;
 pub mod sroa;
 pub mod uniformity;

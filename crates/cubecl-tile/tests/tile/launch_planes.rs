@@ -96,12 +96,10 @@ fn plane_product<D: ServedDestination>(plane: &Region, a: &Tile, b: &Tile, dest:
     let c = dest.tile();
     for unit in plane {
         let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
-        let sum = c_unit.accumulator::<f32>(
+        let sum = c_unit.register_accumulator::<f32>(
             &a_unit,
             &b_unit,
-            comptime!(Instruction::Registers {
-                config: RegisterBlock::new(BLOCK[0] * BLOCK[1])
-            }),
+            comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
             Semiring::SUM_PROD,
         );
         for step in &unit {

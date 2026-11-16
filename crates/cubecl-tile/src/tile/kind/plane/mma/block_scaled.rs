@@ -7,12 +7,12 @@ use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     ir::{ElemType, FloatKind},
     prelude::*,
-    quant::scheme::QuantValue,
 };
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
 use super::widths::*;
+use crate::ops::matmul::instruction::code_of;
 use crate::tile::kind::plane::load_matrix::LDMATRIX_ROW_BYTES;
 use crate::*;
 
@@ -21,7 +21,7 @@ const LDMATRIX_ROW_WORDS: usize = LDMATRIX_ROW_BYTES / size_of::<u32>();
 
 /// Bind a block-scaled fragment's widths in role `ident`: its values' and its scales'.
 #[cube]
-pub(crate) fn register_block_scaled_sizes(
+pub(crate) fn register_scaled_sizes(
     def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
     #[comptime] ident: MatrixIdent,
 ) {
@@ -42,7 +42,7 @@ pub(crate) fn register_block_scaled_sizes(
 /// Bind the elements `form` names: each role's codes and the scales', so either fragment's
 /// instruction names both inputs.
 #[cube]
-pub(crate) fn register_block_scaled_elements(#[comptime] form: BlockScaledOperands) {
+pub(crate) fn register_scaled_elements(#[comptime] form: BlockScaledOperands) {
     intrinsic!(|scope| {
         scope.register_type::<LhsCodes>(ElemType::Float(form.lhs));
         scope.register_type::<RhsCodes>(ElemType::Float(form.rhs));
@@ -174,17 +174,6 @@ fn refuse_unless_block_scaled<T: Numeric>(
     });
 }
 
-/// The code a register element of a block-scaled instruction holds: `e2m1x2` two `e2m1`. `None`
-/// for one no stored field holds.
-fn code_of(kind: FloatKind) -> Option<QuantValue> {
-    match kind {
-        FloatKind::E2M1x2 | FloatKind::E2M1 => Some(QuantValue::E2M1),
-        FloatKind::E4M3 => Some(QuantValue::E4M3),
-        FloatKind::E5M2 => Some(QuantValue::E5M2),
-        _ => None,
-    }
-}
-
 /// Codes one register of the block-scaled instruction of `m × n × k` over `form` holds in role
 /// `ident`.
 #[cube]
@@ -195,7 +184,7 @@ fn codes_per_register(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> comptime_type!(usize) {
-    register_block_scaled_elements(form);
+    register_scaled_elements(form);
     let def = block_scaled_definition::<f32>(form, m, n, k);
     let elements = def.vector_size(ident);
     comptime!(elements * BlockScaledOperands::values_per_element(form.codes(ident)))
@@ -473,7 +462,7 @@ pub(crate) fn mma_execute_block_scaled<A: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) {
-    register_block_scaled_elements(form);
+    register_scaled_elements(form);
     let def = block_scaled_definition::<A>(form, m, n, k);
     let out = def.execute_scaled(
         lhs.at::<LhsCodes>(),

@@ -23,6 +23,7 @@ use crate::{
         CppValue,
         branch::block_to_cpp,
         define_array_polyfill, define_tensormap_opaque,
+        signature::contraction_pragma,
         ty::{TypeExtCPP, TypedExtCPP},
         type_definitions,
     },
@@ -31,7 +32,7 @@ use crate::{
 dict_key!(ATTR_GRID_CONSTANT, "grid_constant");
 
 cuda_op!(ModuleOp, |op, ctx| {
-    let mut out = String::new();
+    let mut out = contraction_pragma(ctx).to_string();
     type_definitions(&mut out, "long long").unwrap();
     define_array_polyfill(&mut out).unwrap();
 

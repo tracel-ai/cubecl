@@ -3,6 +3,7 @@ use crate::{
     dialect::memory::StoreOp,
     interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
     rewrite::op_insertion_point_in_block,
+    settings::FloatContraction,
 };
 use alloc::{boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
 use core::{
@@ -12,7 +13,7 @@ use core::{
     sync::atomic::Ordering,
 };
 use cubecl_common::format::type_name_sanitized;
-use cubecl_environment::{collections::HashMap, sync::Mutex};
+use cubecl_environment::collections::HashMap;
 use derive_more::{Eq, PartialEq};
 use pliron::{
     attribute::AttrObj,
@@ -36,7 +37,6 @@ use pliron::{
     value::Value,
 };
 use portable_atomic::AtomicUsize;
-use spin::LazyLock;
 
 use crate::{
     AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
@@ -180,22 +180,25 @@ impl GlobalState {
 
 dict_key!(ADDRESS_TYPE_KEY, "kernel_address_type");
 
-static TY_IDENTS: LazyLock<Mutex<HashMap<TypeId, Identifier>>> = LazyLock::new(Default::default);
+std::thread_local! {
+    /// Each type's identifier as a key of a context's auxiliary data: its sanitized name, the
+    /// same on every thread. Kept per thread, so the threads of a batched compile never queue on
+    /// one lock for it: behind a global mutex, a 32-thread batch spent most of each kernel's
+    /// expansion waiting.
+    static TY_IDENTS: RefCell<HashMap<TypeId, Identifier>> = RefCell::new(HashMap::default());
+}
 
 fn ty_ident<T: 'static>() -> Identifier {
-    let mut idents = TY_IDENTS.lock();
-    let ident = idents
-        .entry(TypeId::of::<T>())
-        .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap());
-    ident.clone()
+    TY_IDENTS.with_borrow_mut(|idents| {
+        idents
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap())
+            .clone()
+    })
 }
 
 fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
-    let mut idents = TY_IDENTS.lock();
-    let ident = idents
-        .entry(TypeId::of::<T>())
-        .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap());
-    ctx.aux_data_map.get(ident).copied()
+    ctx.aux_data_map.get(&ty_ident::<T>()).copied()
 }
 
 pub trait ContextExt {
@@ -206,6 +209,13 @@ pub trait ContextExt {
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
+    /// Whether the kernel lets float multiply-adds fuse: allowed unless the kernel said
+    /// otherwise.
+    fn float_contraction(&self) -> FloatContraction {
+        self.try_aux_ty::<FloatContraction>()
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 impl ContextExt for Context {

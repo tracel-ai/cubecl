@@ -137,6 +137,7 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
 
 /// [`keep_largest`] repeated by a loop of 256 turns, whose counter indexes nothing.
 // Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "nvptx")]
 #[allow(clippy::needless_range_loop)]
 #[cube(launch)]
 fn keep_largest_rounds(input: &[f32], output: &mut [f32], #[comptime] k: usize) {
@@ -162,6 +163,7 @@ fn keep_largest_rounds(input: &[f32], output: &mut [f32], #[comptime] k: usize) 
     }
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn keep_largest_rounds_kernel(k: usize) -> impl CubeKernel {
     keep_largest_rounds::KeepLargestRounds::new(
         walk_settings(),
@@ -173,6 +175,7 @@ pub(crate) fn keep_largest_rounds_kernel(k: usize) -> impl CubeKernel {
     )
 }
 
+#[cfg(feature = "nvptx")]
 fn walk_settings() -> KernelSettings {
     KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -184,6 +187,7 @@ fn walk_settings() -> KernelSettings {
 /// A sum carried through a loop of 256 turns around a walk of a local array: the outer loop
 /// carries a value its inner counter does not depend on.
 // Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "nvptx")]
 #[allow(clippy::needless_range_loop)]
 #[cube(launch)]
 fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
@@ -201,6 +205,7 @@ fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
     output[UNIT_POS as usize] = sum;
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
     carried_sum_around_walk::CarriedSumAroundWalk::new(
         walk_settings(),
@@ -213,6 +218,7 @@ pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
 
 /// Fills a local array with a counter kept in a variable, so the index is carried from turn to
 /// turn rather than being the loop's own counter.
+#[cfg(feature = "nvptx")]
 #[allow(
     clippy::explicit_counter_loop,
     reason = "Exercise a loop-carried counter separate from the loop index"
@@ -228,6 +234,7 @@ fn counted_walk(input: &[f32], output: &mut [f32]) {
     output[UNIT_POS as usize] = values[0usize] + values[255usize];
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn counted_walk_kernel() -> impl CubeKernel {
     counted_walk::CountedWalk::new(
         walk_settings(),
@@ -359,6 +366,7 @@ fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
 }
 
 /// [`tally`] counting into a `Peer` buffer, which kernels on other devices reach while it runs.
+#[cfg(feature = "amdgpu")]
 #[cube(launch)]
 fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
     output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
@@ -366,6 +374,7 @@ fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
     tally[0].fetch_add(1u32);
 }
 
+#[cfg(feature = "amdgpu")]
 pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -466,6 +475,7 @@ pub(crate) fn tally_kernel() -> impl CubeKernel {
 /// Walks a column in steps of 32 rows, one row per unit: how a matmul reads its weight along
 /// the reduced axis. A cube starts at its position split by a runtime count, so the start of
 /// every address holds a division by a value only known at launch.
+#[cfg(feature = "nvptx")]
 #[cube(launch)]
 fn strided_walk(
     input: &[f32],
@@ -484,6 +494,7 @@ fn strided_walk(
     output[ABSOLUTE_POS] = sum;
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn strided_walk_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -899,7 +910,7 @@ pub(crate) fn tile_product_in_plane<
 
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_product<I: Numeric, A: Numeric>(
+fn plane_group_product<I: Numeric, A: Numeric>(
     lhs: &[I],
     rhs: &[I],
     out: &mut [A],
@@ -958,7 +969,7 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
 /// unroll: each iteration waits for the previous stage's group, while its own runs on.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
+fn plane_group_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
     let layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
         swizzle: wgmma::Swizzle::B128,
@@ -993,7 +1004,7 @@ fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
 }
 
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
+pub(crate) fn plane_group_pipeline_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -1005,7 +1016,7 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
             .iter()
             .copied(),
     );
-    warpgroup_pipeline::WarpgroupPipeline::new(
+    plane_group_pipeline::PlaneGroupPipeline::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -1018,7 +1029,7 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
 /// A `64 x 16` MMA whose `B` tile holds only 8 rows.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_short_tile(out: &mut [f32]) {
+fn plane_group_short_tile(out: &mut [f32]) {
     let a_layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
         swizzle: wgmma::Swizzle::None,
@@ -1039,7 +1050,7 @@ fn warpgroup_short_tile(out: &mut [f32]) {
 }
 
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
+pub(crate) fn plane_group_short_tile_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -1051,7 +1062,7 @@ pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
             .iter()
             .copied(),
     );
-    warpgroup_short_tile::WarpgroupShortTile::new(
+    plane_group_short_tile::PlaneGroupShortTile::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -1059,7 +1070,7 @@ pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
     )
 }
 
-/// Where [`warpgroup_product`] reads `A` from.
+/// Where [`plane_group_product`] reads `A` from.
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ProductA {
@@ -1067,9 +1078,9 @@ pub(crate) enum ProductA {
     Registers,
 }
 
-/// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
+/// One plane group MMA of `I` operands accumulating in `A`, `64 x n x k`.
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_product_kernel<
+pub(crate) fn plane_group_product_kernel<
     I: Numeric + cubecl_core::CubeElement,
     A: Numeric + cubecl_core::CubeElement,
 >(
@@ -1098,7 +1109,7 @@ pub(crate) fn warpgroup_product_kernel<
             n_max: n as u32,
             k: k as u32,
         });
-    warpgroup_product::WarpgroupProduct::<I, A>::new(
+    plane_group_product::PlaneGroupProduct::<I, A>::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -1153,6 +1164,41 @@ fn tma_tile_load(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
 #[cfg(feature = "nvptx")]
 pub(crate) fn tma_tile_load_kernel() -> impl CubeKernel {
     tma_tile_load::TmaTileLoad::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// Tiles loaded by TMA lap after lap, a constant number of laps, one a lap into one stage, each
+/// summed into the output: the walk of a pipeline's filling plane.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_laps(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let mut sum = 0.0f32;
+
+    for lap in 0..8u32 {
+        let expected = select(UNIT_POS == 0, 32u32 * 16 * 4, 0);
+        if UNIT_POS == 0 {
+            barrier.tma_load_2d(input, stage.as_mut_slice(), 0, (lap * 16) as i32);
+        }
+        let token = barrier.arrive_and_expect_tx(1, expected);
+        barrier.wait(token);
+        sum += stage[UNIT_POS as usize];
+        sync_cube();
+    }
+
+    output[UNIT_POS as usize] = sum;
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_laps_kernel() -> impl CubeKernel {
+    tma_tile_laps::TmaTileLaps::new(
         tma_settings(),
         tma_properties(),
         Arc::new(TargetProperties::default()),
@@ -1346,6 +1392,50 @@ pub(crate) fn mismatched_mma_kernel() -> impl CubeKernel {
     )
 }
 
+/// A manual FP8 `mma` of `m16n8k32`: an `e4m3` A by an `e4m3` B into `f32`, four codes to each
+/// of A's four registers and B's two, read from `a` and `b`.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn fp8_mma(
+    a: &[Vector<cubecl_core::e4m3, Const<4>>],
+    b: &[Vector<cubecl_core::e4m3, Const<4>>],
+    output: &mut [f32],
+) {
+    let def = cmma::MmaDefinition::<cubecl_core::e4m3, cubecl_core::e4m3, f32>::new(
+        16usize, 8usize, 32usize,
+    );
+    let mut registers_a = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(4usize);
+    let mut registers_b = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(2usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = a[i];
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = b[i];
+        registers_c[i] = Vector::new(0.0);
+    }
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    output[UNIT_POS as usize] = registers_d[0].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn fp8_mma_kernel() -> impl CubeKernel {
+    fp8_mma::Fp8Mma::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// A manual `f16` `mma` repeated by a loop of 256 turns, whose registers sit in local arrays
 /// at constant indices.
 #[cfg(feature = "nvptx")]
@@ -1396,7 +1486,7 @@ pub(crate) enum WaitCase {
     TwoStoresPerIteration,
     /// The stores between a wait and the token it waits on are in a loop that may not run.
     MaybeEmptyInnerLoop,
-    /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
+    /// A plane group MMA group committed after the store, which the store's wait doesn't count.
     OtherKind,
     /// A store whose completion nothing waits on.
     Dropped,

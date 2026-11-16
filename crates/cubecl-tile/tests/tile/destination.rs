@@ -298,7 +298,7 @@ fn one_kernel_stores_into_a_buffer_or_a_caller_sink() {
 const M: Axis = Axis(2);
 const N: Axis = Axis(3);
 const K: Axis = Axis(4);
-const BLOCK: RegisterBlock = RegisterBlock::new(16);
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The promoted matmul over any destination: `K` sums in registers and the drain is the only
 /// touch of the output, which is the shape of a kernel a fused epilogue is handed to.
@@ -316,12 +316,7 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
     let b = b.tile(&space);
     let dest = O::serve::<E, Const<1>>(out, &space);
     let c = dest.tile();
-    let acc = c.accumulator::<EA>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));

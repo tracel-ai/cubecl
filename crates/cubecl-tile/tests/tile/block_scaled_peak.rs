@@ -2,7 +2,7 @@
 //! way: each cube is one plane holding a `64 × 64` grid of fragments, its operands staged in
 //! shared memory once and contracted `repeats` times over the same stage, so a fragment load is
 //! shared by the whole grid and global memory is read once. The same kernel at `f16`, through
-//! the plain manual-mma instruction, is the yardstick.
+//! the instruction the device offers for a drained `f16` sum, is the yardstick.
 //!
 //! Two forms of scales: one `f32` per block, read and narrowed one at a time, and words of four
 //! `e4m3` scales, as an NVFP4 checkpoint packs them, each one load straight into the
@@ -25,21 +25,11 @@ use cubecl::{
 };
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
-    Axis, BlockScaledOperands, Instruction, Level, Levels, MmaOperands, Partitioning, Projection,
-    Semiring, Space, StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
-    layout::PhysicalAxisMap, ops::matmul::MmaIo,
+    Axis, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages, TileSpec,
+    TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 
 use super::{Form, implied};
-
-/// NVFP4 as the block-scaled instruction takes it: `e2m1` codes two to a byte under an `e4m3`
-/// scale every sixteen of `k`.
-const NVFP4: BlockScaledOperands = BlockScaledOperands {
-    lhs: FloatKind::E2M1x2,
-    rhs: FloatKind::E2M1x2,
-    scales: FloatKind::E4M3,
-    block: 16,
-};
 
 const M: Axis = Axis(0);
 const N: Axis = Axis(1);
@@ -85,13 +75,11 @@ fn block_scaled_peak<E: Numeric>(
     let c = c.tile(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
+        // Opened on the operands as the instruction reads them, codes under their block scales, so
+        // the device's block-scaled instruction is the one picked.
         let acc = c.accumulator::<E>(
-            &a,
-            &b,
-            comptime!(Instruction::Mma {
-                io: MmaIo::manual(),
-                operands: MmaOperands::BlockScaled(NVFP4),
-            }),
+            &a.mul(&a_scales.tile(&space).at(&cube)).scales_kept_beside(),
+            &b.mul(&b_scales.tile(&space).at(&cube)).scales_kept_beside(),
             Semiring::SUM_PROD,
         );
         let walk = cube.over(&steps);
@@ -117,8 +105,8 @@ fn block_scaled_peak<E: Numeric>(
     }
 }
 
-/// `c = repeats · a · bᵀ` per cube at `f16`, the same walk through the plain manual-mma
-/// instruction.
+/// `c = repeats · a · bᵀ` per cube at `f16`, the same walk through the instruction the device
+/// offers for a drained `f16` sum.
 #[cube(launch)]
 fn float_peak(
     a: &TileTensor<'_>,
@@ -134,15 +122,7 @@ fn float_peak(
     let c = c.tile(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
-        let acc = c.accumulator::<f32>(
-            &a,
-            &b,
-            comptime!(Instruction::Mma {
-                io: MmaIo::manual(),
-                operands: MmaOperands::Plain,
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc = c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD);
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
         stages.pipelined(walk, |slot, region| {

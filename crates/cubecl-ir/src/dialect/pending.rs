@@ -22,7 +22,7 @@ impl AsyncGroup {
     /// The operation that commits a group of this kind.
     pub fn commit_op(self, ctx: &mut Context) -> Ptr<Operation> {
         match self {
-            AsyncGroup::Warpgroup => WgmmaCommitGroupOp::new(ctx).get_operation(),
+            AsyncGroup::PlaneGroup => WgmmaCommitGroupOp::new(ctx).get_operation(),
             AsyncGroup::BulkCopy => CommitGroupOp::new(ctx).get_operation(),
         }
     }
@@ -36,7 +36,7 @@ impl AsyncGroup {
         until: WaitUntil,
     ) -> Ptr<Operation> {
         match (self, until) {
-            (AsyncGroup::Warpgroup, _) => WgmmaWaitGroupOp::new(ctx, max_pending).get_operation(),
+            (AsyncGroup::PlaneGroup, _) => WgmmaWaitGroupOp::new(ctx, max_pending).get_operation(),
             (AsyncGroup::BulkCopy, WaitUntil::Released) => {
                 WaitGroupReadOp::new(ctx, max_pending).get_operation()
             }
@@ -83,7 +83,7 @@ impl MemoryEffectsOp for WaitOp {
         let token_ty = self.token(ctx).get_type(ctx).deref(ctx);
         let group = token_ty.downcast_ref::<GroupTokenType>().unwrap().0;
         match (group, *self.until(ctx)) {
-            (AsyncGroup::Warpgroup, _) => vec![
+            (AsyncGroup::PlaneGroup, _) => vec![
                 MemoryEffect::Read((MemoryScope::Local | MemoryScope::Shared).into()),
                 MemoryEffect::MakeVisible(MemoryLocation::Scope(MemoryScope::Local.into())),
             ],

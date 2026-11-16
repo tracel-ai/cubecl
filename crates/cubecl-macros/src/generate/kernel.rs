@@ -321,6 +321,29 @@ impl Launch {
     ///
     /// If a kernel has several matching bounds they are appended as suffixes in
     /// order.
+    /// The kernel's settings: the `settings` the launch was given, with the kernel's name and
+    /// what its attributes ask for.
+    fn kernel_settings(&self) -> TokenStream {
+        let kernel_source_name = self.kernel_entrypoint_name();
+        let debug_symbols = self
+            .args
+            .forces_full_debug_info()
+            .then(|| quote![.debug_symbols()]);
+        let cluster_dim = self
+            .args
+            .cluster_dim
+            .as_ref()
+            .map(|cluster_dim| quote![.cluster_dim(#cluster_dim.into())]);
+        let no_contraction = self
+            .args
+            .no_contraction
+            .is_present()
+            .then(|| quote![.no_contraction()]);
+        quote![
+            settings.kernel_name(#kernel_source_name) #debug_symbols #cluster_dim #no_contraction
+        ]
+    }
+
     fn kernel_entrypoint_name(&self) -> TokenStream {
         // This base name is always used; a suffix might be added
         // based on generics.
@@ -433,14 +456,7 @@ impl Launch {
             let info_ty = self.info_ty(&info_ty_name);
             let info_generics = generic_names.as_turbofish();
 
-            let kernel_source_name = self.kernel_entrypoint_name();
-            let mut settings = quote![settings.kernel_name(#kernel_source_name)];
-            if self.args.forces_full_debug_info() {
-                settings.extend(quote![.debug_symbols()]);
-            }
-            if let Some(cluster_dim) = &self.args.cluster_dim {
-                settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
-            }
+            let settings = self.kernel_settings();
 
             quote! {
                 #[doc = #kernel_doc]
@@ -485,6 +501,7 @@ impl Launch {
                             .cube_dim(self.settings.cube_dim.clone())
                             .mode(self.settings.execution_mode)
                             .debug_info(self.settings.debug_info)
+                            .float_contraction(self.settings.float_contraction)
                             .info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init
@@ -523,15 +540,6 @@ impl Launch {
             .into_iter()
             .chain(args.clone())
             .collect::<Vec<_>>();
-
-        let kernel_source_name = self.kernel_entrypoint_name();
-        let mut settings = quote![settings.kernel_name(#kernel_source_name)];
-        if self.args.forces_full_debug_info() {
-            settings.extend(quote![.debug_symbols()]);
-        }
-        if let Some(cluster_dim) = &self.args.cluster_dim {
-            settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
-        }
 
         let generics = &self.kernel_generics;
         let (type_generics_names, impl_generics, where_generics) =

@@ -17,7 +17,7 @@ const N: Axis = Axis(1);
 const K: Axis = Axis(2);
 
 /// The software instruction the leaf runs: a 16-cell budget, no edge split, no unit fan-out.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c = a · b` over a K walk whose blocks of `a` and `b` are double-buffered in shared memory,
 /// the leaf running the software instruction on the block's final tiles.
@@ -44,7 +44,7 @@ fn ring_matmul(
             for cell in region {
                 let mut c_cell = c_block
                     .at(&cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                 c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -84,7 +84,7 @@ fn role_split_matmul(
                     for cell in &region {
                         let mut c_cell = c_block
                             .at(&cell)
-                            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
                         c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
                     }
                 });
