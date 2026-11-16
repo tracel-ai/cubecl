@@ -78,7 +78,7 @@ fn kernel_compound_assign_runtime_word(
     #[comptime] has_perm: bool,
 ) {
     let mut word = cycle.runtime();
-    if comptime!(has_perm) {
+    if has_perm {
         word ^= perm[0];
     }
     output[0] = word;

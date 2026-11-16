@@ -2,8 +2,8 @@
 
 use cubecl::zspace::SmallVec;
 
-use crate::Delivery;
 use crate::{Axis, Boundary, BoundaryPolicy, Field, Packing, Paging, Projection, Space, Storage};
+use crate::{Delivery, Issuer};
 
 /// The comptime half of an operand: its axis mapping, edge checks, packing, storage and delivery.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -102,21 +102,16 @@ impl TileSpec {
     }
 
     /// This spec with its stages moved by `delivery`: each unit its own lines, landed when the fill
-    /// returns or after it, or one unit the whole stage in bulk. The kernel does not change; the
-    /// fill does.
+    /// returns or after it. The kernel does not change; the fill does.
     ///
     /// # Panics
     ///
-    /// [`Tma`](Delivery::Tma), which moves a tensor map rather than a tensor, and
-    /// [`Procedural`](Delivery::Procedural), which moves nothing.
+    /// [`Tma`](Delivery::Tma), which moves a tensor map rather than a tensor.
     pub fn delivery(mut self, delivery: Delivery) -> Self {
         assert!(
-            matches!(
-                delivery,
-                Delivery::SyncPerUnit | Delivery::AsyncPerUnit | Delivery::AsyncBulk
-            ),
-            "TileSpec::delivery: a tensor is moved per unit or in bulk; {delivery:?} is a tensor \
-             map's or a coordinate tile's"
+            delivery.issuer() == Issuer::Unit,
+            "TileSpec::delivery: a tensor's lines are moved by its units; {delivery:?} moves a \
+             tensor map's box"
         );
         self.delivery = delivery;
         self

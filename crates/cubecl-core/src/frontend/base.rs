@@ -91,8 +91,8 @@ mod tests {
             0 => ElemType::Float(FloatKind::F16),
             _ => ElemType::Float(FloatKind::F32),
         });
-        if comptime!(depth > 0) {
-            named_after_reentry(comptime!(depth - 1));
+        if depth > 0 {
+            named_after_reentry(depth - 1);
         }
         elem_type_of::<T>()
     }
@@ -119,8 +119,8 @@ mod tests {
             0 => 2usize,
             _ => 4usize,
         });
-        if comptime!(depth > 0) {
-            sized_after_reentry(comptime!(depth - 1));
+        if depth > 0 {
+            sized_after_reentry(depth - 1);
         }
         intrinsic!(|scope| N::__expand_value(scope))
     }

@@ -12,10 +12,11 @@ impl Tile {
     /// loads ([`vector_tile`](Tile::vector_tile)), a run or a rectangle of its stored tiles. The
     /// source may carry extra axes only if each is one wide.
     pub(crate) fn copy_scaled_from<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        // It decodes in the unit that loads each line; an async copy lands the bytes as they lie.
+        // It decodes in the unit that loads each line; an engine moving memory to memory lands the
+        // bytes as they lie.
         let delivery = src.delivery();
         comptime!(assert!(
-            !delivery.is_async(),
+            delivery.route() == Route::Registers,
             "Tile::dequantize_from: a decoding copy cannot be delivered {delivery:?}; deliver it \
              SyncPerUnit, or stage it as it lies and decode out of the stage"
         ));
@@ -64,49 +65,19 @@ impl Tile {
         ));
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
-        let fill = self.fill_units();
+        let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
-        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
-        // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
-        // runtime stride stalls each store on Metal's in-order pipe.
-        if units > 0 && loads.div_ceil(units) <= 8 {
-            #[unroll]
-            for t in 0..loads.div_ceil(units) {
-                let line = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if (t + 1) * units <= loads {
-                    src.decode_load_into::<S, O, I, WP, VW>(
-                        &stored,
-                        &mut out,
-                        line,
-                        &dst,
-                        lands.clone(),
-                    );
-                } else {
-                    if line < comptime!(loads as u32) {
-                        src.decode_load_into::<S, O, I, WP, VW>(
-                            &stored,
-                            &mut out,
-                            line,
-                            &dst,
-                            lands.clone(),
-                        );
-                    }
-                }
-            }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for line in range_stepped(first, comptime!(loads as u32), stride) {
-                src.decode_load_into::<S, O, I, WP, VW>(
-                    &stored,
-                    &mut out,
-                    line,
-                    &dst,
-                    lands.clone(),
-                );
-            }
+        // The loads dealt to the units that fill, as a straight fill's lines are.
+        for load in Walk::copy(&fill, comptime!(loads).runtime()) {
+            src.decode_load_into::<S, O, I, WP, VW>(
+                &stored,
+                &mut out,
+                load.coord(Level::COPIED) as u32,
+                &dst,
+                lands.clone(),
+            );
         }
     }
 

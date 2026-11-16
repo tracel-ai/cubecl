@@ -242,8 +242,8 @@ impl Stages<OperandPair> {
                 && !rhs_beside
                 && self.fillers == 0
                 && self.depth <= 2
-                && lhs_delivery == Delivery::SyncPerUnit
-                && rhs_delivery == Delivery::SyncPerUnit
+                && lhs_delivery.holds(Prefetch::InRegisters).is_ok()
+                && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && lhs_straight
                 && rhs_straight
                 && matches!((lhs_scalars, rhs_scalars), (Some(l), Some(r)) if Prefetch::fits(l + r))
