@@ -101,7 +101,8 @@ impl<'a> Arg<'a, Unlabelled> {
 }
 
 impl<'a> Arg<'a, Labelled> {
-    /// The batch dimensions in the output's order, right-aligned to the leading axes (numpy broadcast).
+    /// The batch dimensions in the output's order, right-aligned to the leading axes (numpy
+    /// broadcast).
     pub fn batches(mut self, dimensions: &'a [Dimension]) -> Self {
         self.data.batches = dimensions;
         self
@@ -221,8 +222,8 @@ impl<'a> Arg<'a, Labelled> {
             addressed,
         } = labels;
         projection.validate(width)?;
-        // A stated width is checked here: `stride / width` would truncate silently.
-        // A line runs along the innermost axis's dimension; a buffer with no labelled axis has none.
+        // A stated width is checked here: `stride / width` would truncate silently. A line runs
+        // along the innermost axis's dimension; a buffer with no labelled axis has none.
         let labels = projection.dense_labels();
         let served = match labels.last() {
             Some(&dimension) => VectorTile::new(&stored_tiles, dimension, width)
@@ -272,8 +273,8 @@ impl<'a> Arg<'a, Labelled> {
     }
 
     /// The coarsest level whose windows the operand's storage tiles address with one stride per
-    /// dimension (one contiguous run each), every other window walked through the layout; and the stored
-    /// tiles themselves, finest first ([`TileSpec::stored_tiles`]).
+    /// dimension (one contiguous run each), every other window walked through the layout; and the
+    /// stored tiles themselves, finest first ([`TileSpec::stored_tiles`]).
     fn storage(
         &self,
         geometry: &Geometry,
@@ -294,9 +295,9 @@ impl<'a> Arg<'a, Labelled> {
             .map(|storage| storage.contiguous_tiles(&geometry.extents(&labels)))
             .unwrap_or_default();
         tiles.retain(|tile| tile.iter().map(|&(_, extent)| extent).product::<usize>() <= dense_run);
-        // Each level's window along the operand's dimensions, outermost first: the extent this launch
-        // cuts it to, and whether the kernel hands it down dynamic. A level that cuts a dimension gives
-        // it its tile; one that does not passes the window above it down.
+        // Each level's window along the operand's dimensions, outermost first: the extent this
+        // launch cuts it to, and whether the kernel hands it down dynamic. A level that cuts a
+        // dimension gives it its tile; one that does not passes the window above it down.
         let (space, kernel) = (launch.space(), launch.partitioning().space());
         let mut window: LevelWindow = dimensions
             .iter()
@@ -337,14 +338,16 @@ impl<'a> Arg<'a, Labelled> {
     }
 
     /// Whether a window of `level`, the storage tile's, lies wholly past the operand along one of
-    /// `dimensions`: the launch's outermost tile reaches past the extent padded to whole storage tiles,
-    /// where no storage tile is allocated. A window that only overhangs the extent reads padding.
+    /// `dimensions`: the launch's outermost tile reaches past the extent padded to whole storage
+    /// tiles, where no storage tile is allocated. A window that only overhangs the extent reads
+    /// padding.
     fn reaches_past_storage_tiles(&self, dimensions: &[Dimension], level: usize) -> bool {
         let launch = self.data.launch;
         let levels = launch.partitioning().levels();
         dimensions.iter().any(|&dimension| {
-            // The outermost level cutting the dimension tiles the grid; the last one down to `level`
-            // is the storage tile's extent along it. No cut leaves one window, the whole extent.
+            // The outermost level cutting the dimension tiles the grid; the last one down to
+            // `level` is the storage tile's extent along it. No cut leaves one window, the whole
+            // extent.
             let mut cuts = levels[..=level]
                 .iter()
                 .filter_map(|level| level.tile(dimension));
@@ -408,6 +411,6 @@ pub struct Unbound {
     pub geometry: Geometry,
 }
 
-/// One level's window along an operand's dimensions, in their order: the extent the launch cuts each dimension
-/// to, and whether the kernel hands it down dynamic.
+/// One level's window along an operand's dimensions, in their order: the extent the launch cuts
+/// each dimension to, and whether the kernel hands it down dynamic.
 type LevelWindow = SmallVec<[(Extent, bool); Space::MAX_RANK]>;

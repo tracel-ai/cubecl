@@ -129,8 +129,8 @@ impl WgmmaData {
 
 /// Panics unless `lhs` and `rhs` are the windows one plane group MMA tile of `n` columns reads into
 /// `out`: one contracted dimension, the trailing one of both, which a descriptor steps along; the
-/// lhs's other dimensions the plane group's rows, the rhs's its `n` columns. Where a window starts is
-/// known only at run time and is not checked: the descriptor's base address takes it to start a
+/// lhs's other dimensions the plane group's rows, the rhs's its `n` columns. Where a window starts
+/// is known only at run time and is not checked: the descriptor's base address takes it to start a
 /// multiple of the eight rows a swizzle pattern repeats over, as a window cut whole out of its
 /// stage does, being a whole number of its own rows in.
 fn assert_operands_fit(lhs: &Space, rhs: &Space, out: &Space, n: usize) {

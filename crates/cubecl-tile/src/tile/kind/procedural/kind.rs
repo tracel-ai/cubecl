@@ -100,17 +100,18 @@ impl Procedural {
         self.recipe.evaluate::<T>(&absolute)
     }
 
-    /// This recipe's value at position `position` of slice `slice` of a tile over `space` along
-    /// its innermost dimension, windowed to the same region: the slice unravelled over every other dimension
-    /// of `space`, the position along the innermost, and a dimension `space` does not span at zero.
+    /// This recipe's value at position `position` of slice `slice` of a tile over `space` along its
+    /// innermost dimension, windowed to the same region: the slice unravelled over every other
+    /// dimension of `space`, the position along the innermost, and a dimension `space` does not
+    /// span at zero.
     pub(crate) fn value_at<T: Numeric>(
         &self,
         slice: u32,
         position: u32,
         #[comptime] space: &Space,
     ) -> T {
-        // Where each of this recipe's dimensions reads its coordinate from: the position, a coordinate of
-        // the slice, or nowhere.
+        // Where each of this recipe's dimensions reads its coordinate from: the position, a
+        // coordinate of the slice, or nowhere.
         let (slice_extents, sources) = comptime!({
             let rank = space.rank();
             let extents: Vec<usize> = (0..rank - 1).map(|p| space.extent_at(p)).collect();

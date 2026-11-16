@@ -1,6 +1,7 @@
-//! Where an operand's dimensions live: [`Projection`] maps dimensions onto buffer axes (`projection`),
-//! `storage` says how the values lie in memory, `paging` reads a pool of pages as sequences, a
-//! `compaction` boxes a gathered sub-tile, and a `row_arrangement` places a stage's lines.
+//! Where an operand's dimensions live: [`Projection`] maps dimensions onto buffer axes
+//! (`projection`), `storage` says how the values lie in memory, `paging` reads a pool of pages as
+//! sequences, a `compaction` boxes a gathered sub-tile, and a `row_arrangement` places a stage's
+//! lines.
 
 pub(crate) mod compaction;
 pub(crate) mod paging;

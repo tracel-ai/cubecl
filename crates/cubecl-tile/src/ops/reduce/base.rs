@@ -17,7 +17,8 @@ impl Tile {
         }))
     }
 
-    /// [`reduce_dimension`](Tile::reduce_dimension)'s reduction, as tracing writes it inside the op.
+    /// [`reduce_dimension`](Tile::reduce_dimension)'s reduction, as tracing writes it inside the
+    /// op.
     #[allow(
         dead_code,
         reason = "reached only through its expansion, inside the op"
@@ -28,11 +29,11 @@ impl Tile {
         self.reduce_onto_held(input, monoid);
     }
 
-    /// `self[c] = Σ_r lhs[c, r] · rhs[c, r]`, `r` the dimensions `lhs` and `rhs` span beyond `self`'s:
-    /// each cell the dot product of its run of both, as attention's backward pass sums its output
-    /// against the output's gradient along the value dim. `self` is a window of memory a unit or a
-    /// plane holds ([`Tile::set_cells`]), every unit of the holder summing every cell; `lhs` and
-    /// `rhs` span one space, bound at one width.
+    /// `self[c] = Σ_r lhs[c, r] · rhs[c, r]`, `r` the dimensions `lhs` and `rhs` span beyond
+    /// `self`'s: each cell the dot product of its run of both, as attention's backward pass sums
+    /// its output against the output's gradient along the value dim. `self` is a window of memory a
+    /// unit or a plane holds ([`Tile::set_cells`]), every unit of the holder summing every cell;
+    /// `lhs` and `rhs` span one space, bound at one width.
     pub fn dot<E: Float>(&mut self, lhs: &Tile, rhs: &Tile) {
         let (width, rhs_width) = (lhs.vector_size(), rhs.vector_size());
         comptime!(assert!(
@@ -60,8 +61,8 @@ impl Tile {
         }))
     }
 
-    /// [`reduce_dimension_accumulate`](Tile::reduce_dimension_accumulate)'s reduction, as tracing writes it
-    /// inside the op.
+    /// [`reduce_dimension_accumulate`](Tile::reduce_dimension_accumulate)'s reduction, as tracing
+    /// writes it inside the op.
     fn reduce_onto_held(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
         let define!(Source) = input.read_element();

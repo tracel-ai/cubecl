@@ -1,7 +1,7 @@
-//! The softmax's backward pass on tiles a unit holds in registers: its probabilities read back
-//! from a saved logsumexp ([`DimensionSlices::probabilities`]), its gradient against the scores
-//! ([`DimensionSlices::softmax_gradient`]), the dot product that gradient subtracts ([`Tile::dot`]),
-//! and the logsumexp an online softmax leaves behind
+//! The softmax's backward pass on tiles a unit holds in registers: its probabilities read back from
+//! a saved logsumexp ([`DimensionSlices::probabilities`]), its gradient against the scores
+//! ([`DimensionSlices::softmax_gradient`]), the dot product that gradient subtracts
+//! ([`Tile::dot`]), and the logsumexp an online softmax leaves behind
 //! ([`OnlineSoftmax::store_logsumexp`](cubecl_tile::ops::softmax::OnlineSoftmax::store_logsumexp)).
 //!
 //! The logsumexp and the dot product are tiles over the queries, which the scores broadcast
@@ -182,8 +182,8 @@ fn by_keys(
 }
 
 /// Every plane owning its rows of the scores, keys or queries, holding them in manual-mma
-/// fragments: a step of the other dimension at a time, the probabilities and the gradient against the
-/// scores taken in the registers that hold them, then drained. Keys first, each cell reads its
+/// fragments: a step of the other dimension at a time, the probabilities and the gradient against
+/// the scores taken in the registers that hold them, then drained. Keys first, each cell reads its
 /// query's logsumexp and dot product along its column; queries first, along its row.
 #[cube(launch)]
 fn by_plane_fragments(

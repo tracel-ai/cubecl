@@ -4,13 +4,13 @@
 //! logical position still determines a cell and every window is still a dense box. An operand
 //! spanning `(KB, KI)` must therefore read exactly as one spanning `K` does, and cost the same.
 //!
-//! A dimension exists when an operand *distinguishes* it: a quantized operand's scales vary over the
-//! block index and not over the position inside the block, so those are two dimensions, which is why an
-//! dimension gets split at all.
+//! A dimension exists when an operand *distinguishes* it: a quantized operand's scales vary over
+//! the block index and not over the position inside the block, so those are two dimensions, which
+//! is why an dimension gets split at all.
 //!
-//! The first two tests split a *contracted* dimension, without scales and then with them; the last two
-//! split a dimension the *output* spans, the shape a per-column-block scale needs and the one the
-//! accumulator's edges had to be derived to allow.
+//! The first two tests split a *contracted* dimension, without scales and then with them; the last
+//! two split a dimension the *output* spans, the shape a per-column-block scale needs and the one
+//! the accumulator's edges had to be derived to allow.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput};
@@ -247,7 +247,8 @@ fn a_partitioned_dimension_contracts_the_same() {
 
 /// **The split, with scales.** `S` carries `KI` and addresses nothing with it, so it cannot vary
 /// inside a block. One scale per block stops being an arithmetic claim (`⌊k / 8⌋`) and becomes a
-/// fact about which dimensions the operand spans, which is what already makes a broadcast a broadcast.
+/// fact about which dimensions the operand spans, which is what already makes a broadcast a
+/// broadcast.
 #[test]
 fn scales_omit_the_dimension_inside_the_block() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
@@ -320,8 +321,8 @@ fn scales_omit_the_dimension_inside_the_block() {
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // The block index alone. The position inside a block is not a dimension of this operand,
-            // which is the whole statement that one scale covers the block.
+            // The block index alone. The position inside a block is not a dimension of this
+            // operand, which is the whole statement that one scale covers the block.
             TileSpec::new(Projection::new(
                 &[M, KB],
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
@@ -357,9 +358,10 @@ fn scales_omit_the_dimension_inside_the_block() {
 // meet (`Projection::validate_composition`), unit-tested host-side in `physical::projection::base`
 // rather than here: in the kernel it fires on a worker thread `#[should_panic]` never sees.
 
-/// **A dimension the output spans, split.** `N` is spelled `(NB, NI)` and the accumulator spans both,
-/// so its column edge is two dimensions. Reading the trailing dimension alone would take `NB` for the row
-/// edge and contract against nothing; the edge instead spans every innermost dimension not the lhs's.
+/// **A dimension the output spans, split.** `N` is spelled `(NB, NI)` and the accumulator spans
+/// both, so its column edge is two dimensions. Reading the trailing dimension alone would take `NB`
+/// for the row edge and contract against nothing; the edge instead spans every innermost dimension
+/// not the lhs's.
 #[test]
 fn a_split_output_dimension_contracts_the_same() {
     let (rows, blocks, inside, depth) = (4, 2, 4, 8);
@@ -555,8 +557,8 @@ fn scales_omit_the_dimension_inside_the_column_block() {
 }
 
 /// [`a_split_output_dimension_contracts_the_same`] with the rhs and the accumulator served as lines
-/// exactly one column block wide, so the column group's two dimensions straddle the line boundary: `NI`
-/// is one whole line and `NB` counts them.
+/// exactly one column block wide, so the column group's two dimensions straddle the line boundary:
+/// `NI` is one whole line and `NB` counts them.
 #[cube(launch)]
 fn wide_matmul(
     a: &TileTensor<'_>,
@@ -681,9 +683,9 @@ fn wide_scaled_matmul(
     }
 }
 
-/// **The scales read as a line.** Their innermost dimension is `NB`, the block index, a dimension they
-/// actually vary over, so a read of four serves four *different* scales covering four blocks of
-/// columns. A value line's component is its ordinal along the shared edge, constant across the
+/// **The scales read as a line.** Their innermost dimension is `NB`, the block index, a dimension
+/// they actually vary over, so a read of four serves four *different* scales covering four blocks
+/// of columns. A value line's component is its ordinal along the shared edge, constant across the
 /// block.
 #[test]
 fn scales_are_served_several_at_a_time() {
@@ -751,8 +753,8 @@ fn scales_are_served_several_at_a_time() {
             s_t.binding().into_tensor_arg(),
             dtype,
             units,
-            // The block index alone, and it is innermost: the width lands on the dimension the scales
-            // vary over, so one read serves `units` different scales.
+            // The block index alone, and it is innermost: the width lands on the dimension the
+            // scales vary over, so one read serves `units` different scales.
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
         TileTensorLaunch::new(
@@ -786,9 +788,9 @@ fn scales_are_served_several_at_a_time() {
     }
 }
 
-/// A split output dimension against a *promoted* accumulator: the partials live in registers across the
-/// whole walk, and the block they live in has to be sized by the column group rather than by its
-/// innermost dimension.
+/// A split output dimension against a *promoted* accumulator: the partials live in registers across
+/// the whole walk, and the block they live in has to be sized by the column group rather than by
+/// its innermost dimension.
 #[cube(launch)]
 fn promoted_matmul<E: Numeric>(
     a: &TileTensor<'_>,
@@ -896,8 +898,8 @@ fn a_promoted_accumulator_spans_a_split_output_dimension() {
 }
 
 /// [`wide_scaled_matmul`] with the accumulator promoted to registers: the partials never touch
-/// memory between `K` steps, which is what a decode step's one-row product keeps them in, and the scales covering
-/// four column blocks still arrive in one read.
+/// memory between `K` steps, which is what a decode step's one-row product keeps them in, and the
+/// scales covering four column blocks still arrive in one read.
 #[cube(launch)]
 fn wide_scaled_promoted<E: Numeric>(
     a: &TileTensor<'_>,
@@ -920,7 +922,8 @@ fn wide_scaled_promoted<E: Numeric>(
     acc.drained_into(&c);
 }
 
-/// **The shape a decode step's one-row product runs.** Scales read as a line against a register accumulator.
+/// **The shape a decode step's one-row product runs.** Scales read as a line against a register
+/// accumulator.
 #[test]
 fn a_promoted_accumulator_takes_scales_by_the_line() {
     let (rows, blocks, inside, depth, units) = (4, 4, 2, 8, 4);

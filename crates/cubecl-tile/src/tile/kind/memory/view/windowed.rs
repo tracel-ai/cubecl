@@ -14,10 +14,10 @@ use super::super::Window;
 ///
 /// A checked read compares every dimension against the buffer once ([`Window::holds`]), reads the
 /// buffer unchecked at the position clamped onto its edge, and zeroes what lies past it. Every
-/// dimension, not only those the window names a boundary on: a window opened at a box larger than its
-/// buffer leaves it along a dimension that names none. Read as a window layered over the buffer, each
-/// layer below would check again, the buffer's every axis and its length, and select the value
-/// once per layer.
+/// dimension, not only those the window names a boundary on: a window opened at a box larger than
+/// its buffer leaves it along a dimension that names none. Read as a window layered over the
+/// buffer, each layer below would check again, the buffer's every axis and its length, and select
+/// the value once per layer.
 #[expect(dead_code, reason = "read through the expand impls below")]
 #[derive(CubeType, Clone)]
 pub(crate) struct WindowedView<'a, T: CubePrimitive> {

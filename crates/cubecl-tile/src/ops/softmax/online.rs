@@ -1,5 +1,5 @@
-//! The online softmax as a tile op: a score taken in along one dimension, one block of it at a time,
-//! into each slice's running max and sum, where its holder already keeps the score.
+//! The online softmax as a tile op: a score taken in along one dimension, one block of it at a
+//! time, into each slice's running max and sum, where its holder already keeps the score.
 
 use core::f64::consts::LOG2_E;
 
@@ -50,8 +50,8 @@ pub struct OnlineSoftmaxState<E: Float> {
 
 #[cube]
 impl<E: Float> OnlineSoftmax<E> {
-    /// The state of every slice along `dimension` of a score held as `score` is, before any block is
-    /// taken in: each unit keeps the slices it holds cells of.
+    /// The state of every slice along `dimension` of a score held as `score` is, before any block
+    /// is taken in: each unit keeps the slices it holds cells of.
     pub fn along(score: &Tile, #[comptime] dimension: Dimension) -> OnlineSoftmax<E> {
         let slices = score.slices_per_unit(dimension);
         let slots = comptime!(match slices == score.place.space.slices_along(dimension) {
@@ -61,8 +61,9 @@ impl<E: Float> OnlineSoftmax<E> {
         OnlineSoftmax::<E>::empty(slices, dimension, slots)
     }
 
-    /// The state of `slices` slices along `dimension` before any block is taken in: what a holder opens
-    /// before the walk that hands it its score, as a cube's plane does before the cube's ring.
+    /// The state of `slices` slices along `dimension` before any block is taken in: what a holder
+    /// opens before the walk that hands it its score, as a cube's plane does before the cube's
+    /// ring.
     pub fn new(#[comptime] slices: usize, #[comptime] dimension: Dimension) -> OnlineSoftmax<E> {
         OnlineSoftmax::<E>::empty(slices, dimension, SliceSlots::Every)
     }
@@ -124,16 +125,16 @@ impl<E: Float> OnlineSoftmax<E> {
     }
 
     /// What this plane's sum against the values is multiplied by once its last block is taken in:
-    /// each slice's `1 / l`, or, where the cube's planes split this dimension, each holding part of the
-    /// same slices, the correction to the merged max times `1 / L` of the merged sum, so the
+    /// each slice's `1 / l`, or, where the cube's planes split this dimension, each holding part of
+    /// the same slices, the correction to the merged max times `1 / L` of the merged sum, so the
     /// planes' products only remain to be added ([`PlanesOutput`](crate::kind::PlanesOutput)).
     /// `plane` is this plane's region of the cube; the partitioning it was cut by says how many
     /// planes share its slices.
     ///
-    /// Where planes split the dimension it is a meeting of the cube: every unit of every plane calls it,
-    /// each holding its plane's state as a plane's window or fragments keep it, and it meets the
-    /// cube twice through shared memory. The planes' values are read in plane order, so the
-    /// merged sum is the same bits from run to run. A slice every plane masked stays at zero.
+    /// Where planes split the dimension it is a meeting of the cube: every unit of every plane
+    /// calls it, each holding its plane's state as a plane's window or fragments keep it, and it
+    /// meets the cube twice through shared memory. The planes' values are read in plane order, so
+    /// the merged sum is the same bits from run to run. A slice every plane masked stays at zero.
     pub fn normalizer(&mut self, plane: &Region) -> Array<E> {
         let dimension = self.dimension;
         let planes = comptime!(

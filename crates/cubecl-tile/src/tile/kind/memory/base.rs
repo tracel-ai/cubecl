@@ -105,8 +105,8 @@ pub(crate) struct Store {
 
 #[cube]
 impl Memory {
-    /// What one vector load of this memory covers over a window spanning `space`: the stored
-    /// tiles that hold [`vector_size`](Store::vector_size) values, a run along the innermost dimension
+    /// What one vector load of this memory covers over a window spanning `space`: the stored tiles
+    /// that hold [`vector_size`](Store::vector_size) values, a run along the innermost dimension
     /// where none are stated ([`VectorTile::new`]).
     pub(crate) fn vector_tile(&self, #[comptime] space: &Space) -> comptime_type!(VectorTile) {
         let width = comptime!(self.store.vector_size);

@@ -105,7 +105,8 @@ impl Tile {
         }
     }
 
-    /// The raw words a packed tile holds, one coordinate per dimension of its [`Space`](crate::Space).
+    /// The raw words a packed tile holds, one coordinate per dimension of its
+    /// [`Space`](crate::Space).
     pub(crate) fn nd_words<WP: Size>(
         &self,
         #[comptime] guard: Guard,
@@ -127,8 +128,8 @@ impl Tile {
         g.nd_words_mut::<WP>(layout)
     }
 
-    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] dimension, and where a
-    /// backward coefficient puts the box's extremes off its two logical corners.
+    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] dimension, and where
+    /// a backward coefficient puts the box's extremes off its two logical corners.
     pub(crate) fn guard_provable(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
@@ -145,8 +146,9 @@ impl Tile {
         }
     }
 
-    /// Whether a read can be anchored once per run of `dimension` and advanced by an add: an unpacked
-    /// memory operand with no clamp or backward coefficient, whose `dimension` steps additively.
+    /// Whether a read can be anchored once per run of `dimension` and advanced by an add: an
+    /// unpacked memory operand with no clamp or backward coefficient, whose `dimension` steps
+    /// additively.
     pub(crate) fn run_advanceable(&self, #[comptime] dimension: Dimension) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
@@ -212,7 +214,8 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(g) => Gathered::new(
                 g.dimension_projection(&space),
-                // A caller that evaluated the map derived its coordinates itself, so both guards stay on.
+                // A caller that evaluated the map derived its coordinates itself, so both guards
+                // stay on.
                 g.packed::<T, W, CoordsDyn, CompactionStep>(
                     g.physical_box(),
                     comptime!(Guard::Checked),

@@ -7,7 +7,8 @@ use cubecl::zspace::{SmallVec, Tiling};
 use super::Stagger;
 use crate::{Dimension, Geometry, Refusal, Space};
 
-/// The most pieces a statement keeps on the stack: a few stated tiles and the rest of each dimension.
+/// The most pieces a statement keeps on the stack: a few stated tiles and the rest of each
+/// dimension.
 const PIECES: usize = 12;
 
 /// A list of pieces, or of what each piece gives, without a heap allocation.
@@ -194,7 +195,8 @@ impl StoragePartitioning {
                 .iter_mut()
                 .find(|(dimension, _)| *dimension == piece.dimension)
             {
-                // A dimension met again after another one sat between: no longer one run per dimension.
+                // A dimension met again after another one sat between: no longer one run per
+                // dimension.
                 Some(_) if !continues => break,
                 Some((_, extent)) => *extent *= piece.count,
                 None => tile.push((piece.dimension, piece.count)),
@@ -265,8 +267,8 @@ impl StoragePartitioning {
         Ok(Geometry::new(&axes).with_tiling(tiling))
     }
 
-    /// How many buffer axes each of `dimensions` is stored as: one per stated tile along it, and one for
-    /// the rest of it.
+    /// How many buffer axes each of `dimensions` is stored as: one per stated tile along it, and
+    /// one for the rest of it.
     fn fragments(&self, dimensions: &[Dimension]) -> SmallVec<[usize; Space::MAX_RANK]> {
         dimensions
             .iter()
@@ -579,7 +581,8 @@ mod tests {
         ));
     }
 
-    /// A tile's piece of one is kept as an axis of the buffer, and a reader is held the same either way.
+    /// A tile's piece of one is kept as an axis of the buffer, and a reader is held the same either
+    /// way.
     #[test]
     fn a_piece_of_one_is_an_axis_kept_as_stated() {
         let with_one = StorageLevels::new(&[(N, 4)])
@@ -595,8 +598,8 @@ mod tests {
     }
 
     /// The level-major order cubecl's tiling lists axes in: every dimension's coarsest piece in the
-    /// tensor's order, then the next of every dimension still split, so an untiled dimension drops out after
-    /// the first level and a deeper dimension appears alone at the finest.
+    /// tensor's order, then the next of every dimension still split, so an untiled dimension drops
+    /// out after the first level and a deeper dimension appears alone at the finest.
     #[test]
     fn labels_name_the_axes_level_major_coarsest_first() {
         let untiled = StorageLevels::new(&[]).grid(&[N, K]);

@@ -174,8 +174,8 @@ impl Tile {
         let (stage, mut window) = Memory::landing::<S>(&space, units, planes);
         let landing = Tile::new::<S>(stage.kind, comptime!(self.place.clone()));
 
-        // A load is read whole, a tile of several dimensions included, and landed a run of its finest
-        // dimension at a time, each run under the scale at its own coordinates.
+        // A load is read whole, a tile of several dimensions included, and landed a run of its
+        // finest dimension at a time, each run under the scale at its own coordinates.
         let load = self.vector_tile();
         let (sw, (finest, run)) = comptime!((load.values(), load.extents()[0]));
         let size!(SW) = sw;
@@ -254,8 +254,8 @@ impl Tile {
     }
 }
 
-/// The column count of a landed window's matrix: the trailing dimensions on the innermost dimension's side
-/// of the contraction.
+/// The column count of a landed window's matrix: the trailing dimensions on the innermost
+/// dimension's side of the contraction.
 fn landed_cols(window: &Space, out: &Space) -> usize {
     let rank = window.rank();
     let innermost = out.contains(window.dimension_at(rank - 1));

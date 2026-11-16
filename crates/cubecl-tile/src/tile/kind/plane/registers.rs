@@ -321,8 +321,8 @@ impl RegisterData {
 }
 
 /// The block cut into slices along its columns, each a unit holds whole: the verbs
-/// [`DimensionSlices`] runs on a register block. The block holds whole cells, never a line of partials
-/// of one ([`assert_whole_cells`]).
+/// [`DimensionSlices`] runs on a register block. The block holds whole cells, never a line of
+/// partials of one ([`assert_whole_cells`]).
 #[cube]
 impl RegisterData {
     /// `self[i, s] = self[i, s] · scale + bias[i, s]` at every cell, the bias read at the cell of
@@ -371,7 +371,8 @@ impl RegisterData {
         maxima
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` ([`DimensionSlices::exp2_scaled_minus_cell`]).
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])`
+    /// ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(&mut self, scale: E, offsets: &Array<E>) {
         let data = self.data.at_mut::<E>();
         #[unroll]

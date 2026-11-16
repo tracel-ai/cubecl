@@ -1,8 +1,9 @@
 //! Convolution as a client of the tile DSL: a gather-reduce whose reduce dimensions are *abstract*.
 //!
-//! A convolution's window dimensions are not physical axes of the input. They address the same physical
-//! axis its output dimensions address, at their own coefficient: `Ih = Oh*stride + Rh*dilation`. So the
-//! input tile spans more dimensions than its buffer has physical ones, and tiles overlap.
+//! A convolution's window dimensions are not physical axes of the input. They address the same
+//! physical axis its output dimensions address, at their own coefficient: `Ih = Oh*stride +
+//! Rh*dilation`. So the input tile spans more dimensions than its buffer has physical ones, and
+//! tiles overlap.
 //!
 //! That mapping is the operand's [`Projection`]; everything else (the space, the walk, `Tile::at`,
 //! the leaf) is the same machinery matmul runs on.
@@ -764,9 +765,9 @@ fn conv1d_padded_staged_underflow_masks_to_zero() {
     }
 }
 
-/// The gathered operand in two-wide lines. Its innermost dimension is `CI`, the fastest contracted one,
-/// so the leaf splits each reduce step into the line index it reads and the unit it broadcasts:
-/// the one arithmetic on the gather path that a width of `1` leaves dead.
+/// The gathered operand in two-wide lines. Its innermost dimension is `CI`, the fastest contracted
+/// one, so the leaf splits each reduce step into the line index it reads and the unit it
+/// broadcasts: the one arithmetic on the gather path that a width of `1` leaves dead.
 #[test]
 fn conv1d_vectorized_input() {
     Conv1d {
@@ -878,9 +879,9 @@ impl Conv1d {
             .zeros()
             .generate_without_host_data();
 
-        // Every dimension here can go runtime, including the two the input gathers over: `OH` is stated
-        // by the output, which maps it identically, and `RH` by the weight. Only a dimension no
-        // operand witnesses has to stay static, which is what `dynamic` narrows to.
+        // Every dimension here can go runtime, including the two the input gathers over: `OH` is
+        // stated by the output, which maps it identically, and `RH` by the weight. Only a dimension
+        // no operand witnesses has to stay static, which is what `dynamic` narrows to.
         let launch = match dynamic {
             Some(dimensions) => implied(
                 &client,
@@ -970,9 +971,10 @@ impl Conv1d {
     }
 }
 
-/// The two dimensions the input gathers over, `OH` and `RH`, kept static while the rest goes runtime:
-/// the launch a gathered operand was restricted to before any operand could state a gathered
-/// dimension' size. It must keep working: a dimension no operand witnesses still reaches the kernel static.
+/// The two dimensions the input gathers over, `OH` and `RH`, kept static while the rest goes
+/// runtime: the launch a gathered operand was restricted to before any operand could state a
+/// gathered dimension' size. It must keep working: a dimension no operand witnesses still reaches
+/// the kernel static.
 #[test]
 fn conv1d_launched_static_window() {
     Conv1d {
@@ -1160,8 +1162,8 @@ impl Conv1d {
     }
 }
 
-/// The degenerate coefficients, which a `Static` projection evaluates away entirely: the runtime path
-/// has to produce the same answer without that evaluation.
+/// The degenerate coefficients, which a `Static` projection evaluates away entirely: the runtime
+/// path has to produce the same answer without that evaluation.
 #[test]
 fn conv1d_dynamic_unit_coefficients() {
     Conv1d {
@@ -1477,7 +1479,8 @@ impl Conv2d {
             Form::Static,
         );
 
-        // Two gathered physical axes, one per spatial dimension pair; the channel dimension rides identity.
+        // Two gathered physical axes, one per spatial dimension pair; the channel dimension rides
+        // identity.
         let in_spec = TileSpec::new(Projection::new(
             &[OH, OW, RH, RW, CI],
             &[
@@ -1532,8 +1535,8 @@ fn conv2d_dense_window() {
     .check(2, 2, 4);
 }
 
-/// Different stride and dilation per spatial dimension, so the two projected physical axes cannot be
-/// confused.
+/// Different stride and dilation per spatial dimension, so the two projected physical axes cannot
+/// be confused.
 #[test]
 fn conv2d_asymmetric_stride_and_dilation() {
     Conv2d {
@@ -1602,8 +1605,8 @@ fn conv1d_staged_dense_window() {
     );
 }
 
-/// Stride and dilation both off `1`: the fill's per-dimension advance and the receptive-field span are
-/// what place each staged element, so neither can collapse to the edge.
+/// Stride and dilation both off `1`: the fill's per-dimension advance and the receptive-field span
+/// are what place each staged element, so neither can collapse to the edge.
 #[test]
 fn conv1d_staged_strided_and_dilated() {
     Conv1d {
@@ -1967,9 +1970,9 @@ impl Resize1d {
         out
     }
 
-    /// `OH` cut at `oh` under the leaf and the other dimensions whole, then one walk per count above
-    /// it: a count nests a second descent, which is where a rational window's leftover phase has
-    /// to accumulate rather than restart.
+    /// `OH` cut at `oh` under the leaf and the other dimensions whole, then one walk per count
+    /// above it: a count nests a second descent, which is where a rational window's leftover phase
+    /// has to accumulate rather than restart.
     fn space(&self, oh: usize, oh_counts: &[usize]) -> Launcher {
         let leaf = Levels::leaf(&[(OH, oh), (CO, self.co), (RH, self.rh), (CI, self.ci)]);
         let tiling = oh_counts.iter().fold(leaf, |tiling, &count| {

@@ -141,7 +141,8 @@ fn indexed_matmul_kernel(
 }
 
 /// [`indexed_matmul_kernel`] with the weights staged in shared memory over the walk of rows: the
-/// weights span no dimension that walk steps, so only their table tells the plan to refill the stage.
+/// weights span no dimension that walk steps, so only their table tells the plan to refill the
+/// stage.
 #[cube(launch)]
 fn indexed_staged_matmul_kernel(
     x: &TileTensor<'_>,
@@ -303,8 +304,8 @@ fn a_route_past_the_last_expert_clamps_to_it() {
     assert_cells(&got, &want, "clamped");
 }
 
-/// Weights that check their expert dimension read zero past it instead: the row a padded route names
-/// drains the identity, with no branch in the kernel.
+/// Weights that check their expert dimension read zero past it instead: the row a padded route
+/// names drains the identity, with no branch in the kernel.
 #[test]
 fn a_route_past_the_last_expert_reads_zero_where_the_operand_checks_it() {
     let checked = weights_spec().boundaries(&[Some(Boundary::Zero), None, None]);

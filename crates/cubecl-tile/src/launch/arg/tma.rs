@@ -51,9 +51,9 @@ impl TileTensorLaunch {
 
 impl TileTensorLaunch {
     /// A TMA tensor map as a tile tensor over `dimensions`, `extents` along each, whose descriptor
-    /// axes are not the tile's own dimensions: each descriptor coordinate is read off a position over
-    /// `dimensions` as `coordinates` says, as a block-split operand lands in a descriptor over the
-    /// matrix it splits (its `KB` and `KI` one column).
+    /// axes are not the tile's own dimensions: each descriptor coordinate is read off a position
+    /// over `dimensions` as `coordinates` says, as a block-split operand lands in a descriptor over
+    /// the matrix it splits (its `KB` and `KI` one column).
     ///
     /// # Panics
     ///
@@ -124,8 +124,8 @@ impl TileTensorLaunch {
     }
 }
 
-/// One term of a descriptor coordinate: the position along the tile's `position`-th dimension, times
-/// `scale`, modulo `modulus` where it is not zero, over `divisor`.
+/// One term of a descriptor coordinate: the position along the tile's `position`-th dimension,
+/// times `scale`, modulo `modulus` where it is not zero, over `divisor`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct TmaTerm {
     pub position: usize,
@@ -169,8 +169,8 @@ pub struct TmaCoordinates {
     pub axes: Vec<Vec<TmaTerm>>,
 }
 
-/// In-kernel tensor-map layout landing a tile's position, over its own dimensions, in a descriptor whose
-/// axes sum them ([`TmaCoordinates`]).
+/// In-kernel tensor-map layout landing a tile's position, over its own dimensions, in a descriptor
+/// whose axes sum them ([`TmaCoordinates`]).
 #[derive(CubeType, CubeLaunch, Clone)]
 pub(crate) struct TmaFoldedLayout {
     /// The extent of each of the tile's dimensions.

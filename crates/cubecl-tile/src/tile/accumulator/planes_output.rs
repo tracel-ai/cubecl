@@ -9,17 +9,19 @@ use crate::*;
 /// The output of one cube, reached by its planes.
 ///
 /// Where the partitioning hands every plane a box of the output of its own, a plane's sum drains
-/// into its box. Where it splits a dimension the output lacks across the planes, the contracted dimension of
-/// a sum they each hold part of, the planes holding the same box drain into a shared-memory
-/// accumulator on the cyclic schedule ([`SmemCyclicAccumulation`]) and [`write`] stores the sum.
-/// The tile says which from the partitioning it was cut by: the caller states nothing.
+/// into its box. Where it splits a dimension the output lacks across the planes, the contracted
+/// dimension of a sum they each hold part of, the planes holding the same box drain into a
+/// shared-memory accumulator on the cyclic schedule ([`SmemCyclicAccumulation`]) and [`write`]
+/// stores the sum. The tile says which from the partitioning it was cut by: the caller states
+/// nothing.
 ///
 /// [`write`]: PlanesOutput::write
 #[derive(CubeType)]
 pub struct PlanesOutput<A: Numeric> {
     out: Tile,
     merged: ComptimeOption<SmemCyclicAccumulation<A>>,
-    /// The dimensions the output lacks that the planes are split along, each with its count of planes.
+    /// The dimensions the output lacks that the planes are split along, each with its count of
+    /// planes.
     #[cube(comptime)]
     sharing: Vec<(Dimension, usize)>,
 }

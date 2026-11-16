@@ -59,7 +59,8 @@ const B: Dimension = Dimension(3);
 const B0: Dimension = Dimension(4);
 const B1: Dimension = Dimension(5);
 
-// A second contracted dimension, so a contraction that is otherwise a plain matmul takes the N-D nest.
+// A second contracted dimension, so a contraction that is otherwise a plain matmul takes the N-D
+// nest.
 const K2: Dimension = Dimension(6);
 
 /// The software instruction most tests contract through: a 16-cell budget, no edge split, no
@@ -528,8 +529,8 @@ fn promoted_matmul_in_place<EA: Numeric>(
     acc.drained_into(&c);
 }
 
-/// [`promoted_matmul_in_place`] over the two-level cube/plane nest a real staged matmul composes: the
-/// block is opened per plane region and contracted along the inner K walk.
+/// [`promoted_matmul_in_place`] over the two-level cube/plane nest a real staged matmul composes:
+/// the block is opened per plane region and contracted along the inner K walk.
 #[cube(launch)]
 fn promoted_matmul_two_levels_in_place<EA: Numeric>(
     a: &TileTensor<'_>,
@@ -865,9 +866,9 @@ fn matmul_one_tile_per_cube() {
 }
 
 /// Cubes distributed their boxes in a swizzled order whose strips the grid does not divide: a 3x5
-/// grid in strips of 2 and of 4 along either dimension, the last strip narrower than the rest. Each box
-/// must still go to exactly one cube: one distributed twice doubles its product, one distributed to
-/// no cube keeps the poison `c` came in with.
+/// grid in strips of 2 and of 4 along either dimension, the last strip narrower than the rest. Each
+/// box must still go to exactly one cube: one distributed twice doubles its product, one
+/// distributed to no cube keeps the poison `c` came in with.
 #[test]
 fn matmul_ragged_swizzle_distributes_every_box_once() {
     for order in [
@@ -1162,8 +1163,8 @@ fn a_register_staged_ring_matches_a_slot_ahead_ring() {
 /// Every walk of one to seven regions under both schedules, at every depth each takes, walked at
 /// runtime and unrolled: a ring runs the laps whose every region has the one ahead of it to fill
 /// with no branch around the fill, then the laps where the walk runs out with it. Walks shorter
-/// than the ring, one region past it, and ones whose last laps are two all land here; a register ring
-/// three deep prefetches into its slots.
+/// than the ring, one region past it, and ones whose last laps are two all land here; a register
+/// ring three deep prefetches into its slots.
 #[test]
 fn every_walk_length_matches_the_whole_under_both_schedules() {
     let tiling = || {
@@ -1418,9 +1419,10 @@ fn matmul_broadcast_lhs_only() {
     );
 }
 
-/// Both batch dimensions ride cube-Z at once: `B0` and `B1` are `Spatial { Cube(Z) }`, so the launch
-/// puts their *product* on Z and the walk decodes one cube's `CUBE_POS_Z` back into `(b0, b1)`.
-/// Same broadcast result as the sequential variants; this lets `CpuGemm` parallelise a batch on Z.
+/// Both batch dimensions ride cube-Z at once: `B0` and `B1` are `Spatial { Cube(Z) }`, so the
+/// launch puts their *product* on Z and the walk decodes one cube's `CUBE_POS_Z` back into `(b0,
+/// b1)`. Same broadcast result as the sequential variants; this lets `CpuGemm` parallelise a batch
+/// on Z.
 #[test]
 fn matmul_broadcast_two_batch_dimensions_on_z() {
     check_matmul_broadcast(
@@ -1436,7 +1438,8 @@ fn matmul_broadcast_two_batch_dimensions_on_z() {
 
 /// The two-dimension broadcast tiled across *two* levels: L0 walks the batch (`batch_edge = 1`) and
 /// stages the whole `4×4` matrix, then L1 tiles that matrix into `2×2` final tiles. The broadcast
-/// (omitted) batch dimensions must stay correct through both `divide`s; the result is the same matmul.
+/// (omitted) batch dimensions must stay correct through both `divide`s; the result is the same
+/// matmul.
 #[test]
 fn matmul_broadcast_multilevel() {
     check_matmul_broadcast(
@@ -1450,9 +1453,10 @@ fn matmul_broadcast_multilevel() {
     );
 }
 
-/// `C = A @ B` where the batch is two independent dimensions `B0`, `B1` and each operand carries only
-/// one: `lhs ∈ {B0, M, K}`, `rhs ∈ {B1, K, N}`, `out ∈ {B0, B1, M, N}`. Each operand omits the
-/// batch dimension it broadcasts, and the kernel's `Space::merge` fills the omitted dimension back wholesale.
+/// `C = A @ B` where the batch is two independent dimensions `B0`, `B1` and each operand carries
+/// only one: `lhs ∈ {B0, M, K}`, `rhs ∈ {B1, K, N}`, `out ∈ {B0, B1, M, N}`. Each operand omits the
+/// batch dimension it broadcasts, and the kernel's `Space::merge` fills the omitted dimension back
+/// wholesale.
 ///
 /// Single tile per matrix (`t³`) with `batch_edge = 1`, so each output batch element is its own
 /// walk point. Every level stages, whatever the caller stacked.
@@ -1624,8 +1628,8 @@ fn check_matmul_cpu(m: usize, n: usize, k: usize, levels: Vec<Level>) {
 }
 
 /// The "global matmul" shape: M and N stay comptime (`Static`) and only K is `Dynamic`, resolved
-/// from the tensor at runtime while M/N evaluate and unroll: the mixed `merged_space`/`Extents` path
-/// that `all_dynamic` skips. Allocation uses the concrete nest, the kernel the K-dynamic one.
+/// from the tensor at runtime while M/N evaluate and unroll: the mixed `merged_space`/`Extents`
+/// path that `all_dynamic` skips. Allocation uses the concrete nest, the kernel the K-dynamic one.
 #[test]
 fn matmul_cpu_dynamic_k() {
     let client = cubecl::test_device().client();
@@ -1675,9 +1679,10 @@ fn matmul_cpu_dynamic_k() {
     assert_tiled_matmul(&client, c.handle(), m, n, k, edge);
 }
 
-/// N spread across a plane's units (`ComputeScope::Unit`): each unit owns a disjoint column of
-/// the register-leaf output and contracts all of K in registers: the one-row product's perpendicular mapping.
-/// `plane_size == 1` on CPU is one unit doing all of N (still correct); the win is on GPU's units.
+/// N spread across a plane's units (`ComputeScope::Unit`): each unit owns a disjoint column of the
+/// register-leaf output and contracts all of K in registers: the one-row product's perpendicular
+/// mapping. `plane_size == 1` on CPU is one unit doing all of N (still correct); the win is on
+/// GPU's units.
 ///
 /// A bare `units()` declares the split without the unit count; [`Space::resolve_units`] (the
 /// launch's stamping pass) fills it from the hardware `plane_size`, so the Unit dimension rides the
@@ -2534,8 +2539,8 @@ fn tropical_matmul_promoted() {
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-/// The promoted register accumulator under the two-level cube/plane nest a real staged matmul composes,
-/// with **vectorized** operands (rhs and output in 2-wide lines).
+/// The promoted register accumulator under the two-level cube/plane nest a real staged matmul
+/// composes, with **vectorized** operands (rhs and output in 2-wide lines).
 ///
 /// This once failed to compile on the CPU backend, when the block was allocated scalar and
 /// re-viewed as lines; the block is now allocated at its vector element (`Array<Vector<T, RA>>`),
@@ -2760,7 +2765,8 @@ fn one_body_runs_in_registers() {
 ///
 /// The regression this guards is silent in both directions: `#[unroll(flag)]` rolls the loop
 /// without complaint unless the macro sees `flag` as a comptime binding, and the lap arithmetic
-/// must be constants or the coordinates come out runtime even unrolled. Either slip panics in `Tile::at`.
+/// must be constants or the coordinates come out runtime even unrolled. Either slip panics in
+/// `Tile::at`.
 ///
 /// The other unrolled shape, a fragment stage, needs a fragment leaf and so only runs on
 /// tensor-core hardware ([`cmma_matmul_staged_n_walk_partition`]); this one runs everywhere.
@@ -3017,8 +3023,8 @@ fn check_promoted_summing_step(config: SoftwareMatmul) {
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-/// A half-precision output summing a long contraction a line a step: `4096` products of one. Summed in
-/// its own element the cell stops at `2048`, where one more product falls under half its spacing
+/// A half-precision output summing a long contraction a line a step: `4096` products of one. Summed
+/// in its own element the cell stops at `2048`, where one more product falls under half its spacing
 /// and rounds away; carried in `f32` across the walk and cast once on drain, it lands `4096`.
 ///
 /// The property a weight stored along `K` needs from a register block, the summing step being
@@ -3094,8 +3100,8 @@ fn check_a_promoted_step_sums_wider_than_its_output(config: SoftwareMatmul) {
     );
 }
 
-/// The N-D nest at a summing step: two contracted dimensions, both operands lined along the faster of
-/// them. The reduce nest steps by the served width, so each step lands on a line start.
+/// The N-D nest at a summing step: two contracted dimensions, both operands lined along the faster
+/// of them. The reduce nest steps by the served width, so each step lands on a line start.
 #[test]
 fn register_matmul_summing_step_two_contracted_dimensions() {
     let client = cubecl::test_device().client();
@@ -3147,9 +3153,10 @@ fn register_matmul_summing_step_two_contracted_dimensions() {
 
 // ---- the sub-plane reduction: UnitShare::Group --------------------------------------
 
-/// The nest a rows-in-flight one-row product cuts: the plane splits into aligned groups of `group_units`,
-/// each group owning one output row and its units interleaving `K` between them. Every unit holds
-/// a *partial* of the row, so the drain is a segmented reduction: `UnitShare::Group`, not `Plane`.
+/// The nest a rows-in-flight one-row product cuts: the plane splits into aligned groups of
+/// `group_units`, each group owning one output row and its units interleaving `K` between them.
+/// Every unit holds a *partial* of the row, so the drain is a segmented reduction:
+/// `UnitShare::Group`, not `Plane`.
 ///
 /// `groups == 1` is the same nest at `UnitShare::Plane`, which is the case already covered; the
 /// point here is a plane carrying several cells at once.
@@ -3264,12 +3271,14 @@ fn register_matmul_promoted_unit_group_reduce() {
     assert_matmul_arange(&client, c.handle(), m, n, k);
 }
 
-/// The one-row product's own layout, promoted: a plane split into groups, each owning a row, its units
-/// interleaving `K`, and the weight stored along `K` lining both operands along the contraction.
-/// Every unit's block is one line of partials, so the drain reduces line then group and writes once.
+/// The one-row product's own layout, promoted: a plane split into groups, each owning a row, its
+/// units interleaving `K`, and the weight stored along `K` lining both operands along the
+/// contraction. Every unit's block is one line of partials, so the drain reduces line then group
+/// and writes once.
 ///
-/// The memory-backed leaf does both reductions per visit and rounds the cell at each; a half-precision
-/// cell rounds away the walk that way, so this is the block a half-precision one-row product runs in.
+/// The memory-backed leaf does both reductions per visit and rounds the cell at each; a
+/// half-precision cell rounds away the walk that way, so this is the block a half-precision one-row
+/// product runs in.
 #[test]
 fn register_matmul_promoted_summing_step_unit_group_reduce() {
     let client = cubecl::test_device().client();
@@ -3361,15 +3370,15 @@ fn cmma_matmul_double_buffered_k_walk_transposed_rhs() {
 }
 
 /// The staged cmma K walk with the lhs stored `{K, M}`: the `A` fragment loads col-major off a
-/// stage whose trailing dimension is its rows, as a score kept keys first is read by a product whose
-/// rows are the queries.
+/// stage whose trailing dimension is its rows, as a score kept keys first is read by a product
+/// whose rows are the queries.
 #[test]
 fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
     check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, Transposed::Lhs);
 }
 
-/// Both operands stored along the output's dimensions, `{K, M}` and `{N, K}`, as a weight gradient's
-/// are: a strided stage read straight by the `A` and `B` fragments, both col-major.
+/// Both operands stored along the output's dimensions, `{K, M}` and `{N, K}`, as a weight
+/// gradient's are: a strided stage read straight by the `A` and `B` fragments, both col-major.
 #[test]
 fn cmma_matmul_staged_k_walk_transposed_operands() {
     check_cmma_matmul_k_walk_with(16, 1, 1, StageLayout::Strided, Transposed::Both);
@@ -4171,6 +4180,7 @@ fn cmma_matmul_staged_n_walk_partition() {
 
 // ---- Quantized B (RHS) through the register leaf ---------------------------------------
 //
-// The one-row product's production shape: the *weight* is the streamed RHS at `(K, N) = (d_in, d_out)`, packed
-// along `d_out` (the innermost dimension) with one scale per `(k, N-group)` block (`[1, bn]`); A stays
-// float. The RHS's served width drives the accumulator's line width, so `C` launches at that width.
+// The one-row product's production shape: the *weight* is the streamed RHS at `(K, N) = (d_in,
+// d_out)`, packed along `d_out` (the innermost dimension) with one scale per `(k, N-group)` block
+// (`[1, bn]`); A stays float. The RHS's served width drives the accumulator's line width, so `C`
+// launches at that width.

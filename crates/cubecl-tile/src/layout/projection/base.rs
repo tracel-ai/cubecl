@@ -30,8 +30,8 @@ impl Projection {
         Projection::direct(&space.dimensions().collect::<Vec<_>>())
     }
 
-    /// [`direct`](Projection::direct) storage-tiled: `labels` name each buffer axis by the dimension it
-    /// is a piece of, level-major.
+    /// [`direct`](Projection::direct) storage-tiled: `labels` name each buffer axis by the
+    /// dimension it is a piece of, level-major.
     pub fn tiled(dimensions: &[Dimension], labels: &[Dimension]) -> Self {
         let physical: Vec<PhysicalAxisMap> =
             labels.iter().copied().map(PhysicalAxisMap::of).collect();
@@ -119,8 +119,8 @@ impl Projection {
             .any(|&dimension| self.fragments(dimension) > 1)
     }
 
-    /// How many physical axes `dimension` is split across. A broadcast dimension is spread over none, which
-    /// is not a tiling of it: one fragment, the same answer an untiled dimension gives.
+    /// How many physical axes `dimension` is split across. A broadcast dimension is spread over
+    /// none, which is not a tiling of it: one fragment, the same answer an untiled dimension gives.
     fn fragments(&self, dimension: Dimension) -> usize {
         match self.addresses(dimension) {
             false => 1,
@@ -128,9 +128,9 @@ impl Projection {
         }
     }
 
-    /// How physical axis `pa` carries `dimension`: the positions of its finer carriers, whose extents a
-    /// coordinate is divided by first, and the one whose extent bounds `pa`'s coordinate (`None`
-    /// for the outermost, which keeps the whole quotient).
+    /// How physical axis `pa` carries `dimension`: the positions of its finer carriers, whose
+    /// extents a coordinate is divided by first, and the one whose extent bounds `pa`'s coordinate
+    /// (`None` for the outermost, which keeps the whole quotient).
     pub(crate) fn carried_by(
         &self,
         pa: usize,
@@ -146,7 +146,8 @@ impl Projection {
         (finer, (carriers[0] != pa).then_some(pa))
     }
 
-    /// Whether this operand addresses `dimension`; a spanned but unaddressed dimension is a broadcast.
+    /// Whether this operand addresses `dimension`; a spanned but unaddressed dimension is a
+    /// broadcast.
     pub(crate) fn addresses(&self, dimension: Dimension) -> bool {
         self.physical.iter().any(|m| m.addresses(dimension))
     }
@@ -345,8 +346,8 @@ impl Projection {
         1 + field.div_ceil(map.divisor().bound())
     }
 
-    /// `Disjoint` if every physical axis is partitioned by its dimensions, `Translated` if every one
-    /// is, some moved by an offset, else `Overlapping`.
+    /// `Disjoint` if every physical axis is partitioned by its dimensions, `Translated` if every
+    /// one is, some moved by an offset, else `Overlapping`.
     pub(crate) fn composition(&self) -> Composition {
         let one_cell_a_position = |m: &PhysicalAxisMap| {
             m.composition() != Composition::Overlapping && m.divisor().is_unit()
@@ -422,7 +423,8 @@ impl Projection {
             }
         }
         for &dimension in self.dimensions.iter() {
-            // A gathered operand must be untiled: each addressed dimension maps to one physical axis.
+            // A gathered operand must be untiled: each addressed dimension maps to one physical
+            // axis.
             let count = self
                 .physical
                 .iter()

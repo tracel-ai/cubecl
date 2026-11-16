@@ -251,8 +251,9 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     let (m, n, k) = comptime!(shape);
     let def = block_scaled_definition::<f32>(form, m, n, k);
     let space = comptime!(src.place.space.clone());
-    // The window's rows are the served dimension, its columns the contraction, however many dimensions
-    // make it up: a block-split space states `k` as its blocks and the position inside one.
+    // The window's rows are the served dimension, its columns the contraction, however many
+    // dimensions make it up: a block-split space states `k` as its blocks and the position inside
+    // one.
     let rows = comptime!(match ident {
         MatrixIdent::A => m,
         MatrixIdent::B => n,
@@ -419,7 +420,8 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     let mut run = CoordsDyn::new();
     #[unroll]
     for p in 0..rank {
-        // One row of a matrix: sixteen bytes of words along `k`, the innermost dimension in its lines.
+        // One row of a matrix: sixteen bytes of words along `k`, the innermost dimension in its
+        // lines.
         let extent = comptime!({
             let values = dimensions.col_run(&space, LDMATRIX_ROW_WORDS * per_word)[p];
             match p == rank - 1 {

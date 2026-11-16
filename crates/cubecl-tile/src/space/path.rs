@@ -80,9 +80,9 @@ impl Path {
         self.root.planes_per_cube() as usize
     }
 
-    /// The dimensions the root's partitioning distributes across a cube's planes that `along` admits,
-    /// each with its count of planes, outermost first: the planes holding the same box of a tile
-    /// that lacks those dimensions, or splitting the same slices of one that runs along them.
+    /// The dimensions the root's partitioning distributes across a cube's planes that `along`
+    /// admits, each with its count of planes, outermost first: the planes holding the same box of a
+    /// tile that lacks those dimensions, or splitting the same slices of one that runs along them.
     pub(crate) fn planes_along(
         &self,
         along: impl Fn(Dimension) -> bool,

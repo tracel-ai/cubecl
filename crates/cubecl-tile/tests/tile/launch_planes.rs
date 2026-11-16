@@ -8,8 +8,8 @@
 //! Every plane the launch spawns walks one tile, so the planes of a cube all reach a barrier any
 //! of them meets; a plane that walked none would leave the others waiting at it.
 //!
-//! The same cases run with dimensions reversed ([`Levels::reversed`]), on the planes of the launch and
-//! on the cube level of the control, over static extents and runtime ones.
+//! The same cases run with dimensions reversed ([`Levels::reversed`]), on the planes of the launch
+//! and on the cube level of the control, over static extents and runtime ones.
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -411,8 +411,8 @@ fn swizzled_blocks_take_every_tile_once() {
     }
 }
 
-/// A batch dimension beside `m` and `n`: the blocks of the two run fastest, a batch's after another's,
-/// and the last cube's planes past the last batch take none.
+/// A batch dimension beside `m` and `n`: the blocks of the two run fastest, a batch's after
+/// another's, and the last cube's planes past the last batch take none.
 #[test]
 fn the_batches_ride_outermost() {
     for order in [
@@ -447,8 +447,8 @@ fn assert_reversed_takes_every_tile_once(planes: Planes) {
     }
 }
 
-/// A cube level reversed along its dimensions: the cube at the start of a dimension takes the box at its
-/// end.
+/// A cube level reversed along its dimensions: the cube at the start of a dimension takes the box
+/// at its end.
 #[test]
 fn reversed_cubes_take_every_tile_once() {
     assert_reversed_takes_every_tile_once(Planes::OfEachCube);
@@ -554,8 +554,8 @@ fn every_plane_of_the_launch_walks_one_tile() {
 }
 
 /// The binding masks a dimension where the launch's planes run past its tiles, and no other: along
-/// a dimension whose blocks the edge cuts short, and along the dimension the blocks past the last land
-/// past, the outermost of three.
+/// a dimension whose blocks the edge cuts short, and along the dimension the blocks past the last
+/// land past, the outermost of three.
 #[test]
 fn the_binding_masks_where_the_planes_run_past_the_tiles() {
     let masked = |order: PlaneOrder, (m, n): (usize, usize)| {
@@ -578,8 +578,8 @@ fn the_binding_masks_where_the_planes_run_past_the_tiles() {
     assert_eq!(masked(three_a_cube, (6, 20)), [false, false, false]);
 }
 
-/// A kernel compiled for every batch count asks the static dimensions alone: the blocks the edge cuts
-/// short decide them, and the batch, which the spare blocks land past, is the launch's.
+/// A kernel compiled for every batch count asks the static dimensions alone: the blocks the edge
+/// cuts short decide them, and the batch, which the spare blocks land past, is the launch's.
 #[test]
 fn a_static_dimension_is_answered_beside_a_dynamic_batch() {
     let partitioning = |n| {

@@ -77,7 +77,8 @@ impl Operand {
     }
 }
 
-/// `out = Σ lhs · rhs` over the dimensions of `space` the output lacks, walked in leaf tiles of `tile`.
+/// `out = Σ lhs · rhs` over the dimensions of `space` the output lacks, walked in leaf tiles of
+/// `tile`.
 struct Gather {
     space: Vec<(Dimension, usize)>,
     tile: Vec<(Dimension, usize)>,
@@ -200,8 +201,8 @@ impl Window {
     }
 }
 
-/// A convolution's weight gradient: the input vectorized along `CI`, an accumulator row dimension, the
-/// output gradient vectorized along `CO`, `B` and `OH` contracted and `RH` a batch dimension.
+/// A convolution's weight gradient: the input vectorized along `CI`, an accumulator row dimension,
+/// the output gradient vectorized along `CO`, `B` and `OH` contracted and `RH` a batch dimension.
 #[derive(Clone, Copy, Debug)]
 struct WeightBackward {
     ci: usize,
@@ -341,8 +342,9 @@ fn gather_contraction_vectorized_lhs_backward_window() {
     }
 }
 
-/// A forward convolution over two spatial dimensions: the input vectorized along `CI` and contracted with
-/// the taps `RH` and `RW`, so the walk has two outer tap dimensions and one fastest one.
+/// A forward convolution over two spatial dimensions: the input vectorized along `CI` and
+/// contracted with the taps `RH` and `RW`, so the walk has two outer tap dimensions and one fastest
+/// one.
 #[derive(Clone, Copy, Debug)]
 struct Forward {
     ci: usize,
@@ -445,8 +447,8 @@ fn gather_tap_walk_forward() {
     }
 }
 
-/// One contracted dimension whose extent is no whole number of input vectors: the last vector's unused
-/// components are never read, and the buffer is padded to whole vectors.
+/// One contracted dimension whose extent is no whole number of input vectors: the last vector's
+/// unused components are never read, and the buffer is padded to whole vectors.
 #[derive(Clone, Copy, Debug)]
 struct Dot {
     k: usize,

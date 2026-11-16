@@ -4,8 +4,8 @@ use cubecl::prelude::*;
 
 use crate::Coords;
 
-/// The runtime half of a [`Projection`](crate::Projection): its dynamic coefficients and divisors, and the
-/// window origin's phase under each divisor.
+/// The runtime half of a [`Projection`](crate::Projection): its dynamic coefficients and divisors,
+/// and the window origin's phase under each divisor.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct RuntimeMap {

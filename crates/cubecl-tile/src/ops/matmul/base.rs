@@ -145,9 +145,9 @@ impl Tile {
     /// element first, a manual-mma instruction decodes it at its other factor's element, or the
     /// instruction reads its codes as stored.
     ///
-    /// A manual-mma accumulator takes each factor on the side its dimensions give it, whichever order
-    /// they are handed over in: the one carrying the accumulator's rows fills the instruction's
-    /// `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
+    /// A manual-mma accumulator takes each factor on the side its dimensions give it, whichever
+    /// order they are handed over in: the one carrying the accumulator's rows fills the
+    /// instruction's `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
     ///
     /// It reaches the IR as one `tile.mma` op.
     pub fn mma(&mut self, lhs: &Tile, rhs: &Tile) {

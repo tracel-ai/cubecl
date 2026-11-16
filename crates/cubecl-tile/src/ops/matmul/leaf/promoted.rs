@@ -9,8 +9,8 @@ use crate::*;
 
 #[cube]
 impl RegisterData {
-    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales multiplied in.
-    /// The block must be opened against the rhs it contracts (width and values a step).
+    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales multiplied
+    /// in. The block must be opened against the rhs it contracts (width and values a step).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mma<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,

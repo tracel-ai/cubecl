@@ -59,7 +59,8 @@ impl Walk {
     pub(crate) fn of(space: &Space, #[comptime] level: Level, parent: Region) -> Walk {
         let host = comptime!(space.clone());
         let rank = host.rank();
-        // A swizzled cube level decodes its two in-plane dimensions jointly from the flat dispatch index.
+        // A swizzled cube level decodes its two in-plane dimensions jointly from the flat dispatch
+        // index.
         let in_plane = comptime!(
             level
                 .order()
@@ -152,9 +153,9 @@ impl Walk {
         }
     }
 
-    /// `(counts, positions, scales)` of a level spanning the launch: along each of its dimensions, the
-    /// one tile this plane's or unit's place in the launch names, past the last for one past the
-    /// last tile, which the binding masks; every tile of the others.
+    /// `(counts, positions, scales)` of a level spanning the launch: along each of its dimensions,
+    /// the one tile this plane's or unit's place in the launch names, past the last for one past
+    /// the last tile, which the binding masks; every tile of the others.
     fn spanning_launch(
         #[comptime] host: &Space,
         #[comptime] level: &Level,
@@ -342,7 +343,8 @@ impl Walk {
     }
 
     /// Whether this instance takes step `i` of a bounded walk ([`bounds`](Walk::bounds)): whether
-    /// the tile it reaches along the dimension its units take in turns lies inside the dimension's tiles.
+    /// the tile it reaches along the dimension its units take in turns lies inside the dimension's
+    /// tiles.
     pub(crate) fn takes(&self, i: usize) -> bool {
         let p = comptime!(Walk::turns_at(&self.space, &self.level));
         self.tile_coord(self.step_coord(i, p), p) < self.tiles.at(p)
@@ -363,15 +365,15 @@ impl Walk {
         self.parent.below(coords, &self.level)
     }
 
-    /// This instance's position among those the level distributes dimension `p` to, `0` for a walked
-    /// dimension.
+    /// This instance's position among those the level distributes dimension `p` to, `0` for a
+    /// walked dimension.
     pub(crate) fn position_at(&self, #[comptime] p: usize) -> usize {
         self.positions.at(p)
     }
 
-    /// This instance's place among the workers the level deals `dimension` to, `0` for a walked dimension:
-    /// which plane of those taking `dimension` in runs, where the tiles a worker walks no longer name
-    /// it.
+    /// This instance's place among the workers the level deals `dimension` to, `0` for a walked
+    /// dimension: which plane of those taking `dimension` in runs, where the tiles a worker walks
+    /// no longer name it.
     pub fn position(&self, #[comptime] dimension: Dimension) -> usize {
         self.positions.at(comptime!(self.space.position(dimension)))
     }
@@ -425,9 +427,9 @@ impl Walk {
         }
     }
 
-    /// The tile dimension `p`'s step coordinate `coord` reaches, with the instance's position added per
-    /// the [`Spread`], counted from the
-    /// last tile where the level hands the dimension out [`reversed`](crate::Levels::reversed).
+    /// The tile dimension `p`'s step coordinate `coord` reaches, with the instance's position added
+    /// per the [`Spread`], counted from the last tile where the level hands the dimension out
+    /// [`reversed`](crate::Levels::reversed).
     fn tile_coord(&self, coord: usize, #[comptime] p: usize) -> usize {
         let tile = match comptime!(self.distributes[p].clone()) {
             DimensionDistribution::Walked => coord,
@@ -486,8 +488,8 @@ impl Iterable for WalkExpand {
             }
             return;
         }
-        // Units taking the one dimension in turns, not written out: stride from the unit's place, which
-        // is what taking every `n`-th tile is, with no count of its own to reckon.
+        // Units taking the one dimension in turns, not written out: stride from the unit's place,
+        // which is what taking every `n`-th tile is, with no count of its own to reckon.
         if !self.unroll && Walk::strides(&self.space, &self.level) {
             let (first, lines, units) = self.__expand_stride_method(scope);
             range_stepped::expand(scope, first, lines, units).expand(scope, &mut |scope, tile| {
@@ -552,8 +554,8 @@ impl Walk {
     }
 
     /// The steps every instance of `level` over `space` takes and the most any takes, where they
-    /// differ only by how a dimension taken in turns splits among its units and the host knows both:
-    /// the one walk whose instance's step count is not a constant but is bounded by one.
+    /// differ only by how a dimension taken in turns splits among its units and the host knows
+    /// both: the one walk whose instance's step count is not a constant but is bounded by one.
     fn bounds(space: &Space, level: &Level) -> Option<(usize, usize)> {
         let mut bounds = (1usize, 1usize);
         for dimension in space.dimensions() {
@@ -588,7 +590,8 @@ impl Walk {
     ///
     /// # Panics
     ///
-    /// At expansion, where the walk's level steps another dimension than `dimension`, or steps it back.
+    /// At expansion, where the walk's level steps another dimension than `dimension`, or steps it
+    /// back.
     pub fn over_run(self, _dimension: Dimension) -> Walk {
         unexpanded!()
     }

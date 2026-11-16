@@ -6,8 +6,8 @@ use cubecl_ir::{
 };
 use pliron::derive::op_interface_impl;
 
-/// Two tiles contracted into an accumulator: `acc += lhs · rhs`, over the dimensions the accumulator
-/// does not span.
+/// Two tiles contracted into an accumulator: `acc += lhs · rhs`, over the dimensions the
+/// accumulator does not span.
 ///
 /// Its region holds the contraction as tracing wrote it, and yields nothing: what it does is the
 /// writes into the accumulator. Its lowering inlines the region; a backend that contracts tiles

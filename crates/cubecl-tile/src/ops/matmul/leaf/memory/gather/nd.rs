@@ -172,8 +172,8 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     let mut b = Array::<Vector<E, V>>::new(comptime!(nr));
     let mut row_vectors = RowVectors::<EL, L>::new(lhs, &problem);
 
-    // Tap by tap over the contracted dimensions before the fastest, so only the fastest one moves in the
-    // step loop.
+    // Tap by tap over the contracted dimensions before the fastest, so only the fastest one moves
+    // in the step loop.
     let extents = problem.block.reduce_extents.clone();
     let tap_extents = comptime!(extents[..extents.len() - 1].to_vec());
     let run = problem.block.fastest_extent();

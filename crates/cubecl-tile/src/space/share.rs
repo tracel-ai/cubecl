@@ -13,8 +13,8 @@ pub enum UnitShare {
     Whole,
     /// Every unit holds a partial of the same cell.
     Plane,
-    /// Groups of units share one cell each; `unit_bits` are the unit-index bits the reduced dimensions
-    /// occupy.
+    /// Groups of units share one cell each; `unit_bits` are the unit-index bits the reduced
+    /// dimensions occupy.
     Group { unit_bits: usize },
 }
 

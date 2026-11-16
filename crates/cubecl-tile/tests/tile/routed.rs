@@ -1,8 +1,9 @@
 //! Expert routing as a coordinate the kernel states.
 //!
-//! A token's expert is a value read from a table, not a loop coordinate. [`Walk::routed`] takes
-//! one step along the expert dimension at that value, so the dimension keeps the extent it truly has while
-//! the walk visits one of them; the weights operand carries nothing, and `at` is the same call.
+//! A token's expert is a value read from a table, not a loop coordinate. [`Walk::routed`] takes one
+//! step along the expert dimension at that value, so the dimension keeps the extent it truly has
+//! while the walk visits one of them; the weights operand carries nothing, and `at` is the same
+//! call.
 //!
 //! The leaf sees one value of the dimension, so it contracts nothing, and the block it opens sums
 //! along `K` exactly as an unrouted one does.
@@ -299,8 +300,8 @@ fn a_routed_operand_stages_the_expert_the_table_named() {
     assert_routed(&run_staged(&ROUTES), &ROUTES, FEATURES);
 }
 
-/// A routing table names a tile the dimension does not have. The coordinate came from data, so this is
-/// not a mistake the caller can be told about (a refusal inside a cube verb dies on a worker
+/// A routing table names a tile the dimension does not have. The coordinate came from data, so this
+/// is not a mistake the caller can be told about (a refusal inside a cube verb dies on a worker
 /// thread). The walk clamps instead, so the read stays inside the weights, on the last expert.
 #[test]
 fn a_route_past_the_last_expert_clamps_to_it() {
@@ -414,8 +415,8 @@ fn run_block(routes: &[u32]) -> HostData {
 /// a step consumes a whole line of each operand and the block's units are one cell's partials.
 ///
 /// The expert dimension holds one value under the route, so it contracts nothing. Counted as a
-/// contracted dimension it becomes the fastest one, not the dimension the operands line along, and the sum
-/// every `K`-stored weight needs is gone: a route could only run one scalar cell at a time.
+/// contracted dimension it becomes the fastest one, not the dimension the operands line along, and
+/// the sum every `K`-stored weight needs is gone: a route could only run one scalar cell at a time.
 ///
 /// A refusal inside a cube verb dies on the expansion worker, so a regression here reads as the
 /// output keeping its fill value rather than as a message.
@@ -424,8 +425,8 @@ fn a_routed_walk_sums_its_contraction_into_a_software_matmul() {
     assert_routed(&run_block(&ROUTES), &ROUTES, DEPTH);
 }
 
-/// Counts the steps of a walk routed on `dimension`, which the refusal test hands a dimension the space
-/// does not carry.
+/// Counts the steps of a walk routed on `dimension`, which the refusal test hands a dimension the
+/// space does not carry.
 #[cube(launch)]
 fn routed_dimension_kernel(
     k: &TileTensor<'_>,

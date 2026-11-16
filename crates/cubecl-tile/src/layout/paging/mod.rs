@@ -2,9 +2,9 @@
 //!
 //! The buffer is a pool whose `sequence` axis holds pages and whose `position` axis a page's
 //! positions. An operand bound over it is read as the sequences a table names: sequence `b`'s
-//! position `s` lies in page `table[b, s / page_size]`, at row `s % page_size`. The projection stays
-//! direct over the logical `[…, sequence, …, position, …]` dimensions, so every window, walk and bound
-//! is the logical one; the table is resolved only where a coordinate becomes an offset
+//! position `s` lies in page `table[b, s / page_size]`, at row `s % page_size`. The projection
+//! stays direct over the logical `[…, sequence, …, position, …]` dimensions, so every window, walk
+//! and bound is the logical one; the table is resolved only where a coordinate becomes an offset
 //! ([`BufferLayout`](super::projection::BufferLayout)), at every offset taken, a masked cell's
 //! included. The pool is bound as it lies; the operand's extents along the two dimensions are the
 //! table's, read off it at launch, so nothing states them twice. A coordinate past the table, which

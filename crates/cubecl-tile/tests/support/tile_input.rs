@@ -91,8 +91,8 @@ impl TileInput {
     }
 
     /// The tile as one operand of `launcher`, served at the element it holds, bound `width` wide.
-    /// The launch derives its spec: the dimensions its tiles reach past are masked, and a stored tiling
-    /// is read as the buffer lays it out.
+    /// The launch derives its spec: the dimensions its tiles reach past are masked, and a stored
+    /// tiling is read as the buffer lays it out.
     ///
     /// # Panics
     ///
@@ -115,7 +115,8 @@ impl TileInput {
             .dimensions(&self.dimensions)
     }
 
-    /// How the buffer stores each dimension: once untiled, else once per level and once for the grid.
+    /// How the buffer stores each dimension: once untiled, else once per level and once for the
+    /// grid.
     fn tiling(&self) -> Tiling {
         match self.levels {
             0 => Tiling::UNTILED,
@@ -302,8 +303,8 @@ impl QuantizedTileInputBuilder {
     /// Integer value types only. The walk is over whole numbers packed as two's complement, and
     /// [`q`](QuantizedTileInput::q) is handed to tests as the magnitude each field stands for —
     /// both of which hold only where a format's codes are its magnitudes. Under a minifloat the
-    /// fields would be codes, so a test multiplying `q · scale` would compare the kernel against the
-    /// integer grid the format exists to avoid.
+    /// fields would be codes, so a test multiplying `q · scale` would compare the kernel against
+    /// the integer grid the format exists to avoid.
     pub fn arange(self) -> QuantizedTileInput {
         assert!(
             integer_valued(self.scheme.value),

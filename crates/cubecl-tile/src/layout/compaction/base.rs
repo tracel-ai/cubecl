@@ -49,10 +49,10 @@ impl Compaction {
                     .iter()
                     .map(|t| (extent_of(t.dimension) - 1) * t.scale.bound())
                     .sum();
-                // A window starts on a multiple of its own extent, the windows tiling the dimension:
-                // one dimension at coefficient one, whole cells of a static divisor wide and not
-                // offset, starts on a cell and reads its extent's cells. Otherwise it may start
-                // partway into one and straddle one more; a dynamic divisor's cells are wider
+                // A window starts on a multiple of its own extent, the windows tiling the
+                // dimension: one dimension at coefficient one, whole cells of a static divisor wide
+                // and not offset, starts on a cell and reads its extent's cells. Otherwise it may
+                // start partway into one and straddle one more; a dynamic divisor's cells are wider
                 // than its bound, so they may too.
                 let whole_cells = match moving.as_slice() {
                     [term] => {
@@ -382,9 +382,9 @@ mod tests {
     }
 
     /// Words of block scales read a word every four blocks: a window of whole words starts on a
-    /// word, the windows tiling the dimension, and holds exactly its words, which is what a box of them
-    /// lands. A window of part of a word may start partway into one and keeps the margin, as does
-    /// one under a dynamic divisor or an offset.
+    /// word, the windows tiling the dimension, and holds exactly its words, which is what a box of
+    /// them lands. A window of part of a word may start partway into one and keeps the margin, as
+    /// does one under a dynamic divisor or an offset.
     #[test]
     fn a_window_of_whole_cells_holds_exactly_its_cells() {
         let words =

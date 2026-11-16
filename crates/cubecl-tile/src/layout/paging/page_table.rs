@@ -70,8 +70,8 @@ pub(crate) struct PageList {
 
 #[cube]
 impl PageTable {
-    /// `table` resolving `paging`'s dimensions, which `projection` carries, over a pool of `pool_pages`
-    /// pages, an operand read `width` values a line along its innermost axis.
+    /// `table` resolving `paging`'s dimensions, which `projection` carries, over a pool of
+    /// `pool_pages` pages, an operand read `width` values a line along its innermost axis.
     pub(crate) fn new(
         table: &Tensor<u32>,
         pool_pages: u32,

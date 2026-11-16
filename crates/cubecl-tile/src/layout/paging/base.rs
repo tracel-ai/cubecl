@@ -3,8 +3,8 @@
 
 use crate::*;
 
-/// Which dimensions of an operand a page table resolves: `sequence` names the page a table row lists,
-/// `position` a run of `page_size` positions within one.
+/// Which dimensions of an operand a page table resolves: `sequence` names the page a table row
+/// lists, `position` a run of `page_size` positions within one.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Paging {
     pub sequence: Dimension,
@@ -53,8 +53,8 @@ impl Paging {
     ///
     /// # Errors
     ///
-    /// Either dimension not one axis's identity, or both on one axis: a page is resolved coordinate by
-    /// coordinate.
+    /// Either dimension not one axis's identity, or both on one axis: a page is resolved coordinate
+    /// by coordinate.
     pub(crate) fn axes(&self, projection: &Projection) -> Result<(usize, usize), Refusal> {
         let axis = |dimension: Dimension| {
             (0..projection.physical_rank())

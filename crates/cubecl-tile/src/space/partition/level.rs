@@ -1,4 +1,5 @@
-//! One [`Level`]: which dimensions a loop steps, in tiles of what size, how many, and who takes them.
+//! One [`Level`]: which dimensions a loop steps, in tiles of what size, how many, and who takes
+//! them.
 
 use super::{
     ComputeScope, Count, Coverage, CubeAxis, CubeOrder, GridCount, PlaneOrder, Spread, UnitCube,
@@ -11,7 +12,8 @@ use crate::{Dimension, DimensionMap, Extent, Space};
 pub struct Level {
     coverage: Coverage,
     cuts: DimensionMap<Cut>,
-    /// Dimensions a cube level hands one tile of, riding the grid's `Z` ([`batching`](Level::batching)).
+    /// Dimensions a cube level hands one tile of, riding the grid's `Z`
+    /// ([`batching`](Level::batching)).
     batches: Vec<Dimension>,
     shared_by: Option<usize>,
     fillers: usize,
@@ -133,7 +135,8 @@ impl Level {
         }
     }
 
-    /// The one dimension of a copy's lines, which its level deals ([`copied_by`](Level::copied_by)).
+    /// The one dimension of a copy's lines, which its level deals
+    /// ([`copied_by`](Level::copied_by)).
     pub(crate) const COPIED: Dimension = Dimension(0);
 
     /// The level a copy into or out of a window held by `holder` deals its lines by: line
@@ -209,9 +212,10 @@ impl Level {
         }
     }
 
-    /// The plane level over every tile of `tile`'s dimensions, each `(dimension, tile)`, dealt to the planes
-    /// of the whole launch in `order` rather than to the planes of one cube: the outermost level
-    /// of a partitioning with no cube level, whose cubes are only how the launch groups its planes.
+    /// The plane level over every tile of `tile`'s dimensions, each `(dimension, tile)`, dealt to
+    /// the planes of the whole launch in `order` rather than to the planes of one cube: the
+    /// outermost level of a partitioning with no cube level, whose cubes are only how the launch
+    /// groups its planes.
     pub(crate) fn spanning_launch(tile: &[(Dimension, usize)], order: PlaneOrder) -> Level {
         assert!(
             !tile.is_empty(),
@@ -258,9 +262,9 @@ impl Level {
         }
     }
 
-    /// The unit level over every tile of `tile`'s dimensions, each `(dimension, tile)`, one tile to each
-    /// unit of the whole launch, the units grouped in cubes of `cube`: the outermost level of a
-    /// partitioning with no cube or plane level.
+    /// The unit level over every tile of `tile`'s dimensions, each `(dimension, tile)`, one tile to
+    /// each unit of the whole launch, the units grouped in cubes of `cube`: the outermost level of
+    /// a partitioning with no cube or plane level.
     pub(crate) fn units_spanning_launch(tile: &[(Dimension, usize)], cube: UnitCube) -> Level {
         assert!(
             cube.units() > 0,
@@ -382,8 +386,8 @@ impl Level {
         self
     }
 
-    /// This level handing out the tiles of each of `dimensions` from the last to the first, on top of
-    /// whatever order it deals them in: the first workers launched take the last tiles.
+    /// This level handing out the tiles of each of `dimensions` from the last to the first, on top
+    /// of whatever order it deals them in: the first workers launched take the last tiles.
     pub(crate) fn reversed(mut self, dimensions: &[Dimension]) -> Level {
         assert!(
             self.coverage == Coverage::Distribute(ComputeScope::Cube) || self.spans_launch(),
@@ -537,7 +541,8 @@ impl Level {
         }
     }
 
-    /// Tiles along `dimension` of `space` at this level, a partial tile counted; static extents only.
+    /// Tiles along `dimension` of `space` at this level, a partial tile counted; static extents
+    /// only.
     pub(crate) fn tiles(&self, space: &Space, dimension: Dimension) -> usize {
         match self.count(dimension) {
             None => 1,

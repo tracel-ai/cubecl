@@ -66,8 +66,8 @@ fn paged_sum_kernel<E: Numeric>(
         for lp in sequence.over(&logical) {
             let phys = table[b * PAGES_PER_SEQ + lp.coord(LP)] as usize;
 
-            // The same call MoE makes: the dimension keeps the pool's four pages, the walk visits the
-            // one the table named.
+            // The same call MoE makes: the dimension keeps the pool's four pages, the walk visits
+            // the one the table named.
             for page in lp.over(&physical).routed(PAGE, phys) {
                 let mut cell = out.at(&page);
                 cell.reduce_dimension_accumulate(&kv.at(&page), comptime!(Monoid::Sum));
@@ -260,9 +260,9 @@ impl Handing {
 }
 
 /// `out[b] = Σ pool[b's page of s, s % PAGE_LEN]` over positions `from..lens[b]` of sequence `b`,
-/// read through the table its binding carries: the kernel walks logical positions, `read_block` of them
-/// a step, and [`Tile::within`] cuts each sequence at its own length, handing each cut the entry
-/// `handing` names.
+/// read through the table its binding carries: the kernel walks logical positions, `read_block` of
+/// them a step, and [`Tile::within`] cuts each sequence at its own length, handing each cut the
+/// entry `handing` names.
 #[cube(launch)]
 fn paged_read_sum_kernel<E: Numeric>(
     pool: &TileTensor<'_>,
@@ -871,9 +871,8 @@ fn a_covering_table_reads_each_sequence_through_it() {
 }
 
 /// What a kernel could not read through a table is refused as the table is bound: a table of
-/// another rank than its two keys, one axis for both dimensions, pages along the innermost axis, a pool of
-/// no pages, and a delivery that moves
-/// runs.
+/// another rank than its two keys, one axis for both dimensions, pages along the innermost axis, a
+/// pool of no pages, and a delivery that moves runs.
 #[test]
 fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
     let client = cubecl::test_device().client();

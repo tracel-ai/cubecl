@@ -3,10 +3,11 @@
 //!
 //! A dense convolution contracts input channels into output channels, so `CI` appears in the two
 //! operands and not in the accumulator. Depthwise, each channel has its own filter and its own
-//! output channel, so one dimension `C` appears in *all three* operands. That is the whole difference.
+//! output channel, so one dimension `C` appears in *all three* operands. That is the whole
+//! difference.
 //!
-//! `C` is then a batch dimension (a dimension the walk splits and the leaf never contracts), and the
-//! contraction is over the window taps `RH`/`RW` alone.
+//! `C` is then a batch dimension (a dimension the walk splits and the leaf never contracts), and
+//! the contraction is over the window taps `RH`/`RW` alone.
 //!
 //! Stating it that way is what keeps this a space-and-projection change rather than a new kernel:
 //! the input's [`Projection`] is the same `Ih = Oh*stride + Rh*dilation` gather, the weight drops
@@ -41,8 +42,9 @@ const RH: Dimension = Dimension(3);
 const RW: Dimension = Dimension(4);
 
 /// The same body the dense convolution runs: this cube's box of the output, then this plane's
-/// channel of it, contracted whole at the leaf. `C` being in the accumulator's own dimensions is what
-/// makes it a batch dimension rather than a contracted one; the leaf reads that off the spaces.
+/// channel of it, contracted whole at the leaf. `C` being in the accumulator's own dimensions is
+/// what makes it a batch dimension rather than a contracted one; the leaf reads that off the
+/// spaces.
 #[cube(launch)]
 fn depthwise_kernel(
     input: &TileTensor<'_>,
@@ -150,8 +152,8 @@ impl Depthwise {
             Form::Static,
         );
 
-        // Two gathered physical axes, one per spatial pair; the channel dimension rides identity, as
-        // it does for the dense case: it is only the weight and accumulator that change.
+        // Two gathered physical axes, one per spatial pair; the channel dimension rides identity,
+        // as it does for the dense case: it is only the weight and accumulator that change.
         let in_spec = TileSpec::new(Projection::new(
             // The contracted taps come last: the gather leaf lines the input along the
             // fastest contracted dimension, so `RW` has to be the operand's innermost logical

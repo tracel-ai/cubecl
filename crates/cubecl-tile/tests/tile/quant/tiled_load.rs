@@ -79,8 +79,8 @@ fn a_rectangle_load_decodes_each_value_under_its_own_scale() {
     check_tiled(storage, 4, 4, Read::Stored);
 }
 
-/// NVFP4 in tile order as a staged matmul reads it, a column's block a load in tiles of sixteen columns,
-/// staged as its words and decoded out of the stage: the stage holds every word where the
+/// NVFP4 in tile order as a staged matmul reads it, a column's block a load in tiles of sixteen
+/// columns, staged as its words and decoded out of the stage: the stage holds every word where the
 /// stored tiles put it.
 #[test]
 fn a_tile_order_weight_staged_as_its_words_decodes_out_of_the_stage() {
@@ -90,8 +90,8 @@ fn a_tile_order_weight_staged_as_its_words_decodes_out_of_the_stage() {
     check_tiled(storage, 32, 2, Read::PackedStage);
 }
 
-/// `cols` columns of two blocks of sixteen stored as `storage` states, read `words_per_load` words a load
-/// and decoded as `read` says, against the host.
+/// `cols` columns of two blocks of sixteen stored as `storage` states, read `words_per_load` words
+/// a load and decoded as `read` says, against the host.
 fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize, read: Read) {
     let (blocks, block) = (2, 16);
     let client = cubecl::test_device().client();

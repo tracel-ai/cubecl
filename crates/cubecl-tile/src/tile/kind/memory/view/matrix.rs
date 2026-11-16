@@ -45,9 +45,10 @@ impl TileMatrix {
         }
     }
 
-    /// The `i`-th matrix of a tile whose window is `bound`, over the dimensions [`MatrixDimensions`] names,
-    /// each dimension counted in `load`s: a run along the innermost dimension for a plain buffer, and for one
-    /// stored in tiles, every dimension the load spans ([`VectorTile::counts`]).
+    /// The `i`-th matrix of a tile whose window is `bound`, over the dimensions
+    /// [`MatrixDimensions`] names, each dimension counted in `load`s: a run along the innermost
+    /// dimension for a plain buffer, and for one stored in tiles, every dimension the load spans
+    /// ([`VectorTile::counts`]).
     pub(crate) fn batch(
         bound: &Coords<u32>,
         #[comptime] space: &Space,
@@ -60,9 +61,10 @@ impl TileMatrix {
         // Rounded up like the buffer's own load count, so a checked read covers a partial last
         // load.
         let counts = load.counts(space);
-        // A row, or a column, steps the innermost dimension of its group, so a load may reach along that
-        // dimension and no other: the loads of a group are then consecutive rows (or columns), in order.
-        // A dimension of one inside a group steps nothing, so the innermost is the last one past one.
+        // A row, or a column, steps the innermost dimension of its group, so a load may reach along
+        // that dimension and no other: the loads of a group are then consecutive rows (or columns),
+        // in order. A dimension of one inside a group steps nothing, so the innermost is the last
+        // one past one.
         let row_edge = comptime!(TileMatrix::innermost_past_one(
             space,
             dimensions.row_split..dimensions.col_split
@@ -193,8 +195,8 @@ impl TileMatrix {
 }
 
 impl TileMatrix {
-    /// The last position of `group` whose dimension reaches past one in `space`: the dimension a row (or a
-    /// column) of that group steps.
+    /// The last position of `group` whose dimension reaches past one in `space`: the dimension a
+    /// row (or a column) of that group steps.
     fn innermost_past_one(space: &Space, group: core::ops::Range<usize>) -> Option<usize> {
         group.rev().find(|&p| space.extent_at(p) > 1)
     }

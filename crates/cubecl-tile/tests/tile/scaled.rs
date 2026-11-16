@@ -1,9 +1,10 @@
 //! `c.mm(&a.mul(&s), &b)`: the contraction with one
 //! factor scaled by a **real operand**, on the factor the kernel wrote it on.
 //!
-//! *Which* operand is not stated: the scales' own dimensions say it. A scale over the output's columns
-//! is a fact about the rhs's columns and nothing else could multiply it in; anything else scales the
-//! lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where cheapest.
+//! *Which* operand is not stated: the scales' own dimensions say it. A scale over the output's
+//! columns is a fact about the rhs's columns and nothing else could multiply it in; anything else
+//! scales the lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where
+//! cheapest.
 //!
 //! The point is what the kernel signature says: the values are a tensor of values, the scales a
 //! tensor of scales, both named at the call, and the scaling is a verb the kernel writes. Nothing
@@ -77,7 +78,8 @@ fn scaled_matmul(
 }
 
 /// [`scaled_matmul`] with the accumulator promoted to registers: the partials never round-trip
-/// through `c`'s element between `K` steps, which is the form a decode step's one-row product wants.
+/// through `c`'s element between `K` steps, which is the form a decode step's one-row product
+/// wants.
 #[cube(launch)]
 fn scaled_matmul_promoted<E: Numeric>(
     a: &TileTensor<'_>,
@@ -299,7 +301,8 @@ fn two_levels_multiply_in_order() {
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // Same dimensions as the level below it, addressing neither: one value over all their tiles.
+            // Same dimensions as the level below it, addressing neither: one value over all their
+            // tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -538,7 +541,8 @@ fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // Same dimensions as the level below it, addressing neither: one value over all their tiles.
+            // Same dimensions as the level below it, addressing neither: one value over all their
+            // tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -779,8 +783,8 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
 /// **A scale over no dimension at all.** The base of the hierarchy: one number covering everything,
 /// which is what a per-tensor level is.
 ///
-/// Spelled the way every other granularity is, by which dimensions the operand distinguishes. The nest
-/// still names `[M, KB]`, so the scales' matrix has the shape any other level's would; the
+/// Spelled the way every other granularity is, by which dimensions the operand distinguishes. The
+/// nest still names `[M, KB]`, so the scales' matrix has the shape any other level's would; the
 /// projection addresses neither, so every position reads the same value. Nothing says "per tensor".
 #[test]
 fn a_scale_over_no_dimension_covers_everything() {
@@ -1698,9 +1702,9 @@ fn wide_lhs_scaled_matmul(
 /// **Scales served as lines along the contraction.** The lhs's scales vary over `KB` and nothing
 /// else, so `KB` is their innermost dimension and a read serves several blocks of `K` at once.
 ///
-/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled so
-/// each one's unit is a constant, and the lines under one scale line stay rolled, since they all take
-/// the same scale. One row here, so the scales are per block of `K` alone.
+/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled
+/// so each one's unit is a constant, and the lines under one scale line stay rolled, since they all
+/// take the same scale. One row here, so the scales are per block of `K` alone.
 #[test]
 fn lhs_scales_are_served_several_at_a_time() {
     let (cols, block, blocks, plane_units) = (4, 4, 4, 4);
@@ -2112,7 +2116,8 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
     }
 }
 
-/// The columns, as the two dimensions a storage tile makes of them: which tile, and where inside it.
+/// The columns, as the two dimensions a storage tile makes of them: which tile, and where inside
+/// it.
 const NB: Dimension = Dimension(4);
 const NI: Dimension = Dimension(5);
 
@@ -3234,8 +3239,8 @@ fn check_scaled_copy(staged: bool) {
         .dtype(dtype)
         .custom(s.clone())
         .generate_with_f32_host_data();
-    // A stage is dense over its dimensions, one axis each; copied back out, it lands in a buffer laid
-    // out the same way. A direct copy writes the values' own layout.
+    // A stage is dense over its dimensions, one axis each; copied back out, it lands in a buffer
+    // laid out the same way. A direct copy writes the values' own layout.
     let out_shape = match staged {
         true => shape![rows, blocks, block],
         false => shape![rows, depth],

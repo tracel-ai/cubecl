@@ -1,5 +1,5 @@
-//! A separable procedural weight contracted over three dimensions: the rank the abstraction carries is
-//! the recipe's, not the microkernel's.
+//! A separable procedural weight contracted over three dimensions: the rank the abstraction carries
+//! is the recipe's, not the microkernel's.
 //!
 //! `out[row, col] = Σ_{k0, k1, k2} (∏_f factor_f(k_f, row)) · in[k0, k1, k2, col]`. The same
 //! recipe is run twice, once stating its factorization and once opaque, so the cell-major walk is
@@ -35,8 +35,8 @@ const COLS: usize = 3;
 const TAPS: [usize; 3] = [2, 3, 2];
 
 /// `offset + coefficient * tap + row_coefficient * row`, per factor. Only the first factor reads
-/// the output row, which is the shape a resampling weight takes: a factor may read a free dimension,
-/// it may only not read another factor's contracted dimension.
+/// the output row, which is the shape a resampling weight takes: a factor may read a free
+/// dimension, it may only not read another factor's contracted dimension.
 const OFFSET: [f32; 3] = [1.0, 2.0, 3.0];
 const COEFFICIENT: [f32; 3] = [1.0, 3.0, 5.0];
 const ROW_COEFFICIENT: [f32; 3] = [2.0, 0.0, 0.0];
@@ -346,7 +346,8 @@ fn a_separable_lhs_contracts_a_padded_staged_rhs() {
 ///
 /// Both halves of the split the separable schedule runs on are load-bearing here. `row` stays
 /// inside the floor, so it has to be anchored; `tap` has a coefficient the divisor factors out, so
-/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map per tap.
+/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map
+/// per tap.
 const ROW_NUM: usize = 3;
 const RESAMPLE: usize = 2;
 const RTAPS: usize = 2;
@@ -357,9 +358,9 @@ fn resample_origin(row: usize) -> usize {
     (ROW_NUM * row) / RESAMPLE
 }
 
-/// One factor, over the single contracted dimension: a stated factorization of rank one still takes the
-/// separable schedule, since the per-row weight walk it caches is worth `nr` evaluations whatever
-/// the rank.
+/// One factor, over the single contracted dimension: a stated factorization of rank one still takes
+/// the separable schedule, since the per-row weight walk it caches is worth `nr` evaluations
+/// whatever the rank.
 #[cube]
 fn resample_weights<E: Float>() -> Weights<E> {
     let mut factors = Sequence::new();

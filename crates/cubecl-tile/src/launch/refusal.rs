@@ -108,8 +108,8 @@ pub enum Refusal {
     /// storage-tiled operand: a page is resolved coordinate by coordinate over a plain buffer's
     /// labelled axes.
     PagingOfAStatedLayout,
-    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming a dimension no axis of
-    /// the operand is labelled with.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming a dimension no
+    /// axis of the operand is labelled with.
     PagingOfAnUnlabelledDimension(Dimension),
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming one axis for both
     /// the pages and their positions.
@@ -138,20 +138,21 @@ pub enum Refusal {
     IndexOfAStatedLayout,
     /// [`indexed`](crate::TileTensorLaunch::indexed) placing a dimension the operand does not span.
     IndexOfADimensionNotSpanned(Dimension),
-    /// [`indexed`](crate::TileTensorLaunch::indexed) placing the innermost dimension, this one, which
-    /// the operand reads more than one value a line along: an entry is an element, and a line would
-    /// straddle two of them.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) placing the innermost dimension, this one,
+    /// which the operand reads more than one value a line along: an entry is an element, and a line
+    /// would straddle two of them.
     IndexAlongALine(Dimension),
-    /// [`indexed`](crate::TileTensorLaunch::indexed) with no key, or keyed by the dimension it places.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) with no key, or keyed by the dimension it
+    /// places.
     IndexKeyedByItsDimension(Dimension),
-    /// [`Indexing::Run`](crate::Indexing::Run) keyed by this many dimensions: a run's end is the next
-    /// entry along its one key.
+    /// [`Indexing::Run`](crate::Indexing::Run) keyed by this many dimensions: a run's end is the
+    /// next entry along its one key.
     RunKeyedByMany(usize),
     /// An indexed operand under a nest whose first level cutting one of these keys does not cut
     /// them all: the table is read at one step.
     IndexKeysCutApart(Vec<Dimension>),
-    /// An indexed operand under a nest that cuts the dimension its entry places: a coordinate is the
-    /// table's to state, and a run is placed whole before any level cuts it.
+    /// An indexed operand under a nest that cuts the dimension its entry places: a coordinate is
+    /// the table's to state, and a run is placed whole before any level cuts it.
     IndexedDimensionCut(Dimension),
     /// [`codebook`](crate::TileTensorLaunch::codebook) on values not stored as indices
     /// ([`Field::Index`](crate::Field::Index)).
@@ -162,8 +163,8 @@ pub enum Refusal {
     /// [`codebook`](crate::TileTensorLaunch::codebook) with a table of `entries`, fewer than the
     /// `2^bits` the indices name.
     CodebookTableShort { entries: usize, bits: usize },
-    /// [`physical`](crate::layout::StoragePartitioning::physical): the tiles along `dimension` do not
-    /// close its extent.
+    /// [`physical`](crate::layout::StoragePartitioning::physical): the tiles along `dimension` do
+    /// not close its extent.
     StoredTileUnwhole {
         dimension: Dimension,
         extent: usize,

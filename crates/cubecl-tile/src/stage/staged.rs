@@ -152,8 +152,8 @@ impl Memory {
                 // words a gather reads lands as the compacted window the gather stages.
                 let delivery = operand.delivery();
                 let alignment = comptime!(delivery.engine().stage_alignment);
-                // A decoded stage is dense over the values' dimensions whatever the source's map, and
-                // so is a tiled one, which an instruction reads as one matrix.
+                // A decoded stage is dense over the values' dimensions whatever the source's map,
+                // and so is a tiled one, which an instruction reads as one matrix.
                 let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));
                 if comptime!(projection.is_direct() || decodes || tiled) {
                     Memory::smem_owned::<S>(&space, vector_size, storage, units, alignment, owner)

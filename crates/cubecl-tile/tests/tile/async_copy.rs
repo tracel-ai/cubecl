@@ -454,9 +454,9 @@ fn an_async_copy_stages_packed_words() {
     }
 }
 
-/// [`staged_packed_copy`] of words whose rows are stated as two dimensions, a block and the row inside
-/// it, in `dimensions`' order: the fill reads the source at the stage's coordinates through the
-/// source's projection, which puts both dimensions on its one physical axis of rows.
+/// [`staged_packed_copy`] of words whose rows are stated as two dimensions, a block and the row
+/// inside it, in `dimensions`' order: the fill reads the source at the stage's coordinates through
+/// the source's projection, which puts both dimensions on its one physical axis of rows.
 fn staged_packed_copy_of_split_rows(dimensions: [Dimension; 3]) {
     const ROW_BLOCKS: Dimension = Dimension(5);
     let (rows, cols, tile_rows) = (8, 16, 4);
@@ -534,8 +534,8 @@ fn staged_packed_copy_of_split_rows(dimensions: [Dimension; 3]) {
     assert_eq!(got, want, "rows split as {dimensions:?}");
 }
 
-/// **A packed stage of rows stated as two dimensions holds each row where its source does.** The fill
-/// reads the source through its projection, so a block of rows stated before the row inside it
+/// **A packed stage of rows stated as two dimensions holds each row where its source does.** The
+/// fill reads the source through its projection, so a block of rows stated before the row inside it
 /// lands as one stated after.
 #[test]
 fn a_packed_stage_of_rows_stated_as_two_dimensions_holds_each_row() {

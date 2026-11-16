@@ -45,7 +45,8 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
         rw,
         aw
     ));
-    // Several contracted dimensions still form one `k` edge when an operand carries them as one run.
+    // Several contracted dimensions still form one `k` edge when an operand carries them as one
+    // run.
     let shape = comptime!(ContractShape::new(
         &lhs.place.space,
         &rhs.place.space,

@@ -2,7 +2,8 @@
 //!
 //! A quantized tensor is values stored small beside a coarser tensor of scales. Decoding it is not
 //! a matmul verb and not a quantization feature: it is the elementwise product of two tiles, one
-//! spanning fewer dimensions than the other and so spreading each value across the dimensions it omits.
+//! spanning fewer dimensions than the other and so spreading each value across the dimensions it
+//! omits.
 //!
 //! Proven here with the dimensions doing all the work. `COL` is spelled `(CB, CI)`: which block of
 //! columns, and where inside it. The weights address both and the scales address `CB` alone, so

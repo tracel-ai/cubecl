@@ -15,11 +15,12 @@ use crate::*;
 ///
 /// A cube opens its accumulator on the relayed [`tile`](Relay::tile), takes its turn with
 /// [`take`](Relay::take), drains into the tile, and passes it on with [`pass`](Relay::pass), every
-/// unit of the cube reaching both. The relay publishes a turn's lines at device scope before passing the box on and acquires them after taking it, so it
-/// runs only where the runtime hands one cube's writes to another within a dispatch
-/// (`device_memory_scope`), and reads its turn with a `u32` atomic add, which every GPU runtime
-/// offers. A waiting cube holds its place on the device: the relay rests on a box's earlier runs
-/// having started by the time a later one waits, which a grid whose runs are neighbours gives.
+/// unit of the cube reaching both. The relay publishes a turn's lines at device scope before
+/// passing the box on and acquires them after taking it, so it runs only where the runtime hands
+/// one cube's writes to another within a dispatch (`device_memory_scope`), and reads its turn with
+/// a `u32` atomic add, which every GPU runtime offers. A waiting cube holds its place on the
+/// device: the relay rests on a box's earlier runs having started by the time a later one waits,
+/// which a grid whose runs are neighbours gives.
 #[derive(CubeType)]
 pub struct Relay<'a> {
     /// The carry, read by the last turn.
@@ -39,8 +40,8 @@ pub struct Relay<'a> {
 
 #[cube]
 impl<'a> TileTensor<'a> {
-    /// This operand as the carry of a [`Relay`]: the box the cubes splitting the contraction
-    /// along its [`across`](Levels::across) dimension take their turns at, under `partitioning`, whose
+    /// This operand as the carry of a [`Relay`]: the box the cubes splitting the contraction along
+    /// its [`across`](Levels::across) dimension take their turns at, under `partitioning`, whose
     /// first level is the cube level. `turns` arrives holding zero and is left holding zero.
     pub fn relay<'t, V: Size>(
         &self,
@@ -175,8 +176,8 @@ impl<'a> Relay<'a> {
         }
     }
 
-    /// The instances the cube level distributes dimension `p` to: its workers where spread across them,
-    /// its tile count otherwise.
+    /// The instances the cube level distributes dimension `p` to: its workers where spread across
+    /// them, its tile count otherwise.
     fn radix(
         partitioning: &Partitioning,
         #[comptime] level: &Level,
@@ -200,8 +201,8 @@ impl<'a> Relay<'a> {
 }
 
 impl Relay<'_> {
-    /// The position in `space` of the one dimension a relay splits: spread across cubes by the first
-    /// level, the cube level, and not spanned by the carry. Refuses any other partitioning.
+    /// The position in `space` of the one dimension a relay splits: spread across cubes by the
+    /// first level, the cube level, and not spanned by the carry. Refuses any other partitioning.
     fn split(space: &Partitioning, spec: &TileSpec) -> usize {
         let level = &space.levels()[0];
         assert!(

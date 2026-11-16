@@ -41,15 +41,15 @@ impl Factor {
         unexpanded!()
     }
 
-    /// This factor with every scale that spans `dimension` one wide at `coord` along it, as the values
-    /// it rides are ([`Tile::placed_at`](crate::Tile::placed_at)).
+    /// This factor with every scale that spans `dimension` one wide at `coord` along it, as the
+    /// values it rides are ([`Tile::placed_at`](crate::Tile::placed_at)).
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
     pub(crate) fn placed_at(&self, _dimension: Dimension, _coord: u32) -> Factor {
         unexpanded!()
     }
 
-    /// This factor with every scale that spans `dimension` reading the run `[from, until)` along it,
-    /// as the values it rides are ([`Tile::run_within`](crate::Tile::run_within)).
+    /// This factor with every scale that spans `dimension` reading the run `[from, until)` along
+    /// it, as the values it rides are ([`Tile::run_within`](crate::Tile::run_within)).
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
     pub(crate) fn run_within(&self, _dimension: Dimension, _from: u32, _until: u32) -> Factor {
         unexpanded!()
@@ -67,10 +67,10 @@ impl Factor {
         unexpanded!()
     }
 
-    /// The one scale every value shares: the product down the chain, no scale of which varies
-    /// along any dimension. What a sum held outside any tile, in a unit's own registers, is multiplied
-    /// by where it takes on the per-tensor scale [`Tile::factor`](crate::Tile::factor) took out of
-    /// an operand it summed; `1` where the factor holds no scale.
+    /// The one scale every value shares: the product down the chain, no scale of which varies along
+    /// any dimension. What a sum held outside any tile, in a unit's own registers, is multiplied by
+    /// where it takes on the per-tensor scale [`Tile::factor`](crate::Tile::factor) took out of an
+    /// operand it summed; `1` where the factor holds no scale.
     ///
     /// Expansion panics on a factor holding a scale that varies along a dimension.
     pub fn whole(&self) -> f32 {
@@ -300,8 +300,8 @@ impl FactorExpand {
         })
     }
 
-    /// This factor with `place` applied to every scale that spans `dimension`, which carries its own
-    /// scales along; the scales that do not span it, as they are.
+    /// This factor with `place` applied to every scale that spans `dimension`, which carries its
+    /// own scales along; the scales that do not span it, as they are.
     pub(crate) fn spanning(
         &self,
         dimension: Dimension,
@@ -641,8 +641,8 @@ impl FactorReader {
                 comptime!(self.values.clone()),
                 comptime!(Guard::Checked),
             );
-            // Multiplied in `f32`, rounded to `E` once: a placed `e2m1` value is a lift short, which
-            // the factor carries, and the lift times a scale is past a half's range where its
+            // Multiplied in `f32`, rounded to `E` once: a placed `e2m1` value is a lift short,
+            // which the factor carries, and the lift times a scale is past a half's range where its
             // product with the value is not.
             let scaled = Vector::<f32, V>::cast_from(value)
                 * Vector::<f32, V>::cast_from(scale * self.coarse);

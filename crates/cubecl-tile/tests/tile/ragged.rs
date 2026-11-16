@@ -1,11 +1,12 @@
 //! Variable-length sequences as a plain windowed walk.
 //!
-//! Sequences of different lengths packed end to end on one dimension. The kernel walks that dimension with
-//! [`Walk::window`], whose base and length are runtime values, so a sequence steps its own tokens
-//! and nothing else: no side channel on an operand, no displaced window origin, `at` unchanged.
+//! Sequences of different lengths packed end to end on one dimension. The kernel walks that
+//! dimension with [`Walk::window`], whose base and length are runtime values, so a sequence steps
+//! its own tokens and nothing else: no side channel on an operand, no displaced window origin, `at`
+//! unchanged.
 //!
-//! The reduce is the shape that isolates it: the output omits the packed dimension, so nothing but the
-//! walk's bounds decides which tokens a sequence reduces.
+//! The reduce is the shape that isolates it: the output omits the packed dimension, so nothing but
+//! the walk's bounds decides which tokens a sequence reduces.
 #![allow(non_snake_case)]
 
 use super::{Form, implied};
@@ -43,8 +44,9 @@ fn ragged_sum_kernel<E: Numeric>(
         let mut total = out.at(&sequence);
         total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
 
-        // The whole of it: the walk over the packed dimension takes `end - start` steps from `start`,
-        // so an empty sequence takes none and a short one never reads its neighbour's tokens.
+        // The whole of it: the walk over the packed dimension takes `end - start` steps from
+        // `start`, so an empty sequence takes none and a short one never reads its neighbour's
+        // tokens.
         let tokens = sequence.over(&token).range(start, end - start);
         for pos in tokens {
             let mut cell = out.at(&pos);

@@ -566,8 +566,8 @@ fn holder(place: &Placement) -> ComputeScope {
         .unwrap_or_else(|| place.holder())
 }
 
-/// Panics where a plane group level splits a dimension the output at `place` lacks: each group would
-/// hold a partial of the same cells, and nothing merges plane groups' partials yet.
+/// Panics where a plane group level splits a dimension the output at `place` lacks: each group
+/// would hold a partial of the same cells, and nothing merges plane groups' partials yet.
 fn assert_groups_own_their_box(place: &Placement) {
     for level in &place.levels {
         let Coverage::Distribute(ComputeScope::PlaneGroup { .. }) = level.coverage() else {
@@ -634,9 +634,10 @@ fn register_accumulator<EA: Numeric>(
 }
 
 /// `place`, the output's, as an accumulator of `rows · cols` lays it: its rows along the free
-/// dimensions of the factor handed over first. The output's own order where its innermost dimensions are
-/// `cols`'s; else its two trailing groups exchanged, every dimension above them where it was, so the
-/// first factor fills the instruction's `A` whichever of the product's operands it is.
+/// dimensions of the factor handed over first. The output's own order where its innermost
+/// dimensions are `cols`'s; else its two trailing groups exchanged, every dimension above them
+/// where it was, so the first factor fills the instruction's `A` whichever of the product's
+/// operands it is.
 fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
     let space = &place.space;
     if Side::of(rows, space) == Side::Lhs {
@@ -739,8 +740,8 @@ fn accumulator_in<EA: Numeric>(
 
 #[cube]
 impl Tile {
-    /// A plane-resident accumulator over one region of `walk` along `dimensions`, summing `lhs` times a
-    /// factor of its element, opened at zero: the accumulator [`Tile::scratch`] would open,
+    /// A plane-resident accumulator over one region of `walk` along `dimensions`, summing `lhs`
+    /// times a factor of its element, opened at zero: the accumulator [`Tile::scratch`] would open,
     /// without the memory, for a product contracted again before anything drains it, as an
     /// attention's score. Its instruction is the one that keeps the sum where the next product's
     /// `A` lies, where the device has one

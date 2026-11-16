@@ -23,9 +23,9 @@ impl Side {
 
 impl Side {
     /// Refuse a contraction into `out` whose factors, spanning `lhs` and `rhs`, are not on the
-    /// sides their dimensions give them ([`Side::of`]): the left one carrying the output's rows, the
-    /// right one its innermost dimension. An instruction that takes its operands by position would
-    /// contract each against the other's dimension and drain wrong numbers rather than fail.
+    /// sides their dimensions give them ([`Side::of`]): the left one carrying the output's rows,
+    /// the right one its innermost dimension. An instruction that takes its operands by position
+    /// would contract each against the other's dimension and drain wrong numbers rather than fail.
     pub(crate) fn refuse_misplaced(lhs: &Space, rhs: &Space, out: &Space) {
         for (factor, space, side) in [("left", lhs, Side::Lhs), ("right", rhs, Side::Rhs)] {
             assert!(

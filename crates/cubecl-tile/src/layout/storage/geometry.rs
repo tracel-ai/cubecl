@@ -67,9 +67,10 @@ impl Geometry {
         self.tiling
     }
 
-    /// Its trailing axes, coarsest first, each named by the dimension it is a piece of: `dimensions` name the
-    /// trailing logical axes in the tensor's order, each once per piece its tiling stores it as, in
-    /// [`StoragePartitioning::labels`]' order. The axes ahead of them are batch axes, one each.
+    /// Its trailing axes, coarsest first, each named by the dimension it is a piece of:
+    /// `dimensions` name the trailing logical axes in the tensor's order, each once per piece its
+    /// tiling stores it as, in [`StoragePartitioning::labels`]' order. The axes ahead of them are
+    /// batch axes, one each.
     ///
     /// # Panics
     ///

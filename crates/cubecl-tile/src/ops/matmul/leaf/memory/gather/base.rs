@@ -14,8 +14,8 @@ use crate::*;
 /// Why the gather leaf cannot serve an lhs vectorized along a dimension.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LhsVectorMisfit {
-    /// The dimension is neither the fastest contracted one, the accumulator's innermost row dimension nor
-    /// its columns.
+    /// The dimension is neither the fastest contracted one, the accumulator's innermost row
+    /// dimension nor its columns.
     DimensionNotServed,
     /// An lhs vectorized along the rows also spans the columns.
     SpansColumns,
@@ -43,8 +43,8 @@ impl Display for LhsVectorMisfit {
 pub enum LhsVectorDimension {
     /// Along the fastest contracted dimension: one read serves several contracted steps of one row.
     Contracted,
-    /// Along the accumulator's innermost row dimension: one read serves one contracted step of several
-    /// rows, each component its own row, so nothing is summed across components.
+    /// Along the accumulator's innermost row dimension: one read serves one contracted step of
+    /// several rows, each component its own row, so nothing is summed across components.
     Rows,
     /// Along the accumulator's columns: the vector read is the cell.
     Columns,
@@ -52,8 +52,8 @@ pub enum LhsVectorDimension {
 
 impl LhsVectorDimension {
     /// The placement of an lhs vectorized `lw` wide in a contraction of `lhs` and `rhs` into `acc`,
-    /// or the [`Refusal`] saying why the dimension it lies along cannot be served. A one-wide vector
-    /// has no direction and reads as a contracted step.
+    /// or the [`Refusal`] saying why the dimension it lies along cannot be served. A one-wide
+    /// vector has no direction and reads as a contracted step.
     pub fn of(lhs: &Space, rhs: &Space, acc: &Space, lw: usize) -> Result<Self, Refusal> {
         if lw == 1 {
             return Ok(LhsVectorDimension::Contracted);
@@ -299,7 +299,8 @@ impl GatherProblem {
             !reduce.is_empty(),
             "contract gather: the operands contract no dimension against the accumulator"
         );
-        // An rhs-only contracted dimension would take the `fastest` slot; name that constraint instead.
+        // An rhs-only contracted dimension would take the `fastest` slot; name that constraint
+        // instead.
         for &dimension in reduce {
             assert!(
                 lhs.contains(dimension),
@@ -308,7 +309,8 @@ impl GatherProblem {
             );
         }
         let fastest = self.block.fastest_dimension();
-        // A scalar rhs need not span either dimension, so a weight shared by every column can omit it.
+        // A scalar rhs need not span either dimension, so a weight shared by every column can omit
+        // it.
         let rhs_vectorized = rhs.dimension_at(rhs.rank() - 1);
         assert!(
             rhs_vec_len == 1
@@ -375,8 +377,8 @@ fn masked_bound_depends_on(
         })
 }
 
-/// N-D variant of [`direct::contract`](super::direct::contract) for multiple contracted dimensions or
-/// projected operands; a separable lhs takes its own schedule.
+/// N-D variant of [`direct::contract`](super::direct::contract) for multiple contracted dimensions
+/// or projected operands; a separable lhs takes its own schedule.
 #[cube]
 pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,

@@ -88,8 +88,8 @@ pub(crate) fn implied(client: &Client, partitioning: Partitioning, form: Form<'_
     .unwrap()
 }
 
-/// A launch of one cube of one unit over `kernel`, cut by no level, its dynamic dimensions sized off
-/// `concrete`: what a kernel that reads the space and nothing else is handed.
+/// A launch of one cube of one unit over `kernel`, cut by no level, its dynamic dimensions sized
+/// off `concrete`: what a kernel that reads the space and nothing else is handed.
 pub(crate) fn uncut(client: &Client, kernel: &Space, concrete: &Space) -> Launcher {
     Launcher::new(
         client,

@@ -177,7 +177,8 @@ impl Lines {
         if unit < comptime!(lines as u32) {
             #[unroll]
             for r in 0..reads {
-                // Coordinates along addressed dimensions, zero elsewhere, the read `r` along the line.
+                // Coordinates along addressed dimensions, zero elsewhere, the read `r` along the
+                // line.
                 let mut at = CoordsDyn::new();
                 #[unroll]
                 for p in 0..rank - 1 {

@@ -279,9 +279,10 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
 }
 
 /// [`check_block_scaled`] under per-tensor factors, `k` split into its blocks and the value inside
-/// one (`KB·KI`), as a packed product states it: the values over both dimensions, their block scales
-/// words of four `e4m3` scales, one a word of `KB` (`KB` divided by four), as the block-scaled
-/// instruction reads them, and each step of the instruction four blocks deep, one word.
+/// one (`KB·KI`), as a packed product states it: the values over both dimensions, their block
+/// scales words of four `e4m3` scales, one a word of `KB` (`KB` divided by four), as the
+/// block-scaled instruction reads them, and each step of the instruction four blocks deep, one
+/// word.
 fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
     let client = cubecl::test_device().client();
     if !offers_nvfp4(&client) {

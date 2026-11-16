@@ -399,9 +399,9 @@ impl Memory {
 
     /// Whether each row of this window is one run of cells, the next row a fixed stride on: a
     /// direct, untiled store, its rows unswizzled and never paged, read with no overhang to mask,
-    /// and every dimension of `space` but the last two a single cell. The second-to-last dimension then
-    /// steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through a
-    /// row's cells, so a cell lies its row times the stride plus its column past the first.
+    /// and every dimension of `space` but the last two a single cell. The second-to-last dimension
+    /// then steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through
+    /// a row's cells, so a cell lies its row times the stride plus its column past the first.
     pub(crate) fn rows_step_by_stride(&self, #[comptime] space: &Space) -> comptime_type!(bool) {
         comptime!({
             let rank = space.rank();
@@ -568,8 +568,9 @@ impl Memory {
         )
     }
 
-    /// The identity step over this window's physical box, for callers that evaluate the map themselves.
-    /// It masks against the physical box only: the caller owes in-range logical coordinates.
+    /// The identity step over this window's physical box, for callers that evaluate the map
+    /// themselves. It masks against the physical box only: the caller owes in-range logical
+    /// coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
         comptime!(self.projection.refuse_backward("Memory::physical_box"));
         let rank = comptime!(self.projection.physical_rank());
@@ -800,7 +801,8 @@ impl Memory {
         )
     }
 
-    /// One level down under the direct mapping: per-dimension origin, extent, advance, and integral map.
+    /// One level down under the direct mapping: per-dimension origin, extent, advance, and integral
+    /// map.
     fn direct_descent(
         &self,
         step: &Step,
@@ -884,7 +886,8 @@ impl Memory {
             origin.push(self.window.origin.at(pa).plus(moved.cast::<i32>()));
             residues.push(residue);
             extent.push(span);
-            // `Projection::validate` keeps a gathered operand untiled: one dimension step is one stride.
+            // `Projection::validate` keeps a gathered operand untiled: one dimension step is one
+            // stride.
             advances.push(moved.times(self.layout.physical_strides.at(pa)));
         }
         let map = RuntimeMap {
@@ -983,8 +986,8 @@ impl Memory {
         )
     }
 
-    /// This window one wide at `coord` on `dimension`, which is not the innermost: what a level cutting
-    /// the dimension to one would hand out at that coordinate, read off data instead.
+    /// This window one wide at `coord` on `dimension`, which is not the innermost: what a level
+    /// cutting the dimension to one would hand out at that coordinate, read off data instead.
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
     pub(crate) fn placed_at(&self, #[comptime] dimension: Dimension, coord: u32) -> Memory {
         let proj = comptime!(self.projection.clone());
@@ -1160,7 +1163,8 @@ fn gathered_dimension_descent(
                 terms.push(cut.coord(term.dimension).cast::<u32>().times(step));
                 spans.push(comptime!(((edge - 1) * s) as u32).runtime());
             }
-            // No line division: `Projection::validate` keeps the innermost dimension a static identity.
+            // No line division: `Projection::validate` keeps the innermost dimension a static
+            // identity.
             Scale::Dynamic { .. } => {
                 let coefficient = map
                     .coefficients
@@ -1189,7 +1193,8 @@ fn gathered_dimension_descent(
         };
         (advance, 0u32, span)
     } else {
-        // No `/ vector_size`: `Projection::validate` forces width `1` on a rational innermost dimension.
+        // No `/ vector_size`: `Projection::validate` forces width `1` on a rational innermost
+        // dimension.
         let numerator = advance.plus(map.residues.at(pa));
         let field = spans.sum(picks.clone());
         match axis_map.divisor() {

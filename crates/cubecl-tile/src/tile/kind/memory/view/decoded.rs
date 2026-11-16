@@ -142,7 +142,8 @@ fn read_packed_line<O: Float, W: Size>(
     let looks_up = mem.codebook.present();
     let scaled = window.factor.scaled();
     let words = window.nd_words::<Const<1>>(guard);
-    // The row's coordinates, every dimension but the innermost; then where the line starts along it.
+    // The row's coordinates, every dimension but the innermost; then where the line starts along
+    // it.
     let rows = Coords::constant(comptime!(
         (0..rank - 1)
             .map(|p| space.extent_at(p))

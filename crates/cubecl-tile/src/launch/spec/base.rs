@@ -7,7 +7,8 @@ use crate::{
 };
 use crate::{Delivery, Issuer};
 
-/// The comptime half of an operand: its dimension mapping, edge checks, packing, storage and delivery.
+/// The comptime half of an operand: its dimension mapping, edge checks, packing, storage and
+/// delivery.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TileSpec {
     /// How this operand's dimensions address its buffer's physical ones.

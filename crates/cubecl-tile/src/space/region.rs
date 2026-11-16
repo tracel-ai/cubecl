@@ -153,9 +153,10 @@ impl Region {
         self.step(last).coord(dimension)
     }
 
-    /// The first coordinate along `dimension` of the box this region covers, counted from its root's:
-    /// every level's coordinate along `dimension` times the tile it cuts there. What a kernel bounds a
-    /// walk of its own by, as an attention's causal queries bound the keys they read.
+    /// The first coordinate along `dimension` of the box this region covers, counted from its
+    /// root's: every level's coordinate along `dimension` times the tile it cuts there. What a
+    /// kernel bounds a walk of its own by, as an attention's causal queries bound the keys they
+    /// read.
     pub fn origin(&self, #[comptime] dimension: Dimension) -> usize {
         let mut origin = 0usize;
         #[unroll]

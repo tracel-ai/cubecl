@@ -1,8 +1,8 @@
 //! A box the TMA engine loads through a descriptor whose axes are not the tile's own dimensions
-//! ([`TileTensorLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split dimensions
-//! `(M, KB, KI)` a packed product states its float input over, the descriptor over the matrix as
-//! it lies, each position landing at the column `KB · block + KI`. Each cube lands its box in
-//! shared memory and copies it out over the same dimensions.
+//! ([`TileTensorLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split
+//! dimensions `(M, KB, KI)` a packed product states its float input over, the descriptor over the
+//! matrix as it lies, each position landing at the column `KB · block + KI`. Each cube lands its
+//! box in shared memory and copies it out over the same dimensions.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput};

@@ -5,7 +5,8 @@ use cubecl::zspace::SmallVec;
 use crate::BoundaryPolicy;
 use crate::{Boundary, Dimension, Projection, Refusal, Space};
 
-/// Where the bounds-check lands: on the coordinate dimensions that can leave the buffer, only those.
+/// Where the bounds-check lands: on the coordinate dimensions that can leave the buffer, only
+/// those.
 pub(crate) struct Boundaries {
     /// One mode per coordinate dimension; empty when nothing is checked.
     pub(crate) modes: SmallVec<[Option<Boundary>; Space::MAX_RANK]>,
@@ -34,8 +35,9 @@ impl Boundaries {
         (overhangs || projection.may_underflow()).then_some(boundary)
     }
 
-    /// `concrete` is the launch's real-extent space and `overhangs` the dimensions its tiles reach past:
-    /// this launch's, or under [`AnyExtent`](BoundaryPolicy::AnyExtent) those any extent could.
+    /// `concrete` is the launch's real-extent space and `overhangs` the dimensions its tiles reach
+    /// past: this launch's, or under [`AnyExtent`](BoundaryPolicy::AnyExtent) those any extent
+    /// could.
     pub(crate) fn new(
         policy: Option<BoundaryPolicy>,
         projection: &Projection,
@@ -56,8 +58,9 @@ impl Boundaries {
         };
         let coords = projection.untiled();
 
-        // Whether coordinate dimension `pa` is always in bounds: it is one or more concrete dimensions laid
-        // end to end (like `K = KB·16 + KI`), and the tiles reach past none of them.
+        // Whether coordinate dimension `pa` is always in bounds: it is one or more concrete
+        // dimensions laid end to end (like `K = KB·16 + KI`), and the tiles reach past none of
+        // them.
         let settled = |pa: usize| {
             coords
                 .physical_axis(pa)
@@ -69,12 +72,12 @@ impl Boundaries {
                 })
         };
 
-        // Whether coordinate dimension `pa` is checked whole lines at a time without clipping one: it
-        // is a single concrete dimension, the map never reaches below its start, and `width` divides
-        // its extent, so every line lies wholly before the edge or wholly past it. Only a zeroing
-        // mask is tested a line at a time, as a clamp moves each element; and only one this
-        // launch's extent decides, since under `AnyExtent` the kernel serves extents the width
-        // need not divide.
+        // Whether coordinate dimension `pa` is checked whole lines at a time without clipping one:
+        // it is a single concrete dimension, the map never reaches below its start, and `width`
+        // divides its extent, so every line lies wholly before the edge or wholly past it. Only a
+        // zeroing mask is tested a line at a time, as a clamp moves each element; and only one this
+        // launch's extent decides, since under `AnyExtent` the kernel serves extents the width need
+        // not divide.
         let one_extent = !matches!(policy, Some(BoundaryPolicy::AnyExtent(_)));
         let whole_lines = |pa: usize| {
             one_extent

@@ -1,5 +1,6 @@
-//! The dimension-agnostic tile DSL engine: a [`Space`] cut into [`Level`]s forms a [`Partitioning`],
-//! whose loops hand out [`Region`]s; the [`Launcher`] reads the grid off the same levels.
+//! The dimension-agnostic tile DSL engine: a [`Space`] cut into [`Level`]s forms a
+//! [`Partitioning`], whose loops hand out [`Region`]s; the [`Launcher`] reads the grid off the same
+//! levels.
 
 // `#[cube]` expands to `cubecl::` paths, which the language crate serves.
 extern crate cubecl_core as cubecl;

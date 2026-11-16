@@ -1,13 +1,13 @@
 //! A table of `u32` entries an operand carries ([`TileTensorLaunch::indexed`]), read where its
 //! window is cut: each row's expert, each tile's group, each group's run of rows.
 //!
-//! The table's axes are its key dimensions, in order: it holds one entry per tile of the first level of
-//! the nest that cuts them, the same entry a kernel would read off `region.coord(key)` itself.
-//! The tile reads that entry once, in [`Tile::at`], at the step that cuts the keys, and places its
-//! window with it ([`Indexing`]); its reads never touch the table again. Where no level cuts the
-//! keys they are one tile, so the table's first entry is the one, read as the tile is served. The
-//! scales it carries move with it wherever they span the dimension the entry places, so a routed
-//! operand may be quantized.
+//! The table's axes are its key dimensions, in order: it holds one entry per tile of the first
+//! level of the nest that cuts them, the same entry a kernel would read off `region.coord(key)`
+//! itself. The tile reads that entry once, in [`Tile::at`], at the step that cuts the keys, and
+//! places its window with it ([`Indexing`]); its reads never touch the table again. Where no level
+//! cuts the keys they are one tile, so the table's first entry is the one, read as the tile is
+//! served. The scales it carries move with it wherever they span the dimension the entry places, so
+//! a routed operand may be quantized.
 
 use cubecl::prelude::*;
 
@@ -19,17 +19,18 @@ use crate::*;
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Indexing {
     /// The entry is the operand's coordinate along `dimension`, which no level may cut: each row's
-    /// expert, keyed by the row; each tile's group, keyed by the row dimension a level cuts in tiles.
-    /// The dimension is one wide below it, so a contraction sees one slab. An entry past the dimension
-    /// names nothing: the tile holds nothing to walk ([`Region::walk_within`]), and a read of it
-    /// outside a walk reads the last coordinate, unless the operand checks the dimension with
-    /// [`Boundary::Zero`], where it reads zero.
+    /// expert, keyed by the row; each tile's group, keyed by the row dimension a level cuts in
+    /// tiles. The dimension is one wide below it, so a contraction sees one slab. An entry past the
+    /// dimension names nothing: the tile holds nothing to walk ([`Region::walk_within`]), and a
+    /// read of it outside a walk reads the last coordinate, unless the operand checks the dimension
+    /// with [`Boundary::Zero`], where it reads zero.
     Coordinate(Dimension),
     /// The entry is where the operand's run along `dimension` ends, and the one before it along the
     /// key where it starts (`0` for the first): each group's rows packed end to end, the table
-    /// their cumulative ends. The operand reads zero past the run, and a walk over its window
-    /// along `dimension` steps the run alone where the dimension is dynamic. A run that ends before it
-    /// starts is empty, and holds nothing to walk. No level at or above the key's may cut `dimension`.
+    /// their cumulative ends. The operand reads zero past the run, and a walk over its window along
+    /// `dimension` steps the run alone where the dimension is dynamic. A run that ends before it
+    /// starts is empty, and holds nothing to walk. No level at or above the key's may cut
+    /// `dimension`.
     Run(Dimension),
 }
 
@@ -66,10 +67,10 @@ impl Indexing {
     }
 
     /// What an operand bound `width` values a line owes where an entry moves its window, the
-    /// values' or a scale's spanning the placed dimension: a buffer neither storage-tiled nor paged, one
-    /// axis of which is the dimension alone, read one value a line where that axis is the innermost, since
-    /// an entry is an element and a line would straddle two; under a run, a buffer over its
-    /// labelled axes, as [`Tile::within`] places.
+    /// values' or a scale's spanning the placed dimension: a buffer neither storage-tiled nor
+    /// paged, one axis of which is the dimension alone, read one value a line where that axis is
+    /// the innermost, since an entry is an element and a line would straddle two; under a run, a
+    /// buffer over its labelled axes, as [`Tile::within`] places.
     ///
     /// # Errors
     ///
@@ -94,8 +95,8 @@ impl Indexing {
     }
 
     /// Where in `levels` the table is read: the first level that cuts a key, which must cut them
-    /// all, and below which (for a run, at or above which) no level cuts the placed dimension; `None`
-    /// where no level cuts the keys, which are then one tile, read as the tile is served.
+    /// all, and below which (for a run, at or above which) no level cuts the placed dimension;
+    /// `None` where no level cuts the keys, which are then one tile, read as the tile is served.
     ///
     /// # Errors
     ///
@@ -239,8 +240,8 @@ fn first_entry() -> u32 {
 
 impl Tile {
     /// This tile with its table read where `step` cuts the table's keys: its window, and the
-    /// windows of the scales it carries that span the dimension the entry places, placed by the entry.
-    /// Any other tile, or step, as it is.
+    /// windows of the scales it carries that span the dimension the entry places, placed by the
+    /// entry. Any other tile, or step, as it is.
     pub(crate) fn indexed_at(self, _step: &Step) -> Tile {
         cubecl::unexpanded!()
     }
@@ -340,8 +341,8 @@ impl Tile {
         coord < memory.window.bound.at(p)
     }
 
-    /// `coord`, an entry naming a coordinate along `dimension`, clamped to the dimension unless the operand
-    /// reads zero past it.
+    /// `coord`, an entry naming a coordinate along `dimension`, clamped to the dimension unless the
+    /// operand reads zero past it.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
     fn clamped(&self, #[comptime] dimension: Dimension, coord: u32) -> u32 {
         let memory = self.mem("indexed_at");
@@ -355,7 +356,8 @@ impl Tile {
         }
     }
 
-    /// This tile one wide at `coord` along `dimension`, and so are the scales it carries that span it.
+    /// This tile one wide at `coord` along `dimension`, and so are the scales it carries that span
+    /// it.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
     pub(crate) fn placed_at(&self, #[comptime] dimension: Dimension, coord: u32) -> Tile {
         Tile {
@@ -370,8 +372,9 @@ impl Tile {
         }
     }
 
-    /// This tile reading the run `[from, until)` along `dimension`, zero past it, and so are the scales
-    /// it carries that span it. An `until` before `from` is an empty run, never a negative one.
+    /// This tile reading the run `[from, until)` along `dimension`, zero past it, and so are the
+    /// scales it carries that span it. An `until` before `from` is an empty run, never a negative
+    /// one.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
     pub(crate) fn run_within(
         &self,
@@ -394,12 +397,12 @@ impl Tile {
 }
 
 impl Region {
-    /// The regions of the level below this one, over what `tile` holds: along a dynamic dimension an
-    /// index placed a run of `tile` along ([`Indexing::Run`]), the run's tiles alone; along every
-    /// other, this region's box. A tile whose entry names nothing, a coordinate past its dimension or
-    /// an empty run, holds nothing, and the walk takes no step. What a cube walks its group's rows
-    /// by, every operand it holds windowed by the same regions, and what a routine walks an
-    /// indexed operand by, so a tile a padding row or a padding tile names does no work.
+    /// The regions of the level below this one, over what `tile` holds: along a dynamic dimension
+    /// an index placed a run of `tile` along ([`Indexing::Run`]), the run's tiles alone; along
+    /// every other, this region's box. A tile whose entry names nothing, a coordinate past its
+    /// dimension or an empty run, holds nothing, and the walk takes no step. What a cube walks its
+    /// group's rows by, every operand it holds windowed by the same regions, and what a routine
+    /// walks an indexed operand by, so a tile a padding row or a padding tile names does no work.
     pub fn walk_within(&self, _tile: &Tile) -> Walk {
         cubecl::unexpanded!()
     }
@@ -542,8 +545,8 @@ impl MemoryExpand {
 }
 
 impl Tile {
-    /// This operand as a slot plans its stage: who moves it, the dimensions it spans, and the keys of a
-    /// table it has yet to read.
+    /// This operand as a slot plans its stage: who moves it, the dimensions it spans, and the keys
+    /// of a table it has yet to read.
     pub(crate) fn stage_operand(&self) -> comptime_type!(StageOperand) {
         cubecl::unexpanded!()
     }
@@ -571,9 +574,9 @@ impl TileExpand {
 }
 
 impl Tile {
-    /// This tile shaped as one region of `level` holds it, for a stage: one wide along the dimension
-    /// its table places where `level` cuts the table's keys, and so are the scales it carries
-    /// that span it. Its window is not moved; the fill of each region places it.
+    /// This tile shaped as one region of `level` holds it, for a stage: one wide along the
+    /// dimension its table places where `level` cuts the table's keys, and so are the scales it
+    /// carries that span it. Its window is not moved; the fill of each region places it.
     pub(crate) fn shaped_for(&self, _level: Level) -> Tile {
         cubecl::unexpanded!()
     }

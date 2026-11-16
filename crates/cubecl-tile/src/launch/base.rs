@@ -24,9 +24,9 @@ pub enum Grid {
 /// [`Refusal`] saying why not.
 ///
 /// Three caps, and a launch clears all of them: the cube's unit product, the cube's per-dimension
-/// shape, and the grid's per-dimension extent. Checking only the product passes a cube legal in size
-/// and illegal in shape: a CPU runtime reports its core count on every dimension, and a cube of many
-/// planes overruns `max_cube_dim.1` long before the product notices.
+/// shape, and the grid's per-dimension extent. Checking only the product passes a cube legal in
+/// size and illegal in shape: a CPU runtime reports its core count on every dimension, and a cube
+/// of many planes overruns `max_cube_dim.1` long before the product notices.
 ///
 /// A zero dimension is no launch rather than a small grid: cubecl's CUDA server returns before
 /// dispatching one, so the outputs keep what they held and the call is timed as though it ran.
@@ -77,8 +77,8 @@ pub struct Launcher {
     concrete: Arc<Space>,
     cube_count: CubeCount,
     cube_dim: CubeDim,
-    /// The dimensions some tile reaches past the end of over the concrete space, worked out once: every
-    /// operand the launch binds asks for them.
+    /// The dimensions some tile reaches past the end of over the concrete space, worked out once:
+    /// every operand the launch binds asks for them.
     overhanging: Arc<[Dimension]>,
     /// The leaf over the concrete space.
     leaf: Arc<Space>,
@@ -138,8 +138,9 @@ impl Launcher {
         })
     }
 
-    /// This launch, each cube holding `bytes` of shared memory, or the [`Refusal`] saying the device
-    /// gives one less: what the device gives a cube, less what it reserves for cube-scoped matrices.
+    /// This launch, each cube holding `bytes` of shared memory, or the [`Refusal`] saying the
+    /// device gives one less: what the device gives a cube, less what it reserves for cube-scoped
+    /// matrices.
     pub fn holding(self, bytes: usize) -> Result<Self, Refusal> {
         let hardware = &self.client.properties().hardware;
         let most = hardware
@@ -196,9 +197,9 @@ impl Launcher {
     }
 
     /// The dimensions some tile reaches past the end of at some extent: this launch's
-    /// [`overhangs`](Self::overhangs), and every dimension the kernel-form space leaves dynamic that a
-    /// level cuts in tiles wider than one or launches in an order that can overrun it. A tile of
-    /// one divides every extent.
+    /// [`overhangs`](Self::overhangs), and every dimension the kernel-form space leaves dynamic
+    /// that a level cuts in tiles wider than one or launches in an order that can overrun it. A
+    /// tile of one divides every extent.
     pub(crate) fn may_overhang(&self) -> Vec<Dimension> {
         let kernel = self.partitioning.space();
         let levels = self.partitioning.levels();
@@ -283,8 +284,8 @@ mod tests {
     use super::*;
 
     /// A grid with a zero dimension is refused, not launched: cubecl's CUDA server returns without
-    /// dispatching one, so the launch would answer with an uncomputed buffer. Every dimension, since
-    /// the count is read off whichever dimension a level put there.
+    /// dispatching one, so the launch would answer with an uncomputed buffer. Every dimension,
+    /// since the count is read off whichever dimension a level put there.
     #[test]
     fn a_grid_with_a_zero_dimension_is_refused() {
         let hardware = HardwareProperties {

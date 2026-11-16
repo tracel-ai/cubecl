@@ -175,7 +175,8 @@ impl Partitioning {
         }
     }
 
-    /// This partitioning's table with a name for each dimension; unnamed dimensions print their index.
+    /// This partitioning's table with a name for each dimension; unnamed dimensions print their
+    /// index.
     pub fn table<'a>(&'a self, labels: &'a [(Dimension, &'a str)]) -> LevelTable<'a> {
         LevelTable::new(self, labels)
     }
@@ -204,9 +205,9 @@ impl Partitioning {
     /// Every dimension some tile reaches past the end of, whose accesses are masked, in the space's
     /// order.
     ///
-    /// One walk down the levels, every dimension asked at each: [`overhangs`](Self::overhangs) asked
-    /// dimension by dimension would cut the space down through every level once per dimension, and a launch asks
-    /// this of every operand it binds, on every call.
+    /// One walk down the levels, every dimension asked at each: [`overhangs`](Self::overhangs)
+    /// asked dimension by dimension would cut the space down through every level once per
+    /// dimension, and a launch asks this of every operand it binds, on every call.
     pub(crate) fn overhanging(&self) -> Vec<Dimension> {
         let dimensions: Vec<Dimension> = self.space.dimensions().collect();
         for &dimension in &dimensions {
@@ -306,7 +307,8 @@ impl Partitioning {
         let mut total = 1u32;
         let mut space = self.space.clone();
         for level in &self.levels {
-            // A unit of a level spanning the launch takes one tile, and asks for no units of its own.
+            // A unit of a level spanning the launch takes one tile, and asks for no units of its
+            // own.
             if levels(level) && level.unit_cube().is_none() {
                 match level.shared_by() {
                     Some(workers) => total *= workers as u32,
@@ -468,8 +470,9 @@ mod tests {
         );
     }
 
-    /// The overhanging dimensions are the ones some level's tile fails to divide, asked dimension by dimension,
-    /// in the space's order: an edge at the cube level, one only a plane's box meets, and none.
+    /// The overhanging dimensions are the ones some level's tile fails to divide, asked dimension
+    /// by dimension, in the space's order: an edge at the cube level, one only a plane's box meets,
+    /// and none.
     #[test]
     fn the_overhanging_dimensions_are_the_ones_some_level_overhangs() {
         let partitioning = Partitioning::new(

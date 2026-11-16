@@ -1,5 +1,5 @@
-//! The register nest behind [`Tile::reduce_dimension`](crate::Tile::reduce_dimension): reduce an input's
-//! contracted dimensions into one accumulator cell at a time, under a [`Monoid`].
+//! The register nest behind [`Tile::reduce_dimension`](crate::Tile::reduce_dimension): reduce an
+//! input's contracted dimensions into one accumulator cell at a time, under a [`Monoid`].
 
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
@@ -202,7 +202,8 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
 /// the cell at `acc_coords` brings: what [`resolve_nd_coords`] addresses, in values rather than
 /// lines, which is where a scale is looked up.
 #[cube]
-// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a `&Vec`.
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a
+// `&Vec`.
 #[allow(clippy::ptr_arg)]
 fn value_coords(
     #[comptime] operand: &Space,
@@ -394,9 +395,9 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
 /// Every cell of a tile over `acc_space`, in order: the dot product of `lhs`'s and `rhs`'s runs
 /// across the dimensions they span beyond it ([`Tile::dot`](crate::Tile::dot)).
 ///
-/// Where the run spans the factors' innermost dimension, as a row of the output does along its value
-/// axis, each line read is summed whole, its components in turn; otherwise each cell reads one
-/// component of each line it meets.
+/// Where the run spans the factors' innermost dimension, as a row of the output does along its
+/// value axis, each line read is summed whole, its components in turn; otherwise each cell reads
+/// one component of each line it meets.
 #[cube]
 pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     lhs: &Tile,
@@ -521,7 +522,8 @@ impl ReduceLayout {
 
 /// The line component for the input's innermost dimension, contracted or surviving.
 #[cube]
-// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a `&Vec`.
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a
+// `&Vec`.
 #[allow(clippy::ptr_arg)]
 fn resolve_reduce_component(
     #[comptime] in_space: &Space,

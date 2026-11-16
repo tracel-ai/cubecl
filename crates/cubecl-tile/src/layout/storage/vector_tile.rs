@@ -1,8 +1,8 @@
 //! [`VectorTile`]: the values one vector load brings, as a tile.
 //!
-//! An operand says how it is stored, and the kernel picks how wide it loads; the tile a load
-//! covers follows from both. A plain buffer is loaded in a run along its innermost axis. A buffer
-//! stored in tiles is loaded a stored tile at a time: its finest tiles, fused per dimension, until they
+//! An operand says how it is stored, and the kernel picks how wide it loads; the tile a load covers
+//! follows from both. A plain buffer is loaded in a run along its innermost axis. A buffer stored
+//! in tiles is loaded a stored tile at a time: its finest tiles, fused per dimension, until they
 //! hold the load's values, so an NVFP4 buffer whose word runs along `K` and whose next pieces are
 //! two words along `K` and two columns loads 32 values as 16 along `K` by 2 along `N`.
 
@@ -96,8 +96,9 @@ impl VectorTile {
         &self.extents
     }
 
-    /// Values one load holds along its finest dimension: one line of it, the whole load where it spans
-    /// one dimension. A reader walking lines along that dimension takes `values() / run()` of them a load.
+    /// Values one load holds along its finest dimension: one line of it, the whole load where it
+    /// spans one dimension. A reader walking lines along that dimension takes `values() / run()` of
+    /// them a load.
     pub(crate) fn run_length(&self) -> usize {
         self.extents.first().map_or(1, |&(_, run)| run)
     }
@@ -112,8 +113,8 @@ impl VectorTile {
         self.extents.iter().map(|&(_, extent)| extent).product()
     }
 
-    /// The dimension a one-dimension load runs along and its width, for a `reader` that places a load along
-    /// one dimension.
+    /// The dimension a one-dimension load runs along and its width, for a `reader` that places a
+    /// load along one dimension.
     ///
     /// # Panics
     ///
@@ -128,7 +129,8 @@ impl VectorTile {
         }
     }
 
-    /// How far one load reaches along `dimension`: its extent there, `1` off the dimensions it spans.
+    /// How far one load reaches along `dimension`: its extent there, `1` off the dimensions it
+    /// spans.
     pub(crate) fn extent_along(&self, dimension: Dimension) -> usize {
         self.extents
             .iter()
@@ -149,8 +151,8 @@ impl VectorTile {
         0
     }
 
-    /// How far along `dimension` the `line`-th of these loads of a window spanning `space` sits from
-    /// the window's first value, the loads counted with the last dimension fastest: the place
+    /// How far along `dimension` the `line`-th of these loads of a window spanning `space` sits
+    /// from the window's first value, the loads counted with the last dimension fastest: the place
     /// [`start`](VectorTile::start) gives, known at expansion.
     pub(crate) fn offset_in(&self, line: usize, space: &Space, dimension: Dimension) -> usize {
         let mut rest = line;
@@ -165,9 +167,9 @@ impl VectorTile {
         0
     }
 
-    /// How far along `dimension` the value at `position` of one load sits from the load's first: the
-    /// position unravelled over the load's extents, finest first. `20` of a 16 by 2 load along `K`
-    /// then `N` is 4 along `K` and 1 along `N`.
+    /// How far along `dimension` the value at `position` of one load sits from the load's first:
+    /// the position unravelled over the load's extents, finest first. `20` of a 16 by 2 load along
+    /// `K` then `N` is 4 along `K` and 1 along `N`.
     pub(crate) fn offset_along(&self, position: usize, dimension: Dimension) -> usize {
         let mut rest = position;
         for &(a, extent) in &self.extents {
@@ -179,14 +181,14 @@ impl VectorTile {
         0
     }
 
-    /// How many loads an edge of `edge` values along `dimension` holds, rounded up: an edge cuts whole
-    /// loads, or is the dimension's whole `extent`, since a padded stage's innermost extent need not
-    /// fill its last load.
+    /// How many loads an edge of `edge` values along `dimension` holds, rounded up: an edge cuts
+    /// whole loads, or is the dimension's whole `extent`, since a padded stage's innermost extent
+    /// need not fill its last load.
     ///
     /// # Panics
     ///
-    /// An edge that is neither, so the next region would start mid-load. A `Dynamic` dimension has no
-    /// extent to be cut whole, so it owes the divisibility.
+    /// An edge that is neither, so the next region would start mid-load. A `Dynamic` dimension has
+    /// no extent to be cut whole, so it owes the divisibility.
     pub(crate) fn loads_in(&self, dimension: Dimension, edge: usize, extent: Extent) -> usize {
         let w = self.extent_along(dimension);
         assert!(
@@ -197,8 +199,9 @@ impl VectorTile {
         edge.div_ceil(w)
     }
 
-    /// How many loads fit along each dimension of `space`, rounded up: a padded stage's innermost extent
-    /// need not fill whole loads, and a checked read's box must include the partial last one.
+    /// How many loads fit along each dimension of `space`, rounded up: a padded stage's innermost
+    /// extent need not fill whole loads, and a checked read's box must include the partial last
+    /// one.
     pub(crate) fn counts(&self, space: &Space) -> Vec<usize> {
         space
             .dimensions()

@@ -52,8 +52,9 @@ pub enum MaskedExtent {
 }
 
 impl<O: Copy + Eq> VectorRequirement<O> {
-    /// `operand` masked along `dimension` of `space`, its contiguous dimension: at the dimension's extent where
-    /// the space states it, at an [`Unknown`](MaskedExtent::Unknown) edge where it is dynamic.
+    /// `operand` masked along `dimension` of `space`, its contiguous dimension: at the dimension's
+    /// extent where the space states it, at an [`Unknown`](MaskedExtent::Unknown) edge where it is
+    /// dynamic.
     pub fn masked(operand: O, space: &Space, dimension: Dimension) -> Self {
         let extent = match space.is_dynamic(dimension) {
             true => MaskedExtent::Unknown,

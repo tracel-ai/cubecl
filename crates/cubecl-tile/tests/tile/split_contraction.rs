@@ -8,9 +8,9 @@
 //! [`PhysicalAxisMap::disjoint`] exactly as a quantization block does. `KB` counts the splits and
 //! rides the cubes; `KI` is the position inside one split and is what the contraction walks.
 //!
-//! The output is bound over `[KB, M, N]`, so it *spans* the dimension being split, and the whole thing
-//! is a batched matmul whose batch is the split index: no cube shares a cell with any other and
-//! nothing is partial. A second pass reduces the `KB` dimension away.
+//! The output is bound over `[KB, M, N]`, so it *spans* the dimension being split, and the whole
+//! thing is a batched matmul whose batch is the split index: no cube shares a cell with any other
+//! and nothing is partial. A second pass reduces the `KB` dimension away.
 //!
 //! Two kernels and an extra buffer, but the engine is untouched, which is what makes this the
 //! reference the in-kernel combines are measured against: it is the same arithmetic, cut the same
@@ -204,9 +204,9 @@ fn reference(m: usize, n: usize, k: usize, rows: std::ops::Range<usize>) -> Vec<
         .collect()
 }
 
-/// Each cube contracts its own slice of `K` and writes it to its own plane of the partials
-/// buffer, and the second pass adds the planes up. Both halves are checked: a partials buffer that is
-/// right and a total that is not would be a broken sum, and the reverse a broken split.
+/// Each cube contracts its own slice of `K` and writes it to its own plane of the partials buffer,
+/// and the second pass adds the planes up. Both halves are checked: a partials buffer that is right
+/// and a total that is not would be a broken sum, and the reverse a broken split.
 #[test]
 fn a_split_contraction_sums_back_to_the_whole() {
     let (m, n, k, splits) = (4usize, 4usize, 16usize, 4usize);

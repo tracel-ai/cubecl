@@ -1,10 +1,10 @@
 //! A contraction cut across a cube's planes, summed back together in shared memory.
 //!
-//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
-//! `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube synchronizes, and
-//! the sum leaves through a plain store. Nothing reaches global memory but the finished box, so
-//! the output is not zeroed first and binds as an ordinary tile. The planes meet atomically
-//! ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
+//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own
+//! slice of `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube
+//! synchronizes, and the sum leaves through a plain store. Nothing reaches global memory but the
+//! finished box, so the output is not zeroed first and binds as an ordinary tile. The planes meet
+//! atomically ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};

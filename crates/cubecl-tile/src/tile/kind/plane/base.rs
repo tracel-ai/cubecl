@@ -289,8 +289,8 @@ impl PlaneTile {
 
     /// Fill this fragment from a memory `src`, a manual-mma one deeper than its instruction as
     /// `load` says. A cmma fragment steps its rows along `row`, a position in `src`'s space read
-    /// off the window of its whole grid: under a contraction of several dimensions, the fragment's own
-    /// window does not tell its rows from its columns.
+    /// off the window of its whole grid: under a contraction of several dimensions, the fragment's
+    /// own window does not tell its rows from its columns.
     pub(crate) fn load_window<T: Numeric>(
         &mut self,
         src: &Tile,
@@ -498,8 +498,8 @@ impl PlanePartition {
     /// The `sub_m × sub_n` block of fragments `step` selects, or one fragment if `1 × 1`.
     /// A level that cuts the partition must be walked with comptime coordinates.
     pub(crate) fn at_step(&self, step: &Step, #[comptime] space: &Space) -> TileKind {
-        // A grid of instruction fragments may span a contraction over several dimensions; a register
-        // block's edges are its own, and it reads the window's trailing pair.
+        // A grid of instruction fragments may span a contraction over several dimensions; a
+        // register block's edges are its own, and it reads the window's trailing pair.
         let fragments = match self.frags.index(0usize) {
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => comptime!(true),
             PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
@@ -510,7 +510,8 @@ impl PlanePartition {
         });
         let a0 = space.dimension_at(edges.row_split);
         let a1 = space.dimension_at(edges.col_split);
-        // A single-tile dimension is the constant `0`; a `Dynamic` dimension stays runtime (`None`).
+        // A single-tile dimension is the constant `0`; a `Dynamic` dimension stays runtime
+        // (`None`).
         let mi = if comptime!(step.level.tiles_const(space, a0) == Some(1)) {
             comptime!(Some(0u64))
         } else {
@@ -1228,9 +1229,9 @@ impl PlaneTile {
     }
 }
 
-/// The matrix a grid of `tiles` fragments of `frag` each spans in `window`: the window's
-/// trailing pair where its edges are the grid's, else its dimensions grouped to the grid's two edges,
-/// so an edge spelled by several dimensions (a contraction over several dimensions) is one edge.
+/// The matrix a grid of `tiles` fragments of `frag` each spans in `window`: the window's trailing
+/// pair where its edges are the grid's, else its dimensions grouped to the grid's two edges, so an
+/// edge spelled by several dimensions (a contraction over several dimensions) is one edge.
 fn grid_dimensions(
     window: &Space,
     frag: (usize, usize),
@@ -1242,21 +1243,22 @@ fn grid_dimensions(
         return trailing;
     }
     let mut grouped = MatrixDimensions::new(window, rows, cols).unwrap_or(trailing);
-    // Dimensions of one leading the row group are batch: the group starts at the dimension a grid cuts.
+    // Dimensions of one leading the row group are batch: the group starts at the dimension a grid
+    // cuts.
     while grouped.row_split + 1 < grouped.col_split && window.extent_at(grouped.row_split) == 1 {
         grouped.row_split += 1;
     }
     grouped
 }
 
-/// The never-walked level cutting an operand's window into the partition's fragments: the
-/// window's matrix grouped to `frag` times `tiles` along each edge, an edge spelled by several
-/// dimensions (a contraction over several dimensions) held whole by every fragment, an edge of one dimension cut.
+/// The never-walked level cutting an operand's window into the partition's fragments: the window's
+/// matrix grouped to `frag` times `tiles` along each edge, an edge spelled by several dimensions (a
+/// contraction over several dimensions) held whole by every fragment, an edge of one dimension cut.
 fn fragment_level(window: &Space, frag: (usize, usize), tiles: (usize, usize)) -> Level {
     let edges = grid_dimensions(window, frag, tiles);
     let (p0, p1, rank) = (edges.row_split, edges.col_split, window.rank());
-    // The one dimension longer than one an edge's group spans, where it spans one: the dimension a grid
-    // of fragments cuts along that edge.
+    // The one dimension longer than one an edge's group spans, where it spans one: the dimension a
+    // grid of fragments cuts along that edge.
     let only = |group: core::ops::Range<usize>| {
         let mut long = group.filter(|&p| window.extent_at(p) > 1);
         match (long.next(), long.next()) {

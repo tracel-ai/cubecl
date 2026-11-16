@@ -76,8 +76,8 @@ fn along_col<E: Float>(#[comptime] offset: ComptimeFloat<f32>) -> AffineCoordina
     )
 }
 
-/// The sum recipe `row + col` evaluated where it is read: every region of the walk copies its window of
-/// the source straight into the output.
+/// The sum recipe `row + col` evaluated where it is read: every region of the walk copies its
+/// window of the source straight into the output.
 #[cube(launch)]
 fn sum_kernel_in_place<E: Float>(
     output: &TileTensor<'_>,
@@ -124,8 +124,8 @@ fn sum_kernel_staged<E: Float>(
     });
 }
 
-/// The recipe under test: `row - frac((col * scale + offset) / divisor)`, a two-dimension expression
-/// built by composition, which is the shape a resampling weight takes.
+/// The recipe under test: `row - frac((col * scale + offset) / divisor)`, a two-dimension
+/// expression built by composition, which is the shape a resampling weight takes.
 #[cube]
 fn affine_plus_phase<E: Float>(
     #[comptime] space: Space,
@@ -149,9 +149,9 @@ fn affine_plus_phase<E: Float>(
     .tile::<E>()
 }
 
-/// `launch_ratio` decides whether the fraction is spelled in constants, which evaluate at expand time,
-/// or in values the kernel only receives at launch. Both go through the same `Phase`, and the grid
-/// must come out the same.
+/// `launch_ratio` decides whether the fraction is spelled in constants, which evaluate at expand
+/// time, or in values the kernel only receives at launch. Both go through the same `Phase`, and the
+/// grid must come out the same.
 #[cube(launch)]
 fn phase_kernel<E: Float>(
     output: &TileTensor<'_>,
@@ -433,8 +433,8 @@ fn selecting_a_region_rebases_the_recipe_origin() {
     assert_grid(&h.read(output), |row, _| 2.0 * row as f32);
 }
 
-/// Walk the affine-plus-phase recipe with the fraction constant or passed at launch; the grid is the
-/// same either way.
+/// Walk the affine-plus-phase recipe with the fraction constant or passed at launch; the grid is
+/// the same either way.
 fn check_phase(launch_ratio: bool) {
     let h = Harness::new();
     let output = h.output();
@@ -624,8 +624,8 @@ fn memory_values_read_each_cell() {
     });
 }
 
-/// A memory tile that leaves out a dimension broadcasts over it: values over the columns alone serve
-/// every row.
+/// A memory tile that leaves out a dimension broadcasts over it: values over the columns alone
+/// serve every row.
 #[test]
 fn memory_values_broadcast_over_a_dimension_they_leave_out() {
     let h = Harness::new();

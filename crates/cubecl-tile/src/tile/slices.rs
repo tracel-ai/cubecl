@@ -26,12 +26,12 @@ pub(crate) enum DimensionSlicesKind {
     Fragment(PlaneTile),
 }
 
-/// A tile cut into slices along `dimension`, one for every index of its other dimensions, each read and
-/// written whole where the tile's holder keeps it: the verbs an op reducing or broadcasting along
-/// one dimension runs. The slices write through to the tile.
+/// A tile cut into slices along `dimension`, one for every index of its other dimensions, each read
+/// and written whole where the tile's holder keeps it: the verbs an op reducing or broadcasting
+/// along one dimension runs. The slices write through to the tile.
 ///
-/// `dimension` is the tile's innermost, the one its cells are contiguous along; any other is refused
-/// by name.
+/// `dimension` is the tile's innermost, the one its cells are contiguous along; any other is
+/// refused by name.
 #[derive(CubeType)]
 pub struct DimensionSlices {
     kind: DimensionSlicesKind,
@@ -198,13 +198,13 @@ impl DimensionSlices {
     }
 
     /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])`: the probabilities of a softmax
-    /// whose logsumexp is known, read back from it instead of walking the score again.
-    /// `logsumexp` is a window of memory that omits the dimension the softmax ran along, which it
-    /// broadcasts over: along the slices where that dimension is the innermost, along each slice where
-    /// it is not, as a walk owned by the keys holds its scores keys first. Its other dimensions are this
+    /// whose logsumexp is known, read back from it instead of walking the score again. `logsumexp`
+    /// is a window of memory that omits the dimension the softmax ran along, which it broadcasts
+    /// over: along the slices where that dimension is the innermost, along each slice where it is
+    /// not, as a walk owned by the keys holds its scores keys first. Its other dimensions are this
     /// tile's, or one wide. A cell whose logsumexp is the minimum value, every key of its softmax
-    /// masked, is left at zero. A plane's manual-mma fragments read each cell's logsumexp in
-    /// place, a row's or a column's, so a walk owned by the keys keeps its scores in registers.
+    /// masked, is left at zero. A plane's manual-mma fragments read each cell's logsumexp in place,
+    /// a row's or a column's, so a walk owned by the keys keeps its scores in registers.
     pub fn probabilities<E: Float>(&mut self, scale: E, bias: &Tile, logsumexp: &Tile) {
         let recipe = bias.recipe();
         let broadcast = comptime!(Broadcast::new(&self.space, &logsumexp.place.space));
@@ -248,8 +248,8 @@ impl DimensionSlices {
     /// `self[c] = probabilities[c] · (self[c] − delta[c])`: a softmax's gradient against its
     /// scores, where `self` holds the gradient against its probabilities and `delta` is, for each
     /// softmax, `Σ probabilities · self` along the dimension it ran along. `delta` broadcasts as
-    /// [`probabilities`](DimensionSlices::probabilities)'s logsumexp does; the probabilities are cut as
-    /// `self` is, held by the same holder: a unit's block, a plane's window, or a plane's
+    /// [`probabilities`](DimensionSlices::probabilities)'s logsumexp does; the probabilities are
+    /// cut as `self` is, held by the same holder: a unit's block, a plane's window, or a plane's
     /// manual-mma fragments laid alike.
     pub fn softmax_gradient<E: Float>(&mut self, probabilities: &DimensionSlices, delta: &Tile) {
         comptime!(assert!(
@@ -359,8 +359,8 @@ impl DimensionSlices {
 }
 
 /// Where each cell of a tile cut into slices along its innermost dimension reads a tile that omits
-/// some of its dimensions, which it broadcasts over: the read cell is an offset for each slice plus one
-/// step for each position along the slice.
+/// some of its dimensions, which it broadcasts over: the read cell is an offset for each slice plus
+/// one step for each position along the slice.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Broadcast {
     /// The cell of the broadcast tile each slice's first position reads.
@@ -371,8 +371,8 @@ pub(crate) struct Broadcast {
 }
 
 impl Broadcast {
-    /// How a tile over `space` reads one over `broadcast`, whose every dimension is one of `space`'s
-    /// at its extent, or one wide.
+    /// How a tile over `space` reads one over `broadcast`, whose every dimension is one of
+    /// `space`'s at its extent, or one wide.
     ///
     /// # Panics
     ///
@@ -425,8 +425,9 @@ impl Broadcast {
     }
 
     /// The cell the first slice's first position reads and the cells one slice and one position
-    /// move it, for slices that read the broadcast tile evenly, as a tile of two dimensions does: what a
-    /// fragment computes each cell's read from, its row the slice and its column the position.
+    /// move it, for slices that read the broadcast tile evenly, as a tile of two dimensions does:
+    /// what a fragment computes each cell's read from, its row the slice and its column the
+    /// position.
     ///
     /// # Panics
     ///

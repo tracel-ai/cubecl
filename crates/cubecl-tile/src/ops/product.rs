@@ -1,5 +1,5 @@
-//! `dst.product(&a, &b)`: the elementwise product of two tiles, each broadcasting over the dimensions it
-//! omits.
+//! `dst.product(&a, &b)`: the elementwise product of two tiles, each broadcasting over the
+//! dimensions it omits.
 
 use cubecl::prelude::*;
 
@@ -51,7 +51,8 @@ impl Tile {
             let scales = b_reader
                 .view
                 .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
-            // `a`'s address moves with the step: its map is evaluated once here, each step an addition.
+            // `a`'s address moves with the step: its map is evaluated once here, each step an
+            // addition.
             let moving = comptime!(vec![split.dimension]);
             let a_anchor = a_reader.map.anchor(a_base.clone(), moving.clone());
 
@@ -71,7 +72,8 @@ impl Tile {
     }
 }
 
-/// How a product's walk divides: one broadcast-operand read per group, its values stepped inside it.
+/// How a product's walk divides: one broadcast-operand read per group, its values stepped inside
+/// it.
 #[derive(Clone, Debug)]
 struct GroupWalk {
     /// The dimension a read's values step: the one the broadcast operand's own lines run along.

@@ -155,8 +155,8 @@ impl Partitioning {
             .product()
     }
 
-    /// The shape of a [`LastArrival`]'s slots for an output over `dimensions`, in that order: two cube
-    /// boxes a run of the shared cube level, stacked along the first of `dimensions`.
+    /// The shape of a [`LastArrival`]'s slots for an output over `dimensions`, in that order: two
+    /// cube boxes a run of the shared cube level, stacked along the first of `dimensions`.
     pub fn arrival_slots(&self, dimensions: &[Dimension]) -> cubecl::zspace::Shape {
         let boxes = self.arrival_slots_space(dimensions);
         cubecl::zspace::Shape::from(
@@ -166,10 +166,10 @@ impl Partitioning {
         )
     }
 
-    /// The space the slots of a [`LastArrival`] for an output over `dimensions` are boxes of, cut by
-    /// these levels: one cube box, with the first of `dimensions` two boxes a run long. Every dimension the
-    /// cube level cuts, a batch one included, is one box long, so the slot boxes are counted along
-    /// that first dimension alone.
+    /// The space the slots of a [`LastArrival`] for an output over `dimensions` are boxes of, cut
+    /// by these levels: one cube box, with the first of `dimensions` two boxes a run long. Every
+    /// dimension the cube level cuts, a batch one included, is one box long, so the slot boxes are
+    /// counted along that first dimension alone.
     fn arrival_slots_space(&self, dimensions: &[Dimension]) -> Partitioning {
         let level = &self.levels()[0];
         let runs = level.shared_by().expect(

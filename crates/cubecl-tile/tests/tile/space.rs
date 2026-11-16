@@ -124,8 +124,8 @@ fn levels_chain_into_a_multi_level_scheme() {
 
 // ---- contracting ----------------------------------------------------------
 
-/// A routed dimension, as the leaf sees it: it holds one value, only the rhs spans it, and the output
-/// does not carry it. It pairs with nothing and contracts nothing, so it is not one of the
+/// A routed dimension, as the leaf sees it: it holds one value, only the rhs spans it, and the
+/// output does not carry it. It pairs with nothing and contracts nothing, so it is not one of the
 /// contracted dimensions, and the fastest one is the one both operands line along.
 #[test]
 fn a_routed_dimension_is_not_contracted() {
@@ -145,8 +145,9 @@ fn a_dimension_one_operand_spans_is_contracted_while_it_varies() {
     assert_eq!(&Space::contracted(&[&lhs, &rhs], &out)[..], &[K, EXPERT]);
 }
 
-/// A one-tap window on both dimensions of a separable filter, as nearest interpolation contracts: every
-/// operand spans both dimensions, so both stay, and each factor keeps the dimension it names by position.
+/// A one-tap window on both dimensions of a separable filter, as nearest interpolation contracts:
+/// every operand spans both dimensions, so both stay, and each factor keeps the dimension it names
+/// by position.
 #[test]
 fn a_one_value_dimension_every_operand_spans_is_contracted() {
     let weights = Space::new(&[(M, 4), (K, 1), (K2, 1)]);
@@ -221,8 +222,8 @@ fn overhangs_dynamic_dimension_panics() {
 
 // ---- Level constructors ----------------------------------------------------------
 
-/// The tiles of several dimensions distributed as one index: the shares ride the cubes even though no
-/// dimension does, so the launch grid is their count.
+/// The tiles of several dimensions distributed as one index: the shares ride the cubes even though
+/// no dimension does, so the launch grid is their count.
 #[test]
 fn shared_tiles_launch_their_instances() {
     let launcher = implied(
@@ -282,8 +283,8 @@ fn batches_are_a_dial_each() {
     assert!(matches!(one_line.cube_count(), CubeCount::Static(4, 2, 6)));
 }
 
-/// One dimension is a box whatever the count, so `across` on it distributes the dimension's own tiles over
-/// the scope, which is what a cut has always meant: no work is stated.
+/// One dimension is a box whatever the count, so `across` on it distributes the dimension's own
+/// tiles over the scope, which is what a cut has always meant: no work is stated.
 #[test]
 fn one_dimension_across_a_count_is_a_dial() {
     let launcher = implied(
@@ -358,7 +359,8 @@ fn a_dimension_named_twice_is_refused() {
 
 /// A level that takes one of the thing below has one region on every dimension, so it partitions
 /// nothing. It stays all the same: the kernel walks the levels it stated, one loop per level, so
-/// the list must hold every one. A one-region walk evaluates away in the kernel, so it costs nothing.
+/// the list must hold every one. A one-region walk evaluates away in the kernel, so it costs
+/// nothing.
 #[test]
 fn a_level_that_cuts_nothing_is_kept() {
     let plain = implied(

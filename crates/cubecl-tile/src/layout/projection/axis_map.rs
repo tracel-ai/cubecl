@@ -290,7 +290,8 @@ impl PhysicalAxisMap {
         self.composition
     }
 
-    /// The `(dimension, coefficient)` radices a disjoint map claims, coarsest first; empty otherwise.
+    /// The `(dimension, coefficient)` radices a disjoint map claims, coarsest first; empty
+    /// otherwise.
     pub(crate) fn claimed_radices(&self) -> SmallVec<[(Dimension, usize); Space::MAX_RANK]> {
         match self.composition {
             Composition::Overlapping | Composition::Translated => SmallVec::new(),
@@ -386,7 +387,8 @@ impl PhysicalAxisMap {
         self.terms.iter().any(|t| t.dimension == dimension)
     }
 
-    /// `dimension`'s coefficient, `0` when it does not address this dimension. Panics if it is dynamic.
+    /// `dimension`'s coefficient, `0` when it does not address this dimension. Panics if it is
+    /// dynamic.
     pub fn scale(&self, dimension: Dimension) -> isize {
         self.terms
             .iter()
@@ -407,12 +409,13 @@ impl PhysicalAxisMap {
         }
     }
 
-    /// The dimensions this buffer axis is made of, when it is one index over several dimensions laid end to
-    /// end, like `K = KB·16 + KI` over `KI` and `KB`. Listed finest first: the finest at scale
-    /// `1`, each next one at the product of the extents before it, no offset, no division. Such a
-    /// axis stays in the buffer whenever each of its dimensions stays in its extent. A single dimension at
-    /// scale `1` is the simplest case ([`identity_dimension`](Self::identity_dimension)). `None` for any
-    /// other map, or when a dimension other than the last has no comptime extent in `space`.
+    /// The dimensions this buffer axis is made of, when it is one index over several dimensions
+    /// laid end to end, like `K = KB·16 + KI` over `KI` and `KB`. Listed finest first: the finest
+    /// at scale `1`, each next one at the product of the extents before it, no offset, no division.
+    /// Such a axis stays in the buffer whenever each of its dimensions stays in its extent. A
+    /// single dimension at scale `1` is the simplest case
+    /// ([`identity_dimension`](Self::identity_dimension)). `None` for any other map, or when a
+    /// dimension other than the last has no comptime extent in `space`.
     pub(crate) fn flattened_dimensions(
         &self,
         space: &Space,
@@ -442,7 +445,8 @@ impl PhysicalAxisMap {
         Some(terms.iter().map(|&(dimension, _)| dimension).collect())
     }
 
-    /// Whether this physical axis is exactly `dimension` at coefficient `1`, offset `0`, no division.
+    /// Whether this physical axis is exactly `dimension` at coefficient `1`, offset `0`, no
+    /// division.
     pub(crate) fn is_identity(&self, dimension: Dimension) -> bool {
         self.identity_dimension() == Some(dimension)
     }

@@ -35,7 +35,8 @@ pub struct GlobalOperand {
 
 #[cube]
 impl GlobalOperand {
-    /// A launched tensor, `space` projected onto the `spec` dimensions; shape and strides in scalars.
+    /// A launched tensor, `space` projected onto the `spec` dimensions; shape and strides in
+    /// scalars.
     pub fn tensor<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -52,8 +53,8 @@ impl GlobalOperand {
     }
 
     /// [`tensor`](GlobalOperand::tensor) over a pool of pages, read as the sequences `table` names
-    /// ([`Paging`]): the spec states which dimensions the table resolves, the tensor is the pool as it
-    /// lies, and the operand's extent along the two dimensions is the table's.
+    /// ([`Paging`]): the spec states which dimensions the table resolves, the tensor is the pool as
+    /// it lies, and the operand's extent along the two dimensions is the table's.
     pub fn paged<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         table: &Tensor<u32>,

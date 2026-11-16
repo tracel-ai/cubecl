@@ -15,8 +15,8 @@ use cubecl_tile::{
 const M: Dimension = Dimension(0);
 const KB: Dimension = Dimension(1);
 const KI: Dimension = Dimension(2);
-/// The blocks of the rows, one: the dimension a packed matrix's rows split into beside [`M`], which a
-/// source restated over its block dimensions leaves out.
+/// The blocks of the rows, one: the dimension a packed matrix's rows split into beside [`M`], which
+/// a source restated over its block dimensions leaves out.
 const MB: Dimension = Dimension(3);
 
 /// The values packed from `input`, under the block scales they carry, which the copy computes.
@@ -38,8 +38,8 @@ fn quantize_planes(input: &TileTensor<'_>, packed: &TileTensor<'_>, partitioning
     }
 }
 
-/// How the float values are bound: as the words are, both block dimensions one axis of the row, or a
-/// axis a dimension, the rows' one block left out.
+/// How the float values are bound: as the words are, both block dimensions one axis of the row, or
+/// a axis a dimension, the rows' one block left out.
 #[derive(Clone, Copy)]
 enum Source {
     AsTheWords,
@@ -359,7 +359,8 @@ fn q8_quantizes_under_bf16_scales() {
     check_quantize(QuantValue::Q8S, 32, Scales::Packed(ScaleDtype::BF16), None);
 }
 
-/// MXFP8 from a source bound an axis a dimension, as a tensor restated over the block dimensions is.
+/// MXFP8 from a source bound an axis a dimension, as a tensor restated over the block dimensions
+/// is.
 #[test]
 fn mxfp8_quantizes_from_a_source_per_dimension() {
     check_quantize_as(

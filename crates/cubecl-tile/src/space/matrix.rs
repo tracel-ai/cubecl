@@ -24,7 +24,8 @@ impl MatrixDimensions {
         }
     }
 
-    /// The innermost dimension as columns and the last dimension above it of extent past one as rows.
+    /// The innermost dimension as columns and the last dimension above it of extent past one as
+    /// rows.
     pub(crate) fn edges(space: &Space) -> Self {
         let rank = space.rank();
         let col_split = rank - 1;
@@ -39,10 +40,10 @@ impl MatrixDimensions {
         }
     }
 
-    /// An operand's matrix against the output `out` it contracts into: the dimensions `out` lacks as
-    /// one edge, however many dimensions make up the contraction, and the free dimension beside them as the
-    /// other. The contraction is the window's trailing run of dimensions `out` lacks, or the run below
-    /// its free trailing dimension.
+    /// An operand's matrix against the output `out` it contracts into: the dimensions `out` lacks
+    /// as one edge, however many dimensions make up the contraction, and the free dimension beside
+    /// them as the other. The contraction is the window's trailing run of dimensions `out` lacks,
+    /// or the run below its free trailing dimension.
     pub(crate) fn operand(window: &Space, out: &Space) -> Self {
         let rank = window.rank();
         let contracted = |p: usize| !out.contains(window.dimension_at(p));
@@ -83,8 +84,8 @@ impl MatrixDimensions {
         }
     }
 
-    /// The position a matrix's rows step along: the innermost dimension of the row group longer than
-    /// one, as a dimension of one in a window may carry any stride.
+    /// The position a matrix's rows step along: the innermost dimension of the row group longer
+    /// than one, as a dimension of one in a window may carry any stride.
     pub(crate) fn row_dimension(&self, space: &Space) -> usize {
         (self.row_split..self.col_split)
             .rev()
@@ -107,9 +108,9 @@ impl MatrixDimensions {
     }
 
     /// A run of `values` scalars along the columns from their origin, as an extent per dimension of
-    /// `space`: the innermost dimensions taken whole, outwards, until the run is covered, every other
-    /// dimension one. Over a `k` split in blocks of 16, a run of 32 is the whole of the position inside
-    /// a block, two blocks along.
+    /// `space`: the innermost dimensions taken whole, outwards, until the run is covered, every
+    /// other dimension one. Over a `k` split in blocks of 16, a run of 32 is the whole of the
+    /// position inside a block, two blocks along.
     ///
     /// # Panics
     ///
@@ -130,7 +131,8 @@ impl MatrixDimensions {
         run
     }
 
-    /// The dimensions giving a `rows x cols` matrix, both scalar, found from the innermost dimension outwards.
+    /// The dimensions giving a `rows x cols` matrix, both scalar, found from the innermost
+    /// dimension outwards.
     pub(crate) fn new(space: &Space, rows: usize, cols: usize) -> Result<Self, NoMatrix> {
         let rank = space.rank();
         let mut col_split = rank;
@@ -161,7 +163,8 @@ impl MatrixDimensions {
         })
     }
 
-    /// [`new`](Self::new) over a tile's whole box, the innermost (vectorized) dimension in the columns.
+    /// [`new`](Self::new) over a tile's whole box, the innermost (vectorized) dimension in the
+    /// columns.
     pub(crate) fn whole(space: &Space, rows: usize, cols: usize, vector_size: usize) -> Self {
         let rank = space.rank();
         let dimensions = MatrixDimensions::new(space, rows, cols).unwrap_or_else(|e| panic!("{e}"));

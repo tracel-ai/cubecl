@@ -64,8 +64,8 @@ fn quantized_values(
                 snapped.clamp(range_min, range_max)
             })
             .collect(),
-        // A lookup field is a table index, not a rounded value; these stubs carry no table, so
-        // a lookup test states its indices exactly ([`pack_q_values`]) and multiplies the table into
+        // A lookup field is a table index, not a rounded value; these stubs carry no table, so a
+        // lookup test states its indices exactly ([`pack_q_values`]) and multiplies the table into
         // its own host reference.
         QuantMode::Lookup => panic!("quantize stub: lookup takes exact indices via pack_q_values"),
     }

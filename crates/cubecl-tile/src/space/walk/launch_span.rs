@@ -7,11 +7,11 @@ use crate::{
 };
 
 /// This plane's or unit's tiles of `level`, a level spanning the launch, along each dimension of
-/// `space`: `(positions, counts, scales)`: along each of the level's dimensions the first tile's index,
-/// how many it walks and how far apart they lie: one tile, an index past the last for an instance
-/// past the last tile; under a [capped](crate::space::PlaneOrder::capped) order, every tile a
-/// whole launch of planes apart until the last. Along each other dimension `0`, every tile, `1`. `grid`
-/// is the tiles along each dimension.
+/// `space`: `(positions, counts, scales)`: along each of the level's dimensions the first tile's
+/// index, how many it walks and how far apart they lie: one tile, an index past the last for an
+/// instance past the last tile; under a [capped](crate::space::PlaneOrder::capped) order, every
+/// tile a whole launch of planes apart until the last. Along each other dimension `0`, every tile,
+/// `1`. `grid` is the tiles along each dimension.
 #[cube]
 pub(crate) fn launch_tiles(
     #[comptime] space: &Space,
@@ -27,8 +27,8 @@ pub(crate) fn launch_tiles(
         _ => UNIT_POS_Y as usize,
     };
     let rank = space.rank();
-    // The level's dimensions in the order it names them: the first rides fastest across the blocks, as
-    // a cube level's `X` does.
+    // The level's dimensions in the order it names them: the first rides fastest across the blocks,
+    // as a cube level's `X` does.
     let named = comptime!(
         level
             .dimensions()
@@ -111,8 +111,9 @@ pub(crate) fn launch_tiles(
     (positions, counts, scales)
 }
 
-/// Block `block`'s coordinates over `blocks`, `named` dimensions of them: the first two in `order`, the
-/// others outermost, first fastest, the last never wrapped, so a block past the grid lands off it.
+/// Block `block`'s coordinates over `blocks`, `named` dimensions of them: the first two in `order`,
+/// the others outermost, first fastest, the last never wrapped, so a block past the grid lands off
+/// it.
 #[cube]
 fn block_coords(
     block: usize,

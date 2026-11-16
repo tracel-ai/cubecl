@@ -25,7 +25,8 @@ const CUBES_PER_GRID_DIMENSION: usize = 65_535;
 /// planes of a cube all reach any barrier one of them meets.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PlaneOrder {
-    /// Tiles one block holds along each dimension it names; along a dimension it does not name, one.
+    /// Tiles one block holds along each dimension it names; along a dimension it does not name,
+    /// one.
     block: Vec<(Dimension, usize)>,
     block_order: CubeOrder,
     /// The launch's `y`.
@@ -147,9 +148,11 @@ impl PlaneOrder {
 
     /// Whether some plane the launch spawns for `level` over `space` walks a tile past the last
     /// along `dimension`, so the binding masks it there: where the edge cuts a block short along
-    /// `dimension`, or where the grid holds more planes than the blocks do and the blocks past the last
-    /// land past `dimension` ([`block_coords`](crate::space::walk::launch_span::block_coords)). `dimension` is static; where an extent the grid counts is
-    /// only the launch's, the planes may run past it, and it is masked.
+    /// `dimension`, or where the grid holds more planes than the blocks do and the blocks past the
+    /// last land past `dimension`
+    /// ([`block_coords`](crate::space::walk::launch_span::block_coords)). `dimension` is static;
+    /// where an extent the grid counts is only the launch's, the planes may run past it, and it is
+    /// masked.
     pub(crate) fn overruns(&self, level: &Level, space: &Space, dimension: Dimension) -> bool {
         let ragged = !level
             .tiles(space, dimension)
@@ -188,8 +191,9 @@ impl PlaneOrder {
             .product()
     }
 
-    /// The dimension a block index past the last lands past ([`block_coords`](crate::space::walk::launch_span::block_coords)): the one dimension; of two,
-    /// the one `order` runs out along; of more, the outermost, which is never wrapped.
+    /// The dimension a block index past the last lands past
+    /// ([`block_coords`](crate::space::walk::launch_span::block_coords)): the one dimension; of
+    /// two, the one `order` runs out along; of more, the outermost, which is never wrapped.
     fn spare_blocks_land_past(level: &Level, order: CubeOrder) -> Dimension {
         let dimensions = level.dimensions();
         match dimensions.len() {

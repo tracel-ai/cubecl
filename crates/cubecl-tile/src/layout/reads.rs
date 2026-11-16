@@ -1,25 +1,25 @@
 //! How an operand is read and how it is scaled, as tiles of its own dimensions ([`OperandReads`]).
 //!
-//! Two numbers per dimension answer what a launch and a contraction ask of a stored tensor: the tile
-//! one read of it brings, and the tile one scale covers. A float operand reads one value and
-//! carries no scales, so the same statement serves it without asking whether anything is
-//! quantized.
+//! Two numbers per dimension answer what a launch and a contraction ask of a stored tensor: the
+//! tile one read of it brings, and the tile one scale covers. A float operand reads one value and
+//! carries no scales, so the same statement serves it without asking whether anything is quantized.
 
 use crate::{Dimension, Space};
 
-/// The shape of the smallest indivisible tile of something: one value on every dimension but the ones
-/// it names.
+/// The shape of the smallest indivisible tile of something: one value on every dimension but the
+/// ones it names.
 ///
-/// A read of a `q4` input brings eight values along the dimension its words run along and one of every
-/// other, so its tile is `{k: 8}`. A scale of that input covers thirty-two along the same dimension and
-/// one column, so its tile is `{k: 32}`. Nothing here names a matmul dimension, so an attention operand
-/// states its own the same way.
+/// A read of a `q4` input brings eight values along the dimension its words run along and one of
+/// every other, so its tile is `{k: 8}`. A scale of that input covers thirty-two along the same
+/// dimension and one column, so its tile is `{k: 32}`. Nothing here names a matmul dimension, so an
+/// attention operand states its own the same way.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct MicroTile([Option<(Dimension, usize)>; MicroTile::MAX_DIMENSIONS]);
 
 impl MicroTile {
-    /// The most dimensions a tile reaches along: an operand is a matrix, its words running along one
-    /// dimension and its reads at most taking several of them beside each other along the other.
+    /// The most dimensions a tile reaches along: an operand is a matrix, its words running along
+    /// one dimension and its reads at most taking several of them beside each other along the
+    /// other.
     const MAX_DIMENSIONS: usize = 2;
 
     /// One value: what an unvectorized, unquantized read brings.
@@ -46,8 +46,8 @@ impl MicroTile {
             .map_or(1, |(_, extent)| extent)
     }
 
-    /// This tile `count` times as far along `dimension`: a read of a word along one dimension, taken for
-    /// several words along it, or for several positions of another at once.
+    /// This tile `count` times as far along `dimension`: a read of a word along one dimension,
+    /// taken for several words along it, or for several positions of another at once.
     ///
     /// # Panics
     ///
@@ -66,8 +66,8 @@ impl MicroTile {
         self
     }
 
-    /// This tile with its dimension `from` named `to`: the same reach, over a matrix whose dimensions another
-    /// reader names otherwise.
+    /// This tile with its dimension `from` named `to`: the same reach, over a matrix whose
+    /// dimensions another reader names otherwise.
     pub fn renamed(mut self, from: Dimension, to: Dimension) -> Self {
         for (dimension, _) in self.0.iter_mut().flatten() {
             if *dimension == from {

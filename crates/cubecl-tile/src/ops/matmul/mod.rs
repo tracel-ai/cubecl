@@ -1,5 +1,5 @@
-//! The matmul reading of a [`Tile`](crate::Tile): `c.mma(a, b)` treats the trailing two dimensions as
-//! the `row × col` matrix, leading dimensions as a batch, and contracts `K`.
+//! The matmul reading of a [`Tile`](crate::Tile): `c.mma(a, b)` treats the trailing two dimensions
+//! as the `row × col` matrix, leading dimensions as a batch, and contracts `K`.
 
 pub(crate) mod base;
 pub(crate) mod descent;

@@ -20,10 +20,11 @@ pub(crate) fn logical_extent(
     bound
 }
 
-/// The line offset of coordinate `at` along `dimension` under `projection`: each physical axis carrying
-/// `dimension` takes its coordinate of `at`, weighed by its stride. Over a storage-tiled dimension the offset
-/// is not linear in `at`: a coordinate that crosses into the next stored tile jumps to that tile's
-/// stride, so a move from one coordinate to another is the difference of their offsets.
+/// The line offset of coordinate `at` along `dimension` under `projection`: each physical axis
+/// carrying `dimension` takes its coordinate of `at`, weighed by its stride. Over a storage-tiled
+/// dimension the offset is not linear in `at`: a coordinate that crosses into the next stored tile
+/// jumps to that tile's stride, so a move from one coordinate to another is the difference of their
+/// offsets.
 #[cube]
 pub(crate) fn dimension_offset(
     #[comptime] projection: &Projection,

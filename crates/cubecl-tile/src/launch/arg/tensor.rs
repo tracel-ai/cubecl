@@ -465,10 +465,10 @@ impl TileTensorLaunch {
         Ok(self)
     }
 
-    /// These values read through their projection's runtime half: a value for each of its
-    /// dynamic coefficients and divisors (`Scale::Dynamic`, `Divisor::Dynamic`), physical axis
-    /// major, each dimension's divisor last, and for each of its dynamic offsets (`Offset::Dynamic`).
-    /// Only how many there are is checked, as the kernel expands.
+    /// These values read through their projection's runtime half: a value for each of its dynamic
+    /// coefficients and divisors (`Scale::Dynamic`, `Divisor::Dynamic`), physical axis major, each
+    /// dimension's divisor last, and for each of its dynamic offsets (`Offset::Dynamic`). Only how
+    /// many there are is checked, as the kernel expands.
     pub fn runtime_map(mut self, coefficients: Vec<u32>, offsets: Vec<i32>) -> Self {
         self.runtime_map = (coefficients, offsets);
         self
@@ -495,8 +495,8 @@ impl TileTensorLaunch {
         self
     }
 
-    /// This tensor map of `u32` words read as words (`Packing::Words`) of `field`, several to a word
-    /// along the dimension they scale: what a TMA engine moves of block scales a block-scaled
+    /// This tensor map of `u32` words read as words (`Packing::Words`) of `field`, several to a
+    /// word along the dimension they scale: what a TMA engine moves of block scales a block-scaled
     /// instruction takes a word at a time, which a stage holds as they lie.
     ///
     /// # Panics
@@ -533,10 +533,10 @@ impl TileTensorLaunch {
     /// sequence, reads these values as a pool of pages: the axis the sequence labels holds pages,
     /// the one the position labels a page's positions, and sequence `b`'s position `s` lies in page
     /// `table[b, s / page_size]`, `page_size` the pool's extent along the position. The operand's
-    /// extents along the two dimensions are the table's, checked on every read. The table is read as
-    /// each window is cut, a window holding one page or two reading it once. The scales of a pool
-    /// spanning either dimension are a pool of their own, placed by the same table before they are
-    /// stated.
+    /// extents along the two dimensions are the table's, checked on every read. The table is read
+    /// as each window is cut, a window holding one page or two reading it once. The scales of a
+    /// pool spanning either dimension are a pool of their own, placed by the same table before they
+    /// are stated.
     ///
     /// # Errors
     ///
@@ -547,10 +547,10 @@ impl TileTensorLaunch {
     }
 
     /// [`indexed`](Self::indexed), the table a pool of pages is read through stated to cover the
-    /// launch's extents along both its dimensions, so a read the launch keeps in bounds is in bounds
-    /// through the table: the two dimensions are checked only where the launch overhangs, as a buffer
-    /// read where it lies is. A table that stops short reads its clamped entries there: other
-    /// positions of the pool, never past it.
+    /// launch's extents along both its dimensions, so a read the launch keeps in bounds is in
+    /// bounds through the table: the two dimensions are checked only where the launch overhangs, as
+    /// a buffer read where it lies is. A table that stops short reads its clamped entries there:
+    /// other positions of the pool, never past it.
     ///
     /// # Errors
     ///
@@ -617,8 +617,8 @@ impl TileTensorLaunch {
     }
 
     /// This operand's spec read as a pool of pages along `sequence` and `position`: its paging, and
-    /// unless the table `covering` the launch, the two dimensions checked on every read, their extents
-    /// being the table's.
+    /// unless the table `covering` the launch, the two dimensions checked on every read, their
+    /// extents being the table's.
     fn paged_spec(
         &self,
         sequence: Dimension,
@@ -938,8 +938,8 @@ mod tests {
         TileTensor::expand(&arg, builder)
     }
 
-    /// The one-dimension `f32` buffer as a run keyed by `keys`, served on a bare scope under `levels`
-    /// over `space`.
+    /// The one-dimension `f32` buffer as a run keyed by `keys`, served on a bare scope under
+    /// `levels` over `space`.
     fn serve_indexed(keys: &[Dimension], space: &[(Dimension, usize)], levels: Vec<Level>) {
         let mut builder = KernelBuilder::new(builder_settings());
         let mut values = expanded_f32_buffer(&mut builder);

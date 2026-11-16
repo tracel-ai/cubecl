@@ -557,7 +557,8 @@ impl Tile {
         }
     }
 
-    /// This operand's window at `from` on `dimension`, reading zero past `until` (both in elements).
+    /// This operand's window at `from` on `dimension`, reading zero past `until` (both in
+    /// elements).
     pub fn within(&self, #[comptime] dimension: Dimension, from: usize, until: usize) -> Tile {
         let tile_kind = match &self.kind {
             TileKind::Memory(g) => TileKind::new_Memory(g.within(dimension, from, until)),
@@ -855,8 +856,8 @@ impl Tile {
         )
     }
 
-    /// A fresh shared-memory tile over `dimensions` of one region of `walk`, laid out as `storage` and
-    /// served one value a line: placed where the walk's regions sit, and owned as the walk's
+    /// A fresh shared-memory tile over `dimensions` of one region of `walk`, laid out as `storage`
+    /// and served one value a line: placed where the walk's regions sit, and owned as the walk's
     /// stages are, one for the cube or a copy for each plane ([`Stages`]).
     ///
     /// What a kernel holds between two steps of its walk that no operand is: an attention's
@@ -1066,7 +1067,8 @@ impl Tile {
                 d.add_cast_from::<Served, Source>(s)
             }
             (TileKind::PlanePartition(d), TileKind::PlanePartition(s)) => {
-                // The fragment clones the block's array reference, so this promotes the block itself.
+                // The fragment clones the block's array reference, so this promotes the block
+                // itself.
                 let mut fragment = d.fragment();
                 fragment.add_cast_from::<Served, Source>(&s.fragment())
             }
@@ -1223,7 +1225,8 @@ pub(crate) fn witnessed_space(#[comptime] space: &Space, a: &Tile, b: &Tile, c: 
         #[unroll]
         for p in 0..space.rank() {
             let dimension = space.dimension_at(p);
-            // Evaluate `Static` dimensions here so one `Dynamic` dimension doesn't require a bound for the rest.
+            // Evaluate `Static` dimensions here so one `Dynamic` dimension doesn't require a bound
+            // for the rest.
             let size = match space.extent_raw(dimension) {
                 Extent::Static(n) => comptime!(n).runtime(),
                 Extent::Dynamic => {
@@ -1303,8 +1306,9 @@ impl Iterable for &TileExpand {
 }
 
 impl Tile {
-    /// These values under `scale`, multiplied in where they are read. Every dimension `scale` varies
-    /// along must be one of the values'; one it spans without varying along is read at its origin.
+    /// These values under `scale`, multiplied in where they are read. Every dimension `scale`
+    /// varies along must be one of the values'; one it spans without varying along is read at its
+    /// origin.
     pub fn mul(&self, _scale: &Tile) -> Tile {
         unexpanded!()
     }
@@ -1321,10 +1325,10 @@ impl Tile {
         unexpanded!()
     }
 
-    /// This operand of `sum` without its outer scales that vary only along the dimensions of `sum`'s
-    /// space, and those scales. They are the scales the sum takes out of every term and applies
-    /// once ([`scaled`](Tile::scaled)), and the tile left carries the ones each term needs. Open
-    /// the sum first ([`accumulator`](Tile::accumulator)): what it gives up depends on the
+    /// This operand of `sum` without its outer scales that vary only along the dimensions of
+    /// `sum`'s space, and those scales. They are the scales the sum takes out of every term and
+    /// applies once ([`scaled`](Tile::scaled)), and the tile left carries the ones each term needs.
+    /// Open the sum first ([`accumulator`](Tile::accumulator)): what it gives up depends on the
     /// instruction the sum contracts through.
     ///
     /// Words of block scales always give up the scales above them: the instruction reads the
@@ -1337,10 +1341,10 @@ impl Tile {
         unexpanded!()
     }
 
-    /// This tile without its outer scales that vary along no dimension, and those scales: what a sum
-    /// held outside any tile, in a unit's own registers, takes out of every term and applies once
-    /// ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing a
-    /// table gives up none: only its copy decodes it.
+    /// This tile without its outer scales that vary along no dimension, and those scales: what a
+    /// sum held outside any tile, in a unit's own registers, takes out of every term and applies
+    /// once ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing
+    /// a table gives up none: only its copy decodes it.
     pub fn factor_whole(&self) -> (Tile, Factor) {
         unexpanded!()
     }
@@ -1773,8 +1777,8 @@ impl TileExpand {
 
 #[cube]
 impl Tile {
-    /// The one scale at `coords`, one entry per dimension of this tile's space, read from memory under
-    /// `guard`.
+    /// The one scale at `coords`, one entry per dimension of this tile's space, read from memory
+    /// under `guard`.
     #[allow(dead_code)] // Reached through its expand, from [`Factor`].
     pub(crate) fn scale_at<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         match &self.kind {
@@ -1830,8 +1834,8 @@ impl Tile {
         own
     }
 
-    /// The one value at `coords` of a tile that serves lines: the load holding it, read whole,
-    /// and the value's place in it, whatever dimensions the load spans. A packed load decodes only the
+    /// The one value at `coords` of a tile that serves lines: the load holding it, read whole, and
+    /// the value's place in it, whatever dimensions the load spans. A packed load decodes only the
     /// field that value is, not the whole line.
     #[allow(dead_code)] // Reached through its expand, from [`Tile::scale_at`].
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {

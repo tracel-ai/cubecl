@@ -7,7 +7,8 @@
 //!
 //! What a *quantized* operand adds on top is its scales, which are their own tensor and their own
 //! operand; multiplying them in is a verb the kernel writes ([`Tile::mm_scaled`], see
-//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode step's one-row product.
+//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode step's
+//! one-row product.
 //!
 //! Every test packs its own words: values low field first, `32 / bits` of them per word, and a
 //! binding whose shape counts *values* while the packing says how many sit in one stored word.
@@ -30,7 +31,8 @@ use super::{Form, implied};
 
 const M: Dimension = Dimension(0);
 const N: Dimension = Dimension(1);
-/// The contraction as the two dimensions a scale block makes of it: which block, and where inside it.
+/// The contraction as the two dimensions a scale block makes of it: which block, and where inside
+/// it.
 const KB: Dimension = Dimension(2);
 const KI: Dimension = Dimension(3);
 /// The columns, likewise, where a scale covers a block of them.
@@ -104,7 +106,8 @@ fn nvfp4_shaped_matmul(
 ///
 /// The only thing standing between this and the format itself is where the block scales are
 /// *stored*: `nvfp4` puts them in `ue4m3`, which needs a device that loads it. Everything else is
-/// here: the decode, two ordered levels, the coarser spanning no dimension, 16-blocks on 8-value words.
+/// here: the decode, two ordered levels, the coarser spanning no dimension, 16-blocks on 8-value
+/// words.
 ///
 /// Nothing in the kernel names the format, the block, or the number of levels.
 ///
@@ -291,9 +294,9 @@ fn native_matmul(
     }
 }
 
-/// The decode step's one-row product, whole: one row of activations against packed weights read straight from
-/// global memory, their scales beside them, accumulating in a register block opened above the
-/// walk. `N` spreads across cubes, which is all a one-row product has to spread.
+/// The decode step's one-row product, whole: one row of activations against packed weights read
+/// straight from global memory, their scales beside them, accumulating in a register block opened
+/// above the walk. `N` spreads across cubes, which is all a one-row product has to spread.
 #[cube(launch)]
 fn packed_one_row_product<E: Numeric>(
     x: &TileTensor<'_>,
@@ -2048,9 +2051,9 @@ fn packed_one_row_product_unscaled<E: Numeric>(
 
 /// A packed rhs drains from a promoted accumulator, exactly as its scaled twin does.
 ///
-/// [`a_packed_decode_runs_in_this_spelling`] runs this block with the scales multiplied in, and
-/// the two reach the same `block::contract` through the same `RegisterData`, so if a packed rhs
-/// were what a promoted accumulator could not drain, the one-row product could not be spelled either.
+/// [`a_packed_decode_runs_in_this_spelling`] runs this block with the scales multiplied in, and the
+/// two reach the same `block::contract` through the same `RegisterData`, so if a packed rhs were
+/// what a promoted accumulator could not drain, the one-row product could not be spelled either.
 ///
 /// What makes both work is the accumulator being declared at the *served* width (`V = factor`); a
 /// narrower one is refused by the width assert, and that is the only thing packing owes here.

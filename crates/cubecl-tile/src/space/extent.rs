@@ -2,7 +2,8 @@
 
 use crate::{Dimension, DimensionMap};
 
-/// One dimension's size: `Static` is comptime, `Dynamic` is resolved in-kernel from the tensor shape.
+/// One dimension's size: `Static` is comptime, `Dynamic` is resolved in-kernel from the tensor
+/// shape.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Extent {
     Static(usize),

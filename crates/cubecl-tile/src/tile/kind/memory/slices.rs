@@ -1,6 +1,6 @@
 //! A plane's window of shared memory, cut into slices along its innermost dimension: the verbs
-//! [`DimensionSlices`] runs on it, the plane's units taking each slice's cells in turns and meeting on
-//! the slice's partials.
+//! [`DimensionSlices`] runs on it, the plane's units taking each slice's cells in turns and meeting
+//! on the slice's partials.
 
 use cubecl::prelude::*;
 
@@ -8,8 +8,8 @@ use crate::*;
 
 #[cube]
 impl Memory {
-    /// `self[i, s] = self[i, s] · scale + bias[i, s]` over this window over `space`, `dimension` its
-    /// innermost.
+    /// `self[i, s] = self[i, s] · scale + bias[i, s]` over this window over `space`, `dimension`
+    /// its innermost.
     pub(crate) fn scale_add_along<E: Float>(
         &mut self,
         scale: E,
@@ -60,8 +60,8 @@ impl Memory {
         maxima
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` over this window over `space`, `dimension`
-    /// its innermost ([`DimensionSlices::exp2_scaled_minus_cell`]).
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` over this window over `space`,
+    /// `dimension` its innermost ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(
         &mut self,
         scale: E,

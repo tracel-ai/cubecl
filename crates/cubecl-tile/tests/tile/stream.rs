@@ -1,14 +1,15 @@
 //! Distributing a level's work as one index: the hypercube scope taking every step of the
 //! contraction as dependent work.
 //!
-//! Distributing each dimension on its own gives a cube the product of its per-dimension runs, which is a box
-//! of the grid. A share of the work is not a box: it is a range of the index the dimensions make
-//! together, and may start in one tile and end in another; no box of a four by two grid holds three
-//! regions.
+//! Distributing each dimension on its own gives a cube the product of its per-dimension runs, which
+//! is a box of the grid. A share of the work is not a box: it is a range of the index the
+//! dimensions make together, and may start in one tile and end in another; no box of a four by two
+//! grid holds three regions.
 //!
-//! [`Walk::portion`] is that range, and the [`Portion`] it returns the walk over it. The dimensions of the
-//! distributed work stay `Sequential`, so the walk's counts are the whole grid and its flat index
-//! carries every coordinate; an instance's run is `base` and `steps` into it, both runtime values.
+//! [`Walk::portion`] is that range, and the [`Portion`] it returns the walk over it. The dimensions
+//! of the distributed work stay `Sequential`, so the walk's counts are the whole grid and its flat
+//! index carries every coordinate; an instance's run is `base` and `steps` into it, both runtime
+//! values.
 //!
 //! The first tests here are the assignment on a copy, with no contraction and nothing partial:
 //! they prove the runs cover the grid exactly once, and that a run starting late reads the
@@ -241,9 +242,10 @@ fn a_run_starting_late_copies_the_regions_it_was_given() {
 
 // -- The contraction ---------------------------------------------------------
 //
-// The assignment above, over a matmul. `K` is not cut at cube scope and no dimension is: the line runs
-// over the output's tiles and each tile's `K` blocks together, and a cube takes a run of it. A run
-// spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink sums.
+// The assignment above, over a matmul. `K` is not cut at cube scope and no dimension is: the line
+// runs over the output's tiles and each tile's `K` blocks together, and a cube takes a run of it. A
+// run spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink
+// sums.
 
 const MM: Dimension = Dimension(2);
 const NN: Dimension = Dimension(3);
@@ -791,11 +793,13 @@ fn cubes_take_shares_while_the_units_cut_k_between_them() {
     }
 }
 
-// -- Merged by the last arrival ---------------------------------------------------------------------
+// -- Merged by the last arrival
+// ---------------------------------------------------------------------
 //
-// The same line, with no float atomic and no cube waiting on another: a cube holding a tile whole drains
-// it into the output, and of the cubes holding parts of one, each parks its part in a slot and the
-// last to count itself in adds them in the order of their runs and casts the total into the output.
+// The same line, with no float atomic and no cube waiting on another: a cube holding a tile whole
+// drains it into the output, and of the cubes holding parts of one, each parks its part in a slot
+// and the last to count itself in adds them in the order of their runs and casts the total into the
+// output.
 
 /// The streamed contraction merged by [`LastArrival`](cubecl_tile::launch::LastArrival): each cube
 /// contracts its part of every tile its run touches into a register accumulator opened on its slot,
@@ -911,7 +915,8 @@ fn run_merged_stream<O: Float + CubeElement>(
         .generate_without_host_data();
     let counters = launcher.partitioning().arrival_counters();
     let arrivals = client.create_from_slice(u32::as_bytes(&vec![0u32; counters]));
-    // Checked on every dimension: a tile past the output's edge reads zero there and writes nothing.
+    // Checked on every dimension: a tile past the output's edge reads zero there and writes
+    // nothing.
     let spec = |dimensions: &[Dimension]| {
         TileSpec::direct(dimensions).boundary(BoundaryPolicy::Every(Boundary::Zero))
     };

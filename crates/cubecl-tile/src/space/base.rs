@@ -6,7 +6,8 @@ use cubecl::zspace::SmallVec;
 use crate::algebra::gcd;
 use crate::{Dimension, Extent, Level, Shape};
 
-/// Every dimension with its extent, in canonical order, plus the runtime sizes of dynamic dimensions.
+/// Every dimension with its extent, in canonical order, plus the runtime sizes of dynamic
+/// dimensions.
 #[derive(CubeType, CubeLaunch, Clone, Debug)]
 pub struct Space {
     #[cube(comptime)]
@@ -145,9 +146,9 @@ impl Space {
         Space::from_shape(self.shape.subspace(dimensions))
     }
 
-    /// This box listed in `held`'s order where `held` spans the same dimensions, as it is otherwise:
-    /// the box a plane-resident accumulator writes through, its fragments' rows along its own
-    /// leading dimensions whatever order the memory it drains into lists them in.
+    /// This box listed in `held`'s order where `held` spans the same dimensions, as it is
+    /// otherwise: the box a plane-resident accumulator writes through, its fragments' rows along
+    /// its own leading dimensions whatever order the memory it drains into lists them in.
     pub(crate) fn in_order_of(&self, held: &Space) -> Space {
         let same_dimensions = held.rank() == self.rank()
             && held.dimensions().all(|dimension| self.contains(dimension));
@@ -251,8 +252,8 @@ impl Space {
             .fold(self.clone(), |space, level| level.child(&space))
     }
 
-    /// The smallest space containing every `part`, dimensions in first-appearance order, shared dimensions
-    /// broadcast-merged. E.g. `{M,K} ∪ {K,N} ∪ {M,N} = {M,N,K}`.
+    /// The smallest space containing every `part`, dimensions in first-appearance order, shared
+    /// dimensions broadcast-merged. E.g. `{M,K} ∪ {K,N} ∪ {M,N} = {M,N,K}`.
     pub fn merge(parts: &[&Space]) -> Space {
         let mut entries: SmallVec<[(Dimension, Extent); Space::MAX_RANK]> = SmallVec::new();
 
@@ -269,8 +270,8 @@ impl Space {
     }
 
     /// The smallest space every one of `parts` tiles evenly: on each dimension the least common
-    /// multiple of the parts' extents, dimensions in first-appearance order. The box a step covers so
-    /// that each operand's load fills it whole: NVFP4 values loaded `{k 16, n 2}`, their scales
+    /// multiple of the parts' extents, dimensions in first-appearance order. The box a step covers
+    /// so that each operand's load fills it whole: NVFP4 values loaded `{k 16, n 2}`, their scales
     /// `{k 16, n 16}` and an `f16` activation `{k 8}` cover `{k 16, n 16}`.
     ///
     /// # Panics
@@ -289,9 +290,9 @@ impl Space {
         Space::new(&extents)
     }
 
-    /// How many `tile`s this space holds, laid side by side along every dimension `tile` names; a dimension
-    /// it does not name it spans whole, one tile serving every position along it. An `f16`
-    /// activation loaded `{k 8}` fills a step `{k 16, n 16}` in two loads.
+    /// How many `tile`s this space holds, laid side by side along every dimension `tile` names; a
+    /// dimension it does not name it spans whole, one tile serving every position along it. An
+    /// `f16` activation loaded `{k 8}` fills a step `{k 16, n 16}` in two loads.
     ///
     /// # Panics
     ///
@@ -372,8 +373,9 @@ impl Space {
             .product()
     }
 
-    /// How many slices along `dimension` the space holds: one for every index of its other dimensions. The
-    /// extent of `dimension` itself may be one a walk has yet to cut, which only the launch knows.
+    /// How many slices along `dimension` the space holds: one for every index of its other
+    /// dimensions. The extent of `dimension` itself may be one a walk has yet to cut, which only
+    /// the launch knows.
     pub(crate) fn slices_along(&self, dimension: Dimension) -> usize {
         self.dimensions()
             .filter(|&other| other != dimension)
@@ -381,8 +383,9 @@ impl Space {
             .product()
     }
 
-    /// The widest run along `dimension` that divides both `widest` and this space's extent there: the
-    /// widest line a buffer read in boxes of this space can hold without a box starting mid-line.
+    /// The widest run along `dimension` that divides both `widest` and this space's extent there:
+    /// the widest line a buffer read in boxes of this space can hold without a box starting
+    /// mid-line.
     pub(crate) fn whole_run(&self, dimension: Dimension, widest: usize) -> usize {
         gcd(widest, self.extent(dimension))
     }

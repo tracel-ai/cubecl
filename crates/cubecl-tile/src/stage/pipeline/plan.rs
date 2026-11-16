@@ -114,8 +114,8 @@ impl StagePlan {
     }
 }
 
-/// Whether a walk of `level` over `space` leaves `operand`'s window unchanged: it spans no dimension
-/// the walk steps, and has no table left to read keyed by one.
+/// Whether a walk of `level` over `space` leaves `operand`'s window unchanged: it spans no
+/// dimension the walk steps, and has no table left to read keyed by one.
 fn walk_invariant(level: &Level, space: &Space, operand: &StageOperand) -> bool {
     space.dimensions().all(|dimension| {
         level.tiles(space, dimension) == 1

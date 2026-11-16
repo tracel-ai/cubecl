@@ -521,8 +521,8 @@ impl StageForm {
         }
     }
 
-    /// The extent in lines along each dimension the buffer is addressed by, a window's dimensions: what the
-    /// physical extents carrying that dimension hold between them, so a buffer tiled into
+    /// The extent in lines along each dimension the buffer is addressed by, a window's dimensions:
+    /// what the physical extents carrying that dimension hold between them, so a buffer tiled into
     /// `[grid…, block…]` is still windowed one coordinate a dimension.
     fn window_extents(&self) -> Vec<usize> {
         (0..self.positional.coordinate_rank())
@@ -597,7 +597,8 @@ impl StageForm {
         pitched
     }
 
-    /// A stage's buffer addressed by position: `rank` synthetic dimensions, each split into `pieces` axes.
+    /// A stage's buffer addressed by position: `rank` synthetic dimensions, each split into
+    /// `pieces` axes.
     fn positional(rank: usize, pieces: usize) -> Projection {
         let dimensions: Vec<Dimension> = (0..rank).map(|p| Dimension(p as u8)).collect();
         let labels = StoragePartitioning::level_major(&dimensions, &vec![pieces; rank]);

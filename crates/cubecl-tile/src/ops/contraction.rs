@@ -6,7 +6,8 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::*;
 
-/// What the output's coordinates handed to [`resolve_nd_coords`] count along the innermost dimension.
+/// What the output's coordinates handed to [`resolve_nd_coords`] count along the innermost
+/// dimension.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum AccCoords {
     /// Cells, divided by the operand's width there.
@@ -20,7 +21,8 @@ pub(crate) enum AccCoords {
 /// The innermost dimension is divided by `width`, except an acc coordinate already counted in lines
 /// ([`AccCoords::Lines`]).
 #[cube]
-// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a `&Vec`.
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a
+// `&Vec`.
 #[allow(clippy::ptr_arg)]
 pub(crate) fn resolve_nd_coords(
     #[comptime] operand: &Space,

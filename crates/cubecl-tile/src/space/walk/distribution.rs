@@ -30,7 +30,8 @@ pub(crate) struct Distribution {
     pub(crate) divides: bool,
     /// The later dimensions sharing this dimension's hardware dimension.
     pub(crate) inner: Vec<usize>,
-    /// The instance weight of same-dimension dimensions inside this one that the space does not span.
+    /// The instance weight of same-dimension dimensions inside this one that the space does not
+    /// span.
     pub(crate) unspanned: usize,
     /// Which of the two jointly decoded in-plane positions this dimension takes, when swizzled.
     pub(crate) swizzled: Option<usize>,
@@ -114,8 +115,8 @@ impl DimensionDistribution {
         }
     }
 
-    /// The instance counts of same-dimension dimensions inside `dimension` that `space` does not span.
-    /// Panics where such a dimension has no comptime count.
+    /// The instance counts of same-dimension dimensions inside `dimension` that `space` does not
+    /// span. Panics where such a dimension has no comptime count.
     pub(crate) fn unspanned_weight(level: &Level, space: &Space, dimension: Dimension) -> usize {
         let cube_axis = level.cube_axis(dimension);
         level
@@ -185,9 +186,9 @@ impl DimensionDistribution {
         }
     }
 
-    /// This unit's place among the units [`units_within`](DimensionDistribution::units_within) counts:
-    /// its place in its instance of `within` ([`ComputeScope::unit`]), among the filling planes'
-    /// units where the cube sets the last `fillers` aside.
+    /// This unit's place among the units [`units_within`](DimensionDistribution::units_within)
+    /// counts: its place in its instance of `within` ([`ComputeScope::unit`]), among the filling
+    /// planes' units where the cube sets the last `fillers` aside.
     pub(crate) fn unit_within(
         #[comptime] within: ComputeScope,
         #[comptime] fillers: usize,

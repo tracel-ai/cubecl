@@ -63,8 +63,8 @@ fn dynamic_along_frees_only_the_listed_dimensions() {
     assert!(!launch.partitioning().space().is_dynamic(N));
 }
 
-/// A dimension the space does not have would be dropped silently, leaving the kernel specialized along
-/// the dimension the caller meant to free.
+/// A dimension the space does not have would be dropped silently, leaving the kernel specialized
+/// along the dimension the caller meant to free.
 #[test]
 #[should_panic(expected = "is not a dimension of this space")]
 fn dynamic_along_unknown_dimension_panics() {
@@ -140,8 +140,8 @@ fn arg_derives_check_from_subspace_overhang() {
         .build()
         .unwrap();
     assert!(touches_k.spec.is_checked());
-    // Only the dimension that overhangs carries the mask: M divides, so its coordinate is settled and
-    // masking it would cost a comparison on every access that can never fail.
+    // Only the dimension that overhangs carries the mask: M divides, so its coordinate is settled
+    // and masking it would cost a comparison on every access that can never fail.
     assert_eq!(
         touches_k.spec.boundaries.as_slice(),
         &[None, Some(Boundary::Zero)]
@@ -198,8 +198,8 @@ fn any_extent_checks_what_some_extent_could_overhang() {
 }
 
 /// A storage-tiled operand is addressed by fewer coordinates than its buffer has axes, and the
-/// boundary list follows the coordinates: sized off the physical rank it would land its per-dimension
-/// modes on the grid fragments, which no [`Window`] ever reads.
+/// boundary list follows the coordinates: sized off the physical rank it would land its
+/// per-dimension modes on the grid fragments, which no [`Window`] ever reads.
 #[test]
 fn arg_sizes_boundaries_by_coordinate_rank_under_storage_tiling() {
     let client = cubecl::test_device().client();
@@ -543,8 +543,9 @@ fn spec_tunes_what_a_bound_operand_tunes() {
 }
 
 /// The geometry comes back with the spec, because that is the pair [`Tile::of_sink`] takes and
-/// re-deriving it at the call site is the drift `build_spec` removes. No batch dimensions are stated, so
-/// nothing is dropped, yet the caller reads the settled pair rather than trusting the stated one.
+/// re-deriving it at the call site is the drift `build_spec` removes. No batch dimensions are
+/// stated, so nothing is dropped, yet the caller reads the settled pair rather than trusting the
+/// stated one.
 ///
 /// See [`spec_settles_a_broadcast_batch_axis_away`] for the case where the two differ.
 #[test]
@@ -570,8 +571,8 @@ fn spec_returns_the_geometry_it_settled_on() {
     );
 }
 
-/// A leading broadcast axis is refused, not silently dropped. `geometry` labels the operand's
-/// own dimensions and no batches are stated, so an axis past them has no dimension to belong to and the
+/// A leading broadcast axis is refused, not silently dropped. `geometry` labels the operand's own
+/// dimensions and no batches are stated, so an axis past them has no dimension to belong to and the
 /// derivation that *would* drop it never runs; the rank fails at launch, not as a misplaced store.
 #[test]
 fn spec_refuses_an_axis_it_cannot_label() {
@@ -599,9 +600,10 @@ fn spec_refuses_an_axis_it_cannot_label() {
 /// A broadcast batch axis is dropped from the geometry that comes back, which is the case the
 /// stated and the settled pair actually part company over.
 ///
-/// [`batches`](cubecl_tile::StridedTileSource::batches) right-aligns above the operand's own dimensions
-/// as for a bound operand, and a size-one batch axis drops out. A caller handing [`Tile::of_sink`]
-/// the *stated* geometry would address a rank the projection lost; the settled one is returned.
+/// [`batches`](cubecl_tile::StridedTileSource::batches) right-aligns above the operand's own
+/// dimensions as for a bound operand, and a size-one batch axis drops out. A caller handing
+/// [`Tile::of_sink`] the *stated* geometry would address a rank the projection lost; the settled
+/// one is returned.
 #[test]
 fn spec_settles_a_broadcast_batch_axis_away() {
     let client = cubecl::test_device().client();
@@ -696,8 +698,8 @@ fn arg_gathered_states_its_own_mapping() {
     assert!(input.spec.boundaries.is_empty());
 }
 
-/// An overhanging dimension arms the check through the affine map just as it does through a label: the
-/// tap dimension `K` is one of the two the gathered axis is addressed by.
+/// An overhanging dimension arms the check through the affine map just as it does through a label:
+/// the tap dimension `K` is one of the two the gathered axis is addressed by.
 #[test]
 fn arg_gathered_derives_check_from_overhang() {
     let client = cubecl::test_device().client();
@@ -837,7 +839,8 @@ fn arg_gathered_validates_the_innermost_axis() {
 
 /// A dimension sharing its axis with another has no extent of its own to read back here, but the
 /// operand may ride it [`Dynamic`] anyway: whoever maps it identically states its size when the op
-/// walks it. The builder sees one operand; `witnessed_space` flags an unanswered dimension at expansion.
+/// walks it. The builder sees one operand; `witnessed_space` flags an unanswered dimension at
+/// expansion.
 #[test]
 fn arg_gathered_dynamic_dimension_is_accepted() {
     let client = cubecl::test_device().client();
@@ -857,8 +860,8 @@ fn arg_gathered_dynamic_dimension_is_accepted() {
         .unwrap();
 }
 
-/// The dimension a gather does identity-map still reads its own extent, so it is free to stay runtime
-/// alongside the two that share an axis.
+/// The dimension a gather does identity-map still reads its own extent, so it is free to stay
+/// runtime alongside the two that share an axis.
 #[test]
 fn arg_gathered_identity_dimension_may_stay_dynamic() {
     let client = cubecl::test_device().client();
@@ -1181,8 +1184,9 @@ fn arg_vectorized_with_outer_dimension_overhang_succeeds() {
     );
 }
 
-/// `checked(true)` states the mode, not the dimension list: the per-dimension derivation still keeps it off
-/// the dimensions that cannot leave the buffer. Only `checked(false)` disarms outright.
+/// `checked(true)` states the mode, not the dimension list: the per-dimension derivation still
+/// keeps it off the dimensions that cannot leave the buffer. Only `checked(false)` disarms
+/// outright.
 #[test]
 fn arg_explicit_check_still_narrows_to_the_unsettled_dimensions() {
     let client = cubecl::test_device().client();
@@ -1204,8 +1208,8 @@ fn arg_explicit_check_still_narrows_to_the_unsettled_dimensions() {
     );
 }
 
-/// The list is shaped over coordinate dimensions, and the setter is where a hand-built spec should learn
-/// that: `Tile::of` would only catch it in-kernel, one comptime expansion away from the call.
+/// The list is shaped over coordinate dimensions, and the setter is where a hand-built spec should
+/// learn that: `Tile::of` would only catch it in-kernel, one comptime expansion away from the call.
 #[test]
 #[should_panic(expected = "2 coordinate dimensions")]
 fn tile_spec_boundaries_must_match_the_coordinate_rank() {

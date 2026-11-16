@@ -1,8 +1,9 @@
 //! Multi-dimension reduce: contractions over more than one abstract dimension.
 //!
 //! The first client is the simplest one that cannot be a matmul: a matmul whose `K` is declared as
-//! *two* dimensions. Only how many dimensions the operands contract changes, so the answer must be exactly the
-//! plain matmul's, isolating the multi-dimension reduce nest from the projection machinery of conv.
+//! *two* dimensions. Only how many dimensions the operands contract changes, so the answer must be
+//! exactly the plain matmul's, isolating the multi-dimension reduce nest from the projection
+//! machinery of conv.
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput};
@@ -20,7 +21,8 @@ use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 const M: Dimension = Dimension(0);
 const N: Dimension = Dimension(1);
 const K: Dimension = Dimension(2);
-// `K` split in two: `K1` the major half, `K2` the minor (and the dimension both operands line along).
+// `K` split in two: `K1` the major half, `K2` the minor (and the dimension both operands line
+// along).
 const K1: Dimension = Dimension(3);
 const K2: Dimension = Dimension(4);
 const B: Dimension = Dimension(5);
@@ -58,8 +60,8 @@ enum Read {
     Smem { depth: usize },
 }
 
-/// Seeds `output` with the identity the reduction starts from, then reduces `input` into it region by
-/// region. One body serves every monoid, which is the point: the kernels below differed only in
+/// Seeds `output` with the identity the reduction starts from, then reduces `input` into it region
+/// by region. One body serves every monoid, which is the point: the kernels below differed only in
 /// this seed and the `Monoid` passed to `reduce_dimension`.
 #[cube]
 fn reduce_body<E: Numeric>(
@@ -106,9 +108,10 @@ fn reduce_kernel<E: Numeric>(
     reduce_body::<E>(&input, &mut output, &space, level.clone(), read, monoid);
 }
 
-/// Reduce a dimension-index recipe so a trailing partial tile must be masked without a backing window.
-/// `read` decides whether the recipe is evaluated at the leaf or first materialized into shared
-/// memory; either way the partial-tile mask must survive rather than reducing the padded overhang.
+/// Reduce a dimension-index recipe so a trailing partial tile must be masked without a backing
+/// window. `read` decides whether the recipe is evaluated at the leaf or first materialized into
+/// shared memory; either way the partial-tile mask must survive rather than reducing the padded
+/// overhang.
 #[cube(launch)]
 fn procedural_reduce_kernel<E: Float>(
     output: &TileTensor<'_>,
@@ -143,9 +146,9 @@ fn ramp(n: usize, period: usize) -> Vec<f32> {
     (0..n).map(|i| (i % period) as f32).collect()
 }
 
-/// Run `space` with `a`/`b` declared over `a_dimensions`/`b_dimensions` and the given buffer shapes, and
-/// return the `m × n` output. The buffers are contiguous either way, so a rank-3 declaration of
-/// the same bytes is just a finer reading of the same layout.
+/// Run `space` with `a`/`b` declared over `a_dimensions`/`b_dimensions` and the given buffer
+/// shapes, and return the `m × n` output. The buffers are contiguous either way, so a rank-3
+/// declaration of the same bytes is just a finer reading of the same layout.
 fn run(
     a_shape: Shape,
     b_shape: Shape,
@@ -680,7 +683,8 @@ fn test_reduce_dimension_min_double_buffered() {
     check_2d_reduce(2, 8, 16, 4, 4, Monoid::Min);
 }
 
-/// Reduction over an outer dimension, keeping the innermost dimension (which lines along the vector width).
+/// Reduction over an outer dimension, keeping the innermost dimension (which lines along the vector
+/// width).
 #[test]
 fn test_reduce_dimension_sum_outer_dimension_retained_innermost_v1() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
@@ -712,8 +716,9 @@ fn test_reduce_dimension_sum_outer_dimension_retained_innermost_v1() {
     }
 }
 
-/// Reduction over an outer dimension while retaining the innermost dimension with `vector_size` = 4.
-/// Exercises line indexing and unit extraction when the innermost dimension is in accumulator nest.
+/// Reduction over an outer dimension while retaining the innermost dimension with `vector_size` =
+/// 4. Exercises line indexing and unit extraction when the innermost dimension is in accumulator
+/// nest.
 #[test]
 fn test_reduce_dimension_sum_outer_dimension_retained_innermost_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
@@ -749,8 +754,8 @@ fn test_reduce_dimension_sum_outer_dimension_retained_innermost_v4() {
     }
 }
 
-/// [`test_reduce_dimension_sum_inner_dimension_reduced_v4`] under `Max`, whose identity the memory system
-/// does not hand back out of bounds: the substitution has to happen a whole line at a time.
+/// [`test_reduce_dimension_sum_inner_dimension_reduced_v4`] under `Max`, whose identity the memory
+/// system does not hand back out of bounds: the substitution has to happen a whole line at a time.
 #[test]
 fn test_reduce_dimension_max_inner_dimension_reduced_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
@@ -1122,8 +1127,9 @@ fn test_reduce_dimension_min_outer_dimension_retained_innermost_v4() {
     }
 }
 
-/// Reduction over the innermost dimension with `vector_size` = 4: the line runs along the dimension being
-/// reduced, so a step reduces the whole line into one cell and the units collapse once at the end.
+/// Reduction over the innermost dimension with `vector_size` = 4: the line runs along the dimension
+/// being reduced, so a step reduces the whole line into one cell and the units collapse once at the
+/// end.
 #[test]
 fn test_reduce_dimension_sum_inner_dimension_reduced_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
@@ -1201,8 +1207,9 @@ fn test_reduce_dimension_multi_dimension_3d_middle_dimension_retained_innermost_
     }
 }
 
-/// Reduction over a dimension spread across plane units (`ComputeScope::Unit` / `UnitShare::Plane`).
-/// Tests that `UnitShare::Plane` seeds with 0 and reduces across units combining with accumulator.
+/// Reduction over a dimension spread across plane units (`ComputeScope::Unit` /
+/// `UnitShare::Plane`). Tests that `UnitShare::Plane` seeds with 0 and reduces across units
+/// combining with accumulator.
 #[test]
 fn test_reduce_dimension_sum_spatial_unit_units() {
     let client = cubecl::test_device().client();
@@ -1312,9 +1319,9 @@ fn test_reduce_dimension_min_spatial_unit_units() {
     }
 }
 
-/// A `Max` reduce whose accumulator lives in registers while the reduced dimension is split across the
-/// plane's units: each unit reduces its own `K` slice, so each holds a partial maximum, and the drain
-/// combines them under the same monoid the accumulator was built with.
+/// A `Max` reduce whose accumulator lives in registers while the reduced dimension is split across
+/// the plane's units: each unit reduces its own `K` slice, so each holds a partial maximum, and the
+/// drain combines them under the same monoid the accumulator was built with.
 ///
 /// Two things had to be true for this to work, and neither was. The drain combined units with a
 /// hardcoded sum, and a promoted block read its `UnitShare` from the tile, which is only stamped on
@@ -1364,9 +1371,9 @@ fn resident_max_over_unit_split_contraction() {
         .dtype(f32_ty)
         .custom(values.clone())
         .generate_with_f32_host_data();
-    // Poisoned with values above every input, so a reduction that let the sink take part would win the
-    // maximum and be caught. `reduce_dimension` owns the init, and the unit-split contraction is
-    // exactly the case where it must seed rather than overwrite.
+    // Poisoned with values above every input, so a reduction that let the sink take part would win
+    // the maximum and be caught. `reduce_dimension` owns the init, and the unit-split contraction
+    // is exactly the case where it must seed rather than overwrite.
     let out_handle = TestInput::builder(client.clone(), shape![m, n])
         .dtype(f32_ty)
         .uniform(7, 1.0, 2.0)
@@ -1405,13 +1412,14 @@ fn resident_max_over_unit_split_contraction() {
     }
 }
 
-/// The twin of [`resident_max_over_unit_split_contraction`] at a **segmented** reduction: the plane splits into
-/// aligned groups, each holding one `(m, n)` cell's partials, rather than the whole plane holding
-/// one. `UnitShare::Group` where that test is `UnitShare::Plane`.
+/// The twin of [`resident_max_over_unit_split_contraction`] at a **segmented** reduction: the plane
+/// splits into aligned groups, each holding one `(m, n)` cell's partials, rather than the whole
+/// plane holding one. `UnitShare::Group` where that test is `UnitShare::Plane`.
 ///
-/// The drain is shared with the promoted matmul's, where reading the odometer off a projected
-/// nest (the accumulator spans `{M, N}`, so the contracted `K` is not in its dimension list) gave every
-/// group the same output row. `reduce_dimension` reaches the same code, so it gets the same coverage.
+/// The drain is shared with the promoted matmul's, where reading the odometer off a projected nest
+/// (the accumulator spans `{M, N}`, so the contracted `K` is not in its dimension list) gave every
+/// group the same output row. `reduce_dimension` reaches the same code, so it gets the same
+/// coverage.
 ///
 /// All the data is negative, so an identity leaking in from an unwritten cell wins the maximum
 /// and the assert catches it.

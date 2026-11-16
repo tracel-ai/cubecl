@@ -10,8 +10,8 @@
 //!     .build()
 //! ```
 //!
-//! An `every` level ([`Count::All`]) closes its dimension; only [`across`](Levels::across) may name it
-//! again, on the cube level.
+//! An `every` level ([`Count::All`]) closes its dimension; only [`across`](Levels::across) may name
+//! it again, on the cube level.
 
 use super::{CubeOrder, LaunchSpan, PlaneOrder, UnitCube};
 use crate::{ComputeScope, Count, Coverage, Dimension, Level, Spread};
@@ -113,21 +113,23 @@ impl Levels {
         )
     }
 
-    /// Every tile of the level below along `dimension`, dealt to `planes` planes of the cube in runs:
-    /// the planes need not divide the tiles, and a plane past the last whole run takes the rest.
-    /// What splits a walk between the planes where its steps have no factor the planes fit.
+    /// Every tile of the level below along `dimension`, dealt to `planes` planes of the cube in
+    /// runs: the planes need not divide the tiles, and a plane past the last whole run takes the
+    /// rest. What splits a walk between the planes where its steps have no factor the planes fit.
     pub fn planes_across(self, dimension: Dimension, planes: usize) -> Self {
         let mut levels = self.every(Coverage::Distribute(ComputeScope::Plane), &[dimension]);
         levels.last("planes_across").across = Some((dimension, planes));
         levels
     }
 
-    /// One cube for every box these dimensions hold; the entries ride the grid's `X`, `Y`, `Z` in order.
+    /// One cube for every box these dimensions hold; the entries ride the grid's `X`, `Y`, `Z` in
+    /// order.
     ///
-    /// Stated above another cube level, it is a level of its own whose entries ride the grid's
-    /// `Z`, as batches do, the cube level below holding `X` and `Y`: each cube takes one tile of
-    /// these dimensions, then its box of the level below inside it. A table keyed by these dimensions is read
-    /// there, so a run it places along a dimension the level below cuts is placed before that cut.
+    /// Stated above another cube level, it is a level of its own whose entries ride the grid's `Z`,
+    /// as batches do, the cube level below holding `X` and `Y`: each cube takes one tile of these
+    /// dimensions, then its box of the level below inside it. A table keyed by these dimensions is
+    /// read there, so a run it places along a dimension the level below cuts is placed before that
+    /// cut.
     pub fn cubes(mut self, dimensions: &[Dimension]) -> Self {
         assert!(
             dimensions.len() <= 3,
@@ -150,9 +152,9 @@ impl Levels {
         self
     }
 
-    /// One plane of the launch for every tile these dimensions hold, the planes taking them in `order`:
-    /// the outermost level of a partitioning with no cube level. A plane routine's planes share
-    /// nothing, so which cube a plane sits in is the launch's grouping, not a level of the
+    /// One plane of the launch for every tile these dimensions hold, the planes taking them in
+    /// `order`: the outermost level of a partitioning with no cube level. A plane routine's planes
+    /// share nothing, so which cube a plane sits in is the launch's grouping, not a level of the
     /// partitioning; the order sets the cubes' size ([`PlaneOrder::planes_per_cube`]).
     pub fn launch_planes(mut self, dimensions: &[Dimension], order: PlaneOrder) -> Self {
         self = self.every(Coverage::Distribute(ComputeScope::Plane), dimensions);
@@ -166,9 +168,9 @@ impl Levels {
         self
     }
 
-    /// One unit of the launch for every tile these dimensions hold, in row order, the units grouped in
-    /// cubes of `cube`: the outermost level of a partitioning with no cube or plane level. A unit
-    /// routine's units share nothing, so which cube or plane a unit sits in is the launch's
+    /// One unit of the launch for every tile these dimensions hold, in row order, the units grouped
+    /// in cubes of `cube`: the outermost level of a partitioning with no cube or plane level. A
+    /// unit routine's units share nothing, so which cube or plane a unit sits in is the launch's
     /// grouping, not a level of the partitioning, and `for unit in &partitioning` walks them.
     pub fn launch_units(mut self, dimensions: &[Dimension], cube: UnitCube) -> Self {
         self = self.every(Coverage::Distribute(ComputeScope::Unit), dimensions);
@@ -182,7 +184,8 @@ impl Levels {
         self
     }
 
-    /// Distribute `dimension` of the cube level just stated across `cubes` cubes, each a run (split-K).
+    /// Distribute `dimension` of the cube level just stated across `cubes` cubes, each a run
+    /// (split-K).
     pub fn across(mut self, dimension: Dimension, cubes: usize) -> Self {
         let stated = self.last("across");
         assert!(
@@ -235,9 +238,9 @@ impl Levels {
     }
 
     /// The level just stated, a cube level or a plane level spanning the launch, hands out
-    /// `dimension`'s tiles from the last to the first: the first workers launched take the last tiles.
-    /// Where the later tiles hold more work, the heaviest start first and the light ones fill in
-    /// behind them.
+    /// `dimension`'s tiles from the last to the first: the first workers launched take the last
+    /// tiles. Where the later tiles hold more work, the heaviest start first and the light ones
+    /// fill in behind them.
     pub fn reversed(mut self, dimension: Dimension) -> Self {
         self.last("reversed").reversed.push(dimension);
         self
