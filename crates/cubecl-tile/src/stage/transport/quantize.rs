@@ -213,7 +213,7 @@ impl Tile {
         };
         let per = select(lanes, 1u32, comptime!(n as u32));
         let shares = blocks.runtime() / per;
-        let (within, units, fillers) = comptime!(fill.copied_units());
+        let (within, units, fillers) = fill.copied_units();
         let unit = AxisDistribution::unit_within(within, fillers) as u32;
         let width = AxisDistribution::units_within(within, units, fillers) as u32;
         for turn in 0..shares.div_ceil(width) {
