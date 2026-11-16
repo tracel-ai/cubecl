@@ -8,6 +8,7 @@ use cubecl_core::ir::types::{
         Float8E8M0Type, Float16Type, Float32Type, Float64Type, FloatFlex32Type, TFloat32Type,
     },
 };
+use pliron_llvm::types::StructLayout;
 
 /// Index width in bits. The GPU targets follow the address type: a kernel whose buffers fit in
 /// 32-bit addressing does its index arithmetic in 32 bits, which on AMDGPU is one vector or
@@ -71,6 +72,51 @@ impl_cube_to_llvm_type!(ArrayType, self, ctx => {
     let inner = cube_type_to_llvm(ctx, self.inner);
     LlvmArrayType::get(ctx, inner, self.length as u64)
 });
+impl_cube_to_llvm_type!(CubeStructType, self, ctx => {
+    let i8 = IntegerType::get(ctx, 8, Signedness::Signless).to_handle();
+    let fields = struct_fields_explicit(ctx, self).into_iter().map(|field| match field {
+        LlvmStructField::Field(ty) => cube_type_to_llvm(ctx, ty),
+        LlvmStructField::Padding(size) => LlvmArrayType::get(ctx, i8, size).to_handle(),
+    });
+    LlvmStructType::get_unnamed(ctx, (fields.collect(), StructLayout::Packed))
+});
+
+/// Explicit padding needs to be skipped when offsetting into a struct field
+pub(crate) enum LlvmStructField {
+    Field(TypeHandle),
+    Padding(u64),
+}
+
+// LLVM struct layout is target specific, so we need to use packed and manual padding
+pub(crate) fn struct_fields_explicit(
+    ctx: &Context,
+    r#struct: &CubeStructType,
+) -> Vec<LlvmStructField> {
+    let mut fields = vec![];
+    for (i, field) in r#struct.fields.iter().enumerate() {
+        let next_offs = r#struct.fields.get(i + 1).map(|it| it.offset);
+        let next_offs = next_offs.unwrap_or(r#struct.size);
+        let field_end = field.offset + field.ty.size(ctx) as u64;
+        let padding = next_offs - field_end;
+        fields.push(LlvmStructField::Field(field.ty));
+        if padding > 0 {
+            fields.push(LlvmStructField::Padding(padding));
+        }
+    }
+    fields
+}
+
+pub(crate) fn padded_field_index(ctx: &Context, struct_ty: impl Typed, field: usize) -> usize {
+    let struct_ty = struct_ty.get_type(ctx).deref(ctx);
+    let struct_ty = struct_ty.downcast_ref::<CubeStructType>().unwrap();
+    let (padded_idx, _) = struct_fields_explicit(ctx, struct_ty)
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| matches!(field, LlvmStructField::Field(_)))
+        .nth(field)
+        .expect("Field idx is out of bounds");
+    padded_idx
+}
 
 pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
     type_cast::<dyn CubeToLLVMType>(&*ty.deref(ctx))

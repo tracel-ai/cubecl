@@ -142,6 +142,7 @@ test_binary_impl!(
 );
 
 /// NaN comparison semantics: `<`, `<=`, `>`, `>=` and `==` are *ordered* (false whenever an
+/// operand is NaN). [`test_not_equal_nan`] covers `!=`.
 pub fn test_nan_ordering<R: Runtime>(client: Client) {
     #[cube(launch_unchecked)]
     fn test_function(lhs: &[f32], rhs: &[f32], output: &mut [u32]) {
@@ -203,6 +204,62 @@ pub fn test_nan_ordering<R: Runtime>(client: Client) {
              (bit order: <, <=, >, >=, ==)",
             actual[i]
         );
+    }
+}
+
+#[cube(launch_unchecked)]
+fn not_equal_nan_kernel<N: Size>(
+    lhs: &[Vector<f32, N>],
+    rhs: &[Vector<f32, N>],
+    vector_ne: &mut [Vector<u32, N>],
+    scalar_ne: &mut [u32],
+) {
+    if ABSOLUTE_POS < lhs.len() {
+        let (l, r) = (lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+        vector_ne[ABSOLUTE_POS] = Vector::cast_from(l.not_equal(&r));
+        // The `!=` operator on scalars, here on each vector's first lane.
+        scalar_ne[ABSOLUTE_POS] = u32::cast_from(l.extract(0usize) != r.extract(0usize));
+    }
+}
+
+/// Float `!=` is *unordered* (true whenever an operand is NaN), as in IEEE 754 and Rust, for the
+/// operator on scalars and for `not_equal` on vectors.
+pub fn test_not_equal_nan<R: Runtime>(client: Client) {
+    // WGSL lets an implementation assume NaN is absent, and naga lowers its float `!=` to the
+    // ordered `OpFOrdNotEqual` for Vulkan, so the WGSL compiler can't promise this.
+    if client.name().starts_with("wgpu<wgsl") {
+        return;
+    }
+
+    let nan = f32::NAN;
+    let lhs = [nan, 1.0, nan, 1.0, 0.0, 0.0, -0.0, 1.0];
+    let rhs = [nan, 1.0, 1.0, nan, 0.0, nan, 0.0, 2.0];
+    let expected: Vec<u32> = lhs.iter().zip(rhs).map(|(l, r)| (*l != r) as u32).collect();
+
+    for vector_size in [1, 4] {
+        let vectors = lhs.len() / vector_size;
+        let lhs_handle = client.create_from_slice(f32::as_bytes(&lhs));
+        let rhs_handle = client.create_from_slice(f32::as_bytes(&rhs));
+        let vector_ne = client.empty(lhs.len() * core::mem::size_of::<u32>());
+        let scalar_ne = client.empty(vectors * core::mem::size_of::<u32>());
+
+        unsafe {
+            not_equal_nan_kernel::launch_unchecked(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(vectors as u32),
+                vector_size,
+                BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                BufferArg::from_raw_parts(vector_ne.clone(), lhs.len()),
+                BufferArg::from_raw_parts(scalar_ne.clone(), vectors),
+            )
+        };
+
+        let msg = format!("vector size {vector_size}, lhs {lhs:?}, rhs {rhs:?}");
+        assert_eq!(read_u32s(&client, vector_ne, lhs.len()), expected, "{msg}");
+        let first_lanes: Vec<u32> = expected.iter().step_by(vector_size).copied().collect();
+        assert_eq!(read_u32s(&client, scalar_ne, vectors), first_lanes, "{msg}");
     }
 }
 
@@ -617,6 +674,7 @@ macro_rules! testgen_comparison {
             add_test!(test_bool_folded);
             add_test!(test_bool_vector_folded);
             add_test!(test_nan_ordering);
+            add_test!(test_not_equal_nan);
             add_test!(test_folded_vector);
         }
     };

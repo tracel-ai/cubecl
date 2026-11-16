@@ -146,7 +146,13 @@ impl ConvertArgsPass {
 }
 
 fn buffer_ty(ctx: &Context, buffer: Value, io: BufferIOAttr) -> TypeHandle {
-    let ty = buffer.element_ty(ctx);
+    // The runtime array's own element, which can itself be an array or struct.
+    let ty = {
+        let list = buffer.unwrap_ptr(ctx).deref(ctx);
+        list.downcast_ref::<cubecl_ir::types::RuntimeArrayType>()
+            .expect("a buffer should be a runtime array")
+            .inner
+    };
     let ty_size = ty.size(ctx);
     let ty = ty_to_spirv_dialect_explicit_layout(ctx, ty);
     let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));

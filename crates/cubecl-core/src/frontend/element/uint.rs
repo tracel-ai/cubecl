@@ -32,6 +32,11 @@ macro_rules! declare_uint {
                 value as $primitive
             }
         }
+        impl HostShareable for $primitive {
+            fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+                field_ptr.into()
+            }
+        }
         impl ConstantTyped for $primitive {
             fn __expand_as_type(scope: &Scope) -> TypeHandle {
                 let width = UIntKind::$kind.size_bits() as u32;

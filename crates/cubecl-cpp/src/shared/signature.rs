@@ -2,24 +2,27 @@ use core::marker::PhantomData;
 
 use cubecl_core::ir::{
     ContextExt,
-    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface, buffer_io_by_position},
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface, IndexAttr, buffer_io_by_position},
     cube_op,
     dialect::OperationPtrExt,
-    interfaces::{AlignedType, HasElementType},
+    ident,
+    interfaces::{AlignedType, HasElementType, TypedExt},
     prelude::*,
     rewrite::visit_all_ops_of_type,
-    types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::IndexType},
+    typed_vec_attr,
+    types::{ArrayType, PointerType, RuntimeArrayType, StructType, VectorType, scalar::IndexType},
 };
 use cubecl_opt::passes::alloc_shared_memory::AllocSharedOp;
 use cubecl_runtime::kernel::Visibility;
 use itertools::Itertools;
 use pliron::{
     builtin::{
-        attributes::{StringAttr, TypeAttr},
+        attributes::{IdentifierAttr, StringAttr, TypeAttr},
         op_interfaces::SingleBlockRegionInterface,
         ops::{FuncOp, ModuleOp},
     },
     graph::walkers::uninterruptible::immutable::walk_op,
+    irbuild::listener::DummyListener,
     pass::Pass,
     utils::table::{IMap, ISet},
 };
@@ -96,6 +99,36 @@ shared_op!(DeclareVectorOp, |op, ctx| {
     format!("struct alignas({align}) {inner_ty}_{vec} {{ {fields} }};\n")
 });
 
+typed_vec_attr!(TypeAttr, "cpp.fields", StructFieldsAttr);
+
+#[cube_op(
+    name = "cpp.declare_struct",
+    format = "attr($fields, $StructFieldsAttr)"
+)]
+#[result_ty(none)]
+pub struct DeclareStructOp {
+    name: IdentifierAttr,
+    align: IndexAttr,
+    fields: StructFieldsAttr,
+}
+
+shared_op!(DeclareStructOp, |op, ctx| {
+    let name = op.name(ctx);
+    let align = op.align(ctx).0;
+    let fields = op.fields(ctx);
+    let fields = fields.0.iter().enumerate();
+    let fields = fields
+        .map(|(i, field_ty)| {
+            let ty = field_ty.to_cpp(ctx);
+            format!("{ty} _{i};",)
+        })
+        .join("\n");
+    format!(
+        "struct alignas({align}) {} {{\n{fields}\n}};\n",
+        name.as_ref()
+    )
+});
+
 #[cube_op(name = "cpp.include", format = "attr($header, $StringAttr)")]
 #[result_ty(none)]
 pub struct IncludeOp {
@@ -166,6 +199,61 @@ fn try_get_vector_type(ctx: &Context, value: Value) -> Option<VectorType> {
     let ty = value.get_type(ctx).deref(ctx);
     let elem = type_cast::<dyn HasElementType>(&*ty)?.element_type(ctx)?;
     elem.deref(ctx).downcast_ref().copied()
+}
+
+#[derive(Default)]
+pub struct DeclareStructTypesPass;
+
+#[pass_name]
+impl Pass for DeclareStructTypesPass {
+    fn run(
+        &mut self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let module = op.as_op::<ModuleOp>(ctx).expect("Should be run on module");
+        let mut structs = ISet::default();
+
+        visit_all_values(ctx, &mut structs, op, |ctx, structs, val| {
+            visit_structs_nested(ctx, val, structs);
+        });
+
+        let mut rewriter = IRRewriter::<DummyListener>::default();
+        rewriter.set_insertion_point_to_block_start(module.get_body(ctx, 0));
+
+        let mut res = PassResult::default();
+        for r#struct in structs {
+            let (name, align, fields) = {
+                let r#struct = r#struct.deref(ctx);
+                let name = format!("struct_{:x}", r#struct.stable_hash());
+                let fields = r#struct.fields.iter().map(|field| field.ty.into());
+                (name, r#struct.align as usize, fields.collect())
+            };
+            let decl = DeclareStructOp::new(ctx, ident(name), align, StructFieldsAttr(fields));
+            rewriter.append_op(ctx, &decl);
+            res.ir_changed |= IRStatus::Changed;
+        }
+        Ok(res)
+    }
+}
+
+fn visit_structs_nested(
+    ctx: &Context,
+    val: impl Typed,
+    structs: &mut ISet<TypedHandle<StructType>>,
+) {
+    if let Some(elem) = val.try_get_scalar_elem_ty(ctx)
+        && let Ok(struct_ty) = TypedHandle::<StructType>::from_handle(elem, ctx)
+    {
+        if structs.contains(&struct_ty) {
+            return;
+        }
+        for field in struct_ty.deref(ctx).fields.iter() {
+            visit_structs_nested(ctx, field.ty, structs);
+        }
+        structs.insert(struct_ty);
+    }
 }
 
 #[op_interface]
