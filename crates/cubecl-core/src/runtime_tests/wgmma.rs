@@ -78,11 +78,11 @@ impl WgmmaCase {
 /// Writes the row-major `rows x k` `source` into `tile`, laid out as `layout`.
 #[cube]
 fn stage<E: Scalar>(source: &[E], tile: &mut [E], #[comptime] layout: WgmmaTileLayout) {
-    let size_k = comptime![layout.k];
-    let total = comptime![layout.rows * layout.k];
+    let size_k = layout.k;
+    let total = layout.rows * layout.k;
     let elem_size = E::size();
     #[unroll]
-    for step in 0..comptime![total.div_ceil(128)] {
+    for step in 0..total.div_ceil(128) {
         let i = step * 128 + UNIT_POS as usize;
         if i < total {
             tile[layout.offset(i / size_k, i % size_k, elem_size)] = source[i];
@@ -101,10 +101,10 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
 ) {
     let a_size = A::size();
     let k = comptime![WgmmaTileLayout::k_step(a_size)];
-    let size_k = comptime![k * case.k_steps];
-    let a_layout = comptime![case.a_layout(size_k)];
-    let b_layout = comptime![case.b_layout(size_k)];
-    let n = comptime![case.n];
+    let size_k = k * case.k_steps;
+    let a_layout = case.a_layout(size_k);
+    let b_layout = case.b_layout(size_k);
+    let n = case.n;
 
     let mut smem_a = Shared::new_aligned_slice(64 * size_k, a_layout.alignment());
     let mut smem_b = Shared::new_aligned_slice(n * size_k, b_layout.alignment());
@@ -118,13 +118,13 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
     let a = MatrixDescriptor::new(&smem_a, a_layout);
     let b = MatrixDescriptor::new(&smem_b, b_layout);
     let started = Accumulator::<CD>::new(n).start();
-    let mut acc = if comptime![case.downcast] {
+    let mut acc = if case.downcast {
         unsafe { started.downcast_unchecked::<u8>() }.downcast::<CD>()
     } else {
         started
     };
 
-    if comptime![case.pipelined] {
+    if case.pipelined {
         let mut released = acc.commit();
         for step in 0..case.k_steps {
             acc.execute(&a.at(0usize, step * k), &b.at(0usize, step * k));
@@ -136,7 +136,7 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
         #[unroll]
         for step in 0..case.k_steps {
             let b = b.at(0usize, step * k);
-            match comptime![case.a] {
+            match case.a {
                 AOperand::Registers => {
                     let mut fragment = Fragment::<A>::new();
                     #[unroll]
@@ -174,7 +174,7 @@ pub fn kernel_wgmma_tma(
 ) {
     let a_layout = comptime![tma_tile(WARPGROUP_M)];
     let b_layout = comptime![tma_tile(n)];
-    let size_k = comptime![a_layout.k];
+    let size_k = a_layout.k;
     let k = comptime![WgmmaTileLayout::k_step(F16_BYTES)];
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
@@ -196,7 +196,7 @@ pub fn kernel_wgmma_tma(
     let b = MatrixDescriptor::new(&smem_b, b_layout);
     let mut acc = Accumulator::<f32>::new(n).start();
     #[unroll]
-    for step in 0..comptime![size_k / k] {
+    for step in 0..size_k / k {
         acc.execute(&a.at(0usize, step * k), &b.at(0usize, step * k));
     }
     let acc = acc.wait();

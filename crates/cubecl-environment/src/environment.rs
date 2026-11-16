@@ -34,6 +34,9 @@ pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 mod id;
 pub use id::*;
 
+mod prune;
+pub use prune::*;
+
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";
 

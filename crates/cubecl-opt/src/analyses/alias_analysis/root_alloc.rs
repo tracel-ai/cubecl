@@ -3,7 +3,11 @@ use crate::{
     passes::alloc_shared_memory::SliceSharedOp,
 };
 use cubecl_ir::{
-    interfaces::{aliasing::PointerExt, side_effects::MemoryEffect},
+    interfaces::{
+        TypedExt,
+        aliasing::PointerExt,
+        side_effects::{Extent, MemoryEffect},
+    },
     prelude::*,
 };
 use pliron::opts::mem2reg::PromotableAllocationInterface;
@@ -18,7 +22,12 @@ use pliron::opts::mem2reg::PromotableAllocationInterface;
 pub struct RootAllocAA;
 
 impl AliasAnalysis for RootAllocAA {
-    fn alias(&self, ctx: &Context, lhs: Value, rhs: Value) -> AliasResult {
+    fn alias(
+        &self,
+        ctx: &Context,
+        (lhs, lhs_extent): (Value, Extent),
+        (rhs, rhs_extent): (Value, Extent),
+    ) -> AliasResult {
         if lhs == rhs {
             return AliasResult::MustAlias;
         }
@@ -36,11 +45,24 @@ impl AliasAnalysis for RootAllocAA {
 
         if lhs_is_alloc && rhs_is_alloc {
             let root_value = lhs.get_root_value(ctx);
-            let root_type = root_value.get_type(ctx);
+            let lhs_type = lhs.get_type(ctx).unwrap_ptr(ctx);
+            let rhs_type = rhs.get_type(ctx).unwrap_ptr(ctx);
+            let root_type = root_value.get_type(ctx).unwrap_ptr(ctx);
 
             if lhs_root == rhs_root && root_value == rhs.get_root_value(ctx) {
                 // If the full type is accessed, the pointers must alias
-                if root_type == lhs.get_type(ctx) && root_type == rhs.get_type(ctx) {
+                if let Extent::Exact(lhs_extent) = lhs_extent
+                    && let Extent::Exact(rhs_extent) = rhs_extent
+                    && let Some(root_size) = root_type.try_size(ctx)
+                    && lhs_extent == root_size
+                    && rhs_extent == root_size
+                {
+                    AliasResult::MustAlias
+                } else if lhs_extent == Extent::ExactPointer
+                    && rhs_extent == Extent::ExactPointer
+                    && lhs_type == root_type
+                    && rhs_type == root_type
+                {
                     AliasResult::MustAlias
                 } else {
                     AliasResult::MayAlias
@@ -54,7 +76,7 @@ impl AliasAnalysis for RootAllocAA {
     }
 
     fn mod_ref(&self, ctx: &Context, location: &MemoryEffect, rhs: &MemoryEffect) -> ModRefResult {
-        let Some((lhs_val, rhs_val)) = location.value().zip(rhs.value()) else {
+        let Some((lhs_val, rhs_val)) = location.pointer().zip(rhs.pointer()) else {
             return ModRefResult::ModRef;
         };
         match self.alias(ctx, lhs_val, rhs_val) {

@@ -1,7 +1,7 @@
 use cubecl_core::WgpuCompilationOptions;
 use cubecl_ir::{
     AddressSpace,
-    dialect::memory::{self, DeclareVariableOp, IndexOp, StoreOp},
+    dialect::memory::{self, DeclareVariableOp, IndexOp, StoreOp, StructFieldOp},
     ident,
     interfaces::TypedExt,
     prelude::*,
@@ -91,6 +91,29 @@ impl ToSpirvDialectOp for IndexOp {
         let uniformity = op_dyn_uniformity(ctx, self.get_operation());
         let base = self.base(ctx);
         let index = self.index(ctx);
+        let result_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
+        let access_chain = InBoundsAccessChainOp::new(ctx, result_ty, base, vec![index]);
+        decorate_uniform(ctx, access_chain.get_operation(), uniformity);
+        rewriter.append_op(ctx, &access_chain);
+        rewriter.replace_operation(ctx, self.get_operation(), access_chain.get_operation());
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for StructFieldOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let uniformity = op_dyn_uniformity(ctx, self.get_operation());
+        let base = self.base(ctx);
+        let field = self.field(ctx).0 as u32;
+        let index = const_op_int32(ctx, field);
+        let index = rewriter.append_op_with_result(ctx, &index);
         let result_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let access_chain = InBoundsAccessChainOp::new(ctx, result_ty, base, vec![index]);
         decorate_uniform(ctx, access_chain.get_operation(), uniformity);

@@ -263,6 +263,19 @@ mod storage {
             }
         }
 
+        /// The database the environment lives in, opened with `access`: for
+        /// a runtime that edits what it stored there, as a prune removes what
+        /// no workload loads.
+        ///
+        /// # Errors
+        ///
+        /// The environment lives in another process's storage, or the
+        /// database does not open.
+        pub fn database(&self, access: Access) -> Result<Database, EnvironmentError> {
+            self.check_local()?;
+            self.open(access)
+        }
+
         fn open(&self, access: Access) -> Result<Database, EnvironmentError> {
             Database::open_at(&self.path(), access)
                 .map_err(|reason| EnvironmentError::Storage { reason })

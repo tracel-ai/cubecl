@@ -1054,6 +1054,7 @@ dependencies = [
  "cubecl-ir",
  "cubecl-metal",
  "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "cubecl-tile",
  "cubecl-wgpu",
@@ -1145,6 +1146,7 @@ name = "cubecl-cpu"
 version = "0.12.0-pre.2"
 dependencies = [
  "bytemuck",
+ "ciborium",
  "crossbeam-utils",
  "cubecl-common",
  "cubecl-core",
@@ -1414,7 +1416,6 @@ name = "cubecl-opt"
 version = "0.12.0-pre.2"
 dependencies = [
  "cubecl-common",
- "cubecl-core",
  "cubecl-environment",
  "cubecl-ir",
  "derive-new",
@@ -1437,7 +1438,6 @@ dependencies = [
 name = "cubecl-runtime"
 version = "0.12.0-pre.2"
 dependencies = [
- "buildid",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -1477,6 +1477,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
+ "ciborium",
  "cubecl-common",
  "cubecl-environment",
  "cubecl-ir",
@@ -1604,7 +1605,6 @@ dependencies = [
 name = "cubecl-zspace"
 version = "0.12.0-pre.2"
 dependencies = [
- "derive-new",
  "serde",
  "smallvec",
 ]

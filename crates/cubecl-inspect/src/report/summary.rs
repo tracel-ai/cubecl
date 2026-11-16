@@ -1,7 +1,7 @@
 use super::{Activity, AutotuneTable};
 use cubecl_environment::bundle::BundleManifest;
 use cubecl_environment::persistence::NamespaceSummary;
-use cubecl_environment::records::{self, Session};
+use cubecl_environment::records::Session;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -45,36 +45,7 @@ pub struct NamespaceRow {
     pub bytes: u64,
 }
 
-/// The first segment of a namespace: who wrote it — `autotune`, a backend's
-/// compiler, an application.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NamespaceRoot<'a>(&'a str);
-
-impl<'a> NamespaceRoot<'a> {
-    pub fn new(namespace: &'a str) -> Self {
-        Self(namespace.split('/').next().unwrap_or_default())
-    }
-
-    /// The root of the records, which every layout of them shares.
-    pub fn records() -> Self {
-        Self::new(records::ROOT)
-    }
-
-    pub fn as_str(self) -> &'a str {
-        self.0
-    }
-
-    /// Whether the namespace may hold compiled artifacts: everything but the
-    /// measurements and the records cubecl keeps beside them.
-    pub fn holds_artifacts(self) -> bool {
-        ![
-            AutotuneTable::ROOT,
-            cubecl_runtime::throughput::ROOT,
-            Self::records().0,
-        ]
-        .contains(&self.0)
-    }
-}
+pub use cubecl_server::compiler::NamespaceRoot;
 
 impl NamespaceRow {
     pub fn root(&self) -> NamespaceRoot<'_> {

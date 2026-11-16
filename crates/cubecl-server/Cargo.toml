@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-server"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-server"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -19,7 +20,7 @@ workspace = true
 autotune-checks = ["cubecl-runtime/autotune-checks"]
 default = ["std", "storage-bytes", "persistence", "cubecl-runtime/default"]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
-persistence = ["std", "cubecl-runtime/persistence"]
+persistence = ["std", "cubecl-runtime/persistence", "dep:ciborium"]
 profile-tracy = ["cubecl-runtime/profile-tracy", "dep:tracy-client"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-environment/std", "thiserror/std"]
 storage-bytes = []
@@ -33,6 +34,8 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
+# Reads the kernel keys and the work's launches a prune decides by.
+ciborium = { workspace = true, features = ["std"], optional = true }
 cfg-if = { workspace = true }
 cubecl-common = { workspace = true, features = [
     "serde",

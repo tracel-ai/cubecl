@@ -17,8 +17,9 @@ use super::{KernelCacheKey, build_id_hash};
 pub struct CompilationRecord {
     /// The kernel's type.
     pub kernel: alloc::string::String,
-    /// The store entry naming the artifact: what tells two instances of one
-    /// kernel type apart.
+    /// The kernel and the build the artifact is stored under, in variant
+    /// zero whatever variant a backend stores it in: what tells two instances
+    /// of one kernel type apart.
     pub key: KernelCacheKey,
     /// The kernel as cubecl defined it, before the backend's compiler — the
     /// IR's textual form, for a reader to render — at [`RecordLevel::Full`].

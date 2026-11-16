@@ -32,7 +32,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::future::block_on;
 use cubecl_environment::future::channel::{Receiver, Sender, bounded};
 use cubecl_environment::stream::StreamId;
-use cubecl_environment::sync::RwLock;
+use cubecl_environment::sync::{AtomicUsize, Ordering, RwLock};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
@@ -109,6 +109,17 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// What kernels on one device can do with another device's memory, ordered by what it allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PeerAccess {
+    /// The peer's memory cannot be bound.
+    None,
+    /// Loads and stores without native atomics.
+    Memory,
+    /// Loads, stores and native atomics.
+    MemoryAndAtomics,
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
@@ -146,19 +157,93 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
-    /// Whether kernels on this device can address the memory of another device of the runtime,
-    /// asked of the device once per pair.
-    pub peer_access: RwLock<HashMap<DeviceId, bool>>,
+    /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
+    pub communication_skips: CommunicationSkips,
+    /// Access to each peer's memory, queried once per device pair.
+    pub peer_access: RwLock<HashMap<DeviceId, PeerAccess>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
 }
 
+/// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold a device, so that
+/// nested ones compose.
+#[derive(Debug, Default)]
+pub struct CommunicationSkips {
+    held: AtomicUsize,
+}
+
+impl CommunicationSkips {
+    /// Whether any holds the device.
+    pub fn any(&self) -> bool {
+        self.held.load(Ordering::Acquire) > 0
+    }
+
+    pub(crate) fn enter(&self) {
+        self.held.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn leave(&self) {
+        self.held.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// A runtime's transport between its devices, which moves any buffer as bytes.
 #[derive(Debug, Clone)]
 pub struct DeviceTransport {
+    /// What runs it.
+    pub provider: TransportProvider,
     /// The element types it reduces.
     pub reduces: BTreeSet<ElemType>,
+}
+
+/// What runs a [`DeviceTransport`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportProvider {
+    /// NVIDIA's collective library, on CUDA.
+    Nccl,
+    /// AMD's collective library, on HIP.
+    Rccl,
+}
+
+impl DeviceTransport {
+    /// The transport `load` gives, or none without calling it when the configuration turns the
+    /// device transport off.
+    pub fn configured(load: impl FnOnce() -> Option<Self>) -> Option<Self> {
+        use crate::config::transport::DeviceTransportMode;
+
+        match CubeClRuntimeConfig::get().transport.device {
+            DeviceTransportMode::Auto => load(),
+            DeviceTransportMode::Off => {
+                static LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    log::info!(
+                        "The device transport is off by configuration (`transport.device` or \
+                         `CUBECL_DEVICE_TRANSPORT`): transfers between devices go through the \
+                         host, and cubecl runs no collective between them"
+                    );
+                }
+                None
+            }
+        }
+    }
+}
+
+impl TransportProvider {
+    /// The provider's name, as logs and refusals show it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nccl => "NCCL",
+            Self::Rccl => "RCCL",
+        }
+    }
+}
+
+impl Display for TransportProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Defines how the memory layout is determined.
@@ -229,6 +314,7 @@ impl ServerUtilities {
             device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            communication_skips: CommunicationSkips::default(),
             peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
@@ -1042,6 +1128,16 @@ pub trait ServerCommunication {
         Err(ServerError::no_device_transport(Collective::SyncCollective))
     }
 
+    /// Times the next collective part, [`send`](Self::send), [`recv`](Self::recv) or
+    /// [`sync_collective`](Self::sync_collective) called on this server, which the caller calls
+    /// right after this in the same submitted task.
+    ///
+    /// Whichever comes next takes `timing`, timed or refused, so a timing it cannot use is
+    /// dropped rather than attached to a later one. The default drops it: a runtime with no
+    /// transport between its devices has nothing to time.
+    #[allow(unused_variables)]
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {}
+
     /// Initialize the communication between the devices in `device_ids`.
     ///
     /// # Arguments
@@ -1220,13 +1316,10 @@ pub trait ServerCommunication {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
 
-    /// Whether kernels on this device can bind memory of `peer`, another
-    /// device of the same runtime.
-    ///
-    /// The default answers `false`.
+    /// Access to memory of `peer` in this runtime, defaulting to [`PeerAccess::None`].
     #[allow(unused_variables)]
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
-        false
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
+        PeerAccess::None
     }
 
     /// The device address of the first byte of the allocation `binding`
@@ -1292,6 +1385,65 @@ impl SendOutcome {
                 backtrace: BackTrace::capture(),
             })
         })
+    }
+}
+
+/// Where a server sends the device windows of one communication part and of a compute stream's
+/// wait, for an observer that times communications
+/// ([`KernelsAndCommunications`](crate::logging::Timed::KernelsAndCommunications)).
+///
+/// The observer holds each window unread from the moment it is issued. One the server never
+/// sends, for a part refused before it ran or recorded inside a graph capture, reads back empty.
+#[derive(Debug, Default)]
+pub struct CommunicationTiming {
+    part: Option<Sender<ProfileDuration>>,
+    wait: Option<Sender<ProfileDuration>>,
+}
+
+impl CommunicationTiming {
+    /// Asks for the part's window, which reads back once the server has sent it.
+    pub fn part_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.part)
+    }
+
+    /// Asks for the wait's window, which reads back once the server has sent it.
+    pub fn wait_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.wait)
+    }
+
+    fn window(sender: &mut Option<Sender<ProfileDuration>>) -> ProfileDuration {
+        let (sent, received) = bounded(1);
+        *sender = Some(sent);
+        ProfileDuration::new_device_time_maybe(async move {
+            received.recv().await.ok()?.resolve().await
+        })
+    }
+
+    /// Whether the part's window is asked for.
+    pub fn times_part(&self) -> bool {
+        self.part.is_some()
+    }
+
+    /// Whether the wait's window is asked for.
+    pub fn times_wait(&self) -> bool {
+        self.wait.is_some()
+    }
+
+    /// Sends the part's window, if it is asked for.
+    pub fn part_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.part.take(), window);
+    }
+
+    /// Sends the wait's window, if it is asked for.
+    pub fn wait_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.wait.take(), window);
+    }
+
+    fn send(sender: Option<Sender<ProfileDuration>>, window: ProfileDuration) {
+        // An observer that dropped the window unread has no use for it.
+        if let Some(sender) = sender {
+            let _ = sender.try_send(window);
+        }
     }
 }
 

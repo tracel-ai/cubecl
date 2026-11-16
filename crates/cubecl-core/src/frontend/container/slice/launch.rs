@@ -3,6 +3,7 @@ use crate::{
     prelude::*,
 };
 use alloc::boxed::Box;
+use cubecl_ir::interfaces::TypedExt;
 use cubecl_zspace::Tiling;
 use serde::{Deserialize, Serialize};
 
@@ -209,13 +210,18 @@ impl<C: CubePrimitive> LaunchArg for Box<[C]> {
     }
 }
 
-impl<C: CubePrimitive> LaunchArg for [C] {
+impl<C: SliceElement> LaunchArg for [C] {
     type RuntimeArg = BufferArg;
     type CompilationArg = BufferCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
-        let (elem_size, vector_size) =
-            launcher.with_scope(|scope| (C::__expand_size(scope), C::__expand_vector_size(scope)));
+        let (elem_size, vector_size) = launcher.with_scope(|scope| {
+            let vector_size = C::__expand_as_type(scope).vector_size(scope.ctx());
+            (C::__expand_size(scope), vector_size)
+        });
+        if elem_size == 0 {
+            panic!("Can't register zero-sized type");
+        }
         let inplace = match &arg {
             BufferArg::Handle { .. } => None,
             BufferArg::Alias { input_pos, .. } => Some(*input_pos),

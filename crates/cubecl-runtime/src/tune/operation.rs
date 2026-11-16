@@ -36,6 +36,14 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
         (self.func)(inputs)
     }
+
+    /// Run the wrapped function as an autotune race runs a candidate, to
+    /// measure it or gather its kernels: what it launches is
+    /// [issued for the race](crate::execution::LaunchPurpose::Race), never
+    /// the work's.
+    pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
+        crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
+    }
 }
 
 /// A set of candidate tunable functions for autotune, sharing a key generator and an

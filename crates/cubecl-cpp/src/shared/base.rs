@@ -10,7 +10,7 @@ use crate::{
         metadata::LowerInfoPass,
         signature::{
             CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
-            DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
+            DeclareStructTypesPass, DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -315,6 +315,7 @@ where
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.add_pass(DeclareStructTypesPass);
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
         // Some passes insert ops without a location. They get the location of the op before them,
@@ -479,7 +480,7 @@ mod shared_memory_tests {
         let mut first = Shared::<[f32]>::new_slice(256usize);
         first[UNIT_POS as usize] = 1.0;
         sync_cube();
-        match comptime!(freed) {
+        match freed {
             Freed::Synced | Freed::DeclaredBeforeTheBarrier | Freed::Unsynced => unsafe {
                 first.free()
             },

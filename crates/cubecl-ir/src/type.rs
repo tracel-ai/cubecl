@@ -1,6 +1,8 @@
 use super::{ConstantValue, ExpandValue};
 use crate::{
-    AddressType, ContextExt, Scope, typed_vec_attr,
+    AddressType, ContextExt, Scope,
+    interfaces::side_effects::MemoryScope,
+    typed_vec_attr,
     types::{scalar::*, spirv::ClampMode},
 };
 use alloc::vec::Vec;
@@ -462,6 +464,16 @@ pub enum AddressSpace {
 }
 
 typed_vec_attr!(AddressSpace, "cube.address_spaces", AddressSpaceVecAttr);
+
+impl AddressSpace {
+    pub fn memory_scope(&self) -> MemoryScope {
+        match self {
+            AddressSpace::Global(_) => MemoryScope::Global,
+            AddressSpace::Shared => MemoryScope::Shared,
+            AddressSpace::Local => MemoryScope::Local,
+        }
+    }
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, PartialOrd, Ord)]

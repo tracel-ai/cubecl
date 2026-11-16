@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{runtime::Runtime, server::Handle};
 
 use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;
@@ -150,6 +150,40 @@ pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut 
     output[0] = value as f32;
 }
 
+/// Takes a claim: `B` on its first run, `C` on every later one.
+#[cube]
+fn claim(counter: &[Atomic<u32>]) -> RuntimeEnumEmpty {
+    if counter[0].fetch_add(1u32) == 0u32 {
+        RuntimeEnumEmpty::new_B()
+    } else {
+        RuntimeEnumEmpty::new_C()
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_runtime_variants_match_call(counter: &[Atomic<u32>], output: &mut [u32]) {
+    match claim(counter) {
+        RuntimeEnumEmpty::A => {
+            output[0] = 0u32;
+        }
+        RuntimeEnumEmpty::B => {
+            output[0] = 1u32;
+        }
+        RuntimeEnumEmpty::C => {
+            output[0] = 2u32;
+        }
+    };
+}
+
+#[cube(launch)]
+pub fn kernel_runtime_variants_if_let_call(counter: &[Atomic<u32>], output: &mut [u32]) {
+    if let RuntimeEnumEmpty::B = claim(counter) {
+        output[0] = 1u32;
+    } else {
+        output[0] = 2u32;
+    }
+}
+
 pub fn test_scalar_enum<R: Runtime>(client: Client) {
     let array = client.empty(core::mem::size_of::<f32>());
 
@@ -202,6 +236,44 @@ pub fn test_runtime_variants_value<R: Runtime>(client: Client) {
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 5.0);
+}
+
+pub fn test_runtime_variants_match_call<R: Runtime>(client: Client) {
+    let (counter, output) = claim_buffers(&client);
+    kernel_runtime_variants_match_call::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_single(),
+        unsafe { BufferArg::from_raw_parts(counter.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+    );
+    assert_claimed_once(&client, counter, output);
+}
+
+pub fn test_runtime_variants_if_let_call<R: Runtime>(client: Client) {
+    let (counter, output) = claim_buffers(&client);
+    kernel_runtime_variants_if_let_call::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_single(),
+        unsafe { BufferArg::from_raw_parts(counter.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+    );
+    assert_claimed_once(&client, counter, output);
+}
+
+fn claim_buffers(client: &Client) -> (Handle, Handle) {
+    let counter = client.create_from_slice(u32::as_bytes(&[0]));
+    let output = client.create_from_slice(u32::as_bytes(&[0]));
+    (counter, output)
+}
+
+/// A call matched on runs once, so it takes the claim and the arm sees `B`.
+fn assert_claimed_once(client: &Client, counter: Handle, output: Handle) {
+    let calls = client.read_one_unchecked(counter);
+    assert_eq!(u32::from_bytes(&calls), &[1], "calls");
+    let arm = client.read_one_unchecked(output);
+    assert_eq!(u32::from_bytes(&arm), &[1], "arm");
 }
 
 pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: Client) {
@@ -349,6 +421,22 @@ macro_rules! testgen_enums {
             fn runtime_enum_value() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::enums::test_runtime_variants_value::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn runtime_enum_match_call() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_runtime_variants_match_call::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn runtime_enum_if_let_call() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_runtime_variants_if_let_call::<TestRuntime>(
                     client,
                 );
             }

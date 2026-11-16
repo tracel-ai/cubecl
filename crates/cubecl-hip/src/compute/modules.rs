@@ -6,7 +6,7 @@ use crate::compute::artifact::{HipArtifact, HipArtifactCompiler};
 use crate::compute::status::checked;
 use cubecl_core::prelude::*;
 use cubecl_server::compiler::{
-    ArtifactId, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
+    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
 };
 use cubecl_server::kernel::BufferIOAttr;
 use std::ffi::CString;
@@ -61,8 +61,8 @@ impl HipModules {
             compiler,
             store: ArtifactStore::with_sources(
                 StoreNames {
-                    kernels: "hip",
-                    sources: "hip-second-line",
+                    kernels: ArtifactRoot::Hip,
+                    sources: ArtifactRoot::HipSources,
                 },
                 fingerprint,
             ),
