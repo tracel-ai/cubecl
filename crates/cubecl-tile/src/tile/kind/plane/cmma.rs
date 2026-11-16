@@ -358,7 +358,7 @@ mod fragment_drain_tests {
             whole: false,
             overhang,
             write,
-            fill: FillUnits::cube(0),
+            copy: Level::copied_by_cube(0),
             storage: WindowStorage::Stored(Storage::Strided),
             delivery: Delivery::SyncPerUnit,
         }

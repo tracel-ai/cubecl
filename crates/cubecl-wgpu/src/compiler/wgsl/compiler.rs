@@ -1,6 +1,6 @@
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{
-    self, EnableFeaturesPass,
+    self, DeclareStructTypesPass, EnableFeaturesPass,
     builtin::{LowerBuiltinsPass, WorkgroupLayout},
     lower::LowerOpsWgslPass,
     metadata::declare_info,
@@ -171,6 +171,7 @@ impl WgslCompiler {
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.add_pass(DeclareStructTypesPass);
         passes.add_pass(EnableFeaturesPass);
 
         passes.run(module_op, &mut ctx, &mut analyses)?;

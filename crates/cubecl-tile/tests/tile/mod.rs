@@ -24,6 +24,7 @@ mod leaves;
 mod matmul;
 mod monoid;
 mod online_softmax;
+mod opened_attention;
 mod packed;
 mod paged;
 mod procedural;

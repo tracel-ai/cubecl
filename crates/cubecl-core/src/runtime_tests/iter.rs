@@ -1,3 +1,5 @@
+#![allow(clippy::manual_contains, clippy::iter_count)]
+
 use crate::{self as cubecl};
 use alloc::{vec, vec::Vec};
 use cubecl::prelude::*;

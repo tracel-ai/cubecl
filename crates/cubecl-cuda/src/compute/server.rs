@@ -11,10 +11,10 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction, SendOutcome,
-        SendReport, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
-        TensorMapMeta,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, Handle, KernelArguments,
+        KernelResource, LaunchError, PeerAccess, PeerBinding, ProfileError, ProfilingToken,
+        Reduction, SendOutcome, SendReport, ServerCommunication, ServerError, ServerUtilities,
+        TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -91,7 +91,7 @@ pub struct CudaServer {
     streams: MultiStream<CudaStreamBackend>,
     utilities: Arc<ServerUtilities>,
     /// The groups this device has joined — see [`Collectives`].
-    collectives: Collectives<Cuda>,
+    collectives: Collectives<Cuda, crate::compute::events::Cuda>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
     /// the client. `end_capture` inserts, `replay` looks up, `graph_destroy`
     /// removes (dropping the [`CudaGraph`] destroys its executable and unpins the
@@ -522,6 +522,10 @@ impl ServerCommunication for CudaServer {
         CollectiveServer::sync_collective(self, stream_id)
     }
 
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        CollectiveServer::time_next_communication(self, timing)
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
     fn send(
         &mut self,
@@ -643,13 +647,20 @@ impl CudaServer {
 
 impl CollectiveServer for CudaServer {
     type Driver = Cuda;
+    type Events = crate::compute::events::Cuda;
 
     fn device_id(&self) -> DeviceId {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Cuda> {
+    fn collectives(&mut self) -> &mut Collectives<Cuda, crate::compute::events::Cuda> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut crate::compute::events::EventProfiler {
+        // Its first mark creates events and a stream, which belong to the current context.
+        self.unsafe_set_current();
+        &mut self.ctx.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<CudaStreamBackend> {

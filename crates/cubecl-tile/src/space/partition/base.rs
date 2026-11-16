@@ -240,7 +240,7 @@ impl Partitioning {
         self.levels
             .iter()
             .find_map(|level| match level.count(axis) {
-                Some(Count::Distributed(tiles)) => Some(tiles),
+                Some(Count::InTurns { tiles, .. }) => tiles,
                 _ => None,
             })
     }
@@ -313,7 +313,7 @@ impl Partitioning {
                                 total *= match level.count(axis) {
                                     Some(Count::AllAcross(workers)) => workers,
                                     // Launch-sized units ask for none of their own.
-                                    Some(Count::Distributed(_)) => 1,
+                                    Some(Count::InTurns { .. }) => 1,
                                     _ => level.tiles(&space, axis),
                                 } as u32;
                             }

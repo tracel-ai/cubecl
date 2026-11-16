@@ -27,7 +27,7 @@ impl StageElement {
 #[cube]
 impl Memory {
     /// Cooperatively materialize a procedural source into this plain, direct scalar tile.
-    /// Every unit that shares its fill ([`FillUnits`]) must own this window.
+    /// Every unit its fill's level names ([`Level::copied_by`]) must own this window.
     pub(crate) fn fill_procedural<T: Numeric>(
         &mut self,
         src: &Procedural,
@@ -41,16 +41,14 @@ impl Memory {
         ));
         // Runtime window, so a Dynamic extent witnessed by another operand still works.
         let shape = self.window.extent.clone();
-        let fill = comptime!(self.access.fill);
+        let fill = comptime!(self.access.copy.clone());
         let mut dst = self.flat_mut::<T, Const<1>>();
         let total = dst.shape();
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
+        for line in Walk::copy(&fill, total) {
+            let i = line.coord(Level::COPIED);
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
             dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));
-            i += stride;
         }
     }
 
@@ -153,10 +151,7 @@ impl Memory {
                 // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
                 // words a gather reads lands as the compacted window the gather stages.
                 let delivery = operand.delivery();
-                let alignment = comptime!(match delivery.is_tma() {
-                    true => Delivery::TMA_STAGE_ALIGNMENT,
-                    false => 0usize,
-                });
+                let alignment = comptime!(delivery.engine().stage_alignment);
                 // A decoded stage is dense over the values' axes whatever the source's map, and
                 // so is a tiled one, which an instruction reads as one matrix.
                 let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));

@@ -82,51 +82,19 @@ impl Tile {
         let mut out = out;
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
-        let fill = self.fill_units();
+        let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
-        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
-        // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
-        // runtime stride stalls each store on Metal's in-order pipe.
-        if units > 0 && loads.div_ceil(units) <= 8 {
-            #[unroll]
-            for t in 0..loads.div_ceil(units) {
-                let at_load = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if (t + 1) * units <= loads {
-                    self.encode_load_into::<F, I, WP, LW>(
-                        &read,
-                        &mut out,
-                        at_load,
-                        coarse,
-                        &from,
-                        line.clone(),
-                    );
-                } else {
-                    if at_load < comptime!(loads as u32) {
-                        self.encode_load_into::<F, I, WP, LW>(
-                            &read,
-                            &mut out,
-                            at_load,
-                            coarse,
-                            &from,
-                            line.clone(),
-                        );
-                    }
-                }
-            }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for at_load in range_stepped(first, comptime!(loads as u32), stride) {
-                self.encode_load_into::<F, I, WP, LW>(
-                    &read,
-                    &mut out,
-                    at_load,
-                    coarse,
-                    &from,
-                    line.clone(),
-                );
-            }
+        // The loads dealt to the units that fill, as a straight fill's lines are.
+        for load in Walk::copy(&fill, comptime!(loads).runtime()) {
+            self.encode_load_into::<F, I, WP, LW>(
+                &read,
+                &mut out,
+                load.coord(Level::COPIED) as u32,
+                coarse,
+                &from,
+                line.clone(),
+            );
         }
     }
 
@@ -232,7 +200,7 @@ impl Tile {
         let from = comptime!(src.place.space.clone());
         let read = src.nd_packed::<F, LW>(comptime!(Guard::Checked));
         let holder = comptime!(self.place.holder());
-        let fill = self.fill_units();
+        let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
         let blocks = comptime!((load.counts(&space).iter().product::<usize>() * n) as u32);
         // Lanes share a word's blocks where the plane is a word wide; a unit alone, or a plane
@@ -245,8 +213,9 @@ impl Tile {
         };
         let per = select(lanes, 1u32, comptime!(n as u32));
         let shares = blocks.runtime() / per;
-        let unit = FillUnits::worker(fill) as u32;
-        let width = FillUnits::workers(fill) as u32;
+        let (within, units, fillers) = comptime!(fill.copied_units());
+        let unit = AxisDistribution::unit_within(within, fillers) as u32;
+        let width = AxisDistribution::units_within(within, units, fillers) as u32;
         for turn in 0..shares.div_ceil(width) {
             let at = turn * width + unit;
             let held = at < shares;

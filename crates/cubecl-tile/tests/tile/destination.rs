@@ -23,7 +23,9 @@ use cubecl::std::tensor::{
 };
 use cubecl::{prelude::*, unexpanded, zspace::shape};
 use cubecl_tile::kind::{GlobalOperand, Write};
-use cubecl_tile::launch::{Buffered, Destination, DestinationLaunch, Unbound};
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand, Unbound,
+};
 use cubecl_tile::layout::RuntimeGeometry;
 use cubecl_tile::*;
 
@@ -51,8 +53,9 @@ struct DoubledArg<'a, E: Numeric> {
 #[cube]
 impl Destination for Doubled {
     type Arg<E: Numeric> = DoubledArg<'static, E>;
+    type Served<E: Numeric> = Tile;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         let mut geometry = RuntimeGeometry::new();
         #[unroll]
         for axis in 0..comptime!(arg.rank) {
@@ -72,8 +75,6 @@ impl Destination for Doubled {
         )
         .tile::<E>(comptime!(partitioning.levels().to_vec()))
     }
-
-    fn finish<E: Numeric>(_arg: &Self::Arg<E>) {}
 }
 
 /// What [`Doubled`] launches from: the tensor the values land in, and what the launcher derived
@@ -182,9 +183,10 @@ fn store<E: Float, V: Size, O: Destination>(
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let mut dst = O::tile::<E, V>(out, &space);
+    let dest = O::serve::<E, V>(out, &space);
+    let mut dst = dest.tile();
     dst.copy_from(&src);
-    O::finish::<E>(out);
+    dest.finish();
 }
 
 /// Cut so the store is not one contiguous run.
@@ -312,14 +314,15 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = O::tile::<E, Const<1>>(out, &space);
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let c = dest.tile();
     let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
     }
     acc.drained_into(&c);
-    O::finish::<E>(out);
+    dest.finish();
 }
 
 fn run_contract(sink: bool) -> HostData {
@@ -442,14 +445,45 @@ struct TotaledArg<'a, E: Numeric> {
 #[cube]
 impl Destination for Totaled {
     type Arg<E: Numeric> = TotaledArg<'static, E>;
+    type Served<E: Numeric> = TotaledServed<E>;
 
-    fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
-        Doubled::tile::<E, V>(&arg.doubled, partitioning)
+    fn serve<E: Numeric, V: Size>(
+        arg: &Self::Arg<E>,
+        partitioning: &Partitioning,
+    ) -> TotaledServed<E> {
+        TotaledServed::<E> {
+            tile: Doubled::serve::<E, V>(&arg.doubled, partitioning),
+            values: arg.doubled.values,
+            arrivals: arg.arrivals,
+            total: arg.total,
+        }
+    }
+}
+
+/// [`Totaled`] as served to the kernel: the doubling tile, and the argument `finish` reads.
+#[derive(CubeType)]
+struct TotaledServed<E: Numeric> {
+    tile: Tile,
+    values: &'static Tensor<E>,
+    arrivals: &'static [Atomic<u32>],
+    total: &'static [Atomic<u32>],
+}
+
+#[cube]
+impl<E: Numeric> ServedDestination for TotaledServed<E> {
+    type Opened = Tile;
+
+    fn tile(&self) -> Tile {
+        self.tile.clone()
     }
 
-    fn finish<E: Numeric>(arg: &Self::Arg<E>) {
+    fn open(&self, _owner: &Region, _sum: &Tile) -> Tile {
+        self.tile.clone()
+    }
+
+    fn finish(&self) {
         sync_storage();
-        let before = arg.arrivals[0].fetch_add(1);
+        let before = self.arrivals[0].fetch_add(1);
         let mut last = Shared::<[u32]>::new_slice(1usize);
         if UNIT_POS == 0 {
             last[0] = 0;
@@ -464,10 +498,10 @@ impl Destination for Totaled {
             sync_storage();
             if UNIT_POS == 0 {
                 let mut sum = E::from_int(0);
-                for i in 0..arg.doubled.values.len() {
-                    sum += arg.doubled.values[i];
+                for i in 0..self.values.len() {
+                    sum += self.values[i];
                 }
-                arg.total[0].store(u32::cast_from(sum));
+                self.total[0].store(u32::cast_from(sum));
             }
         }
     }
