@@ -20,7 +20,7 @@ const CI: Axis = Axis(2);
 const C: Axis = Axis(3);
 
 /// The register block the reduction in registers accumulates in.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `out[row] = Σ_col weights[row, col] · scales[row, col / inside]`, reduced into memory.
 #[cube(launch)]
@@ -51,7 +51,7 @@ fn reduce_scaled_in_registers(
 ) {
     let weights = weights.tile(&space).mul(&scales.tile(&space));
     let out = out.tile(&space);
-    let mut sum = out.block_reducer::<f32>(&weights, REGISTER_BLOCK, Monoid::Sum);
+    let mut sum = out.block_reducer::<f32>(&weights, SOFTWARE_MATMUL, Monoid::Sum);
     sum.init::<f32>(0.0f32);
     for region in space.over(&level) {
         let mut sum_region = sum.at(&region);

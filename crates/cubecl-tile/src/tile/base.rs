@@ -7,6 +7,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 use cubecl::zspace::SmallVec;
 
 use crate::dialect::{CopyOp, DequantizeOp};
+use crate::ops::matmul::instruction::FragmentSource;
 use crate::stage::pipeline::payload::base::{StageOperand, StageSpec, stage_one};
 use crate::*;
 
@@ -281,13 +282,46 @@ impl Tile {
         })
     }
 
-    /// The element a stage of this tile holds: the values its fill decodes, at `decoded` or
-    /// [`read_element`](Tile::read_element), or what the tile holds.
+    /// What a stage of this operand holds for a reader that names the element it decodes into,
+    /// where `decoded` is one: its fields decoded by the fill where they lie packed in memory,
+    /// several a word, and carry no scales a stage keeps beside them. A matrix fragment loads a
+    /// stage of values where a stage of words it would pick apart cell by cell. Otherwise, what
+    /// [`stage_element`](Tile::stage_element) says.
+    pub(crate) fn stage_element_for(
+        &self,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> comptime_type!(StageElement) {
+        let staged = self.stage_element();
+        let memory = self.is_memory();
+        let beside = self.scales_beside();
+        comptime!(match (staged, decoded) {
+            (StageElement::Stored, Some(_)) if memory && !beside => StageElement::Decoded,
+            (staged, _) => staged,
+        })
+    }
+
+    /// Whether filling a stage packed as `stage` from these values decodes them: they decode for
+    /// any stage, or lie packed in memory and the stage holds values, as one allocated for a
+    /// reader that names the element it decodes into does
+    /// ([`stage_element_for`](Tile::stage_element_for)).
+    pub(crate) fn decodes_into(&self, #[comptime] stage: Packing) -> comptime_type!(bool) {
+        let staged = self.stage_element();
+        let memory = self.is_memory();
+        comptime!(match staged {
+            StageElement::Decoded => true,
+            StageElement::Stored => memory && !matches!(stage, Packing::Packed { .. }),
+            StageElement::Served => false,
+        })
+    }
+
+    /// The element a stage of this tile holds for a reader that names `decoded`
+    /// ([`stage_element_for`](Tile::stage_element_for)): the values its fill decodes, at
+    /// `decoded` or [`read_element`](Tile::read_element), or what the tile holds.
     pub(crate) fn staged_element(
         &self,
         #[comptime] decoded: Option<ElemType>,
     ) -> comptime_type!(ElemType) {
-        let staged = self.stage_element();
+        let staged = self.stage_element_for(decoded);
         let read = self.read_element();
         comptime!(match staged {
             StageElement::Decoded => decoded.unwrap_or(read),
@@ -478,10 +512,8 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(g) => comptime!(g.projection.clone()),
             TileKind::Lines(c) => c.projection(),
-            TileKind::PlaneTile(_)
-            | TileKind::PlanePartition(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_) => {
+            TileKind::TmaGmem(t) => comptime!(t.projection.clone()),
+            TileKind::PlaneTile(_) | TileKind::PlanePartition(_) | TileKind::Procedural(_) => {
                 comptime!(Projection::direct_over(&self.place.space))
             }
         }
@@ -768,6 +800,7 @@ impl Tile {
             storage,
             comptime!(None),
             comptime!(StageOwner::CUBE),
+            comptime!(None),
         )
     }
 
@@ -1264,10 +1297,11 @@ impl Tile {
         unexpanded!()
     }
 
-    /// This tile without its outer scales that vary only along axes of `space`, and those scales,
-    /// for a sum `instruction` contracts. With `space` the output's, they are the scales the sum
-    /// takes out of every term and applies once ([`scaled`](Tile::scaled)), and the tile left
-    /// carries the ones each term needs.
+    /// This operand of `sum` without its outer scales that vary only along the axes of `sum`'s
+    /// space, and those scales. They are the scales the sum takes out of every term and applies
+    /// once ([`scaled`](Tile::scaled)), and the tile left carries the ones each term needs. Open
+    /// the sum first ([`accumulator`](Tile::accumulator)): what it gives up depends on the
+    /// instruction the sum contracts through.
     ///
     /// Words of block scales always give up the scales above them: the instruction reads the
     /// words undecoded, and holds no other scale. A decoded tile gives them up where the sum is
@@ -1275,7 +1309,15 @@ impl Tile {
     /// in lane runs takes one level of scales; under any other sum they ride the load, which
     /// multiplies by them as it decodes, rather than send the sum through shared memory.
     /// A tile indexing a table gives up none: only its copy decodes it.
-    pub fn factor(&self, _space: Space, _instruction: Instruction) -> (Tile, Factor) {
+    pub fn factor(&self, _sum: &Tile) -> (Tile, Factor) {
+        unexpanded!()
+    }
+
+    /// This tile without its outer scales that vary along no axis, and those scales: what a sum
+    /// held outside any tile, in a unit's own registers, takes out of every term and applies once
+    /// ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing a
+    /// table gives up none: only its copy decodes it.
+    pub fn factor_whole(&self) -> (Tile, Factor) {
         unexpanded!()
     }
 
@@ -1345,6 +1387,14 @@ impl Tile {
 
     /// Whether these values carry scales a stage keeps beside them ([`decodes`](Tile::decodes)).
     pub(crate) fn scales_beside(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
+    /// What a plane's fragments of this operand load from: values, codes staged as stored and
+    /// decoded as the fragments load them ([`scales_kept_beside`](Tile::scales_kept_beside)), or
+    /// packed values a stage fill decodes on the way
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)).
+    pub(crate) fn fragment_source(&self) -> comptime_type!(FragmentSource) {
         unexpanded!()
     }
 
@@ -1458,15 +1508,28 @@ impl TileExpand {
     pub fn __expand_factor_method(
         &self,
         scope: &Scope,
-        space: Space,
-        instruction: Instruction,
+        sum: &TileExpand,
     ) -> (TileExpand, FactorExpand) {
+        let space = sum.place.space.clone();
         let gives_up = !self.looks_up()
-            && (self.factor.staged_beside(scope) || instruction.scales_its_sum_in_place());
+            && (self.factor.staged_beside(scope)
+                || sum
+                    .__expand_sum_instruction_method(scope)
+                    .scales_its_sum_in_place());
         if !gives_up {
             return (self.clone(), FactorExpand::default());
         }
         let (inner, outer) = self.factor.split_on(scope, &space);
+        let mut values = self.clone();
+        values.factor = inner;
+        (values, outer)
+    }
+
+    pub fn __expand_factor_whole_method(&self, scope: &Scope) -> (TileExpand, FactorExpand) {
+        if self.looks_up() {
+            return (self.clone(), FactorExpand::default());
+        }
+        let (inner, outer) = self.factor.split_on(scope, &Space::new(&[]));
         let mut values = self.clone();
         values.factor = inner;
         (values, outer)
@@ -1527,6 +1590,36 @@ impl TileExpand {
 
     pub(crate) fn __expand_scales_beside_method(&self, scope: &Scope) -> bool {
         !self.looks_up() && self.factor.staged_beside(scope)
+    }
+
+    pub(crate) fn __expand_fragment_source_method(&self, scope: &Scope) -> FragmentSource {
+        match &self.kind {
+            TileKindExpand::PlaneTile(tile) => {
+                return FragmentSource::Fragments(tile.__expand_instruction_method(scope));
+            }
+            TileKindExpand::PlanePartition(partition) => {
+                let first = partition.frags.__expand_index_method(scope, 0usize.into());
+                return FragmentSource::Fragments(first.__expand_instruction_method(scope));
+            }
+            _ => {}
+        }
+        let landed = matches!(&self.kind, TileKindExpand::TmaGmem(_));
+        match self.__expand_packing_method(scope) {
+            Packing::Plain | Packing::Words { .. } if landed => {
+                FragmentSource::Landed(self.element)
+            }
+            Packing::Plain | Packing::Words { .. } => FragmentSource::Values(self.element),
+            Packing::Packed { field } => match field.code() {
+                Some(code) if self.__expand_scales_beside_method(scope) => FragmentSource::Codes {
+                    code,
+                    scales: self
+                        .__expand_innermost_factor_method(scope)
+                        .__expand_word_field_method(scope),
+                },
+                Some(code) if self.factor.is_kept_beside() => FragmentSource::StoredCodes(code),
+                _ => FragmentSource::Decoded,
+            },
+        }
     }
 
     pub fn __expand_scales_kept_beside_method(&self, _scope: &Scope) -> TileExpand {

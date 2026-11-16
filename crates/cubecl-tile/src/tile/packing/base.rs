@@ -46,6 +46,10 @@ pub enum Field {
     /// and cast, the decode left to the compiler. What [`read_on`](Field::read_on) makes of
     /// `Quant(E2M1)` there.
     ConvertedE2M1,
+    /// An `e4m3` or `e5m2` value on a device that converts it itself: a word is read as four of
+    /// them and cast, the decode left to the compiler, rather than decoded from its bits. What
+    /// [`read_on`](Field::read_on) makes of `Fp8(E4M3)` or `Fp8(E5M2)` there.
+    ConvertedFp8(Fp8Format),
     /// A float code (`e2m1`, `e4m3` or `e5m2`) on a device that emulates converting it: a word is
     /// decoded as `f16` pairs from its bits, lifted to its values, or, where `lifted` is false,
     /// each placed `lift` short of its value for a reader whose factor carries the
@@ -85,6 +89,7 @@ impl Field {
             Field::Float(kind) => Field::float_bits(kind),
             Field::Index { bits } => bits,
             Field::ConvertedE2M1 => QuantValue::E2M1.size_bits(),
+            Field::ConvertedFp8(_) => 8,
             Field::Placed { value, .. } => value.size_bits(),
         }
     }
@@ -92,6 +97,15 @@ impl Field {
     /// Values one `u32` holds.
     pub fn per_word(self) -> usize {
         u32::BITS as usize / self.size_bits()
+    }
+
+    /// The 8-bit float format the slot holds, however the device reads it
+    /// ([`read_on`](Field::read_on)): decoded from its bits or cast. None for any other slot.
+    pub(crate) fn fp8(self) -> Option<Fp8Format> {
+        match self {
+            Field::Fp8(format) | Field::ConvertedFp8(format) => Some(format),
+            _ => None,
+        }
     }
 
     /// Whether the slot holds an `e2m1` code, however the device reads it
@@ -120,6 +134,8 @@ impl Field {
             Field::Quant(QuantValue::E2M1) => Some(FloatKind::E2M1x2),
             Field::Quant(QuantValue::E4M3) => Some(FloatKind::E4M3),
             Field::Quant(QuantValue::E5M2) => Some(FloatKind::E5M2),
+            Field::Fp8(Fp8Format::E4M3) => Some(FloatKind::E4M3),
+            Field::Fp8(Fp8Format::E5M2) => Some(FloatKind::E5M2),
             _ => None,
         };
         let emulated = converted_as.is_some_and(|kind| {
@@ -134,6 +150,9 @@ impl Field {
                 lifted: true,
             },
             Field::Quant(QuantValue::E2M1) if converts => Field::ConvertedE2M1,
+            Field::Fp8(format) if converted_as.is_some() && !emulated => {
+                Field::ConvertedFp8(format)
+            }
             other => other,
         }
     }
@@ -202,7 +221,7 @@ impl Field {
         match self {
             Field::Quant(value) | Field::Placed { value, .. } => Some(value),
             Field::ConvertedE2M1 => Some(QuantValue::E2M1),
-            Field::Fp8(_) | Field::Float(_) | Field::Index { .. } => None,
+            Field::Fp8(_) | Field::ConvertedFp8(_) | Field::Float(_) | Field::Index { .. } => None,
         }
     }
 
@@ -214,7 +233,7 @@ impl Field {
     /// For a field no scale is stored as.
     pub(crate) fn scale_dtype(self) -> ScaleDtype {
         match self {
-            Field::Fp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
+            Field::Fp8(Fp8Format::E4M3) | Field::ConvertedFp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
             Field::Fp8(Fp8Format::UE8M0) => ScaleDtype::UE8M0,
             Field::Float(FloatKind::F32) => ScaleDtype::F32,
             Field::Float(FloatKind::F16) => ScaleDtype::F16,
@@ -250,6 +269,7 @@ impl Field {
             Field::Quant(QuantValue::E4M3) => FieldDecode::Byte(Fp8Format::E4M3),
             Field::Quant(QuantValue::E5M2) => FieldDecode::Byte(Fp8Format::E5M2),
             Field::Fp8(format) => FieldDecode::Byte(format),
+            Field::ConvertedFp8(format) => FieldDecode::ConvertedByte(format),
             Field::Float(kind) => FieldDecode::Bits(kind),
             Field::Index { .. } => FieldDecode::Unsigned,
             Field::ConvertedE2M1 => FieldDecode::Converted,
@@ -284,6 +304,8 @@ pub(crate) enum FieldDecode {
     PlacedByte { format: Fp8Format, lifted: bool },
     /// An 8-bit float code, read back through the format's own decoder.
     Byte(Fp8Format),
+    /// An 8-bit float code the device converts: a word cast as four of them.
+    ConvertedByte(Fp8Format),
     /// A whole float, read back by reinterpreting the bits of its slot.
     Bits(FloatKind),
 }
@@ -471,6 +493,15 @@ mod tests {
         );
         assert_eq!(Field::ConvertedE2M1.decode(), FieldDecode::Converted);
         assert_eq!(Field::ConvertedE2M1.per_word(), 8);
+        assert_eq!(
+            Field::ConvertedFp8(Fp8Format::E4M3).decode(),
+            FieldDecode::ConvertedByte(Fp8Format::E4M3)
+        );
+        assert_eq!(Field::ConvertedFp8(Fp8Format::E4M3).per_word(), 4);
+        assert_eq!(
+            Field::ConvertedFp8(Fp8Format::E4M3).fp8(),
+            Field::Fp8(Fp8Format::E4M3).fp8()
+        );
     }
 
     /// An `e2m1` code is one however a device reads it: converted, placed, or from its bits.

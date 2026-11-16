@@ -395,12 +395,12 @@ fn tf32_constant_casts_preserve_rounding() {
     );
 }
 
-/// A warpgroup MMA is one `wgmma.mma_async` between the fence and the group it is committed in,
+/// A plane group MMA is one `wgmma.mma_async` between the fence and the group it is committed in,
 /// reading the tiles the units staged after fencing the async proxy.
 #[test]
-fn a_warpgroup_product_is_one_async_mma() {
+fn a_plane_group_product_is_one_async_mma() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(
+        crate::shared::offline_kernels::plane_group_product_kernel::<half::f16, f32>(
             shape(64, 16),
             ProductA::Shared,
         ),
@@ -426,9 +426,9 @@ fn a_warpgroup_product_is_one_async_mma() {
 /// `A` in registers is four 32-bit registers per unit, and the 16-bit forms name only `B`'s
 /// transpose.
 #[test]
-fn a_warpgroup_product_takes_a_from_registers() {
+fn a_plane_group_product_takes_a_from_registers() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<half::bf16, f32>(
+        crate::shared::offline_kernels::plane_group_product_kernel::<half::bf16, f32>(
             shape(32, 16),
             ProductA::Registers,
         ),
@@ -450,9 +450,9 @@ fn a_warpgroup_product_takes_a_from_registers() {
 
 /// The integer forms take neither the operand negation nor the transposes.
 #[test]
-fn an_integer_warpgroup_product_has_no_immediates() {
+fn an_integer_plane_group_product_has_no_immediates() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<i8, i32>(
+        crate::shared::offline_kernels::plane_group_product_kernel::<i8, i32>(
             shape(32, 32),
             ProductA::Shared,
         ),
@@ -469,9 +469,9 @@ fn an_integer_warpgroup_product_has_no_immediates() {
 /// PTX wants every write to `A`'s registers ahead of the `wgmma.fence` before the MMA that reads
 /// them. Pinned by `fence_operand`, the compiler cannot sink them past it.
 #[test]
-fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
+fn the_registers_a_plane_group_product_reads_are_written_before_its_fence() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(
+        crate::shared::offline_kernels::plane_group_product_kernel::<half::f16, f32>(
             shape(32, 16),
             ProductA::Registers,
         ),
@@ -502,7 +502,7 @@ fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
     }
 }
 
-/// A `64 x n x k` warpgroup MMA.
+/// A `64 x n x k` plane group MMA.
 fn shape(n: usize, k: usize) -> cubecl_core::ir::types::MatrixShape {
     cubecl_core::ir::types::MatrixShape { m: 64, n, k }
 }
@@ -579,7 +579,7 @@ fn a_wait_counts_the_groups_on_the_shortest_path() {
     assert_eq!(bulk(WaitCase::MaybeEmptyInnerLoop), 0);
     // Each stage's wait lets the two newer stages run on.
     assert_eq!(bulk(WaitCase::Ring), 2);
-    // A warpgroup group is no bulk group.
+    // A plane group group is no bulk group.
     assert_eq!(bulk(WaitCase::OtherKind), 0);
     let ptx = ptx_of(group_waits_kernel(WaitCase::OtherKind), 90);
     assert_eq!(group_waits(&ptx, "wgmma.wait_group.sync.aligned"), [0]);
@@ -588,7 +588,7 @@ fn a_wait_counts_the_groups_on_the_shortest_path() {
 /// An MMA reads `n` rows of `B`, which a tile with fewer can't hold.
 #[test]
 fn a_tile_too_small_for_the_mma_is_rejected() {
-    let kernel = crate::shared::offline_kernels::warpgroup_short_tile_kernel();
+    let kernel = crate::shared::offline_kernels::plane_group_short_tile_kernel();
     let Err(err) = compile(kernel, 90) else {
         panic!("an 8-row tile of B compiled for a 64 x 16 MMA");
     };
@@ -669,6 +669,16 @@ fn a_tma_load_completes_on_an_mbarrier() {
     assert!(ptx.contains("mbarrier.try_wait.shared::cta.b64"), "{ptx}");
 }
 
+/// A loop that loads a tile by TMA each lap stays a loop, a constant number of laps or not: its one
+/// copy is issued from the loop's body rather than once a lap unrolled.
+#[test]
+fn a_loop_issuing_tma_loads_stays_a_loop() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_laps_kernel(), 90);
+    let copies = ptx.matches("cp.async.bulk.tensor.2d").count();
+    assert_eq!(copies, 1, "the laps are unrolled:\n{ptx}");
+    assert!(loop_body(&ptx).is_some(), "no loop:\n{ptx}");
+}
+
 /// Each store is its own bulk group. The first store's wait lets the second's group run on,
 /// and the second's waits for both.
 #[test]
@@ -708,7 +718,7 @@ fn a_tma_store_is_tracked_by_a_bulk_group() {
 #[test]
 fn a_pipelined_wait_lets_the_newest_stage_run() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_pipeline_kernel(),
+        crate::shared::offline_kernels::plane_group_pipeline_kernel(),
         90,
     );
     let body = loop_body(&ptx).unwrap_or_else(|| panic!("no loop:\n{ptx}"));
@@ -765,6 +775,19 @@ fn unit_async_copies_complete_on_the_barrier() {
         assert!(
             ptx.contains("cp.async.mbarrier.arrive.shared"),
             "the commit arrives on the barrier on sm_{arch}:\n{ptx}"
+        );
+    }
+}
+
+/// A manual FP8 `mma` lowers to the `m16n8k32` instruction on `e4m3` operands, accumulating in
+/// `f32`, on the parts that have it: Ada's and Blackwell's consumer ones.
+#[test]
+fn an_fp8_mma_is_the_m16n8k32_instruction() {
+    for arch in [89, 120] {
+        let ptx = ptx_of(crate::shared::offline_kernels::fp8_mma_kernel(), arch);
+        assert!(
+            ptx.contains("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32"),
+            "sm_{arch}:\n{ptx}"
         );
     }
 }

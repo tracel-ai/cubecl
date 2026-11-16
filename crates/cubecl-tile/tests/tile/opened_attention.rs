@@ -5,8 +5,8 @@
 
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Instruction, Levels, Partitioning, Region, RegisterBlock, Semiring, Space, Tile, TileSpec,
-    TileTensor, TileTensorLaunch,
+    Levels, Partitioning, Region, Semiring, SoftwareMatmul, Space, Tile, TileSpec, TileTensor,
+    TileTensorLaunch,
     launch::{
         Destination, OpenedDestination, OpenedDestinationExpand, ServedDestination,
         ServedDestinationExpand,
@@ -27,7 +27,7 @@ fn unit_matmul<O: Destination>(
     rhs: &TileTensor<'_>,
     out: &O::Arg<f32>,
     space: Partitioning,
-    #[comptime] instruction: Instruction,
+    #[comptime] config: SoftwareMatmul,
 ) {
     let (a, b) = (lhs.tile(&space), rhs.tile(&space));
     let dest = O::serve::<f32, Const<1>>(out, &space);
@@ -40,7 +40,7 @@ fn unit_matmul<O: Destination>(
                 let (a_s, b_s) = (a.at(&step), b.at(&step));
                 let mut sum =
                     c.at(&step)
-                        .accumulator::<f32>(&a_s, &b_s, instruction, Semiring::SUM_PROD);
+                        .register_accumulator::<f32>(&a_s, &b_s, config, Semiring::SUM_PROD);
                 sum.mma(&a_s, &b_s);
                 opened.consume(&step, &sum);
             }
@@ -124,12 +124,10 @@ impl ServedDestination for AttendingServed {
 
     fn open(&self, owner: &Region, sum: &Tile) -> Attention {
         let out = self.out.at(owner);
-        let acc = out.accumulator::<f32>(
+        let acc = out.register_accumulator::<f32>(
             &self.bias.at(owner),
             &self.v.at(owner),
-            comptime!(Instruction::Registers {
-                config: RegisterBlock::new(self.cells)
-            }),
+            comptime!(SoftwareMatmul::new(self.cells)),
             Semiring::SUM_PROD,
         );
         Attention {
@@ -210,9 +208,7 @@ fn attend(causal: bool) {
             ),
         ),
         launcher.partitioning_arg(),
-        Instruction::Registers {
-            config: RegisterBlock::new(rows * block),
-        },
+        SoftwareMatmul::new(rows * block),
     );
     let out = HostData::from_tensor_handle(&client, out, HostDataType::F32);
     check(

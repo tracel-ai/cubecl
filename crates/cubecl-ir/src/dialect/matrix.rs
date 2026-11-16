@@ -271,7 +271,7 @@ pub struct MmaQuantizedOp {
 }
 synchronizes!(MmaQuantizedOp, SyncScope::Plane);
 
-/// The swizzle a warpgroup MMA matrix descriptor declares for the tile it points at, named for
+/// The swizzle a plane group MMA matrix descriptor declares for the tile it points at, named for
 /// the width of the rows it permutes. The pattern repeats every 8 rows.
 #[pliron_attr(name = "matrix.wgmma_swizzle", format, verifier = "succ")]
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
@@ -308,11 +308,11 @@ impl WgmmaSwizzle {
     }
 }
 
-/// A warpgroup operation is `.sync.aligned` over four planes. No scope names a warpgroup, so it
+/// A plane group operation is `.sync.aligned` over four planes. No scope names a plane group, so it
 /// declares the conservative end of each bound: at least a plane, so no pass takes it for a
 /// cube barrier, and at most a cube, so no pass sinks it into control flow that only a plane
 /// agrees on.
-macro_rules! warpgroup_synchronizes {
+macro_rules! plane_group_synchronizes {
     ($ty: ty) => {
         #[op_interface_impl]
         impl crate::interfaces::Synchronizes for $ty {
@@ -326,24 +326,24 @@ macro_rules! warpgroup_synchronizes {
     };
 }
 
-/// Units in a warpgroup: the four planes that issue one warpgroup MMA together.
-pub const WARPGROUP_UNITS: usize = 128;
-/// Rows every warpgroup MMA computes.
-pub const WARPGROUP_M: usize = 64;
-/// Bytes of K every warpgroup MMA reads.
-pub const WARPGROUP_K_BYTES: usize = 32;
+/// Units in the plane group that issues one plane group MMA: its four planes.
+pub const PLANE_GROUP_UNITS: usize = 128;
+/// Rows every plane group MMA computes.
+pub const PLANE_GROUP_M: usize = 64;
+/// Bytes of K every plane group MMA reads.
+pub const PLANE_GROUP_K_BYTES: usize = 32;
 
-/// The elements of K of `elem_size` bytes every warpgroup MMA reads.
-pub const fn warpgroup_k(elem_size: usize) -> usize {
-    WARPGROUP_K_BYTES / elem_size
+/// The elements of K of `elem_size` bytes every plane group MMA reads.
+pub const fn plane_group_k(elem_size: usize) -> usize {
+    PLANE_GROUP_K_BYTES / elem_size
 }
 
-/// The elements each unit of a warpgroup holds of a `64 x cols` accumulator or `A` fragment.
-pub const fn warpgroup_elems_per_unit(cols: usize) -> usize {
-    WARPGROUP_M * cols / WARPGROUP_UNITS
+/// The elements each unit of a plane group holds of a `64 x cols` accumulator or `A` fragment.
+pub const fn plane_group_elems_per_unit(cols: usize) -> usize {
+    PLANE_GROUP_M * cols / PLANE_GROUP_UNITS
 }
 
-/// Which dimension of a warpgroup MMA operand tile is contiguous in shared memory: K, as in a
+/// Which dimension of a plane group MMA operand tile is contiguous in shared memory: K, as in a
 /// row-major `A` or a column-major `B`, or M for `A` and N for `B`.
 #[pliron_attr(name = "matrix.wgmma_major", format, verifier = "succ")]
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
@@ -352,7 +352,7 @@ pub enum WgmmaMajor {
     MN,
 }
 
-/// Builds the 64-bit matrix descriptor a warpgroup MMA reads a shared memory tile through.
+/// Builds the 64-bit matrix descriptor a plane group MMA reads a shared memory tile through.
 /// `ptr` must point into shared memory, and the two offsets are in bytes.
 #[cube_op(name = "matrix.wgmma_descriptor")]
 #[result_ty(fixed = IntegerType::get(ctx, 64, Signedness::Unsigned).into())]
@@ -364,13 +364,13 @@ pub struct WgmmaDescriptorOp {
     pub swizzle: WgmmaSwizzle,
 }
 
-/// Orders register accesses before the warpgroup MMAs that follow it. Required before the first
+/// Orders register accesses before the plane group MMAs that follow it. Required before the first
 /// MMA, and whenever registers an MMA reads were written by something else in between.
 #[cube_op(name = "matrix.wgmma_fence")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WgmmaFenceOp {}
-warpgroup_synchronizes!(WgmmaFenceOp);
+plane_group_synchronizes!(WgmmaFenceOp);
 
 #[op_interface_impl]
 impl MemoryEffectsOp for WgmmaFenceOp {
@@ -381,21 +381,21 @@ impl MemoryEffectsOp for WgmmaFenceOp {
     }
 }
 
-/// Commits every warpgroup MMA issued and not yet committed into one group.
+/// Commits every plane group MMA issued and not yet committed into one group.
 #[cube_op(name = "matrix.wgmma_commit_group")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WgmmaCommitGroupOp {}
-warpgroup_synchronizes!(WgmmaCommitGroupOp);
+plane_group_synchronizes!(WgmmaCommitGroupOp);
 
-/// Waits until at most `max_pending` committed groups of warpgroup MMAs are still running.
+/// Waits until at most `max_pending` committed groups of plane group MMAs are still running.
 #[cube_op(name = "matrix.wgmma_wait_group")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WgmmaWaitGroupOp {
     pub max_pending: IndexAttr,
 }
-warpgroup_synchronizes!(WgmmaWaitGroupOp);
+plane_group_synchronizes!(WgmmaWaitGroupOp);
 
 #[op_interface_impl]
 impl MemoryEffectsOp for WgmmaWaitGroupOp {
@@ -419,7 +419,7 @@ pub struct WgmmaFenceOperandOp {
     pub registers: Value,
 }
 
-/// Warpgroup MMA, `D = A * B + D`, issued asynchronously: the accumulator may only be read after
+/// Plane group MMA, `D = A * B + D`, issued asynchronously: the accumulator may only be read after
 /// a [`WgmmaWaitGroupOp`] retires the group it was committed in.
 ///
 /// `a` is either a `u64` matrix descriptor of a shared memory tile or an array of registers, and
@@ -439,7 +439,7 @@ pub struct WgmmaOp {
     pub a_major: WgmmaMajor,
     pub b_major: WgmmaMajor,
 }
-warpgroup_synchronizes!(WgmmaOp);
+plane_group_synchronizes!(WgmmaOp);
 
 #[op_interface_impl]
 impl MemoryEffectsOp for WgmmaOp {

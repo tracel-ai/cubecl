@@ -237,9 +237,8 @@ pub(crate) fn lane_runs_refusal<T: Numeric>(
     let e2m1 = comptime!(matches!(packing, Packing::Packed { field } if field.holds_e2m1()));
     let exact_scales = comptime!(matches!(
         stored,
-        Some(Packing::Packed {
-            field: Field::Fp8(Fp8Format::E4M3 | Fp8Format::UE8M0)
-        })
+        Some(Packing::Packed { field })
+            if matches!(field.fp8(), Some(Fp8Format::E4M3 | Fp8Format::UE8M0))
     ));
     comptime!(if k <= depth {
         Some("the fragment is one instruction deep, which keeps the instruction's own order")

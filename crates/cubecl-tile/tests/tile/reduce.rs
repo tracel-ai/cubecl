@@ -26,7 +26,7 @@ const K2: Axis = Axis(4);
 const B: Axis = Axis(5);
 
 /// The leaf's register block, held fixed across every kernel here.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c.zero(); c.mma(a, b)` region by region over whatever one-level space it is handed: the
 /// same body serves the one-axis and the two-axis contraction, which is the point.
@@ -45,7 +45,7 @@ fn reduce_matmul_kernel(
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
         c_region.mma(&a.at(&region), &b.at(&region));
     }
 }
@@ -1329,7 +1329,7 @@ fn resident_reduce_kernel<E: Numeric>(
 ) {
     let input = input.tile(&space);
     let out = output.tile(&space);
-    let mut acc = out.block_reducer::<E>(&input, REGISTER_BLOCK, monoid);
+    let mut acc = out.block_reducer::<E>(&input, SOFTWARE_MATMUL, monoid);
     acc.init::<E>(Monoid::identity::<E>(monoid));
     for region in space.over(&level) {
         let mut acc_region = acc.at(&region);

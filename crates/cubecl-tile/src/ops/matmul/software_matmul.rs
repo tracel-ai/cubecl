@@ -1,8 +1,9 @@
-//! The software instruction's execution and unrolling configuration ([`RegisterBlock`]).
+//! How the software matmul runs ([`SoftwareMatmul`]): its register budget and unrolling.
 
-/// Execution and unrolling configuration for the software instruction.
+/// How the software matmul runs: the matrix product a unit computes in its own registers, with
+/// no matrix instruction. Its register budget and unrolling choices.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct RegisterBlock {
+pub struct SoftwareMatmul {
     /// Scalar register budget for the accumulator block; blocks over budget stay rolled.
     /// Also limits the tap count eligible for gather-loop unrolling.
     pub budget: usize,
@@ -17,7 +18,7 @@ pub struct RegisterBlock {
     pub partials: bool,
 }
 
-impl RegisterBlock {
+impl SoftwareMatmul {
     /// A budget with neither specialization turned on.
     pub const fn new(budget: usize) -> Self {
         Self {

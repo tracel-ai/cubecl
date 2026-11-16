@@ -259,8 +259,8 @@ impl Meeting {
     pub(crate) fn fill(&self, dst: &mut Tile, src: &Tile) {
         // Bound before the match, which borrows the kind.
         let space = comptime!(dst.place.space.clone());
-        let element = src.stage_element();
-        if comptime!(element == StageElement::Decoded) {
+        let staged = dst.packing();
+        if src.decodes_into(staged) {
             dst.dequantize_from(src);
         } else {
             self.fill_as_it_lies(dst, src, &space);

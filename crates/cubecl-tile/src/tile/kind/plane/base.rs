@@ -10,7 +10,7 @@ use crate::tile::kind::plane::load_matrix::PairAxis;
 use crate::tile::slices::AxisSlicesKind;
 use crate::*;
 
-/// One plane-level tile, by encoding ([`Instruction`]). A warpgroup MMA's is a plane group's
+/// One plane-level tile, by encoding ([`Instruction`]). A plane group MMA's is a plane group's
 /// rather than one plane's: the group's planes hold it between them, as one plane's units hold a
 /// fragment.
 #[expect(
@@ -24,7 +24,7 @@ pub(crate) enum PlaneTile {
     Mma(MmaData),
     /// The software leaf's accumulator: a register block, not a hardware fragment.
     Registers(RegisterData),
-    /// A plane group's warpgroup MMA accumulator, its four planes' share of one `64 × n` tile.
+    /// A plane group's MMA accumulator, its four planes' share of one `64 × n` tile.
     Wgmma(WgmmaData),
 }
 
@@ -46,6 +46,15 @@ impl PlaneTile {
         match self {
             PlaneTile::Mma(_) => comptime!(true),
             PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
+    /// Whether this tile is a cmma fragment, which reads its factors no deeper than its
+    /// instruction.
+    pub(crate) fn is_cmma(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Cmma(_) => comptime!(true),
+            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         }
     }
 
@@ -120,7 +129,7 @@ impl PlaneTile {
                 panic!("PlaneTile::operand: the software form stages no operand plane tile")
             }
             Instruction::Wgmma => panic!(
-                "PlaneTile::operand: a warpgroup MMA reads its operands out of shared memory, \
+                "PlaneTile::operand: a plane group MMA reads its operands out of shared memory, \
                  into no fragment"
             ),
         }
@@ -141,7 +150,7 @@ impl PlaneTile {
                 fragment.mul_along(factors, first);
             }
             PlaneTile::Wgmma(_) => panic!(
-                "PlaneTile::mul_along: a warpgroup accumulator is written by the MMAs in flight, \
+                "PlaneTile::mul_along: a plane group accumulator is written by the MMAs in flight, \
                  and scaled only once they are done, at its drain"
             ),
         }
@@ -154,7 +163,7 @@ impl PlaneTile {
             PlaneTile::Mma(fragment) => PlaneTile::new_Mma(fragment.cast::<T, E>()),
             PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => panic!(
                 "Tile::cast: a manual-mma accumulator is cast in its registers; a cmma fragment, \
-                 a register block or a warpgroup accumulator is cast as it drains"
+                 a register block or a plane group accumulator is cast as it drains"
             ),
         }
     }
@@ -169,8 +178,8 @@ impl PlaneTile {
                 m
             }
             PlaneTile::Wgmma(_) => panic!(
-                "PlaneTile::rows_per_unit: a warpgroup accumulator's slices are not read in place; \
-                 drain it first"
+                "PlaneTile::rows_per_unit: a plane group accumulator's slices are not read in \
+                 place; drain it first"
             ),
         }
     }
@@ -209,17 +218,17 @@ impl PlaneTile {
         }
     }
 
-    /// Commit the warpgroup MMAs this tile issued since its last commit, and return their
-    /// completion. Only a warpgroup accumulator contracts asynchronously.
+    /// Commit the plane group MMAs this tile issued since its last commit, and return their
+    /// completion. Only a plane group accumulator contracts asynchronously.
     pub(crate) fn commit<T: Numeric>(&self) -> Pending<()> {
         match self {
             PlaneTile::Wgmma(d) => {
                 let mut d = d.clone();
                 d.commit::<T>()
             }
-            PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Registers(_) => panic!(
-                "Tile::commit: only a plane group's warpgroup accumulator contracts asynchronously"
-            ),
+            PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Registers(_) => {
+                panic!("Tile::commit: only a plane group's accumulator contracts asynchronously")
+            }
         }
     }
 
@@ -257,7 +266,7 @@ impl PlaneTile {
             PlaneTile::Mma(d) => d.scale::<T>(factor),
             PlaneTile::Registers(d) => d.scale::<T>(factor),
             PlaneTile::Wgmma(_) => panic!(
-                "PlaneTile::scale: a warpgroup accumulator is written by the MMAs in flight, and \
+                "PlaneTile::scale: a plane group accumulator is written by the MMAs in flight, and \
                  scaled only once they are done, at its drain"
             ),
         }
@@ -289,7 +298,7 @@ impl PlaneTile {
                 panic!("PlaneTile::load_window: a register accumulator is not a fill sink")
             }
             PlaneTile::Wgmma(_) => {
-                panic!("PlaneTile::load_window: a warpgroup accumulator is not a fill sink")
+                panic!("PlaneTile::load_window: a plane group accumulator is not a fill sink")
             }
         }
     }
@@ -381,7 +390,7 @@ impl PlaneTile {
 }
 
 /// The `m_tiles × n_tiles` grid of plane tiles one plane owns, row-major: or one plane group, for
-/// a warpgroup MMA, whose grid is its one accumulator.
+/// a plane group MMA, whose grid is its one accumulator.
 /// `Clone` duplicates the handles, not the tiles.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
@@ -405,6 +414,23 @@ pub(crate) struct PlanePartition {
 }
 
 #[cube]
+impl PlaneTile {
+    /// The instruction this fragment or block contracts through.
+    #[allow(dead_code)] // Reached through its expand, from `Tile::sum_instruction`.
+    pub(crate) fn instruction(&self) -> comptime_type!(Instruction) {
+        match self {
+            PlaneTile::Cmma(_) => comptime!(Instruction::Cmma),
+            PlaneTile::Mma(d) => comptime!(Instruction::Mma {
+                io: d.io,
+                operands: d.operands,
+            }),
+            PlaneTile::Registers(r) => comptime!(Instruction::Registers { config: r.config }),
+            PlaneTile::Wgmma(_) => comptime!(Instruction::Wgmma),
+        }
+    }
+}
+
+#[cube]
 impl PlanePartition {
     /// The instruction this grid contracts through where it holds several fragments; `None` where
     /// it holds one.
@@ -420,7 +446,7 @@ impl PlanePartition {
             PlaneTile::Wgmma(_) => {
                 comptime!(assert!(
                     !several,
-                    "PlanePartition: a plane group holds one warpgroup accumulator"
+                    "PlanePartition: a plane group holds one accumulator"
                 ));
                 comptime!(None)
             }
@@ -429,10 +455,7 @@ impl PlanePartition {
 
     /// Whether this grid's tiles are cmma fragments, the one form that drains through a scratch.
     pub(crate) fn is_cmma(&self) -> comptime_type!(bool) {
-        match self.frags.index(0usize) {
-            PlaneTile::Cmma(_) => comptime!(true),
-            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
-        }
+        self.frags.index(0usize).is_cmma()
     }
 
     /// The `(mi, ni)` tile (a handle clone); comptime indices only.
@@ -757,7 +780,7 @@ impl PlanePartition {
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
             | TileKind::Lines(_) => match instruction {
-                // A warpgroup MMA reads the window itself, through a descriptor.
+                // A plane group MMA reads the window itself, through a descriptor.
                 Instruction::Registers { .. } | Instruction::Wgmma => src.clone(),
                 Instruction::Cmma | Instruction::Mma { .. } => {
                     PlanePartition::fragments_in::<T>(src, acc, instruction, load)
@@ -989,7 +1012,8 @@ impl PlanePartition {
             }
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragments(self.clone()),
             PlaneTile::Wgmma(_) => panic!(
-                "Tile::along: a warpgroup accumulator's slices are not read in place; drain it first"
+                "Tile::along: a plane group accumulator's slices are not read in place; drain it \
+                 first"
             ),
         }
     }
@@ -1157,7 +1181,8 @@ impl PlaneTile {
             }
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragment(self.clone()),
             PlaneTile::Wgmma(_) => panic!(
-                "Tile::along: a warpgroup accumulator's slices are not read in place; drain it first"
+                "Tile::along: a plane group accumulator's slices are not read in place; drain it \
+                 first"
             ),
         }
     }

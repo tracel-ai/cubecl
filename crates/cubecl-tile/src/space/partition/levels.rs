@@ -101,7 +101,7 @@ impl Levels {
     }
 
     /// This many of the level below, one per group of `planes` consecutive planes of the cube: an
-    /// instruction the group's planes issue together, a warpgroup MMA's four, takes each tile.
+    /// instruction the group's planes issue together, a plane group MMA's four, takes each tile.
     pub fn plane_groups(self, planes: usize, counts: &[(Axis, usize)]) -> Self {
         assert!(
             planes > 1,

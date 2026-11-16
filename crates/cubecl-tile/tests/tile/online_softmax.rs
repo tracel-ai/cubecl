@@ -18,10 +18,11 @@
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
+use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::{
-    Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Scratch, Semiring, Space,
-    StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
-    ops::{matmul::MmaIo, softmax::OnlineSoftmax},
+    Axis, Levels, Partitioning, Projection, Scratch, Semiring, SoftwareMatmul, Space, StageStorage,
+    Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
+    ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -112,9 +113,10 @@ fn plane_attention<E: Float>(
             let walk = keys_walk.range(0, blocks);
             let score = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
             let mut p = Tile::scratch::<E>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
+            // The value's sum is opened against what it contracts: the probabilities.
             let acc = out
                 .at(&plane)
-                .accumulator::<f32>(&bias_p, &v_p, Instruction::Cmma, Semiring::SUM_PROD)
+                .accumulator::<f32>(&p, &v_p, Semiring::SUM_PROD)
                 .with_scratch(Scratch::OneTile);
             let mut softmax = OnlineSoftmax::<f32>::along(&score, S);
             // The query spans no key: staged once, before the walk, where the keys are staged.
@@ -125,8 +127,7 @@ fn plane_attention<E: Float>(
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|k_s, v_s| {
-                    let logits =
-                        score.accumulator::<f32>(&q_s, k_s, Instruction::Cmma, Semiring::SUM_PROD);
+                    let logits = score.accumulator::<f32>(&q_s, k_s, Semiring::SUM_PROD);
                     for fragment in stage.walk().routed(V, 0).unrolled() {
                         let mut cell = logits.at(&fragment);
                         cell.mma(&q_s.at(&fragment), &k_s.at(&fragment));
@@ -180,10 +181,6 @@ fn register_plane_attention<E: Float>(
     #[comptime] unbiased: bool,
     #[define(E)] _dtype: ElemType,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::default(),
-        operands: MmaOperands::Plain,
-    });
     let q = q.tile(&space);
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
@@ -211,14 +208,15 @@ fn register_plane_attention<E: Float>(
             let keys_walk = plane.walk();
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
-            let acc =
-                out.at(&plane)
-                    .accumulator::<f32>(&bias_p, &v_p, instruction, Semiring::SUM_PROD);
             let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
             q_s.copy_from(&q_p);
             sync_plane();
-            let logits =
-                Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s, instruction);
+            let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            // The value's sum is opened against what it contracts: the score's own fragments,
+            // whose instruction it keeps.
+            let acc = out
+                .at(&plane)
+                .accumulator::<f32>(&logits, &v_p, Semiring::SUM_PROD);
             let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
             let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
@@ -313,12 +311,10 @@ fn unit_attention(
                 out.at(&unit),
                 bias.at(&unit),
             );
-            let mut acc = out_u.accumulator::<f32>(
+            let mut acc = out_u.register_accumulator::<f32>(
                 &bias_u,
                 &v_u,
-                comptime!(Instruction::Registers {
-                    config: RegisterBlock::new(rows * value)
-                }),
+                comptime!(SoftwareMatmul::new(rows * value)),
                 Semiring::SUM_PROD,
             );
             let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
@@ -329,12 +325,10 @@ fn unit_attention(
                     v_u.at(&step),
                     bias_u.at(&step),
                 );
-                let mut score = bias_s.accumulator::<f32>(
+                let mut score = bias_s.register_accumulator::<f32>(
                     &q_s,
                     &k_s,
-                    comptime!(Instruction::Registers {
-                        config: RegisterBlock::new(rows * block_keys)
-                    }),
+                    comptime!(SoftwareMatmul::new(rows * block_keys)),
                     Semiring::SUM_PROD,
                 );
                 score.mma(&q_s, &k_s);
@@ -356,6 +350,78 @@ fn unit_attention(
                     }
                 }
             }
+            acc.drained_into(&out_u);
+        }
+    }
+}
+
+/// [`unit_attention`] over keys under a scale of their own, one over the whole tensor, as an `e4m3`
+/// cache's keys are: the scale is taken out of the keys before the score sums them
+/// ([`Tile::factor`]) and put back on the score ([`Tile::scaled`]), which the softmax reads under
+/// it.
+#[cube(launch)]
+fn unit_attention_over_scaled_keys(
+    q: &TileTensor<'_>,
+    k: &TileTensor<'_>,
+    v: &TileTensor<'_>,
+    out: &TileTensor<'_>,
+    keys: u32,
+    queries: u32,
+    scale: f32,
+    space: Partitioning,
+    #[comptime] block_keys: usize,
+    #[comptime] rows: usize,
+) {
+    let q = q.tile(&space);
+    let k = k.tile(&space).within(S, 0, keys as usize);
+    let v = v.tile(&space).within(S, 0, keys as usize);
+    let out = out.tile(&space);
+    let bias = Procedural::new::<f32, Attended>(
+        comptime!(space.space().subspace(&[Q, S])),
+        Attended {
+            keys,
+            queries,
+            causal: false,
+        },
+    )
+    .tile_in::<f32>(&space);
+    let value = comptime!(space.space().extent(V));
+    for cube in space {
+        for unit in cube {
+            let (q_u, k_u, v_u, out_u, bias_u) = (
+                q.at(&unit),
+                k.at(&unit),
+                v.at(&unit),
+                out.at(&unit),
+                bias.at(&unit),
+            );
+            let mut acc = out_u.register_accumulator::<f32>(
+                &bias_u,
+                &v_u,
+                comptime!(SoftwareMatmul::new(rows * value)),
+                Semiring::SUM_PROD,
+            );
+            let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
+            for step in unit.walk().range(0, (keys as usize).div_ceil(block_keys)) {
+                let (q_s, k_s, v_s, bias_s) = (
+                    q_u.at(&step),
+                    k_u.at(&step),
+                    v_u.at(&step),
+                    bias_u.at(&step),
+                );
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &q_s,
+                    &k_s,
+                    comptime!(SoftwareMatmul::new(rows * block_keys)),
+                    Semiring::SUM_PROD,
+                );
+                let (k_s, k_scale) = k_s.factor(&score);
+                score.mma(&q_s, &k_s);
+                let correction = softmax.step(&score.scaled(&k_scale), &bias_s, scale);
+                acc.along(V).mul(&correction);
+                acc.mma(&score, &v_s);
+            }
+            acc.along(V).mul(&softmax.recip_l());
             acc.drained_into(&out_u);
         }
     }
@@ -968,6 +1034,86 @@ fn run_units<E: Float + CubeElement>(case: UnitCase) {
     }
 }
 
+/// **A score summed over keys under a scale of their own is softmaxed under it.** Keys bound under
+/// one scale over the whole tensor, here 2, and a softmax scale half the reference's attend as the
+/// reference does over the keys as they are: the score carries the keys' scale into the softmax,
+/// which multiplies its own by it.
+#[test]
+fn a_unit_attention_reads_its_keys_under_a_per_tensor_scale() {
+    let client: Client = cubecl::test_device().client();
+    let f32_ty = f32::elem_type_native();
+    let (queries, keys, head, value, rows, block) = (8, 16, 16, 16, 2, 2);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(Q, queries), (S, keys), (D, head), (V, value)]),
+            Levels::leaf(&[(Q, rows), (S, block), (D, head), (V, value)])
+                .walk_every(&[S])
+                .units_distributed(Q, queries / rows)
+                .cubes(&[Q])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let (q_data, k_data, v_data, q_handle, k_handle, v_handle) =
+        inputs::<f32>(&client, queries, keys, keys, head, value, true);
+    let (scale_handle, _) = TestInput::builder(client.clone(), Shape::new([1]))
+        .dtype(f32_ty)
+        .custom(vec![2.0])
+        .generate_with_f32_host_data();
+    let out_handle = TestInput::builder(client.clone(), Shape::new([queries, value]))
+        .dtype(f32_ty)
+        .zeros()
+        .generate_without_host_data();
+    let scale = 1. / (head as f32).sqrt();
+    unit_attention_over_scaled_keys::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            q_handle.binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[Q, D]),
+        ),
+        // The keys are stored transposed, under one scale that addresses neither of their axes.
+        TileTensorLaunch::new(
+            k_handle.binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[D, S]),
+        )
+        .scales(TileTensorLaunch::new(
+            scale_handle.binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::new(Projection::new(&[D, S], &[PhysicalAxisMap::broadcast()])),
+        )),
+        TileTensorLaunch::new(
+            v_handle.binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[S, V]),
+        ),
+        TileTensorLaunch::new(
+            out_handle.clone().binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[Q, V]),
+        ),
+        keys as u32,
+        queries as u32,
+        scale / 2.0,
+        launcher.partitioning_arg(),
+        block,
+        rows,
+    );
+    let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
+    check(
+        &out, &q_data, &k_data, &v_data, queries, keys, keys, head, value, false, true,
+    );
+}
+
 const PREFILL: Case = Case {
     queries: 32,
     keys: 64,
@@ -1166,6 +1312,20 @@ fn plane_attention_split_keys_matches_the_reference() {
     run::<half::f16>(SPLIT_KEYS);
     run::<half::f16>(Case {
         planes: 4,
+        ..SPLIT_KEYS
+    });
+}
+
+/// [`plane_attention_split_keys_matches_the_reference`] on `16 × 16 × 16` fragments, the edge
+/// NVIDIA and AMD devices offer: no other test compiles the planes' merge for them, so a barrier
+/// it lost would show nowhere there. A device without that fragment skips it.
+#[test]
+fn plane_attention_split_keys_matches_the_reference_on_sixteen_wide_fragments() {
+    run::<half::f16>(Case {
+        edge: 16,
+        queries: 32,
+        keys: 256,
+        attended: 256,
         ..SPLIT_KEYS
     });
 }

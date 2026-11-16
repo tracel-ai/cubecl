@@ -81,7 +81,7 @@ impl Memory {
     }
 
     /// State how a contraction into this window runs.
-    pub(crate) fn set_contraction(&mut self, #[comptime] contraction: Contraction) {
+    pub(crate) fn set_contraction(&mut self, #[comptime] contraction: WindowContraction) {
         comptime!({
             self.contraction = Some(contraction);
         });

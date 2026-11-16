@@ -212,17 +212,19 @@ impl CmmaData {
         }
     }
 
-    /// Drain this fragment through the plane's scratch, with cube-wide syncs.
+    /// Drain this fragment through its slot of the plane's scratch. The slot is the plane's own,
+    /// so the plane alone meets around it, as [`scale`](Self::scale) does; ordering `mem` against
+    /// other planes is its caller's, as for every other drain.
     pub(crate) fn bounce_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
         #[comptime] space: &Space,
     ) {
-        sync_cube();
+        sync_plane();
         self.spill_to_scratch::<T>();
-        sync_cube();
+        sync_plane();
         self.add_from_scratch::<T, Out>(mem, space);
-        sync_cube();
+        sync_plane();
     }
 
     /// This fragment's slot of the plane's scratch, or the reason there is none.

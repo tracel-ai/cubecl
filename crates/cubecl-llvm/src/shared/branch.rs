@@ -5,6 +5,8 @@ use crate::prelude::*;
 use crate::shared::loop_hints::LoopHint;
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp};
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::dialect::tma::TmaLoadOp;
 use cubecl_core::ir::dialect::{
     BlockPtrExt,
     branch::{self, ConditionOp, IsExitTerminator},
@@ -337,6 +339,9 @@ pub(crate) enum LoopShape {
     /// A trip count known at compile time, and a body indexing a local array at an index that
     /// can differ between turns.
     ConstantOverLocalArray,
+    /// A body issuing bulk tensor copies: a pipeline's walk, which waits on each copy it issues
+    /// a lap later.
+    IssuesBulkCopies,
     Other,
 }
 
@@ -351,13 +356,17 @@ impl LoopShape {
     /// 64, say), and the array it leaves in local memory costs several times the loop. AMDGPU's
     /// cost model already raises its threshold for a loop that touches a private array, so it needs
     /// no hint.
+    ///
+    /// A loop issuing bulk tensor copies is left a loop: its body already unrolls the ring it fills
+    /// by hand, a slot a copy, and a walk of a constant number of laps unrolled completely only
+    /// grows the code the instruction cache holds. On an RTX PRO 6000 a filling plane's walk of
+    /// forty stages, unrolled, took a block-scaled product's kernel from two thousand instructions
+    /// to nine and a half, and its time up by seven percent.
     fn hint(self, target: LlvmTarget) -> Option<LoopHint> {
-        match self {
-            LoopShape::ConstantOverLocalArray => match target {
-                LlvmTarget::Nvptx => Some(LoopHint::UnrollFull),
-                _ => None,
-            },
-            LoopShape::Other => None,
+        match (self, target) {
+            (LoopShape::IssuesBulkCopies, LlvmTarget::Nvptx) => Some(LoopHint::UnrollDisable),
+            (LoopShape::ConstantOverLocalArray, LlvmTarget::Nvptx) => Some(LoopHint::UnrollFull),
+            _ => None,
         }
     }
 
@@ -376,13 +385,39 @@ impl LoopShape {
                 .defining_op()
                 .is_some_and(|def| Operation::get_op::<ConstantOp>(def, ctx).is_some())
         };
-        if constant(start) && constant(end) && constant(step) && steps_through_local_array(ctx, op)
+        if issues_bulk_copies(ctx, op) {
+            LoopShape::IssuesBulkCopies
+        } else if constant(start)
+            && constant(end)
+            && constant(step)
+            && steps_through_local_array(ctx, op)
         {
             LoopShape::ConstantOverLocalArray
         } else {
             LoopShape::Other
         }
     }
+}
+
+/// Whether the body of `looped` issues a bulk tensor copy, stopping at the first.
+#[cfg(feature = "nvptx")]
+fn issues_bulk_copies(ctx: &Context, looped: Ptr<Operation>) -> bool {
+    use pliron::graph::walkers::{
+        IRNode, WALKCONFIG_PREORDER_FORWARD,
+        interruptible::{immutable::walk_op, walk_advance, walk_break},
+    };
+
+    walk_op(
+        ctx,
+        &mut (),
+        &WALKCONFIG_PREORDER_FORWARD,
+        looped,
+        |ctx, _, node| match node {
+            IRNode::Operation(op) if op.is_op::<TmaLoadOp>(ctx) => walk_break(()),
+            _ => walk_advance(),
+        },
+    )
+    .is_break()
 }
 
 /// Whether the body of `looped` indexes a local array at an index that can differ between its
@@ -533,6 +568,15 @@ mod tests {
         let asked = |target| LoopShape::ConstantOverLocalArray.hint(target);
         assert_eq!(asked(LlvmTarget::Nvptx), Some(LoopHint::UnrollFull));
         // AMDGPU's own cost model already unrolls these, and the CPU has no such loop hint.
+        #[cfg(feature = "amdgpu")]
+        assert_eq!(asked(LlvmTarget::AmdGpu), None);
+        assert_eq!(asked(LlvmTarget::Cpu), None);
+    }
+
+    #[test]
+    fn only_nvptx_is_asked_to_keep_a_loop_issuing_bulk_copies() {
+        let asked = |target| LoopShape::IssuesBulkCopies.hint(target);
+        assert_eq!(asked(LlvmTarget::Nvptx), Some(LoopHint::UnrollDisable));
         #[cfg(feature = "amdgpu")]
         assert_eq!(asked(LlvmTarget::AmdGpu), None);
         assert_eq!(asked(LlvmTarget::Cpu), None);
