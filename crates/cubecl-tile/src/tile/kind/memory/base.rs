@@ -191,6 +191,18 @@ impl Store {
         }
     }
 
+    /// The buffer's lines, `W` values of the storage element `I` each (`u32` words when packed).
+    pub(crate) fn lines<I: Numeric, W: Size>(&self) -> &[Vector<I, W>] {
+        self.buffer::<I>().as_vectorized().with_vector_size::<W>()
+    }
+
+    /// The mutable twin of [`lines`](Self::lines).
+    pub(crate) fn lines_mut<I: Numeric, W: Size>(&mut self) -> &mut [Vector<I, W>] {
+        self.buffer_mut::<I>()
+            .as_vectorized_mut()
+            .with_vector_size_mut::<W>()
+    }
+
     /// The mutable twin of [`buffer`](Self::buffer).
     #[allow(clippy::borrowed_box)]
     pub(crate) fn buffer_mut<T: Numeric>(&mut self) -> &mut Box<[T]> {
@@ -216,7 +228,7 @@ pub(crate) struct Access {
     pub overhang: Overhang,
     /// What a write here does to the cell it lands on.
     pub write: Write,
-    /// The level a cooperative copy into or out of this window deals its lines by
+    /// The level a cooperative copy into or out of this window hands out its lines by
     /// ([`Level::copied_by`]).
     pub copy: Level,
     /// What the storage tiles are to this window.

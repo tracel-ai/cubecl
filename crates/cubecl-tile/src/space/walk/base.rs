@@ -112,7 +112,7 @@ impl Walk {
         }
     }
 
-    /// The walk over a copy's `lines` lines that `level` deals ([`Level::copied_by`]): each region
+    /// The walk over a copy's `lines` lines that `level` hands out ([`Level::copied_by`]): each region
     /// holds one line, at its coordinate along [`Level::COPIED`]. The turns are written out where
     /// each unit takes a known few of them, the last guarded where it can run past the lines; a
     /// stride from the unit's place otherwise.
@@ -236,7 +236,7 @@ impl Walk {
                             .at(p)
                             .plus(comptime!(workers - 1).runtime())
                             .divided_by(workers.runtime()),
-                        // Units taking turns, where the host proved the deal even, each take
+                        // Units taking turns, where the host proved the split even, each take
                         // every `instances`-th tile; elsewhere their count is reckoned per unit.
                         Workers::Units { .. } if divides => grid.at(p).divided_by(instances.at(p)),
                         Workers::Grid | Workers::Units { .. } => 1usize.runtime(),
@@ -637,17 +637,17 @@ mod tests {
         )
     }
 
-    /// Lines dealt to a known count of units that does not divide them: every unit takes the
+    /// Lines handed to a known count of units that does not divide them: every unit takes the
     /// whole turns, some one more.
     #[test]
-    fn a_ragged_deal_is_bounded_by_its_whole_and_its_last_turn() {
+    fn a_ragged_split_is_bounded_by_its_whole_and_its_last_turn() {
         assert_eq!(bounds(200, Some(64)), Some((3, 4)));
         assert_eq!(bounds(1, Some(64)), Some((0, 1)));
     }
 
-    /// An even deal takes a constant count, and an unknown count of units bounds nothing.
+    /// An even split takes a constant count, and an unknown count of units bounds nothing.
     #[test]
-    fn an_even_or_unknown_deal_has_no_bounds() {
+    fn an_even_or_unknown_split_has_no_bounds() {
         assert_eq!(bounds(256, Some(64)), None);
         assert_eq!(bounds(256, None), None);
     }

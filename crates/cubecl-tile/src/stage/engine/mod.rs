@@ -21,7 +21,7 @@ use crate::*;
 
 #[cube]
 impl Memory {
-    /// Move the stage's `total` whole lines out of `s`, dealt to the units `fill` names
+    /// Move the stage's `total` whole lines out of `s`, handed to the units `fill` names
     /// ([`Walk::copy`]), by the engine `delivery` names.
     pub(crate) fn move_lines<I2: Numeric, W: Size>(
         d: &mut [Vector<I2, W>],
@@ -29,7 +29,7 @@ impl Memory {
         layout: &BufferLayout,
         total: usize,
         #[comptime] delivery: Delivery,
-        #[comptime] fill: Level,
+        #[comptime] fill: &Level,
     ) {
         match delivery {
             Delivery::SyncPerUnit => {

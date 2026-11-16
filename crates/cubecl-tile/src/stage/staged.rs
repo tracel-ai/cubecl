@@ -41,10 +41,9 @@ impl Memory {
         ));
         // Runtime window, so a Dynamic extent witnessed by another operand still works.
         let shape = self.window.extent.clone();
-        let fill = comptime!(self.access.copy.clone());
+        let lines = Walk::copy(&self.access.copy, self.window_lines());
         let mut dst = self.flat_mut::<T, Const<1>>();
-        let total = dst.shape();
-        for line in Walk::copy(&fill, total) {
+        for line in lines {
             let i = line.coord(Level::COPIED);
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.

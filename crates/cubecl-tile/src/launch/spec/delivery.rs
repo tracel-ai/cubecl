@@ -45,7 +45,7 @@ pub(crate) struct Engine {
 }
 
 /// Who issues one move of an engine: the granularity it moves at. Not which units share a fill's
-/// moves, which the level the stage's copies deal their lines by says
+/// moves, which the level the stage's copies hand out their lines by says
 /// ([`Level::copied_by`](crate::Level::copied_by)).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Issuer {

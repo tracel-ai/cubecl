@@ -61,7 +61,6 @@ impl Memory {
                 rank: src_rank,
             }
         }));
-        let fill = comptime!(self.access.copy.clone());
         let total_c = total.constant();
         // A gathered destination's line count must equal the compacted window's.
         let cells = comptime!(compaction.as_ref().map(|c| c.cells(w)));
@@ -73,7 +72,7 @@ impl Memory {
             "Memory::fill_straight: a gathered source fills a destination of {total_c:?} lines, \
              but its compacted window is {cells:?}"
         ));
-        let d = self.lines_storage_mut::<I2, WP2>();
+        let d = self.store.lines_mut::<I2, WP2>();
         if sw == w {
             // A partition no compaction stands in for, several of whose axes share one of its
             // physical axes, is a source of fewer physical axes than the stage's logical ones:
@@ -111,7 +110,7 @@ impl Memory {
                 &layout,
                 total,
                 comptime!(src.access.delivery),
-                fill,
+                &self.access.copy,
             );
         } else {
             let s = if steps.is_empty() {
@@ -130,7 +129,14 @@ impl Memory {
                 )
             };
             // A padded stage assembles each line out of narrower ones, through the registers.
-            Memory::sync_lines::<I2, WP2, Const<1>>(d, &s, &layout, total, fill, padding);
+            Memory::sync_lines::<I2, WP2, Const<1>>(
+                d,
+                &s,
+                &layout,
+                total,
+                &self.access.copy,
+                padding,
+            );
         }
     }
 }

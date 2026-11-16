@@ -38,7 +38,7 @@ pub(crate) const ASYNC_PER_UNIT: Engine = Engine {
 #[cube]
 impl Memory {
     /// [`Memory::sync_lines`] with every line handed to the copy engine: the same lines per unit,
-    /// dealt the same way, numbered in the source's order ([`BufferLayout::row_major_coords`]).
+    /// handed out the same way, numbered in the source's order ([`BufferLayout::row_major_coords`]).
     ///
     /// A move of its own rather than an arm of `sync_lines`: the copy reads and writes lines of one
     /// width, which `sync_lines`, generic over a source served narrower, cannot hand it.
@@ -47,7 +47,7 @@ impl Memory {
         s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
         layout: &BufferLayout,
         total: usize,
-        #[comptime] fill: Level,
+        #[comptime] fill: &Level,
     ) {
         // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic
         // and `value` is not expanded at all.
@@ -59,7 +59,7 @@ impl Memory {
             "Memory::async_lines: the copy engine moves 4, 8 or 16 bytes at once, and this stage's \
              lines are {bytes}: serve the operand in lines one copy moves"
         ));
-        for line in Walk::copy(&fill, total) {
+        for line in Walk::copy(fill, total) {
             copy_line_async::<I2, W>(d, s, layout, line.coord(Level::COPIED));
         }
     }

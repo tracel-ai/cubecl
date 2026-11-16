@@ -69,7 +69,7 @@ impl Tile {
         let fill = comptime!(fill.held_by(holder));
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
-        // The loads dealt to the units that fill, as a straight fill's lines are.
+        // The loads handed to the units that fill, as a straight fill's lines are.
         for load in Walk::copy(&fill, comptime!(loads).runtime()) {
             src.decode_load_into::<S, O, I, WP, VW>(
                 &stored,

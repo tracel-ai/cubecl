@@ -13,12 +13,11 @@ pub(crate) const MOST_FETCHED_SCALARS: usize = 128;
 #[cube]
 impl Memory {
     /// The turns one unit takes over this stage's lines, unless its shape is not static or its
-    /// fill does not state the units it deals them to.
+    /// fill does not state the units it hands them to.
     #[allow(dead_code)] // Reached through its expand, from `turns` and `fetched_scalars`.
     fn known_turns(&self) -> comptime_type!(Option<usize>) {
         let stage_lines = self.stage_lines().constant();
-        let fill = comptime!(self.access.copy.clone());
-        comptime!(stage_lines.and_then(|lines| fill.copy_turns(lines as usize)))
+        comptime!(stage_lines.and_then(|lines| self.access.copy.copy_turns(lines as usize)))
     }
 
     /// The turns one unit takes over this stage's lines; known wherever
@@ -84,7 +83,7 @@ impl Memory {
         comptime!(fill_extent(space, w, w, check));
         let layout = self.layout.clone();
         let turns = self.turns();
-        let lines = Walk::copy(&comptime!(self.access.copy.clone()), self.stage_lines());
+        let lines = Walk::copy(&self.access.copy, self.stage_lines());
         let s = Masked::new(
             src.window_view_storage::<T, W>(comptime!(Guard::Checked)),
             check,
@@ -105,9 +104,9 @@ impl Memory {
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
     pub(crate) fn store_fetched<T: Numeric, W: Size>(&mut self, fetched: &Array<Vector<T, W>>) {
         let turns = self.turns();
-        let lines = Walk::copy(&comptime!(self.access.copy.clone()), self.stage_lines());
+        let lines = Walk::copy(&self.access.copy, self.stage_lines());
         let layout = self.layout.clone();
-        let d = self.lines_storage_mut::<T, W>();
+        let d = self.store.lines_mut::<T, W>();
         #[unroll]
         for t in 0..turns {
             if lines.takes_turn(t) {

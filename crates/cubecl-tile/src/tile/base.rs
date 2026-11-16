@@ -177,7 +177,7 @@ impl Tile {
         comptime!(fill.copied_units().1.unwrap_or(0))
     }
 
-    /// The level a cooperative copy of this tile deals its lines by ([`Level::copied_by`]): to one
+    /// The level a cooperative copy of this tile hands out its lines by ([`Level::copied_by`]): to one
     /// plane's units for a stage that plane owns, the cube's for everything else.
     pub(crate) fn copy_level(&self) -> comptime_type!(Level) {
         match &self.kind {

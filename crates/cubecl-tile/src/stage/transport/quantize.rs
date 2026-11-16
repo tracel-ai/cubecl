@@ -85,7 +85,7 @@ impl Tile {
         let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
-        // The loads dealt to the units that fill, as a straight fill's lines are.
+        // The loads handed to the units that fill, as a straight fill's lines are.
         for load in Walk::copy(&fill, comptime!(loads).runtime()) {
             self.encode_load_into::<F, I, WP, LW>(
                 &read,

@@ -72,7 +72,7 @@ impl Prefetch {
         let turns = Level::copied_by_cube(units)
             .copy_turns(elements.div_ceil(width))
             .expect(
-                "Prefetch::scalars: a register prefetch deals its lines to a known count of units",
+                "Prefetch::scalars: a register prefetch hands its lines to a known count of units",
             );
         turns * width
     }

@@ -131,10 +131,10 @@ impl Level {
         }
     }
 
-    /// The one axis of a copy's lines, which its level deals ([`copied_by`](Level::copied_by)).
+    /// The one axis of a copy's lines, which its level hands out ([`copied_by`](Level::copied_by)).
     pub(crate) const COPIED: Axis = Axis(0);
 
-    /// The level a copy into or out of a window held by `holder` deals its lines by: line
+    /// The level a copy into or out of a window held by `holder` hands out its lines by: line
     /// `w + t·n` to unit `w` of the `n` units of one instance of `holder`, `units` of them where
     /// the launch states it, so neighbouring units take neighbouring lines at once; every line to
     /// the one unit of a window a unit holds.
@@ -157,14 +157,14 @@ impl Level {
         }
     }
 
-    /// The level a copy into or out of a window the cube holds deals its lines by
+    /// The level a copy into or out of a window the cube holds hands out its lines by
     /// ([`copied_by`](Level::copied_by)), `units` of them where a binding states its launch's count
     /// ([`TileSpec::units`](crate::TileSpec), `0` where it states none).
     pub(crate) fn copied_by_cube(units: usize) -> Level {
         Level::copied_by(ComputeScope::Cube, (units > 0).then_some(units))
     }
 
-    /// The level a copy into a cube's stage deals its lines by where the cube sets `planes` planes
+    /// The level a copy into a cube's stage hands out its lines by where the cube sets `planes` planes
     /// aside to fill its stages: to their units alone, the cube's last.
     pub(crate) fn copied_by_fillers(planes: usize) -> Level {
         let mut level = Level::copied_by(ComputeScope::Cube, None);
@@ -174,14 +174,14 @@ impl Level {
 
     /// This copy's level narrowed to `holder`'s units where they are fewer: a plane's window of a
     /// buffer the cube copies is the plane's to copy.
-    pub(crate) fn held_by(self, holder: ComputeScope) -> Level {
+    pub(crate) fn held_by(&self, holder: ComputeScope) -> Level {
         match holder < self.copied_within() {
             true => Level::copied_by(holder, None),
-            false => self,
+            false => self.clone(),
         }
     }
 
-    /// The scope whose units a copy's level deals its lines to: a unit where it walks them all.
+    /// The scope whose units a copy's level hands its lines to: a unit where it walks them all.
     pub(crate) fn copied_within(&self) -> ComputeScope {
         match self.count(Level::COPIED) {
             Some(Count::InTurns { within, .. }) => within,
@@ -189,7 +189,7 @@ impl Level {
         }
     }
 
-    /// The units a copy's level deals its lines to: the scope they are the units of, how many where
+    /// The units a copy's level hands its lines to: the scope they are the units of, how many where
     /// the launch states it, and the filling planes at the end of the cube they are confined to.
     pub(crate) fn copied_units(&self) -> (ComputeScope, Option<usize>, usize) {
         match self.count(Level::COPIED) {
@@ -198,7 +198,7 @@ impl Level {
         }
     }
 
-    /// The turns each unit takes over `lines` of a copy dealt by this level, the last of them
+    /// The turns each unit takes over `lines` of a copy this level hands out, the last of them
     /// ragged, where the count of its units is known.
     pub(crate) fn copy_turns(&self, lines: usize) -> Option<usize> {
         match self.count(Level::COPIED) {

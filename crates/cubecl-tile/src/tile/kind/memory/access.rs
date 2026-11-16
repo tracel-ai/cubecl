@@ -239,11 +239,11 @@ impl Memory {
         match comptime!(self.access.storage) {
             WindowStorage::Contiguous => {
                 let start = self.window_start.cast::<usize>();
-                let all = self.lines_storage::<I, WP>();
+                let all = self.store.lines::<I, WP>();
                 all.slice(start, all.len()).view(self.contiguous_layout())
             }
             WindowStorage::Stored(_) => WindowedView::new(
-                self.lines_storage::<I, WP>().view(self.base()),
+                self.store.lines::<I, WP>().view(self.base()),
                 self.window().with_guard(guard),
             )
             .view(),
@@ -298,22 +298,6 @@ impl Memory {
             rows: RowArrangement::InOrder,
             paging: ComptimeOption::new_None(),
         }
-    }
-
-    /// [`lines`](Memory::lines) re-typed to the storage element `I` (`u32` words when packed).
-    fn lines_storage<I: Numeric, W: Size>(&self) -> &[Vector<I, W>] {
-        self.store
-            .buffer::<I>()
-            .as_vectorized()
-            .with_vector_size::<W>()
-    }
-
-    /// The mutable twin of [`lines_storage`](Memory::lines_storage).
-    pub(crate) fn lines_storage_mut<I: Numeric, W: Size>(&mut self) -> &mut [Vector<I, W>] {
-        self.store
-            .buffer_mut::<I>()
-            .as_vectorized_mut()
-            .with_vector_size_mut::<W>()
     }
 
     /// The buffer from the window origin on, rows stepping by [`row_stride`](Memory::row_stride).
@@ -471,6 +455,15 @@ impl Memory {
                 .view(FlatLayout::new(self.window.extent.clone())),
             comptime!(self.access.overhang.masks()),
         )
+    }
+
+    /// The lines a flat view of this window holds ([`flat`](Memory::flat)).
+    pub(crate) fn window_lines(&self) -> usize {
+        let rank = self.window.extent.len().comptime();
+        self.window
+            .extent
+            .product(comptime!((0..rank).collect::<Vec<_>>()))
+            .cast::<usize>()
     }
 
     /// [`flat`](Memory::flat) unpacked through [`Packing`]; `WP` is the physical line.
@@ -957,7 +950,7 @@ impl Memory {
     /// This window filled by the units of `holder` where they are fewer than the ones that fill
     /// its buffer: a plane's window of a buffer the cube fills is the plane's to fill.
     pub(crate) fn filled_by(&self, #[comptime] holder: ComputeScope) -> Memory {
-        let fill = comptime!(self.access.copy.clone().held_by(holder));
+        let fill = comptime!(self.access.copy.held_by(holder));
         self.moved_to(
             self.window.clone(),
             comptime!(WindowCut::Unmoved),
