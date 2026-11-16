@@ -62,7 +62,7 @@ pub trait OpenedDestination: CubeType {
     /// applies and any other reader must, or a memory tile holding a finished total that
     /// partials were merged into. A total:
     /// - is consumed by every unit of the owner in uniform control flow, its units copying its
-    ///   lines together;
+    ///   lines together, so the call may synchronize the owner (a bulk store does);
     /// - is not read back in the call, another unit may have written those lines: a destination
     ///   that sends waits for [`close`](Self::close) or [`finish`](ServedDestination::finish);
     /// - is valid only during the call, its memory being reused.

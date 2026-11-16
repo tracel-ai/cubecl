@@ -1054,7 +1054,8 @@ impl Tile {
     }
 
     /// [`copy_from`](Tile::copy_from) with a cast: stores a wider resident fragment down to `T`,
-    /// or copies a memory window of the same box, the units sharing it a line at a time.
+    /// or copies a memory window of the same box, the units sharing it a line at a time. A
+    /// shared-memory box goes to a tensor map uncast, in one bulk store.
     pub fn copy_cast_from(&mut self, src: &Tile) {
         let define!(Served) = self.element;
         let define!(Source) = src.element;
@@ -1073,9 +1074,11 @@ impl Tile {
             (TileKind::Memory(d), TileKind::Memory(s)) => d
                 .filled_by(holder)
                 .fill_cast_from::<Served, Source>(s, &space),
+            // The engine stores the box as it lies, so nothing casts on the way.
+            (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<Served>(s),
             _ => panic!(
-                "Tile::copy_cast_from: a fragment or a memory window stores into memory; nothing \
-                 else casts"
+                "Tile::copy_cast_from: a fragment or a memory window stores into memory, or a \
+                 shared-memory box into a tensor map; nothing else casts"
             ),
         }
     }
