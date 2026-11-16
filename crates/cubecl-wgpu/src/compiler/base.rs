@@ -143,6 +143,12 @@ impl Compiler for AutoCompiler {
                 // override compilation options with cpp compiler options for metal
                 use cubecl_cpp;
                 let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
+                super::contraction::warn_unkept_no_contraction(
+                    kernel.body.ctx(),
+                    &kernel.settings.kernel_name,
+                    "wgpu compiles MSL with fast math, which fuses multiply-adds whatever the \
+                     kernel asks",
+                );
                 Compiler::compile(msl_compiler, kernel, &compilation_options)?.into()
             }
         };

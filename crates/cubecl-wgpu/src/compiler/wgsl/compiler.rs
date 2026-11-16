@@ -8,6 +8,7 @@ use crate::compiler::wgsl::{
 };
 use cubecl_server::kernel::BufferIOAttr;
 
+use crate::compiler::contraction::warn_unkept_no_contraction;
 use cubecl_core::{
     WgpuCompilationOptions,
     codegen::KernelDump,
@@ -115,6 +116,12 @@ impl WgslCompiler {
         let entry_func = value.body.state().entry_func;
         let module_op = module.get_operation();
         let mut ctx = value.body.into_context().expect("Should be unique");
+        warn_unkept_no_contraction(
+            &ctx,
+            &value.settings.kernel_name,
+            "WGSL cannot keep the driver from fusing multiply-adds: the kernel's own products \
+             are kept apart, but the driver may still contract them",
+        );
         ctx.set_aux_ty(value.info);
         let cube_dim = value.settings.cube_dim;
         let layout = WorkgroupLayout::new(&ctx, module_op, &cube_dim);
