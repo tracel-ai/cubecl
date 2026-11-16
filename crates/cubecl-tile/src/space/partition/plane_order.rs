@@ -5,7 +5,7 @@
 use super::{CubeOrder, Level};
 use crate::{Dimension, Space};
 
-/// The most cubes one grid dimension takes on every device a launch may run on.
+/// The most cubes one grid axis takes on every device a launch may run on.
 const CUBES_PER_GRID_DIMENSION: usize = 65_535;
 
 /// The order the planes of a launch take a level's tiles in, where a plane level spans the launch

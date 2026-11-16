@@ -2300,9 +2300,9 @@ impl TileOrdered {
         launcher
             .arg(a_t.binding(), f32::elem_type_native())
             .gathered(
-                Projection::dims()
-                    .dim(M)
-                    .dim(split(&[(KB, self.k_tiles), (KI, self.tile)]))
+                Projection::axes()
+                    .axis(M)
+                    .axis(split(&[(KB, self.k_tiles), (KI, self.tile)]))
                     .build(),
             )
             .vectorize(32 / Self::FIELD.size_bits())
@@ -2311,7 +2311,7 @@ impl TileOrdered {
     }
 
     /// The activation in `elem`, stated as its rows by its blocks by the position inside one, a
-    /// dim a dimension: the same values as [`a_op`](Self::a_op), bound directly, which a stage can
+    /// axis a dimension: the same values as [`a_op`](Self::a_op), bound directly, which a stage can
     /// hold.
     fn a_op_blocked(&self, client: &Client, launcher: &Launcher, elem: ElemType) -> Bound {
         let (a_t, _) =
@@ -2342,7 +2342,14 @@ impl TileOrdered {
         binding.strides = contiguous_strides(&shape).into();
         let b = launcher
             .arg(binding, u32::elem_type_native())
-            .gathered(Projection::dims().dim(NB).dim(KB).dim(NI).dim(KI).build())
+            .gathered(
+                Projection::axes()
+                    .axis(NB)
+                    .axis(KB)
+                    .axis(NI)
+                    .axis(KI)
+                    .build(),
+            )
             .packed(Self::FIELD);
         match read {
             Some(values) => b.vectorize(values),
@@ -2361,10 +2368,10 @@ impl TileOrdered {
         scales: TileScales,
         served: usize,
     ) -> Bound {
-        let dimensions = Projection::dims()
-            .dim(NB)
-            .dim(KB)
-            .dim(NI)
+        let dimensions = Projection::axes()
+            .axis(NB)
+            .axis(KB)
+            .axis(NI)
             .spanning(KI)
             .build();
         let shape = vec![self.n_tiles, self.k_tiles, self.tile];
@@ -2418,9 +2425,9 @@ impl TileOrdered {
         launcher
             .arg(c.clone().binding(), c.dtype)
             .gathered(
-                Projection::dims()
-                    .dim(M)
-                    .dim(split(&[(NB, self.n_tiles), (NI, self.tile)]))
+                Projection::axes()
+                    .axis(M)
+                    .axis(split(&[(NB, self.n_tiles), (NI, self.tile)]))
                     .build(),
             )
             .build()
@@ -3227,7 +3234,7 @@ fn check_scaled_copy(staged: bool) {
         .dtype(dtype)
         .custom(s.clone())
         .generate_with_f32_host_data();
-    // A stage is dense over its dimensions, one dim each; copied back out, it lands in a buffer laid
+    // A stage is dense over its dimensions, one axis each; copied back out, it lands in a buffer laid
     // out the same way. A direct copy writes the values' own layout.
     let out_shape = match staged {
         true => shape![rows, blocks, block],

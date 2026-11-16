@@ -4,7 +4,7 @@ use crate::Addressed;
 use cubecl::zspace::{SmallVec, Tiling};
 
 use crate::{
-    Composition, Dimension, DimsBuilder, Divisor, Geometry, Offset, PhysicalAxisMap, Refusal, Space,
+    AxesBuilder, Composition, Dimension, Divisor, Geometry, Offset, PhysicalAxisMap, Refusal, Space,
 };
 
 /// An operand's dimensions mapped onto its buffer's physical axes.
@@ -30,7 +30,7 @@ impl Projection {
         Projection::direct(&space.dimensions().collect::<Vec<_>>())
     }
 
-    /// [`direct`](Projection::direct) storage-tiled: `labels` name each buffer dim by the dimension it
+    /// [`direct`](Projection::direct) storage-tiled: `labels` name each buffer axis by the dimension it
     /// is a piece of, level-major.
     pub fn tiled(dimensions: &[Dimension], labels: &[Dimension]) -> Self {
         let physical: Vec<PhysicalAxisMap> =
@@ -169,14 +169,14 @@ impl Projection {
     }
 
     /// This operand's scales' projection, one scale per `block`.
-    /// `block` must partition its dim ([`disjoint`](PhysicalAxisMap::disjoint)); panics otherwise.
+    /// `block` must partition its axis ([`disjoint`](PhysicalAxisMap::disjoint)); panics otherwise.
     pub fn scales_per(&self, block: Dimension) -> Projection {
         let pa = self
             .physical
             .iter()
             .position(|map| map.terms().iter().any(|term| term.dimension == block))
             .unwrap_or_else(|| {
-                panic!("Projection::scales_per: {block:?} addresses no dim of this operand")
+                panic!("Projection::scales_per: {block:?} addresses no axis of this operand")
             });
         let map = &self.physical[pa];
         let terms = map.terms();
@@ -186,7 +186,7 @@ impl Projection {
             .unwrap();
         assert!(
             map.composition() == Composition::Disjoint && at + 1 < terms.len(),
-            "Projection::scales_per: {block:?} must partition its dim with a dimension inside it \
+            "Projection::scales_per: {block:?} must partition its axis with a dimension inside it \
              (PhysicalAxisMap::disjoint(&[({block:?}, block), (inside, 1)]))"
         );
         let radix = terms[at].scale.bound();
@@ -435,20 +435,20 @@ impl Projection {
         Ok(())
     }
 
-    /// Start writing a projection one buffer dim at a time, in buffer order ([`DimsBuilder`]).
-    pub fn dims() -> DimsBuilder {
-        DimsBuilder::new()
+    /// Start writing a projection one buffer axis at a time, in buffer order ([`AxesBuilder`]).
+    pub fn axes() -> AxesBuilder {
+        AxesBuilder::new()
     }
 }
 
 // Queries against a buffer's runtime `Geometry`.
 impl Projection {
-    /// Whether the buffer's dims can be addressed without two positions landing on one cell.
+    /// Whether the buffer's axes can be addressed without two positions landing on one cell.
     pub fn is_addressable(&self, geometry: &Geometry) -> bool {
         if self.composition() == Composition::Overlapping {
             return true;
         }
-        geometry.addressing_dims_by_stride().windows(2).all(|pair| {
+        geometry.addressing_axes_by_stride().windows(2).all(|pair| {
             let (_, (_, stride)) = pair[0];
             let (_, (finer_extent, finer_stride)) = pair[1];
             stride >= finer_extent * finer_stride
@@ -524,7 +524,7 @@ mod tests {
     use super::*;
     use crate::Scale;
 
-    /// Block scales omit the in-block dimension and count the split dim in blocks.
+    /// Block scales omit the in-block dimension and count the split axis in blocks.
     #[test]
     fn scales_per_block_omit_the_dimension_inside_it() {
         let values = Projection::new(
@@ -560,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "must partition its dim with a dimension inside it")]
+    #[should_panic(expected = "must partition its axis with a dimension inside it")]
     fn scales_per_an_unsplit_dimension_are_refused() {
         Projection::direct(&[M, KB]).scales_per(KB);
     }
@@ -790,7 +790,7 @@ mod tests {
         }
     }
 
-    /// `tiling` reads back the piece counts of the dims `tiled` was given.
+    /// `tiling` reads back the piece counts of the axes `tiled` was given.
     #[test]
     fn tiling_reads_back_the_counts_tiled_was_built_from() {
         for fragments in [[1, 1, 1], [3, 3, 3], [1, 2, 2], [3, 1, 2]] {
@@ -1138,8 +1138,8 @@ mod geometry_tests {
     const M: Dimension = Dimension(6);
     const C: Dimension = Dimension(7);
 
-    fn geometry(dims: &[(usize, usize)]) -> Geometry {
-        Geometry::new(dims)
+    fn geometry(axes: &[(usize, usize)]) -> Geometry {
+        Geometry::new(axes)
     }
 
     #[test]
@@ -1171,10 +1171,10 @@ mod geometry_tests {
 
     #[test]
     fn a_window_is_exempt_from_the_aliasing_check() {
-        let p = Projection::dims()
-            .dim(B)
-            .dim(crate::layout::projection::dims_builder::stencil(&[(M, 2), (K, 1)]).pad(1))
-            .dim(C)
+        let p = Projection::axes()
+            .axis(B)
+            .axis(crate::layout::projection::axes_builder::stencil(&[(M, 2), (K, 1)]).pad(1))
+            .axis(C)
             .build();
         let g = geometry(&[(8, 64 * 32), (64, 32), (32, 1)]);
 

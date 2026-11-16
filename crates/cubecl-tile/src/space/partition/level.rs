@@ -465,7 +465,7 @@ impl Level {
         self.coverage != Coverage::Walk && self.shared_by.is_none() && self.cuts.contains(dimension)
     }
 
-    /// The grid dimension `dimension` rides on a cube level: batches on `Z`, the others `X`, `Y`, `Z`
+    /// The grid axis `dimension` rides on a cube level: batches on `Z`, the others `X`, `Y`, `Z`
     /// in the order named.
     pub(crate) fn cube_axis(&self, dimension: Dimension) -> Option<CubeAxis> {
         if self.coverage != Coverage::Distribute(ComputeScope::Cube)
@@ -476,14 +476,14 @@ impl Level {
         if self.batches.contains(&dimension) {
             return Some(CubeAxis::Z);
         }
-        let dims = [CubeAxis::X, CubeAxis::Y, CubeAxis::Z];
+        let cube_axes = [CubeAxis::X, CubeAxis::Y, CubeAxis::Z];
         let position = self
             .dimensions()
             .into_iter()
             .filter(|a| !self.batches.contains(a))
             .position(|a| a == dimension)
             .expect("the dimension is named and not a batch");
-        Some(dims[position])
+        Some(cube_axes[position])
     }
 
     /// The workers taking this level's grid as one flat index.

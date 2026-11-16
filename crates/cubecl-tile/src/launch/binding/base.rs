@@ -28,7 +28,7 @@ pub(crate) struct ArgData<'a> {
     pub(crate) geometry: Geometry,
     pub(crate) dimensions: &'a [Dimension],
     pub(crate) batches: &'a [Dimension],
-    /// The operand's own affine mapping; `None` derives it from the labelled dims.
+    /// The operand's own affine mapping; `None` derives it from the labelled axes.
     pub(crate) projection: Option<Projection>,
     pub(crate) width: usize,
     /// The stated policy; `None` derives one from the overhangs.
@@ -36,7 +36,7 @@ pub(crate) struct ArgData<'a> {
     pub(crate) packing: Packing,
     /// Who moves the operand into a stage ([`delivery`](Arg::delivery)).
     pub(crate) delivery: Delivery,
-    /// Whether the labelled dims bind in stride order ([`in_stride_order`](Arg::in_stride_order)).
+    /// Whether the labelled axes bind in stride order ([`in_stride_order`](Arg::in_stride_order)).
     pub(crate) in_stride_order: bool,
 }
 
@@ -79,7 +79,7 @@ impl<'a> Arg<'a, Unlabelled> {
         }
     }
 
-    /// The dimensions the operand's trailing buffer dims carry.
+    /// The dimensions the operand's trailing buffer axes carry.
     pub fn dimensions(mut self, dimensions: &'a [Dimension]) -> Arg<'a, Labelled> {
         self.data.dimensions = dimensions;
         self.labelled()
@@ -101,13 +101,13 @@ impl<'a> Arg<'a, Unlabelled> {
 }
 
 impl<'a> Arg<'a, Labelled> {
-    /// The batch dimensions in the output's order, right-aligned to the leading dims (numpy broadcast).
+    /// The batch dimensions in the output's order, right-aligned to the leading axes (numpy broadcast).
     pub fn batches(mut self, dimensions: &'a [Dimension]) -> Self {
         self.data.batches = dimensions;
         self
     }
 
-    /// Bind the labelled dims in the order they step, coarsest first; batch dims stay put.
+    /// Bind the labelled axes in the order they step, coarsest first; batch axes stay put.
     pub fn in_stride_order(mut self) -> Self {
         self.data.in_stride_order = true;
         self
@@ -177,7 +177,7 @@ impl<'a> Arg<'a, Labelled> {
         let derived = Derivation::view(&self.data, packing, stored)
             .derived(|| self.derive(packing, stored))?;
         let tensor = self.data.binding.map(|(mut binding, element)| {
-            // Its tiling restated over the settled geometry's dims.
+            // Its tiling restated over the settled geometry's axes.
             binding.shape = derived.geometry.shape().into();
             binding.strides = derived.geometry.strides().into();
             binding.tiling = derived.geometry.tiling();
@@ -222,14 +222,14 @@ impl<'a> Arg<'a, Labelled> {
         } = labels;
         projection.validate(width)?;
         // A stated width is checked here: `stride / width` would truncate silently.
-        // A line runs along the innermost dim's dimension; a buffer with no labelled dim has none.
+        // A line runs along the innermost axis's dimension; a buffer with no labelled axis has none.
         let labels = projection.dense_labels();
         let served = match labels.last() {
             Some(&dimension) => VectorTile::new(&stored_tiles, dimension, width)
                 .map_err(LineMisfit::Tile)
                 .and_then(|tile| geometry.serves(tile.extents(), &labels)),
             None if width == 1 => Ok(()),
-            None => Err(LineMisfit::NoDims),
+            None => Err(LineMisfit::NoAxes),
         };
         served.map_err(|why| Refusal::WidthNotServed { width, why })?;
         let may_overhang;

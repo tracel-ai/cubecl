@@ -492,7 +492,7 @@ impl Nvfp4 {
                 ),
                 f16::elem_type_native(),
             )
-            // A dim a digit, as a product restates its activation: every dimension an identity, so a
+            // An axis a digit, as a product restates its activation: every dimension an identity, so a
             // fragment's rows past the product's are checked at the edge.
             .dimensions(&[M, KB, KI])
             .vectorize(width_a)

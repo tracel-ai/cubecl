@@ -406,12 +406,12 @@ fn run_matmul(backed: Backed) -> HostData {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match backed {
         Backed::Sink => sink_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -423,7 +423,7 @@ fn run_matmul(backed: Backed) -> HostData {
         Backed::Source => source_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -435,7 +435,7 @@ fn run_matmul(backed: Backed) -> HostData {
         Backed::Buffer => buffer_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -624,12 +624,12 @@ fn run_masked(erased: Erased) -> HostData {
         .vectorize(2)
         .build()
         .unwrap();
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match erased {
         Erased::Sink => wide_sink_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),
@@ -638,7 +638,7 @@ fn run_masked(erased: Erased) -> HostData {
         Erased::Source => wide_source_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),
@@ -647,7 +647,7 @@ fn run_masked(erased: Erased) -> HostData {
         Erased::Neither => wide_buffer_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),

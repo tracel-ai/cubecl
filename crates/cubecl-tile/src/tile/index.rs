@@ -1,7 +1,7 @@
 //! A table of `u32` entries an operand carries ([`TileTensorLaunch::indexed`]), read where its
 //! window is cut: each row's expert, each tile's group, each group's run of rows.
 //!
-//! The table's dims are its key dimensions, in order: it holds one entry per tile of the first level of
+//! The table's axes are its key dimensions, in order: it holds one entry per tile of the first level of
 //! the nest that cuts them, the same entry a kernel would read off `region.coord(key)` itself.
 //! The tile reads that entry once, in [`Tile::at`], at the step that cuts the keys, and places its
 //! window with it ([`Indexing`]); its reads never touch the table again. Where no level cuts the
@@ -14,7 +14,7 @@ use cubecl::prelude::*;
 use crate::stage::pipeline::payload::base::StageOperand;
 use crate::*;
 
-/// What an operand's table entry places. The table's own dims are its keys
+/// What an operand's table entry places. The table's own axes are its keys
 /// ([`TileTensorLaunch::indexed`]).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Indexing {
@@ -67,9 +67,9 @@ impl Indexing {
 
     /// What an operand bound `width` values a line owes where an entry moves its window, the
     /// values' or a scale's spanning the placed dimension: a buffer neither storage-tiled nor paged, one
-    /// dim of which is the dimension alone, read one value a line where that dim is the innermost, since
+    /// axis of which is the dimension alone, read one value a line where that axis is the innermost, since
     /// an entry is an element and a line would straddle two; under a run, a buffer over its
-    /// labelled dims, as [`Tile::within`] places.
+    /// labelled axes, as [`Tile::within`] places.
     ///
     /// # Errors
     ///
@@ -79,12 +79,12 @@ impl Indexing {
         let stated =
             projection.is_tiled() || !spec.stored_tiles.is_empty() || spec.paging.is_some();
         let gathered = matches!(self, Indexing::Run(_)) && !projection.is_direct();
-        let dim = placed_dim(projection, self.dimension());
-        match dim {
+        let axis = placed_axis(projection, self.dimension());
+        match axis {
             _ if stated || gathered => Err(Refusal::IndexOfAStatedLayout),
             None => Err(Refusal::IndexOfAStatedLayout),
-            Some(dim)
-                if dim + 1 == projection.physical_rank()
+            Some(axis)
+                if axis + 1 == projection.physical_rank()
                     && (width > 1 || !spec.packing.as_stored()) =>
             {
                 Err(Refusal::IndexAlongALine(self.dimension()))
@@ -129,9 +129,9 @@ impl Indexing {
     }
 }
 
-/// The buffer dim that is `dimension` alone, which an entry moves the window along.
-pub(crate) fn placed_dim(projection: &Projection, dimension: Dimension) -> Option<usize> {
-    Witness::new(projection, dimension).map(|witness| witness.dim())
+/// The buffer axis that is `dimension` alone, which an entry moves the window along.
+pub(crate) fn placed_axis(projection: &Projection, dimension: Dimension) -> Option<usize> {
+    Witness::new(projection, dimension).map(|witness| witness.axis())
 }
 
 /// A table as a tile reads it: its entries, its stride along each key, and whether its entry is
@@ -146,7 +146,7 @@ pub(crate) struct IndexTable {
     strides: Coords<u32>,
     #[cube(comptime)]
     pub(crate) indexing: Indexing,
-    /// The table's dims, in order.
+    /// The table's axes, in order.
     #[cube(comptime)]
     pub(crate) keys: Vec<Dimension>,
     /// Whether the entry is read and the window placed: a placed table is never read again.
@@ -159,7 +159,7 @@ pub(crate) struct IndexTable {
 
 #[cube]
 impl IndexTable {
-    /// `table`, its dims the `keys`, placing as `indexing` says.
+    /// `table`, its axes the `keys`, placing as `indexing` says.
     #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn new(
         table: &Tensor<u32>,
@@ -336,7 +336,7 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
     fn names_coordinate(&self, #[comptime] dimension: Dimension, coord: u32) -> bool {
         let memory = self.mem("indexed_at");
-        let p = comptime!(placed_dim(&memory.projection, dimension).unwrap());
+        let p = comptime!(placed_axis(&memory.projection, dimension).unwrap());
         coord < memory.window.bound.at(p)
     }
 
@@ -345,7 +345,7 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
     fn clamped(&self, #[comptime] dimension: Dimension, coord: u32) -> u32 {
         let memory = self.mem("indexed_at");
-        let p = comptime!(placed_dim(&memory.projection, dimension).unwrap());
+        let p = comptime!(placed_axis(&memory.projection, dimension).unwrap());
         let zero =
             comptime!(memory.window.boundaries.get(p).copied().flatten() == Some(Boundary::Zero));
         if zero {
@@ -508,7 +508,7 @@ impl TileExpand {
 
 #[cube]
 impl Memory {
-    /// The bound a walk reads off dim `p`: the window's, or its run's length where an index placed
+    /// The bound a walk reads off axis `p`: the window's, or its run's length where an index placed
     /// a run along it, so a walk over the window steps the run alone.
     pub(crate) fn walked_bound(&self, #[comptime] p: usize) -> u32 {
         let bound = self.window.bound.at(p);
@@ -522,7 +522,7 @@ impl Memory {
 }
 
 impl Memory {
-    /// Whether an index placed a run along dim `p` of this window.
+    /// Whether an index placed a run along axis `p` of this window.
     pub(crate) fn runs_along(&self, _p: usize) -> comptime_type!(bool) {
         cubecl::unexpanded!()
     }
@@ -534,7 +534,7 @@ impl MemoryExpand {
             ComptimeOptionExpand::Some(table) => {
                 table.placed
                     && matches!(table.indexing, Indexing::Run(dimension)
-                        if placed_dim(&self.projection, dimension) == Some(p))
+                        if placed_axis(&self.projection, dimension) == Some(p))
             }
             ComptimeOptionExpand::None => false,
         }
@@ -691,11 +691,11 @@ mod tests {
         assert_eq!(refused, Err(Refusal::IndexOfAStatedLayout));
     }
 
-    /// The innermost dim may be placed where the operand reads it one value a line: a run along
+    /// The innermost axis may be placed where the operand reads it one value a line: a run along
     /// the rows of a transposed operand. Read in wider lines, or packed, a line would straddle two
     /// entries.
     #[test]
-    fn the_innermost_dim_is_placed_only_one_value_a_line() {
+    fn the_innermost_axis_is_placed_only_one_value_a_line() {
         let spec = TileSpec::direct(&[N, K]);
         let run = Indexing::Run(K);
         assert_eq!(run.validate(&spec, 1, &[M]), Ok(()));
@@ -712,9 +712,9 @@ mod tests {
     }
 
     /// A packed weight blocks its columns over two dimensions, so its projection is not direct; the
-    /// expert is still one dim of its own, which is all a coordinate moves.
+    /// expert is still one axis of its own, which is all a coordinate moves.
     #[test]
-    fn a_coordinate_places_a_whole_dim_of_a_gathered_operand_and_a_run_does_not() {
+    fn a_coordinate_places_a_whole_axis_of_a_gathered_operand_and_a_run_does_not() {
         let block = Dimension(4);
         let spec = TileSpec::new(Projection::new(
             &[EXPERT, K, N, block],

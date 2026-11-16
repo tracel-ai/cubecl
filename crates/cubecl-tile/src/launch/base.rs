@@ -242,7 +242,7 @@ impl Launcher {
     }
 
     /// The widest line every operand can be served in along `dimension`, which must label each
-    /// operand's innermost dim.
+    /// operand's innermost axis.
     pub fn vector_size(
         &self,
         dimension: Dimension,
@@ -253,7 +253,7 @@ impl Launcher {
             assert_eq!(
                 dimensions.last(),
                 Some(&dimension),
-                "Launcher::vector_size: dimension {dimension:?} must label each operand's innermost dim"
+                "Launcher::vector_size: dimension {dimension:?} must label each operand's innermost axis"
             );
         }
         // A masked access counts in lines and would clip wrongly, so overhangs serve scalar.

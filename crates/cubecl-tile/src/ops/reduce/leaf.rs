@@ -395,7 +395,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
 /// across the dimensions they span beyond it ([`Tile::dot`](crate::Tile::dot)).
 ///
 /// Where the run spans the factors' innermost dimension, as a row of the output does along its value
-/// dim, each line read is summed whole, its components in turn; otherwise each cell reads one
+/// axis, each line read is summed whole, its components in turn; otherwise each cell reads one
 /// component of each line it meets.
 #[cube]
 pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(

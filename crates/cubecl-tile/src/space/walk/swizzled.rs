@@ -30,7 +30,7 @@ pub(crate) fn swizzled_positions(
 }
 
 /// Where this space holds the cube level's two in-plane dimensions, `(x, y)`. Panics unless each
-/// owns its whole grid dimension.
+/// owns its whole grid axis.
 pub(crate) fn in_plane_dimensions(space: &Space, level: &Level) -> (usize, usize) {
     let at = |wanted: CubeAxis| {
         let found: Vec<usize> = (0..space.rank())

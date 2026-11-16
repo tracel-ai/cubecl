@@ -210,7 +210,7 @@ impl Walk {
                 }
                 DimensionDistribution::Distributed(Distribution {
                     scope: compute_scope,
-                    dim,
+                    cube_axis,
                     spread,
                     workers,
                     divides,
@@ -228,7 +228,7 @@ impl Walk {
                                 within, fillers, ..
                             },
                         ) => DimensionDistribution::unit_within(within, fillers),
-                        (None, _) => DimensionDistribution::hardware(compute_scope, dim)
+                        (None, _) => DimensionDistribution::hardware(compute_scope, cube_axis)
                             .divided_by(inner_weight)
                             .remainder(instances.at(p)),
                     };

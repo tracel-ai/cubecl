@@ -431,11 +431,11 @@ impl TileTensorLaunch {
     }
 
     /// These values, stored as indices ([`Field::Index`]), read as the entries of `table` they
-    /// name: a plain one-dim buffer of at least an entry per index, read one value a line.
+    /// name: a plain one-axis buffer of at least an entry per index, read one value a line.
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] for values not stored as indices, or a table that is not a plain one-dim
+    /// The [`Refusal`] for values not stored as indices, or a table that is not a plain one-axis
     /// buffer holding an entry for every index.
     pub fn codebook(mut self, table: TileTensorLaunch) -> Result<Self, Refusal> {
         let Packing::Packed {
@@ -525,12 +525,12 @@ impl TileTensorLaunch {
         self
     }
 
-    /// These values with their windows placed by `table`, whose dims are its keys, as `indexing`
+    /// These values with their windows placed by `table`, whose axes are its keys, as `indexing`
     /// says ([`Indexing`]). The scales they carry move with them wherever they span the placed
     /// dimension; state them first, so they are checked here.
     ///
     /// A table keyed by the dimension it places and one more, `[sequence, position]` placing the
-    /// sequence, reads these values as a pool of pages: the dim the sequence labels holds pages,
+    /// sequence, reads these values as a pool of pages: the axis the sequence labels holds pages,
     /// the one the position labels a page's positions, and sequence `b`'s position `s` lies in page
     /// `table[b, s / page_size]`, `page_size` the pool's extent along the position. The operand's
     /// extents along the two dimensions are the table's, checked on every read. The table is read as
@@ -540,7 +540,7 @@ impl TileTensorLaunch {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] for a table that is not plain `u32` entries over one dim per key, or for
+    /// The [`Refusal`] for a table that is not plain `u32` entries over one axis per key, or for
     /// values, or a scale level spanning the placed dimension, whose windows an entry cannot place.
     pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Refusal> {
         self.placed_by(table, indexing, false)
@@ -644,9 +644,9 @@ impl TileTensorLaunch {
                     .map(|_| None)
                     .collect();
             }
-            let (sequence_dim, position_dim) = paging.dims(&spec.projection)?;
-            for dim in [sequence_dim, position_dim] {
-                spec.boundaries[dim] = Some(boundary.unwrap_or(Boundary::Zero));
+            let (sequence_axis, position_axis) = paging.axes(&spec.projection)?;
+            for axis in [sequence_axis, position_axis] {
+                spec.boundaries[axis] = Some(boundary.unwrap_or(Boundary::Zero));
             }
         }
         spec.paging = Some(paging);

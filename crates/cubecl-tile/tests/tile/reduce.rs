@@ -248,14 +248,14 @@ fn plain_batched(b: usize, m: usize, n: usize, k: usize, tm: usize, tn: usize) -
     )
 }
 
-fn assert_same(got: &HostData, want: &HostData, dims: &[usize]) {
-    let total: usize = dims.iter().product();
+fn assert_same(got: &HostData, want: &HostData, axes: &[usize]) {
+    let total: usize = axes.iter().product();
     for flat in 0..total {
-        let mut idx = vec![0usize; dims.len()];
+        let mut idx = vec![0usize; axes.len()];
         let mut rest = flat;
-        for p in (0..dims.len()).rev() {
-            idx[p] = rest % dims[p];
-            rest /= dims[p];
+        for p in (0..axes.len()).rev() {
+            idx[p] = rest % axes[p];
+            rest /= axes[p];
         }
         assert_eq!(
             got.get_f32(&idx),

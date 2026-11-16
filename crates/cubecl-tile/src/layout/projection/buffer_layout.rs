@@ -175,14 +175,16 @@ impl BufferLayout {
     ) -> BufferLayout {
         #[comptime]
         match &self.paging {
-            ComptimeOption::Some(table) => {
-                self.with_paging(ComptimeOption::new_Some(table.pinned_at(
+            ComptimeOption::Some(table) => self.with_paging(ComptimeOption::new_Some(
+                table.pinned_at(
                     origin,
                     cut,
-                    self.physical_strides.at(comptime!(table.list.sequence_dim)),
-                    self.physical_strides.at(comptime!(table.list.position_dim)),
-                )))
-            }
+                    self.physical_strides
+                        .at(comptime!(table.list.sequence_axis)),
+                    self.physical_strides
+                        .at(comptime!(table.list.position_axis)),
+                ),
+            )),
             ComptimeOption::None => self.clone(),
         }
     }

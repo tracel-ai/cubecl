@@ -38,8 +38,8 @@ fn quantize_planes(input: &TileTensor<'_>, packed: &TileTensor<'_>, partitioning
     }
 }
 
-/// How the float values are bound: as the words are, both block dimensions one dim of the row, or a
-/// dim a dimension, the rows' one block left out.
+/// How the float values are bound: as the words are, both block dimensions one axis of the row, or a
+/// axis a dimension, the rows' one block left out.
 #[derive(Clone, Copy)]
 enum Source {
     AsTheWords,
@@ -359,7 +359,7 @@ fn q8_quantizes_under_bf16_scales() {
     check_quantize(QuantValue::Q8S, 32, Scales::Packed(ScaleDtype::BF16), None);
 }
 
-/// MXFP8 from a source bound a dim a dimension, as a tensor restated over the block dimensions is.
+/// MXFP8 from a source bound an axis a dimension, as a tensor restated over the block dimensions is.
 #[test]
 fn mxfp8_quantizes_from_a_source_per_dimension() {
     check_quantize_as(

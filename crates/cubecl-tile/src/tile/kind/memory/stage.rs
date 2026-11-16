@@ -326,7 +326,7 @@ impl Memory {
                     rows: form.rows,
                     paging: ComptimeOption::new_None(),
                 },
-                // Empty: a list over the buffer's own dims would misalign one level down.
+                // Empty: a list over the buffer's own axes would misalign one level down.
                 window: Window::new(origin, extent, bound, false, comptime!(SmallVec::new())),
                 projection: form.projection,
                 map,
@@ -597,7 +597,7 @@ impl StageForm {
         pitched
     }
 
-    /// A stage's buffer addressed by position: `rank` synthetic dimensions, each split into `pieces` dims.
+    /// A stage's buffer addressed by position: `rank` synthetic dimensions, each split into `pieces` axes.
     fn positional(rank: usize, pieces: usize) -> Projection {
         let dimensions: Vec<Dimension> = (0..rank).map(|p| Dimension(p as u8)).collect();
         let labels = StoragePartitioning::level_major(&dimensions, &vec![pieces; rank]);

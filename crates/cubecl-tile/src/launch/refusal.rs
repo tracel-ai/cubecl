@@ -16,14 +16,14 @@ pub enum Refusal {
     GatherOfATiledBinding(Tiling),
     /// [`gathered`](super::Arg::gathered) combined with `dimensions` or `batches`.
     GatherWithLabels,
-    /// The mapping addresses `mapped` dims but the operand has `rank`.
+    /// The mapping addresses `mapped` axes but the operand has `rank`.
     GatherRankMismatch { mapped: usize, rank: usize },
     /// The mapping spans a dimension the launched space does not have.
     GatherOfAnUnknownDimension(Dimension),
-    /// The operand's rank is smaller than its labelled block of dims.
+    /// The operand's rank is smaller than its labelled block of axes.
     RankBelowLabels { rank: usize, block: usize },
-    /// More leading dims than batch dimensions to label them.
-    UnlabelledBatchDims { dims: usize, dimensions: usize },
+    /// More leading axes than batch dimensions to label them.
+    UnlabelledBatchAxes { axes: usize, dimensions: usize },
     /// An operand must address at least one coordinate.
     NoCoordinate,
     /// The buffer cannot be served `width` wide.
@@ -106,16 +106,16 @@ pub enum Refusal {
     RowsNoDescriptorLands { why: &'static str },
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on a gathered or
     /// storage-tiled operand: a page is resolved coordinate by coordinate over a plain buffer's
-    /// labelled dims.
+    /// labelled axes.
     PagingOfAStatedLayout,
-    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming a dimension no dim of
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming a dimension no axis of
     /// the operand is labelled with.
     PagingOfAnUnlabelledDimension(Dimension),
-    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming one dim for both
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming one axis for both
     /// the pages and their positions.
-    PagingOfOneDim(Dimension),
+    PagingOfOneAxis(Dimension),
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages with the pages along the
-    /// innermost dim, this dimension's: a line runs along it, so one line would span pages.
+    /// innermost axis, this dimension's: a line runs along it, so one line would span pages.
     PagesAlongALine(Dimension),
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on a pool of no pages, or
     /// of pages of no positions: there is no page for a table entry to read.
@@ -130,11 +130,11 @@ pub enum Refusal {
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table that is not plain `u32` entries,
     /// one a line: an entry is a coordinate.
     IndexTableNotU32,
-    /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` dims keyed by `keys`
-    /// dimensions: a table holds one dim per key.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` axes keyed by `keys`
+    /// dimensions: a table holds one axis per key.
     IndexTableRank { keys: usize, rank: usize },
     /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map, or on a gathered,
-    /// storage-tiled or paged operand: an entry moves a window of a plain buffer's labelled dims.
+    /// storage-tiled or paged operand: an entry moves a window of a plain buffer's labelled axes.
     IndexOfAStatedLayout,
     /// [`indexed`](crate::TileTensorLaunch::indexed) placing a dimension the operand does not span.
     IndexOfADimensionNotSpanned(Dimension),
@@ -156,7 +156,7 @@ pub enum Refusal {
     /// [`codebook`](crate::TileTensorLaunch::codebook) on values not stored as indices
     /// ([`Field::Index`](crate::Field::Index)).
     CodebookOfValuesNotIndices,
-    /// [`codebook`](crate::TileTensorLaunch::codebook) with a table that is not a plain one-dim
+    /// [`codebook`](crate::TileTensorLaunch::codebook) with a table that is not a plain one-axis
     /// buffer read one value a line.
     CodebookTableNotPlain,
     /// [`codebook`](crate::TileTensorLaunch::codebook) with a table of `entries`, fewer than the
@@ -190,7 +190,7 @@ impl Display for Refusal {
             ),
             Refusal::GatherOfATiledBinding(tiling) => write!(
                 f,
-                "Arg::gathered: the mapping addresses the buffer's own dims, so a storage-tiled \
+                "Arg::gathered: the mapping addresses the buffer's own axes, so a storage-tiled \
                  binding ({tiling:?}) has no reading here"
             ),
             Refusal::GatherWithLabels => write!(
@@ -200,7 +200,7 @@ impl Display for Refusal {
             ),
             Refusal::GatherRankMismatch { mapped, rank } => write!(
                 f,
-                "Arg::gathered: the mapping addresses {mapped} dims but the operand has {rank}"
+                "Arg::gathered: the mapping addresses {mapped} axes but the operand has {rank}"
             ),
             Refusal::GatherOfAnUnknownDimension(dimension) => write!(
                 f,
@@ -208,12 +208,12 @@ impl Display for Refusal {
             ),
             Refusal::RankBelowLabels { rank, block } => write!(
                 f,
-                "Arg: operand rank {rank} is smaller than its labelled block of {block} dims"
+                "Arg: operand rank {rank} is smaller than its labelled block of {block} axes"
             ),
-            Refusal::UnlabelledBatchDims { dims, dimensions } => {
+            Refusal::UnlabelledBatchAxes { axes, dimensions } => {
                 write!(
                     f,
-                    "Arg: {dims} batch dims but only {dimensions} batch dimensions given"
+                    "Arg: {axes} batch axes but only {dimensions} batch dimensions given"
                 )
             }
             Refusal::NoCoordinate => {
@@ -344,22 +344,22 @@ impl Display for Refusal {
             Refusal::PagingOfAStatedLayout => write!(
                 f,
                 "TileTensorLaunch::indexed: a page is resolved coordinate by coordinate over a \
-                 plain buffer's labelled dims, so a gathered mapping or a storage-tiled binding \
+                 plain buffer's labelled axes, so a gathered mapping or a storage-tiled binding \
                  has no reading here"
             ),
             Refusal::PagingOfAnUnlabelledDimension(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: {dimension:?} labels no dim of this operand, so no dim \
+                "TileTensorLaunch::indexed: {dimension:?} labels no axis of this operand, so no axis \
                  holds its pages"
             ),
-            Refusal::PagingOfOneDim(dimension) => write!(
+            Refusal::PagingOfOneAxis(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: {dimension:?} names the pages and their positions both, on \
-                 one dim"
+                 one axis"
             ),
             Refusal::PagesAlongALine(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: the pages along {dimension:?} lie on the innermost dim, \
+                "TileTensorLaunch::indexed: the pages along {dimension:?} lie on the innermost axis, \
                  which a line runs along, so a line would span pages"
             ),
             Refusal::PagingOfAnEmptyPool => write!(
@@ -385,7 +385,7 @@ impl Display for Refusal {
             ),
             Refusal::CodebookTableNotPlain => write!(
                 f,
-                "TileTensorLaunch::codebook: the table is a plain one-dim buffer, one value a line"
+                "TileTensorLaunch::codebook: the table is a plain one-axis buffer, one value a line"
             ),
             Refusal::CodebookTableShort { entries, bits } => write!(
                 f,
@@ -400,13 +400,13 @@ impl Display for Refusal {
             ),
             Refusal::IndexTableRank { keys, rank } => write!(
                 f,
-                "TileTensorLaunch::indexed: the table has {rank} dims and {keys} keys; it holds \
-                 one dim per key"
+                "TileTensorLaunch::indexed: the table has {rank} axes and {keys} keys; it holds \
+                 one axis per key"
             ),
             Refusal::IndexOfAStatedLayout => write!(
                 f,
                 "TileTensorLaunch::indexed: an entry moves the window of a plain buffer over its \
-                 labelled dims, which a tensor map, a gathered, storage-tiled or paged operand is not"
+                 labelled axes, which a tensor map, a gathered, storage-tiled or paged operand is not"
             ),
             Refusal::IndexOfADimensionNotSpanned(dimension) => write!(
                 f,

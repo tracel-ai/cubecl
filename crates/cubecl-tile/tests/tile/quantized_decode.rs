@@ -302,12 +302,12 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
         .build()
         .unwrap();
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     if promoted {
         quantized_decode_promoted::launch(
             &client,
             count,
-            dim,
+            axis,
             w_op.arg(),
             x_op.arg(),
             s_op.arg(),
@@ -320,7 +320,7 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
         quantized_decode::launch(
             &client,
             count,
-            dim,
+            axis,
             w_op.arg(),
             x_op.arg(),
             s_op.arg(),

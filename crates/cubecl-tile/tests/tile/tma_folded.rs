@@ -1,4 +1,4 @@
-//! A box the TMA engine loads through a descriptor whose dims are not the tile's own dimensions
+//! A box the TMA engine loads through a descriptor whose axes are not the tile's own dimensions
 //! ([`TileTensorLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split dimensions
 //! `(M, KB, KI)` a packed product states its float input over, the descriptor over the matrix as
 //! it lies, each position landing at the column `KB · block + KI`. Each cube lands its box in
@@ -92,7 +92,7 @@ fn a_block_split_box_lands_through_a_folded_descriptor() {
         dtype,
     );
     let coordinates = TmaCoordinates {
-        dims: vec![
+        axes: vec![
             vec![],
             vec![TmaTerm::dimension(0)],
             vec![

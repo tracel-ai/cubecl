@@ -376,8 +376,8 @@ impl Memory {
     }
 
     /// Scalar stride between matrix rows, `row` the coordinate a direct window's rows step along:
-    /// its dim in an untiled store, its innermost carrier in a tiled one. A gathered window steps
-    /// along its second-to-last dim.
+    /// its axis in an untiled store, its innermost carrier in a tiled one. A gathered window steps
+    /// along its second-to-last axis.
     pub(crate) fn row_stride_at(&self, #[comptime] row: usize) -> u32 {
         let rank = comptime!(self.layout.projection.physical_rank());
         let row = comptime!({
@@ -722,7 +722,7 @@ impl Memory {
         let start = self
             .window_start
             .plus(advances.sum(comptime!((0..rank).collect::<Vec<_>>())));
-        // The window's extent along each dim in loads where the level fixes it; it is direct, so
+        // The window's extent along each axis in loads where the level fixes it; it is direct, so
         // these are the edges `direct_descent` cut.
         let edges = comptime!(match self.projection.is_direct() {
             true => {
@@ -990,7 +990,7 @@ impl Memory {
         let proj = comptime!(self.projection.clone());
         let rank = proj.physical_rank();
         let at = comptime!(
-            placed_dim(&proj, dimension)
+            placed_axis(&proj, dimension)
                 .filter(|_| !self.layout.projection.is_tiled())
                 .unwrap_or_else(|| panic!("{}", Refusal::IndexOfAStatedLayout))
         );

@@ -113,7 +113,7 @@ impl Partitioning {
     /// they ride different dimensions of the grid ([`Levels::cubes`](crate::Levels::cubes)): a
     /// cube takes one tile of each.
     pub fn new(space: Space, levels: Vec<Level>) -> Self {
-        let dims = |level: &Level| -> Vec<CubeAxis> {
+        let cube_axes = |level: &Level| -> Vec<CubeAxis> {
             level
                 .dimensions()
                 .into_iter()
@@ -127,7 +127,9 @@ impl Partitioning {
                     levels[i + 1..].iter().all(|other| {
                         other.coverage() != level.coverage()
                             || (level.coverage() == cubes
-                                && dims(other).iter().all(|dim| !dims(level).contains(dim)))
+                                && cube_axes(other)
+                                    .iter()
+                                    .all(|cube_axis| !cube_axes(level).contains(cube_axis)))
                     }),
                     "Partitioning::new: two levels distribute over {scope:?}"
                 );
@@ -273,7 +275,7 @@ impl Partitioning {
         match coverage {
             Coverage::Distribute(ComputeScope::Cube) => [CubeAxis::X, CubeAxis::Y, CubeAxis::Z]
                 .into_iter()
-                .map(|dim| self.cube_instances(dim))
+                .map(|cube_axis| self.cube_instances(cube_axis))
                 .product(),
             Coverage::Distribute(ComputeScope::Plane)
             | Coverage::Distribute(ComputeScope::PlaneGroup { .. })
@@ -284,14 +286,14 @@ impl Partitioning {
         }
     }
 
-    /// Cubes on grid dimension `dim`.
-    fn cube_instances(&self, dim: CubeAxis) -> u32 {
+    /// Cubes on grid axis `cube_axis`.
+    fn cube_instances(&self, cube_axis: CubeAxis) -> u32 {
         self.count_instances(
             |level| {
                 level.coverage() == Coverage::Distribute(ComputeScope::Cube)
-                    && (level.shared_by().is_none() || dim == CubeAxis::X)
+                    && (level.shared_by().is_none() || cube_axis == CubeAxis::X)
             },
-            |level, dimension| level.cube_axis(dimension) == Some(dim),
+            |level, dimension| level.cube_axis(dimension) == Some(cube_axis),
         )
     }
 
@@ -429,8 +431,11 @@ mod tests {
             plain.instances(Coverage::Distribute(ComputeScope::Plane))
         );
         assert_eq!(filled.units(), plain.units());
-        for dim in [CubeAxis::X, CubeAxis::Y, CubeAxis::Z] {
-            assert_eq!(filled.cube_instances(dim), plain.cube_instances(dim));
+        for cube_axis in [CubeAxis::X, CubeAxis::Y, CubeAxis::Z] {
+            assert_eq!(
+                filled.cube_instances(cube_axis),
+                plain.cube_instances(cube_axis)
+            );
         }
     }
 

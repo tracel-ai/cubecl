@@ -334,10 +334,10 @@ fn a_relay_sums_every_run_of_a_split_contraction() {
     if !hands_off_between_cubes(&client) {
         return;
     }
-    let dims = (16usize, 16usize, 64usize);
+    let axes = (16usize, 16usize, 64usize);
     for splits in [1usize, 2, 4, 8] {
-        let (got, turns) = run_relayed_split(dims, splits, 1);
-        assert_relayed(&got, dims, &format!("{splits} splits"));
+        let (got, turns) = run_relayed_split(axes, splits, 1);
+        assert_relayed(&got, axes, &format!("{splits} splits"));
         assert!(turns.iter().all(|&t| t == 0), "{splits} splits: {turns:?}");
     }
 }
@@ -350,9 +350,9 @@ fn a_cube_whose_run_is_empty_takes_no_turn() {
     if !hands_off_between_cubes(&client) {
         return;
     }
-    let dims = (8usize, 16usize, 40usize);
-    let (got, turns) = run_relayed_split(dims, 4, 1);
-    assert_relayed(&got, dims, "an empty run");
+    let axes = (8usize, 16usize, 40usize);
+    let (got, turns) = run_relayed_split(axes, 4, 1);
+    assert_relayed(&got, axes, "an empty run");
     assert!(turns.iter().all(|&t| t == 0), "{turns:?}");
 }
 
@@ -363,8 +363,8 @@ fn a_relay_runs_again_on_the_counters_it_left() {
     if !hands_off_between_cubes(&client) {
         return;
     }
-    let dims = (16usize, 8usize, 32usize);
-    let (got, turns) = run_relayed_split(dims, 4, 3);
-    assert_relayed(&got, dims, "a third launch");
+    let axes = (16usize, 8usize, 32usize);
+    let (got, turns) = run_relayed_split(axes, 4, 3);
+    assert_relayed(&got, axes, "a third launch");
     assert!(turns.iter().all(|&t| t == 0), "{turns:?}");
 }

@@ -210,14 +210,14 @@ impl VectorTile {
             .collect()
     }
 
-    /// How much of each of a buffer's `rank` dims one load covers, over a buffer stored in
-    /// `stored` tiles, finest first, whose trailing dims `labels` name: a stated tile the load
-    /// takes whole is covered entirely, and a plain buffer's innermost dim by the load's width.
+    /// How much of each of a buffer's `rank` axes one load covers, over a buffer stored in
+    /// `stored` tiles, finest first, whose trailing axes `labels` name: a stated tile the load
+    /// takes whole is covered entirely, and a plain buffer's innermost axis by the load's width.
     /// `1` elsewhere.
     ///
-    /// A buffer read in loads is the same buffer with each dim's extent divided by what one load
+    /// A buffer read in loads is the same buffer with each axis's extent divided by what one load
     /// covers of it and every stride counted in loads: `extent / part` and `stride * part /
-    /// values`, which for a plain buffer is its innermost dim in lines and the rest's strides
+    /// values`, which for a plain buffer is its innermost axis in lines and the rest's strides
     /// divided by the width.
     pub(crate) fn parts(
         &self,
@@ -233,38 +233,38 @@ impl VectorTile {
             return parts;
         }
         let mut taken = 1;
-        for (&(_, count), dim) in stored.iter().zip(Self::stated_dims(stored, labels, rank)) {
+        for (&(_, count), axis) in stored.iter().zip(Self::stated_axes(stored, labels, rank)) {
             if count == 1 {
                 continue;
             }
             if taken == self.values() {
                 break;
             }
-            parts[dim] = count;
+            parts[axis] = count;
             taken *= count;
         }
         parts
     }
 
-    /// The extent of each of a buffer's `rank` dims that is a stated tile, over a buffer stored
-    /// in `stored` tiles whose trailing dims `labels` name; `None` for a dim the buffer's own
+    /// The extent of each of a buffer's `rank` axes that is a stated tile, over a buffer stored
+    /// in `stored` tiles whose trailing axes `labels` name; `None` for an axis the buffer's own
     /// shape sets. A stated tile's extent is fixed where the kernel is written, so a read over it
-    /// divides by a constant rather than by a dim read off the buffer.
+    /// divides by a constant rather than by an axis read off the buffer.
     pub(crate) fn stated_extents(
         stored: &[(Dimension, usize)],
         labels: &[Dimension],
         rank: usize,
     ) -> Vec<Option<usize>> {
         let mut extents = vec![None; rank];
-        for (&(_, count), dim) in stored.iter().zip(Self::stated_dims(stored, labels, rank)) {
-            extents[dim] = Some(count);
+        for (&(_, count), axis) in stored.iter().zip(Self::stated_axes(stored, labels, rank)) {
+            extents[axis] = Some(count);
         }
         extents
     }
 
-    /// The dim of a buffer of `rank` dims, whose trailing dims `labels` name, each of `stored`'s
-    /// tiles is: the `j`-th finest stated tile of a dimension is its `j`-th dim from the end.
-    fn stated_dims(stored: &[(Dimension, usize)], labels: &[Dimension], rank: usize) -> Vec<usize> {
+    /// The axis of a buffer of `rank` axes, whose trailing axes `labels` name, each of `stored`'s
+    /// tiles is: the `j`-th finest stated tile of a dimension is its `j`-th axis from the end.
+    fn stated_axes(stored: &[(Dimension, usize)], labels: &[Dimension], rank: usize) -> Vec<usize> {
         let unlabelled = rank - labels.len();
         let mut from_end: Vec<(Dimension, usize)> = Vec::new();
         stored
@@ -280,12 +280,12 @@ impl VectorTile {
                         1
                     }
                 };
-                let dim = (0..labels.len())
+                let axis = (0..labels.len())
                     .rev()
                     .filter(|&d| labels[d] == dimension)
                     .nth(nth - 1)
-                    .expect("a stated tile is a dim of the buffer");
-                unlabelled + dim
+                    .expect("a stated tile is an axis of the buffer");
+                unlabelled + axis
             })
             .collect()
     }
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(VectorTile::run(N, 4).offset_along(3, K), 0);
     }
 
-    /// A stated tile of one is a dim of the buffer, not a piece of a load.
+    /// A stated tile of one is an axis of the buffer, not a piece of a load.
     #[test]
     fn a_stored_tile_of_one_is_skipped() {
         let stored = [(N, 4), (N, 1), (K, 2)];
@@ -465,16 +465,16 @@ mod tests {
         tile.along_one_dimension("the fragment load");
     }
 
-    /// Read in loads, a plain buffer's innermost dim counts lines and nothing else moves; an
+    /// Read in loads, a plain buffer's innermost axis counts lines and nothing else moves; an
     /// NVFP4 buffer's word, its second word along `K` and its second column are each one load's
-    /// whole, wherever the level-major order puts them, and a batch dim ahead is untouched.
+    /// whole, wherever the level-major order puts them, and a batch axis ahead is untouched.
     #[test]
-    fn a_load_covers_the_innermost_dim_or_the_stored_tiles_it_takes() {
+    fn a_load_covers_the_innermost_axis_or_the_stored_tiles_it_takes() {
         let run = VectorTile::run(N, 4);
         assert_eq!(run.parts(&[], &[K, N], 2), vec![1, 4]);
 
         // `[m, k]` stored as a word of 8 along `K`, 2 words along `K` by 2 rows, then 4 by 4:
-        // `[M, K, M, K, M, K, K]` level-major, the word the last dim.
+        // `[M, K, M, K, M, K, K]` level-major, the word the last axis.
         const M: Dimension = Dimension(2);
         let stored = [(K, 8), (K, 2), (M, 2), (K, 4), (M, 4)];
         let labels = [M, K, M, K, M, K, K];
@@ -487,8 +487,8 @@ mod tests {
         );
     }
 
-    /// Every stated tile's dim reads at the tile's count, and only the grid dims are left to the
-    /// buffer's shape: a read over the tiles then divides by constants. A batch dim ahead is
+    /// Every stated tile's axis reads at the tile's count, and only the grid axes are left to the
+    /// buffer's shape: a read over the tiles then divides by constants. A batch axis ahead is
     /// the buffer's too.
     #[test]
     fn the_stated_tiles_have_their_stated_extents() {

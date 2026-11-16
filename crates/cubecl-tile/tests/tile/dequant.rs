@@ -92,7 +92,7 @@ fn a_packed_tensor_decodes_against_its_scales() {
         .zeros()
         .generate_without_host_data();
 
-    // `COL` is one physical dim that `(CB, CI)` partition, so each operand that spans both says
+    // `COL` is one physical axis that `(CB, CI)` partition, so each operand that spans both says
     // so; the scales span only `CB` and address it as it stands.
     let split = || {
         Projection::new(

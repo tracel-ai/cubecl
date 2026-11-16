@@ -145,13 +145,13 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
         TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
     w_spec.stored_tiles = storage.tiles().to_vec();
     let space = Space::new(&[(N, cols), (KB, blocks), (KI, block)]);
-    let (count, dim) = (CubeCount::new_single(), CubeDim::new_single());
+    let (count, axis) = (CubeCount::new_single(), CubeDim::new_single());
     // Each arm launches its own kernel, so each binds its own arguments.
     match read {
         Read::Stored => tiled_scaled_copy::launch(
             &client,
             count,
-            dim,
+            axis,
             TileTensorLaunch::new(
                 w_tensor.binding().into_tensor_arg(),
                 u32::elem_type_native(),
@@ -189,7 +189,7 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
             tiled_packed_stage::launch(
                 &client,
                 count,
-                dim,
+                axis,
                 TileTensorLaunch::new(
                     w_tensor.binding().into_tensor_arg(),
                     u32::elem_type_native(),

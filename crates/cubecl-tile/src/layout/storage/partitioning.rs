@@ -32,8 +32,8 @@ pub struct StoragePartitioning {
 }
 
 impl StoragePartitioning {
-    /// The statement a bound buffer was written from, read off its dims by stride; `labels` name
-    /// the trailing dims. `None` where the buffer's order is no partitioning. Its
+    /// The statement a bound buffer was written from, read off its axes by stride; `labels` name
+    /// the trailing axes. `None` where the buffer's order is no partitioning. Its
     /// [`stagger`](Self::stagger) is not read back: a padded coarsest stride orders the pieces as a
     /// dense one does, so the tiles and their order read the same, but a reader asking where runs
     /// are contiguous asks the geometry's strides (`Geometry::dense_run`).
@@ -41,25 +41,25 @@ impl StoragePartitioning {
         let rank = geometry.rank();
         let unlabelled = rank.saturating_sub(labels.len());
         let tiling = geometry.tiling();
-        // Dims past the logical rank are stated pieces.
+        // Axes past the logical rank are stated pieces.
         let first_stated = match tiling.is_tiled() {
             true => tiling.logical_rank(rank).unwrap_or(rank),
             false => rank,
         };
-        let mut dims: PieceList<(usize, usize, usize)> = geometry
-            .dims()
+        let mut axes: PieceList<(usize, usize, usize)> = geometry
+            .axes()
             .enumerate()
-            .filter(|&(dim, (extent, stride))| {
-                let piece_of_one = extent == 1 && dim >= first_stated;
-                dim >= unlabelled && (piece_of_one || extent > 1 && stride > 0)
+            .filter(|&(axis, (extent, stride))| {
+                let piece_of_one = extent == 1 && axis >= first_stated;
+                axis >= unlabelled && (piece_of_one || extent > 1 && stride > 0)
             })
-            .map(|(dim, (extent, stride))| (dim, extent, stride))
+            .map(|(axis, (extent, stride))| (axis, extent, stride))
             .collect();
-        dims.sort_by_key(|&(dim, extent, stride)| (stride, extent > 1, core::cmp::Reverse(dim)));
-        let (stated, rest): (PieceList<_>, PieceList<_>) = dims
+        axes.sort_by_key(|&(axis, extent, stride)| (stride, extent > 1, core::cmp::Reverse(axis)));
+        let (stated, rest): (PieceList<_>, PieceList<_>) = axes
             .iter()
             .copied()
-            .partition(|&(dim, _, _)| dim >= first_stated);
+            .partition(|&(axis, _, _)| axis >= first_stated);
         let finest_rest = rest.first().map_or(usize::MAX, |&(_, _, stride)| stride);
         if stated
             .iter()
@@ -70,11 +70,11 @@ impl StoragePartitioning {
         Some(Self {
             tiles: stated
                 .iter()
-                .map(|&(dim, extent, _)| (labels[dim - unlabelled], extent))
+                .map(|&(axis, extent, _)| (labels[axis - unlabelled], extent))
                 .collect(),
             order: rest
                 .iter()
-                .map(|&(dim, _, _)| labels[dim - unlabelled])
+                .map(|&(axis, _, _)| labels[axis - unlabelled])
                 .collect(),
             stagger: None,
         })
@@ -103,12 +103,12 @@ impl StoragePartitioning {
         }
     }
 
-    /// The buffer's dims, coarsest first, each named by the dimension it is a piece of.
+    /// The buffer's axes, coarsest first, each named by the dimension it is a piece of.
     pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
         StoragePartitioning::level_major(dimensions, &self.fragments(dimensions))
     }
 
-    /// The dims of a buffer storing `dimensions` as `fragments` pieces each, in cubecl's [`Tiling`]
+    /// The axes of a buffer storing `dimensions` as `fragments` pieces each, in cubecl's [`Tiling`]
     /// order: `[k, n]` stored `[k/32, n/32, 32, 32]` is `[K, N, K, N]`.
     pub(crate) fn level_major(dimensions: &[Dimension], fragments: &[usize]) -> Vec<Dimension> {
         assert_eq!(
@@ -204,7 +204,7 @@ impl StoragePartitioning {
         tiles
     }
 
-    /// The buffer storing a tensor of `extents`: its dims in [`labels`](Self::labels)' order and
+    /// The buffer storing a tensor of `extents`: its axes in [`labels`](Self::labels)' order and
     /// its [`Tiling`]. Each piece steps by the run of every piece finer than it, the coarsest piece
     /// of more than one by its [`stagger`](Self::stagger)'s pitch over that run where it has one.
     pub fn physical(&self, extents: &[(Dimension, usize)]) -> Result<Geometry, Refusal> {
@@ -250,22 +250,22 @@ impl StoragePartitioning {
             .collect();
         // `labels` names a dimension's pieces coarsest first; `pieces` lists them finest first.
         let mut taken: PieceList<bool> = SmallVec::from_elem(false, pieces.len());
-        let dims: PieceList<(usize, usize)> = self
+        let axes: PieceList<(usize, usize)> = self
             .labels(&dimensions)
             .iter()
             .map(|&dimension| {
                 let p = (0..pieces.len())
                     .rev()
                     .find(|&p| !taken[p] && pieces[p].dimension == dimension)
-                    .expect("a dimension has as many pieces as it has dims");
+                    .expect("a dimension has as many pieces as it has axes");
                 taken[p] = true;
                 (pieces[p].count, strides[p])
             })
             .collect();
-        Ok(Geometry::new(&dims).with_tiling(tiling))
+        Ok(Geometry::new(&axes).with_tiling(tiling))
     }
 
-    /// How many buffer dims each of `dimensions` is stored as: one per stated tile along it, and one for
+    /// How many buffer axes each of `dimensions` is stored as: one per stated tile along it, and one for
     /// the rest of it.
     fn fragments(&self, dimensions: &[Dimension]) -> SmallVec<[usize; Space::MAX_RANK]> {
         dimensions
@@ -449,8 +449,8 @@ mod tests {
         let dense_geometry = dense.physical(&extents).unwrap();
         let geometry = staggered.physical(&extents).unwrap();
         let mut by_stride: Vec<(usize, usize)> = dense_geometry
-            .dims()
-            .zip(geometry.dims())
+            .axes()
+            .zip(geometry.axes())
             .map(|(d, s)| (d.1, s.1))
             .collect();
         by_stride.sort();
@@ -473,13 +473,13 @@ mod tests {
         // Each K tile is 512 values, two transactions: three hold it.
         let geometry = one_strip.physical(&[(K, 4096), (N, 32)]).unwrap();
         let k_rest = geometry
-            .dims()
+            .axes()
             .find(|&(extent, _)| extent == 256)
             .expect("4096 / 16 tiles down K");
         assert_eq!(k_rest.1, 3 * 256);
     }
 
-    /// An untiled buffer states no tiles: its order is its dims by stride.
+    /// An untiled buffer states no tiles: its order is its axes by stride.
     #[test]
     fn an_untiled_buffer_is_its_order_alone() {
         let rows = Geometry::new(&[(64, 4096), (4096, 1)]);
@@ -550,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn a_k_first_grid_moves_the_strides_not_the_dims() {
+    fn a_k_first_grid_moves_the_strides_not_the_axes() {
         let storage = StorageLevels::new(&[(N, 16), (K, 32)]).grid(&[K, N]);
         let geometry = storage.physical(&[(K, 128), (N, 64)]).unwrap();
         // [k/32, n/16, 32, 16]: a tile is 512 values, the next along K 512 on, along N 4 tiles on.
@@ -579,9 +579,9 @@ mod tests {
         ));
     }
 
-    /// A tile's piece of one is kept as a dim of the buffer, and a reader is held the same either way.
+    /// A tile's piece of one is kept as an axis of the buffer, and a reader is held the same either way.
     #[test]
-    fn a_piece_of_one_is_a_dim_kept_as_stated() {
+    fn a_piece_of_one_is_an_axis_kept_as_stated() {
         let with_one = StorageLevels::new(&[(N, 4)])
             .tile(&[(N, 1), (K, 2)])
             .grid(&[N, K]);
@@ -594,18 +594,18 @@ mod tests {
         assert_eq!(without.holds(&read, &extents), Ok(()));
     }
 
-    /// The level-major order cubecl's tiling lists dims in: every dimension's coarsest piece in the
+    /// The level-major order cubecl's tiling lists axes in: every dimension's coarsest piece in the
     /// tensor's order, then the next of every dimension still split, so an untiled dimension drops out after
     /// the first level and a deeper dimension appears alone at the finest.
     #[test]
-    fn labels_name_the_dims_level_major_coarsest_first() {
+    fn labels_name_the_axes_level_major_coarsest_first() {
         let untiled = StorageLevels::new(&[]).grid(&[N, K]);
         assert_eq!(untiled.labels(&[K, N]), vec![K, N]);
         let one_level = StorageLevels::new(&[(N, 32), (K, 32)]).grid(&[N, K]);
         assert_eq!(one_level.labels(&[K, N]), vec![K, N, K, N]);
         let deeper_n = StorageLevels::new(&[(N, 4), (N, 8), (K, 32)]).grid(&[N, K]);
         assert_eq!(deeper_n.labels(&[K, N]), vec![K, N, K, N, N]);
-        // A batch dimension ahead of the tiled block is its own single dim.
+        // A batch dimension ahead of the tiled block is its own single axis.
         let batched = StorageLevels::new(&[(N, 32), (K, 32)]).grid(&[N, K, M]);
         assert_eq!(batched.labels(&[M, K, N]), vec![M, K, N, K, N]);
     }

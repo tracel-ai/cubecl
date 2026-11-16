@@ -1681,7 +1681,7 @@ fn matmul_cpu_dynamic_k() {
 ///
 /// A bare `units()` declares the split without the unit count; [`Space::resolve_units`] (the
 /// launch's stamping pass) fills it from the hardware `plane_size`, so the Unit dimension rides the
-/// warp's units on the cube's X dim.
+/// warp's units on the cube's X axis.
 #[test]
 fn register_matmul_unit_spread_n() {
     let client = cubecl::test_device().client();

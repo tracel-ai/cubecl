@@ -222,7 +222,7 @@ fn run_store(sink: bool) -> HostData {
         .dtype(dtype)
         .zeros()
         .generate_without_host_data();
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match sink {
         true => {
             let derived = launcher
@@ -238,7 +238,7 @@ fn run_store(sink: bool) -> HostData {
             store::launch::<Doubled>(
                 &client,
                 count,
-                dim,
+                axis,
                 WIDTH,
                 src.arg(),
                 Doubled::arg(operand),
@@ -256,7 +256,7 @@ fn run_store(sink: bool) -> HostData {
             store::launch::<Buffered>(
                 &client,
                 count,
-                dim,
+                axis,
                 WIDTH,
                 src.arg(),
                 Buffered::arg((bound, Write::Replace)),
@@ -350,7 +350,7 @@ fn run_contract(sink: bool) -> HostData {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     let level = launcher.partitioning().level(0);
     match sink {
         true => {
@@ -366,7 +366,7 @@ fn run_contract(sink: bool) -> HostData {
             contract::launch::<Doubled>(
                 &client,
                 count,
-                dim,
+                axis,
                 a.arg(&launcher, 1),
                 b.arg(&launcher, 1),
                 Doubled::arg(operand),
@@ -385,7 +385,7 @@ fn run_contract(sink: bool) -> HostData {
             contract::launch::<Buffered>(
                 &client,
                 count,
-                dim,
+                axis,
                 a.arg(&launcher, 1),
                 b.arg(&launcher, 1),
                 Buffered::arg((bound, Write::Replace)),
@@ -540,8 +540,8 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
     let CubeCount::Static(x, y, z) = launcher.cube_count() else {
         panic!("a static space spawns a static grid");
     };
-    let dim = launcher.cube_dim();
-    let units = (x + extra) * y * z * dim.num_elems();
+    let axis = launcher.cube_dim();
+    let units = (x + extra) * y * z * axis.num_elems();
     let input = TestInput::builder(client.clone(), shape![ROWS, COLS])
         .dtype(dtype)
         .arange()
@@ -575,7 +575,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
     store::launch::<Totaled>(
         &client,
         CubeCount::Static(x + extra, y, z),
-        dim,
+        axis,
         WIDTH,
         src.arg(),
         out,

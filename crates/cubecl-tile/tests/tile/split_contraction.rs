@@ -117,7 +117,7 @@ fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostDa
         Form::Static,
     );
 
-    // `a` is `[M, K]` and `b` is `[K, N]` in memory: one physical `K` dim each, addressed by the
+    // `a` is `[M, K]` and `b` is `[K, N]` in memory: one physical `K` axis each, addressed by the
     // two dimensions. `inside` is `KB`'s stride through it, `1` is `KI`'s.
     split_partials::launch(
         &client,

@@ -22,7 +22,7 @@ use cubecl_tile::{
 use crate::support::{TestInput, TestInputBuilder};
 
 /// A tile-shaped test input: the device buffer plus the logical [`Space`] it's
-/// viewed in. The sub-tile sizes live in the buffer's trailing dims, so the view
+/// viewed in. The sub-tile sizes live in the buffer's trailing axes, so the view
 /// reads them from there.
 pub struct TileInput {
     handle: TensorHandle,
@@ -120,7 +120,7 @@ impl TileInput {
         match self.levels {
             0 => Tiling::UNTILED,
             levels => Tiling::new(&vec![levels + 1; self.space.rank()])
-                .expect("TileInput: a tiling the buffer's dims hold"),
+                .expect("TileInput: a tiling the buffer's axes hold"),
         }
     }
 
@@ -227,8 +227,8 @@ impl TileInputBuilder {
 
     /// Build the `[grid…, level…, finest…]` device buffer, filled by `fill` (a
     /// `TestInput` finalizer like `arange`/`zeros`) in physical row-major order.
-    /// Walking coarse→fine, each level becomes one block of `rank` dims and the
-    /// leftover edge is the finest block: `(levels + 1) * rank` dims, the layout
+    /// Walking coarse→fine, each level becomes one block of `rank` axes and the
+    /// leftover edge is the finest block: `(levels + 1) * rank` axes, the layout
     /// the `tiled_view` reads back.
     fn build(self, fill: impl FnOnce(TestInputBuilder) -> TestInput) -> TileInput {
         let levels = self
@@ -257,24 +257,24 @@ impl TileInputBuilder {
                         value != 0 && edge % value == 0,
                         "TileInput: tile value {value} does not divide the current edge {edge} on dimension {i}"
                     );
-                    let (dim, next) = if is_split {
+                    let (axis, next) = if is_split {
                         (value, edge / value)
                     } else {
                         (edge / value, value)
                     };
                     current[i] = next;
-                    dim
+                    axis
                 })
                 .collect();
             blocks.push(block);
         }
         blocks.push(current);
 
-        let mut dims = Vec::with_capacity(blocks.len() * rank);
+        let mut axes = Vec::with_capacity(blocks.len() * rank);
         for block in &blocks {
-            dims.extend_from_slice(block);
+            axes.extend_from_slice(block);
         }
-        let builder = TestInput::builder(self.client, Shape::from(dims));
+        let builder = TestInput::builder(self.client, Shape::from(axes));
         TileInput::new(
             fill(builder).generate_without_host_data(),
             self.space,
@@ -327,7 +327,7 @@ impl QuantizedTileInputBuilder {
         let words = crate::support::stubs::quant::pack_q_values(&q, &self.scheme);
         let handle = self.client.create(Bytes::from_elems(words));
 
-        let block = crate::support::stubs::quant::block_dims(&self.scheme, &shape);
+        let block = crate::support::stubs::quant::block_axes(&self.scheme, &shape);
         let grid = crate::support::stubs::quant::scales_grid(&shape, &block);
         let scale_values: Vec<f32> = (0..grid.iter().product())
             .map(|g| 0.05 * (g + 1) as f32)

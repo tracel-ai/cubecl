@@ -44,14 +44,14 @@ impl TileTensorLaunch {
                  batch {batch:?} is not a matrix nor a batched one"
             ),
         };
-        let dims = (shape.batch.unwrap_or(1), shape.rows, shape.cols);
-        TmaDynLayoutLaunch::new(dims, batched, shape.transposed)
+        let axes = (shape.batch.unwrap_or(1), shape.rows, shape.cols);
+        TmaDynLayoutLaunch::new(axes, batched, shape.transposed)
     }
 }
 
 impl TileTensorLaunch {
     /// A TMA tensor map as a tile tensor over `dimensions`, `extents` along each, whose descriptor
-    /// dims are not the tile's own dimensions: each descriptor coordinate is read off a position over
+    /// axes are not the tile's own dimensions: each descriptor coordinate is read off a position over
     /// `dimensions` as `coordinates` says, as a block-split operand lands in a descriptor over the
     /// matrix it splits (its `KB` and `KI` one column).
     ///
@@ -105,7 +105,7 @@ impl TileTensorLaunch {
         );
         assert!(
             coordinates
-                .dims
+                .axes
                 .iter()
                 .flatten()
                 .all(|term| term.position < dimensions.len()),
@@ -162,15 +162,15 @@ impl TmaTerm {
     }
 }
 
-/// How a tile's position lands in a descriptor: one sum of [`TmaTerm`]s a descriptor dim,
-/// outermost first, the order the descriptor states its dims in.
+/// How a tile's position lands in a descriptor: one sum of [`TmaTerm`]s a descriptor axis,
+/// outermost first, the order the descriptor states its axes in.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TmaCoordinates {
-    pub dims: Vec<Vec<TmaTerm>>,
+    pub axes: Vec<Vec<TmaTerm>>,
 }
 
 /// In-kernel tensor-map layout landing a tile's position, over its own dimensions, in a descriptor whose
-/// dims sum them ([`TmaCoordinates`]).
+/// axes sum them ([`TmaCoordinates`]).
 #[derive(CubeType, CubeLaunch, Clone)]
 pub(crate) struct TmaFoldedLayout {
     /// The extent of each of the tile's dimensions.
@@ -190,8 +190,8 @@ impl Layout for TmaFoldedLayout {
         // Indexed: an unrolled loop walks a comptime list by its positions.
         #[allow(clippy::needless_range_loop)]
         #[unroll]
-        for d in 0..coordinates.dims.len() {
-            let terms = comptime!(coordinates.dims[d].clone());
+        for d in 0..coordinates.axes.len() {
+            let terms = comptime!(coordinates.axes[d].clone());
             let mut coordinate = 0u32;
             #[allow(clippy::needless_range_loop)]
             #[unroll]
@@ -242,7 +242,7 @@ pub enum TmaLanding {
 #[derive(CubeType, CubeLaunch, Clone)]
 pub(crate) struct TmaDynLayout {
     /// Logical `(batch, rows, cols)` of the operand.
-    dims: (u32, u32, u32),
+    axes: (u32, u32, u32),
     #[cube(comptime)]
     batched: bool,
     #[cube(comptime)]
@@ -255,7 +255,7 @@ impl Layout for TmaDynLayout {
     type SourceCoordinates = CoordsDyn;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
-        let (batch, _rows, _cols) = self.dims;
+        let (batch, _rows, _cols) = self.axes;
         let mut src = CoordsDyn::new();
         if comptime!(self.batched) {
             // A unit-batch descriptor is a broadcast: always read batch 0.
@@ -281,7 +281,7 @@ impl Layout for TmaDynLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        let (batch, rows, cols) = self.dims;
+        let (batch, rows, cols) = self.axes;
         let mut s = CoordsDyn::new();
         if comptime!(self.batched) {
             s.push(batch);

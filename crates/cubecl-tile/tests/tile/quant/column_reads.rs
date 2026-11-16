@@ -85,8 +85,8 @@ fn column_one_row_product_in_memory(
     }
 }
 
-/// Where the value at `coords` (along `dimensions`) sits in a buffer of `geometry`, its dims named
-/// `labels`, outermost first: each coordinate spread over the dims its dimension names, finest last.
+/// Where the value at `coords` (along `dimensions`) sits in a buffer of `geometry`, its axes named
+/// `labels`, outermost first: each coordinate spread over the axes its dimension names, finest last.
 pub(crate) fn offset(
     geometry: &Geometry,
     labels: &[Dimension],

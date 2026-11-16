@@ -33,7 +33,7 @@ pub enum VectorRequirement<O> {
     /// of what every operand lined with either admits alone.
     Together { operand: O, with: O },
     /// The launch binds `operand`'s buffer, whose layout is aligned to `alignment` elements along
-    /// its innermost dim: a line must read its elements and no others.
+    /// its innermost axis: a line must read its elements and no others.
     Aligned {
         operand: O,
         alignment: ElemAlignment,

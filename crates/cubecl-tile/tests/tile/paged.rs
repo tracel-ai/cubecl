@@ -871,7 +871,7 @@ fn a_covering_table_reads_each_sequence_through_it() {
 }
 
 /// What a kernel could not read through a table is refused as the table is bound: a table of
-/// another rank than its two keys, one dim for both dimensions, pages along the innermost dim, a pool of
+/// another rank than its two keys, one axis for both dimensions, pages along the innermost axis, a pool of
 /// no pages, and a delivery that moves
 /// runs.
 #[test]
@@ -937,7 +937,7 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
     let a = pool([POOL, 3, 4]);
     assert_eq!(
         refusal(a.binding(), &[B, S, F], (S, S), 1),
-        Some(Refusal::PagingOfOneDim(S))
+        Some(Refusal::PagingOfOneAxis(S))
     );
     let b = pool([POOL, 3, 4]);
     assert_eq!(
@@ -951,7 +951,7 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
     );
 }
 
-/// The pool is bound as it lies, so where its pages sit among its dims is no matter: pages inner
+/// The pool is bound as it lies, so where its pages sit among its axes is no matter: pages inner
 /// to a head dim, and a head dim of one whose stride is anything, as an `unsqueeze` leaves it.
 #[test]
 fn a_paged_pool_binds_wherever_its_pages_lie() {
@@ -1171,7 +1171,7 @@ fn check_packed_paged(pools: PagedPools) {
     }
 }
 
-/// A packed pool is paged like a plain one: its words lie along the features, the innermost dim,
+/// A packed pool is paged like a plain one: its words lie along the features, the innermost axis,
 /// across no page, so the table resolves them as it does a plain pool's lines.
 #[test]
 fn a_packed_pool_reads_each_sequence_through_its_table() {

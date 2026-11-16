@@ -6,12 +6,12 @@ use crate::{Dimension, Geometry, Launcher, PhysicalAxisMap, Projection, Refusal,
 
 /// The labelled reading of a buffer, as a [`Projection`] and the settled geometry.
 pub(crate) struct Labels {
-    /// The buffer less its dropped dims, its tiling restated over the dims it keeps: a tiling
-    /// counts pieces from the leading dim, so one counted off a dropped dim claims a layout the
+    /// The buffer less its dropped axes, its tiling restated over the axes it keeps: a tiling
+    /// counts pieces from the leading axis, so one counted off a dropped axis claims a layout the
     /// buffer lacks.
     pub(crate) geometry: Geometry,
     pub(crate) projection: Projection,
-    /// Every dimension the buffer carries, before broadcast dims dropped.
+    /// Every dimension the buffer carries, before broadcast axes dropped.
     pub(crate) addressed: Vec<Dimension>,
 }
 
@@ -29,14 +29,14 @@ impl Labels {
                 block: block.len(),
             });
         }
-        let batch_dims = rank - block.len();
-        if batch_dims > batches.len() {
-            return Err(Refusal::UnlabelledBatchDims {
-                dims: batch_dims,
+        let batch_axes = rank - block.len();
+        if batch_axes > batches.len() {
+            return Err(Refusal::UnlabelledBatchAxes {
+                axes: batch_axes,
                 dimensions: batches.len(),
             });
         }
-        let addressed: Vec<Dimension> = batches[batches.len() - batch_dims..]
+        let addressed: Vec<Dimension> = batches[batches.len() - batch_axes..]
             .iter()
             .chain(&block)
             .copied()
@@ -44,8 +44,8 @@ impl Labels {
 
         let mut maps: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]> = SmallVec::new();
         let mut logical: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
-        let mut dims: SmallVec<[(usize, usize); Space::MAX_RANK]> = SmallVec::new();
-        for (&dimension, (extent, stride)) in addressed.iter().zip(geometry.dims()) {
+        let mut axes: SmallVec<[(usize, usize); Space::MAX_RANK]> = SmallVec::new();
+        for (&dimension, (extent, stride)) in addressed.iter().zip(geometry.axes()) {
             // A labelled dimension never drops out: the tile is shaped over it.
             if batches.contains(&dimension) && extent == 1 && !dimensions.contains(&dimension) {
                 continue;
@@ -54,21 +54,21 @@ impl Labels {
             if !logical.contains(&dimension) {
                 logical.push(dimension);
             }
-            dims.push((extent, stride));
+            axes.push((extent, stride));
         }
-        // The batch dims kept, one piece each, then each labelled dimension's pieces.
+        // The batch axes kept, one piece each, then each labelled dimension's pieces.
         let pieces = dimensions
             .iter()
             .map(|&dimension| block.iter().filter(|&&a| a == dimension).count());
-        let fragments: Vec<usize> = core::iter::repeat_n(1, dims.len() - block.len())
+        let fragments: Vec<usize> = core::iter::repeat_n(1, axes.len() - block.len())
             .chain(pieces)
             .collect();
         let tiling = match geometry.tiling().is_tiled() {
-            true => Tiling::new(&fragments).expect("the binding's own tiling, less plain dims"),
+            true => Tiling::new(&fragments).expect("the binding's own tiling, less plain axes"),
             false => Tiling::UNTILED,
         };
         Ok(Labels {
-            geometry: Geometry::new(&dims).with_tiling(tiling),
+            geometry: Geometry::new(&axes).with_tiling(tiling),
             projection: Projection::of_maps(&logical, maps),
             addressed,
         })

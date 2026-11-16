@@ -127,7 +127,7 @@ pub(crate) enum Composition {
     Overlapping,
 }
 
-/// One buffer dim as `(Σ coordinate(dimension) * scale + offset) / divisor`, floored.
+/// One buffer axis as `(Σ coordinate(dimension) * scale + offset) / divisor`, floored.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PhysicalAxisMap {
     terms: SmallVec<[DimensionTerm; Space::MAX_RANK]>,
@@ -407,10 +407,10 @@ impl PhysicalAxisMap {
         }
     }
 
-    /// The dimensions this buffer dim is made of, when it is one index over several dimensions laid end to
+    /// The dimensions this buffer axis is made of, when it is one index over several dimensions laid end to
     /// end, like `K = KB·16 + KI` over `KI` and `KB`. Listed finest first: the finest at scale
     /// `1`, each next one at the product of the extents before it, no offset, no division. Such a
-    /// dim stays in the buffer whenever each of its dimensions stays in its extent. A single dimension at
+    /// axis stays in the buffer whenever each of its dimensions stays in its extent. A single dimension at
     /// scale `1` is the simplest case ([`identity_dimension`](Self::identity_dimension)). `None` for any
     /// other map, or when a dimension other than the last has no comptime extent in `space`.
     pub(crate) fn flattened_dimensions(

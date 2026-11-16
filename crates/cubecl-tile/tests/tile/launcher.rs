@@ -197,7 +197,7 @@ fn any_extent_checks_what_some_extent_could_overhang() {
     assert_eq!(bound(18, None), [None, Some(Boundary::Zero)]);
 }
 
-/// A storage-tiled operand is addressed by fewer coordinates than its buffer has dims, and the
+/// A storage-tiled operand is addressed by fewer coordinates than its buffer has axes, and the
 /// boundary list follows the coordinates: sized off the physical rank it would land its per-dimension
 /// modes on the grid fragments, which no [`Window`] ever reads.
 #[test]
@@ -209,7 +209,7 @@ fn arg_sizes_boundaries_by_coordinate_rank_under_storage_tiling() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // 2 coordinate dimensions (M, K), tiled into 4 physical buffer dims: 8*8 = 64 and 5*4 = 20, the
+    // 2 coordinate dimensions (M, K), tiled into 4 physical buffer axes: 8*8 = 64 and 5*4 = 20, the
     // buffer padded to whole blocks of the leaf's own (8, 4).
     let mut tiled = binding(&client, &[8, 5, 8, 4]);
     tiled.tiling = Tiling::new(&[2, 2]).unwrap();
@@ -238,7 +238,7 @@ fn arg_reads_the_storage_tiling_off_the_binding() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // The buffer says for itself that both its dims are stored two fragments deep.
+    // The buffer says for itself that both its axes are stored two fragments deep.
     let mut tiled = binding(&client, &[8, 2, 8, 4]);
     tiled.tiling = Tiling::new(&[2, 2]).unwrap();
     let off_the_tensor = launch
@@ -424,11 +424,11 @@ fn arg_reads_a_storage_tile_that_is_no_level_through_its_layout() {
     assert_eq!(arg.spec.storage, Storage::Tiled(None));
 }
 
-/// A batch dim ahead of the tiled block: the metadata describes every logical dim, the operand's
-/// subspace only the inner two, and the leading one carries through as a plain batch dim that
+/// A batch axis ahead of the tiled block: the metadata describes every logical axis, the operand's
+/// subspace only the inner two, and the leading one carries through as a plain batch axis that
 /// the block is not matched on.
 #[test]
-fn arg_reads_a_tiling_stated_over_batch_dims_too() {
+fn arg_reads_a_tiling_stated_over_batch_axes_too() {
     let client = cubecl::test_device().client();
     let launch = {
         let (space, levels) = batched_space(3, 1, 64, 64, 18);
@@ -457,7 +457,7 @@ fn arg_right_aligns_batches_and_drops_size_one() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // One leading dim: right-aligns to B1 (the trailing dimension of the full list).
+    // One leading axis: right-aligns to B1 (the trailing dimension of the full list).
     let one_batch = launch
         .arg(binding(&client, &[3, 64, 16]), f32::elem_type_native())
         .dimensions(&[M, K])
@@ -467,7 +467,7 @@ fn arg_right_aligns_batches_and_drops_size_one() {
     assert!(one_batch.spec.dimensions().contains(&B1));
     assert!(!one_batch.spec.dimensions().contains(&B0));
 
-    // A size-1 dim drops out entirely (broadcast omission).
+    // A size-1 axis drops out entirely (broadcast omission).
     let broadcast = launch
         .arg(binding(&client, &[1, 64, 16]), f32::elem_type_native())
         .dimensions(&[M, K])
@@ -546,7 +546,7 @@ fn spec_tunes_what_a_bound_operand_tunes() {
 /// re-deriving it at the call site is the drift `build_spec` removes. No batch dimensions are stated, so
 /// nothing is dropped, yet the caller reads the settled pair rather than trusting the stated one.
 ///
-/// See [`spec_settles_a_broadcast_batch_dim_away`] for the case where the two differ.
+/// See [`spec_settles_a_broadcast_batch_axis_away`] for the case where the two differ.
 #[test]
 fn spec_returns_the_geometry_it_settled_on() {
     let client = cubecl::test_device().client();
@@ -570,11 +570,11 @@ fn spec_returns_the_geometry_it_settled_on() {
     );
 }
 
-/// A leading broadcast dim is refused, not silently dropped. `geometry` labels the operand's
-/// own dimensions and no batches are stated, so a dim past them has no dimension to belong to and the
+/// A leading broadcast axis is refused, not silently dropped. `geometry` labels the operand's
+/// own dimensions and no batches are stated, so an axis past them has no dimension to belong to and the
 /// derivation that *would* drop it never runs; the rank fails at launch, not as a misplaced store.
 #[test]
-fn spec_refuses_a_dim_it_cannot_label() {
+fn spec_refuses_an_axis_it_cannot_label() {
     let client = cubecl::test_device().client();
     let launch = {
         let (space, levels) = batched_space(1, 1, 64, 64, 16);
@@ -590,27 +590,27 @@ fn spec_refuses_a_dim_it_cannot_label() {
     assert!(
         matches!(
             refused,
-            Some(Refusal::UnlabelledBatchDims { dimensions: 0, .. })
+            Some(Refusal::UnlabelledBatchAxes { dimensions: 0, .. })
         ),
         "{refused:?}"
     );
 }
 
-/// A broadcast batch dim is dropped from the geometry that comes back, which is the case the
+/// A broadcast batch axis is dropped from the geometry that comes back, which is the case the
 /// stated and the settled pair actually part company over.
 ///
 /// [`batches`](cubecl_tile::StridedTileSource::batches) right-aligns above the operand's own dimensions
-/// as for a bound operand, and a size-one batch dim drops out. A caller handing [`Tile::of_sink`]
+/// as for a bound operand, and a size-one batch axis drops out. A caller handing [`Tile::of_sink`]
 /// the *stated* geometry would address a rank the projection lost; the settled one is returned.
 #[test]
-fn spec_settles_a_broadcast_batch_dim_away() {
+fn spec_settles_a_broadcast_batch_axis_away() {
     let client = cubecl::test_device().client();
     let launch = {
         let (space, levels) = batched_space(4, 3, 64, 64, 16);
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // Three dims stated, the leading one broadcast over B1.
+    // Three axes stated, the leading one broadcast over B1.
     let derived = launch
         .unbound(&Geometry::new(&[(1, 1024), (64, 16), (16, 1)]))
         .dimensions(&[M, K])
@@ -657,8 +657,8 @@ fn spec_refuses_a_width_the_geometry_cannot_serve() {
 // ---- StridedTileSource::gathered -------------------------------------------
 
 /// A convolution-shaped input over `batched_space`: output positions `M` at `stride` and taps `K`
-/// at `dilation` share one physical dim, channels `N` ride the other. Three dimensions over a
-/// rank-2 buffer, which no list of dim labels describes.
+/// at `dilation` share one physical axis, channels `N` ride the other. Three dimensions over a
+/// rank-2 buffer, which no list of axis labels describes.
 fn window(stride: usize, dilation: usize, offset: impl Into<Offset>) -> Projection {
     Projection::new(
         &[M, K, N],
@@ -669,7 +669,7 @@ fn window(stride: usize, dilation: usize, offset: impl Into<Offset>) -> Projecti
     )
 }
 
-/// The mapping reaches the spec as given: the buffer keeps its two dims and the tile spans the
+/// The mapping reaches the spec as given: the buffer keeps its two axes and the tile spans the
 /// three dimensions, in the projection's own order.
 #[test]
 fn arg_gathered_states_its_own_mapping() {
@@ -697,7 +697,7 @@ fn arg_gathered_states_its_own_mapping() {
 }
 
 /// An overhanging dimension arms the check through the affine map just as it does through a label: the
-/// tap dimension `K` is one of the two the gathered dim is addressed by.
+/// tap dimension `K` is one of the two the gathered axis is addressed by.
 #[test]
 fn arg_gathered_derives_check_from_overhang() {
     let client = cubecl::test_device().client();
@@ -776,7 +776,7 @@ fn arg_gathered_derives_check_from_underflow() {
     assert!(shifted.spec.boundaries.is_empty());
 }
 
-/// One map per buffer dim: a mapping that addresses fewer dims than the operand has would read
+/// One map per buffer axis: a mapping that addresses fewer axes than the operand has would read
 /// every coarser stride as if it were the operand's own.
 #[test]
 fn arg_gathered_rank_mismatch_is_refused() {
@@ -804,9 +804,9 @@ fn arg_gathered_rank_mismatch_is_refused() {
 }
 
 /// The gather contract runs on the caller's thread now that the builder knows the served width:
-/// the innermost dim is addressed in lines, so it must be one dimension at coefficient 1.
+/// the innermost axis is addressed in lines, so it must be one dimension at coefficient 1.
 #[test]
-fn arg_gathered_validates_the_innermost_dim() {
+fn arg_gathered_validates_the_innermost_axis() {
     let client = cubecl::test_device().client();
     let launch = {
         let (space, levels) = batched_space(1, 1, 64, 64, 16);
@@ -835,13 +835,13 @@ fn arg_gathered_validates_the_innermost_dim() {
     );
 }
 
-/// A dimension sharing its dim with another has no extent of its own to read back here, but the
+/// A dimension sharing its axis with another has no extent of its own to read back here, but the
 /// operand may ride it [`Dynamic`] anyway: whoever maps it identically states its size when the op
 /// walks it. The builder sees one operand; `witnessed_space` flags an unanswered dimension at expansion.
 #[test]
 fn arg_gathered_dynamic_dimension_is_accepted() {
     let client = cubecl::test_device().client();
-    // `K` shares the gathered dim with `M`, so neither reads an extent off *this* operand.
+    // `K` shares the gathered axis with `M`, so neither reads an extent off *this* operand.
     let launch = {
         let (space, levels) = batched_space(1, 1, 64, 64, 16);
         implied(
@@ -858,7 +858,7 @@ fn arg_gathered_dynamic_dimension_is_accepted() {
 }
 
 /// The dimension a gather does identity-map still reads its own extent, so it is free to stay runtime
-/// alongside the two that share a dim.
+/// alongside the two that share an axis.
 #[test]
 fn arg_gathered_identity_dimension_may_stay_dynamic() {
     let client = cubecl::test_device().client();
@@ -1017,7 +1017,7 @@ fn vector_size_picks_widest_qualifying_line() {
         let (space, levels) = batched_space(1, 1, 64, 64, 16);
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
-    // Off real bindings, not hand-written dims: the strides are the allocator's, so a pitched
+    // Off real bindings, not hand-written axes: the strides are the allocator's, so a pitched
     // one that padded a row is what the gate sees.
     let rhs = Geometry::from(&binding(&client, &[16, 64]));
     let out = Geometry::from(&binding(&client, &[64, 64]));
@@ -1120,11 +1120,11 @@ fn arg_vectorized_over_a_clamp_or_any_extent_is_refused() {
     }
 }
 
-/// A contiguous dim the launch counts in blocks and a position inside one is in bounds as a single
+/// A contiguous axis the launch counts in blocks and a position inside one is in bounds as a single
 /// dimension would be: where only the rows overhang, it takes lines wider than one and no mask, and
 /// the rows take the mask.
 #[test]
-fn arg_vectorized_along_a_blocked_dim_with_overhanging_rows_succeeds() {
+fn arg_vectorized_along_a_blocked_axis_with_overhanging_rows_succeeds() {
     let client = cubecl::test_device().client();
     const KB: Dimension = Dimension(3);
     const KI: Dimension = Dimension(4);
@@ -1240,7 +1240,7 @@ fn arg_gathered_clamp_vectorized_exemption() {
 }
 
 #[test]
-#[should_panic(expected = "innermost dim")]
+#[should_panic(expected = "innermost axis")]
 fn vector_size_dimension_must_label_innermost() {
     let client = cubecl::test_device().client();
     let launch = {
@@ -1248,7 +1248,7 @@ fn vector_size_dimension_must_label_innermost() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
     let lhs = binding(&client, &[64, 16]);
-    // lhs's innermost dim is K, not N: asking for N-lines over it is a labeling bug.
+    // lhs's innermost axis is K, not N: asking for N-lines over it is a labeling bug.
     let _ = launch.vector_size(N, &[(&Geometry::from(&lhs), &[M, K])], size_of::<f32>());
 }
 
@@ -1266,7 +1266,7 @@ fn arg_more_batch_dims_than_dimensions_is_refused() {
         .build()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::UnlabelledBatchDims { .. })),
+        matches!(refused, Some(Refusal::UnlabelledBatchAxes { .. })),
         "{refused:?}"
     );
 }

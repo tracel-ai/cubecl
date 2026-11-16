@@ -85,7 +85,7 @@ fn assert_cells(got: &HostData, want: &[Vec<f32>], what: &str) {
     }
 }
 
-/// A `u32` table of `entries` over `keys`, one dim each, shaped `shape`.
+/// A `u32` table of `entries` over `keys`, one axis each, shaped `shape`.
 fn table(client: &Client, entries: &[u32], shape: Shape, keys: &[Dimension]) -> TileTensorLaunch {
     let handle = TestInput::builder(client.clone(), shape)
         .dtype(u32::elem_type_native())
@@ -240,13 +240,13 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
         .indexed(routes, Indexing::Coordinate(EXPERT))
         .unwrap();
     let o = f32_arg(out.clone(), TileSpec::direct(&[M, N]));
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     let level = launcher.partitioning().level(0);
     match reading {
         Reading::InPlace => indexed_matmul_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             x,
             w,
             o,
@@ -256,7 +256,7 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
         Reading::Staged => indexed_staged_matmul_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             x,
             w,
             o,
@@ -266,7 +266,7 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
         Reading::Walking => indexed_walking_matmul_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             x,
             w,
             o,
@@ -537,7 +537,7 @@ fn packed_values() -> Vec<f32> {
 }
 
 /// How the packed rows lie: each row's features together, or each feature's rows together, the
-/// rows along the innermost dim, as a transposed operand reads them.
+/// rows along the innermost axis, as a transposed operand reads them.
 #[derive(Clone, Copy, Debug)]
 enum Rows {
     Lined,
@@ -594,7 +594,7 @@ fn run_ragged(ends: &[u32], rows: Rows, read: BlockRead) -> HostData {
         )
         .unwrap();
     let total = f32_arg(out.clone(), TileSpec::direct(&[G, D]));
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     let (group, block) = (
         launcher.partitioning().level(0),
         launcher.partitioning().level(1),
@@ -603,7 +603,7 @@ fn run_ragged(ends: &[u32], rows: Rows, read: BlockRead) -> HostData {
         BlockRead::InPlace => indexed_ragged_sum_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             packed,
             total,
             launcher.partitioning_arg(),
@@ -614,7 +614,7 @@ fn run_ragged(ends: &[u32], rows: Rows, read: BlockRead) -> HostData {
         BlockRead::Staged(depth) => indexed_staged_ragged_sum_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             packed,
             total,
             launcher.partitioning_arg(),
@@ -671,10 +671,10 @@ fn a_ragged_operand_sums_each_group_over_its_own_rows() {
     }
 }
 
-/// The rows along the innermost dim, read one value a line: a run placed there is an element
+/// The rows along the innermost axis, read one value a line: a run placed there is an element
 /// offset like any other, as a transposed operand's rows are.
 #[test]
-fn a_ragged_operand_runs_along_its_innermost_dim() {
+fn a_ragged_operand_runs_along_its_innermost_axis() {
     let ends = [2u32, 2, 7, 10];
     assert_ragged(
         &run_ragged(&ends, Rows::Transposed, BlockRead::InPlace),
@@ -905,11 +905,11 @@ mod refused {
     }
 
     #[test]
-    fn a_table_of_more_dims_than_keys() {
+    fn a_table_of_more_axes_than_keys() {
         let client = cubecl::test_device().client();
-        let two_dims = table(&client, &[0; ROWS], Shape::new([2, 2]), &[M]);
+        let two_axes = table(&client, &[0; ROWS], Shape::new([2, 2]), &[M]);
         assert_eq!(
-            refusal(two_dims, Indexing::Coordinate(EXPERT)),
+            refusal(two_axes, Indexing::Coordinate(EXPERT)),
             Refusal::IndexTableRank { keys: 1, rank: 2 }
         );
     }

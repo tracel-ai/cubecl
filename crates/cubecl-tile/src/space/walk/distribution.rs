@@ -21,8 +21,8 @@ pub(crate) enum DimensionDistribution {
 pub(crate) struct Distribution {
     /// The scope whose instances take the tiles.
     pub(crate) scope: ComputeScope,
-    /// The grid dimension a cube level's dimension rides.
-    pub(crate) dim: Option<CubeAxis>,
+    /// The grid axis a cube level's dimension rides.
+    pub(crate) cube_axis: Option<CubeAxis>,
     pub(crate) spread: Spread,
     /// Who the dimension's tiles are dealt to.
     pub(crate) workers: Workers,
@@ -65,17 +65,17 @@ impl DimensionDistribution {
         if !level.distributes(dimension) {
             return DimensionDistribution::Walked;
         }
-        let dim = level.cube_axis(dimension);
+        let cube_axis = level.cube_axis(dimension);
         let same_dim = |q: usize| {
             let other = space.dimension_at(q);
-            level.distributes(other) && level.cube_axis(other) == dim
+            level.distributes(other) && level.cube_axis(other) == cube_axis
         };
         DimensionDistribution::Distributed(Distribution {
             scope: level
                 .coverage()
                 .scope()
                 .expect("a level that distributes a dimension distributes it over a scope"),
-            dim,
+            cube_axis,
             spread: level.cut(dimension).spread,
             workers: match level.cut(dimension).count {
                 Count::AllAcross(workers) => Workers::Across(workers),
@@ -117,13 +117,13 @@ impl DimensionDistribution {
     /// The instance counts of same-dimension dimensions inside `dimension` that `space` does not span.
     /// Panics where such a dimension has no comptime count.
     pub(crate) fn unspanned_weight(level: &Level, space: &Space, dimension: Dimension) -> usize {
-        let dim = level.cube_axis(dimension);
+        let cube_axis = level.cube_axis(dimension);
         level
             .dimensions()
             .iter()
             .skip_while(|&&a| a != dimension)
             .skip(1)
-            .filter(|&&a| !space.contains(a) && level.distributes(a) && level.cube_axis(a) == dim)
+            .filter(|&&a| !space.contains(a) && level.distributes(a) && level.cube_axis(a) == cube_axis)
             .map(|&a| {
                 level.cut(a).count.stated().unwrap_or_else(|| {
                     panic!(
@@ -201,11 +201,11 @@ impl DimensionDistribution {
     /// The raw hardware position of the instances this distribution hands tiles to.
     pub(crate) fn hardware(
         #[comptime] compute_scope: ComputeScope,
-        #[comptime] dim: Option<CubeAxis>,
+        #[comptime] cube_axis: Option<CubeAxis>,
     ) -> usize {
         match compute_scope {
             ComputeScope::Cube => CubeAxis::position(
-                dim.expect("a cube level's distributed dimension rides a grid dimension"),
+                cube_axis.expect("a cube level's distributed dimension rides a grid axis"),
             ),
             ComputeScope::Plane | ComputeScope::PlaneGroup { .. } | ComputeScope::Unit => {
                 ComputeScope::position(compute_scope)

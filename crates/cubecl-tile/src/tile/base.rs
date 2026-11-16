@@ -692,7 +692,7 @@ impl Tile {
                      gathers over it, or splits it across storage fragments); ask an operand that \
                      witnesses it"
                 ))
-                .dim()
+                .axis()
         );
         let raw = match &self.kind {
             TileKind::Memory(g) => g.walked_bound(p).cast::<usize>(),

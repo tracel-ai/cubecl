@@ -1,6 +1,6 @@
 //! A pool of fixed-size pages read as sequences: [`Paging`] states it, [`PageTable`] resolves it.
 //!
-//! The buffer is a pool whose `sequence` dim holds pages and whose `position` dim a page's
+//! The buffer is a pool whose `sequence` axis holds pages and whose `position` axis a page's
 //! positions. An operand bound over it is read as the sequences a table names: sequence `b`'s
 //! position `s` lies in page `table[b, s / page_size]`, at row `s % page_size`. The projection stays
 //! direct over the logical `[…, sequence, …, position, …]` dimensions, so every window, walk and bound

@@ -64,14 +64,14 @@ impl GlobalOperand {
             "GlobalOperand::paged: the spec states no paging for the table to resolve"
         )));
         let projection = spec.projection.clone();
-        let (sequence_dim, _) = comptime!(
+        let (sequence_axis, _) = comptime!(
             paging
-                .dims(&projection)
+                .axes(&projection)
                 .unwrap_or_else(|refusal| panic!("GlobalOperand::paged: {refusal}"))
         );
         let table = PageTable::new(
             table,
-            tensor.shape(sequence_dim) as u32,
+            tensor.shape(sequence_axis) as u32,
             paging,
             &projection,
             tensor.vector_size(),
@@ -222,7 +222,7 @@ impl GlobalOperand {
 #[cube]
 impl Memory {
     /// The memory tile a launched operand becomes, its top window boxed over the physical axes.
-    // The unrolled loop over the buffer's dims indexes a compile-time list by the dim.
+    // The unrolled loop over the buffer's axes indexes a compile-time list by the axis.
     #[allow(clippy::needless_range_loop)]
     pub(crate) fn global(operand: GlobalOperand) -> Memory {
         let backing = operand.backing;
@@ -240,12 +240,12 @@ impl Memory {
         let coords = projection.untiled();
         let packing = spec.packing;
         let vector_size = packing.served(bound_width);
-        let dims_given = geometry.shape.len();
+        let axes_given = geometry.shape.len();
         let coefficients_given = coefficients.len();
         let offsets_given = offsets.len();
         comptime!(assert!(
-            dims_given == projection.physical_rank(),
-            "GlobalOperand: the projection addresses {} physical dims but {dims_given} were given",
+            axes_given == projection.physical_rank(),
+            "GlobalOperand: the projection addresses {} physical axes but {axes_given} were given",
             projection.physical_rank()
         ));
         comptime!(assert!(
@@ -267,8 +267,8 @@ impl Memory {
         ));
         // Gathered buffers have fewer physical axes than logical; storage-tiled ones have more.
         let rank = projection.physical_rank();
-        // The buffer read in loads: each dim's extent over what one load covers of it, every
-        // stride counted in loads. A plain buffer's innermost dim counts lines one line apart and
+        // The buffer read in loads: each axis's extent over what one load covers of it, every
+        // stride counted in loads. A plain buffer's innermost axis counts lines one line apart and
         // the coarser strides divide by the width; a stored tile a load takes whole is one.
         let load = comptime!(
             VectorTile::new(
