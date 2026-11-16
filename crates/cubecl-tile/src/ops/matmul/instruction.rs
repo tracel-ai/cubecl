@@ -10,7 +10,7 @@ use cubecl::quant::scheme::QuantValue;
 
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
-use crate::{ComputeScope, MmaIo, SoftwareMatmul};
+use crate::{ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
 
 /// What one plane contracts through: a software matmul or a hardware fragment form.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -28,6 +28,21 @@ pub enum Instruction {
 }
 
 impl Instruction {
+    /// This instruction with its `B` reading its rows in `keys` order: a manual-mma one's
+    /// ([`MmaIo::rhs_keys`]); any other reads them as they lie.
+    pub(crate) fn reading_keys(self, keys: KeyOrder) -> Self {
+        match self {
+            Self::Mma { io, operands } => Self::Mma {
+                io: MmaIo {
+                    rhs_keys: keys,
+                    ..io
+                },
+                operands,
+            },
+            other => other,
+        }
+    }
+
     /// Whether a sum this instruction contracts is scaled where it is held: a register block's
     /// cells and a manual-mma fragment's are each unit's own registers. A cmma fragment hides
     /// which unit holds a cell, so it is scaled only through a round trip in shared memory, and a
