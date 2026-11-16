@@ -21,6 +21,7 @@ impl TestService {
             }
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..black_box(count) {
             let index = i % DATA_SIZE;
             let value = data[index];
