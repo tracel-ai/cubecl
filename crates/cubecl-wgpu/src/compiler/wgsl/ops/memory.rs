@@ -60,6 +60,9 @@ impl LowerOp for DeclareVariableOp {
 wgsl_op_with_out!(IndexOp; |op, ctx| {
     format!("&(*{})[{}]", op.base(ctx).name(ctx), op.index(ctx).name(ctx))
 });
+wgsl_op_with_out!(StructFieldOp; |op, ctx| {
+    format!("&(*{})._{}", op.base(ctx).name(ctx), op.field(ctx).0)
+});
 
 wgsl_op_with_out!(LoadOp; |op, ctx| format!("*{}", op.ptr(ctx).name(ctx)));
 wgsl_op!(StoreOp, |op, ctx| {

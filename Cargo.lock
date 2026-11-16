@@ -1416,7 +1416,6 @@ name = "cubecl-opt"
 version = "0.12.0-pre.2"
 dependencies = [
  "cubecl-common",
- "cubecl-core",
  "cubecl-environment",
  "cubecl-ir",
  "derive-new",
@@ -1439,7 +1438,6 @@ dependencies = [
 name = "cubecl-runtime"
 version = "0.12.0-pre.2"
 dependencies = [
- "buildid",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -1607,7 +1605,6 @@ dependencies = [
 name = "cubecl-zspace"
 version = "0.12.0-pre.2"
 dependencies = [
- "derive-new",
  "serde",
  "smallvec",
 ]

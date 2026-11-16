@@ -30,8 +30,8 @@ pub(crate) enum CacheEntry {
         fastest_index: usize,
     },
     Pending,
-    /// A `CompileOnly` override queued the kernels of the key's candidates on `services` and
-    /// decided nothing: a miss to anything that tunes, and done to the next `CompileOnly` override
+    /// A `CompileOnly` override or another key's compile pass queued the kernels of the key's
+    /// candidates on `services` and decided nothing: a miss to anything that tunes, and done to the next `CompileOnly` override
     /// on one of `services`. Never persisted. `registration` is the key's tune as the override that
     /// gathered it first registered it, settled once its pick commits; `None` when it registered
     /// none. Replacing the entry other than through [`TuneCache::mark_pending`] or
@@ -150,8 +150,8 @@ pub enum TuneCacheResult {
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job. A card a tune found lost answers this for every key it has not settled.
     Pending,
-    /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override queued the kernels of
-    /// the key's candidates, and measured and decided nothing. Callers run the first candidate that
+    /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override or another key's
+    /// compile pass queued the kernels of the key's candidates, and measured and decided nothing. Callers run the first candidate that
     /// serves the problem, which only queues its kernels too.
     Compiled,
     /// No operation is found yet.

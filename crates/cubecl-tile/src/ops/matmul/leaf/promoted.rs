@@ -82,6 +82,9 @@ impl RegisterData {
         let unroll = comptime!(mr * nr * self.vector_size <= config.budget);
         let component_fanout = config.component_fanout;
 
+        // Every value this block reads is read under its factor, so an `e2m1` operand is read
+        // placed, its lift carried by the factor: one multiply a scale, not one a value.
+        let (lhs, rhs) = (lhs.placed(), rhs.placed());
         let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, 0usize);
         let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, 0usize);
         let lhs_scales = lhs.reader(

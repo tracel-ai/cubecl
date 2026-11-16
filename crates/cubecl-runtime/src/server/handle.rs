@@ -7,7 +7,7 @@ use crate::{
     memory_management::{
         ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId, WeakMemoryBinding,
     },
-    server::{CopyDescriptor, Server, ServerError, TensorMapBinding},
+    server::{CopyDescriptor, PeerAccess, Server, ServerError, TensorMapBinding},
 };
 
 /// How two handles' bytes relate.
@@ -308,18 +308,28 @@ pub struct PeerBinding {
     binding: BufferBinding,
     /// The device address of the bound bytes, offsets applied.
     address: u64,
+    required_access: PeerAccess,
 }
 
 impl PeerBinding {
     /// `binding` at the address its owner shared, or `None` when it was
     /// never shared, or the shared memory is not the memory it names.
-    pub fn new(binding: BufferBinding) -> Option<Self> {
+    pub fn new(binding: BufferBinding, required_access: PeerAccess) -> Option<Self> {
         let peer = binding.peer.as_ref()?;
         if !peer.names(&binding) {
             return None;
         }
         let address = peer.address() + binding.offset_start.unwrap_or(0);
-        Some(Self { binding, address })
+        Some(Self {
+            binding,
+            address,
+            required_access,
+        })
+    }
+
+    /// Access required by the kernel parameter's declared element type.
+    pub fn required_access(&self) -> PeerAccess {
+        self.required_access
     }
 
     /// The buffer on its own device.

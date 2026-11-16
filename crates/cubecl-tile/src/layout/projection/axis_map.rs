@@ -312,16 +312,21 @@ impl PhysicalAxisMap {
         self.divisor
     }
 
+    /// Whether stepping term `term` is an addition: its axis is not kept inside a floor.
+    pub(crate) fn steps_by_add(&self, term: usize) -> bool {
+        !self.is_rational() || self.static_offset_step(term).is_some()
+    }
+
     /// Term `term`'s static additive step, `None` if dynamic; panics for one kept inside a floor.
     pub(crate) fn additive_step(&self, term: usize) -> Option<isize> {
+        assert!(
+            self.steps_by_add(term),
+            "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping it is \
+             not an addition and the map has to be summed at every position",
+            self.terms()[term].axis
+        );
         if self.is_rational() {
-            return Some(self.static_offset_step(term).unwrap_or_else(|| {
-                panic!(
-                    "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping \
-                     it is not an addition and the map has to be summed at every position",
-                    self.terms()[term].axis
-                )
-            }) as isize);
+            return self.static_offset_step(term).map(|step| step as isize);
         }
         match self.terms()[term].scale {
             Scale::Static(s) => Some(s),

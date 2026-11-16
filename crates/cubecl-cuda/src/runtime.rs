@@ -46,6 +46,7 @@ use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
     runtime::{DeviceDescription, DeviceKind, Runtime},
+    server::DeviceTransport,
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
@@ -470,8 +471,11 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        utilities.device_transport = Nccl::new(arch_version)
-            .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
+        utilities.device_transport = DeviceTransport::configured(|| {
+            Nccl::new(arch_version).map(|nccl| {
+                nccl.transport(utilities.properties.features.types.elem.keys().copied())
+            })
+        });
 
         CudaServer::new(
             cuda_ctx,

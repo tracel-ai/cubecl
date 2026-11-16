@@ -6,7 +6,8 @@ use crate::{
     unexpanded,
 };
 use core::marker::PhantomData;
-use cubecl_runtime::server::Handle;
+use cubecl_ir::interfaces::TypedExt;
+use cubecl_runtime::server::{Handle, PeerAccess};
 use serde::{Deserialize, Serialize};
 
 /// A buffer in memory a client [shared with its peers](cubecl_runtime::client::Client::share_with_peers),
@@ -88,8 +89,15 @@ impl<C: CubePrimitive> LaunchArg for Peer<[C]> {
     type CompilationArg = PeerCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
-        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
-        launcher.register_peer(arg, elem_size);
+        let (elem_size, required_access) = launcher.with_scope(|scope| {
+            let required_access = if C::__expand_as_type(scope).is_atomic(scope.ctx()) {
+                PeerAccess::MemoryAndAtomics
+            } else {
+                PeerAccess::Memory
+            };
+            (C::__expand_size(scope), required_access)
+        });
+        launcher.register_peer(arg, elem_size, required_access);
         PeerCompilationArg
     }
 

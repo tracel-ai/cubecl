@@ -296,6 +296,19 @@ impl Projection {
         self.physical.iter().any(|m| m.has_negative_scale())
     }
 
+    /// Whether stepping `axis` forward is an addition on every physical axis it moves, so
+    /// [`ProjectionInKernel::advance`] needs no re-evaluation. A backward scale on any axis
+    /// refuses, as the anchored read takes no backward coefficient (see `refuse_backward`).
+    pub(crate) fn advances_forward_by_add(&self, axis: Axis) -> bool {
+        !self.has_negative_scale()
+            && self.physical.iter().all(|m| {
+                m.terms()
+                    .iter()
+                    .enumerate()
+                    .all(|(t, term)| term.axis != axis || m.steps_by_add(t))
+            })
+    }
+
     /// Refuses a backward coefficient for `what`, which takes the window's physical box as its
     /// bound: such a window reaches below its origin cell.
     pub(crate) fn refuse_backward(&self, what: &str) {
