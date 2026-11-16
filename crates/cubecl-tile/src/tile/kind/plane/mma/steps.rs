@@ -130,7 +130,7 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
 ) {
     let space = comptime!(src.place.space.clone());
     // A col-major `B`'s rows are its columns.
-    let axes = comptime!(MatrixAxes::new(&space, n, k).unwrap_or_else(|no| {
+    let dimensions = comptime!(MatrixDimensions::new(&space, n, k).unwrap_or_else(|no| {
         panic!("MmaData::load: a stepped weight is an {n} x {k} matrix: {no:?}")
     }));
     let load = src.vector_tile();
@@ -158,7 +158,7 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
             comptime!((l * values) as u32),
             0usize,
             &space,
-            axes,
+            dimensions,
             1usize,
         );
         codes[l] = words.read(load.index(&at, &space));
@@ -174,7 +174,7 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
             comptime!((w * E2M1_SCALE_BLOCK * SCALES_PER_WORD) as u32),
             0usize,
             &space,
-            axes,
+            dimensions,
             1usize,
         );
         let word = factor.word_at(&at, space.clone());

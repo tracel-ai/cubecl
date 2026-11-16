@@ -61,7 +61,7 @@ pub(crate) struct RegisterData {
     pub(crate) nr: usize,
     /// The sink's matrix this block was sized against.
     #[cube(comptime)]
-    pub(crate) axes: MatrixAxes,
+    pub(crate) dimensions: MatrixDimensions,
     /// Execution configuration for this register leaf.
     #[cube(comptime)]
     pub(crate) config: SoftwareMatmul,
@@ -114,7 +114,7 @@ impl RegisterData {
     pub(crate) fn alloc<T: Numeric>(
         #[comptime] m: usize,
         #[comptime] n: usize,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         #[comptime] vector_size: usize,
         #[comptime] contracted_per_step: usize,
         #[comptime] config: SoftwareMatmul,
@@ -138,7 +138,7 @@ impl RegisterData {
             contracted_per_step,
             mr: m,
             nr,
-            axes,
+            dimensions,
             config,
             accumulation,
         }
@@ -257,7 +257,7 @@ impl RegisterData {
         let mem_write = comptime!(mem.access.write);
         let unit_share = comptime!(mem.unit_share);
         let monoid = comptime!(self.accumulation.monoid());
-        let mut sink = mem.matrix_mut::<Out, A>(0usize, comptime!(self.axes), space);
+        let mut sink = mem.matrix_mut::<Out, A>(0usize, comptime!(self.dimensions), space);
 
         // Split at comptime: a per-line `match` plus a unit guard breaks the CPU backend.
         match comptime!(Drain::of(unit_share, mem_write)) {
@@ -321,7 +321,7 @@ impl RegisterData {
 }
 
 /// The block cut into slices along its columns, each a unit holds whole: the verbs
-/// [`AxisSlices`] runs on a register block. The block holds whole cells, never a line of partials
+/// [`DimensionSlices`] runs on a register block. The block holds whole cells, never a line of partials
 /// of one ([`assert_whole_cells`]).
 #[cube]
 impl RegisterData {
@@ -371,7 +371,7 @@ impl RegisterData {
         maxima
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` ([`AxisSlices::exp2_scaled_minus_cell`]).
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(&mut self, scale: E, offsets: &Array<E>) {
         let data = self.data.at_mut::<E>();
         #[unroll]
@@ -384,7 +384,11 @@ impl RegisterData {
                 for j in 0..self.vector_size {
                     line.insert(
                         j,
-                        AxisSlices::exp2_scaled_minus_cell::<E>(line.extract(j), scale, offsets[r]),
+                        DimensionSlices::exp2_scaled_minus_cell::<E>(
+                            line.extract(j),
+                            scale,
+                            offsets[r],
+                        ),
                     );
                 }
                 data[at] = line;
@@ -394,7 +398,7 @@ impl RegisterData {
 
     /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])` at every cell, the bias read at
     /// the cell of a tile over `space` that the block holds, `logsumexp` the cells of a tile it
-    /// broadcasts over ([`AxisSlices::probabilities`]).
+    /// broadcasts over ([`DimensionSlices::probabilities`]).
     pub(crate) fn probabilities_along<E: Float>(
         &mut self,
         scale: E,
@@ -416,14 +420,17 @@ impl RegisterData {
                     let score = line.extract(j) * scale
                         + bias.value_at::<E>(r as u32, column as u32, space);
                     let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
-                    line.insert(j, AxisSlices::exp_minus_cell::<E>(score, logsumexp[slot]));
+                    line.insert(
+                        j,
+                        DimensionSlices::exp_minus_cell::<E>(score, logsumexp[slot]),
+                    );
                 }
                 data[at] = line;
             }
         }
     }
 
-    /// `self[c] = probabilities[c] · (self[c] − delta[c])` ([`AxisSlices::softmax_gradient`]),
+    /// `self[c] = probabilities[c] · (self[c] − delta[c])` ([`DimensionSlices::softmax_gradient`]),
     /// `probabilities` a block of this one's shape, `delta` the cells of a tile both broadcast
     /// over.
     pub(crate) fn softmax_gradient_along<E: Float>(

@@ -1,12 +1,12 @@
 //! Distributing a level's work as one index: the hypercube scope taking every step of the
 //! contraction as dependent work.
 //!
-//! Distributing each axis on its own gives a cube the product of its per-axis runs, which is a box
-//! of the grid. A share of the work is not a box: it is a range of the index the axes make
+//! Distributing each dimension on its own gives a cube the product of its per-dimension runs, which is a box
+//! of the grid. A share of the work is not a box: it is a range of the index the dimensions make
 //! together, and may start in one tile and end in another; no box of a four by two grid holds three
 //! regions.
 //!
-//! [`Walk::portion`] is that range, and the [`Portion`] it returns the walk over it. The axes of the
+//! [`Walk::portion`] is that range, and the [`Portion`] it returns the walk over it. The dimensions of the
 //! distributed work stay `Sequential`, so the walk's counts are the whole grid and its flat index
 //! carries every coordinate; an instance's run is `base` and `steps` into it, both runtime values.
 //!
@@ -30,8 +30,8 @@ use cubecl_tile::launch::AccumulateArgLaunch;
 use cubecl_tile::launch::BoundaryPolicy;
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 const ROWS: usize = 12;
 const COLS: usize = 10;
 /// Tile edges: a 4 by 2 grid, so 8 regions in the flat step space.
@@ -191,7 +191,7 @@ fn runs_dividing_the_grid_cover_it_once() {
 
 #[test]
 fn runs_that_do_not_divide_the_grid_still_cover_it_once() {
-    // 8 regions over 3 cubes: 2, 3, 3. The case a per-axis distribute cannot express, since no
+    // 8 regions over 3 cubes: 2, 3, 3. The case a per-dimension distribute cannot express, since no
     // rectangle of a 4 by 2 grid has three regions in it.
     runs_cover_the_grid(3);
     // And one region each for five of eight, which leaves three cubes with an empty run.
@@ -241,14 +241,14 @@ fn a_run_starting_late_copies_the_regions_it_was_given() {
 
 // -- The contraction ---------------------------------------------------------
 //
-// The assignment above, over a matmul. `K` is not cut at cube scope and no axis is: the line runs
+// The assignment above, over a matmul. `K` is not cut at cube scope and no dimension is: the line runs
 // over the output's tiles and each tile's `K` blocks together, and a cube takes a run of it. A run
 // spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink sums.
 
-const MM: Axis = Axis(2);
-const NN: Axis = Axis(3);
-const KK: Axis = Axis(4);
-const BB: Axis = Axis(5);
+const MM: Dimension = Dimension(2);
+const NN: Dimension = Dimension(3);
+const KK: Dimension = Dimension(4);
+const BB: Dimension = Dimension(5);
 
 /// The leaf's register block, held fixed across every kernel here.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
@@ -606,7 +606,7 @@ fn a_stream_of_one_run_is_the_whole_contraction() {
 }
 
 /// Runs that end on a tile boundary: the same work a split of `K` would do, reached by distributing
-/// a line rather than by cutting an axis.
+/// a line rather than by cutting a dimension.
 #[test]
 fn runs_that_end_on_a_tile_do_the_split_a_cut_would() {
     if !adds_atomically() {
@@ -911,15 +911,16 @@ fn run_merged_stream<O: Float + CubeElement>(
         .generate_without_host_data();
     let counters = launcher.partitioning().arrival_counters();
     let arrivals = client.create_from_slice(u32::as_bytes(&vec![0u32; counters]));
-    // Checked on every axis: a tile past the output's edge reads zero there and writes nothing.
-    let spec =
-        |axes: &[Axis]| TileSpec::direct(axes).boundary(BoundaryPolicy::Every(Boundary::Zero));
-    let arg = |handle: &TensorHandle, axes: &[Axis]| {
+    // Checked on every dimension: a tile past the output's edge reads zero there and writes nothing.
+    let spec = |dimensions: &[Dimension]| {
+        TileSpec::direct(dimensions).boundary(BoundaryPolicy::Every(Boundary::Zero))
+    };
+    let arg = |handle: &TensorHandle, dimensions: &[Dimension]| {
         TileTensorLaunch::new(
             handle.clone().binding().into_tensor_arg(),
             handle.dtype,
             1,
-            spec(axes),
+            spec(dimensions),
         )
     };
     let mut outputs = Vec::with_capacity(launches);

@@ -1,5 +1,5 @@
-//! The matmul reading of a [`Tile`](crate::Tile): `c.mma(a, b)` treats the trailing two axes as
-//! the `row × col` matrix, leading axes as a batch, and contracts `K`.
+//! The matmul reading of a [`Tile`](crate::Tile): `c.mma(a, b)` treats the trailing two dimensions as
+//! the `row × col` matrix, leading dimensions as a batch, and contracts `K`.
 
 pub(crate) mod base;
 pub(crate) mod descent;
@@ -11,5 +11,5 @@ pub(crate) mod software_matmul;
 pub(crate) use descent::Descent;
 pub(crate) use leaf::*;
 
-pub use leaf::memory::gather::base::LhsVectorAxis;
+pub use leaf::memory::gather::base::LhsVectorDimension;
 pub use mma_io::{KeyOrder, LoadMethod, MmaIo};

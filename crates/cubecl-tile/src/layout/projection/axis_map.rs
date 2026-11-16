@@ -1,11 +1,11 @@
-//! One physical axis of a buffer as an affine combination of logical axes, and its coefficients.
+//! One physical axis of a buffer as an affine combination of dimensions, and its coefficients.
 
 use cubecl::zspace::SmallVec;
 
 use crate::space::extent::Extent;
-use crate::{Axis, Space, algebra::gcd};
+use crate::{Dimension, Space, algebra::gcd};
 
-/// How far one unit of a logical axis moves along one physical axis.
+/// How far one unit of a dimension moves along one physical axis.
 /// A `Static` coefficient is signed: a negative one steps the physical axis backward. A `Dynamic`
 /// coefficient declares `max`, the largest value the launch may pass, and is never negative.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -106,20 +106,20 @@ impl From<usize> for Divisor {
     }
 }
 
-/// One logical axis's contribution to one physical axis: `coordinate * scale`.
+/// One dimension's contribution to one physical axis: `coordinate * scale`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct AxisTerm {
-    pub axis: Axis,
+pub(crate) struct DimensionTerm {
+    pub dimension: Dimension,
     pub scale: Scale,
 }
 
 /// Whether a physical axis's terms can land on the same cell, as stated by the caller.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Composition {
-    /// No two logical positions share a cell: the terms partition the axis.
+    /// No two logical positions share a cell: the terms partition the dimension.
     Disjoint,
     /// No two logical positions share a cell, but the cells start at an offset: a partition
-    /// moved along its axis, as a window of rows read from a dynamic position is. A write
+    /// moved along its dimension, as a window of rows read from a dynamic position is. A write
     /// through it aliases nothing; it is read as an N-D view, never as a partition that starts
     /// at 0.
     Translated,
@@ -127,10 +127,10 @@ pub(crate) enum Composition {
     Overlapping,
 }
 
-/// One buffer dim as `(Σ coordinate(axis) * scale + offset) / divisor`, floored.
+/// One buffer dim as `(Σ coordinate(dimension) * scale + offset) / divisor`, floored.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PhysicalAxisMap {
-    terms: SmallVec<[AxisTerm; Space::MAX_RANK]>,
+    terms: SmallVec<[DimensionTerm; Space::MAX_RANK]>,
     offset: Offset,
     divisor: Divisor,
     composition: Composition,
@@ -139,22 +139,22 @@ pub struct PhysicalAxisMap {
 /// What a physical axis is addressed by.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Addressed {
-    /// The leading logical axis of this map's terms, naming its coordinate group.
-    By(Axis),
+    /// The leading dimension of this map's terms, naming its coordinate group.
+    By(Dimension),
     /// Nothing: every position resolves to the same element.
     Broadcast,
 }
 
 impl PhysicalAxisMap {
-    /// A map addressing no logical axis: every position resolves to the same element.
+    /// A map addressing no dimension: every position resolves to the same element.
     pub fn broadcast() -> Self {
         PhysicalAxisMap::scaled(&[])
     }
 
-    pub fn of(axis: Axis) -> Self {
+    pub fn of(dimension: Dimension) -> Self {
         PhysicalAxisMap {
-            terms: SmallVec::from_slice(&[AxisTerm {
-                axis,
+            terms: SmallVec::from_slice(&[DimensionTerm {
+                dimension,
                 scale: Scale::Static(1),
             }]),
             offset: Offset::Static(0),
@@ -165,19 +165,19 @@ impl PhysicalAxisMap {
 
     /// This physical axis partitioned by several logical ones, coarsest first:
     /// `disjoint(&[(KB, 32), (KI, 1)])` is `k = kb * 32 + ki`.
-    pub fn disjoint(terms: &[(Axis, usize)]) -> Self {
+    pub fn disjoint(terms: &[(Dimension, usize)]) -> Self {
         let mut map = Self::affine(terms);
         map.composition = Composition::Disjoint;
         map
     }
 
     /// An affine combination, e.g. `affine(&[(Oh, stride), (Rh, dilation)])`.
-    pub fn affine(terms: &[(Axis, usize)]) -> Self {
-        let terms: SmallVec<[(Axis, Scale); Space::MAX_RANK]> = terms
+    pub fn affine(terms: &[(Dimension, usize)]) -> Self {
+        let terms: SmallVec<[(Dimension, Scale); Space::MAX_RANK]> = terms
             .iter()
-            .map(|&(axis, scale)| {
+            .map(|&(dimension, scale)| {
                 (
-                    axis,
+                    dimension,
                     Scale::Static(isize::try_from(scale).expect("a coefficient fits an isize")),
                 )
             })
@@ -186,11 +186,11 @@ impl PhysicalAxisMap {
     }
 
     /// [`affine`](Self::affine) over explicit [`Scale`]s, for runtime coefficients.
-    pub fn scaled(terms: &[(Axis, Scale)]) -> Self {
-        for &(axis, scale) in terms {
+    pub fn scaled(terms: &[(Dimension, Scale)]) -> Self {
+        for &(dimension, scale) in terms {
             assert!(
                 scale.bound() > 0,
-                "PhysicalAxisMap: {axis:?}'s coefficient is bounded at 0, so it addresses no cell; \
+                "PhysicalAxisMap: {dimension:?}'s coefficient is bounded at 0, so it addresses no cell; \
                  drop the term instead"
             );
         }
@@ -202,7 +202,7 @@ impl PhysicalAxisMap {
         PhysicalAxisMap {
             terms: terms
                 .iter()
-                .map(|&(axis, scale)| AxisTerm { axis, scale })
+                .map(|&(dimension, scale)| DimensionTerm { dimension, scale })
                 .collect(),
             offset: Offset::Static(0),
             divisor: Divisor::Static(1),
@@ -276,28 +276,28 @@ impl PhysicalAxisMap {
     /// What this physical axis is addressed by.
     pub(crate) fn addressed(&self) -> Addressed {
         match self.terms().first() {
-            Some(term) => Addressed::By(term.axis),
+            Some(term) => Addressed::By(term.dimension),
             None => Addressed::Broadcast,
         }
     }
 
-    pub(crate) fn terms(&self) -> &[AxisTerm] {
+    pub(crate) fn terms(&self) -> &[DimensionTerm] {
         &self.terms
     }
 
-    /// How this axis's terms sit on it ([`Composition`]).
+    /// How this dimension's terms sit on it ([`Composition`]).
     pub(crate) fn composition(&self) -> Composition {
         self.composition
     }
 
-    /// The `(axis, coefficient)` radices a disjoint map claims, coarsest first; empty otherwise.
-    pub(crate) fn claimed_radices(&self) -> SmallVec<[(Axis, usize); Space::MAX_RANK]> {
+    /// The `(dimension, coefficient)` radices a disjoint map claims, coarsest first; empty otherwise.
+    pub(crate) fn claimed_radices(&self) -> SmallVec<[(Dimension, usize); Space::MAX_RANK]> {
         match self.composition {
             Composition::Overlapping | Composition::Translated => SmallVec::new(),
             Composition::Disjoint => self
                 .terms
                 .iter()
-                .map(|t| (t.axis, t.scale.bound()))
+                .map(|t| (t.dimension, t.scale.bound()))
                 .collect(),
         }
     }
@@ -312,7 +312,7 @@ impl PhysicalAxisMap {
         self.divisor
     }
 
-    /// Whether stepping term `term` is an addition: its axis is not kept inside a floor.
+    /// Whether stepping term `term` is an addition: its dimension is not kept inside a floor.
     pub(crate) fn steps_by_add(&self, term: usize) -> bool {
         !self.is_rational() || self.static_offset_step(term).is_some()
     }
@@ -321,9 +321,9 @@ impl PhysicalAxisMap {
     pub(crate) fn additive_step(&self, term: usize) -> Option<isize> {
         assert!(
             self.steps_by_add(term),
-            "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping it is \
+            "ProjectionInKernel::advance: {:?} stays inside this dimension's floor, so stepping it is \
              not an addition and the map has to be summed at every position",
-            self.terms()[term].axis
+            self.terms()[term].dimension
         );
         if self.is_rational() {
             return self.static_offset_step(term).map(|step| step as isize);
@@ -345,7 +345,7 @@ impl PhysicalAxisMap {
         }
     }
 
-    /// Whether this axis divides by anything but `1`.
+    /// Whether this dimension divides by anything but `1`.
     pub(crate) fn is_rational(&self) -> bool {
         !self.divisor.is_unit()
     }
@@ -366,57 +366,57 @@ impl PhysicalAxisMap {
         }
     }
 
-    /// How many of this axis's coefficients are [`Dynamic`](Scale::Dynamic).
+    /// How many of this dimension's coefficients are [`Dynamic`](Scale::Dynamic).
     pub(crate) fn dynamic_scale_count(&self) -> usize {
         self.terms.iter().filter(|t| t.scale.is_dynamic()).count()
     }
 
-    /// Whether any of this axis's coefficients steps it backward.
+    /// Whether any of this dimension's coefficients steps it backward.
     pub(crate) fn has_negative_scale(&self) -> bool {
         self.terms.iter().any(|t| t.scale.is_negative())
     }
 
-    /// Whether any of this axis's coefficients are [`Dynamic`](Scale::Dynamic).
+    /// Whether any of this dimension's coefficients are [`Dynamic`](Scale::Dynamic).
     pub(crate) fn has_dynamic_scale(&self) -> bool {
         self.terms.iter().any(|t| t.scale.is_dynamic())
     }
 
-    /// Whether `axis` addresses this physical axis at all.
-    pub(crate) fn addresses(&self, axis: Axis) -> bool {
-        self.terms.iter().any(|t| t.axis == axis)
+    /// Whether `dimension` addresses this physical axis at all.
+    pub(crate) fn addresses(&self, dimension: Dimension) -> bool {
+        self.terms.iter().any(|t| t.dimension == dimension)
     }
 
-    /// `axis`'s coefficient, `0` when it does not address this axis. Panics if it is dynamic.
-    pub fn scale(&self, axis: Axis) -> isize {
+    /// `dimension`'s coefficient, `0` when it does not address this dimension. Panics if it is dynamic.
+    pub fn scale(&self, dimension: Dimension) -> isize {
         self.terms
             .iter()
-            .find(|t| t.axis == axis)
+            .find(|t| t.dimension == dimension)
             .map_or(0, |t| t.scale.get())
     }
 
-    /// The one [`Axis`] this map is the identity of, `None` otherwise.
-    pub(crate) fn identity_axis(&self) -> Option<Axis> {
+    /// The one [`Dimension`] this map is the identity of, `None` otherwise.
+    pub(crate) fn identity_dimension(&self) -> Option<Dimension> {
         match self.terms.as_slice() {
             [
-                AxisTerm {
-                    axis,
+                DimensionTerm {
+                    dimension,
                     scale: Scale::Static(1),
                 },
-            ] if self.offset == Offset::Static(0) && self.divisor.is_unit() => Some(*axis),
+            ] if self.offset == Offset::Static(0) && self.divisor.is_unit() => Some(*dimension),
             _ => None,
         }
     }
 
-    /// The axes this buffer dim is made of, when it is one index over several axes laid end to
+    /// The dimensions this buffer dim is made of, when it is one index over several dimensions laid end to
     /// end, like `K = KB·16 + KI` over `KI` and `KB`. Listed finest first: the finest at scale
     /// `1`, each next one at the product of the extents before it, no offset, no division. Such a
-    /// dim stays in the buffer whenever each of its axes stays in its extent. A single axis at
-    /// scale `1` is the simplest case ([`identity_axis`](Self::identity_axis)). `None` for any
-    /// other map, or when an axis other than the last has no comptime extent in `space`.
-    pub(crate) fn flattened_axes(
+    /// dim stays in the buffer whenever each of its dimensions stays in its extent. A single dimension at
+    /// scale `1` is the simplest case ([`identity_dimension`](Self::identity_dimension)). `None` for any
+    /// other map, or when a dimension other than the last has no comptime extent in `space`.
+    pub(crate) fn flattened_dimensions(
         &self,
         space: &Space,
-    ) -> Option<SmallVec<[Axis; Space::MAX_RANK]>> {
+    ) -> Option<SmallVec<[Dimension; Space::MAX_RANK]>> {
         if self.terms.is_empty() || self.offset != Offset::Static(0) || !self.divisor.is_unit() {
             return None;
         }
@@ -424,27 +424,27 @@ impl PhysicalAxisMap {
             .terms
             .iter()
             .map(|term| match term.scale {
-                Scale::Static(scale) => usize::try_from(scale).ok().map(|s| (term.axis, s)),
+                Scale::Static(scale) => usize::try_from(scale).ok().map(|s| (term.dimension, s)),
                 Scale::Dynamic { .. } => None,
             })
-            .collect::<Option<SmallVec<[(Axis, usize); Space::MAX_RANK]>>>()?;
+            .collect::<Option<SmallVec<[(Dimension, usize); Space::MAX_RANK]>>>()?;
         terms.sort_by_key(|&(_, scale)| scale);
         let mut next_scale = Some(1);
-        for &(axis, scale) in &terms {
-            if next_scale != Some(scale) || !space.contains(axis) {
+        for &(dimension, scale) in &terms {
+            if next_scale != Some(scale) || !space.contains(dimension) {
                 return None;
             }
-            next_scale = match space.extent_raw(axis) {
+            next_scale = match space.extent_raw(dimension) {
                 Extent::Static(extent) => Some(scale * extent),
                 Extent::Dynamic => None,
             };
         }
-        Some(terms.iter().map(|&(axis, _)| axis).collect())
+        Some(terms.iter().map(|&(dimension, _)| dimension).collect())
     }
 
-    /// Whether this physical axis is exactly `axis` at coefficient `1`, offset `0`, no division.
-    pub(crate) fn is_identity(&self, axis: Axis) -> bool {
-        self.identity_axis() == Some(axis)
+    /// Whether this physical axis is exactly `dimension` at coefficient `1`, offset `0`, no division.
+    pub(crate) fn is_identity(&self, dimension: Dimension) -> bool {
+        self.identity_dimension() == Some(dimension)
     }
 }
 
@@ -452,8 +452,8 @@ impl PhysicalAxisMap {
 mod tests {
     use super::*;
 
-    const A: Axis = Axis(0);
-    const B: Axis = Axis(1);
+    const A: Dimension = Dimension(0);
+    const B: Dimension = Dimension(1);
 
     #[test]
     fn a_plain_affine_term_steps_by_its_coefficient() {
@@ -476,14 +476,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "stays inside this axis's floor")]
+    #[should_panic(expected = "stays inside this dimension's floor")]
     fn an_indivisible_term_under_a_floor_cannot_be_stepped() {
         let map = PhysicalAxisMap::affine(&[(A, 3), (B, 4)]).over(2);
         map.additive_step(0);
     }
 
     #[test]
-    fn identity_is_exactly_one_axis_at_coefficient_one() {
+    fn identity_is_exactly_one_dimension_at_coefficient_one() {
         let id = PhysicalAxisMap::of(A);
         assert!(id.is_identity(A));
         assert!(!id.is_identity(B));
@@ -524,7 +524,7 @@ mod tests {
 
         let space = Space::new(&[(A, 4), (B, 16)]);
         let flat = PhysicalAxisMap::scaled(&[(A, Scale::Static(-16)), (B, Scale::Static(1))]);
-        assert_eq!(flat.flattened_axes(&space), None);
+        assert_eq!(flat.flattened_dimensions(&space), None);
     }
 
     #[test]
@@ -533,44 +533,56 @@ mod tests {
         PhysicalAxisMap::scaled(&[(A, Scale::Static(-4))]).over(2);
     }
 
-    /// The axes come back finest first, whatever order the terms are written in. A gap or
-    /// overlap between them, an offset, a division, a dynamic scale, or a finer axis with no
+    /// The dimensions come back finest first, whatever order the terms are written in. A gap or
+    /// overlap between them, an offset, a division, a dynamic scale, or a finer dimension with no
     /// comptime extent gives `None`.
     #[test]
-    fn flattened_axes_come_finest_first() {
-        const C: Axis = Axis(2);
+    fn flattened_dimensions_come_finest_first() {
+        const C: Dimension = Dimension(2);
         let space = Space::new(&[(A, 4), (B, 16), (C, 3)]);
-        let axes = |map: &PhysicalAxisMap| map.flattened_axes(&space).map(|axes| axes.to_vec());
+        let dimensions = |map: &PhysicalAxisMap| {
+            map.flattened_dimensions(&space)
+                .map(|dimensions| dimensions.to_vec())
+        };
 
-        assert_eq!(axes(&PhysicalAxisMap::of(A)), Some(vec![A]));
+        assert_eq!(dimensions(&PhysicalAxisMap::of(A)), Some(vec![A]));
         assert_eq!(
-            axes(&PhysicalAxisMap::affine(&[(A, 16), (B, 1)])),
+            dimensions(&PhysicalAxisMap::affine(&[(A, 16), (B, 1)])),
             Some(vec![B, A])
         );
         assert_eq!(
-            axes(&PhysicalAxisMap::affine(&[(C, 64), (A, 16), (B, 1)])),
+            dimensions(&PhysicalAxisMap::affine(&[(C, 64), (A, 16), (B, 1)])),
             Some(vec![B, A, C])
         );
 
-        assert_eq!(axes(&PhysicalAxisMap::affine(&[(A, 32), (B, 1)])), None);
-        assert_eq!(axes(&PhysicalAxisMap::affine(&[(A, 8), (B, 1)])), None);
-        assert_eq!(axes(&PhysicalAxisMap::affine(&[(A, 16), (B, 2)])), None);
-        assert_eq!(axes(&PhysicalAxisMap::of(A).shifted(1)), None);
-        assert_eq!(axes(&PhysicalAxisMap::of(A).over(2)), None);
         assert_eq!(
-            axes(&PhysicalAxisMap::scaled(&[(A, Scale::Dynamic { max: 4 })])),
+            dimensions(&PhysicalAxisMap::affine(&[(A, 32), (B, 1)])),
             None
         );
-        assert_eq!(axes(&PhysicalAxisMap::of(Axis(7))), None);
+        assert_eq!(
+            dimensions(&PhysicalAxisMap::affine(&[(A, 8), (B, 1)])),
+            None
+        );
+        assert_eq!(
+            dimensions(&PhysicalAxisMap::affine(&[(A, 16), (B, 2)])),
+            None
+        );
+        assert_eq!(dimensions(&PhysicalAxisMap::of(A).shifted(1)), None);
+        assert_eq!(dimensions(&PhysicalAxisMap::of(A).over(2)), None);
+        assert_eq!(
+            dimensions(&PhysicalAxisMap::scaled(&[(A, Scale::Dynamic { max: 4 })])),
+            None
+        );
+        assert_eq!(dimensions(&PhysicalAxisMap::of(Dimension(7))), None);
 
         let finer_dynamic = Space::new(&[(A, 4), (B, 16)]).with_dynamic(&[B]);
         let blocked = PhysicalAxisMap::affine(&[(A, 16), (B, 1)]);
-        assert_eq!(blocked.flattened_axes(&finer_dynamic), None);
+        assert_eq!(blocked.flattened_dimensions(&finer_dynamic), None);
         let coarser_dynamic = Space::new(&[(A, 4), (B, 16)]).with_dynamic(&[A]);
         assert_eq!(
             blocked
-                .flattened_axes(&coarser_dynamic)
-                .map(|axes| axes.to_vec()),
+                .flattened_dimensions(&coarser_dynamic)
+                .map(|dimensions| dimensions.to_vec()),
             Some(vec![B, A])
         );
     }

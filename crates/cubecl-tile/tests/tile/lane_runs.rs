@@ -23,19 +23,19 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
-    Axis, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages, TileSpec,
-    TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
+    Dimension, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages,
+    TileSpec, TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 use half::f16;
 
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 /// `k` as the two digits a scale block makes of it: the block, and the value inside it.
-const KB: Axis = Axis(3);
-const KI: Axis = Axis(4);
+const KB: Dimension = Dimension(3);
+const KI: Dimension = Dimension(4);
 
 /// The leaf's depth along `k`: eight instructions of sixteen, a unit's run thirty-two values.
 const WINDOW: usize = 128;
@@ -66,7 +66,7 @@ enum Staged {
 }
 
 /// Which factor the accumulator is opened on first: the one filling the instruction's `A`,
-/// whose free axis the accumulator's rows lie along. The contraction names the factors `a · b`
+/// whose free dimension the accumulator's rows lie along. The contraction names the factors `a · b`
 /// either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum First {
@@ -299,7 +299,7 @@ fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
 }
 
 /// The product's rows and columns one fragment of the device's instruction covers, its `m` rows
-/// along the free axis of the factor handed over first.
+/// along the free dimension of the factor handed over first.
 fn fragment_edges(client: &cubecl::client::Client, first: First) -> (usize, usize) {
     let (m, n) = lane_run_instruction(client).expect("the test skips without the instruction");
     match first {
@@ -474,7 +474,7 @@ impl Nvfp4 {
         let tensor = |bytes: Bytes, shape: Vec<usize>, dtype: ElemType| {
             TensorHandle::new_contiguous(shape, client.create(bytes), dtype).binding()
         };
-        let along_k = |rows: Axis| {
+        let along_k = |rows: Dimension| {
             Projection::new(
                 &[rows, KB, KI],
                 &[
@@ -492,9 +492,9 @@ impl Nvfp4 {
                 ),
                 f16::elem_type_native(),
             )
-            // A dim a digit, as a product restates its activation: every axis an identity, so a
+            // A dim a digit, as a product restates its activation: every dimension an identity, so a
             // fragment's rows past the product's are checked at the edge.
-            .axes(&[M, KB, KI])
+            .dimensions(&[M, KB, KI])
             .vectorize(width_a)
             .build()
             .unwrap();
@@ -543,7 +543,7 @@ impl Nvfp4 {
                     tensor(scale_words, vec![n, blocks], u32::elem_type_native()),
                     u32::elem_type_native(),
                 )
-                .axes(&[N, KB])
+                .dimensions(&[N, KB])
                 .packed(Field::Fp8(Fp8Format::E4M3))
                 .vectorize(SCALES_PER_WORD)
                 .build(),
@@ -554,7 +554,7 @@ impl Nvfp4 {
             .generate_without_host_data();
         let c_op = launcher
             .arg(c.clone().binding(), c.dtype)
-            .axes(&[M, N])
+            .dimensions(&[M, N])
             .build()
             .unwrap();
         lane_run_matmul::launch(
@@ -661,7 +661,7 @@ fn check_plain_split(k: usize, width: usize) {
         )
         .binding()
     };
-    let along_k = |rows: Axis| {
+    let along_k = |rows: Dimension| {
         Projection::new(
             &[rows, KB, KI],
             &[
@@ -687,7 +687,7 @@ fn check_plain_split(k: usize, width: usize) {
         .generate_without_host_data();
     let c_op = launcher
         .arg(c.clone().binding(), c.dtype)
-        .axes(&[M, N])
+        .dimensions(&[M, N])
         .build()
         .unwrap();
     lane_run_matmul::launch(

@@ -5,13 +5,13 @@ use cubecl::unexpanded;
 
 use crate::dialect::LevelOp;
 use crate::{
-    Axis, ComputeScope, Coords, Extent, Integer, IntegerExpand, Level, Planes, Region,
+    ComputeScope, Coords, Dimension, Extent, Integer, IntegerExpand, Level, Planes, Region,
     RegionExpand, Space, StageOwner,
 };
 
-use super::distribution::{AxisDistribution, Distribution, Workers};
+use super::distribution::{DimensionDistribution, Distribution, Workers};
 use super::launch_span::launch_tiles;
-use super::swizzled::{in_plane_axes, swizzled_positions};
+use super::swizzled::{in_plane_dimensions, swizzled_positions};
 use crate::Count;
 use crate::Spread;
 use crate::space::partition::GridCount;
@@ -19,14 +19,14 @@ use crate::space::partition::GridCount;
 /// The runtime odometer over a [`Space`]'s tiles under one [`Level`].
 #[derive(CubeType)]
 pub struct Walk {
-    /// The level's tiles along each axis, which a reversed axis counts back from.
+    /// The level's tiles along each dimension, which a reversed dimension counts back from.
     tiles: Coords<usize>,
     counts: Coords<usize>,
     positions: Coords<usize>,
     scales: Coords<usize>,
-    /// Per-axis routed coordinate ([`routed`](Walk::routed)), `0` elsewhere.
+    /// Per-dimension routed coordinate ([`routed`](Walk::routed)), `0` elsewhere.
     route: Coords<u32>,
-    /// Which axes [`route`](Self::route) speaks for.
+    /// Which dimensions [`route`](Self::route) speaks for.
     #[cube(comptime)]
     routed_at: Vec<usize>,
     base: usize,
@@ -36,9 +36,9 @@ pub struct Walk {
     pub(crate) space: Space,
     #[cube(comptime)]
     pub(crate) level: Level,
-    /// How the level distributes each axis of the space, in axis order.
+    /// How the level distributes each dimension of the space, in dimension order.
     #[cube(comptime)]
-    distributes: Vec<AxisDistribution>,
+    distributes: Vec<DimensionDistribution>,
     /// Whether iterating this walk unrolls.
     #[cube(comptime)]
     pub(crate) unroll: bool,
@@ -46,10 +46,10 @@ pub struct Walk {
     /// not this instance's own: an unrolled walk writes the most out and guards the rest.
     #[cube(comptime)]
     pub(crate) bounds: Option<(usize, usize)>,
-    /// The axis this walk steps a run along ([`Region::walk_within`]), where it steps nothing
+    /// The dimension this walk steps a run along ([`Region::walk_within`]), where it steps nothing
     /// else and in order: every region but the last then lies inside the run.
     #[cube(comptime)]
-    pub(crate) run: Option<Axis>,
+    pub(crate) run: Option<Dimension>,
 }
 
 #[cube]
@@ -59,23 +59,23 @@ impl Walk {
     pub(crate) fn of(space: &Space, #[comptime] level: Level, parent: Region) -> Walk {
         let host = comptime!(space.clone());
         let rank = host.rank();
-        // A swizzled cube level decodes its two in-plane axes jointly from the flat dispatch index.
+        // A swizzled cube level decodes its two in-plane dimensions jointly from the flat dispatch index.
         let in_plane = comptime!(
             level
                 .order()
                 .swizzles()
-                .then(|| in_plane_axes(&host, &level))
+                .then(|| in_plane_dimensions(&host, &level))
         );
         let distributes = comptime!(
             (0..rank)
-                .map(|p| AxisDistribution::new(&level, &host, p, in_plane))
+                .map(|p| DimensionDistribution::new(&level, &host, p, in_plane))
                 .collect::<Vec<_>>()
         );
 
         let mut grid = Coords::<usize>::new();
         #[unroll]
         for p in 0..rank {
-            match comptime!(level.grid(space.axis_at(p))) {
+            match comptime!(level.grid(space.dimension_at(p))) {
                 GridCount::Const(n) => grid.push(n.runtime()),
                 GridCount::Extent(tile) => grid.push(space.count(p, tile)),
             }
@@ -143,7 +143,7 @@ impl Walk {
     fn tiles_of(
         #[comptime] host: &Space,
         #[comptime] level: &Level,
-        #[comptime] distributes: Vec<AxisDistribution>,
+        #[comptime] distributes: Vec<DimensionDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
         match level.spans_launch() {
@@ -152,7 +152,7 @@ impl Walk {
         }
     }
 
-    /// `(counts, positions, scales)` of a level spanning the launch: along each of its axes, the
+    /// `(counts, positions, scales)` of a level spanning the launch: along each of its dimensions, the
     /// one tile this plane's or unit's place in the launch names, past the last for one past the
     /// last tile, which the binding masks; every tile of the others.
     fn spanning_launch(
@@ -165,12 +165,12 @@ impl Walk {
     }
 
     /// `(counts, positions, scales)` of a level dealt to the instances of one cube, or of the
-    /// grid's cubes, each axis as `distributes` says.
+    /// grid's cubes, each dimension as `distributes` says.
     #[allow(clippy::needless_range_loop)]
     fn dealt(
         #[comptime] host: &Space,
         #[comptime] level: &Level,
-        #[comptime] distributes: Vec<AxisDistribution>,
+        #[comptime] distributes: Vec<DimensionDistribution>,
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
         let rank = host.rank();
@@ -179,7 +179,7 @@ impl Walk {
         #[unroll]
         for p in 0..rank {
             match comptime!(distributes[p].clone()) {
-                AxisDistribution::Distributed(Distribution { workers, .. }) => {
+                DimensionDistribution::Distributed(Distribution { workers, .. }) => {
                     match comptime!(workers) {
                         Workers::Across(workers) => instances.push(workers.runtime()),
                         // A count the launch states is compiled in, any other read off it.
@@ -187,11 +187,12 @@ impl Walk {
                             within,
                             units,
                             fillers,
-                        } => instances.push(AxisDistribution::units_within(within, units, fillers)),
+                        } => instances
+                            .push(DimensionDistribution::units_within(within, units, fillers)),
                         Workers::Grid => instances.push(grid.at(p)),
                     }
                 }
-                AxisDistribution::Walked => instances.push(1usize),
+                DimensionDistribution::Walked => instances.push(1usize),
             }
         }
         let swizzled = swizzled_positions(host, level, &instances);
@@ -202,12 +203,12 @@ impl Walk {
         #[unroll]
         for p in 0..rank {
             match comptime!(distributes[p].clone()) {
-                AxisDistribution::Walked => {
+                DimensionDistribution::Walked => {
                     counts.push(grid.at(p));
                     positions.push(0usize);
                     scales.push(1usize);
                 }
-                AxisDistribution::Distributed(Distribution {
+                DimensionDistribution::Distributed(Distribution {
                     scope: compute_scope,
                     dim,
                     spread,
@@ -217,7 +218,7 @@ impl Walk {
                     unspanned,
                     swizzled: joint,
                 }) => {
-                    // Mixed-radix stride over the later same-dimension axes, spanned or not.
+                    // Mixed-radix stride over the later same-dimension dimensions, spanned or not.
                     let inner_weight = instances.product(inner) * comptime!(unspanned).runtime();
                     let position = match comptime!((joint, workers)) {
                         (Some(i), _) => swizzled.at(i),
@@ -226,8 +227,8 @@ impl Walk {
                             Workers::Units {
                                 within, fillers, ..
                             },
-                        ) => AxisDistribution::unit_within(within, fillers),
-                        (None, _) => AxisDistribution::hardware(compute_scope, dim)
+                        ) => DimensionDistribution::unit_within(within, fillers),
+                        (None, _) => DimensionDistribution::hardware(compute_scope, dim)
                             .divided_by(inner_weight)
                             .remainder(instances.at(p)),
                     };
@@ -241,7 +242,7 @@ impl Walk {
                         Workers::Units { .. } if divides => grid.at(p).divided_by(instances.at(p)),
                         Workers::Grid | Workers::Units { .. } => 1usize.runtime(),
                     };
-                    counts.push(AxisDistribution::tiles(
+                    counts.push(DimensionDistribution::tiles(
                         grid.at(p),
                         position,
                         instances.at(p),
@@ -261,14 +262,14 @@ impl Walk {
         (counts, positions, scales)
     }
 
-    /// This walk taking one step along `axis`, at the coordinate `coord`.
-    /// The caller must keep `coord` within the axis's extent; nothing checks it.
-    pub fn routed(self, #[comptime] axis: Axis, coord: usize) -> Walk {
+    /// This walk taking one step along `dimension`, at the coordinate `coord`.
+    /// The caller must keep `coord` within the dimension's extent; nothing checks it.
+    pub fn routed(self, #[comptime] dimension: Dimension, coord: usize) -> Walk {
         let rank = comptime!(self.space.rank());
-        let at = comptime!(self.space.position(axis));
+        let at = comptime!(self.space.position(dimension));
         comptime!(assert!(
-            self.space.contains(axis),
-            "Walk::routed: {axis:?} is not an axis of this walk's space, so it has no \
+            self.space.contains(dimension),
+            "Walk::routed: {dimension:?} is not a dimension of this walk's space, so it has no \
              coordinate to state"
         ));
 
@@ -278,8 +279,8 @@ impl Walk {
         for p in 0..rank {
             // Clamped: a data-derived coordinate may be out of range, and a panic here goes unseen.
             if p == at {
-                // The axis's own tiles, not `counts`, which is this instance's share.
-                let last = comptime!(self.level.tiles(&self.space, axis) - 1).runtime();
+                // The dimension's own tiles, not `counts`, which is this instance's share.
+                let last = comptime!(self.level.tiles(&self.space, dimension) - 1).runtime();
                 counts.push(1usize);
                 route.push(coord.min_with(last).cast::<u32>());
             } else {
@@ -341,20 +342,20 @@ impl Walk {
     }
 
     /// Whether this instance takes step `i` of a bounded walk ([`bounds`](Walk::bounds)): whether
-    /// the tile it reaches along the axis its units take in turns lies inside the axis's tiles.
+    /// the tile it reaches along the dimension its units take in turns lies inside the dimension's tiles.
     pub(crate) fn takes(&self, i: usize) -> bool {
         let p = comptime!(Walk::turns_at(&self.space, &self.level));
         self.tile_coord(self.step_coord(i, p), p) < self.tiles.at(p)
     }
 
-    /// A walk whose units take its one axis in turns, as a stride: this unit's first tile, the
-    /// axis's tiles, and how many units take them.
+    /// A walk whose units take its one dimension in turns, as a stride: this unit's first tile, the
+    /// dimension's tiles, and how many units take them.
     #[allow(dead_code)] // Reached through its expand, from iterating a striding walk.
     pub(crate) fn stride(&self) -> (usize, usize, usize) {
         (self.positions.at(0), self.tiles.at(0), self.scales.at(0))
     }
 
-    /// The region of a striding walk at its axis's tile `tile`.
+    /// The region of a striding walk at its dimension's tile `tile`.
     #[allow(dead_code)] // Reached through its expand, from iterating a striding walk.
     pub(crate) fn region_at_tile(&self, tile: usize) -> Region {
         let mut coords = Coords::<u32>::new();
@@ -362,17 +363,17 @@ impl Walk {
         self.parent.below(coords, &self.level)
     }
 
-    /// This instance's position among those the level distributes axis `p` to, `0` for a walked
-    /// axis.
+    /// This instance's position among those the level distributes dimension `p` to, `0` for a walked
+    /// dimension.
     pub(crate) fn position_at(&self, #[comptime] p: usize) -> usize {
         self.positions.at(p)
     }
 
-    /// This instance's place among the workers the level deals `axis` to, `0` for a walked axis:
-    /// which plane of those taking `axis` in runs, where the tiles a worker walks no longer name
+    /// This instance's place among the workers the level deals `dimension` to, `0` for a walked dimension:
+    /// which plane of those taking `dimension` in runs, where the tiles a worker walks no longer name
     /// it.
-    pub fn position(&self, #[comptime] axis: Axis) -> usize {
-        self.positions.at(comptime!(self.space.position(axis)))
+    pub fn position(&self, #[comptime] dimension: Dimension) -> usize {
+        self.positions.at(comptime!(self.space.position(dimension)))
     }
 
     /// The `i`-th region of the walk.
@@ -387,7 +388,7 @@ impl Walk {
         self.region(0).planes()
     }
 
-    /// Unravel a runtime step `idx` to its per-axis coordinates.
+    /// Unravel a runtime step `idx` to its per-dimension coordinates.
     fn resolve(&self, idx: usize) -> Coords<u32> {
         let mut coords = Coords::<u32>::new();
 
@@ -402,7 +403,7 @@ impl Walk {
         coords
     }
 
-    /// The coordinate of step `idx` along axis `p` (last axis fastest).
+    /// The coordinate of step `idx` along dimension `p` (last dimension fastest).
     fn step_coord(&self, idx: usize, #[comptime] p: usize) -> usize {
         let rank = comptime!(self.space.rank());
         let quot = idx.divided_by(
@@ -424,24 +425,24 @@ impl Walk {
         }
     }
 
-    /// The tile axis `p`'s step coordinate `coord` reaches, with the instance's position added per
+    /// The tile dimension `p`'s step coordinate `coord` reaches, with the instance's position added per
     /// the [`Spread`], counted from the
-    /// last tile where the level hands the axis out [`reversed`](crate::Levels::reversed).
+    /// last tile where the level hands the dimension out [`reversed`](crate::Levels::reversed).
     fn tile_coord(&self, coord: usize, #[comptime] p: usize) -> usize {
         let tile = match comptime!(self.distributes[p].clone()) {
-            AxisDistribution::Walked => coord,
-            AxisDistribution::Distributed(Distribution {
+            DimensionDistribution::Walked => coord,
+            DimensionDistribution::Distributed(Distribution {
                 spread: Spread::Contiguous,
                 ..
             }) => coord.plus(self.positions.at(p).times(self.scales.at(p))),
-            AxisDistribution::Distributed(Distribution {
+            DimensionDistribution::Distributed(Distribution {
                 spread: Spread::Interleaved,
                 ..
             }) => coord.times(self.scales.at(p)).plus(self.positions.at(p)),
         };
         let tiles = self.tiles.at(p);
         // A plane past the last tile stays past it, where the binding masks it.
-        if comptime!(self.level.is_reversed(self.space.axis_at(p))) && tile < tiles {
+        if comptime!(self.level.is_reversed(self.space.dimension_at(p))) && tile < tiles {
             tiles.minus(1usize).minus(tile)
         } else {
             tile
@@ -485,7 +486,7 @@ impl Iterable for WalkExpand {
             }
             return;
         }
-        // Units taking the one axis in turns, not written out: stride from the unit's place, which
+        // Units taking the one dimension in turns, not written out: stride from the unit's place, which
         // is what taking every `n`-th tile is, with no count of its own to reckon.
         if !self.unroll && Walk::strides(&self.space, &self.level) {
             let (first, lines, units) = self.__expand_stride_method(scope);
@@ -526,34 +527,43 @@ impl Walk {
     /// pipe; a long run written out bloats the kernel.
     const MOST_WRITTEN_TURNS: usize = 8;
 
-    /// The position of the one axis `level`'s units take in turns ([`Count::InTurns`]): such a
-    /// level cuts that axis alone.
+    /// The position of the one dimension `level`'s units take in turns ([`Count::InTurns`]): such a
+    /// level cuts that dimension alone.
     fn turns_at(space: &Space, level: &Level) -> usize {
         (0..space.rank())
-            .find(|&p| matches!(level.count(space.axis_at(p)), Some(Count::InTurns { .. })))
-            .expect("Walk: only a walk whose units take an axis in turns guards its turns")
+            .find(|&p| {
+                matches!(
+                    level.count(space.dimension_at(p)),
+                    Some(Count::InTurns { .. })
+                )
+            })
+            .expect("Walk: only a walk whose units take a dimension in turns guards its turns")
     }
 
-    /// Whether this walk's units take the one axis of its space in turns
+    /// Whether this walk's units take the one dimension of its space in turns
     /// ([`Count::InTurns`]): walked as a stride from the unit's place, not counted through its
     /// steps.
     fn strides(space: &Space, level: &Level) -> bool {
-        space.rank() == 1 && matches!(level.count(space.axis_at(0)), Some(Count::InTurns { .. }))
+        space.rank() == 1
+            && matches!(
+                level.count(space.dimension_at(0)),
+                Some(Count::InTurns { .. })
+            )
     }
 
     /// The steps every instance of `level` over `space` takes and the most any takes, where they
-    /// differ only by how an axis taken in turns splits among its units and the host knows both:
+    /// differ only by how a dimension taken in turns splits among its units and the host knows both:
     /// the one walk whose instance's step count is not a constant but is bounded by one.
     fn bounds(space: &Space, level: &Level) -> Option<(usize, usize)> {
         let mut bounds = (1usize, 1usize);
-        for axis in space.axes() {
-            let tiles = level.tiles_const(space, axis)?;
-            let (sure, most) = match level.count(axis) {
+        for dimension in space.dimensions() {
+            let tiles = level.tiles_const(space, dimension)?;
+            let (sure, most) = match level.count(dimension) {
                 Some(Count::InTurns { units, .. }) => {
                     let units = units?;
                     (tiles / units, tiles.div_ceil(units))
                 }
-                _ if level.distributes(axis) => return None,
+                _ if level.distributes(dimension) => return None,
                 _ => (tiles, tiles),
             };
             bounds = (bounds.0 * sure, bounds.1 * most);
@@ -569,7 +579,7 @@ impl Walk {
         unexpanded!()
     }
 
-    /// This walk, which steps `axis` alone and in order, over the run its operands are cut to
+    /// This walk, which steps `dimension` alone and in order, over the run its operands are cut to
     /// along it ([`Tile::within`](crate::Tile::within) from the walk's first region): every
     /// region but the last lies inside the run, so a ring over it
     /// ([`Stages::walk`](crate::Stages::walk)) fills those unchecked and bounds only the last, as
@@ -578,8 +588,8 @@ impl Walk {
     ///
     /// # Panics
     ///
-    /// At expansion, where the walk's level steps another axis than `axis`, or steps it back.
-    pub fn over_run(self, _axis: Axis) -> Walk {
+    /// At expansion, where the walk's level steps another dimension than `dimension`, or steps it back.
+    pub fn over_run(self, _dimension: Dimension) -> Walk {
         unexpanded!()
     }
 
@@ -601,12 +611,12 @@ impl WalkExpand {
         self
     }
 
-    pub fn __expand_over_run_method(mut self, _scope: &Scope, axis: Axis) -> Self {
+    pub fn __expand_over_run_method(mut self, _scope: &Scope, dimension: Dimension) -> Self {
         assert!(
-            self.level.axes() == [axis] && !self.level.is_reversed(axis),
-            "Walk::over_run: a walk over a run along {axis:?} steps that axis alone, in order"
+            self.level.dimensions() == [dimension] && !self.level.is_reversed(dimension),
+            "Walk::over_run: a walk over a run along {dimension:?} steps that dimension alone, in order"
         );
-        self.run = Some(axis);
+        self.run = Some(dimension);
         self
     }
 

@@ -28,14 +28,14 @@ use half::f16;
 use super::matmul::require_cmma_8x8x8_f32;
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-/// The contraction as the two axes a scale block makes of it: which block, and where inside it.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+/// The contraction as the two dimensions a scale block makes of it: which block, and where inside it.
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 /// The columns, likewise, where a scale covers a block of them.
-const NB: Axis = Axis(4);
-const NI: Axis = Axis(5);
+const NB: Dimension = Dimension(4);
+const NI: Dimension = Dimension(5);
 
 /// The register block every contraction here runs under.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
@@ -104,7 +104,7 @@ fn nvfp4_shaped_matmul(
 ///
 /// The only thing standing between this and the format itself is where the block scales are
 /// *stored*: `nvfp4` puts them in `ue4m3`, which needs a device that loads it. Everything else is
-/// here: the decode, two ordered levels, the coarser spanning no axis, 16-blocks on 8-value words.
+/// here: the decode, two ordered levels, the coarser spanning no dimension, 16-blocks on 8-value words.
 ///
 /// Nothing in the kernel names the format, the block, or the number of levels.
 ///
@@ -211,7 +211,7 @@ fn nvfp4_shaped_decode() {
             g_tensor.binding().into_tensor_arg(),
             dtype,
             1,
-            // The same axes, addressing neither: one value over all their tiles.
+            // The same dimensions, addressing neither: one value over all their tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -244,7 +244,7 @@ fn nvfp4_shaped_decode() {
 
 /// `c = x · (w ⊗ s)` with `w` packed along its columns: the q4 kernel with the *weights on the
 /// right*, which is the shape the shipped quant matmul has. Same verb, same body: the scales are
-/// written on the other factor, and their axes are checked against it.
+/// written on the other factor, and their dimensions are checked against it.
 #[cube(launch)]
 fn packed_matmul_rhs(
     x: &TileTensor<'_>,
@@ -1277,8 +1277,8 @@ fn a_packed_rhs_contracts_against_its_scales() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1425,8 +1425,8 @@ fn an_eight_bit_packed_rhs_contracts_against_its_scales() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1576,8 +1576,8 @@ fn several_lines_may_share_one_scale() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1838,8 +1838,8 @@ fn a_packed_decode_runs_in_this_spelling() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1983,8 +1983,8 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -3053,8 +3053,8 @@ fn a_copy_of_scaled_packed_fields_decodes_them() {
     }
 }
 
-/// The axis of a codebook's table: its positions, outside the kernel's space.
-const TBL: Axis = Axis(6);
+/// The dimension of a codebook's table: its positions, outside the kernel's space.
+const TBL: Dimension = Dimension(6);
 
 /// `output = table[input] ⊗ scales`, the input bound under its codebook and its scales.
 #[cube(launch)]

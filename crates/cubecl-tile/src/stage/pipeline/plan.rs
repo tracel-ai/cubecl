@@ -114,12 +114,12 @@ impl StagePlan {
     }
 }
 
-/// Whether a walk of `level` over `space` leaves `operand`'s window unchanged: it spans no axis
+/// Whether a walk of `level` over `space` leaves `operand`'s window unchanged: it spans no dimension
 /// the walk steps, and has no table left to read keyed by one.
 fn walk_invariant(level: &Level, space: &Space, operand: &StageOperand) -> bool {
-    space.axes().all(|axis| {
-        level.tiles(space, axis) == 1
-            || !(operand.space.contains(axis) || operand.keys.contains(&axis))
+    space.dimensions().all(|dimension| {
+        level.tiles(space, dimension) == 1
+            || !(operand.space.contains(dimension) || operand.keys.contains(&dimension))
     })
 }
 
@@ -127,9 +127,9 @@ fn walk_invariant(level: &Level, space: &Space, operand: &StageOperand) -> bool 
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
     /// An `M`/`N`/`K` space with `lhs` over `M`/`K` and `rhs` over `K`/`N`.
     fn spaces() -> (Space, Space, Space) {
@@ -153,7 +153,7 @@ mod tests {
     fn an_operand_with_a_table_to_read_is_refilled_along_its_keys() {
         let (space, lhs, rhs) = spaces();
         let level = Level::every(&[(M, 4), (N, 8), (K, 8)]);
-        let plan = |keys: Vec<Axis>| {
+        let plan = |keys: Vec<Dimension>| {
             let rhs = StageOperand {
                 keys,
                 ..operand(Delivery::SyncPerUnit, &rhs)

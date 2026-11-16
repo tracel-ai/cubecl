@@ -139,9 +139,9 @@ impl Memory {
                     }
                     // A decoding fill writes the stage value by value, so its lines need only
                     // divide the source's loads: as wide as every region below the stage cuts
-                    // whole along its innermost axis, or a step would start mid-line.
+                    // whole along its innermost dimension, or a step would start mid-line.
                     None if decodes => {
-                        let innermost = space.axis_at(space.rank() - 1);
+                        let innermost = space.dimension_at(space.rank() - 1);
                         space
                             .leaf(operand.place.below_level(level))
                             .whole_run(innermost, source_width)
@@ -152,7 +152,7 @@ impl Memory {
                 // words a gather reads lands as the compacted window the gather stages.
                 let delivery = operand.delivery();
                 let alignment = comptime!(delivery.engine().stage_alignment);
-                // A decoded stage is dense over the values' axes whatever the source's map, and
+                // A decoded stage is dense over the values' dimensions whatever the source's map, and
                 // so is a tiled one, which an instruction reads as one matrix.
                 let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));
                 if comptime!(projection.is_direct() || decodes || tiled) {

@@ -199,8 +199,8 @@ mod tests {
     use super::*;
     use cubecl::quant::scheme::QuantValue;
 
-    const K: Axis = Axis(0);
-    const N: Axis = Axis(1);
+    const K: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
 
     fn space() -> Space {
         Space::new(&[(K, 8), (N, 32)])

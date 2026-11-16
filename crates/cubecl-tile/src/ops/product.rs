@@ -1,4 +1,4 @@
-//! `dst.product(&a, &b)`: the elementwise product of two tiles, each broadcasting over the axes it
+//! `dst.product(&a, &b)`: the elementwise product of two tiles, each broadcasting over the dimensions it
 //! omits.
 
 use cubecl::prelude::*;
@@ -29,7 +29,7 @@ impl Tile {
         let a_reader = a.nd_split::<A, W>();
         let b_reader = b.nd_split::<B, F>();
 
-        let a_step_at = comptime!(a.place.space.position(split.axis));
+        let a_step_at = comptime!(a.place.space.position(split.dimension));
         let extents = Coords::constant(split.groups.clone());
         let total = split.groups.iter().product::<usize>();
 
@@ -52,7 +52,7 @@ impl Tile {
                 .view
                 .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
             // `a`'s address moves with the step: its map is evaluated once here, each step an addition.
-            let moving = comptime!(vec![split.axis]);
+            let moving = comptime!(vec![split.dimension]);
             let a_anchor = a_reader.map.anchor(a_base.clone(), moving.clone());
 
             #[unroll]
@@ -74,8 +74,8 @@ impl Tile {
 /// How a product's walk divides: one broadcast-operand read per group, its values stepped inside it.
 #[derive(Clone, Debug)]
 struct GroupWalk {
-    /// The axis a read's values step: the one the broadcast operand's own lines run along.
-    axis: Axis,
+    /// The dimension a read's values step: the one the broadcast operand's own lines run along.
+    dimension: Dimension,
     /// Its position in the destination's box.
     at: usize,
     /// Values one read of that operand serves.
@@ -88,22 +88,22 @@ impl GroupWalk {
     /// How `dst` divides against `b`, read `width` lines wide with `per_read` values a read.
     fn of(dst: &Space, b: &Space, width: usize, per_read: usize) -> Self {
         let rank = dst.rank();
-        let axis = b.axis_at(b.rank() - 1);
-        let at = dst.position(axis);
+        let dimension = b.dimension_at(b.rank() - 1);
+        let at = dst.position(dimension);
         assert!(
             per_read == 1 || at != rank - 1,
-            "Tile::mul: {per_read} of `b` arrive per read along {axis:?}, which is also the axis the \
+            "Tile::mul: {per_read} of `b` arrive per read along {dimension:?}, which is also the dimension the \
              destination's own lines run along, so one line would straddle two of them"
         );
         let mut groups = line_extents(dst, width, 0, rank);
         assert!(
             groups[at].is_multiple_of(per_read),
-            "Tile::mul: {} positions of {axis:?} do not divide into reads of {per_read}",
+            "Tile::mul: {} positions of {dimension:?} do not divide into reads of {per_read}",
             groups[at]
         );
         groups[at] /= per_read;
         GroupWalk {
-            axis,
+            dimension,
             at,
             per_read,
             groups,
@@ -126,7 +126,7 @@ fn group_line(at: &Coords<u32>, #[comptime] split: GroupWalk) -> CoordsDyn {
     out
 }
 
-/// Each operand's own coordinate for a group; an axis it does not span drops out.
+/// Each operand's own coordinate for a group; a dimension it does not span drops out.
 #[cube]
 fn bases(
     group: &CoordsDyn,
@@ -145,7 +145,7 @@ fn bases(
         })));
     }
     let empty = Coords::<u32>::new();
-    let no_reduce = comptime!(Vec::<Axis>::new());
+    let no_reduce = comptime!(Vec::<Dimension>::new());
     (
         resolve_nd_coords(a, dst, &no_reduce, &cells, &empty, width, AccCoords::Cells),
         resolve_nd_coords(
@@ -160,7 +160,7 @@ fn bases(
     )
 }
 
-/// `base` with the stepped axis advanced by `f`: the one component a step moves.
+/// `base` with the stepped dimension advanced by `f`: the one component a step moves.
 #[cube]
 fn stepped(base: &CoordsDyn, #[comptime] at: usize, #[comptime] f: usize) -> CoordsDyn {
     let mut out = CoordsDyn::new();

@@ -9,7 +9,7 @@ use crate::Coords;
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct RuntimeMap {
-    /// Dynamic coefficients and divisors, physical axis major, each axis's divisor last.
+    /// Dynamic coefficients and divisors, physical axis major, each dimension's divisor last.
     pub(crate) coefficients: Coords<u32>,
     /// The window origin's phase within its divisor per physical axis, `0` when integer.
     pub(crate) residues: Coords<u32>,

@@ -2,7 +2,7 @@
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Axis, Geometry, Launcher, PhysicalAxisMap, Projection, Refusal, Space};
+use crate::{Dimension, Geometry, Launcher, PhysicalAxisMap, Projection, Refusal, Space};
 
 /// The labelled reading of a buffer, as a [`Projection`] and the settled geometry.
 pub(crate) struct Labels {
@@ -11,18 +11,18 @@ pub(crate) struct Labels {
     /// buffer lacks.
     pub(crate) geometry: Geometry,
     pub(crate) projection: Projection,
-    /// Every logical axis the buffer carries, before broadcast dims dropped.
-    pub(crate) addressed: Vec<Axis>,
+    /// Every dimension the buffer carries, before broadcast dims dropped.
+    pub(crate) addressed: Vec<Dimension>,
 }
 
 impl Labels {
     pub(crate) fn new(
         geometry: &Geometry,
-        axes: &[Axis],
-        batches: &[Axis],
+        dimensions: &[Dimension],
+        batches: &[Dimension],
     ) -> Result<Self, Refusal> {
         let rank = geometry.rank();
-        let block = geometry.labels(axes);
+        let block = geometry.labels(dimensions);
         if rank < block.len() {
             return Err(Refusal::RankBelowLabels {
                 rank,
@@ -33,33 +33,33 @@ impl Labels {
         if batch_dims > batches.len() {
             return Err(Refusal::UnlabelledBatchDims {
                 dims: batch_dims,
-                axes: batches.len(),
+                dimensions: batches.len(),
             });
         }
-        let addressed: Vec<Axis> = batches[batches.len() - batch_dims..]
+        let addressed: Vec<Dimension> = batches[batches.len() - batch_dims..]
             .iter()
             .chain(&block)
             .copied()
             .collect();
 
         let mut maps: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]> = SmallVec::new();
-        let mut logical: SmallVec<[Axis; Space::MAX_RANK]> = SmallVec::new();
+        let mut logical: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
         let mut dims: SmallVec<[(usize, usize); Space::MAX_RANK]> = SmallVec::new();
-        for (&axis, (extent, stride)) in addressed.iter().zip(geometry.dims()) {
-            // A labelled axis never drops out: the tile is shaped over it.
-            if batches.contains(&axis) && extent == 1 && !axes.contains(&axis) {
+        for (&dimension, (extent, stride)) in addressed.iter().zip(geometry.dims()) {
+            // A labelled dimension never drops out: the tile is shaped over it.
+            if batches.contains(&dimension) && extent == 1 && !dimensions.contains(&dimension) {
                 continue;
             }
-            maps.push(PhysicalAxisMap::of(axis));
-            if !logical.contains(&axis) {
-                logical.push(axis);
+            maps.push(PhysicalAxisMap::of(dimension));
+            if !logical.contains(&dimension) {
+                logical.push(dimension);
             }
             dims.push((extent, stride));
         }
-        // The batch dims kept, one piece each, then each labelled axis's pieces.
-        let pieces = axes
+        // The batch dims kept, one piece each, then each labelled dimension's pieces.
+        let pieces = dimensions
             .iter()
-            .map(|&axis| block.iter().filter(|&&a| a == axis).count());
+            .map(|&dimension| block.iter().filter(|&&a| a == dimension).count());
         let fragments: Vec<usize> = core::iter::repeat_n(1, dims.len() - block.len())
             .chain(pieces)
             .collect();
@@ -79,14 +79,14 @@ impl Labels {
         geometry: &Geometry,
         launch: &Launcher,
         projection: Projection,
-        axes: &[Axis],
-        batches: &[Axis],
+        dimensions: &[Dimension],
+        batches: &[Dimension],
         stored: Tiling,
     ) -> Result<Self, Refusal> {
         if stored.is_tiled() {
             return Err(Refusal::GatherOfATiledBinding(stored));
         }
-        if !(axes.is_empty() && batches.is_empty()) {
+        if !(dimensions.is_empty() && batches.is_empty()) {
             return Err(Refusal::GatherWithLabels);
         }
         if projection.physical_rank() != geometry.rank() {
@@ -96,16 +96,16 @@ impl Labels {
             });
         }
         let space = launch.partitioning().space();
-        if let Some(&axis) = projection
-            .logical_axes()
+        if let Some(&dimension) = projection
+            .dimensions()
             .iter()
-            .find(|&&axis| !space.contains(axis))
+            .find(|&&dimension| !space.contains(dimension))
         {
-            return Err(Refusal::GatherOfAnUnknownAxis(axis));
+            return Err(Refusal::GatherOfAnUnknownDimension(dimension));
         }
         Ok(Labels {
             geometry: geometry.clone(),
-            addressed: projection.logical_axes().to_vec(),
+            addressed: projection.dimensions().to_vec(),
             projection,
         })
     }

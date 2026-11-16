@@ -38,7 +38,7 @@ pub(crate) struct Engine {
     pub(crate) present: fn(&DeviceProperties) -> bool,
     /// The line lengths it moves whole, in bytes; `None` for any.
     pub(crate) line_bytes: Option<&'static [usize]>,
-    /// The most cells a box it moves holds along one axis; `None` for no bound.
+    /// The most cells a box it moves holds along one dimension; `None` for no bound.
     pub(crate) box_edge: Option<usize>,
     /// The byte alignment a stage it lands in starts on; `0` for none.
     pub(crate) stage_alignment: usize,
@@ -111,7 +111,11 @@ impl Delivery {
             return Ok(());
         };
         match stage.extents().into_iter().find(|&(_, edge)| edge > most) {
-            Some((axis, edge)) => Err(Refusal::BoxPastDescriptor { axis, edge, most }),
+            Some((dimension, edge)) => Err(Refusal::BoxPastDescriptor {
+                dimension,
+                edge,
+                most,
+            }),
             None => Ok(()),
         }
     }

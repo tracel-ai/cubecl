@@ -194,8 +194,8 @@ impl CmmaData {
         let size!(W) = width;
         let lines_per_row = n / width;
         let lines = m * lines_per_row;
-        let axes = comptime!(MatrixAxes::trailing(space));
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
+        let dimensions = comptime!(MatrixDimensions::trailing(space));
+        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
         let plane_units = PLANE_DIM as usize;
         let mut line = UNIT_POS_PLANE as usize;
         while line < lines {

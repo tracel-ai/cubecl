@@ -191,12 +191,15 @@ impl Tile {
     }
 
     /// Physical vector width of the backing store; `1` for a fragment or tma source. Refuses a
-    /// memory whose loads span several axes: its reader asks for the vector tile instead.
+    /// memory whose loads span several dimensions: its reader asks for the vector tile instead.
     pub fn vector_size(&self) -> comptime_type!(usize) {
         match &self.kind {
             TileKind::Memory(d) => {
                 let load = d.vector_tile(&self.place.space);
-                comptime!(load.along_one_axis("a reader asking Tile::vector_size").1)
+                comptime!(
+                    load.along_one_dimension("a reader asking Tile::vector_size")
+                        .1
+                )
             }
             TileKind::Lines(c) => c.line(),
             // The cells a line its readers take: words of a packed field's values.
@@ -207,7 +210,7 @@ impl Tile {
         }
     }
 
-    /// What one vector load of this tile covers: a run along the innermost axis, or the stored
+    /// What one vector load of this tile covers: a run along the innermost dimension, or the stored
     /// tiles that hold [`vector_size`](Tile::vector_size) values ([`VectorTile::new`]).
     pub(crate) fn vector_tile(&self) -> comptime_type!(VectorTile) {
         let space = comptime!(self.place.space.clone());
@@ -219,7 +222,7 @@ impl Tile {
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_) => {
                 let width = self.vector_size();
-                comptime!(VectorTile::run(space.axis_at(space.rank() - 1), width))
+                comptime!(VectorTile::run(space.dimension_at(space.rank() - 1), width))
             }
         }
     }
@@ -449,7 +452,7 @@ impl Tile {
         }
     }
 
-    /// This operand's per-axis boundary handling, which a stage filled from it inherits.
+    /// This operand's per-dimension boundary handling, which a stage filled from it inherits.
     pub(crate) fn window_boundaries(
         &self,
     ) -> comptime_type!(SmallVec<[Option<Boundary>; Space::MAX_RANK]>) {
@@ -516,19 +519,19 @@ impl Tile {
         }
     }
 
-    /// Whether this tile can state `axis`'s runtime size.
-    pub(crate) fn witnesses(&self, #[comptime] axis: Axis) -> comptime_type!(bool) {
+    /// Whether this tile can state `dimension`'s runtime size.
+    pub(crate) fn witnesses(&self, #[comptime] dimension: Dimension) -> comptime_type!(bool) {
         let bounded = self.bounded();
         let projection = self.projection();
         comptime!(
             bounded
-                && self.place.space.contains(axis)
-                && self.place.space.is_dynamic(axis)
-                && Witness::new(&projection, axis).is_some()
+                && self.place.space.contains(dimension)
+                && self.place.space.is_dynamic(dimension)
+                && Witness::new(&projection, dimension).is_some()
         )
     }
 
-    /// How this tile's logical axes address its buffer's physical ones.
+    /// How this tile's dimensions address its buffer's physical ones.
     pub(crate) fn projection(&self) -> comptime_type!(Projection) {
         match &self.kind {
             TileKind::Memory(g) => comptime!(g.projection.clone()),
@@ -554,10 +557,10 @@ impl Tile {
         }
     }
 
-    /// This operand's window at `from` on `axis`, reading zero past `until` (both in elements).
-    pub fn within(&self, #[comptime] axis: Axis, from: usize, until: usize) -> Tile {
+    /// This operand's window at `from` on `dimension`, reading zero past `until` (both in elements).
+    pub fn within(&self, #[comptime] dimension: Dimension, from: usize, until: usize) -> Tile {
         let tile_kind = match &self.kind {
-            TileKind::Memory(g) => TileKind::new_Memory(g.within(axis, from, until)),
+            TileKind::Memory(g) => TileKind::new_Memory(g.within(dimension, from, until)),
             TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
             | TileKind::Lines(_)
@@ -678,14 +681,14 @@ impl Tile {
         }
     }
 
-    /// This operand's runtime logical size along `axis`; only for an axis it
+    /// This operand's runtime logical size along `dimension`; only for a dimension it
     /// [`witnesses`](Tile::witnesses).
-    pub(crate) fn runtime_extent(&self, #[comptime] axis: Axis) -> usize {
+    pub(crate) fn runtime_extent(&self, #[comptime] dimension: Dimension) -> usize {
         let projection = self.projection();
         let p = comptime!(
-            Witness::new(&projection, axis)
+            Witness::new(&projection, dimension)
                 .unwrap_or_else(|| panic!(
-                    "Tile::runtime_extent: no bound of this operand is {axis:?}'s own extent (it \
+                    "Tile::runtime_extent: no bound of this operand is {dimension:?}'s own extent (it \
                      gathers over it, or splits it across storage fragments); ask an operand that \
                      witnesses it"
                 ))
@@ -703,13 +706,13 @@ impl Tile {
                 )
             }
         };
-        // `bound` counts lines on the vectorized innermost axis.
+        // `bound` counts lines on the vectorized innermost dimension.
         let last = comptime!(projection.physical_rank() - 1);
         let w = self.vector_size();
         comptime!(if p == last { w } else { 1usize }) * raw
     }
 
-    /// This tile's own box as a runtime space, dynamic axes sized off its buffer.
+    /// This tile's own box as a runtime space, dynamic dimensions sized off its buffer.
     pub(crate) fn runtime_space(&self) -> Space {
         witnessed_space(&self.place.space, self, self, self)
     }
@@ -781,7 +784,7 @@ impl Tile {
 
     /// The fragment grid this accumulator holds and one fragment's `m × n`.
     pub(crate) fn fragment_grid(&self) -> comptime_type!(((usize, usize), usize, usize)) {
-        let edges = comptime!(MatrixAxes::edges(&self.place.space));
+        let edges = comptime!(MatrixDimensions::edges(&self.place.space));
         let rows = comptime!(self.place.space.extent_at(edges.row_split));
         let cols = comptime!(self.place.space.extent_at(edges.col_split));
         match &self.kind {
@@ -852,7 +855,7 @@ impl Tile {
         )
     }
 
-    /// A fresh shared-memory tile over `axes` of one region of `walk`, laid out as `storage` and
+    /// A fresh shared-memory tile over `dimensions` of one region of `walk`, laid out as `storage` and
     /// served one value a line: placed where the walk's regions sit, and owned as the walk's
     /// stages are, one for the cube or a copy for each plane ([`Stages`]).
     ///
@@ -861,12 +864,12 @@ impl Tile {
     /// and is windowed by the walk's regions like an operand.
     pub fn scratch<T: Numeric>(
         walk: &Walk,
-        #[comptime] axes: Vec<Axis>,
+        #[comptime] dimensions: Vec<Dimension>,
         #[comptime] storage: StageStorage,
     ) -> Tile {
         let owner = walk.stage_owner();
         let place = comptime!(Placement::new(
-            walk.level.child(&walk.space).subspace(&axes),
+            walk.level.child(&walk.space).subspace(&dimensions),
             walk.depth(),
             walk.parent.path.root_levels(),
         ));
@@ -1038,7 +1041,7 @@ impl Tile {
                     d.fill_from::<S>(src, DeepLoad::Steps)
                 }
                 (TileKind::PlaneTile(d), TileKind::Memory(_)) => {
-                    let row = comptime!(MatrixAxes::edges(&src.place.space).row_split);
+                    let row = comptime!(MatrixDimensions::edges(&src.place.space).row_split);
                     d.load_window::<S>(src, DeepLoad::Steps, row)
                 }
                 (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, &held),
@@ -1127,17 +1130,17 @@ impl Tile {
         }
     }
 
-    /// Whether one factor tap lands inside the input axes that factor moves.
+    /// Whether one factor tap lands inside the input dimensions that factor moves.
     pub(crate) fn separable_physical_tap_in_bounds(
         &self,
         pos: &CoordsDyn,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) -> bool {
         match &self.kind {
             // A stage answers against the window it was filled from.
             TileKind::Memory(data) => {
                 let projection = comptime!(data.projection.clone());
-                if !projection.addresses(axis) {
+                if !projection.addresses(dimension) {
                     true.runtime()
                 } else {
                     #[comptime]
@@ -1145,18 +1148,18 @@ impl Tile {
                         ComptimeOption::Some(source) => source.axes_in_bounds(
                             &data.window.origin,
                             pos,
-                            projection.carriers(axis).to_vec(),
+                            projection.carriers(dimension).to_vec(),
                         ),
                         ComptimeOption::None => match comptime!(data.address) {
                             AddressSpace::Global => data
                                 .window
-                                .axes_in_bounds(pos, projection.carriers(axis).to_vec()),
+                                .axes_in_bounds(pos, projection.carriers(dimension).to_vec()),
                             AddressSpace::Shared => true.runtime(),
                         },
                     }
                 }
             }
-            TileKind::Procedural(data) => data.axis_in_bounds(pos, axis),
+            TileKind::Procedural(data) => data.dimension_in_bounds(pos, dimension),
             TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
             | TileKind::TmaGmem(_)
@@ -1173,8 +1176,8 @@ impl Tile {
     pub(crate) fn factor_dependencies(
         &self,
         _factors: Option<usize>,
-        _row: Axis,
-        _col: Axis,
+        _row: Dimension,
+        _col: Dimension,
     ) -> comptime_type!(Option<Vec<(bool, bool)>>) {
         unexpanded!()
     }
@@ -1190,8 +1193,8 @@ impl TileExpand {
         &self,
         scope: &Scope,
         factors: Option<usize>,
-        row: Axis,
-        col: Axis,
+        row: Dimension,
+        col: Dimension,
     ) -> Option<Vec<(bool, bool)>> {
         factors.map(|factors| match &self.kind {
             TileKindExpand::Procedural(data) => (0..factors)
@@ -1211,7 +1214,7 @@ impl TileExpand {
     }
 }
 
-/// `space` with each [`Dynamic`](crate::Extent) axis sized by the first of `a`, `b`, `c` that
+/// `space` with each [`Dynamic`](crate::Extent) dimension sized by the first of `a`, `b`, `c` that
 /// [`witnesses`](Tile::witnesses) it.
 #[cube]
 pub(crate) fn witnessed_space(#[comptime] space: &Space, a: &Tile, b: &Tile, c: &Tile) -> Space {
@@ -1219,23 +1222,23 @@ pub(crate) fn witnessed_space(#[comptime] space: &Space, a: &Tile, b: &Tile, c: 
     if !space.is_static() {
         #[unroll]
         for p in 0..space.rank() {
-            let axis = space.axis_at(p);
-            // Evaluate `Static` axes here so one `Dynamic` axis doesn't require a bound for the rest.
-            let size = match space.extent_raw(axis) {
+            let dimension = space.dimension_at(p);
+            // Evaluate `Static` dimensions here so one `Dynamic` dimension doesn't require a bound for the rest.
+            let size = match space.extent_raw(dimension) {
                 Extent::Static(n) => comptime!(n).runtime(),
                 Extent::Dynamic => {
-                    let by_a = a.witnesses(axis);
-                    let by_b = b.witnesses(axis);
-                    let by_c = c.witnesses(axis);
+                    let by_a = a.witnesses(dimension);
+                    let by_b = b.witnesses(dimension);
+                    let by_c = c.witnesses(dimension);
                     if comptime!(by_a) {
-                        a.runtime_extent(axis)
+                        a.runtime_extent(dimension)
                     } else if comptime!(by_b) {
-                        b.runtime_extent(axis)
+                        b.runtime_extent(dimension)
                     } else if comptime!(by_c) {
-                        c.runtime_extent(axis)
+                        c.runtime_extent(dimension)
                     } else {
                         panic!(
-                            "witnessed_space: {axis:?} is Dynamic and no operand states its size; \
+                            "witnessed_space: {dimension:?} is Dynamic and no operand states its size; \
                              every operand spanning it gathers over it, holds it Static, or is a \
                              fragment. Keep it Static in the kernel space, or give the operation \
                              an operand that maps it identically"
@@ -1300,7 +1303,7 @@ impl Iterable for &TileExpand {
 }
 
 impl Tile {
-    /// These values under `scale`, multiplied in where they are read. Every axis `scale` varies
+    /// These values under `scale`, multiplied in where they are read. Every dimension `scale` varies
     /// along must be one of the values'; one it spans without varying along is read at its origin.
     pub fn mul(&self, _scale: &Tile) -> Tile {
         unexpanded!()
@@ -1309,16 +1312,16 @@ impl Tile {
     /// The factor a leaf reads these values under.
     pub(crate) fn reader(
         &self,
-        _axes: MatrixAxes,
+        _dimensions: MatrixDimensions,
         _matrix: usize,
         _side: Side,
         _out: Space,
-        _acc_axes: MatrixAxes,
+        _acc_dimensions: MatrixDimensions,
     ) -> FactorReader {
         unexpanded!()
     }
 
-    /// This operand of `sum` without its outer scales that vary only along the axes of `sum`'s
+    /// This operand of `sum` without its outer scales that vary only along the dimensions of `sum`'s
     /// space, and those scales. They are the scales the sum takes out of every term and applies
     /// once ([`scaled`](Tile::scaled)), and the tile left carries the ones each term needs. Open
     /// the sum first ([`accumulator`](Tile::accumulator)): what it gives up depends on the
@@ -1334,7 +1337,7 @@ impl Tile {
         unexpanded!()
     }
 
-    /// This tile without its outer scales that vary along no axis, and those scales: what a sum
+    /// This tile without its outer scales that vary along no dimension, and those scales: what a sum
     /// held outside any tile, in a unit's own registers, takes out of every term and applies once
     /// ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing a
     /// table gives up none: only its copy decodes it.
@@ -1456,20 +1459,20 @@ impl TileExpand {
     pub fn __expand_mul_method(&self, scope: &Scope, scale: &TileExpand) -> TileExpand {
         let values = self.place.space.clone();
         let projection = scale.clone().__expand_projection_method(scope);
-        // An axis the scales span without varying along it is read at its origin
+        // A dimension the scales span without varying along it is read at its origin
         // ([`scale_for`](Tile::scale_for)): a scale broadcasts by omission.
-        let varied: Vec<Axis> = scale
+        let varied: Vec<Dimension> = scale
             .place
             .space
-            .axes()
-            .filter(|&axis| projection.addresses(axis))
+            .dimensions()
+            .filter(|&dimension| projection.addresses(dimension))
             .collect();
         assert!(
-            varied.iter().all(|&axis| values.contains(axis)),
+            varied.iter().all(|&dimension| values.contains(dimension)),
             "Tile::mul: the scales vary along {varied:?} where the values span {:?}; a scale is \
-             looked up at the value's coordinates, so every axis the scales vary along is one of \
+             looked up at the value's coordinates, so every dimension the scales vary along is one of \
              the values'",
-            values.axes().collect::<Vec<_>>()
+            values.dimensions().collect::<Vec<_>>()
         );
         let mut out = self.clone();
         out.factor = out.factor.and(FactorExpand::of(scale));
@@ -1479,23 +1482,23 @@ impl TileExpand {
     pub(crate) fn __expand_reader_method(
         &self,
         scope: &Scope,
-        axes: MatrixAxes,
+        dimensions: MatrixDimensions,
         matrix: NativeExpand<usize>,
         side: Side,
         out: Space,
-        acc_axes: MatrixAxes,
+        acc_dimensions: MatrixDimensions,
     ) -> FactorReaderExpand {
         self.refuse_codebook("a leaf's read");
         let values = self.place.space.clone();
-        // A line is the run of a load along the innermost axis; a load stored across several
+        // A line is the run of a load along the innermost dimension; a load stored across several
         // columns is read as their runs, each placed at its own column.
         let vector_size = self.clone().__expand_vector_tile_method(scope).extents()[0].1;
         let factor = self.factor.clone();
         if let Some(inner) = factor.innermost_tile() {
             let projection = inner.clone().__expand_projection_method(scope);
             check_scales_omit_rather_than_divide(&projection);
-            check_scales_ride(side, &inner.place.space, &out, acc_axes);
-            let innermost = values.axis_at(values.rank() - 1);
+            check_scales_ride(side, &inner.place.space, &out, acc_dimensions);
+            let innermost = values.dimension_at(values.rank() - 1);
             assert!(
                 vector_size == 1 || !projection.addresses(innermost),
                 "Tile::mul: a line runs {vector_size} values along {innermost:?}, which its \
@@ -1520,7 +1523,7 @@ impl TileExpand {
             inner: factor.innermost(),
             scaled: factor.scaled() || lift != 1.0,
             values,
-            axes,
+            dimensions,
             vector_size,
             matrix,
         }
@@ -1616,7 +1619,7 @@ impl TileExpand {
     pub(crate) fn __expand_fragment_source_method(&self, scope: &Scope) -> FragmentSource {
         match &self.kind {
             TileKindExpand::PlaneTile(tile) => {
-                let edges = MatrixAxes::edges(&self.place.space);
+                let edges = MatrixDimensions::edges(&self.place.space);
                 return FragmentSource::Fragments {
                     instruction: tile.__expand_instruction_method(scope),
                     cell: [edges.rows(&self.place.space), edges.cols(&self.place.space)],
@@ -1706,8 +1709,8 @@ impl TileExpand {
     pub fn __expand_lookup_method(&self, _scope: &Scope, table: &TileExpand) -> TileExpand {
         assert!(
             table.place.space.rank() == 1,
-            "Tile::lookup: a table is a tile of one axis, its positions; this one spans {:?}",
-            table.place.space.axes().collect::<Vec<_>>()
+            "Tile::lookup: a table is a tile of one dimension, its positions; this one spans {:?}",
+            table.place.space.dimensions().collect::<Vec<_>>()
         );
         let mut out = self.clone();
         match &mut out.kind {
@@ -1770,7 +1773,7 @@ impl TileExpand {
 
 #[cube]
 impl Tile {
-    /// The one scale at `coords`, one entry per axis of this tile's space, read from memory under
+    /// The one scale at `coords`, one entry per dimension of this tile's space, read from memory under
     /// `guard`.
     #[allow(dead_code)] // Reached through its expand, from [`Factor`].
     pub(crate) fn scale_at<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
@@ -1786,9 +1789,9 @@ impl Tile {
         }
     }
 
-    /// The one scale covering the value at `coords` of a tile spanning `values`. An axis of the
+    /// The one scale covering the value at `coords` of a tile spanning `values`. A dimension of the
     /// scales the values do not span is one the scales do not vary along: a sum's scale names the
-    /// operand's axes, and is read at the origin of the ones the sum has summed away.
+    /// operand's dimensions, and is read at the origin of the ones the sum has summed away.
     #[allow(dead_code)] // Reached through its expand, from [`Factor`].
     pub(crate) fn scale_for<S: Numeric>(
         &self,
@@ -1812,13 +1815,13 @@ impl Tile {
         let mut own = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            let axis = comptime!(self.place.space.axis_at(p));
-            if values.contains(axis) {
-                own.push(coords.at(values.position(axis)));
+            let dimension = comptime!(self.place.space.dimension_at(p));
+            if values.contains(dimension) {
+                own.push(coords.at(values.position(dimension)));
             } else {
                 comptime!(assert!(
-                    !projection.addresses(axis),
-                    "Tile::scale_for: these scales vary along {axis:?}, which the values they \
+                    !projection.addresses(dimension),
+                    "Tile::scale_for: these scales vary along {dimension:?}, which the values they \
                      scale do not span"
                 ));
                 own.push(0u32);
@@ -1828,7 +1831,7 @@ impl Tile {
     }
 
     /// The one value at `coords` of a tile that serves lines: the load holding it, read whole,
-    /// and the value's place in it, whatever axes the load spans. A packed load decodes only the
+    /// and the value's place in it, whatever dimensions the load spans. A packed load decodes only the
     /// field that value is, not the whole line.
     #[allow(dead_code)] // Reached through its expand, from [`Tile::scale_at`].
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
@@ -1841,10 +1844,10 @@ impl Tile {
         let mut position = 0u32.runtime();
         #[unroll]
         for p in 0..rank {
-            let axis = space.axis_at(p);
-            let extent = comptime!(load.extent_along(axis) as u32);
+            let dimension = space.dimension_at(p);
+            let extent = comptime!(load.extent_along(dimension) as u32);
             if extent > 1 {
-                let step = comptime!(load.step_along(axis) as u32);
+                let step = comptime!(load.step_along(dimension) as u32);
                 position += coords.at(p).remainder(extent).times(step);
             }
         }

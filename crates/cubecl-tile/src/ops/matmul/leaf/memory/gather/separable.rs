@@ -1,4 +1,4 @@
-//! Cell-major gather for expensive procedural filters separable over the contracted axes.
+//! Cell-major gather for expensive procedural filters separable over the contracted dimensions.
 
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
@@ -50,7 +50,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
 
         let mut acc = acc.matrix_accumulate::<E, A>(
             mat,
-            problem.block.acc_axes,
+            problem.block.acc_dimensions,
             &problem.block.space,
             semiring.add(),
         );

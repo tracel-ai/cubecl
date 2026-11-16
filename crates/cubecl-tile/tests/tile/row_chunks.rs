@@ -20,9 +20,9 @@ use cubecl_tile::*;
 
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// Where the fragments are read from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -185,7 +185,7 @@ fn instruction_shape(
     shape
 }
 
-/// Small integers, exact in `f16`, and differing between neighbours along every axis.
+/// Small integers, exact in `f16`, and differing between neighbours along every dimension.
 fn values(len: usize, seed: usize) -> Vec<f32> {
     (0..len)
         .map(|i| ((i * 7 + seed) % 13) as f32 - 6.0)
@@ -364,12 +364,12 @@ fn check(case: Case) {
         block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
         chunks,
     };
-    let a_axes: &'static [Axis] = if lhs_transposed { &[K, M] } else { &[M, K] };
-    let b_axes: &'static [Axis] = if transposed { &[N, K] } else { &[K, N] };
-    let bind = |binding, element, axes: &'static [Axis], width| {
+    let a_dimensions: &'static [Dimension] = if lhs_transposed { &[K, M] } else { &[M, K] };
+    let b_dimensions: &'static [Dimension] = if transposed { &[N, K] } else { &[K, N] };
+    let bind = |binding, element, dimensions: &'static [Dimension], width| {
         launcher
             .arg(binding, element)
-            .axes(axes)
+            .dimensions(dimensions)
             .vectorize(width)
             .build()
             .unwrap()
@@ -378,8 +378,8 @@ fn check(case: Case) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        bind(a_handle.clone().binding(), input, a_axes, v).arg(),
-        bind(b_handle.clone().binding(), input, b_axes, v).arg(),
+        bind(a_handle.clone().binding(), input, a_dimensions, v).arg(),
+        bind(b_handle.clone().binding(), input, b_dimensions, v).arg(),
         bind(out.clone().binding(), f32::elem_type_native(), &[M, N], 1).arg(),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),

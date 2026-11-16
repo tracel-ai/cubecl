@@ -284,7 +284,7 @@ struct LaneRun {
     /// ([`LaneRun::window_row`]). What they read lands in accumulator cells past the product's
     /// edge, which hold no value of it.
     rows: usize,
-    /// The window's `k`, however many axes spell it.
+    /// The window's `k`, however many dimensions spell it.
     k: usize,
 }
 
@@ -339,8 +339,8 @@ impl LaneRun {
         comptime!({
             let map = map.expect("lane_runs_refusal admits a target with a lane map alone");
             let cells = space
-                .axes()
-                .map(|axis| space.extent(axis))
+                .dimensions()
+                .map(|dimension| space.extent(dimension))
                 .product::<usize>();
             assert!(
                 cells >= k,
@@ -465,8 +465,8 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     #[comptime] run: LaneRun,
 ) {
     let space = comptime!(src.place.space.clone());
-    let axes = comptime!(
-        MatrixAxes::new(&space, run.rows, run.k).unwrap_or_else(|no| {
+    let dimensions = comptime!(
+        MatrixDimensions::new(&space, run.rows, run.k).unwrap_or_else(|no| {
             panic!(
                 "MmaData::load: a lane-run window is a {} x {} matrix: {no:?}",
                 run.rows, run.k
@@ -477,11 +477,9 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     let values = comptime!(load.values());
     // A load lies along `k` alone: one that also spans rows would place another row's codes in
     // this unit's run.
-    let along_k = comptime!(
-        load.space()
-            .axes()
-            .all(|axis| (axes.col_split..space.rank()).any(|p| space.axis_at(p) == axis))
-    );
+    let along_k = comptime!(load.space().dimensions().all(|dimension| {
+        (dimensions.col_split..space.rank()).any(|p| space.dimension_at(p) == dimension)
+    }));
     comptime!(assert!(
         along_k,
         "MmaData::load: a unit's run of `k` reads loads along `k` alone, and this window's load \
@@ -522,14 +520,14 @@ fn load_e2m1_run<T: Numeric, N: Size>(
         #[unroll]
         for b in 0..comptime!(run.len / SCALE_READ) {
             let col = first + comptime!((b * SCALE_READ) as u32);
-            let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
+            let coords = TileMatrix::value_coords(at, col, 0usize, &space, dimensions, 1usize);
             scales[b] =
                 T::cast_from(factor.at_coords(&coords, space.clone(), comptime!(Guard::Checked)));
         }
         #[unroll]
         for l in 0..(run.len / values) {
             let col = first + comptime!((l * values) as u32);
-            let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
+            let coords = TileMatrix::value_coords(at, col, 0usize, &space, dimensions, 1usize);
             let line = words.read(load.index(&coords, &space));
             #[unroll]
             for w in 0..comptime!(values / E2M1_PER_WORD) {

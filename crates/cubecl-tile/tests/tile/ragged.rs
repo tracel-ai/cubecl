@@ -1,10 +1,10 @@
 //! Variable-length sequences as a plain windowed walk.
 //!
-//! Sequences of different lengths packed end to end on one axis. The kernel walks that axis with
+//! Sequences of different lengths packed end to end on one dimension. The kernel walks that dimension with
 //! [`Walk::window`], whose base and length are runtime values, so a sequence steps its own tokens
 //! and nothing else: no side channel on an operand, no displaced window origin, `at` unchanged.
 //!
-//! The reduce is the shape that isolates it: the output omits the packed axis, so nothing but the
+//! The reduce is the shape that isolates it: the output omits the packed dimension, so nothing but the
 //! walk's bounds decides which tokens a sequence reduces.
 #![allow(non_snake_case)]
 
@@ -14,11 +14,11 @@ use cubecl::{prelude::*, zspace::Shape};
 use cubecl_tile::*;
 
 /// Which sequence.
-const B: Axis = Axis(0);
+const B: Dimension = Dimension(0);
 /// The packed position: every sequence's tokens, end to end in one buffer.
-const P: Axis = Axis(1);
+const P: Dimension = Dimension(1);
 /// The feature a token carries.
-const D: Axis = Axis(2);
+const D: Dimension = Dimension(2);
 
 /// `out[b] = Σ packed[p]` over the tokens of sequence `b`, whose packed range the cumulative
 /// lengths give as `[ends[b], ends[b + 1])`.
@@ -43,12 +43,12 @@ fn ragged_sum_kernel<E: Numeric>(
         let mut total = out.at(&sequence);
         total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
 
-        // The whole of it: the walk over the packed axis takes `end - start` steps from `start`,
+        // The whole of it: the walk over the packed dimension takes `end - start` steps from `start`,
         // so an empty sequence takes none and a short one never reads its neighbour's tokens.
         let tokens = sequence.over(&token).range(start, end - start);
         for pos in tokens {
             let mut cell = out.at(&pos);
-            cell.reduce_axis_accumulate(&packed.at(&pos), comptime!(Monoid::Sum));
+            cell.reduce_dimension_accumulate(&packed.at(&pos), comptime!(Monoid::Sum));
         }
     }
 }
@@ -199,7 +199,7 @@ fn blocked_ragged_sum_kernel<E: Numeric>(
             .range(0, (end - start).div_ceil(BLOCK))
         {
             let mut cell = out.at(&blk);
-            cell.reduce_axis_accumulate(&seq_view.at(&blk), comptime!(Monoid::Sum));
+            cell.reduce_dimension_accumulate(&seq_view.at(&blk), comptime!(Monoid::Sum));
         }
     }
 }

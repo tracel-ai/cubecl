@@ -1,4 +1,4 @@
-//! `tile.reduce`: a tile reduced into another across the axes it does not span.
+//! `tile.reduce`: a tile reduced into another across the dimensions it does not span.
 
 use cubecl::ir::Scope;
 use cubecl_ir::{
@@ -6,7 +6,7 @@ use cubecl_ir::{
 };
 use pliron::derive::op_interface_impl;
 
-/// A tile reduced into another across the axes the destination does not span, under a monoid, from
+/// A tile reduced into another across the dimensions the destination does not span, under a monoid, from
 /// the monoid's identity or onto what the destination holds.
 ///
 /// Its region holds the reduction as tracing wrote it, and yields nothing: what it does is the

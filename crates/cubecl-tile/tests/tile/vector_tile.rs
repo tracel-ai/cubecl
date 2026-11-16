@@ -1,11 +1,11 @@
 //! A kernel reads where each load of a window starts off the load's own tile: a plain run along
-//! the innermost axis, or an NVFP4 rectangle spanning two axes.
+//! the innermost dimension, or an NVFP4 rectangle spanning two dimensions.
 
 use cubecl::prelude::*;
-use cubecl_tile::{Axis, Space, layout::VectorTile};
+use cubecl_tile::{Dimension, Space, layout::VectorTile};
 
-const K: Axis = Axis(0);
-const N: Axis = Axis(1);
+const K: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
 
 /// Each unit writes the `(k, n)` its load starts at.
 #[cube(launch)]
@@ -32,7 +32,7 @@ fn starts(load: VectorTile, loads: u32) -> Vec<u32> {
 /// A 32 by 4 window read in 16 by 2 loads is four loads, starting two columns apart along `N`
 /// and 16 values apart along `K`; read in runs of 4 along `N`, it is 32 loads, one per `k`.
 #[test]
-fn a_load_starts_a_whole_tile_apart_along_each_axis() {
+fn a_load_starts_a_whole_tile_apart_along_each_dimension() {
     let rectangle = VectorTile::new(&[(K, 8), (K, 2), (N, 2)], N, 32).unwrap();
     assert_eq!(starts(rectangle, 4), vec![0, 0, 0, 2, 16, 0, 16, 2]);
 

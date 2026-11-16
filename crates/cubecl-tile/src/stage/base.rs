@@ -1,15 +1,15 @@
 //! Where a stage lives and how it lays its cells out ([`StageStorage`]).
 
-use crate::{Axis, ChunkSwizzle, LineBytes, Refusal, Space, StageForm};
+use crate::{ChunkSwizzle, Dimension, LineBytes, Refusal, Space, StageForm};
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
 /// [`Stages::smem`](crate::Stages::smem).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StageStorage {
-    /// Shared memory grouped into `block`-sized tiles, one edge per axis of the operation.
+    /// Shared memory grouped into `block`-sized tiles, one edge per dimension of the operation.
     Tiled {
-        block: Vec<(Axis, usize)>,
+        block: Vec<(Dimension, usize)>,
         chunks: RowChunks,
     },
     Strided,
@@ -85,9 +85,9 @@ impl StageStorage {
             .tma_swizzle()
             .map_err(|why| Refusal::RowsNoDescriptorLands { why })?;
         let rank = space.rank();
-        // A row spans the innermost axis and those its swizzle merges beside it.
+        // A row spans the innermost dimension and those its swizzle merges beside it.
         let span = form.rows.swizzle().map_or(1, |swizzle| swizzle.span());
-        let row = space.axis_at(rank - 1);
+        let row = space.dimension_at(rank - 1);
         let period = match swizzle {
             TensorMapSwizzle::None => 1,
             _ => ChunkSwizzle::ROWS_PER_PERIOD,
@@ -100,7 +100,7 @@ impl StageStorage {
             let splits_row = (rank - span..rank).any(|p| block.extent_at(p) < space.extent_at(p));
             if splits_row || !rows.is_multiple_of(period) {
                 return Err(Refusal::BoxSplitsStageBlocks {
-                    axis: row,
+                    dimension: row,
                     rows,
                     period,
                 });
@@ -126,18 +126,18 @@ impl StageStorage {
             StageStorage::Tiled { block, .. } => {
                 let nested = Space::new(
                     &space
-                        .axes()
-                        .map(|axis| {
+                        .dimensions()
+                        .map(|dimension| {
                             let edge = block
                                 .iter()
-                                .find(|&&(a, _)| a == axis)
+                                .find(|&&(a, _)| a == dimension)
                                 .unwrap_or_else(|| {
                                     panic!(
-                                        "StageStorage::Tiled: the block states no edge for {axis:?}"
+                                        "StageStorage::Tiled: the block states no edge for {dimension:?}"
                                     )
                                 })
                                 .1;
-                            (axis, edge)
+                            (dimension, edge)
                         })
                         .collect::<Vec<_>>(),
                 );

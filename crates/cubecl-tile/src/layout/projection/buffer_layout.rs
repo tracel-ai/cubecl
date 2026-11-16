@@ -144,8 +144,8 @@ impl BufferLayout {
         let mut out = CoordsDyn::new();
         #[unroll]
         for i in 0..comptime!(self.projection.logical_rank()) {
-            let axis = comptime!(self.projection.logical_axes()[i]);
-            let carriers = comptime!(self.projection.carriers(axis));
+            let dimension = comptime!(self.projection.dimensions()[i]);
+            let carriers = comptime!(self.projection.carriers(dimension));
             let picks = comptime!((0..carriers.len()).collect::<Vec<_>>());
             let mut parts = Sequence::<u32>::new();
             #[unroll]
@@ -153,7 +153,7 @@ impl BufferLayout {
                 let pa = comptime!(carriers[k]);
                 // Each coordinate weighs the block it sits above, the same finer extents that
                 // stripped it.
-                let (finer, _) = comptime!(self.projection.carried_by(pa, axis));
+                let (finer, _) = comptime!(self.projection.carried_by(pa, dimension));
                 parts.push(
                     physical
                         .at(pa)
@@ -272,8 +272,8 @@ impl BufferLayout {
         #[unroll]
         for t in 0..map.terms().len() {
             let term = comptime!(map.terms()[t]);
-            let p = comptime!(self.projection.position(term.axis));
-            let (finer, modulo) = comptime!(self.projection.carried_by(pa, term.axis));
+            let p = comptime!(self.projection.position(term.dimension));
+            let (finer, modulo) = comptime!(self.projection.carried_by(pa, term.dimension));
             // Strip the finer coordinates, then take this one; the outermost keeps the full
             // quotient.
             let quot = pos[p].divided_by(self.physical_shape.product(finer.to_vec()));

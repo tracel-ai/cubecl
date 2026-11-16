@@ -19,9 +19,9 @@ use super::{Form, implied};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
@@ -179,10 +179,10 @@ fn run(
             dtype,
         ),
         Meet::Cyclic { out_width } => {
-            let wide = |handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]| {
+            let wide = |handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]| {
                 launcher
                     .arg(handle.clone().binding(), handle.dtype)
-                    .axes(axes)
+                    .dimensions(dimensions)
                     .vectorize(out_width)
                     .build()
                     .unwrap()
@@ -450,8 +450,12 @@ fn short_window_matmul(copies: bool) {
     );
     // Bound through the launcher, which reads the overhang off the partitioning and masks the
     // output's writes past its edge.
-    let bind = |binding, element, axes: &'static [Axis]| {
-        launcher.arg(binding, element).axes(axes).build().unwrap()
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
     };
     fragment_matmul_into_a_short_window::launch(
         &client,
@@ -596,8 +600,12 @@ fn a_fragment_taller_than_its_box_adds_only_the_rows_of_its_box() {
         ),
         Form::Static,
     );
-    let bind = |binding, element, axes: &'static [Axis]| {
-        launcher.arg(binding, element).axes(axes).build().unwrap()
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
     };
     smem_split_fragment_matmul::launch(
         &client,

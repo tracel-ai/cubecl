@@ -7,4 +7,4 @@ pub(crate) mod portion;
 pub(crate) mod swizzled;
 
 pub(crate) use base::*;
-pub(crate) use distribution::AxisDistribution;
+pub(crate) use distribution::DimensionDistribution;

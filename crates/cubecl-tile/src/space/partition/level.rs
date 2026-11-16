@@ -1,26 +1,26 @@
-//! One [`Level`]: which axes a loop steps, in tiles of what size, how many, and who takes them.
+//! One [`Level`]: which dimensions a loop steps, in tiles of what size, how many, and who takes them.
 
 use super::{
     ComputeScope, Count, Coverage, CubeAxis, CubeOrder, GridCount, PlaneOrder, Spread, UnitCube,
 };
-use crate::{Axis, AxisMap, Extent, Space};
+use crate::{Dimension, DimensionMap, Extent, Space};
 
-/// One decomposition level of a space: who takes its tiles and how it cuts each axis it names.
-/// Unnamed axes are handed down whole.
+/// One decomposition level of a space: who takes its tiles and how it cuts each dimension it names.
+/// Unnamed dimensions are handed down whole.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Level {
     coverage: Coverage,
-    cuts: AxisMap<Cut>,
-    /// Axes a cube level hands one tile of, riding the grid's `Z` ([`batching`](Level::batching)).
-    batches: Vec<Axis>,
+    cuts: DimensionMap<Cut>,
+    /// Dimensions a cube level hands one tile of, riding the grid's `Z` ([`batching`](Level::batching)).
+    batches: Vec<Dimension>,
     shared_by: Option<usize>,
     fillers: usize,
     order: CubeOrder,
     /// Who across the whole launch takes this level's tiles, where it spans the launch rather than
     /// one cube.
     launch_span: Option<LaunchSpan>,
-    /// Axes whose tiles go out last first ([`Levels::reversed`](crate::Levels::reversed)).
-    reversed: Vec<Axis>,
+    /// Dimensions whose tiles go out last first ([`Levels::reversed`](crate::Levels::reversed)).
+    reversed: Vec<Dimension>,
 }
 
 /// Who takes the tiles of a level spanning the launch.
@@ -33,7 +33,7 @@ pub(crate) enum LaunchSpan {
     Units(UnitCube),
 }
 
-/// One axis of a level: the tile it steps in, how many, and how its instances spread them.
+/// One dimension of a level: the tile it steps in, how many, and how its instances spread them.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct Cut {
     pub(crate) tile: usize,
@@ -43,24 +43,24 @@ pub(crate) struct Cut {
 
 impl Level {
     /// The walk level over a region in tiles of `tile`, taking every one of them.
-    pub fn every(tile: &[(Axis, usize)]) -> Level {
+    pub fn every(tile: &[(Dimension, usize)]) -> Level {
         let cuts: Vec<_> = tile
             .iter()
-            .map(|&(axis, tile)| (axis, tile, Count::All, Spread::Contiguous))
+            .map(|&(dimension, tile)| (dimension, tile, Count::All, Spread::Contiguous))
             .collect();
         Level::new(Coverage::Walk, &cuts)
     }
 
-    /// A level covered as `coverage` says over `cuts`, each `(axis, tile, count, spread)`.
-    pub(crate) fn new(coverage: Coverage, cuts: &[(Axis, usize, Count, Spread)]) -> Level {
-        for (i, &(axis, ..)) in cuts.iter().enumerate() {
+    /// A level covered as `coverage` says over `cuts`, each `(dimension, tile, count, spread)`.
+    pub(crate) fn new(coverage: Coverage, cuts: &[(Dimension, usize, Count, Spread)]) -> Level {
+        for (i, &(dimension, ..)) in cuts.iter().enumerate() {
             assert!(
-                !cuts[..i].iter().any(|&(a, ..)| a == axis),
-                "Level: {axis:?} is named twice; a level states each of its axes once"
+                !cuts[..i].iter().any(|&(a, ..)| a == dimension),
+                "Level: {dimension:?} is named twice; a level states each of its dimensions once"
             );
         }
-        for &(axis, tile, count, _) in cuts {
-            assert!(tile > 0, "Level: {axis:?} has a tile of nothing");
+        for &(dimension, tile, count, _) in cuts {
+            assert!(tile > 0, "Level: {dimension:?} has a tile of nothing");
             match (coverage, count) {
                 (
                     Coverage::Distribute(ComputeScope::Cube)
@@ -69,7 +69,7 @@ impl Level {
                 ) => {}
                 (_, Count::AllAcross(_)) => {
                     panic!(
-                        "Level: {axis:?} is distributed across workers in runs, which only cubes \
+                        "Level: {dimension:?} is distributed across workers in runs, which only cubes \
                          and planes take"
                     )
                 }
@@ -79,18 +79,20 @@ impl Level {
                     | Coverage::Distribute(ComputeScope::PlaneGroup { .. }),
                     Count::All,
                 ) => panic!(
-                    "Level: {axis:?} takes every tile on a plane's workers, whose count is the \
+                    "Level: {dimension:?} takes every tile on a plane's workers, whose count is the \
                      device's; state how many"
                 ),
                 (Coverage::Distribute(ComputeScope::Unit), Count::InTurns { .. }) => assert!(
                     matches!(
-                        cuts.iter().find(|&&(a, ..)| a == axis).map(|&(.., s)| s),
+                        cuts.iter()
+                            .find(|&&(a, ..)| a == dimension)
+                            .map(|&(.., s)| s),
                         Some(Spread::Interleaved)
                     ),
-                    "Level: {axis:?} is taken in turns by units, so they take it interleaved"
+                    "Level: {dimension:?} is taken in turns by units, so they take it interleaved"
                 ),
                 (_, Count::InTurns { .. }) => panic!(
-                    "Level: {axis:?} is taken in turns by units, which only a units level hands \
+                    "Level: {dimension:?} is taken in turns by units, which only a units level hands \
                      them"
                 ),
                 _ => {}
@@ -102,15 +104,15 @@ impl Level {
         assert!(
             !distributed
                 || (coverage == Coverage::Distribute(ComputeScope::Unit) && cuts.len() == 1),
-            "Level: an axis taken in turns by units takes all of them, so the level distributes no \
-             other axis to the units; it distributes {}",
+            "Level: a dimension taken in turns by units takes all of them, so the level distributes no \
+             other dimension to the units; it distributes {}",
             cuts.len()
         );
         let cuts: Vec<_> = cuts
             .iter()
-            .map(|&(axis, tile, count, spread)| {
+            .map(|&(dimension, tile, count, spread)| {
                 (
-                    axis,
+                    dimension,
                     Cut {
                         tile,
                         count,
@@ -121,7 +123,7 @@ impl Level {
             .collect();
         Level {
             coverage,
-            cuts: AxisMap::new(&cuts),
+            cuts: DimensionMap::new(&cuts),
             batches: Vec::new(),
             shared_by: None,
             fillers: 0,
@@ -131,8 +133,8 @@ impl Level {
         }
     }
 
-    /// The one axis of a copy's lines, which its level deals ([`copied_by`](Level::copied_by)).
-    pub(crate) const COPIED: Axis = Axis(0);
+    /// The one dimension of a copy's lines, which its level deals ([`copied_by`](Level::copied_by)).
+    pub(crate) const COPIED: Dimension = Dimension(0);
 
     /// The level a copy into or out of a window held by `holder` deals its lines by: line
     /// `w + t·n` to unit `w` of the `n` units of one instance of `holder`, `units` of them where
@@ -207,23 +209,23 @@ impl Level {
         }
     }
 
-    /// The plane level over every tile of `tile`'s axes, each `(axis, tile)`, dealt to the planes
+    /// The plane level over every tile of `tile`'s dimensions, each `(dimension, tile)`, dealt to the planes
     /// of the whole launch in `order` rather than to the planes of one cube: the outermost level
     /// of a partitioning with no cube level, whose cubes are only how the launch groups its planes.
-    pub(crate) fn spanning_launch(tile: &[(Axis, usize)], order: PlaneOrder) -> Level {
+    pub(crate) fn spanning_launch(tile: &[(Dimension, usize)], order: PlaneOrder) -> Level {
         assert!(
             !tile.is_empty(),
-            "Level::spanning_launch: the launch's planes take the tiles of at least one axis"
+            "Level::spanning_launch: the launch's planes take the tiles of at least one dimension"
         );
-        for axis in order.block_axes() {
+        for dimension in order.block_dimensions() {
             assert!(
-                tile.iter().any(|&(a, _)| a == axis),
-                "Level::spanning_launch: the order's block names {axis:?}, which the level does not"
+                tile.iter().any(|&(a, _)| a == dimension),
+                "Level::spanning_launch: the order's block names {dimension:?}, which the level does not"
             );
         }
         assert!(
             tile.len() > 1 || !order.block_order().swizzles(),
-            "Level::spanning_launch: the blocks of one axis have one order; a swizzle takes two"
+            "Level::spanning_launch: the blocks of one dimension have one order; a swizzle takes two"
         );
         // A capped launch's planes take the tiles in turns: a whole launch of planes apart.
         let spread = match order.cap() {
@@ -232,10 +234,10 @@ impl Level {
         };
         let cuts: Vec<_> = tile
             .iter()
-            .map(|&(axis, tile)| {
-                assert!(tile > 0, "Level: {axis:?} has a tile of nothing");
+            .map(|&(dimension, tile)| {
+                assert!(tile > 0, "Level: {dimension:?} has a tile of nothing");
                 (
-                    axis,
+                    dimension,
                     Cut {
                         tile,
                         count: Count::All,
@@ -246,7 +248,7 @@ impl Level {
             .collect();
         Level {
             coverage: Coverage::Distribute(ComputeScope::Plane),
-            cuts: AxisMap::new(&cuts),
+            cuts: DimensionMap::new(&cuts),
             batches: Vec::new(),
             shared_by: None,
             fillers: 0,
@@ -256,10 +258,10 @@ impl Level {
         }
     }
 
-    /// The unit level over every tile of `tile`'s axes, each `(axis, tile)`, one tile to each
+    /// The unit level over every tile of `tile`'s dimensions, each `(dimension, tile)`, one tile to each
     /// unit of the whole launch, the units grouped in cubes of `cube`: the outermost level of a
     /// partitioning with no cube or plane level.
-    pub(crate) fn units_spanning_launch(tile: &[(Axis, usize)], cube: UnitCube) -> Level {
+    pub(crate) fn units_spanning_launch(tile: &[(Dimension, usize)], cube: UnitCube) -> Level {
         assert!(
             cube.units() > 0,
             "Level::units_spanning_launch: a cube holds at least one unit"
@@ -304,23 +306,23 @@ impl Level {
         self.launch_span.is_some()
     }
 
-    /// One tile of each of `axes` per cube, on the grid's `Z` dimension.
-    pub(crate) fn batching(mut self, axes: &[Axis]) -> Level {
+    /// One tile of each of `dimensions` per cube, on the grid's `Z` dimension.
+    pub(crate) fn batching(mut self, dimensions: &[Dimension]) -> Level {
         assert!(
             self.coverage == Coverage::Distribute(ComputeScope::Cube),
             "Level::batching: batches ride cubes; this level's tiles are taken by {:?}",
             self.coverage
         );
-        for &axis in axes {
+        for &dimension in dimensions {
             self.push(
-                axis,
+                dimension,
                 Cut {
                     tile: 1,
                     count: Count::All,
                     spread: Spread::Contiguous,
                 },
             );
-            self.batches.push(axis);
+            self.batches.push(dimension);
         }
         self
     }
@@ -344,11 +346,11 @@ impl Level {
             self.shared_by.is_none(),
             "Level::sharing: this level already cuts its tiles as one"
         );
-        for axis in self.axes() {
-            let cut = self.cuts.get(axis);
+        for dimension in self.dimensions() {
+            let cut = self.cuts.get(dimension);
             assert!(
                 cut.count == Count::All && cut.spread == Spread::Contiguous,
-                "Level::sharing: {axis:?} states a count or a spread of its own, which a share \
+                "Level::sharing: {dimension:?} states a count or a spread of its own, which a share \
                  of the whole has no use for"
             );
         }
@@ -380,9 +382,9 @@ impl Level {
         self
     }
 
-    /// This level handing out the tiles of each of `axes` from the last to the first, on top of
+    /// This level handing out the tiles of each of `dimensions` from the last to the first, on top of
     /// whatever order it deals them in: the first workers launched take the last tiles.
-    pub(crate) fn reversed(mut self, axes: &[Axis]) -> Level {
+    pub(crate) fn reversed(mut self, dimensions: &[Dimension]) -> Level {
         assert!(
             self.coverage == Coverage::Distribute(ComputeScope::Cube) || self.spans_launch(),
             "Level::reversed: only a cube level or a level spanning the launch hands its tiles out \
@@ -391,34 +393,34 @@ impl Level {
         );
         assert!(
             self.shared_by.is_none(),
-            "Level::reversed: this level cuts its tiles as one index, which has no axis to reverse"
+            "Level::reversed: this level cuts its tiles as one index, which has no dimension to reverse"
         );
-        for &axis in axes {
+        for &dimension in dimensions {
             assert!(
-                self.cuts.contains(axis),
-                "Level::reversed: {axis:?} is not an axis of this level"
+                self.cuts.contains(dimension),
+                "Level::reversed: {dimension:?} is not a dimension of this level"
             );
             assert!(
-                !self.reversed.contains(&axis),
-                "Level::reversed: {axis:?} is reversed twice"
+                !self.reversed.contains(&dimension),
+                "Level::reversed: {dimension:?} is reversed twice"
             );
-            self.reversed.push(axis);
+            self.reversed.push(dimension);
         }
         self
     }
 
-    fn push(&mut self, axis: Axis, cut: Cut) {
+    fn push(&mut self, dimension: Dimension, cut: Cut) {
         assert!(
-            !self.cuts.contains(axis),
-            "Level: {axis:?} is named twice; a level states each of its axes once"
+            !self.cuts.contains(dimension),
+            "Level: {dimension:?} is named twice; a level states each of its dimensions once"
         );
         let mut cuts: Vec<_> = self
-            .axes()
+            .dimensions()
             .into_iter()
             .map(|a| (a, self.cuts.get(a)))
             .collect();
-        cuts.push((axis, cut));
-        self.cuts = AxisMap::new(&cuts);
+        cuts.push((dimension, cut));
+        self.cuts = DimensionMap::new(&cuts);
     }
 
     /// Who takes this level's tiles.
@@ -426,51 +428,61 @@ impl Level {
         self.coverage
     }
 
-    /// The axes this level names, in the order it named them.
-    pub fn axes(&self) -> Vec<Axis> {
-        (0..self.cuts.len()).map(|i| self.cuts.axis_at(i)).collect()
+    /// The dimensions this level names, in the order it named them.
+    pub fn dimensions(&self) -> Vec<Dimension> {
+        (0..self.cuts.len())
+            .map(|i| self.cuts.dimension_at(i))
+            .collect()
     }
 
-    /// The tile this level steps `axis` in, where it names it.
-    pub fn tile(&self, axis: Axis) -> Option<usize> {
-        self.cuts.contains(axis).then(|| self.cuts.get(axis).tile)
+    /// The tile this level steps `dimension` in, where it names it.
+    pub fn tile(&self, dimension: Dimension) -> Option<usize> {
+        self.cuts
+            .contains(dimension)
+            .then(|| self.cuts.get(dimension).tile)
     }
 
-    /// How many tiles this level takes along `axis`, where it names it.
-    pub(crate) fn count(&self, axis: Axis) -> Option<Count> {
-        self.cuts.contains(axis).then(|| self.cuts.get(axis).count)
+    /// How many tiles this level takes along `dimension`, where it names it.
+    pub(crate) fn count(&self, dimension: Dimension) -> Option<Count> {
+        self.cuts
+            .contains(dimension)
+            .then(|| self.cuts.get(dimension).count)
     }
 
-    /// How the instances spread `axis`'s tiles, where the level names it.
-    pub(crate) fn spread(&self, axis: Axis) -> Option<Spread> {
-        self.cuts.contains(axis).then(|| self.cuts.get(axis).spread)
+    /// How the instances spread `dimension`'s tiles, where the level names it.
+    pub(crate) fn spread(&self, dimension: Dimension) -> Option<Spread> {
+        self.cuts
+            .contains(dimension)
+            .then(|| self.cuts.get(dimension).spread)
     }
 
-    pub(crate) fn cut(&self, axis: Axis) -> Cut {
-        self.cuts.get(axis)
+    pub(crate) fn cut(&self, dimension: Dimension) -> Cut {
+        self.cuts.get(dimension)
     }
 
-    /// Whether this level distributes `axis`'s tiles over its scope one by one.
-    pub(crate) fn distributes(&self, axis: Axis) -> bool {
-        self.coverage != Coverage::Walk && self.shared_by.is_none() && self.cuts.contains(axis)
+    /// Whether this level distributes `dimension`'s tiles over its scope one by one.
+    pub(crate) fn distributes(&self, dimension: Dimension) -> bool {
+        self.coverage != Coverage::Walk && self.shared_by.is_none() && self.cuts.contains(dimension)
     }
 
-    /// The grid dimension `axis` rides on a cube level: batches on `Z`, the others `X`, `Y`, `Z`
+    /// The grid dimension `dimension` rides on a cube level: batches on `Z`, the others `X`, `Y`, `Z`
     /// in the order named.
-    pub(crate) fn cube_axis(&self, axis: Axis) -> Option<CubeAxis> {
-        if self.coverage != Coverage::Distribute(ComputeScope::Cube) || !self.cuts.contains(axis) {
+    pub(crate) fn cube_axis(&self, dimension: Dimension) -> Option<CubeAxis> {
+        if self.coverage != Coverage::Distribute(ComputeScope::Cube)
+            || !self.cuts.contains(dimension)
+        {
             return None;
         }
-        if self.batches.contains(&axis) {
+        if self.batches.contains(&dimension) {
             return Some(CubeAxis::Z);
         }
         let dims = [CubeAxis::X, CubeAxis::Y, CubeAxis::Z];
         let position = self
-            .axes()
+            .dimensions()
             .into_iter()
             .filter(|a| !self.batches.contains(a))
-            .position(|a| a == axis)
-            .expect("the axis is named and not a batch");
+            .position(|a| a == dimension)
+            .expect("the dimension is named and not a batch");
         Some(dims[position])
     }
 
@@ -489,16 +501,16 @@ impl Level {
         self.order
     }
 
-    /// Whether this level hands out `axis`'s tiles from the last to the first.
-    pub fn is_reversed(&self, axis: Axis) -> bool {
-        self.reversed.contains(&axis)
+    /// Whether this level hands out `dimension`'s tiles from the last to the first.
+    pub fn is_reversed(&self, dimension: Dimension) -> bool {
+        self.reversed.contains(&dimension)
     }
 
-    /// The extent one region of this level covers along `axis` of `space`.
-    pub(crate) fn extent_in(&self, space: &Space, axis: Axis) -> Extent {
-        match self.tile(axis) {
+    /// The extent one region of this level covers along `dimension` of `space`.
+    pub(crate) fn extent_in(&self, space: &Space, dimension: Dimension) -> Extent {
+        match self.tile(dimension) {
             Some(tile) => Extent::Static(tile),
-            None => space.extent_raw(axis),
+            None => space.extent_raw(dimension),
         }
     }
 
@@ -506,58 +518,58 @@ impl Level {
     pub fn child(&self, space: &Space) -> Space {
         Space::from_extents(
             &space
-                .axes()
-                .map(|axis| (axis, self.extent_in(space, axis)))
+                .dimensions()
+                .map(|dimension| (dimension, self.extent_in(space, dimension)))
                 .collect::<Vec<_>>(),
         )
     }
 
-    /// Whether this level's tile on `axis` fails to divide the extent `space` hands it.
+    /// Whether this level's tile on `dimension` fails to divide the extent `space` hands it.
     /// Static extents only.
-    pub(crate) fn overhangs(&self, space: &Space, axis: Axis) -> bool {
-        let Some(tile) = self.tile(axis) else {
+    pub(crate) fn overhangs(&self, space: &Space, dimension: Dimension) -> bool {
+        let Some(tile) = self.tile(dimension) else {
             return false;
         };
-        let cut = !space.extent(axis).is_multiple_of(tile);
+        let cut = !space.extent(dimension).is_multiple_of(tile);
         match self.launch_order() {
             None => cut,
-            Some(order) => cut || order.overruns(self, space, axis),
+            Some(order) => cut || order.overruns(self, space, dimension),
         }
     }
 
-    /// Tiles along `axis` of `space` at this level, a partial tile counted; static extents only.
-    pub(crate) fn tiles(&self, space: &Space, axis: Axis) -> usize {
-        match self.count(axis) {
+    /// Tiles along `dimension` of `space` at this level, a partial tile counted; static extents only.
+    pub(crate) fn tiles(&self, space: &Space, dimension: Dimension) -> usize {
+        match self.count(dimension) {
             None => 1,
-            Some(count) => count.tiles(space.extent(axis), self.cut(axis).tile),
+            Some(count) => count.tiles(space.extent(dimension), self.cut(dimension).tile),
         }
     }
 
-    /// Tiles along `axis` where the count is comptime.
-    pub(crate) fn tiles_const(&self, space: &Space, axis: Axis) -> Option<usize> {
-        match self.count(axis) {
+    /// Tiles along `dimension` where the count is comptime.
+    pub(crate) fn tiles_const(&self, space: &Space, dimension: Dimension) -> Option<usize> {
+        match self.count(dimension) {
             None => Some(1),
-            Some(count) => count.tiles_const(space.extent_raw(axis), self.cut(axis).tile),
+            Some(count) => count.tiles_const(space.extent_raw(dimension), self.cut(dimension).tile),
         }
     }
 
-    /// What a walk counts along `axis`.
-    pub(crate) fn grid(&self, axis: Axis) -> GridCount {
-        match self.count(axis) {
+    /// What a walk counts along `dimension`.
+    pub(crate) fn grid(&self, dimension: Dimension) -> GridCount {
+        match self.count(dimension) {
             None => GridCount::Const(1),
-            Some(count) => count.grid(self.cut(axis).tile),
+            Some(count) => count.grid(self.cut(dimension).tile),
         }
     }
 
-    /// How many workers `axis` is distributed out to at this level, where comptime.
-    pub(crate) fn instances_along(&self, space: &Space, axis: Axis) -> Option<usize> {
-        match self.count(axis) {
+    /// How many workers `dimension` is distributed out to at this level, where comptime.
+    pub(crate) fn instances_along(&self, space: &Space, dimension: Dimension) -> Option<usize> {
+        match self.count(dimension) {
             None => Some(1),
             Some(Count::InTurns { units, .. }) => units,
             Some(count) => match count.stated() {
                 Some(n) => Some(n),
-                None if !space.contains(axis) => None,
-                None => self.tiles_const(space, axis),
+                None if !space.contains(dimension) => None,
+                None => self.tiles_const(space, dimension),
             },
         }
     }

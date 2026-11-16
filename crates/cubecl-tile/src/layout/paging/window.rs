@@ -38,7 +38,7 @@ impl Spans {
     }
 }
 
-/// A window's extent along the paged axes, `None` where no level fixes it, and what its origin is
+/// A window's extent along the paged dimensions, `None` where no level fixes it, and what its origin is
 /// aligned to along the positions.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct PagedWindow {

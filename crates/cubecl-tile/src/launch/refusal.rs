@@ -5,7 +5,7 @@ use core::fmt::{self, Display, Formatter};
 use cubecl::zspace::{MetadataError, Tiling};
 
 use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
-use crate::{Axis, Delivery, LineMisfit};
+use crate::{Delivery, Dimension, LineMisfit};
 
 /// Why a launch cannot run as described, or an operand cannot be bound to it.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -14,32 +14,32 @@ pub enum Refusal {
     StrideOrderOfAStatedLayout,
     /// A gathered mapping over a storage-tiled binding.
     GatherOfATiledBinding(Tiling),
-    /// [`gathered`](super::Arg::gathered) combined with `axes` or `batches`.
+    /// [`gathered`](super::Arg::gathered) combined with `dimensions` or `batches`.
     GatherWithLabels,
     /// The mapping addresses `mapped` dims but the operand has `rank`.
     GatherRankMismatch { mapped: usize, rank: usize },
-    /// The mapping spans an axis the launched space does not have.
-    GatherOfAnUnknownAxis(Axis),
+    /// The mapping spans a dimension the launched space does not have.
+    GatherOfAnUnknownDimension(Dimension),
     /// The operand's rank is smaller than its labelled block of dims.
     RankBelowLabels { rank: usize, block: usize },
-    /// More leading dims than batch axes to label them.
-    UnlabelledBatchDims { dims: usize, axes: usize },
+    /// More leading dims than batch dimensions to label them.
+    UnlabelledBatchDims { dims: usize, dimensions: usize },
     /// An operand must address at least one coordinate.
     NoCoordinate,
     /// The buffer cannot be served `width` wide.
     WidthNotServed { width: usize, why: LineMisfit },
-    /// The innermost axis is served in vector lines but is not provably in bounds.
+    /// The innermost dimension is served in vector lines but is not provably in bounds.
     UncheckableVectorEdge,
     /// A storage-tiled operand whose storage tile is the tile of `level`, and which this launch
     /// overhangs: a window inside one storage tile is read as one unmasked run, so the windows
     /// past the tensor's end would read storage tiles it does not have.
     CheckedInsideStorageTile { level: usize },
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
-    /// operand's last logical axis at coefficient 1.
+    /// operand's last dimension at coefficient 1.
     GatherInnermostNotInLines,
-    /// A gathered mapping that reads `axis` off several physical axes: the operand is
-    /// storage-tiled, or reads one axis from two places.
-    GatherAxisAddressedTwice(Axis),
+    /// A gathered mapping that reads `dimension` off several physical axes: the operand is
+    /// storage-tiled, or reads one dimension from two places.
+    GatherDimensionAddressedTwice(Dimension),
     /// A grid read off the levels ([`Grid::FromLevels`](crate::launch::Grid::FromLevels)) needs a
     /// units level of one unit or the whole `plane`; this one holds `units`.
     GridNotReadOffLevels { units: u32, plane: u32 },
@@ -49,19 +49,22 @@ pub enum Refusal {
     PlanesUnavailable,
     /// The kernel needs one plane width, and the device's varies between `min` and `max`.
     ImprecisePlaneDim { min: u32, max: u32 },
-    /// The gather leaf cannot serve an lhs vectorized along `axis`, for the reason `why`.
-    LhsVectorNotServed { axis: Axis, why: LhsVectorMisfit },
+    /// The gather leaf cannot serve an lhs vectorized along `dimension`, for the reason `why`.
+    LhsVectorNotServed {
+        dimension: Dimension,
+        why: LhsVectorMisfit,
+    },
     /// A routine declines a problem it does not serve, for the reason `why`.
     Declined { why: &'static str },
     /// A cube shaped `shape` along x, y and z, past the `most` the device spawns along one of them:
-    /// a cube legal in units can still be too long on an axis.
+    /// a cube legal in units can still be too long on a dimension.
     CubeShapePastDevice {
         shape: (u32, u32, u32),
         most: (u32, u32, u32),
     },
-    /// A cube with a zero axis, which spawns no units.
+    /// A cube with a zero dimension, which spawns no units.
     NoUnits,
-    /// A grid with a zero axis, which spawns no cubes: the runtime returns without dispatching
+    /// A grid with a zero dimension, which spawns no cubes: the runtime returns without dispatching
     /// anything, and the outputs keep whatever they held.
     NoCubes,
     /// A grid of `count` cubes along x, y and z, past the `most` the device launches along one of
@@ -84,17 +87,17 @@ pub enum Refusal {
     /// Lines `bits` long, which the copy engine does not move whole
     /// ([`Delivery::moves_lines`](crate::launch::Delivery::moves_lines)).
     LineNotCopied { bits: usize },
-    /// A TMA box edge past the descriptor's per-axis limit `most`.
+    /// A TMA box edge past the descriptor's per-dimension limit `most`.
     BoxPastDescriptor {
-        axis: Axis,
+        dimension: Dimension,
         edge: usize,
         most: usize,
     },
     /// A TMA box lands its rows whole, one after the other, and the stage's blocks split the rows
-    /// along `axis`, the innermost, or stack `rows` of them where the swizzle repeats every
+    /// along `dimension`, the innermost, or stack `rows` of them where the swizzle repeats every
     /// `period`.
     BoxSplitsStageBlocks {
-        axis: Axis,
+        dimension: Dimension,
         rows: usize,
         period: usize,
     },
@@ -105,15 +108,15 @@ pub enum Refusal {
     /// storage-tiled operand: a page is resolved coordinate by coordinate over a plain buffer's
     /// labelled dims.
     PagingOfAStatedLayout,
-    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming an axis no dim of
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming a dimension no dim of
     /// the operand is labelled with.
-    PagingOfAnUnlabelledAxis(Axis),
+    PagingOfAnUnlabelledDimension(Dimension),
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming one dim for both
     /// the pages and their positions.
-    PagingOfOneDim(Axis),
+    PagingOfOneDim(Dimension),
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages with the pages along the
-    /// innermost dim, this axis's: a line runs along it, so one line would span pages.
-    PagesAlongALine(Axis),
+    /// innermost dim, this dimension's: a line runs along it, so one line would span pages.
+    PagesAlongALine(Dimension),
     /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on a pool of no pages, or
     /// of pages of no positions: there is no page for a table entry to read.
     PagingOfAnEmptyPool,
@@ -128,28 +131,28 @@ pub enum Refusal {
     /// one a line: an entry is a coordinate.
     IndexTableNotU32,
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` dims keyed by `keys`
-    /// axes: a table holds one dim per key.
+    /// dimensions: a table holds one dim per key.
     IndexTableRank { keys: usize, rank: usize },
     /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map, or on a gathered,
     /// storage-tiled or paged operand: an entry moves a window of a plain buffer's labelled dims.
     IndexOfAStatedLayout,
-    /// [`indexed`](crate::TileTensorLaunch::indexed) placing an axis the operand does not span.
-    IndexOfAnAxisNotSpanned(Axis),
-    /// [`indexed`](crate::TileTensorLaunch::indexed) placing the innermost axis, this one, which
+    /// [`indexed`](crate::TileTensorLaunch::indexed) placing a dimension the operand does not span.
+    IndexOfADimensionNotSpanned(Dimension),
+    /// [`indexed`](crate::TileTensorLaunch::indexed) placing the innermost dimension, this one, which
     /// the operand reads more than one value a line along: an entry is an element, and a line would
     /// straddle two of them.
-    IndexAlongALine(Axis),
-    /// [`indexed`](crate::TileTensorLaunch::indexed) with no key, or keyed by the axis it places.
-    IndexKeyedByItsAxis(Axis),
-    /// [`Indexing::Run`](crate::Indexing::Run) keyed by this many axes: a run's end is the next
+    IndexAlongALine(Dimension),
+    /// [`indexed`](crate::TileTensorLaunch::indexed) with no key, or keyed by the dimension it places.
+    IndexKeyedByItsDimension(Dimension),
+    /// [`Indexing::Run`](crate::Indexing::Run) keyed by this many dimensions: a run's end is the next
     /// entry along its one key.
     RunKeyedByMany(usize),
     /// An indexed operand under a nest whose first level cutting one of these keys does not cut
     /// them all: the table is read at one step.
-    IndexKeysCutApart(Vec<Axis>),
-    /// An indexed operand under a nest that cuts the axis its entry places: a coordinate is the
+    IndexKeysCutApart(Vec<Dimension>),
+    /// An indexed operand under a nest that cuts the dimension its entry places: a coordinate is the
     /// table's to state, and a run is placed whole before any level cuts it.
-    IndexedAxisCut(Axis),
+    IndexedDimensionCut(Dimension),
     /// [`codebook`](crate::TileTensorLaunch::codebook) on values not stored as indices
     /// ([`Field::Index`](crate::Field::Index)).
     CodebookOfValuesNotIndices,
@@ -159,16 +162,19 @@ pub enum Refusal {
     /// [`codebook`](crate::TileTensorLaunch::codebook) with a table of `entries`, fewer than the
     /// `2^bits` the indices name.
     CodebookTableShort { entries: usize, bits: usize },
-    /// [`physical`](crate::layout::StoragePartitioning::physical): the tiles along `axis` do not
+    /// [`physical`](crate::layout::StoragePartitioning::physical): the tiles along `dimension` do not
     /// close its extent.
     StoredTileUnwhole {
-        axis: Axis,
+        dimension: Dimension,
         extent: usize,
         tile: usize,
     },
     /// [`physical`](crate::layout::StoragePartitioning::physical): the storage order does not name
     /// each of the tensor's axes once.
-    StorageOrderUnmatched { order: Vec<Axis>, axes: Vec<Axis> },
+    StorageOrderUnmatched {
+        order: Vec<Dimension>,
+        dimensions: Vec<Dimension>,
+    },
     /// [`physical`](crate::layout::StoragePartitioning::physical): more pieces than the buffer's
     /// metadata records ([`Tiling`]).
     StoragePiecesUnrecordable(MetadataError),
@@ -189,23 +195,26 @@ impl Display for Refusal {
             ),
             Refusal::GatherWithLabels => write!(
                 f,
-                "Arg::gathered: the mapping is stated outright, so `axes` and `batches` have \
+                "Arg::gathered: the mapping is stated outright, so `dimensions` and `batches` have \
                  nothing left to describe"
             ),
             Refusal::GatherRankMismatch { mapped, rank } => write!(
                 f,
                 "Arg::gathered: the mapping addresses {mapped} dims but the operand has {rank}"
             ),
-            Refusal::GatherOfAnUnknownAxis(axis) => write!(
+            Refusal::GatherOfAnUnknownDimension(dimension) => write!(
                 f,
-                "Arg::gathered: the mapping spans {axis:?}, which the launched space does not have"
+                "Arg::gathered: the mapping spans {dimension:?}, which the launched space does not have"
             ),
             Refusal::RankBelowLabels { rank, block } => write!(
                 f,
                 "Arg: operand rank {rank} is smaller than its labelled block of {block} dims"
             ),
-            Refusal::UnlabelledBatchDims { dims, axes } => {
-                write!(f, "Arg: {dims} batch dims but only {axes} batch axes given")
+            Refusal::UnlabelledBatchDims { dims, dimensions } => {
+                write!(
+                    f,
+                    "Arg: {dims} batch dims but only {dimensions} batch dimensions given"
+                )
             }
             Refusal::NoCoordinate => {
                 write!(f, "Arg: an operand must address at least one coordinate")
@@ -218,9 +227,9 @@ impl Display for Refusal {
             }
             Refusal::UncheckableVectorEdge => write!(
                 f,
-                "Arg: the innermost axis is served in vector lines but is not provably in bounds \
+                "Arg: the innermost dimension is served in vector lines but is not provably in bounds \
                  (it overhangs its tiling at an extent the width does not divide, under a clamp or \
-                 any extent, or it spans several axes, or its map reaches below its start or past \
+                 any extent, or it spans several dimensions, or its map reaches below its start or past \
                  any extent stated here); serve it at a width dividing its extent or scalar, or \
                  state BoundaryPolicy::Unchecked if the launch proves its vector lines are in \
                  bounds"
@@ -235,11 +244,11 @@ impl Display for Refusal {
             Refusal::GatherInnermostNotInLines => write!(
                 f,
                 "Arg::gathered: the innermost physical axis must step by the operand's last \
-                 logical axis at coefficient 1 (it is addressed in vector lines)"
+                 dimension at coefficient 1 (it is addressed in vector lines)"
             ),
-            Refusal::GatherAxisAddressedTwice(axis) => write!(
+            Refusal::GatherDimensionAddressedTwice(dimension) => write!(
                 f,
-                "Arg::gathered: logical axis {axis:?} addresses several physical axes, so it is \
+                "Arg::gathered: dimension {dimension:?} addresses several physical axes, so it is \
                  either storage-tiled (a gathered operand must be untiled gmem) or read off two \
                  places at once"
             ),
@@ -262,16 +271,25 @@ impl Display for Refusal {
                 f,
                 "the kernel needs one plane width, and the device's varies from {min} to {max}"
             ),
-            Refusal::LhsVectorNotServed { axis, why } => {
-                write!(f, "contract gather: lhs vectorized along {axis:?}: {why}")
+            Refusal::LhsVectorNotServed { dimension, why } => {
+                write!(
+                    f,
+                    "contract gather: lhs vectorized along {dimension:?}: {why}"
+                )
             }
             Refusal::Declined { why } => f.write_str(why),
             Refusal::CubeShapePastDevice { shape, most } => write!(
                 f,
                 "Launcher: a cube shaped {shape:?}, but the device spawns at most {most:?}"
             ),
-            Refusal::NoUnits => write!(f, "Launcher: the cube has a zero axis and spawns no units"),
-            Refusal::NoCubes => write!(f, "Launcher: the grid has a zero axis and spawns no cubes"),
+            Refusal::NoUnits => write!(
+                f,
+                "Launcher: the cube has a zero dimension and spawns no units"
+            ),
+            Refusal::NoCubes => write!(
+                f,
+                "Launcher: the grid has a zero dimension and spawns no cubes"
+            ),
             Refusal::GridPastDevice { count, most } => write!(
                 f,
                 "Launcher: a grid of {count:?} cubes, but the device launches at most {most:?}"
@@ -301,14 +319,22 @@ impl Display for Refusal {
                 "Delivery: the copy engine moves lines of 4, 8 or 16 bytes, and these are {bits} \
                  bits"
             ),
-            Refusal::BoxPastDescriptor { axis, edge, most } => write!(
+            Refusal::BoxPastDescriptor {
+                dimension,
+                edge,
+                most,
+            } => write!(
                 f,
-                "TMA: {edge} along {axis:?} exceeds the {most}-per-axis box limit"
+                "TMA: {edge} along {dimension:?} exceeds the {most}-per-dimension box limit"
             ),
-            Refusal::BoxSplitsStageBlocks { axis, rows, period } => write!(
+            Refusal::BoxSplitsStageBlocks {
+                dimension,
+                rows,
+                period,
+            } => write!(
                 f,
                 "TMA: a box lands its rows whole and in order, and the stage's blocks split \
-                 {axis:?} or stack {rows} rows apiece where the swizzle repeats every {period}"
+                 {dimension:?} or stack {rows} rows apiece where the swizzle repeats every {period}"
             ),
             Refusal::RowsNoDescriptorLands { why } => write!(
                 f,
@@ -321,19 +347,19 @@ impl Display for Refusal {
                  plain buffer's labelled dims, so a gathered mapping or a storage-tiled binding \
                  has no reading here"
             ),
-            Refusal::PagingOfAnUnlabelledAxis(axis) => write!(
+            Refusal::PagingOfAnUnlabelledDimension(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: {axis:?} labels no dim of this operand, so no dim \
+                "TileTensorLaunch::indexed: {dimension:?} labels no dim of this operand, so no dim \
                  holds its pages"
             ),
-            Refusal::PagingOfOneDim(axis) => write!(
+            Refusal::PagingOfOneDim(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: {axis:?} names the pages and their positions both, on \
+                "TileTensorLaunch::indexed: {dimension:?} names the pages and their positions both, on \
                  one dim"
             ),
-            Refusal::PagesAlongALine(axis) => write!(
+            Refusal::PagesAlongALine(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: the pages along {axis:?} lie on the innermost dim, \
+                "TileTensorLaunch::indexed: the pages along {dimension:?} lie on the innermost dim, \
                  which a line runs along, so a line would span pages"
             ),
             Refusal::PagingOfAnEmptyPool => write!(
@@ -382,20 +408,20 @@ impl Display for Refusal {
                 "TileTensorLaunch::indexed: an entry moves the window of a plain buffer over its \
                  labelled dims, which a tensor map, a gathered, storage-tiled or paged operand is not"
             ),
-            Refusal::IndexOfAnAxisNotSpanned(axis) => write!(
+            Refusal::IndexOfADimensionNotSpanned(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: the entry places {axis:?}, which the operand does not \
+                "TileTensorLaunch::indexed: the entry places {dimension:?}, which the operand does not \
                  span"
             ),
-            Refusal::IndexAlongALine(axis) => write!(
+            Refusal::IndexAlongALine(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: the entry places {axis:?}, the innermost axis, which \
+                "TileTensorLaunch::indexed: the entry places {dimension:?}, the innermost dimension, which \
                  the operand reads more than one value a line along; bind it one value a line"
             ),
-            Refusal::IndexKeyedByItsAxis(axis) => write!(
+            Refusal::IndexKeyedByItsDimension(dimension) => write!(
                 f,
-                "TileTensorLaunch::indexed: the table is keyed by no axis, or by {axis:?}, the \
-                 axis its entry places"
+                "TileTensorLaunch::indexed: the table is keyed by no dimension, or by {dimension:?}, the \
+                 dimension its entry places"
             ),
             Refusal::RunKeyedByMany(keys) => write!(
                 f,
@@ -407,20 +433,24 @@ impl Display for Refusal {
                 "Indexing: the first level cutting one of {keys:?} does not cut them all; the \
                  table is read at one step"
             ),
-            Refusal::IndexedAxisCut(axis) => write!(
+            Refusal::IndexedDimensionCut(dimension) => write!(
                 f,
-                "Indexing: a level cuts {axis:?}, the axis the entry places; a coordinate is the \
+                "Indexing: a level cuts {dimension:?}, the dimension the entry places; a coordinate is the \
                  table's to state, and a run is placed whole before any level cuts it"
             ),
-            Refusal::StoredTileUnwhole { axis, extent, tile } => write!(
+            Refusal::StoredTileUnwhole {
+                dimension,
+                extent,
+                tile,
+            } => write!(
                 f,
-                "StoragePartitioning::physical: axis {axis:?} runs {extent}, which is not a whole \
+                "StoragePartitioning::physical: dimension {dimension:?} runs {extent}, which is not a whole \
                  number of {tile}-wide tiles"
             ),
-            Refusal::StorageOrderUnmatched { order, axes } => write!(
+            Refusal::StorageOrderUnmatched { order, dimensions } => write!(
                 f,
                 "StoragePartitioning::physical: the tiles follow {order:?}, but the tensor's axes \
-                 are {axes:?}: the order names each once"
+                 are {dimensions:?}: the order names each once"
             ),
             Refusal::StoragePiecesUnrecordable(why) => write!(
                 f,

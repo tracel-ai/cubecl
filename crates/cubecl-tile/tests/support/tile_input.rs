@@ -14,7 +14,7 @@ use cubecl::{
 };
 use cubecl::{frontend::Scalar, std::tensor::TensorHandle};
 use cubecl_tile::{
-    Axis, Launcher, Space, TileSpec, TileTensorLaunch,
+    Dimension, Launcher, Space, TileSpec, TileTensorLaunch,
     kind::Field,
     launch::{Arg, Labelled},
 };
@@ -27,8 +27,8 @@ use crate::support::{TestInput, TestInputBuilder};
 pub struct TileInput {
     handle: TensorHandle,
     space: Space,
-    /// The axes the tile spans, in buffer order.
-    axes: Vec<Axis>,
+    /// The dimensions the tile spans, in buffer order.
+    dimensions: Vec<Dimension>,
     levels: usize,
 }
 
@@ -49,18 +49,18 @@ impl TileInput {
 
     /// The tile `handle` holds over `space`, stored `levels` levels deep.
     fn new(handle: TensorHandle, space: Space, levels: usize) -> Self {
-        let axes = (0..space.rank()).map(|i| space.axis_at(i)).collect();
+        let dimensions = (0..space.rank()).map(|i| space.dimension_at(i)).collect();
         TileInput {
             handle,
             space,
-            axes,
+            dimensions,
             levels,
         }
     }
 
     /// Launch arg for this tile's raw global buffer: a plain [`TensorArg`] over the
     /// `[grid…, tile…]` buffer, optionally re-lined by `vector_size` along the inner
-    /// axis (so a kernel reading raw `Vector<E, S>` slices lands on contiguous lines).
+    /// dimension (so a kernel reading raw `Vector<E, S>` slices lands on contiguous lines).
     /// `vector_size == 1` is the plain buffer. For a `TileTensor` pass the plain buffer: the
     /// argument states the width it is bound at and the metadata stays scalar-unit.
     pub fn tensor_arg(&self, vector_size: usize) -> TensorArg {
@@ -91,7 +91,7 @@ impl TileInput {
     }
 
     /// The tile as one operand of `launcher`, served at the element it holds, bound `width` wide.
-    /// The launch derives its spec: the axes its tiles reach past are masked, and a stored tiling
+    /// The launch derives its spec: the dimensions its tiles reach past are masked, and a stored tiling
     /// is read as the buffer lays it out.
     ///
     /// # Panics
@@ -106,14 +106,16 @@ impl TileInput {
     }
 
     /// [`arg`](Self::arg) before it is built: the launch's binding of this tile, labelled with
-    /// its axes, for a caller that states more of it (a delivery, a boundary).
+    /// its dimensions, for a caller that states more of it (a delivery, a boundary).
     pub fn bind<'a>(&'a self, launcher: &'a Launcher) -> Arg<'a, Labelled> {
         let mut binding = self.handle.clone().binding();
         binding.tiling = self.tiling();
-        launcher.arg(binding, self.handle.dtype).axes(&self.axes)
+        launcher
+            .arg(binding, self.handle.dtype)
+            .dimensions(&self.dimensions)
     }
 
-    /// How the buffer stores each axis: once untiled, else once per level and once for the grid.
+    /// How the buffer stores each dimension: once untiled, else once per level and once for the grid.
     fn tiling(&self) -> Tiling {
         match self.levels {
             0 => Tiling::UNTILED,
@@ -137,9 +139,9 @@ impl TileInput {
 /// [`Tile`](TileLevel::Tile) are duals against the running tile edge: `Tile(e)`
 /// sets the current tile to `e` elements; `Split(n)` divides it into `n`.
 enum TileLevel {
-    /// Divide the current tile into this many sub-tiles per axis.
+    /// Divide the current tile into this many sub-tiles per dimension.
     Split(Vec<usize>),
-    /// Set the current tile to this many elements per axis.
+    /// Set the current tile to this many elements per dimension.
     Tile(Vec<usize>),
 }
 
@@ -153,7 +155,7 @@ pub struct TileInputBuilder {
 }
 
 impl TileInputBuilder {
-    /// Divide the current tile into `counts[axis]` sub-tiles per axis: a finer
+    /// Divide the current tile into `counts[dimension]` sub-tiles per dimension: a finer
     /// level. Chain for recursion: `.split(&[4, 4]).split(&[2, 2])`.
     pub fn split(mut self, counts: &[usize]) -> Self {
         self.levels
@@ -162,7 +164,7 @@ impl TileInputBuilder {
         self
     }
 
-    /// Set the current tile to `edges[axis]` elements per axis: a finer level.
+    /// Set the current tile to `edges[dimension]` elements per dimension: a finer level.
     /// The dual of [`split`](Self::split) (it divides the current edge down to
     /// `edges`), so `.tile(&[16, 16]).tile(&[8, 8])` ≡ `.tile(&[16, 16]).split(&[2, 2])`.
     pub fn tile(mut self, edges: &[usize]) -> Self {
@@ -235,7 +237,7 @@ impl TileInputBuilder {
         let rank = self.space.rank();
 
         let mut current: Vec<usize> = (0..rank)
-            .map(|i| self.space.extent(self.space.axis_at(i)))
+            .map(|i| self.space.extent(self.space.dimension_at(i)))
             .collect();
         let mut blocks: Vec<Vec<usize>> = Vec::with_capacity(levels.len() + 1);
         for level in &levels {
@@ -246,14 +248,14 @@ impl TileInputBuilder {
             assert_eq!(
                 values.len(),
                 rank,
-                "TileInput: a tile level needs one value per axis (rank {rank})"
+                "TileInput: a tile level needs one value per dimension (rank {rank})"
             );
             let block: Vec<usize> = (0..rank)
                 .map(|i| {
                     let (edge, value) = (current[i], values[i]);
                     assert!(
                         value != 0 && edge % value == 0,
-                        "TileInput: tile value {value} does not divide the current edge {edge} on axis {i}"
+                        "TileInput: tile value {value} does not divide the current edge {edge} on dimension {i}"
                     );
                     let (dim, next) = if is_split {
                         (value, edge / value)
@@ -313,7 +315,7 @@ impl QuantizedTileInputBuilder {
 
         let rank = self.space.rank();
         let shape: Vec<usize> = (0..rank)
-            .map(|i| self.space.extent(self.space.axis_at(i)))
+            .map(|i| self.space.extent(self.space.dimension_at(i)))
             .collect();
 
         let (lo, hi) = self.scheme.value.range();

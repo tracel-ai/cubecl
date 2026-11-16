@@ -6,7 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 use super::super::super::registers;
 use crate::*;
 
-use super::base::{GatherProblem, LhsRole, LhsVectorAxis, RhsRole};
+use super::base::{GatherProblem, LhsRole, LhsVectorDimension, RhsRole};
 use super::coords::{cell_read, step_coords};
 use super::row_vectors::RowVectors;
 use crate::ops::matmul::leaf::Side;
@@ -55,7 +55,7 @@ pub(super) fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Si
 
         let mut acc = acc.matrix_accumulate::<E, A>(
             mat,
-            problem.block.acc_axes,
+            problem.block.acc_dimensions,
             &problem.block.space,
             semiring.add(),
         );
@@ -172,7 +172,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     let mut b = Array::<Vector<E, V>>::new(comptime!(nr));
     let mut row_vectors = RowVectors::<EL, L>::new(lhs, &problem);
 
-    // Tap by tap over the contracted axes before the fastest, so only the fastest one moves in the
+    // Tap by tap over the contracted dimensions before the fastest, so only the fastest one moves in the
     // step loop.
     let extents = problem.block.reduce_extents.clone();
     let tap_extents = comptime!(extents[..extents.len() - 1].to_vec());
@@ -181,9 +181,9 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
     comptime!(assert!(
         run.is_multiple_of(contracted_per_step),
         "contract gather: a step contracts {contracted_per_step} values of the fastest contracted \
-         axis, whose extent is {run}"
+         dimension, whose extent is {run}"
     ));
-    // Scalars of the fastest axis one read covers, and the steps it serves.
+    // Scalars of the fastest dimension one read covers, and the steps it serves.
     let group = groups.steps_per_read(&problem) * contracted_per_step;
     let full_groups = run / group;
     let tail = run % group / contracted_per_step;
@@ -250,7 +250,7 @@ fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
 }
 
 /// `steps` consecutive contracted steps of the tap `tap_coords` from scalar `first` of the fastest
-/// axis, served by one read of the row vectors.
+/// dimension, served by one read of the row vectors.
 #[cube]
 fn read_steps<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
     lhs_view: &Masked<'_, Vector<EL, L>, CoordsDyn>,
@@ -318,7 +318,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
     let lw = problem.block.lw;
     let rows_per_vector = problem.rows_per_vector();
 
-    let k_axis_idx = problem.block.reduce.len() - 1;
+    let k_dimension_idx = problem.block.reduce.len() - 1;
     if comptime!(problem.rhs == RhsRole::FreeOfRow) {
         #[unroll(unroll)]
         for n in 0..nr {
@@ -348,7 +348,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                     source,
                     component,
                     lw,
-                    k_axis_idx,
+                    k_dimension_idx,
                 );
             }
             let mut b_row = Vector::<E, V>::cast_from(E::from_int(0));
@@ -382,7 +382,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
                         source,
                         component,
                         lw,
-                        k_axis_idx,
+                        k_dimension_idx,
                     )
                 } else {
                     a_row
@@ -425,7 +425,7 @@ impl StepGroups {
     fn of(problem: &GatherProblem, config: SoftwareMatmul) -> Self {
         let fixed_components = problem.block.lw > 1
             && problem.block.contracted_per_step == 1
-            && problem.lhs_vector_axis == LhsVectorAxis::Contracted
+            && problem.lhs_vector_dimension == LhsVectorDimension::Contracted
             && problem.block.component_index_exact()
             && (problem.lhs == LhsRole::FreeOfColumn || config.component_fanout);
         match fixed_components {
@@ -468,11 +468,13 @@ enum ComponentSource {
 impl ComponentSource {
     fn new(problem: &GatherProblem) -> Self {
         let sums_steps = problem.block.contracted_per_step > 1;
-        match (problem.lhs_vector_axis, sums_steps, problem.block.lw) {
-            (LhsVectorAxis::Columns, _, _) | (LhsVectorAxis::Contracted, true, _) => Self::Whole,
-            (LhsVectorAxis::Rows, _, _) => Self::RowComponent,
-            (LhsVectorAxis::Contracted, false, 1) => Self::Fixed(0),
-            (LhsVectorAxis::Contracted, false, _) => Self::FromCoords,
+        match (problem.lhs_vector_dimension, sums_steps, problem.block.lw) {
+            (LhsVectorDimension::Columns, _, _) | (LhsVectorDimension::Contracted, true, _) => {
+                Self::Whole
+            }
+            (LhsVectorDimension::Rows, _, _) => Self::RowComponent,
+            (LhsVectorDimension::Contracted, false, 1) => Self::Fixed(0),
+            (LhsVectorDimension::Contracted, false, _) => Self::FromCoords,
         }
     }
 }
@@ -486,7 +488,7 @@ fn vector_component<E: Numeric, EL: Numeric, L: Size, V: Size>(
     #[comptime] source: ComponentSource,
     #[comptime] component: usize,
     #[comptime] lw: usize,
-    #[comptime] k_axis_idx: usize,
+    #[comptime] k_dimension_idx: usize,
 ) -> Vector<E, V> {
     match source {
         ComponentSource::Whole => Vector::<E, V>::cast_from(vector),
@@ -497,7 +499,7 @@ fn vector_component<E: Numeric, EL: Numeric, L: Size, V: Size>(
             Vector::<E, V>::cast_from(vector.extract(comptime!(position)))
         }
         ComponentSource::FromCoords => {
-            let last_k = reduce_coords.at(comptime!(k_axis_idx));
+            let last_k = reduce_coords.at(comptime!(k_dimension_idx));
             Vector::<E, V>::cast_from(
                 vector.extract_dynamic((last_k % comptime!(lw as u32)).cast::<usize>()),
             )

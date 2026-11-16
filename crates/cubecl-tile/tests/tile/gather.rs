@@ -1,7 +1,7 @@
 //! The memory gather leaf with a vectorized lhs, against a host reference that reads every operand
 //! through its projection: vectorized along the rows (a convolution's weight gradient), along the
 //! contraction under a backward window (its data gradient), and a forward convolution over two
-//! tap axes.
+//! tap dimensions.
 
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::prelude::*;
@@ -12,13 +12,13 @@ use cubecl_tile::layout::{PhysicalAxisMap, Scale};
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
-const RH: Axis = Axis(0);
-const CI: Axis = Axis(1);
-const CO: Axis = Axis(2);
-const B: Axis = Axis(3);
-const OH: Axis = Axis(4);
-const OW: Axis = Axis(5);
-const RW: Axis = Axis(6);
+const RH: Dimension = Dimension(0);
+const CI: Dimension = Dimension(1);
+const CO: Dimension = Dimension(2);
+const B: Dimension = Dimension(3);
+const OH: Dimension = Dimension(4);
+const OW: Dimension = Dimension(5);
+const RW: Dimension = Dimension(6);
 
 const BLOCK: SoftwareMatmul = SoftwareMatmul::new(64);
 const ROLLED: SoftwareMatmul = SoftwareMatmul::new(1);
@@ -32,26 +32,26 @@ struct Operand {
 }
 
 impl Operand {
-    /// An operand addressed directly over `axes` of `space`, masked as `policy` says.
+    /// An operand addressed directly over `dimensions` of `space`, masked as `policy` says.
     fn direct(
-        space: &[(Axis, usize)],
-        axes: &[Axis],
+        space: &[(Dimension, usize)],
+        dimensions: &[Dimension],
         width: usize,
         policy: BoundaryPolicy,
     ) -> Self {
-        let extent = |axis| space.iter().find(|(a, _)| *a == axis).unwrap().1;
+        let extent = |dimension| space.iter().find(|(a, _)| *a == dimension).unwrap().1;
         Operand {
-            shape: axes.iter().map(|&a| extent(a)).collect(),
-            spec: TileSpec::direct(axes).boundary(policy),
+            shape: dimensions.iter().map(|&a| extent(a)).collect(),
+            spec: TileSpec::direct(dimensions).boundary(policy),
             width,
         }
     }
 
-    /// The flat index `coord`, indexed by axis, reads; `None` past the buffer.
+    /// The flat index `coord`, indexed by dimension, reads; `None` past the buffer.
     fn index(&self, coord: &[usize]) -> Option<usize> {
         let p = &self.spec.projection;
         (0..p.physical_rank()).try_fold(0, |flat, pa| {
-            let terms = self.spec.axes().iter();
+            let terms = self.spec.dimensions().iter();
             let at = p.offset(pa).get()
                 + terms
                     .map(|&a| p.scale(pa, a) * coord[a.0 as usize] as isize)
@@ -77,28 +77,28 @@ impl Operand {
     }
 }
 
-/// `out = Σ lhs · rhs` over the axes of `space` the output lacks, walked in leaf tiles of `tile`.
+/// `out = Σ lhs · rhs` over the dimensions of `space` the output lacks, walked in leaf tiles of `tile`.
 struct Gather {
-    space: Vec<(Axis, usize)>,
-    tile: Vec<(Axis, usize)>,
+    space: Vec<(Dimension, usize)>,
+    tile: Vec<(Dimension, usize)>,
     lhs: Operand,
     rhs: Operand,
-    out_axes: Vec<Axis>,
+    out_dimensions: Vec<Dimension>,
 }
 
 impl Gather {
     fn check(&self, config: SoftwareMatmul, case: &dyn std::fmt::Debug) {
         let client = cubecl::test_device().client();
-        let axes: Vec<Axis> = self.space.iter().map(|(a, _)| *a).collect();
+        let dimensions: Vec<Dimension> = self.space.iter().map(|(a, _)| *a).collect();
         let launcher = implied(
             &client,
             Partitioning::new(
                 Space::new(&self.space),
-                Levels::leaf(&self.tile).walk_every(&axes).build(),
+                Levels::leaf(&self.tile).walk_every(&dimensions).build(),
             ),
             Form::Static,
         );
-        let out = Operand::direct(&self.space, &self.out_axes, 1, checked());
+        let out = Operand::direct(&self.space, &self.out_dimensions, 1, checked());
         let x = ramp(self.lhs.shape.iter().product(), 7);
         let w = ramp(self.rhs.shape.iter().product(), 5);
         let out_handle = TestInput::builder(client.clone(), out.shape.clone())
@@ -127,7 +127,7 @@ impl Gather {
         let extents: Vec<usize> = self.space.iter().map(|(_, n)| *n).collect();
         for flat in 0..extents.iter().product() {
             let mut coord = [0usize; 8];
-            for (a, c) in axes.iter().zip(unravel(flat, &extents)) {
+            for (a, c) in dimensions.iter().zip(unravel(flat, &extents)) {
                 coord[a.0 as usize] = c;
             }
             if let (Some(i), Some(j)) = (self.lhs.index(&coord), self.rhs.index(&coord)) {
@@ -159,7 +159,7 @@ fn checked() -> BoundaryPolicy {
     BoundaryPolicy::Every(Boundary::Zero)
 }
 
-/// A convolution window along one spatial axis.
+/// A convolution window along one spatial dimension.
 #[derive(Clone, Copy, Debug)]
 struct Window {
     stride: usize,
@@ -189,7 +189,7 @@ const SPACED: Window = Window {
 
 impl Window {
     /// The input position `out · stride + tap · dilation - padding`.
-    fn map(self, out: Axis, tap: Axis) -> PhysicalAxisMap {
+    fn map(self, out: Dimension, tap: Dimension) -> PhysicalAxisMap {
         PhysicalAxisMap::affine(&[(out, self.stride), (tap, self.dilation)])
             .shifted(-(self.padding as isize))
     }
@@ -200,8 +200,8 @@ impl Window {
     }
 }
 
-/// A convolution's weight gradient: the input vectorized along `CI`, an accumulator row axis, the
-/// output gradient vectorized along `CO`, `B` and `OH` contracted and `RH` a batch axis.
+/// A convolution's weight gradient: the input vectorized along `CI`, an accumulator row dimension, the
+/// output gradient vectorized along `CO`, `B` and `OH` contracted and `RH` a batch dimension.
 #[derive(Clone, Copy, Debug)]
 struct WeightBackward {
     ci: usize,
@@ -245,7 +245,7 @@ impl WeightBackward {
             tile: vec![(RH, rh), (CI, 8), (CO, 4), (B, b), (OH, oh)],
             rhs: Operand::direct(&space, &[B, OH, CO], self.widths.grad, checked()),
             lhs,
-            out_axes: vec![RH, CI, CO],
+            out_dimensions: vec![RH, CI, CO],
             space,
         }
         .check(config, &self);
@@ -313,7 +313,7 @@ impl DataBackward {
             tile: vec![(OH, self.tile_oh), (CO, co), (RH, rh), (CI, ci)],
             rhs: Operand::direct(&space, &[RH, CI, CO], 1, BoundaryPolicy::Unchecked),
             lhs,
-            out_axes: vec![OH, CO],
+            out_dimensions: vec![OH, CO],
             space,
         }
         .check(config, &self);
@@ -341,8 +341,8 @@ fn gather_contraction_vectorized_lhs_backward_window() {
     }
 }
 
-/// A forward convolution over two spatial axes: the input vectorized along `CI` and contracted with
-/// the taps `RH` and `RW`, so the walk has two outer tap axes and one fastest one.
+/// A forward convolution over two spatial dimensions: the input vectorized along `CI` and contracted with
+/// the taps `RH` and `RW`, so the walk has two outer tap dimensions and one fastest one.
 #[derive(Clone, Copy, Debug)]
 struct Forward {
     ci: usize,
@@ -381,7 +381,7 @@ impl Forward {
             ]
         };
         let space = tile(o, o, co);
-        let mut axes = vec![B, OH, OW, RH, RW, CI];
+        let mut dimensions = vec![B, OH, OW, RH, RW, CI];
         let mut maps = vec![
             PhysicalAxisMap::of(B),
             self.window.map(OH, RH),
@@ -390,13 +390,13 @@ impl Forward {
         ];
         let mut shape = vec![b, len, len, self.ci];
         if self.per_cell {
-            axes.insert(3, CO);
+            dimensions.insert(3, CO);
             maps.insert(3, PhysicalAxisMap::of(CO));
             shape.insert(3, co);
         }
         let lhs = Operand {
             shape,
-            spec: TileSpec::new(Projection::new(&axes, &maps)).boundary(checked()),
+            spec: TileSpec::new(Projection::new(&dimensions, &maps)).boundary(checked()),
             width: self.width,
         };
         let rhs = Operand::direct(&space, &[RH, RW, CI, CO], 1, BoundaryPolicy::Unchecked);
@@ -404,7 +404,7 @@ impl Forward {
             tile: tile(th, tw, tco),
             rhs,
             lhs,
-            out_axes: vec![B, OH, OW, CO],
+            out_dimensions: vec![B, OH, OW, CO],
             space,
         }
         .check(config, &self);
@@ -445,7 +445,7 @@ fn gather_tap_walk_forward() {
     }
 }
 
-/// One contracted axis whose extent is no whole number of input vectors: the last vector's unused
+/// One contracted dimension whose extent is no whole number of input vectors: the last vector's unused
 /// components are never read, and the buffer is padded to whole vectors.
 #[derive(Clone, Copy, Debug)]
 struct Dot {
@@ -463,7 +463,7 @@ impl Dot {
             tile: space.clone(),
             rhs: Operand::direct(&space, &[CI, CO], 2, BoundaryPolicy::Unchecked),
             lhs,
-            out_axes: vec![OH, CO],
+            out_dimensions: vec![OH, CO],
             space,
         }
         .check(config, &self);

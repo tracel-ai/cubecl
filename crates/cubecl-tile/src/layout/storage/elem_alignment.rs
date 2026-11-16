@@ -1,7 +1,7 @@
 //! A buffer layout's alignment in elements, along its innermost dim.
 
 use super::geometry::stride_order;
-use crate::{Axis, Geometry, gcd, layout::StoragePartitioning};
+use crate::{Dimension, Geometry, gcd, layout::StoragePartitioning};
 use cubecl::prelude::TensorBinding;
 
 /// The alignment of a buffer's layout, counted in elements along its innermost dim: the number
@@ -115,8 +115,8 @@ impl From<&TensorBinding> for ElemAlignment {
         if !binding.tiling.is_tiled() {
             return Self::new(&binding.shape, &binding.strides);
         }
-        const ROWS: Axis = Axis(0);
-        const COLS: Axis = Axis(1);
+        const ROWS: Dimension = Dimension(0);
+        const COLS: Dimension = Dimension(1);
         let geometry = Geometry::from(binding);
         let storage = StoragePartitioning::new(&geometry, &geometry.labels(&[ROWS, COLS]));
         match storage.as_ref().and_then(|storage| storage.tiles().first()) {
@@ -147,8 +147,9 @@ mod tests {
             ElemAlignment::in_stride_order(&[k, 1], &[1, 1]),
             ElemAlignment::dense_rows(k)
         );
-        let (_, axes) = Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Axis(2), Axis(1)]);
-        assert_eq!(axes, [Axis(1), Axis(2)]);
+        let (_, dimensions) =
+            Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Dimension(2), Dimension(1)]);
+        assert_eq!(dimensions, [Dimension(1), Dimension(2)]);
     }
 
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.

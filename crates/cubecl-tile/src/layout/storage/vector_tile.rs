@@ -2,7 +2,7 @@
 //!
 //! An operand says how it is stored, and the kernel picks how wide it loads; the tile a load
 //! covers follows from both. A plain buffer is loaded in a run along its innermost axis. A buffer
-//! stored in tiles is loaded a stored tile at a time: its finest tiles, fused per axis, until they
+//! stored in tiles is loaded a stored tile at a time: its finest tiles, fused per dimension, until they
 //! hold the load's values, so an NVFP4 buffer whose word runs along `K` and whose next pieces are
 //! two words along `K` and two columns loads 32 values as 16 along `K` by 2 along `N`.
 
@@ -11,12 +11,12 @@ use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::{
-    Axis, Coords, Extent, Space, TileMisfit,
+    Coords, Dimension, Extent, Space, TileMisfit,
     algebra::{Integer, IntegerExpand},
     comptime_only,
 };
 
-/// The values one vector load brings, as a tile: its extents, finest first, one per axis.
+/// The values one vector load brings, as a tile: its extents, finest first, one per dimension.
 ///
 /// ```ignore
 /// // a plain row-major buffer, four wide
@@ -26,81 +26,83 @@ use crate::{
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct VectorTile {
-    extents: Vec<(Axis, usize)>,
+    extents: Vec<(Dimension, usize)>,
 }
 
 impl VectorTile {
     /// The tile a load of `values` values covers over a buffer stored in `stored` tiles, finest
     /// first ([`TileSpec::stored_tiles`](crate::TileSpec::stored_tiles)): its finest tiles, fused
-    /// where one axis continues, until they hold `values`. Nothing stated, a run of `values`
+    /// where one dimension continues, until they hold `values`. Nothing stated, a run of `values`
     /// along `innermost`.
     ///
     /// # Errors
     ///
     /// A load that would cut a stored tile, one wider than every stored tile together, or one
-    /// whose axis comes back after another, which is no longer one extent per axis.
+    /// whose dimension comes back after another, which is no longer one extent per dimension.
     pub fn new(
-        stored: &[(Axis, usize)],
-        innermost: Axis,
+        stored: &[(Dimension, usize)],
+        innermost: Dimension,
         values: usize,
     ) -> Result<Self, TileMisfit> {
         if stored.is_empty() || values == 1 {
             return Ok(Self::run(innermost, values));
         }
-        let mut extents: Vec<(Axis, usize)> = Vec::new();
+        let mut extents: Vec<(Dimension, usize)> = Vec::new();
         let mut held = 1;
-        for &(axis, count) in stored.iter().filter(|&&(_, count)| count > 1) {
+        for &(dimension, count) in stored.iter().filter(|&&(_, count)| count > 1) {
             if held == values {
                 break;
             }
             if !(values / held).is_multiple_of(count) {
                 return Err(TileMisfit::Overshoots {
-                    axis,
+                    dimension,
                     wanted: values / held,
                     piece: count,
                 });
             }
             held *= count;
             match extents.last().copied() {
-                Some((last, extent)) if last == axis => {
-                    *extents.last_mut().expect("just read") = (axis, extent * count);
+                Some((last, extent)) if last == dimension => {
+                    *extents.last_mut().expect("just read") = (dimension, extent * count);
                 }
-                Some((last, _)) if extents.iter().any(|&(a, _)| a == axis) => {
+                Some((last, _)) if extents.iter().any(|&(a, _)| a == dimension) => {
                     return Err(TileMisfit::Interleaved {
-                        wanted: axis,
+                        wanted: dimension,
                         found: last,
                     });
                 }
-                _ => extents.push((axis, count)),
+                _ => extents.push((dimension, count)),
             }
         }
         if held != values {
             return Err(TileMisfit::RunsOut {
-                wanted: extents.last().map_or(innermost, |&(axis, _)| axis),
+                wanted: extents
+                    .last()
+                    .map_or(innermost, |&(dimension, _)| dimension),
             });
         }
         Ok(Self { extents })
     }
 
-    /// A run of `values` along `axis`: how a plain buffer is loaded.
-    pub fn run(axis: Axis, values: usize) -> Self {
+    /// A run of `values` along `dimension`: how a plain buffer is loaded.
+    pub fn run(dimension: Dimension, values: usize) -> Self {
         Self {
-            extents: vec![(axis, values)],
+            extents: vec![(dimension, values)],
         }
     }
 
     /// The extents, finest first.
-    pub fn extents(&self) -> &[(Axis, usize)] {
+    pub fn extents(&self) -> &[(Dimension, usize)] {
         &self.extents
     }
 
-    /// Values one load holds along its finest axis: one line of it, the whole load where it spans
-    /// one axis. A reader walking lines along that axis takes `values() / run()` of them a load.
+    /// Values one load holds along its finest dimension: one line of it, the whole load where it spans
+    /// one dimension. A reader walking lines along that dimension takes `values() / run()` of them a load.
     pub(crate) fn run_length(&self) -> usize {
         self.extents.first().map_or(1, |&(_, run)| run)
     }
 
-    /// The box one load covers, an axis to each extent.
+    /// The box one load covers, a dimension to each extent.
     pub fn space(&self) -> Space {
         Space::new(&self.extents)
     }
@@ -110,36 +112,36 @@ impl VectorTile {
         self.extents.iter().map(|&(_, extent)| extent).product()
     }
 
-    /// The axis a one-axis load runs along and its width, for a `reader` that places a load along
-    /// one axis.
+    /// The dimension a one-dimension load runs along and its width, for a `reader` that places a load along
+    /// one dimension.
     ///
     /// # Panics
     ///
-    /// When the load spans several axes, naming `reader`.
-    pub(crate) fn along_one_axis(&self, reader: &str) -> (Axis, usize) {
+    /// When the load spans several dimensions, naming `reader`.
+    pub(crate) fn along_one_dimension(&self, reader: &str) -> (Dimension, usize) {
         match self.extents.as_slice() {
             &[one] => one,
             extents => panic!(
-                "{reader} places a load along one axis, and this operand loads {extents:?}: \
+                "{reader} places a load along one dimension, and this operand loads {extents:?}: \
                  read it with a narrower vector, or through a path that places a tile"
             ),
         }
     }
 
-    /// How far one load reaches along `axis`: its extent there, `1` off the axes it spans.
-    pub(crate) fn extent_along(&self, axis: Axis) -> usize {
+    /// How far one load reaches along `dimension`: its extent there, `1` off the dimensions it spans.
+    pub(crate) fn extent_along(&self, dimension: Dimension) -> usize {
         self.extents
             .iter()
-            .find(|&&(a, _)| a == axis)
+            .find(|&&(a, _)| a == dimension)
             .map_or(1, |&(_, extent)| extent)
     }
 
-    /// How many values of one load lie between two neighbours along `axis`: the product of the
-    /// extents finer than `axis`'s. `0` off the axes the load spans.
-    pub(crate) fn step_along(&self, axis: Axis) -> usize {
+    /// How many values of one load lie between two neighbours along `dimension`: the product of the
+    /// extents finer than `dimension`'s. `0` off the dimensions the load spans.
+    pub(crate) fn step_along(&self, dimension: Dimension) -> usize {
         let mut step = 1;
         for &(a, extent) in &self.extents {
-            if a == axis {
+            if a == dimension {
                 return step;
             }
             step *= extent;
@@ -147,15 +149,15 @@ impl VectorTile {
         0
     }
 
-    /// How far along `axis` the `line`-th of these loads of a window spanning `space` sits from
-    /// the window's first value, the loads counted with the last axis fastest: the place
+    /// How far along `dimension` the `line`-th of these loads of a window spanning `space` sits from
+    /// the window's first value, the loads counted with the last dimension fastest: the place
     /// [`start`](VectorTile::start) gives, known at expansion.
-    pub(crate) fn offset_in(&self, line: usize, space: &Space, axis: Axis) -> usize {
+    pub(crate) fn offset_in(&self, line: usize, space: &Space, dimension: Dimension) -> usize {
         let mut rest = line;
-        for at in space.axes().collect::<Vec<_>>().into_iter().rev() {
+        for at in space.dimensions().collect::<Vec<_>>().into_iter().rev() {
             let width = self.extent_along(at);
             let count = space.extent(at).div_ceil(width);
-            if at == axis {
+            if at == dimension {
                 return (rest % count) * width;
             }
             rest /= count;
@@ -163,13 +165,13 @@ impl VectorTile {
         0
     }
 
-    /// How far along `axis` the value at `position` of one load sits from the load's first: the
+    /// How far along `dimension` the value at `position` of one load sits from the load's first: the
     /// position unravelled over the load's extents, finest first. `20` of a 16 by 2 load along `K`
     /// then `N` is 4 along `K` and 1 along `N`.
-    pub(crate) fn offset_along(&self, position: usize, axis: Axis) -> usize {
+    pub(crate) fn offset_along(&self, position: usize, dimension: Dimension) -> usize {
         let mut rest = position;
         for &(a, extent) in &self.extents {
-            if a == axis {
+            if a == dimension {
                 return rest % extent;
             }
             rest /= extent;
@@ -177,30 +179,34 @@ impl VectorTile {
         0
     }
 
-    /// How many loads an edge of `edge` values along `axis` holds, rounded up: an edge cuts whole
-    /// loads, or is the axis's whole `extent`, since a padded stage's innermost extent need not
+    /// How many loads an edge of `edge` values along `dimension` holds, rounded up: an edge cuts whole
+    /// loads, or is the dimension's whole `extent`, since a padded stage's innermost extent need not
     /// fill its last load.
     ///
     /// # Panics
     ///
-    /// An edge that is neither, so the next region would start mid-load. A `Dynamic` axis has no
+    /// An edge that is neither, so the next region would start mid-load. A `Dynamic` dimension has no
     /// extent to be cut whole, so it owes the divisibility.
-    pub(crate) fn loads_in(&self, axis: Axis, edge: usize, extent: Extent) -> usize {
-        let w = self.extent_along(axis);
+    pub(crate) fn loads_in(&self, dimension: Dimension, edge: usize, extent: Extent) -> usize {
+        let w = self.extent_along(dimension);
         assert!(
             edge.is_multiple_of(w) || matches!(extent, Extent::Static(x) if x == edge),
-            "Memory::at: the edge {edge} along {axis:?} is neither a whole number of loads {w} \
-             wide there nor the axis's whole extent ({extent:?}), so a step would start mid-load"
+            "Memory::at: the edge {edge} along {dimension:?} is neither a whole number of loads {w} \
+             wide there nor the dimension's whole extent ({extent:?}), so a step would start mid-load"
         );
         edge.div_ceil(w)
     }
 
-    /// How many loads fit along each axis of `space`, rounded up: a padded stage's innermost extent
+    /// How many loads fit along each dimension of `space`, rounded up: a padded stage's innermost extent
     /// need not fill whole loads, and a checked read's box must include the partial last one.
     pub(crate) fn counts(&self, space: &Space) -> Vec<usize> {
         space
-            .axes()
-            .map(|axis| space.extent(axis).div_ceil(self.extent_along(axis)))
+            .dimensions()
+            .map(|dimension| {
+                space
+                    .extent(dimension)
+                    .div_ceil(self.extent_along(dimension))
+            })
             .collect()
     }
 
@@ -215,8 +221,8 @@ impl VectorTile {
     /// divided by the width.
     pub(crate) fn parts(
         &self,
-        stored: &[(Axis, usize)],
-        labels: &[Axis],
+        stored: &[(Dimension, usize)],
+        labels: &[Dimension],
         rank: usize,
     ) -> Vec<usize> {
         let mut parts = vec![1; rank];
@@ -245,8 +251,8 @@ impl VectorTile {
     /// shape sets. A stated tile's extent is fixed where the kernel is written, so a read over it
     /// divides by a constant rather than by a dim read off the buffer.
     pub(crate) fn stated_extents(
-        stored: &[(Axis, usize)],
-        labels: &[Axis],
+        stored: &[(Dimension, usize)],
+        labels: &[Dimension],
         rank: usize,
     ) -> Vec<Option<usize>> {
         let mut extents = vec![None; rank];
@@ -257,26 +263,26 @@ impl VectorTile {
     }
 
     /// The dim of a buffer of `rank` dims, whose trailing dims `labels` name, each of `stored`'s
-    /// tiles is: the `j`-th finest stated tile of an axis is its `j`-th dim from the end.
-    fn stated_dims(stored: &[(Axis, usize)], labels: &[Axis], rank: usize) -> Vec<usize> {
+    /// tiles is: the `j`-th finest stated tile of a dimension is its `j`-th dim from the end.
+    fn stated_dims(stored: &[(Dimension, usize)], labels: &[Dimension], rank: usize) -> Vec<usize> {
         let unlabelled = rank - labels.len();
-        let mut from_end: Vec<(Axis, usize)> = Vec::new();
+        let mut from_end: Vec<(Dimension, usize)> = Vec::new();
         stored
             .iter()
-            .map(|&(axis, _)| {
-                let nth = match from_end.iter_mut().find(|(a, _)| *a == axis) {
+            .map(|&(dimension, _)| {
+                let nth = match from_end.iter_mut().find(|(a, _)| *a == dimension) {
                     Some((_, seen)) => {
                         *seen += 1;
                         *seen
                     }
                     None => {
-                        from_end.push((axis, 1));
+                        from_end.push((dimension, 1));
                         1
                     }
                 };
                 let dim = (0..labels.len())
                     .rev()
-                    .filter(|&d| labels[d] == axis)
+                    .filter(|&d| labels[d] == dimension)
                     .nth(nth - 1)
                     .expect("a stated tile is a dim of the buffer");
                 unlabelled + dim
@@ -301,7 +307,7 @@ impl VectorTile {
         let mut coords = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            let extent = comptime!(tile.extent_along(space.axis_at(p)) as u32);
+            let extent = comptime!(tile.extent_along(space.dimension_at(p)) as u32);
             coords.push(place.at(p).times(extent));
         }
         coords
@@ -316,7 +322,7 @@ impl VectorTile {
         let mut index = CoordsDyn::new();
         #[unroll]
         for p in 0..rank {
-            let extent = comptime!(tile.extent_along(space.axis_at(p)) as u32);
+            let extent = comptime!(tile.extent_along(space.dimension_at(p)) as u32);
             index.push(coords.at(p).divided_by(extent));
         }
         index
@@ -332,13 +338,13 @@ impl VectorTile {
     }
 
     /// The first value of the `line`-th load of a window spanning `space`, one coordinate per
-    /// axis, the loads counted with the last axis fastest.
+    /// dimension, the loads counted with the last dimension fastest.
     pub fn start(&self, line: u32, space: &Space) -> Coords<u32> {
         VectorTile::start_of(line, space, self)
     }
 
     /// Where the load starting at `coords` sits in a view of a window spanning `space` read in
-    /// these loads: each coordinate divided by the load's extent along its axis.
+    /// these loads: each coordinate divided by the load's extent along its dimension.
     pub fn index(&self, coords: &Coords<u32>, space: &Space) -> CoordsDyn {
         VectorTile::index_of(coords, space, self)
     }
@@ -372,12 +378,12 @@ comptime_only!(VectorTile);
 mod tests {
     use super::*;
 
-    const K: Axis = Axis(0);
-    const N: Axis = Axis(1);
+    const K: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
 
     /// A plain buffer loads a run along its innermost axis, whatever the width.
     #[test]
-    fn a_plain_buffer_loads_along_its_innermost_axis() {
+    fn a_plain_buffer_loads_along_its_innermost_dimension() {
         assert_eq!(VectorTile::new(&[], N, 4).unwrap().extents(), &[(N, 4)]);
         assert_eq!(VectorTile::new(&[], N, 1).unwrap().extents(), &[(N, 1)]);
     }
@@ -407,7 +413,7 @@ mod tests {
         assert_eq!(
             VectorTile::new(&stored, N, 4),
             Err(TileMisfit::Overshoots {
-                axis: K,
+                dimension: K,
                 wanted: 4,
                 piece: 8
             })
@@ -416,10 +422,10 @@ mod tests {
         assert!(VectorTile::new(&stored, N, 32).is_err());
     }
 
-    /// A load is one extent per axis: stored tiles that go along `K`, then `N`, then `K` again
+    /// A load is one extent per dimension: stored tiles that go along `K`, then `N`, then `K` again
     /// make no load that spans all three, since its values along `K` would not be one run.
     #[test]
-    fn a_load_that_returns_to_an_axis_is_refused() {
+    fn a_load_that_returns_to_a_dimension_is_refused() {
         assert_eq!(
             VectorTile::new(&[(K, 8), (N, 2), (K, 2)], N, 32),
             Err(TileMisfit::Interleaved {
@@ -432,7 +438,7 @@ mod tests {
     /// A value's place in a load reads off its position unravelled over the load's extents, finest
     /// first: the 21st value of a 16 by 2 load is the second column's fifth, a run's is itself.
     #[test]
-    fn a_position_in_a_load_is_an_offset_along_each_axis() {
+    fn a_position_in_a_load_is_an_offset_along_each_dimension() {
         let load = VectorTile::new(&[(K, 8), (K, 2), (N, 2)], N, 32).unwrap();
         assert_eq!(load.offset_along(20, K), 4);
         assert_eq!(load.offset_along(20, N), 1);
@@ -450,13 +456,13 @@ mod tests {
         );
     }
 
-    /// A reader that places a load along one axis refuses a rectangle, naming itself, rather
+    /// A reader that places a load along one dimension refuses a rectangle, naming itself, rather
     /// than landing half its values on the wrong column.
     #[test]
-    #[should_panic(expected = "the fragment load places a load along one axis")]
-    fn a_rectangle_is_refused_by_a_one_axis_reader() {
+    #[should_panic(expected = "the fragment load places a load along one dimension")]
+    fn a_rectangle_is_refused_by_a_one_dimension_reader() {
         let tile = VectorTile::new(&[(K, 8), (N, 2)], N, 16).unwrap();
-        tile.along_one_axis("the fragment load");
+        tile.along_one_dimension("the fragment load");
     }
 
     /// Read in loads, a plain buffer's innermost dim counts lines and nothing else moves; an
@@ -469,7 +475,7 @@ mod tests {
 
         // `[m, k]` stored as a word of 8 along `K`, 2 words along `K` by 2 rows, then 4 by 4:
         // `[M, K, M, K, M, K, K]` level-major, the word the last dim.
-        const M: Axis = Axis(2);
+        const M: Dimension = Dimension(2);
         let stored = [(K, 8), (K, 2), (M, 2), (K, 4), (M, 4)];
         let labels = [M, K, M, K, M, K, K];
         let load = VectorTile::new(&stored, K, 32).unwrap();
@@ -486,7 +492,7 @@ mod tests {
     /// the buffer's too.
     #[test]
     fn the_stated_tiles_have_their_stated_extents() {
-        const M: Axis = Axis(2);
+        const M: Dimension = Dimension(2);
         let stored = [(K, 8), (K, 2), (M, 2), (K, 4), (M, 4)];
         let labels = [M, K, M, K, M, K, K];
         let tiled = [Some(4), Some(4), Some(2), Some(2), Some(8)];

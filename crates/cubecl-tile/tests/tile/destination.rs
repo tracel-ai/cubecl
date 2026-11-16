@@ -58,8 +58,8 @@ impl Destination for Doubled {
     fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         let mut geometry = RuntimeGeometry::new();
         #[unroll]
-        for axis in 0..comptime!(arg.rank) {
-            geometry.push(*arg.shape.index(axis), *arg.strides.index(axis));
+        for dimension in 0..comptime!(arg.rank) {
+            geometry.push(*arg.shape.index(dimension), *arg.strides.index(dimension));
         }
         let sink = doubling_sink::<E, V>(arg.values);
         // Read at expansion, not as a Rust constant: a launch-time `Size` has no `value()` until
@@ -164,8 +164,8 @@ fn store_doubled<E: Numeric, N: Size>(values: &mut Tensor<E>, index: usize, valu
 // A store, generic over its destination
 // ===========================================================================
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 const ROWS: usize = 4;
 const COLS: usize = 6;
 /// Two values a line, so the sink is handed lines rather than scalars.
@@ -214,7 +214,7 @@ fn run_store(sink: bool) -> HostData {
         .generate_without_host_data();
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(WIDTH)
         .build()
         .unwrap();
@@ -227,7 +227,7 @@ fn run_store(sink: bool) -> HostData {
         true => {
             let derived = launcher
                 .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
-                .axes(&[ROW, COL])
+                .dimensions(&[ROW, COL])
                 .vectorize(WIDTH)
                 .build_spec()
                 .unwrap();
@@ -249,7 +249,7 @@ fn run_store(sink: bool) -> HostData {
         false => {
             let bound = launcher
                 .arg(output.clone().binding(), dtype)
-                .axes(&[ROW, COL])
+                .dimensions(&[ROW, COL])
                 .vectorize(WIDTH)
                 .build()
                 .unwrap();
@@ -295,9 +295,9 @@ fn one_kernel_stores_into_a_buffer_or_a_caller_sink() {
 // A contraction draining into the sink
 // ===========================================================================
 
-const M: Axis = Axis(2);
-const N: Axis = Axis(3);
-const K: Axis = Axis(4);
+const M: Dimension = Dimension(2);
+const N: Dimension = Dimension(3);
+const K: Dimension = Dimension(4);
 const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The promoted matmul over any destination: `K` sums in registers and the drain is the only
@@ -356,7 +356,7 @@ fn run_contract(sink: bool) -> HostData {
         true => {
             let derived = launcher
                 .unbound(&Geometry::new(&[(m, n), (n, 1)]))
-                .axes(&[M, N])
+                .dimensions(&[M, N])
                 .build_spec()
                 .unwrap();
             let operand = DoubledOperand {
@@ -379,7 +379,7 @@ fn run_contract(sink: bool) -> HostData {
         false => {
             let bound = launcher
                 .arg(c.handle().binding(), dtype)
-                .axes(&[M, N])
+                .dimensions(&[M, N])
                 .build()
                 .unwrap();
             contract::launch::<Buffered>(
@@ -548,7 +548,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
         .generate_without_host_data();
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(WIDTH)
         .build()
         .unwrap();
@@ -558,7 +558,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
         .generate_without_host_data();
     let derived = launcher
         .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(WIDTH)
         .build_spec()
         .unwrap();

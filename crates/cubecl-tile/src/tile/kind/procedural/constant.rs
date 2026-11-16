@@ -16,7 +16,7 @@ impl<T: Numeric> Recipe<T> for Constant<T> {
 }
 
 impl<T: Numeric> Reads for ConstantExpand<T> {
-    fn reads(&self, _scope: &Scope, _axis: crate::Axis) -> bool {
+    fn reads(&self, _scope: &Scope, _dimension: crate::Dimension) -> bool {
         false
     }
 }

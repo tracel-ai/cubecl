@@ -1,4 +1,4 @@
-//! The axis-agnostic tile DSL engine: a [`Space`] cut into [`Level`]s forms a [`Partitioning`],
+//! The dimension-agnostic tile DSL engine: a [`Space`] cut into [`Level`]s forms a [`Partitioning`],
 //! whose loops hand out [`Region`]s; the [`Launcher`] reads the grid off the same levels.
 
 // `#[cube]` expands to `cubecl::` paths, which the language crate serves.
@@ -66,8 +66,8 @@ pub use ops::matmul::instruction::{
     BlockScaledOperands, FragmentSource, Instruction, MmaOperands, ShapedInstruction,
 };
 pub use ops::matmul::software_matmul::SoftwareMatmul;
-pub use space::axis::Axis;
 pub use space::base::Space;
+pub use space::dimension::Dimension;
 pub use space::partition::base::Partitioning;
 pub use space::partition::level::Level;
 pub use space::partition::levels::Levels;
@@ -80,4 +80,4 @@ pub use tile::base::{Tile, TileExpand};
 pub use tile::factor::{Factor, FactorExpand};
 pub use tile::index::Indexing;
 pub use tile::kind::plane::mma::lane_runs::LaneMap;
-pub use tile::slices::{AxisSlices, AxisSlicesExpand};
+pub use tile::slices::{DimensionSlices, DimensionSlicesExpand};

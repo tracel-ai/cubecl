@@ -18,13 +18,13 @@ use cubecl_tile::launch::Refusal;
 use cubecl_tile::*;
 
 /// Row: a token, or a token's slot.
-const M: Axis = Axis(0);
+const M: Dimension = Dimension(0);
 /// Output feature.
-const N: Axis = Axis(1);
+const N: Dimension = Dimension(1);
 /// Contracted feature.
-const K: Axis = Axis(2);
+const K: Dimension = Dimension(2);
 /// Which expert. Three of them, and the space says so; no level cuts it.
-const EXPERT: Axis = Axis(3);
+const EXPERT: Dimension = Dimension(3);
 
 const ROWS: usize = 4;
 const FEATURES: usize = 4;
@@ -86,7 +86,7 @@ fn assert_cells(got: &HostData, want: &[Vec<f32>], what: &str) {
 }
 
 /// A `u32` table of `entries` over `keys`, one dim each, shaped `shape`.
-fn table(client: &Client, entries: &[u32], shape: Shape, keys: &[Axis]) -> TileTensorLaunch {
+fn table(client: &Client, entries: &[u32], shape: Shape, keys: &[Dimension]) -> TileTensorLaunch {
     let handle = TestInput::builder(client.clone(), shape)
         .dtype(u32::elem_type_native())
         .custom(entries.iter().map(|&e| e as f32).collect())
@@ -141,7 +141,7 @@ fn indexed_matmul_kernel(
 }
 
 /// [`indexed_matmul_kernel`] with the weights staged in shared memory over the walk of rows: the
-/// weights span no axis that walk steps, so only their table tells the plan to refill the stage.
+/// weights span no dimension that walk steps, so only their table tells the plan to refill the stage.
 #[cube(launch)]
 fn indexed_staged_matmul_kernel(
     x: &TileTensor<'_>,
@@ -303,7 +303,7 @@ fn a_route_past_the_last_expert_clamps_to_it() {
     assert_cells(&got, &want, "clamped");
 }
 
-/// Weights that check their expert axis read zero past it instead: the row a padded route names
+/// Weights that check their expert dimension read zero past it instead: the row a padded route names
 /// drains the identity, with no branch in the kernel.
 #[test]
 fn a_route_past_the_last_expert_reads_zero_where_the_operand_checks_it() {
@@ -462,11 +462,11 @@ fn a_routed_packed_operand_reads_its_scales_at_the_same_expert() {
 }
 
 /// Which group.
-const G: Axis = Axis(0);
+const G: Dimension = Dimension(0);
 /// The packed row: every group's rows, end to end in one buffer.
-const P: Axis = Axis(1);
+const P: Dimension = Dimension(1);
 /// The feature a row carries.
-const D: Axis = Axis(2);
+const D: Dimension = Dimension(2);
 
 const GROUPS: usize = 4;
 /// Rows of every group, end to end, and rows past the last group's end.
@@ -494,7 +494,7 @@ fn indexed_ragged_sum_kernel<E: Numeric>(
         total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
         for blk in rows.over(&block) {
             let mut cell = total.at(&blk);
-            cell.reduce_axis_accumulate(&rows.at(&blk), comptime!(Monoid::Sum));
+            cell.reduce_dimension_accumulate(&rows.at(&blk), comptime!(Monoid::Sum));
         }
     }
 }
@@ -522,7 +522,7 @@ fn indexed_staged_ragged_sum_kernel<E: Numeric>(
         stages.pipelined(blocks, |slot, blk| {
             let mut cell = total.at(blk);
             slot.consume(|rows_s| {
-                cell.reduce_axis_accumulate(rows_s, comptime!(Monoid::Sum));
+                cell.reduce_dimension_accumulate(rows_s, comptime!(Monoid::Sum));
             });
         });
     }
@@ -732,7 +732,7 @@ fn indexed_whole_sum_kernel<E: Numeric>(
     total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
     for blk in rows.over(&block) {
         let mut cell = total.at(&blk);
-        cell.reduce_axis_accumulate(&rows.at(&blk), comptime!(Monoid::Sum));
+        cell.reduce_dimension_accumulate(&rows.at(&blk), comptime!(Monoid::Sum));
     }
 }
 
@@ -811,7 +811,7 @@ fn run_steps_kernel(
 /// Each group walks its own run's blocks in every column tile: 1, 0, 2 and 1 blocks of four rows
 /// for runs of 2, 0, 5 and 3 rows.
 #[test]
-fn a_regions_walk_steps_the_run_its_operand_holds_over_every_axis() {
+fn a_regions_walk_steps_the_run_its_operand_holds_over_every_dimension() {
     let client = cubecl::test_device().client();
     let f32_ty = f32::elem_type_native();
     let columns = FEATURES / COLUMN;
@@ -916,7 +916,7 @@ mod refused {
 
     /// The weights read four values a line along `N`: a coordinate there would split a line.
     #[test]
-    fn an_entry_placing_the_innermost_axis_read_in_lines() {
+    fn an_entry_placing_the_innermost_dimension_read_in_lines() {
         let client = cubecl::test_device().client();
         let routes = table(&client, &ROUTES, Shape::new([ROWS]), &[M]);
         assert_eq!(
@@ -926,17 +926,17 @@ mod refused {
     }
 
     #[test]
-    fn an_entry_placing_an_axis_the_operand_does_not_span() {
+    fn an_entry_placing_a_dimension_the_operand_does_not_span() {
         let client = cubecl::test_device().client();
         let routes = table(&client, &ROUTES, Shape::new([ROWS]), &[M]);
         assert_eq!(
             refusal(routes, Indexing::Coordinate(M)),
-            Refusal::IndexOfAnAxisNotSpanned(M)
+            Refusal::IndexOfADimensionNotSpanned(M)
         );
     }
 
     #[test]
-    fn a_run_keyed_by_two_axes() {
+    fn a_run_keyed_by_two_dimensions() {
         let client = cubecl::test_device().client();
         let ends = table(&client, &[0; 4], Shape::new([2, 2]), &[M, N]);
         assert_eq!(

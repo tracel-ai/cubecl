@@ -31,7 +31,7 @@ pub struct Relay<'a> {
     walk: Walk,
     /// This box's counter.
     counter: usize,
-    /// This cube's turn: its run's position along the split axis.
+    /// This cube's turn: its run's position along the split dimension.
     turn: usize,
     /// The turns whose run holds a tile: the leading ones.
     holders: usize,
@@ -40,7 +40,7 @@ pub struct Relay<'a> {
 #[cube]
 impl<'a> TileTensor<'a> {
     /// This operand as the carry of a [`Relay`]: the box the cubes splitting the contraction
-    /// along its [`across`](Levels::across) axis take their turns at, under `partitioning`, whose
+    /// along its [`across`](Levels::across) dimension take their turns at, under `partitioning`, whose
     /// first level is the cube level. `turns` arrives holding zero and is left holding zero.
     pub fn relay<'t, V: Size>(
         &self,
@@ -130,7 +130,7 @@ impl<'a> Relay<'a> {
         }
     }
 
-    /// The counter of this cube's box: the cube's position over every axis the cube level
+    /// The counter of this cube's box: the cube's position over every dimension the cube level
     /// distributes but the `split` one, as one mixed-radix index, the split's coordinate left at
     /// zero.
     fn counter(partitioning: &Partitioning, walk: &Walk, #[comptime] split: usize) -> usize {
@@ -139,8 +139,8 @@ impl<'a> Relay<'a> {
         let mut counter = 0usize;
         #[unroll]
         for p in 0..space.space().rank() {
-            let axis = space.space().axis_at(p);
-            if level.distributes(axis) {
+            let dimension = space.space().dimension_at(p);
+            if level.distributes(dimension) {
                 let radix = Self::radix(partitioning, &level, p);
                 let position = match p == split {
                     true => 0usize.runtime(),
@@ -157,13 +157,13 @@ impl<'a> Relay<'a> {
     fn holders(partitioning: &Partitioning, #[comptime] split: usize) -> usize {
         let space = comptime!(partitioning.clone());
         let level = comptime!(space.levels()[0].clone());
-        let axis = space.space().axis_at(split);
-        let workers = comptime!(match level.count(axis) {
+        let dimension = space.space().dimension_at(split);
+        let workers = comptime!(match level.count(dimension) {
             Some(Count::AllAcross(workers)) => workers,
-            _ => unreachable!("Relay::split names an axis spread across cubes"),
+            _ => unreachable!("Relay::split names a dimension spread across cubes"),
         });
         let grid = Self::grid(partitioning, &level, split);
-        match level.cut(axis).spread {
+        match level.cut(dimension).spread {
             Spread::Contiguous => {
                 let run = grid
                     .plus((workers - 1).runtime())
@@ -175,24 +175,24 @@ impl<'a> Relay<'a> {
         }
     }
 
-    /// The instances the cube level distributes axis `p` to: its workers where spread across them,
+    /// The instances the cube level distributes dimension `p` to: its workers where spread across them,
     /// its tile count otherwise.
     fn radix(
         partitioning: &Partitioning,
         #[comptime] level: &Level,
         #[comptime] p: usize,
     ) -> usize {
-        let axis = comptime!(partitioning.space().axis_at(p));
-        match level.count(axis) {
+        let dimension = comptime!(partitioning.space().dimension_at(p));
+        match level.count(dimension) {
             Some(Count::AllAcross(workers)) => workers.runtime(),
             _ => Self::grid(partitioning, level, p),
         }
     }
 
-    /// The tiles the cube level cuts axis `p` into.
+    /// The tiles the cube level cuts dimension `p` into.
     fn grid(partitioning: &Partitioning, #[comptime] level: &Level, #[comptime] p: usize) -> usize {
-        let axis = comptime!(partitioning.space().axis_at(p));
-        match level.grid(axis) {
+        let dimension = comptime!(partitioning.space().dimension_at(p));
+        match level.grid(dimension) {
             GridCount::Const(n) => n.runtime(),
             GridCount::Extent(tile) => partitioning.space.count(p, tile),
         }
@@ -200,7 +200,7 @@ impl<'a> Relay<'a> {
 }
 
 impl Relay<'_> {
-    /// The position in `space` of the one axis a relay splits: spread across cubes by the first
+    /// The position in `space` of the one dimension a relay splits: spread across cubes by the first
     /// level, the cube level, and not spanned by the carry. Refuses any other partitioning.
     fn split(space: &Partitioning, spec: &TileSpec) -> usize {
         let level = &space.levels()[0];
@@ -212,14 +212,14 @@ impl Relay<'_> {
         );
         let split: Vec<usize> = (0..space.space().rank())
             .filter(|&p| {
-                let axis = space.space().axis_at(p);
-                matches!(level.count(axis), Some(Count::AllAcross(_)))
-                    && !spec.axes().contains(&axis)
+                let dimension = space.space().dimension_at(p);
+                matches!(level.count(dimension), Some(Count::AllAcross(_)))
+                    && !spec.dimensions().contains(&dimension)
             })
             .collect();
         assert!(
             split.len() == 1,
-            "TileTensor::relay: the carry must leave out exactly one axis the cube level spreads \
+            "TileTensor::relay: the carry must leave out exactly one dimension the cube level spreads \
              across cubes (`Levels::across`), the one whose runs take the turns; it leaves out {}",
             split.len()
         );

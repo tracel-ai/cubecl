@@ -20,23 +20,27 @@ pub struct TmaBox {
 }
 
 impl TileTensorLaunch {
-    /// A TMA tensor map as a tile tensor over `axes`: two, or three with `shape.batch` set.
-    pub fn tensor_map(tensor_map: TensorMapArg<Tiled>, axes: &[Axis], shape: TmaBox) -> Self {
-        let layout = Self::dyn_layout(axes, shape);
+    /// A TMA tensor map as a tile tensor over `dimensions`: two, or three with `shape.batch` set.
+    pub fn tensor_map(
+        tensor_map: TensorMapArg<Tiled>,
+        dimensions: &[Dimension],
+        shape: TmaBox,
+    ) -> Self {
+        let layout = Self::dyn_layout(dimensions, shape);
         Self::of_tensor_map(
             tensor_map,
             VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaDynLayout>>(layout),
-            TileSpec::direct(axes),
+            TileSpec::direct(dimensions),
         )
     }
 
-    /// The layout of a descriptor over `axes`.
-    fn dyn_layout(axes: &[Axis], shape: TmaBox) -> TmaDynLayoutLaunch {
-        let batched = match (axes.len(), shape.batch) {
+    /// The layout of a descriptor over `dimensions`.
+    fn dyn_layout(dimensions: &[Dimension], shape: TmaBox) -> TmaDynLayoutLaunch {
+        let batched = match (dimensions.len(), shape.batch) {
             (2, None) => false,
             (3, Some(_)) => true,
             (r, batch) => panic!(
-                "TileTensorLaunch::tensor_map: the descriptor is (batch, row, col); {r} axes with \
+                "TileTensorLaunch::tensor_map: the descriptor is (batch, row, col); {r} dimensions with \
                  batch {batch:?} is not a matrix nor a batched one"
             ),
         };
@@ -46,25 +50,30 @@ impl TileTensorLaunch {
 }
 
 impl TileTensorLaunch {
-    /// A TMA tensor map as a tile tensor over `axes`, `extents` along each, whose descriptor
-    /// dims are not the tile's own axes: each descriptor coordinate is read off a position over
-    /// `axes` as `coordinates` says, as a block-split operand lands in a descriptor over the
+    /// A TMA tensor map as a tile tensor over `dimensions`, `extents` along each, whose descriptor
+    /// dims are not the tile's own dimensions: each descriptor coordinate is read off a position over
+    /// `dimensions` as `coordinates` says, as a block-split operand lands in a descriptor over the
     /// matrix it splits (its `KB` and `KI` one column).
     ///
     /// # Panics
     ///
-    /// Where `extents` does not give one extent an axis, or a term reads past `axes`.
+    /// Where `extents` does not give one extent a dimension, or a term reads past `dimensions`.
     pub fn tensor_map_folded(
         tensor_map: TensorMapArg<Tiled>,
-        axes: &[Axis],
+        dimensions: &[Dimension],
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
-        Self::with_coordinates(tensor_map, TileSpec::direct(axes), extents, coordinates)
+        Self::with_coordinates(
+            tensor_map,
+            TileSpec::direct(dimensions),
+            extents,
+            coordinates,
+        )
     }
 
     /// [`tensor_map_folded`](Self::tensor_map_folded) over an operand read through `projection`,
-    /// its logical axes the tile's, `extents` along each: what a gather of the same buffer reads,
+    /// its dimensions the tile's, `extents` along each: what a gather of the same buffer reads,
     /// stated for a descriptor. A stage of it is the compacted window the projection reads (a
     /// word of scales every few blocks, say), which the engine lands as it lies: the box must be
     /// that window, row-major.
@@ -81,26 +90,26 @@ impl TileTensorLaunch {
         Self::with_coordinates(tensor_map, TileSpec::new(projection), extents, coordinates)
     }
 
-    /// The body both descriptors with coordinates share, over `spec`'s logical axes.
+    /// The body both descriptors with coordinates share, over `spec`'s dimensions.
     fn with_coordinates(
         tensor_map: TensorMapArg<Tiled>,
         spec: TileSpec,
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
-        let axes = spec.projection.logical_axes().to_vec();
+        let dimensions = spec.projection.dimensions().to_vec();
         assert_eq!(
             extents.len(),
-            axes.len(),
-            "TileTensorLaunch::tensor_map_folded: one extent an axis, {axes:?} against {extents:?}"
+            dimensions.len(),
+            "TileTensorLaunch::tensor_map_folded: one extent a dimension, {dimensions:?} against {extents:?}"
         );
         assert!(
             coordinates
                 .dims
                 .iter()
                 .flatten()
-                .all(|term| term.position < axes.len()),
-            "TileTensorLaunch::tensor_map_folded: a term reads a position past {axes:?}"
+                .all(|term| term.position < dimensions.len()),
+            "TileTensorLaunch::tensor_map_folded: a term reads a position past {dimensions:?}"
         );
         let mut shape = SequenceArg::new();
         for &extent in extents {
@@ -115,7 +124,7 @@ impl TileTensorLaunch {
     }
 }
 
-/// One term of a descriptor coordinate: the position along the tile's `position`-th axis, times
+/// One term of a descriptor coordinate: the position along the tile's `position`-th dimension, times
 /// `scale`, modulo `modulus` where it is not zero, over `divisor`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct TmaTerm {
@@ -126,8 +135,8 @@ pub struct TmaTerm {
 }
 
 impl TmaTerm {
-    /// The position along the `position`-th axis as it is.
-    pub fn axis(position: usize) -> Self {
+    /// The position along the `position`-th dimension as it is.
+    pub fn dimension(position: usize) -> Self {
         Self {
             position,
             scale: 1,
@@ -160,11 +169,11 @@ pub struct TmaCoordinates {
     pub dims: Vec<Vec<TmaTerm>>,
 }
 
-/// In-kernel tensor-map layout landing a tile's position, over its own axes, in a descriptor whose
+/// In-kernel tensor-map layout landing a tile's position, over its own dimensions, in a descriptor whose
 /// dims sum them ([`TmaCoordinates`]).
 #[derive(CubeType, CubeLaunch, Clone)]
 pub(crate) struct TmaFoldedLayout {
-    /// The extent of each of the tile's axes.
+    /// The extent of each of the tile's dimensions.
     shape: CoordsDyn,
     #[cube(comptime)]
     coordinates: TmaCoordinates,

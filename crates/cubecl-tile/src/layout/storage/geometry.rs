@@ -6,7 +6,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Axis, Space, StoragePartitioning, TileMisfit};
+use crate::{Dimension, Space, StoragePartitioning, TileMisfit};
 
 use crate::Coords;
 
@@ -67,35 +67,35 @@ impl Geometry {
         self.tiling
     }
 
-    /// Its trailing dims, coarsest first, each named by the axis it is a piece of: `axes` name the
+    /// Its trailing dims, coarsest first, each named by the dimension it is a piece of: `dimensions` name the
     /// trailing logical dims in the tensor's order, each once per piece its tiling stores it as, in
     /// [`StoragePartitioning::labels`]' order. The dims ahead of them are batch dims, one each.
     ///
     /// # Panics
     ///
     /// When the tiling does not fit the rank, when the buffer stands for fewer logical dims than
-    /// `axes` name, or when it tiles a batch dim, which is stored one dim.
-    pub fn labels(&self, axes: &[Axis]) -> Vec<Axis> {
+    /// `dimensions` name, or when it tiles a batch dim, which is stored one dim.
+    pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
         if !self.tiling.is_tiled() {
-            return axes.to_vec();
+            return dimensions.to_vec();
         }
         let logical_rank = self
             .tiling
             .logical_rank(self.rank())
             .unwrap_or_else(|e| panic!("Geometry::labels: {e:?}"));
         assert!(
-            logical_rank >= axes.len(),
-            "Geometry::labels: the buffer stands for {logical_rank} dims but {} axes name them",
-            axes.len()
+            logical_rank >= dimensions.len(),
+            "Geometry::labels: the buffer stands for {logical_rank} dims but {} dimensions name them",
+            dimensions.len()
         );
         let fragments = self.tiling.fragments(logical_rank);
-        let (batches, block) = fragments.split_at(logical_rank - axes.len());
+        let (batches, block) = fragments.split_at(logical_rank - dimensions.len());
         assert!(
             batches.iter().all(|&n| n == 1),
             "Geometry::labels: batch dims are stored one dim each, so {batches:?} pieces over \
              them cannot be named"
         );
-        StoragePartitioning::level_major(axes, block)
+        StoragePartitioning::level_major(dimensions, block)
     }
 
     /// The extents, coarsest first.
@@ -115,7 +115,7 @@ impl Geometry {
 
     /// This geometry with its trailing `labels.len()` dims and labels reordered by stride, coarsest
     /// first; leading (batch) dims stay put.
-    pub fn in_stride_order(&self, labels: &[Axis]) -> (Geometry, Vec<Axis>) {
+    pub fn in_stride_order(&self, labels: &[Dimension]) -> (Geometry, Vec<Dimension>) {
         let batch_dims = self.rank() - labels.len();
         let mut trailing: Vec<(usize, (usize, usize))> =
             self.dims().enumerate().skip(batch_dims).collect();
@@ -136,9 +136,13 @@ impl Geometry {
         self.shape.iter().copied().zip(self.strides.iter().copied())
     }
 
-    /// Whether this buffer can be read a `tile` at a time, `tile` finest first over the axes
+    /// Whether this buffer can be read a `tile` at a time, `tile` finest first over the dimensions
     /// `labels` name, right-aligned to the dims.
-    pub fn serves(&self, tile: &[(Axis, usize)], labels: &[Axis]) -> Result<(), LineMisfit> {
+    pub fn serves(
+        &self,
+        tile: &[(Dimension, usize)],
+        labels: &[Dimension],
+    ) -> Result<(), LineMisfit> {
         let values: usize = tile.iter().map(|&(_, count)| count).product();
         if values == 1 {
             return Ok(());
@@ -181,15 +185,15 @@ impl Geometry {
         }
     }
 
-    /// Each labelled axis's extent: the product of the dims it labels.
-    pub(crate) fn extents(&self, labels: &[Axis]) -> Vec<(Axis, usize)> {
+    /// Each labelled dimension's extent: the product of the dims it labels.
+    pub(crate) fn extents(&self, labels: &[Dimension]) -> Vec<(Dimension, usize)> {
         let unlabelled = self.rank().saturating_sub(labels.len());
-        let mut extents: Vec<(Axis, usize)> = Vec::new();
+        let mut extents: Vec<(Dimension, usize)> = Vec::new();
         for (dim, extent) in self.shape.iter().copied().enumerate().skip(unlabelled) {
-            let axis = labels[dim - unlabelled];
-            match extents.iter_mut().find(|(a, _)| *a == axis) {
+            let dimension = labels[dim - unlabelled];
+            match extents.iter_mut().find(|(a, _)| *a == dimension) {
                 Some((_, product)) => *product *= extent,
-                None => extents.push((axis, extent)),
+                None => extents.push((dimension, extent)),
             }
         }
         extents
@@ -234,7 +238,7 @@ pub enum LineMisfit {
     Tile(TileMisfit),
     /// A stride outside the tile that is not a whole number of tiles.
     StrideInsideLine(usize),
-    /// The buffer's order is no partitioning: a stated piece coarser than the rest of an axis.
+    /// The buffer's order is no partitioning: a stated piece coarser than the rest of a dimension.
     NotPartitioned,
     /// No dims at all, so only a single value fits.
     NoDims,
@@ -260,7 +264,7 @@ impl Display for LineMisfit {
             ),
             Self::NotPartitioned => write!(
                 f,
-                "a stated piece sits coarser than the rest of an axis, so its order is no \
+                "a stated piece sits coarser than the rest of a dimension, so its order is no \
                  partitioning"
             ),
             Self::NoDims => write!(f, "it has no dims, so only a single value fits"),
@@ -331,9 +335,9 @@ mod tests {
     use super::*;
     use crate::StorageLevels;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
     /// A geometry's span is the elements its strides reach, padding included, and zero when it
     /// holds none.
@@ -366,7 +370,7 @@ mod tests {
     /// On untiled buffers, `serves` agrees with the one-axis line rule ([`line_rule_serves`]).
     #[test]
     fn a_line_is_served_where_the_line_rule_served_it() {
-        let geometries: Vec<(Geometry, Vec<Axis>)> = vec![
+        let geometries: Vec<(Geometry, Vec<Dimension>)> = vec![
             (Geometry::new(&[(64, 128), (128, 1)]), vec![M, N]),
             (Geometry::new(&[(64, 136), (128, 1)]), vec![M, N]),
             (Geometry::new(&[(64, 130), (130, 1)]), vec![M, N]),

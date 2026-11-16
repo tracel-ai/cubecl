@@ -278,7 +278,7 @@ pub(crate) fn block_dims(scheme: &QuantScheme, shape: &[usize]) -> Vec<usize> {
     }
 }
 
-/// The block scale grid: each axis divided by its block extent, so one entry per block.
+/// The block scale grid: each dimension divided by its block extent, so one entry per block.
 pub fn scales_grid(shape: &[usize], block_dims: &[usize]) -> Vec<usize> {
     assert_eq!(
         shape.len(),
@@ -291,7 +291,7 @@ pub fn scales_grid(shape: &[usize], block_dims: &[usize]) -> Vec<usize> {
         .map(|(&dim, &block)| {
             assert!(
                 block > 0 && dim.is_multiple_of(block),
-                "axis of {dim} elements does not divide into {block}-element blocks"
+                "dimension of {dim} elements does not divide into {block}-element blocks"
             );
             dim / block
         })

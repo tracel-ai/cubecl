@@ -9,7 +9,7 @@ use crate::*;
 
 /// The lines of a tile's window at `O`, `W` values a line, each read decoded ([`Tile::decoded`]).
 ///
-/// A line is named by its row, the window's lines grouped by every axis but the innermost and
+/// A line is named by its row, the window's lines grouped by every dimension but the innermost and
 /// counted row-major, and its place in the row. Every line of a row shares the row's address and
 /// scale, so a reader taking several lines of one row computes them once.
 #[derive(CubeType, Clone)]
@@ -33,7 +33,7 @@ impl<O: Float, W: Size> Decoded<O, W> {
     /// # Panics
     ///
     /// As the kernel expands, on a window with a [`Boundary::Clamp`](crate::kind::Boundary::Clamp)
-    /// axis, whose reads must be clamped.
+    /// dimension, whose reads must be clamped.
     pub fn read_unchecked(&self, row: usize, line: usize) -> Vector<O, W> {
         let provable = self.window.guard_provable();
         comptime!(assert!(
@@ -112,7 +112,7 @@ fn read_packed_line<O: Float, W: Size>(
 ) -> Vector<O, W> {
     let space = comptime!(window.place.space.clone());
     let rank = space.rank();
-    let along = space.axis_at(rank - 1);
+    let along = space.dimension_at(rank - 1);
     let packing = window.packing();
     let field = comptime!(match packing {
         Packing::Packed { field } => field,
@@ -142,7 +142,7 @@ fn read_packed_line<O: Float, W: Size>(
     let looks_up = mem.codebook.present();
     let scaled = window.factor.scaled();
     let words = window.nd_words::<Const<1>>(guard);
-    // The row's coordinates, every axis but the innermost; then where the line starts along it.
+    // The row's coordinates, every dimension but the innermost; then where the line starts along it.
     let rows = Coords::constant(comptime!(
         (0..rank - 1)
             .map(|p| space.extent_at(p))

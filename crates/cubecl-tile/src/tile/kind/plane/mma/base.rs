@@ -500,7 +500,7 @@ impl MmaData {
 
     /// `self[r, c] = exp(self[r, c] · scale + bias[r, c] − logsumexp[r, c])` over this fragment,
     /// which lies at `origin` of a tile over `space`: each cell reads `logsumexp` where `broadcast`
-    /// puts it, a row's value or a column's ([`AxisSlices::probabilities`]).
+    /// puts it, a row's value or a column's ([`DimensionSlices::probabilities`]).
     pub(crate) fn probabilities_along<E: Float>(
         &mut self,
         scale: E,
@@ -531,7 +531,7 @@ impl MmaData {
                 let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
-                vector.insert(e, AxisSlices::exp_minus_cell::<E>(score, held));
+                vector.insert(e, DimensionSlices::exp_minus_cell::<E>(score, held));
             }
             acc[i] = vector;
         }
@@ -539,7 +539,7 @@ impl MmaData {
 
     /// `self[r, c] = probabilities[r, c] · (self[r, c] − delta[r, c])` over this fragment and
     /// `probabilities`, a fragment laid as this one is, at `origin` of a tile over `space`: each
-    /// cell reads `delta` where `broadcast` puts it ([`AxisSlices::softmax_gradient`]).
+    /// cell reads `delta` where `broadcast` puts it ([`DimensionSlices::softmax_gradient`]).
     pub(crate) fn softmax_gradient_along<E: Float>(
         &mut self,
         probabilities: &MmaData,
@@ -749,7 +749,7 @@ impl MmaData {
     }
 
     /// `self[r, c] = 2^(self[r, c] · scale − offsets[first + r])`
-    /// ([`AxisSlices::exp2_scaled_minus_cell`]).
+    /// ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(
         &mut self,
         scale: E,
@@ -766,7 +766,7 @@ impl MmaData {
             for e in 0..vector_size {
                 vector.insert(
                     e,
-                    AxisSlices::exp2_scaled_minus_cell::<E>(
+                    DimensionSlices::exp2_scaled_minus_cell::<E>(
                         vector.extract(e),
                         scale,
                         offsets[first + i],
@@ -1246,7 +1246,10 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
 /// of them, or, where the window is shorter than the fragment off `k`, the rows of an `A` or the
 /// columns of a `B` it has.
 fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (usize, usize) {
-    let cells: usize = space.axes().map(|axis| space.extent(axis)).product();
+    let cells: usize = space
+        .dimensions()
+        .map(|dimension| space.extent(dimension))
+        .product();
     let (rows, cols) = edges;
     match ident {
         MatrixIdent::A if cells.is_multiple_of(cols) && cells / cols < rows => (cells / cols, cols),
@@ -1270,10 +1273,10 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    let axes = comptime!(MatrixAxes::trailing(space));
+    let dimensions = comptime!(MatrixDimensions::trailing(space));
 
     if width == 1 {
-        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, axes, space);
+        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, dimensions, space);
         #[unroll]
         for i in 0..num_vectors {
             #[unroll]
@@ -1300,7 +1303,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
              cells along a row of a row-major destination; its destination is bound {width} wide"
         ));
         let size!(W) = width;
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
+        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
         #[unroll]
         for i in 0..num_vectors {
             // A run starts at a column the width divides: the sink's lines count columns by it.

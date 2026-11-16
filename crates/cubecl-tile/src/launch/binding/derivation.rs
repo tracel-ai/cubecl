@@ -9,7 +9,8 @@ use hashbrown::{Equivalent, HashMap};
 
 use super::base::{ArgData, Derived};
 use crate::{
-    Axis, BoundaryPolicy, Delivery, Geometry, Packing, Partitioning, Projection, Refusal, Space,
+    BoundaryPolicy, Delivery, Dimension, Geometry, Packing, Partitioning, Projection, Refusal,
+    Space,
 };
 
 /// Every input [`Arg::realize`](super::Arg) derives an operand's spec and settled geometry from:
@@ -24,8 +25,8 @@ use crate::{
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct Derivation {
     geometry: Geometry,
-    axes: Vec<Axis>,
-    batches: Vec<Axis>,
+    dimensions: Vec<Dimension>,
+    batches: Vec<Dimension>,
     projection: Option<Projection>,
     width: usize,
     boundary: Option<BoundaryPolicy>,
@@ -43,8 +44,8 @@ pub(crate) struct Derivation {
 #[derive(Hash)]
 pub(crate) struct DerivationView<'a> {
     geometry: &'a Geometry,
-    axes: &'a [Axis],
-    batches: &'a [Axis],
+    dimensions: &'a [Dimension],
+    batches: &'a [Dimension],
     projection: &'a Option<Projection>,
     width: usize,
     boundary: Option<BoundaryPolicy>,
@@ -76,7 +77,7 @@ impl Derivation {
     ) -> DerivationView<'a> {
         DerivationView {
             geometry: &data.geometry,
-            axes: data.axes,
+            dimensions: data.dimensions,
             batches: data.batches,
             projection: &data.projection,
             width: data.width,
@@ -113,7 +114,7 @@ impl DerivationView<'_> {
     fn owned(self) -> Derivation {
         Derivation {
             geometry: self.geometry.clone(),
-            axes: self.axes.to_vec(),
+            dimensions: self.dimensions.to_vec(),
             batches: self.batches.to_vec(),
             projection: self.projection.clone(),
             width: self.width,
@@ -132,7 +133,7 @@ impl DerivationView<'_> {
 impl Equivalent<Derivation> for DerivationView<'_> {
     fn equivalent(&self, kept: &Derivation) -> bool {
         *self.geometry == kept.geometry
-            && self.axes == kept.axes
+            && self.dimensions == kept.dimensions
             && self.batches == kept.batches
             && *self.projection == kept.projection
             && self.width == kept.width

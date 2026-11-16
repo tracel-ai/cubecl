@@ -9,7 +9,7 @@ use crate::*;
 /// The output of one cube, reached by its planes.
 ///
 /// Where the partitioning hands every plane a box of the output of its own, a plane's sum drains
-/// into its box. Where it splits an axis the output lacks across the planes, the contracted axis of
+/// into its box. Where it splits a dimension the output lacks across the planes, the contracted dimension of
 /// a sum they each hold part of, the planes holding the same box drain into a shared-memory
 /// accumulator on the cyclic schedule ([`SmemCyclicAccumulation`]) and [`write`] stores the sum.
 /// The tile says which from the partitioning it was cut by: the caller states nothing.
@@ -19,9 +19,9 @@ use crate::*;
 pub struct PlanesOutput<A: Numeric> {
     out: Tile,
     merged: ComptimeOption<SmemCyclicAccumulation<A>>,
-    /// The axes the output lacks that the planes are split along, each with its count of planes.
+    /// The dimensions the output lacks that the planes are split along, each with its count of planes.
     #[cube(comptime)]
-    sharing: Vec<(Axis, usize)>,
+    sharing: Vec<(Dimension, usize)>,
 }
 
 #[cube]
@@ -30,7 +30,10 @@ impl Tile {
     /// added in `A`.
     pub fn planes_output<A: Numeric>(&self, cube: &Region) -> PlanesOutput<A> {
         let space = comptime!(self.place.space.clone());
-        let sharing = comptime!(cube.path.planes_along(|axis| !space.contains(axis)));
+        let sharing = comptime!(
+            cube.path
+                .planes_along(|dimension| !space.contains(dimension))
+        );
         let writers = comptime!(sharing.iter().map(|&(_, count)| count).product::<usize>());
         let merged = if writers == 1 {
             ComptimeOption::new_None()
@@ -77,8 +80,8 @@ impl<A: Numeric> PlanesOutput<A> {
         #[allow(clippy::needless_range_loop)]
         #[unroll]
         for i in 0..comptime!(self.sharing.len()) {
-            let (axis, count) = comptime!(self.sharing[i]);
-            writer = writer * count + plane.coord(axis);
+            let (dimension, count) = comptime!(self.sharing[i]);
+            writer = writer * count + plane.coord(dimension);
         }
         writer
     }

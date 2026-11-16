@@ -1,4 +1,4 @@
-//! An operand's logical axes mapped onto its buffer's physical axes: the [`Projection`] stated on
+//! An operand's dimensions mapped onto its buffer's physical axes: the [`Projection`] stated on
 //! the host, one [`PhysicalAxisMap`] per buffer dim, and its evaluation in the kernel.
 
 pub(crate) mod axis_map;

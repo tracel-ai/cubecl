@@ -1,14 +1,14 @@
-//! [`Paging`]: which axes of an operand a page table resolves, and what an operand read
+//! [`Paging`]: which dimensions of an operand a page table resolves, and what an operand read
 //! through one owes.
 
 use crate::*;
 
-/// Which axes of an operand a page table resolves: `sequence` names the page a table row lists,
+/// Which dimensions of an operand a page table resolves: `sequence` names the page a table row lists,
 /// `position` a run of `page_size` positions within one.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Paging {
-    pub sequence: Axis,
-    pub position: Axis,
+    pub sequence: Dimension,
+    pub position: Dimension,
     /// Positions one page holds: the pool's extent along `position`.
     pub page_size: usize,
 }
@@ -21,11 +21,11 @@ impl Paging {
     ///
     /// What [`validate`](Self::validate) refuses, and a pool of no pages.
     pub(crate) fn of_pool(
-        sequence: Axis,
-        position: Axis,
+        sequence: Dimension,
+        position: Dimension,
         shape: &[usize],
         projection: &Projection,
-        stored_tiles: &[(Axis, usize)],
+        stored_tiles: &[(Dimension, usize)],
         delivery: Delivery,
     ) -> Result<Paging, Refusal> {
         let unsized_paging = Paging {
@@ -33,7 +33,7 @@ impl Paging {
             position,
             page_size: 0,
         };
-        // Where the axes name no dims, `validate` refuses before it reads the page.
+        // Where the dimensions name no dims, `validate` refuses before it reads the page.
         let page_size = unsized_paging
             .dims(projection)
             .map_or(0, |(_, position)| shape[position]);
@@ -49,17 +49,17 @@ impl Paging {
         }
     }
 
-    /// The buffer dims `projection` carries the two axes on, `(sequence, position)`.
+    /// The buffer dims `projection` carries the two dimensions on, `(sequence, position)`.
     ///
     /// # Errors
     ///
-    /// Either axis not one dim's identity, or both on one dim: a page is resolved coordinate by
+    /// Either dimension not one dim's identity, or both on one dim: a page is resolved coordinate by
     /// coordinate.
     pub(crate) fn dims(&self, projection: &Projection) -> Result<(usize, usize), Refusal> {
-        let dim = |axis: Axis| {
+        let dim = |dimension: Dimension| {
             (0..projection.physical_rank())
-                .find(|&pa| projection.physical_axis(pa).is_identity(axis))
-                .ok_or(Refusal::PagingOfAnUnlabelledAxis(axis))
+                .find(|&pa| projection.physical_axis(pa).is_identity(dimension))
+                .ok_or(Refusal::PagingOfAnUnlabelledDimension(dimension))
         };
         let (sequence, position) = (dim(self.sequence)?, dim(self.position)?);
         match sequence == position {
@@ -80,7 +80,7 @@ impl Paging {
     pub(crate) fn validate(
         &self,
         projection: &Projection,
-        stored_tiles: &[(Axis, usize)],
+        stored_tiles: &[(Dimension, usize)],
         delivery: Delivery,
     ) -> Result<(), Refusal> {
         if !projection.is_direct() || projection.is_tiled() || !stored_tiles.is_empty() {

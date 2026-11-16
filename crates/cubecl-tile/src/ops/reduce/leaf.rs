@@ -1,5 +1,5 @@
-//! The register nest behind [`Tile::reduce_axis`](crate::Tile::reduce_axis): reduce an input's
-//! contracted axes into one accumulator cell at a time, under a [`Monoid`].
+//! The register nest behind [`Tile::reduce_dimension`](crate::Tile::reduce_dimension): reduce an input's
+//! contracted dimensions into one accumulator cell at a time, under a [`Monoid`].
 
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
@@ -160,7 +160,7 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
     }
 }
 
-/// Reduce `in_view` across the contracted axes into `seed` for the cell at `acc_coords`.
+/// Reduce `in_view` across the contracted dimensions into `seed` for the cell at `acc_coords`.
 #[cube]
 fn element<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
@@ -175,7 +175,7 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
     seed: Acc,
     #[comptime] monoid: Monoid,
 ) -> Acc {
-    let contracted_per_step = in_space.contracted_per_step(&layout.reduce_axes, vw);
+    let contracted_per_step = in_space.contracted_per_step(&layout.reduce_dimensions, vw);
     if contracted_per_step > 1 {
         element_lines::<Acc, In, V>(
             in_view,
@@ -198,27 +198,27 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
     }
 }
 
-/// The coordinates, one per axis of `operand`, of the first value a read at `reduce_coords` of
+/// The coordinates, one per dimension of `operand`, of the first value a read at `reduce_coords` of
 /// the cell at `acc_coords` brings: what [`resolve_nd_coords`] addresses, in values rather than
 /// lines, which is where a scale is looked up.
 #[cube]
-// `#[cube]` converts each comptime argument with `From`, which gives no `&[Axis]` from a `&Vec`.
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a `&Vec`.
 #[allow(clippy::ptr_arg)]
 fn value_coords(
     #[comptime] operand: &Space,
     #[comptime] acc: &Space,
-    #[comptime] reduce: &Vec<Axis>,
+    #[comptime] reduce: &Vec<Dimension>,
     acc_coords: &Coords<u32>,
     reduce_coords: &Coords<u32>,
 ) -> Coords<u32> {
     let mut out = Coords::<u32>::new();
     #[unroll]
     for p in 0..operand.rank() {
-        let axis = operand.axis_at(p);
-        let coord = if acc.contains(axis) {
-            acc_coords.at(acc.position(axis))
+        let dimension = operand.dimension_at(p);
+        let coord = if acc.contains(dimension) {
+            acc_coords.at(acc.position(dimension))
         } else {
-            match comptime!(reduce.iter().position(|&r| r == axis)) {
+            match comptime!(reduce.iter().position(|&r| r == dimension)) {
                 Some(pos) => reduce_coords.at(comptime!(pos)),
                 None => 0u32,
             }
@@ -258,7 +258,7 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
         let in_coords = resolve_nd_coords(
             in_space,
             acc_space,
-            &layout.reduce_axes,
+            &layout.reduce_dimensions,
             acc_coords,
             &reduce_coords,
             contracted_per_step,
@@ -275,7 +275,7 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
                 let at = value_coords(
                     in_space,
                     acc_space,
-                    &layout.reduce_axes,
+                    &layout.reduce_dimensions,
                     acc_coords,
                     &reduce_coords,
                 );
@@ -345,7 +345,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
         let in_coords = resolve_nd_coords(
             in_space,
             acc_space,
-            &layout.reduce_axes,
+            &layout.reduce_dimensions,
             acc_coords,
             &reduce_coords,
             vw,
@@ -359,7 +359,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             let in_component = resolve_reduce_component(
                 in_space,
                 acc_space,
-                &layout.reduce_axes,
+                &layout.reduce_dimensions,
                 acc_coords,
                 &reduce_coords,
                 vw,
@@ -371,7 +371,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             let at = value_coords(
                 in_space,
                 acc_space,
-                &layout.reduce_axes,
+                &layout.reduce_dimensions,
                 acc_coords,
                 &reduce_coords,
             );
@@ -392,9 +392,9 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
 }
 
 /// Every cell of a tile over `acc_space`, in order: the dot product of `lhs`'s and `rhs`'s runs
-/// across the axes they span beyond it ([`Tile::dot`](crate::Tile::dot)).
+/// across the dimensions they span beyond it ([`Tile::dot`](crate::Tile::dot)).
 ///
-/// Where the run spans the factors' innermost axis, as a row of the output does along its value
+/// Where the run spans the factors' innermost dimension, as a row of the output does along its value
 /// dim, each line read is summed whole, its components in turn; otherwise each cell reads one
 /// component of each line it meets.
 #[cube]
@@ -423,7 +423,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 let coords = resolve_nd_coords(
                     &in_space,
                     acc_space,
-                    &layout.reduce_axes,
+                    &layout.reduce_dimensions,
                     &acc_coords,
                     &reduce_coords,
                     1usize,
@@ -442,7 +442,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 let coords = resolve_nd_coords(
                     &in_space,
                     acc_space,
-                    &layout.reduce_axes,
+                    &layout.reduce_dimensions,
                     &acc_coords,
                     &reduce_coords,
                     vw,
@@ -451,7 +451,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 let component = resolve_reduce_component(
                     &in_space,
                     acc_space,
-                    &layout.reduce_axes,
+                    &layout.reduce_dimensions,
                     &acc_coords,
                     &reduce_coords,
                     vw,
@@ -466,10 +466,10 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     cells
 }
 
-/// Comptime bookkeeping: the axes of `in_space` contracted against `acc_space`, and extents.
+/// Comptime bookkeeping: the dimensions of `in_space` contracted against `acc_space`, and extents.
 #[derive(Clone)]
 struct ReduceLayout {
-    reduce_axes: Vec<Axis>,
+    reduce_dimensions: Vec<Dimension>,
     reduce_extents: Vec<usize>,
     kc: usize,
     acc_extents: Vec<usize>,
@@ -478,8 +478,8 @@ struct ReduceLayout {
 
 impl ReduceLayout {
     fn new(in_space: &Space, acc_space: &Space) -> Self {
-        let reduce_axes = Space::contracted(&[in_space], acc_space).to_vec();
-        let reduce_extents = reduce_axes
+        let reduce_dimensions = Space::contracted(&[in_space], acc_space).to_vec();
+        let reduce_extents = reduce_dimensions
             .iter()
             .map(|&a| in_space.extent(a))
             .collect::<Vec<usize>>();
@@ -489,7 +489,7 @@ impl ReduceLayout {
             .collect::<Vec<usize>>();
         let total_acc = acc_extents.iter().product::<usize>();
         Self {
-            reduce_axes,
+            reduce_dimensions,
             reduce_extents,
             kc,
             acc_extents,
@@ -497,12 +497,12 @@ impl ReduceLayout {
         }
     }
 
-    /// Whether the run spans `in_space`'s innermost axis, in whole lines of `width`: the last
-    /// axis it contracts is the input's innermost, and its extent a multiple of the width.
+    /// Whether the run spans `in_space`'s innermost dimension, in whole lines of `width`: the last
+    /// dimension it contracts is the input's innermost, and its extent a multiple of the width.
     fn sums_whole_lines(&self, in_space: &Space, width: usize) -> bool {
-        let innermost = in_space.axis_at(in_space.rank() - 1);
+        let innermost = in_space.dimension_at(in_space.rank() - 1);
         width > 1
-            && self.reduce_axes.last() == Some(&innermost)
+            && self.reduce_dimensions.last() == Some(&innermost)
             && self
                 .reduce_extents
                 .last()
@@ -519,25 +519,30 @@ impl ReduceLayout {
     }
 }
 
-/// The line component for the input's innermost axis, contracted or surviving.
+/// The line component for the input's innermost dimension, contracted or surviving.
 #[cube]
-// `#[cube]` converts each comptime argument with `From`, which gives no `&[Axis]` from a `&Vec`.
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Dimension]` from a `&Vec`.
 #[allow(clippy::ptr_arg)]
 fn resolve_reduce_component(
     #[comptime] in_space: &Space,
     #[comptime] acc_space: &Space,
-    #[comptime] reduce_axes: &Vec<Axis>,
+    #[comptime] reduce_dimensions: &Vec<Dimension>,
     acc_coords: &Coords<u32>,
     reduce_coords: &Coords<u32>,
     #[comptime] width: usize,
 ) -> usize {
     let in_rank = in_space.rank();
-    let fastest_axis = in_space.axis_at(in_rank - 1);
-    let raw_coord = if acc_space.contains(fastest_axis) {
-        let pos = acc_space.position(fastest_axis);
+    let fastest_dimension = in_space.dimension_at(in_rank - 1);
+    let raw_coord = if acc_space.contains(fastest_dimension) {
+        let pos = acc_space.position(fastest_dimension);
         acc_coords.at(comptime!(pos))
     } else {
-        let pos = comptime!(reduce_axes.iter().position(|&r| r == fastest_axis).unwrap());
+        let pos = comptime!(
+            reduce_dimensions
+                .iter()
+                .position(|&r| r == fastest_dimension)
+                .unwrap()
+        );
         reduce_coords.at(comptime!(pos))
     };
     raw_coord.remainder(comptime!(width as u32)).cast::<usize>()

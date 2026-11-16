@@ -79,7 +79,7 @@ impl Tile {
             g.projection.composition() != Composition::Overlapping,
             "Tile::nd_mut: an overlapping operand aliases under a write"
         ));
-        let layout = g.axis_projection(&space);
+        let layout = g.dimension_projection(&space);
         g.masked_mut::<T, W, CoordsDyn, ProjectionInKernel>(layout)
     }
 
@@ -91,7 +91,7 @@ impl Tile {
     ) -> Masked<'_, Vector<T, W>, CoordsDyn> {
         match &self.kind {
             TileKind::Memory(g) => {
-                let layout = g.axis_projection(&self.place.space);
+                let layout = g.dimension_projection(&self.place.space);
                 g.packed::<T, W, CoordsDyn, ProjectionInKernel>(layout, guard)
             }
             TileKind::Procedural(data) => procedural_nd::<T, W>(data, &self.place.space, guard),
@@ -105,13 +105,13 @@ impl Tile {
         }
     }
 
-    /// The raw words a packed tile holds, one coordinate per axis of its [`Space`](crate::Space).
+    /// The raw words a packed tile holds, one coordinate per dimension of its [`Space`](crate::Space).
     pub(crate) fn nd_words<WP: Size>(
         &self,
         #[comptime] guard: Guard,
     ) -> Masked<'_, Vector<u32, WP>, CoordsDyn> {
         let g = self.mem("nd_words");
-        let layout = g.axis_projection(&self.place.space);
+        let layout = g.dimension_projection(&self.place.space);
         g.nd_words::<WP>(layout, guard)
     }
 
@@ -123,11 +123,11 @@ impl Tile {
             g.projection.composition() != Composition::Overlapping,
             "Tile::nd_words_mut: an overlapping operand aliases under a write"
         ));
-        let layout = g.axis_projection(&space);
+        let layout = g.dimension_projection(&space);
         g.nd_words_mut::<WP>(layout)
     }
 
-    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] axis, and where a
+    /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] dimension, and where a
     /// backward coefficient puts the box's extremes off its two logical corners.
     pub(crate) fn guard_provable(&self) -> comptime_type!(bool) {
         match &self.kind {
@@ -145,15 +145,15 @@ impl Tile {
         }
     }
 
-    /// Whether a read can be anchored once per run of `axis` and advanced by an add: an unpacked
-    /// memory operand with no clamp or backward coefficient, whose `axis` steps additively.
-    pub(crate) fn run_advanceable(&self, #[comptime] axis: Axis) -> comptime_type!(bool) {
+    /// Whether a read can be anchored once per run of `dimension` and advanced by an add: an unpacked
+    /// memory operand with no clamp or backward coefficient, whose `dimension` steps additively.
+    pub(crate) fn run_advanceable(&self, #[comptime] dimension: Dimension) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
                 comptime!(
                     matches!(data.store.packing, Packing::Plain)
                         && !data.window.boundaries.contains(&Some(Boundary::Clamp))
-                        && data.projection.advances_forward_by_add(axis)
+                        && data.projection.advances_forward_by_add(dimension)
                 )
             }
             TileKind::PlaneTile(_)
@@ -172,7 +172,7 @@ fn procedural_nd<'a, T: Numeric, W: Size>(
     #[comptime] space: &Space,
     #[comptime] guard: Guard,
 ) -> Masked<'a, Vector<T, W>, CoordsDyn> {
-    let layout = axis_projection(
+    let layout = dimension_projection(
         space,
         &comptime!(Projection::direct_over(space)),
         RuntimeMap::integral(space.rank()),
@@ -211,7 +211,7 @@ impl Tile {
         let space = comptime!(self.place.space.clone());
         match &self.kind {
             TileKind::Memory(g) => Gathered::new(
-                g.axis_projection(&space),
+                g.dimension_projection(&space),
                 // A caller that evaluated the map derived its coordinates itself, so both guards stay on.
                 g.packed::<T, W, CoordsDyn, CompactionStep>(
                     g.physical_box(),
@@ -220,7 +220,7 @@ impl Tile {
                 comptime!(g.projection.physical_rank()),
             ),
             TileKind::Procedural(_) | TileKind::Lines(_) => Gathered::new(
-                axis_projection(
+                dimension_projection(
                     &space,
                     &comptime!(Projection::direct_over(&space)),
                     RuntimeMap::integral(space.rank()),
@@ -236,9 +236,9 @@ impl Tile {
     }
 }
 
-/// The tile's per-axis extents paired with its operand's mapping; the innermost is in lines.
+/// The tile's per-dimension extents paired with its operand's mapping; the innermost is in lines.
 #[cube]
-pub(crate) fn axis_projection(
+pub(crate) fn dimension_projection(
     #[comptime] space: &Space,
     #[comptime] projection: &Projection,
     map: RuntimeMap,

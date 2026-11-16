@@ -17,8 +17,8 @@ use cubecl_tile::procedural::affine_along;
 use cubecl_tile::procedural::sum_of;
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 const ROWS: usize = 4;
 const COLS: usize = 6;
 
@@ -29,16 +29,16 @@ const OFFSET: i32 = -3;
 const DIVISOR: u32 = 4;
 
 #[derive(CubeType, Clone)]
-struct AxisValue {
+struct DimensionValue {
     #[cube(comptime)]
-    axis: Axis,
+    dimension: Dimension,
     scale: f32,
 }
 
 #[cube]
-impl<T: Float> Recipe<T> for AxisValue {
+impl<T: Float> Recipe<T> for DimensionValue {
     fn evaluate(&self, coordinates: &RecipeCoords) -> T {
-        T::cast_from(coordinates.along(self.axis)) * T::cast_from(self.scale)
+        T::cast_from(coordinates.along(self.dimension)) * T::cast_from(self.scale)
     }
 }
 
@@ -124,7 +124,7 @@ fn sum_kernel_staged<E: Float>(
     });
 }
 
-/// The recipe under test: `row - frac((col * scale + offset) / divisor)`, a two-axis expression
+/// The recipe under test: `row - frac((col * scale + offset) / divisor)`, a two-dimension expression
 /// built by composition, which is the shape a resampling weight takes.
 #[cube]
 fn affine_plus_phase<E: Float>(
@@ -139,7 +139,7 @@ fn affine_plus_phase<E: Float>(
             affine_along(ROW, E::from_int(0), runtime_scalar::<E>(E::new(1.0))),
             Phase::<E> {
                 coefficient: runtime_scalar::<E>(E::new(-1.0)),
-                axis: COL,
+                dimension: COL,
                 numerator_scale: scale,
                 numerator_offset: offset,
                 divisor,
@@ -180,10 +180,10 @@ fn rebase_kernel<E: Float>(
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = Procedural::new::<E, AxisValue>(
+    let source = Procedural::new::<E, DimensionValue>(
         comptime!(space.space().clone()),
-        AxisValue {
-            axis: ROW,
+        DimensionValue {
+            dimension: ROW,
             scale: 2.0,
         },
     )
@@ -302,11 +302,11 @@ fn memory_values_kernel<E: Float>(
     let values = values.tile(&space);
     let output = output.tile(&space);
     for region in output.over(&level) {
-        let source = Procedural::new::<E, Sum<AxisValue, MemoryValues>>(
+        let source = Procedural::new::<E, Sum<DimensionValue, MemoryValues>>(
             comptime!(space.space().clone()),
             sum_of(
-                AxisValue {
-                    axis: ROW,
+                DimensionValue {
+                    dimension: ROW,
                     scale: 1.0,
                 },
                 values.at(&region).values(),
@@ -455,7 +455,7 @@ fn check_phase(launch_ratio: bool) {
 }
 
 #[test]
-fn a_sum_of_an_affine_term_and_a_phase_reads_both_axes() {
+fn a_sum_of_an_affine_term_and_a_phase_reads_both_dimensions() {
     check_phase(false);
 }
 
@@ -624,10 +624,10 @@ fn memory_values_read_each_cell() {
     });
 }
 
-/// A memory tile that leaves out an axis broadcasts over it: values over the columns alone serve
+/// A memory tile that leaves out a dimension broadcasts over it: values over the columns alone serve
 /// every row.
 #[test]
-fn memory_values_broadcast_over_an_axis_they_leave_out() {
+fn memory_values_broadcast_over_a_dimension_they_leave_out() {
     let h = Harness::new();
     let held: Vec<f32> = (0..COLS).map(|col| (col * 5 % 4) as f32).collect();
     let values = TestInput::builder(h.client.clone(), shape![COLS])

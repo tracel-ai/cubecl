@@ -145,7 +145,7 @@ impl Tile {
     /// element first, a manual-mma instruction decodes it at its other factor's element, or the
     /// instruction reads its codes as stored.
     ///
-    /// A manual-mma accumulator takes each factor on the side its axes give it, whichever order
+    /// A manual-mma accumulator takes each factor on the side its dimensions give it, whichever order
     /// they are handed over in: the one carrying the accumulator's rows fills the instruction's
     /// `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
     ///
@@ -389,7 +389,7 @@ impl PlaneTile {
                     let rhs_along_k = comptime!(
                         lhs.place
                             .space
-                            .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
+                            .contains(rhs.place.space.dimension_at(rhs.place.space.rank() - 1))
                     );
                     // A register block reads its lhs along `k`.
                     strided_2d(lhs, rhs, out, false, rhs_along_k);
@@ -413,25 +413,25 @@ fn strided_2d(
     let rhs_gathered = rhs.gathered();
     let flat = comptime!({
         let kc = Space::merge(&[&lhs.place.space, &rhs.place.space]).contracted_extent(out);
-        let axes = MatrixAxes::accumulator(out, &lhs.place.space);
-        let cols = axes.cols(out);
+        let dimensions = MatrixDimensions::accumulator(out, &lhs.place.space);
+        let cols = dimensions.cols(out);
         let rhs_matrix = if rhs_along_k {
-            MatrixAxes::new(&rhs.place.space, cols, kc)
+            MatrixDimensions::new(&rhs.place.space, cols, kc)
         } else {
-            MatrixAxes::new(&rhs.place.space, kc, cols)
+            MatrixDimensions::new(&rhs.place.space, kc, cols)
         };
-        let rows = axes.rows(out);
+        let rows = dimensions.rows(out);
         let lhs_matrix = if lhs_along_m {
-            MatrixAxes::new(&lhs.place.space, kc, rows)
+            MatrixDimensions::new(&lhs.place.space, kc, rows)
         } else {
-            MatrixAxes::new(&lhs.place.space, rows, kc)
+            MatrixDimensions::new(&lhs.place.space, rows, kc)
         };
         lhs_matrix.is_ok() && rhs_matrix.is_ok()
     });
     comptime!(assert!(
         !lhs_gathered && !rhs_gathered && flat,
         "mma: a cmma or plane-register fragment reads one `k` edge off a directly addressed \
-         operand; a gather, or a contraction these axes give no edge for, needs the manual-mma \
+         operand; a gather, or a contraction these dimensions give no edge for, needs the manual-mma \
          leaf, or an unpromoted Gmem/Smem accumulator, whose software instruction is the \
          `memory` arm of `Descent::contract`: {:?} · {:?} into {out:?}",
         lhs.place.space,
@@ -459,12 +459,12 @@ fn read_col_major(factor: &Tile, #[comptime] window: MatrixLayout) -> comptime_t
     }
 }
 
-/// Asserts that operands contract their shared axes in the same order.
+/// Asserts that operands contract their shared dimensions in the same order.
 #[cube]
 fn flattened_k(lhs: &Tile, rhs: &Tile, #[comptime] out: &Space) {
     comptime!(assert!(
         Space::contraction_agrees(&lhs.place.space, &rhs.place.space, out),
-        "mma: the operands list their contracted axes in different orders ({:?} against {:?}), \
+        "mma: the operands list their contracted dimensions in different orders ({:?} against {:?}), \
          so their `k` edges do not line up",
         lhs.place.space.difference(out),
         rhs.place.space.difference(out)

@@ -251,7 +251,7 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     let (m, n, k) = comptime!(shape);
     let def = block_scaled_definition::<f32>(form, m, n, k);
     let space = comptime!(src.place.space.clone());
-    // The window's rows are the served axis, its columns the contraction, however many axes
+    // The window's rows are the served dimension, its columns the contraction, however many dimensions
     // make it up: a block-split space states `k` as its blocks and the position inside one.
     let rows = comptime!(match ident {
         MatrixIdent::A => m,
@@ -260,7 +260,7 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
             panic!("MmaData::load_block_scaled: an accumulator carries no scales")
         }
     });
-    let axes = comptime!(MatrixAxes::new(&space, rows, k).unwrap_or_else(|no| {
+    let dimensions = comptime!(MatrixDimensions::new(&space, rows, k).unwrap_or_else(|no| {
         panic!("MmaData::load_block_scaled: a block-scaled window is its rows by `k`: {no}")
     }));
     // The window's own `(row, col)` of the matrix's `(row, col)`: a col-major window is the
@@ -308,7 +308,8 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     match method {
         LoadMethod::LoadMatrix => {
             load_block_scaled_ldmatrix(
-                src, &words, values, &def, form, ident, axes, transposed, line_words, per_word,
+                src, &words, values, &def, form, ident, dimensions, transposed, line_words,
+                per_word,
             );
         }
         LoadMethod::Manual => {
@@ -324,8 +325,9 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
                     ident,
                 );
                 let (window_row, window_col) = if transposed { (col, row) } else { (row, col) };
-                let at =
-                    TileMatrix::value_coords(window_row, window_col, 0usize, &space, axes, 1usize);
+                let at = TileMatrix::value_coords(
+                    window_row, window_col, 0usize, &space, dimensions, 1usize,
+                );
                 // The window's columns run along `k` whichever its layout.
                 let line = words.read(load.index(&at, &space));
                 let word = window_col / comptime!(per_word as u32) % comptime!(line_words as u32);
@@ -342,18 +344,25 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     if comptime!(packed_scales) {
         // The step's scales as the operand stores them: one word, the register itself
         // (`assert_block_scaled` holds a word to a step's scales).
-        let at = TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, axes, 1usize);
+        let at =
+            TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, dimensions, 1usize);
         let word = factor.word_at(&at, space.clone());
         scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
     } else {
         let mut register = Vector::<BlockScale, NS>::empty();
         #[unroll]
         for b in 0..(k / form.block) {
-            // The window's rows are the served axis whichever its layout: an `A`'s rows, a
+            // The window's rows are the served dimension whichever its layout: an `A`'s rows, a
             // `B`'s columns lying col-major.
             let along_k = comptime!((b * form.block) as u32);
-            let at =
-                TileMatrix::value_coords(served, along_k.runtime(), 0usize, &space, axes, 1usize);
+            let at = TileMatrix::value_coords(
+                served,
+                along_k.runtime(),
+                0usize,
+                &space,
+                dimensions,
+                1usize,
+            );
             let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
             register.insert(b, BlockScale::cast_from(scale));
         }
@@ -379,7 +388,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
     #[comptime] form: BlockScaledOperands,
     #[comptime] ident: MatrixIdent,
-    #[comptime] axes: MatrixAxes,
+    #[comptime] dimensions: MatrixDimensions,
     #[comptime] transposed: bool,
     #[comptime] line_words: usize,
     #[comptime] per_word: usize,
@@ -400,19 +409,19 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
         nth_matrix * comptime!((per_register * per_element) as u32),
         ident,
     );
-    // The window's rows are the served axis whichever its layout, its words along `k`.
+    // The window's rows are the served dimension whichever its layout, its words along `k`.
     let (window_row, window_col) = if transposed {
         (col + row_in_matrix, row)
     } else {
         (row + row_in_matrix, col)
     };
-    let at = TileMatrix::value_coords(window_row, window_col, 0usize, &space, axes, 1usize);
+    let at = TileMatrix::value_coords(window_row, window_col, 0usize, &space, dimensions, 1usize);
     let mut run = CoordsDyn::new();
     #[unroll]
     for p in 0..rank {
-        // One row of a matrix: sixteen bytes of words along `k`, the innermost axis in its lines.
+        // One row of a matrix: sixteen bytes of words along `k`, the innermost dimension in its lines.
         let extent = comptime!({
-            let values = axes.col_run(&space, LDMATRIX_ROW_WORDS * per_word)[p];
+            let values = dimensions.col_run(&space, LDMATRIX_ROW_WORDS * per_word)[p];
             match p == rank - 1 {
                 true => (values / (line_words * per_word)) as u32,
                 false => values as u32,

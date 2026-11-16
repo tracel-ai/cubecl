@@ -26,12 +26,12 @@ pub(crate) struct Lines {
     line: Array<Vector<u32, LW>>,
     /// Every line, in this plane's shared-memory window; only under [`UnitRead::PlaneShared`].
     window: ComptimeOption<Shared<[u32]>>,
-    /// Where this window starts inside the box, in scalars, one entry per axis of it.
+    /// Where this window starts inside the box, in scalars, one entry per dimension of it.
     origin: Coords<u32>,
-    /// The box the lines were loaded as: the lines' axes, then the line's.
+    /// The box the lines were loaded as: the lines' dimensions, then the line's.
     #[cube(comptime)]
     loaded: Space,
-    /// What a coordinate along each axis of the box counts in lines; zero if not addressed.
+    /// What a coordinate along each dimension of the box counts in lines; zero if not addressed.
     #[cube(comptime)]
     strides: Vec<usize>,
     /// Lines the box holds, which is the units it takes.
@@ -52,14 +52,14 @@ pub(crate) struct Lines {
 }
 
 impl Lines {
-    /// Each axis of `loaded` counted in lines, and the total line count.
+    /// Each dimension of `loaded` counted in lines, and the total line count.
     fn line_strides(loaded: &Space, projection: &Projection) -> (Vec<usize>, usize) {
         let rank = loaded.rank();
         let mut strides = vec![0; rank];
         let mut lines = 1;
         #[allow(clippy::needless_range_loop)]
         for p in (0..rank - 1).rev() {
-            if projection.addresses(loaded.axis_at(p)) {
+            if projection.addresses(loaded.dimension_at(p)) {
                 strides[p] = lines;
                 lines *= loaded.extent_at(p);
             }
@@ -81,8 +81,8 @@ impl Lines {
         let line = loaded.extent_at(rank - 1);
         let projection = operand.projection();
         comptime!(assert!(
-            projection.addresses(loaded.axis_at(rank - 1)),
-            "Lines: the line runs along the operand's innermost axis, which it must address"
+            projection.addresses(loaded.dimension_at(rank - 1)),
+            "Lines: the line runs along the operand's innermost dimension, which it must address"
         ));
         let (strides, lines) = comptime!(Lines::line_strides(&loaded, &projection));
         let packing = operand.packing();
@@ -118,7 +118,7 @@ impl Lines {
         };
         let mut origin = Coords::<u32>::new();
         #[unroll]
-        for _axis in 0..rank {
+        for _dimension in 0..rank {
             origin.push(0u32.runtime());
         }
         Lines {
@@ -177,7 +177,7 @@ impl Lines {
         if unit < comptime!(lines as u32) {
             #[unroll]
             for r in 0..reads {
-                // Coordinates along addressed axes, zero elsewhere, the read `r` along the line.
+                // Coordinates along addressed dimensions, zero elsewhere, the read `r` along the line.
                 let mut at = CoordsDyn::new();
                 #[unroll]
                 for p in 0..rank - 1 {
@@ -241,12 +241,12 @@ impl Lines {
         let mut origin = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            let axis = space.axis_at(p);
-            let edge = comptime!(step.level.extent_in(space, axis).get());
+            let dimension = space.dimension_at(p);
+            let edge = comptime!(step.level.extent_in(space, dimension).get());
             origin.push(
                 self.origin
                     .at(p)
-                    .plus(step.coord(axis).times(edge).cast::<u32>()),
+                    .plus(step.coord(dimension).times(edge).cast::<u32>()),
             );
         }
         Lines {
@@ -263,7 +263,7 @@ impl Lines {
         }
     }
 
-    /// The value at `coords` of this window, one entry per axis of the box, as `E`.
+    /// The value at `coords` of this window, one entry per dimension of the box, as `E`.
     /// The shuffle is the whole plane's, so a caller keeps its units converged around this.
     #[allow(dead_code)] // Reached through its expand, from [`Tile::scale_at`].
     pub(crate) fn read<E: Numeric>(&self, coords: &Coords<u32>) -> E {

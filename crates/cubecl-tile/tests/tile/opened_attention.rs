@@ -181,12 +181,12 @@ fn attend(causal: bool) {
         .dtype(f32_ty)
         .zeros()
         .generate_without_host_data();
-    let arg = |handle: cubecl::std::tensor::TensorHandle, axes| {
+    let arg = |handle: cubecl::std::tensor::TensorHandle, dimensions| {
         TileTensorLaunch::new(
             handle.binding().into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(axes),
+            TileSpec::direct(dimensions),
         )
     };
     unit_matmul::launch::<Attending>(

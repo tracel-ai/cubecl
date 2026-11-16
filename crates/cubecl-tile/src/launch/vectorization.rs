@@ -2,7 +2,7 @@
 //! the [`VectorRequirement`]s a kernel states, settled by [`Vectorization`].
 
 use crate::layout::ElemAlignment;
-use crate::{Axis, Space};
+use crate::{Dimension, Space};
 
 /// Why an operand's width must be narrower than the device reads it at.
 ///
@@ -12,7 +12,7 @@ use crate::{Axis, Space};
 /// bound at it, a stage the ring fills keeps it, a fragment loads the stage at it — so every
 /// requirement on an operand, from every component, narrows the same width.
 ///
-/// A requirement's elements lie along the operand's contiguous axis, and a stretch starts at a
+/// A requirement's elements lie along the operand's contiguous dimension, and a stretch starts at a
 /// multiple of its own length, since every tile is a regular cut of its parent: a width dividing
 /// the length never has a line cross the end of a stretch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub enum VectorRequirement<O> {
     /// atomics, which hand back a scalar: the width is one.
     Elementwise { operand: O },
     /// The launch binds `operand` masked, as it does where a tile reaches past the operand's edge
-    /// along its contiguous axis: a masked access is tested a line at a time, so a line that
+    /// along its contiguous dimension: a masked access is tested a line at a time, so a line that
     /// straddled the edge would be clipped whole. A width dividing an extent the derivation knows
     /// never straddles it ([`MaskedExtent`]).
     Masked { operand: O, extent: MaskedExtent },
@@ -43,7 +43,7 @@ pub enum VectorRequirement<O> {
 /// The edge a [`Masked`](VectorRequirement::Masked) operand's lines are tested against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaskedExtent {
-    /// The operand's extent along its contiguous axis, known when the launch is derived: every
+    /// The operand's extent along its contiguous dimension, known when the launch is derived: every
     /// line of a width dividing it lies wholly before the edge or wholly past it.
     Known(usize),
     /// An edge no derivation can divide — an extent stated only at launch, or a length the kernel
@@ -52,12 +52,12 @@ pub enum MaskedExtent {
 }
 
 impl<O: Copy + Eq> VectorRequirement<O> {
-    /// `operand` masked along `axis` of `space`, its contiguous axis: at the axis's extent where
+    /// `operand` masked along `dimension` of `space`, its contiguous dimension: at the dimension's extent where
     /// the space states it, at an [`Unknown`](MaskedExtent::Unknown) edge where it is dynamic.
-    pub fn masked(operand: O, space: &Space, axis: Axis) -> Self {
-        let extent = match space.is_dynamic(axis) {
+    pub fn masked(operand: O, space: &Space, dimension: Dimension) -> Self {
+        let extent = match space.is_dynamic(dimension) {
             true => MaskedExtent::Unknown,
-            false => MaskedExtent::Known(space.extent(axis)),
+            false => MaskedExtent::Known(space.extent(dimension)),
         };
         VectorRequirement::Masked { operand, extent }
     }
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(vectorization.width('b', |_| 8), 1);
     }
 
-    /// A masked operand binds at a width dividing its extent along its contiguous axis, so no
+    /// A masked operand binds at a width dividing its extent along its contiguous dimension, so no
     /// line straddles the edge; at one where the edge is unknown.
     #[test]
     fn a_masked_operand_binds_at_a_width_dividing_its_extent() {
