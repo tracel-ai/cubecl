@@ -389,19 +389,10 @@ impl Tile {
     /// ([`KeyOrder::AccumulatorRun`]); any other `A` holds each `k` where the instruction puts it.
     pub(crate) fn rhs_keys(&self) -> comptime_type!(KeyOrder) {
         let accumulators = match &self.kind {
-            TileKind::PlanePartition(_) => comptime!(true),
-            TileKind::PlaneTile(tile) => match tile {
-                PlaneTile::Mma(data) => match &data.fragment {
-                    MmaFragment::Acc(_) => comptime!(true),
-                    MmaFragment::Lhs(_)
-                    | MmaFragment::Rhs(_)
-                    | MmaFragment::LhsBlockScaled(..)
-                    | MmaFragment::RhsBlockScaled(..) => comptime!(false),
-                },
-                PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
-                    comptime!(false)
-                }
-            },
+            TileKind::PlanePartition(partition) => {
+                partition.at(0usize, 0usize).is_mma_accumulator()
+            }
+            TileKind::PlaneTile(tile) => tile.is_mma_accumulator(),
             TileKind::Memory(_)
             | TileKind::Procedural(_)
             | TileKind::TmaGmem(_)
