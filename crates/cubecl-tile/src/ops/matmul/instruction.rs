@@ -177,7 +177,7 @@ impl FragmentSource {
     /// The element fragments of this operand contract at, against `other`: its own, or the other
     /// operand's for packed values decoded on the way or codes decoded as they load. `None` where
     /// neither operand names one.
-    fn element(self, other: FragmentSource) -> Option<ElemType> {
+    pub(crate) fn element(self, other: FragmentSource) -> Option<ElemType> {
         let named = |source: FragmentSource| match source {
             FragmentSource::Values(element) | FragmentSource::Landed(element) => Some(element),
             FragmentSource::Codes { .. }
@@ -617,7 +617,7 @@ fn best_call<'a>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use cubecl::cmma::MatrixLayout;
     use cubecl::ir::{
@@ -625,11 +625,11 @@ mod tests {
     };
     use cubecl::profile::TimingMethod;
 
-    const F16: ElemType = ElemType::Float(FloatKind::F16);
-    const F32: ElemType = ElemType::Float(FloatKind::F32);
+    pub(crate) const F16: ElemType = ElemType::Float(FloatKind::F16);
+    pub(crate) const F32: ElemType = ElemType::Float(FloatKind::F32);
 
     /// A device of 32-unit planes offering no instruction.
-    fn plain() -> DeviceProperties {
+    pub(crate) fn plain() -> DeviceProperties {
         let hardware = HardwareProperties {
             load_width: 128,
             vector_register_count: None,
@@ -663,7 +663,7 @@ mod tests {
         device
     }
 
-    fn shape(m: u32, n: u32, k: u32) -> MmaConfig {
+    pub(crate) fn shape(m: u32, n: u32, k: u32) -> MmaConfig {
         MmaConfig {
             a_type: F16,
             b_type: F16,
@@ -675,7 +675,7 @@ mod tests {
     }
 
     /// An M2-like device: `simdgroup_matrix` through both transports, `8 × 8 × 8`.
-    fn metal() -> DeviceProperties {
+    pub(crate) fn metal() -> DeviceProperties {
         let mut device = plain();
         device.features.matmul.cmma.insert(shape(8, 8, 8));
         device.features.matmul.mma.insert(shape(8, 8, 8));
@@ -683,7 +683,7 @@ mod tests {
     }
 
     /// An sm_80-like device: `wmma`'s three `f16` shapes and the manual `16 × 8 × 16`.
-    fn cuda() -> DeviceProperties {
+    pub(crate) fn cuda() -> DeviceProperties {
         let mut device = plain();
         for (m, n, k) in [(16, 16, 16), (32, 8, 16), (8, 32, 16)] {
             device.features.matmul.cmma.insert(shape(m, n, k));
@@ -693,7 +693,7 @@ mod tests {
     }
 
     /// A target whose `A` and accumulator lie alike, as on CUDA and Metal.
-    fn sum_is_next_a() -> TargetProperties {
+    pub(crate) fn sum_is_next_a() -> TargetProperties {
         let mut target = TargetProperties::default();
         target.mma.register_layout_a = target.mma.register_layout_acc;
         target.mma.register_duplication_a = target.mma.register_duplication_acc;
@@ -701,7 +701,7 @@ mod tests {
     }
 
     /// A target whose `A` lies otherwise than its accumulator, as on RDNA.
-    fn sum_is_not_next_a() -> TargetProperties {
+    pub(crate) fn sum_is_not_next_a() -> TargetProperties {
         let mut target = sum_is_next_a();
         target.mma.register_layout_a = match target.mma.register_layout_acc {
             MatrixLayout::RowMajor => MatrixLayout::ColMajor,
@@ -710,14 +710,14 @@ mod tests {
         target
     }
 
-    fn mma() -> Instruction {
+    pub(crate) fn mma() -> Instruction {
         Instruction::Mma {
             io: MmaIo::default(),
             operands: MmaOperands::Plain,
         }
     }
 
-    const HALF: FragmentSource = FragmentSource::Values(F16);
+    pub(crate) const HALF: FragmentSource = FragmentSource::Values(F16);
 
     fn picked(
         device: &DeviceProperties,
