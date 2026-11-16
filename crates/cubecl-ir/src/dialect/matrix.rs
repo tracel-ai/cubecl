@@ -245,6 +245,32 @@ pub struct MmaManualScaledOp {
 }
 synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 
+/// A quantized MMA over manually managed registers: `A` and `B` hold codes as their
+/// quantization scheme stores them, and each product of a block of `block_k` values of `k` is
+/// summed into the `f32` accumulator under its two block scales: the tile lies within one
+/// block. For each accumulator element a lane holds, `scales_a` holds the scale of its row of
+/// `A` and `scales_b` the scale of its column of `B`, both decoded to `f32`: the frontend casts
+/// them from the type they are stored in, so every target's codec decodes them.
+#[cube_op(name = "matrix.mma_quantized")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+#[op_interfaces(
+    OperandNOfType<0, ArrayType>, OperandNOfType<1, ArrayType>, OperandNOfType<2, ArrayType>,
+    OperandNOfType<3, PointerType>, OperandNOfType<4, ArrayType>, OperandNOfType<5, ArrayType>,
+)]
+pub struct MmaQuantizedOp {
+    pub registers_a: Value,
+    pub registers_b: Value,
+    pub registers_c: Value,
+    #[operand(ptr_write)]
+    pub registers_d: Value,
+    pub scales_a: Value,
+    pub scales_b: Value,
+    pub block_k: IndexAttr,
+    pub shape: MatrixShapeAttr,
+}
+synchronizes!(MmaQuantizedOp, SyncScope::Plane);
+
 /// The swizzle a warpgroup MMA matrix descriptor declares for the tile it points at, named for
 /// the width of the rows it permutes. The pattern repeats every 8 rows.
 #[pliron_attr(name = "matrix.wgmma_swizzle", format, verifier = "succ")]
