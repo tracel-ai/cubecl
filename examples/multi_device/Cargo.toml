@@ -1,15 +1,18 @@
 [package]
 authors = []
-name = "multi_device"
-publish = false
 edition.workspace = true
 license.workspace = true
+name = "multi_device"
+publish = false
 version.workspace = true
+
+[lints]
+workspace = true
 
 [features]
 # No default runtime: in a workspace build it would turn on for every crate's tests.
-default = []
 cuda = ["cubecl/cuda"]
+default = []
 hip = ["cubecl/hip"]
 
 [dependencies]
