@@ -311,6 +311,7 @@ impl Harness {
         });
 
         for (index, range) in writes {
+            #[allow(clippy::needless_range_loop)]
             for byte in range.start as usize..range.end as usize {
                 self.buffers[index].stale[byte] = fail;
             }
@@ -329,6 +330,7 @@ impl Harness {
         let _id = binding.stream;
         let _ = ExecuteScope::over(&mut self.device, StreamId::current(), vec![binding])
             .execute(|_| Ok::<(), ServerError>(()));
+        #[allow(clippy::needless_range_loop)]
         for byte in range.start as usize..range.end as usize {
             self.buffers[index].stale[byte] = false;
         }
