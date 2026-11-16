@@ -422,9 +422,11 @@ struct Offered {
 /// leaf. Each call reads a run of the held cells along `k` as its `A`, so it is as deep as a whole
 /// number of them: the leaf's own depth where offered, else the deepest that cuts it, which the
 /// tile walks. `None` where the device offers none; where the held cells are the fragment API's,
-/// whose cells no call rereads; and where a held cell does not lie where an `A` does: on a target
-/// laying a fragment's `A` otherwise than its accumulator, or for values other than 16-bit ones,
-/// whose `A` lays its cells otherwise (`accumulators_as_a`).
+/// whose cells no call rereads; where a held cell does not lie where an `A` does: on a target
+/// laying a fragment's `A` otherwise than its accumulator, or for values wider than 16 bits,
+/// whose `A` lays its cells otherwise (`accumulators_as_a`); and for 8-bit values other than
+/// `e4m3`. The held cells are cast to the values' element, and `e5m2`'s two bits of mantissa are
+/// too coarse for an attention's probabilities.
 fn held_run(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -438,7 +440,8 @@ fn held_run(
         return None;
     };
     let element = rhs.element(rhs)?;
-    if !accumulator_is_a(target) || element.size_bits() != 16 {
+    let read_as_a = element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
+    if !accumulator_is_a(target) || !read_as_a {
         return None;
     }
     let runs: Vec<&MmaConfig> = device
@@ -964,6 +967,40 @@ mod tests {
             None
         );
         assert_eq!(pick(&cuda, [16, 8], [16, 8, 24]), None);
+    }
+
+    /// Held `f16` cells contract with `e4m3` values on the device's FP8 instruction, four
+    /// `16 × 8` cells a `16 × 8 × 32` call, as an FP8 cache's probabilities are cast to its
+    /// values' element. `e5m2` values are refused: too coarse for the probabilities.
+    #[test]
+    fn held_cells_meet_e4m3_values_on_the_fp8_instruction() {
+        let fp8 = |kind| ElemType::Float(kind);
+        let mut device = cuda();
+        for kind in [FloatKind::E4M3, FloatKind::E5M2] {
+            device.features.matmul.mma.insert(MmaConfig {
+                a_type: fp8(kind),
+                b_type: fp8(kind),
+                ..shape(16, 8, 32)
+            });
+        }
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [16, 8],
+        };
+        let pick = |kind| {
+            Instruction::for_accumulator(
+                &device,
+                &sum_is_next_a(),
+                ComputeScope::Plane,
+                held,
+                FragmentSource::Values(fp8(kind)),
+                F32,
+                [16, 32, 64],
+            )
+            .map(|p| (p.instruction, p.cell(), p.depth()))
+        };
+        assert_eq!(pick(FloatKind::E4M3), Some((mma(), [16, 8], 32)));
+        assert_eq!(pick(FloatKind::E5M2), None);
     }
 
     /// Plane groups of four issue the plane group MMA.
