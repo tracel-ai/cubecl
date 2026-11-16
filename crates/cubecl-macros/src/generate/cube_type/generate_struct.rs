@@ -372,17 +372,28 @@ impl CubeTypeStruct {
 
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
-        let body = self
-            .fields
-            .iter()
-            .map(TypeField::split)
-            .map(|(_, ident, _, is_comptime)| {
-                if is_comptime {
-                    quote![#ident: self.#ident]
-                } else {
-                    quote![#ident: #into_mut::into_mut(self.#ident, scope)]
-                }
-            });
+        let into_mut_body =
+            self.fields
+                .iter()
+                .map(TypeField::split)
+                .map(|(_, ident, _, is_comptime)| {
+                    if is_comptime {
+                        quote![#ident: self.#ident]
+                    } else {
+                        quote![#ident: #into_mut::into_mut(self.#ident, scope)]
+                    }
+                });
+        let read_place_body =
+            self.fields
+                .iter()
+                .map(TypeField::split)
+                .map(|(_, ident, _, is_comptime)| {
+                    if is_comptime {
+                        quote![#ident: self.#ident]
+                    } else {
+                        quote![#ident: #into_mut::read_place(self.#ident, scope)]
+                    }
+                });
 
         quote! {
             impl #generics #into_expand for #name_expand #generic_names #where_clause {
@@ -396,7 +407,13 @@ impl CubeTypeStruct {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
                 fn into_mut(self, scope: &#scope) -> Self {
                     Self {
-                        #(#body),*
+                        #(#into_mut_body),*
+                    }
+                }
+
+                fn read_place(self, scope: &#scope) -> Self {
+                    Self {
+                        #(#read_place_body),*
                     }
                 }
             }

@@ -1,6 +1,6 @@
 use cubecl_ir::Scope;
 
-use crate::frontend::{ConstRuntimeAssign, CubeType, NativeExpand};
+use crate::frontend::{ConstRuntimeAssign, CubeType, IntoMut, NativeExpand};
 
 #[macro_export]
 macro_rules! unexpanded {
@@ -72,6 +72,28 @@ where
     T::ExpandType: ConstRuntimeAssign<Expand = NativeExpand<T>>,
 {
     T::ExpandType::const_init_mut(scope)
+}
+
+#[doc(hidden)]
+pub struct PlaceHelper<T>(pub T);
+
+#[doc(hidden)]
+pub trait PlainPlaceAccess<T> {
+    fn __expand_read_place(self, scope: &Scope) -> T;
+}
+
+#[doc(hidden)]
+impl<T> PlainPlaceAccess<T> for PlaceHelper<T> {
+    fn __expand_read_place(self, _: &Scope) -> T {
+        self.0
+    }
+}
+
+#[doc(hidden)]
+impl<T: IntoMut> PlaceHelper<T> {
+    pub fn __expand_read_place(self, scope: &Scope) -> T {
+        self.0.read_place(scope)
+    }
 }
 
 #[cfg(test)]

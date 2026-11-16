@@ -108,6 +108,122 @@ fn kernel_compound_assign_kinds(input: &[u32], output: &mut [u32], #[comptime] s
     output[1] = value;
 }
 
+#[derive(CubeType, Clone, Copy)]
+struct Cursor {
+    slot: u32,
+}
+
+#[cube]
+fn take_slot(cursor: &mut Cursor) -> u32 {
+    let start = cursor.slot;
+    cursor.slot += 3u32;
+    start
+}
+
+#[cube(launch_unchecked)]
+fn kernel_copy_native_struct_field(output: &mut [u32]) {
+    let mut cursor = Cursor {
+        slot: 5u32.runtime(),
+    };
+    let start = take_slot(&mut cursor);
+    output[0] = start;
+    output[1] = cursor.slot;
+}
+
+#[derive(Clone, Copy)]
+struct HostSlot(u32);
+
+#[derive(CubeType, Clone, Copy)]
+struct ComptimeCursor {
+    #[cube(comptime)]
+    slot: HostSlot,
+}
+
+#[cube]
+fn take_comptime_slot(cursor: &mut ComptimeCursor) -> u32 {
+    let start = cursor.slot;
+    comptime!(cursor.slot = HostSlot(8));
+    comptime!(start.0).runtime()
+}
+
+#[cube(launch_unchecked)]
+fn kernel_copy_comptime_struct_field(output: &mut [u32]) {
+    let mut cursor = ComptimeCursor {
+        slot: comptime!(HostSlot(5)),
+    };
+    let start = take_comptime_slot(&mut cursor);
+    output[0] = start;
+    output[1] = comptime!(cursor.slot.0).runtime();
+}
+
+pub fn test_copy_native_struct_field<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_copy_native_struct_field::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [5, 8]);
+}
+
+pub fn test_copy_comptime_struct_field<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_copy_comptime_struct_field::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [5, 8]);
+}
+
+#[derive(CubeType)]
+struct RefCursor<'a> {
+    slot: &'a mut u32,
+}
+
+#[cube]
+fn write_slot_through_field<'a>(value: &'a mut u32) {
+    let cursor = RefCursor::<'a> { slot: value };
+    let slot = cursor.slot;
+    *slot = 8u32;
+}
+
+#[cube(launch_unchecked)]
+fn kernel_mut_ref_struct_field(output: &mut [u32]) {
+    let mut value = 5u32.runtime();
+    output[0] = value;
+    write_slot_through_field(&mut value);
+    output[1] = value;
+}
+
+pub fn test_mut_ref_struct_field<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_mut_ref_struct_field::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [5, 8]);
+}
+
 pub fn test_compound_assign_runtime_word<R: Runtime>(client: Client) {
     for (has_perm, expected) in [(true, 0b1010 ^ 0b0110), (false, 0b1010)] {
         let perm = client.create_from_slice(u32::as_bytes(&[0b0110]));
@@ -267,70 +383,94 @@ pub fn test_assign_mut_expr<R: Runtime>(client: Client) {
 #[macro_export]
 macro_rules! testgen_assign {
     () => {
-        use super::*;
+        mod assign {
+            use super::*;
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_assign_scalar() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatType>(
-                client,
-            );
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_assign_scalar() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatType>(
+                    client,
+                );
+            }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_assign_one_tuple() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_assign_one_tuple::<
-                TestRuntime,
-                FloatType,
-            >(client);
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_assign_one_tuple() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_kernel_assign_one_tuple::<
+                    TestRuntime,
+                    FloatType,
+                >(client);
+            }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_add_assign_array() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_add_assign_array::<
-                TestRuntime,
-                FloatType,
-            >(client);
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_add_assign_array() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_kernel_add_assign_array::<
+                    TestRuntime,
+                    FloatType,
+                >(client);
+            }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_add_assign_vector() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_add_assign_vector::<
-                TestRuntime,
-                FloatType,
-            >(client);
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_add_assign_vector() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_kernel_add_assign_vector::<
+                    TestRuntime,
+                    FloatType,
+                >(client);
+            }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_assign_ref() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_assign_ref::<TestRuntime, FloatType>(
-                client,
-            );
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_assign_ref() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_kernel_assign_ref::<TestRuntime, FloatType>(
+                    client,
+                );
+            }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_compound_assign_runtime_word() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_compound_assign_runtime_word::<TestRuntime>(
-                client,
-            );
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_compound_assign_runtime_word() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_compound_assign_runtime_word::<TestRuntime>(
+                    client,
+                );
+            }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_compound_assign_kinds() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_compound_assign_kinds::<TestRuntime>(client);
-        }
+            #[$crate::runtime_tests::test_log::test]
+            fn test_compound_assign_kinds() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_compound_assign_kinds::<TestRuntime>(client);
+            }
 
-        #[ignore = "Broken right now, should be fixed with future frontend work"]
-        #[$crate::runtime_tests::test_log::test]
-        fn test_assign_mut_expr() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_assign_mut_expr::<TestRuntime>(client);
+            #[ignore = "Broken right now, should be fixed with future frontend work"]
+            #[$crate::runtime_tests::test_log::test]
+            fn test_assign_mut_expr() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_assign_mut_expr::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_copy_native_struct_field() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_copy_native_struct_field::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_copy_comptime_struct_field() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_copy_comptime_struct_field::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_mut_ref_struct_field() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_mut_ref_struct_field::<TestRuntime>(client);
+            }
         }
     };
 }

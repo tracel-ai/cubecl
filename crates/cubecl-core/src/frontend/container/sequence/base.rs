@@ -35,6 +35,9 @@ impl<T: CubeType> IntoMut for Sequence<T> {
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 impl<T: CubeType> CubeDebug for Sequence<T> {}
 
@@ -216,6 +219,16 @@ impl<T: CubeType> IntoMut for SequenceExpand<T> {
                 .values
                 .into_iter()
                 .map(|v| IntoMut::into_mut(v, scope))
+                .collect(),
+        }
+    }
+
+    fn read_place(self, scope: &Scope) -> Self {
+        Self {
+            values: self
+                .values
+                .into_iter()
+                .map(|v| IntoMut::read_place(v, scope))
                 .collect(),
         }
     }

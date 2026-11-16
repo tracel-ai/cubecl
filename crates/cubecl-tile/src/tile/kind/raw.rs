@@ -326,6 +326,9 @@ macro_rules! expand_value {
             fn into_mut(self, _: &Scope) -> Self {
                 self
             }
+            fn read_place(self, _: &Scope) -> Self {
+                self
+            }
         }
         impl$(<$param: $bound>)? CubeDebug for $ty {}
         impl$(<$param: $bound>)? AsRefExpand for $ty {

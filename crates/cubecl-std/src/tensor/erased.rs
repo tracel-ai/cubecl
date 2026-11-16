@@ -560,6 +560,9 @@ mod __cube_type {
         fn into_mut(self, _scope: &Scope) -> Self {
             self
         }
+        fn read_place(self, _scope: &Scope) -> Self {
+            self
+        }
     }
 
     impl<E: Numeric, IO> CubeDebug for ErasedTensorExpand<E, IO> {}

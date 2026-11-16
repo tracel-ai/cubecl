@@ -350,10 +350,14 @@ impl<T: Sized> IntoComptime for T {}
 pub trait IntoMut: Sized {
     /// Convert the variable into a potentially new mutable variable in `scope`, copying if needed.
     fn into_mut(self, scope: &Scope) -> Self;
+    fn read_place(self, scope: &Scope) -> Self;
 }
 
 impl<T: IntoMut> IntoMut for &T {
     fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }
@@ -362,16 +366,25 @@ impl<T: IntoMut> IntoMut for &mut T {
     fn into_mut(self, _: &Scope) -> Self {
         self
     }
+    fn read_place(self, _: &Scope) -> Self {
+        self
+    }
 }
 
 impl<T: IntoMut> IntoMut for *const T {
     fn into_mut(self, _: &Scope) -> Self {
         self
     }
+    fn read_place(self, _: &Scope) -> Self {
+        self
+    }
 }
 
 impl<T: IntoMut> IntoMut for *mut T {
     fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }
@@ -763,6 +776,12 @@ macro_rules! tuple_init {
                     $P.into_mut(scope),
                 )*)
             }
+            fn read_place(self, scope: &Scope) -> Self {
+                let ($($P,)*) = self;
+                ($(
+                    $P.read_place(scope),
+                )*)
+            }
         }
     }
 }
@@ -833,6 +852,9 @@ pub trait NativeAssign: CubeType {
 impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T> {
     fn into_mut(self, scope: &Scope) -> Self {
         into_mut_assign(self, scope)
+    }
+    fn read_place(self, scope: &Scope) -> Self {
+        self.read_value(scope).into()
     }
 }
 
@@ -914,6 +936,9 @@ impl<T: IntoMut> IntoMut for Option<T> {
     fn into_mut(self, scope: &Scope) -> Self {
         self.map(|o| IntoMut::into_mut(o, scope))
     }
+    fn read_place(self, scope: &Scope) -> Self {
+        self.map(|o| IntoMut::read_place(o, scope))
+    }
 }
 
 impl<T: CubeType> CubeType for Vec<T> {
@@ -937,6 +962,9 @@ impl<T: ExpandTypeClone> ExpandTypeClone for Vec<T> {
 impl<T: IntoMut> IntoMut for Vec<T> {
     fn into_mut(self, scope: &Scope) -> Self {
         self.into_iter().map(|e| e.into_mut(scope)).collect()
+    }
+    fn read_place(self, scope: &Scope) -> Self {
+        self.into_iter().map(|e| e.read_place(scope)).collect()
     }
 }
 impl<T: CubeDebug> CubeDebug for Vec<T> {}
@@ -1011,9 +1039,8 @@ impl ExpandTypeClone for () {
 }
 
 impl IntoMut for () {
-    fn into_mut(self, _: &Scope) -> Self {
-        self
-    }
+    fn into_mut(self, _: &Scope) {}
+    fn read_place(self, _: &Scope) {}
 }
 
 impl AsRefExpand for () {

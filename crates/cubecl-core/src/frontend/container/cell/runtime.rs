@@ -46,6 +46,9 @@ impl<T: CubeType> cubecl::prelude::IntoMut for RuntimeCellExpand<T> {
             value: self.value,
         }
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 impl<T: CubeType> cubecl::prelude::CubeDebug for RuntimeCellExpand<T> {}
 

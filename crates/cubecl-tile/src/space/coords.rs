@@ -152,7 +152,10 @@ impl<C: Int> IntoExpand for CoordsExpand<C> {
 
 /// Identity, to keep constness (see [`Coords`]).
 impl<C: Int> IntoMut for CoordsExpand<C> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+    fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }

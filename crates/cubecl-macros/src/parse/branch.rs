@@ -39,7 +39,7 @@ pub fn expand_for_loop(
     };
 
     let unroll = unroll.map(|it| it.value);
-    let right = Expression::from_expr(*for_loop.expr.clone(), context)
+    let right = Expression::from_expr_value(*for_loop.expr.clone(), context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
 
     if right.is_const() && !matches!(right, Expression::Range { .. }) {
@@ -94,7 +94,7 @@ fn expand_for_in_loop(
 
 pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::Result<Expression> {
     let (cond, cond_scope) =
-        context.in_scope(|ctx| Expression::from_expr(*while_loop.cond, ctx))?;
+        context.in_scope(|ctx| Expression::from_expr_value(*while_loop.cond, ctx))?;
     let (body, scope) = context.in_scope(|ctx| {
         ctx.in_closure_scope(ClosureScope::NestedWithoutValue, |ctx| {
             Block::from_block(while_loop.body, ctx)
@@ -171,7 +171,7 @@ pub fn expand_if_let(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expr
         unreachable!()
     };
 
-    let expr = Expression::from_expr(*let_expr.expr.clone(), context)?;
+    let expr = Expression::from_expr_value(*let_expr.expr.clone(), context)?;
     let runtime_variants = !expr.is_const();
 
     let runtime_branch =
@@ -283,7 +283,7 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
         })
     }
 
-    let value = Box::new(Expression::from_expr(*mat.expr, context).ok()?);
+    let value = Box::new(Expression::from_expr_value(*mat.expr, context).ok()?);
 
     let arms = mat
         .arms

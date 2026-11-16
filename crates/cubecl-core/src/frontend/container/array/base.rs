@@ -266,6 +266,9 @@ impl<C: CubePrimitive> IntoMut for ArrayExpand<C> {
         out.__expand_assign_method(scope, self);
         out
     }
+    fn read_place(self, scope: &Scope) -> Self {
+        self.into_mut(scope)
+    }
 }
 
 impl<C: CubePrimitive, const N: usize> IntoMut for NativeExpand<[C; N]> {
@@ -273,6 +276,9 @@ impl<C: CubePrimitive, const N: usize> IntoMut for NativeExpand<[C; N]> {
         let mut uninit = Self::__expand_zeroed(scope);
         uninit.__expand_assign_method(scope, self);
         uninit
+    }
+    fn read_place(self, scope: &Scope) -> Self {
+        self.into_mut(scope)
     }
 }
 

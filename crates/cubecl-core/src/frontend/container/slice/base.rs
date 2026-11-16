@@ -642,6 +642,9 @@ macro_rules! impl_expand_traits {
             fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
+            fn read_place(self, _scope: &Scope) -> Self {
+                self
+            }
         }
     };
 }

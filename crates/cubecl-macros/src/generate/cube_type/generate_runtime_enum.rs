@@ -143,6 +143,13 @@ impl CubeTypeEnum {
                         value: #into_mut::into_mut(self.value, scope)
                     }
                 }
+
+                fn read_place(mut self, scope: &#scope) -> Self {
+                    Self {
+                        discriminant: #into_mut::read_place(self.discriminant, scope),
+                        value: #into_mut::read_place(self.value, scope)
+                    }
+                }
             }
 
             impl #generics #debug for #name #generic_names #where_clause {}

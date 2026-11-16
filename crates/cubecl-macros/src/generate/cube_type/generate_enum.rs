@@ -149,11 +149,19 @@ impl CubeTypeEnum {
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
-        let body_init = self.match_impl(
+        let body_into_mut = self.match_impl(
             quote! {self},
             self.variants
                 .iter()
                 .map(|v| v.map_body(name_expand, |f| quote!(#into_mut::into_mut(#f, scope))))
+                .collect(),
+        );
+
+        let read_place_body = self.match_impl(
+            quote! {self},
+            self.variants
+                .iter()
+                .map(|v| v.map_body(name_expand, |f| quote!(#into_mut::read_place(#f, scope))))
                 .collect(),
         );
 
@@ -186,7 +194,11 @@ impl CubeTypeEnum {
         quote! {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
                 fn into_mut(self, scope: &#scope) -> Self {
-                    #body_init
+                    #body_into_mut
+                }
+
+                fn read_place(self, scope: &#scope) -> Self {
+                    #read_place_body
                 }
             }
 
