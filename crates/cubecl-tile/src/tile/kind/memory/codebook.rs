@@ -142,6 +142,9 @@ impl IntoMut for CodebookExpand {
     fn into_mut(self, _: &Scope) -> Self {
         self
     }
+    fn read_place(self, _: &Scope) -> Self {
+        self
+    }
 }
 impl CubeDebug for CodebookExpand {}
 impl AsRefExpand for CodebookExpand {

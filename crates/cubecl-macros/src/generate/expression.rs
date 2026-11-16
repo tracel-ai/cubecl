@@ -880,6 +880,13 @@ impl Expression {
             Expression::RawMacro { path, args } => {
                 quote! {{#path!(scope, #args)}}
             }
+            Expression::ReadPlace { inner } => {
+                let helper = prelude_type("PlaceHelper");
+                let inner = inner.to_tokens(context);
+                quote! {
+                    #helper(#inner).__expand_read_place(scope)
+                }
+            }
         }
     }
 }

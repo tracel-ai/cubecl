@@ -370,6 +370,9 @@ mod __cube_type {
         fn into_mut(self, _scope: &Scope) -> Self {
             self
         }
+        fn read_place(self, _scope: &Scope) -> Self {
+            self
+        }
     }
 
     impl<E: Numeric, N: Size, IO> CubeDebug for VirtualTensorExpand<E, N, IO> {}

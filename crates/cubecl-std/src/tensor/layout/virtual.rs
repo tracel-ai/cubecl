@@ -100,6 +100,9 @@ impl<C: Coordinates, S: Coordinates> IntoMut for VirtualLayoutExpand<C, S> {
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 
 impl<C: Coordinates, S: Coordinates> CubeDebug for VirtualLayoutExpand<C, S> {}

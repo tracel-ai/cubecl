@@ -190,6 +190,15 @@ impl<K: PartialOrd + Ord, V: IntoMut + Clone> IntoMut for Registry<K, V> {
 
         self
     }
+    fn read_place(self, scope: &Scope) -> Self {
+        let mut map = self.map.borrow_mut();
+        map.iter_mut().for_each(|(_k, v)| {
+            *v = IntoMut::read_place(v.clone(), scope);
+        });
+        core::mem::drop(map);
+
+        self
+    }
 }
 
 impl<K: PartialOrd + Ord, V> CubeDebug for Registry<K, V> {}

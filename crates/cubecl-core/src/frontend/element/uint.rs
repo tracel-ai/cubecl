@@ -62,6 +62,9 @@ macro_rules! declare_uint {
             fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
+            fn read_place(self, _scope: &Scope) -> Self {
+                self
+            }
         }
 
         impl NativeAssign for $primitive {}
@@ -138,6 +141,9 @@ impl IntoMut for usize {
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 
 impl NativeAssign for usize {}
@@ -211,6 +217,9 @@ impl IntoExpand for isize {
 
 impl IntoMut for isize {
     fn into_mut(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }

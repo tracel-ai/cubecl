@@ -251,6 +251,9 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
@@ -269,6 +272,9 @@ impl<A: CubeType, B: CubeType, CD: CubeType> IntoExpand for MmaDefinitionExpand<
 
 impl<A: CubeType, B: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<A, B, CD> {
     fn into_mut(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -1363,6 +1369,9 @@ impl ExpandTypeClone for MatrixLayout {
 
 impl IntoMut for MatrixLayout {
     fn into_mut(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }

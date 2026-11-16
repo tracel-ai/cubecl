@@ -682,6 +682,9 @@ impl IntoMut for FactorExpand {
     fn into_mut(self, _: &Scope) -> Self {
         self
     }
+    fn read_place(self, _: &Scope) -> Self {
+        self
+    }
 }
 impl CubeDebug for FactorExpand {}
 impl AsRefExpand for FactorExpand {

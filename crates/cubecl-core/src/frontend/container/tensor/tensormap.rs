@@ -133,6 +133,9 @@ impl<E: CubePrimitive, K: TensorMapKind> IntoMut for NativeExpand<TensorMap<E, K
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 
 impl<E: CubePrimitive, K: TensorMapKind> CubeType for TensorMap<E, K> {

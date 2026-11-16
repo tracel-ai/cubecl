@@ -131,9 +131,11 @@ impl KernelFn {
 fn trait_imports() -> TokenStream {
     let into_runtime = prelude_type("IntoRuntime");
     let assign = prelude_type("Assign");
+    let place_access = prelude_type("PlainPlaceAccess");
     quote! {
         use #into_runtime as _;
         use #assign as _;
+        use #place_access as _;
     }
 }
 

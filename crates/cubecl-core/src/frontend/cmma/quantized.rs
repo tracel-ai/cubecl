@@ -92,6 +92,9 @@ impl<A: CubeType, B: CubeType, S: CubeType> IntoMut for QuantizedMmaExpand<A, B,
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 
 impl<A: CubeType, B: CubeType, S: CubeType> CubeDebug for QuantizedMmaExpand<A, B, S> {}

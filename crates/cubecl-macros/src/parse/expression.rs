@@ -33,15 +33,28 @@ impl Expression {
     pub fn from_branch_selector(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let is_comptime = matches!(&expr, Expr::Macro(mac) if mac.mac.path.is_ident("comptime"));
         let outer = core::mem::replace(&mut context.in_branch_selector, is_comptime);
-        let result = Self::from_expr(expr, context);
+        let result = Self::from_expr_value(expr, context);
         context.in_branch_selector = outer;
         result
+    }
+
+    /// Expression that gets passed by value in the place context, note this includes references.
+    /// It only ensures a place like `x.field` is actually materialized as a value.
+    pub fn from_expr_value(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+        let inner = Expression::from_expr(expr, context)?;
+        if inner.is_place() && !inner.is_const() {
+            Ok(Expression::ReadPlace {
+                inner: Box::new(inner),
+            })
+        } else {
+            Ok(inner)
+        }
     }
 
     pub fn from_expr(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
-                let right = Self::from_expr(*assign.right, context)?;
+                let right = Self::from_expr_value(*assign.right, context)?;
                 let left = Self::from_expr_lhs(*assign.left, context)?;
                 Expression::Assignment {
                     left: Box::new(left),
@@ -55,11 +68,11 @@ impl Expression {
                 let short_circuits = matches!(binary.op, syn::BinOp::And(_) | syn::BinOp::Or(_));
                 let outer =
                     core::mem::replace(&mut context.in_short_circuit_operand, short_circuits);
-                let right = Self::from_expr(*binary.right, context);
+                let right = Self::from_expr_value(*binary.right, context);
                 let left = if operator.is_assign() {
                     Self::from_expr_lhs(*binary.left, context)
                 } else {
-                    Self::from_expr(*binary.left, context)
+                    Self::from_expr_value(*binary.left, context)
                 };
                 context.in_short_circuit_operand = outer;
                 let (right, left) = (right?, left?);
@@ -108,9 +121,31 @@ impl Expression {
                     }
                 }
             }
-            Expr::Unary(unary) => {
+            Expr::Unary(
+                unary @ ExprUnary {
+                    op: UnOp::Deref(..),
+                    ..
+                },
+            ) => {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
+                let folded = input.is_const().then(|| input.as_const(context)).flatten();
+                if let Some(input) = folded {
+                    let op = unary.op;
+                    Expression::Verbatim {
+                        tokens: quote![(#op #input)],
+                    }
+                } else {
+                    Expression::Unary {
+                        input: Box::new(input),
+                        operator: parse_unop(&unary.op)?,
+                        span,
+                    }
+                }
+            }
+            Expr::Unary(unary) => {
+                let span = unary.span();
+                let input = Self::from_expr_value(*unary.expr, context)?;
                 let folded = input.is_const().then(|| input.as_const(context)).flatten();
                 if let Some(input) = folded {
                     let op = unary.op;
@@ -139,7 +174,7 @@ impl Expression {
                 let args = call
                     .args
                     .into_iter()
-                    .map(|arg| Expression::from_expr(arg, context))
+                    .map(|arg| Expression::from_expr_value(arg, context))
                     .collect::<Result<Vec<_>, _>>()?;
                 match *func {
                     Expression::Path { path, .. } if is_intrinsic(&path) => {
@@ -161,7 +196,7 @@ impl Expression {
                 let args = method
                     .args
                     .iter()
-                    .map(|arg| Expression::from_expr(arg.clone(), context))
+                    .map(|arg| Expression::from_expr_value(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
                 // Hack to at least somewhat support mutable methods
                 let ends_in_mut = method.method.to_string().ends_with("_mut");
@@ -198,7 +233,7 @@ impl Expression {
                         _ => unreachable!(),
                     }
                 }
-                let from = Expression::from_expr(from_expr, context)?;
+                let from = Expression::from_expr_value(from_expr, context)?;
                 if let Some(as_const) = from.as_const(context) {
                     let ty = cast.ty;
                     Expression::Verbatim {
@@ -222,7 +257,7 @@ impl Expression {
                 context.has_early_return = true;
                 let span = ret.span();
                 let value = match ret.expr {
-                    Some(value) => Some(Box::new(Expression::from_expr(*value, context)?)),
+                    Some(value) => Some(Box::new(Expression::from_expr_value(*value, context)?)),
                     None => None,
                 };
                 Expression::Return {
@@ -240,12 +275,12 @@ impl Expression {
                 let span = range.span();
                 let start = range
                     .start
-                    .map(|start| Expression::from_expr(*start, context))
+                    .map(|start| Expression::from_expr_value(*start, context))
                     .transpose()?
                     .map(Box::new);
                 let end = range
                     .end
-                    .map(|end| Expression::from_expr(*end, context))
+                    .map(|end| Expression::from_expr_value(*end, context))
                     .transpose()?
                     .map(Box::new);
                 Expression::Range {
@@ -269,7 +304,7 @@ impl Expression {
                 let elements = array
                     .elems
                     .into_iter()
-                    .map(|elem| Expression::from_expr(elem, context))
+                    .map(|elem| Expression::from_expr_value(elem, context))
                     .collect::<Result<_, _>>()?;
                 Expression::Array { elements, span }
             }
@@ -277,7 +312,7 @@ impl Expression {
                 let elements = tuple
                     .elems
                     .into_iter()
-                    .map(|elem| Expression::from_expr(elem, context))
+                    .map(|elem| Expression::from_expr_value(elem, context))
                     .collect::<Result<_, _>>()?;
                 Expression::Tuple { elements }
             }
@@ -295,7 +330,7 @@ impl Expression {
                 }
             }
             Expr::Repeat(repeat) => Expression::ArrayInit {
-                init: Box::new(Expression::from_expr(*repeat.expr, context)?),
+                init: Box::new(Expression::from_expr_value(*repeat.expr, context)?),
                 len: repeat.len,
             },
             Expr::Let(expr) => {
@@ -403,7 +438,7 @@ impl Expression {
                     .into_iter()
                     .map(|field| {
                         let member = field.member;
-                        let value = Expression::from_expr(field.expr, context)?;
+                        let value = Expression::from_expr_value(field.expr, context)?;
                         syn::Result::Ok((member, value))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -572,7 +607,7 @@ fn parse_index_expr(
 ) -> syn::Result<Expression> {
     let span = expr_index.span();
     let expr = Expression::from_expr_receiver(*expr_index.expr.clone(), is_mut, context)?;
-    let index = Expression::from_expr(*expr_index.index.clone(), context)?;
+    let index = Expression::from_expr_value(*expr_index.index.clone(), context)?;
     let expression = if expr.is_const() && index.is_const() {
         Expression::Verbatim {
             tokens: expr_index.to_token_stream(),

@@ -853,6 +853,9 @@ impl IntoMut for TileTensorExpand<'_> {
     fn into_mut(self, _: &Scope) -> Self {
         self
     }
+    fn read_place(self, _: &Scope) -> Self {
+        self
+    }
 }
 
 impl CubeDebug for TileTensorExpand<'_> {}

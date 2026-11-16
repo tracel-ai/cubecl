@@ -47,6 +47,9 @@ impl IntoMut for InputScalarExpand {
     fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
+    fn read_place(self, _scope: &Scope) -> Self {
+        self
+    }
 }
 
 impl CubeDebug for InputScalarExpand {}

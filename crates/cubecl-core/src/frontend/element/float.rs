@@ -184,6 +184,9 @@ macro_rules! impl_float {
             fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
+            fn read_place(self, _scope: &Scope) -> Self {
+                self
+            }
         }
 
         impl Float for $primitive {
