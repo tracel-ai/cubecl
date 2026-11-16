@@ -8,7 +8,7 @@ use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
 use cubecl_server::benchmark::CommunicationSkipGuard;
-use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
+use cubecl_server::client::{Client, ClientGroup, ClientGroupError, Exchange, MemberBuffers};
 use cubecl_server::logging::{
     CollectivePath, Communication, Execution, ExecutionId, ExecutionKind, ExecutionObservation,
     ExecutionObserver, ExecutionPlace, ExecutionScope, Measurement, ProfileDuration, StreamRole,
@@ -16,7 +16,7 @@ use cubecl_server::logging::{
 };
 use cubecl_server::server::{
     Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
-    ReduceOperation, ServerError, TransportProvider,
+    ReduceOperation, Reduction, ServerError, TransportProvider,
 };
 use cubecl_server::{
     local_tuner,
@@ -461,8 +461,8 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
     let root = group.clients()[0].empty(8);
     let dst = vec![root.clone(), group.clients()[1].empty(8)];
     group.broadcast(root, dst);
-    for (member, buffers) in group.members().iter().zip(in_place()) {
-        member.all_reduce(buffers, F32, ReduceOperation::Sum);
+    for (part, buffers) in group.parts(SUM, 8).into_iter().zip(in_place()) {
+        part.queue(buffers);
     }
     assert_refused("holds 8 bytes where it needs 16", || {
         group.all_gather(member_buffers(&group, 8, 8))
@@ -497,6 +497,20 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
     read(&reduced);
     assert_eq!(parts(), 2);
 }
+
+#[test_log::test]
+fn a_part_refuses_a_source_of_another_size_than_its_collective_on_the_caller() {
+    let group = transported_group();
+    let mut parts = group.parts(SUM, 8).into_iter();
+    let mut buffers = member_buffers(&group, 16, 16).into_iter();
+    let (part, buffers) = (parts.next().unwrap(), buffers.next().unwrap());
+    assert_refused("holds 16 bytes where it needs 8", || part.queue(buffers));
+}
+
+const SUM: Exchange = Exchange::AllReduce(Reduction {
+    dtype: F32,
+    op: ReduceOperation::Sum,
+});
 
 /// Two clients of a runtime that claims a transport, so a collective reaches the caller's checks.
 fn transported_group() -> ClientGroup {
@@ -692,18 +706,23 @@ fn an_observed_skipped_collective_is_issued_as_skipped_with_no_part() {
 
     let watching = ExecutionObservation::new(recorded.clone());
     group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    for (part, buffers) in group
+        .parts(SUM, 8)
+        .into_iter()
+        .zip(member_buffers(&group, 8, 8))
+    {
+        part.queue(buffers);
+    }
     drop(watching);
 
     let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
-    assert_eq!(
-        kinds,
-        [ExecutionKind::Communication(Communication::Collective {
-            operation: Collective::AllReduce,
-            members: services(&group),
-            bytes: 8,
-            path: CollectivePath::Skipped,
-        })]
-    );
+    let skipped = ExecutionKind::Communication(Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 8,
+        path: CollectivePath::Skipped,
+    });
+    assert_eq!(kinds, [skipped.clone(), skipped]);
 }
 
 #[test_log::test]
@@ -801,29 +820,141 @@ fn a_transfer_across_runtimes_names_both_ends_apart() {
 #[test_log::test]
 #[serial_test::serial]
 #[cfg(feature = "std")]
-fn a_members_part_takes_the_scope_open_on_its_thread_as_its_parent() {
+fn parts_queued_on_their_members_threads_belong_to_the_collective_made_before() {
     let (group, devices) = transported_group_on([66, 67]);
-    let recorded = Recorded::on(&devices);
-    let members = group.members();
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
 
     let watching = ExecutionObservation::new(recorded.clone());
-    let collective = ExecutionScope::communication(|| Communication::Collective {
-        operation: Collective::AllReduce,
-        members: services(&group),
-        bytes: 8,
-        path: CollectivePath::Native(TransportProvider::Nccl),
-    });
-    for (member, buffers) in members.iter().zip(member_buffers(&group, 8, 8)) {
-        member.all_reduce(buffers, F32, ReduceOperation::Sum);
+    let parts = group.parts(SUM, 8);
+    let queued: Vec<_> = parts
+        .into_iter()
+        .zip(member_buffers(&group, 8, 8))
+        .map(|(part, buffers)| std::thread::spawn(move || part.queue(buffers)))
+        .collect();
+    for thread in queued {
+        thread.join().unwrap();
     }
-    drop(collective);
     drop(watching);
 
     let issued = recorded.issued();
-    let [collective, parts @ ..] = issued.as_slice() else {
+    let [collective, members @ ..] = issued.as_slice() else {
         panic!("nothing was issued");
     };
-    assert_parts_of(collective, parts, &devices, StreamRole::Collective);
+    assert_eq!(
+        collective.kind,
+        ExecutionKind::Communication(Communication::Collective {
+            operation: Collective::AllReduce,
+            members: services(&group),
+            bytes: 8,
+            path: CollectivePath::Native(TransportProvider::Nccl),
+        })
+    );
+    for device in &devices {
+        let on_device: Vec<_> = members
+            .iter()
+            .filter(|it| recorded_on(it) == *device)
+            .collect();
+        let [part, wait] = on_device.as_slice() else {
+            panic!("{device:?} issued {on_device:?}");
+        };
+        assert_parts_of(
+            collective,
+            &[(*part).clone()],
+            &[*device],
+            StreamRole::Collective,
+        );
+        assert_eq!(wait.parent, Some(collective.id));
+        assert!(
+            matches!(
+                wait.kind,
+                ExecutionKind::Wait {
+                    place: ExecutionPlace { service, stream: StreamRole::Compute(_) },
+                    awaits: WaitTarget::Part(awaited),
+                } if service.device == *device && awaited == part.id
+            ),
+            "{wait:?}"
+        );
+    }
+    assert_eq!(
+        recorded.measured().len(),
+        4,
+        "each part and wait, read back"
+    );
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn parts_made_while_nothing_observes_record_nothing_and_still_queue() {
+    let (group, devices) = transported_group_on([84, 85]);
+    let recorded = Recorded::on(&devices);
+    let parts = group.parts(SUM, 8);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    for (part, buffers) in parts.into_iter().zip(member_buffers(&group, 8, 8)) {
+        part.queue(buffers);
+    }
+    drop(watching);
+
+    let issued = recorded.issued();
+    assert_eq!(issued.len(), 2, "{issued:?}");
+    for (part, device) in issued.iter().zip(&devices) {
+        assert_eq!(part.parent, None, "{part:?}");
+        assert!(
+            matches!(part.kind, ExecutionKind::Part { place } if place.service.device == *device),
+            "{part:?}"
+        );
+    }
+}
+
+/// A part's timing is refused inside a graph capture window, as the dummy refuses it while
+/// profiles are: the part is still issued under its collective, and its windows read empty.
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn a_part_queued_where_timing_is_refused_is_issued_and_reads_empty() {
+    let (group, devices) = transported_group_on([86, 87]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+    REFUSE_PROFILES.store(true, Ordering::Relaxed);
+    let refusing = ClearsRefusedProfiles;
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    for (part, buffers) in group
+        .parts(SUM, 8)
+        .into_iter()
+        .zip(member_buffers(&group, 8, 8))
+    {
+        part.queue(buffers);
+    }
+    drop(watching);
+    for client in group.clients() {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+    }
+    drop(refusing);
+
+    let issued = recorded.issued();
+    let [collective, members @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    let parts: Vec<_> = members
+        .iter()
+        .filter(|it| matches!(it.kind, ExecutionKind::Part { .. }))
+        .cloned()
+        .collect();
+    assert_parts_of(collective, &parts, &devices, StreamRole::Collective);
+    let unread = std::mem::take(&mut *recorded.unread.lock().unwrap());
+    assert_eq!(unread.len(), 4, "each part and wait, handed over unread");
+    for (id, measurement) in unread {
+        assert!(
+            cubecl_environment::future::block_on(measurement.resolve()).is_none(),
+            "{id:?} read back a window"
+        );
+    }
 }
 
 #[test_log::test]
@@ -973,6 +1104,14 @@ fn transported_group_on(indices: [u16; 2]) -> (ClientGroup, Vec<DeviceId>) {
         .map(|device| Client::load::<DummyServer<Transported>>(*device))
         .collect();
     (ClientGroup::new(clients).unwrap(), devices)
+}
+
+/// The device an execution placed on one runs on.
+fn recorded_on(execution: &Execution) -> DeviceId {
+    match execution.kind {
+        ExecutionKind::Part { place } | ExecutionKind::Wait { place, .. } => place.service.device,
+        ref other => panic!("not placed on one device: {other:?}"),
+    }
 }
 
 fn services(group: &ClientGroup) -> Vec<ServiceId> {
