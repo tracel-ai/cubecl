@@ -8,9 +8,8 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Semiring, Space,
-    StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
-    ops::matmul::MmaIo,
+    Axis, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
+    TileSpec, TileTensor, TileTensorLaunch,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -61,9 +60,7 @@ fn by_units(
     let bias =
         Procedural::new::<f32, Decay>(comptime!(space.space().subspace(&[Q, S])), Decay { rate })
             .tile_in::<f32>(&space);
-    let instruction = comptime!(Instruction::Registers {
-        config: RegisterBlock::new(rows * block)
-    });
+    let config = comptime!(SoftwareMatmul::new(rows * block));
     for cube in space {
         for unit in cube {
             let (query_u, key_u) = (query.at(&unit), key.at(&unit));
@@ -71,8 +68,12 @@ fn by_units(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score =
-                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
+                let mut score = bias_s.register_accumulator::<f32>(
+                    &query_s,
+                    &key_s,
+                    config,
+                    Semiring::SUM_PROD,
+                );
                 score.mma(&query_s, &key_s);
                 score.along(S).mul_exp::<f32>(&bias_s);
                 score.drained_into(&weights_u.at(&step));
@@ -93,10 +94,6 @@ fn by_plane_fragments(
     space: Partitioning,
     #[comptime] windowed: bool,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::default(),
-        operands: MmaOperands::Plain,
-    });
     let (query, key, weights) = (query.tile(&space), key.tile(&space), weights.tile(&space));
     let bias =
         Procedural::new::<f32, Decay>(comptime!(space.space().subspace(&[Q, S])), Decay { rate })
@@ -109,8 +106,7 @@ fn by_plane_fragments(
                 .stage_for(&walk, StageStorage::Strided, None);
             query_s.copy_from(&query.at(&plane));
             sync_plane();
-            let scores =
-                Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &query_s, instruction);
+            let scores = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &query_s);
             let window = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
             let (bias_p, weights_p) = (bias.at(&plane), weights.at(&plane));
             let mut stages =
