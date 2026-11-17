@@ -71,8 +71,9 @@ pub enum UnitRead {
 impl StageStorage {
     /// This storage as a stage read by `instruction` and written by `delivery` lays its cells
     /// out: a tiled stage's rows arranged as both can use ([`RowChunks::read_by`]); any other
-    /// storage as it is.
-    pub(crate) fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
+    /// storage as it is. What a host that names its instruction asks; one that names its Step
+    /// asks the Step ([`ProductStep::stage_storage`](crate::ProductStep::stage_storage)).
+    pub fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
         match self {
             Self::Tiled { block, chunks } => Self::Tiled {
                 block,
