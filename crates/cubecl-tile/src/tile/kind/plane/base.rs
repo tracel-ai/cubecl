@@ -917,7 +917,7 @@ impl PlanePartition {
             0usize,
             0usize,
         ));
-        let pairs = match comptime!(along) {
+        let pairs = match along {
             Some(axis) => self.at(0usize, 0usize).pairs_from::<T>(&first, axis),
             None => comptime!(false),
         };
