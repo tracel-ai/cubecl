@@ -389,7 +389,7 @@ impl MmaData {
             self.rhs_registers_mut::<T>(),
             second.rhs_registers_mut::<T>(),
         );
-        if comptime!(bytes == 1) {
+        if bytes == 1 {
             comptime!(assert!(
                 along == PairAxis::Cols,
                 "MmaData::load_pair_window: 8-bit `B`s pair along their columns"
