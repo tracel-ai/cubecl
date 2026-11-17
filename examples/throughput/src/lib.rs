@@ -5,7 +5,7 @@ use cubecl::{
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputError, ThroughputKey,
-        ThroughputMode,
+        ThroughputMode, ThroughputValue,
     },
 };
 
@@ -90,7 +90,12 @@ pub fn memory_curve(device: &Device) {
 }
 
 fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
-    println!("\n  {:<8}{:>18}", format!("{access:?}"), "peak");
+    println!(
+        "\n  {:<8}{:>18}{:>10}",
+        format!("{access:?}"),
+        "peak",
+        "std dev"
+    );
 
     for point in curve.points() {
         let rate = match curve.ceiling_at(point.bytes) {
@@ -98,7 +103,19 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
             None => String::from("N/A"),
         };
 
-        println!("    {:>10}{:>14}", bytes_label(point.bytes), rate);
+        println!(
+            "    {:>10}{:>14}{:>10}",
+            bytes_label(point.bytes),
+            rate,
+            deviation_label(&point.value)
+        );
+    }
+}
+
+fn deviation_label(value: &ThroughputValue) -> String {
+    match value.relative_std_dev() {
+        Some(deviation) => format!("±{:.1}%", deviation * 100.0),
+        None => String::from("N/A"),
     }
 }
 
@@ -138,7 +155,7 @@ fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
     for row in rows(&client) {
         let value = match row.key {
             Some(key) => match measure_peak_throughput(&client, key) {
-                Ok(value) => value.format(&key),
+                Ok(value) => format!("{}  {}", value.format(&key), deviation_label(&value)),
                 Err(unavailable) => unavailable.to_string(),
             },
             None => ThroughputError::Unsupported.to_string(),
