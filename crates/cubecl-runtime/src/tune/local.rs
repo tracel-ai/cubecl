@@ -443,4 +443,25 @@ mod tests {
         assert_eq!((&*first, &*again), (&[1, 0][..], &[1, 0][..]));
         assert_eq!(asked.load(Ordering::Relaxed), planned);
     }
+
+    #[test]
+    fn a_candidate_added_after_planning_is_planned_in() {
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+        let operations = set()
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
+                "first",
+                answers(0),
+            ))
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
+                "second",
+                answers(1),
+            ));
+        assert_eq!(&*operations.run_order(&FakeAutotuneKey), &[0, 1]);
+
+        let operations = operations.with(
+            Tunable::<FakeAutotuneKey, (), usize>::new("added", answers(2)).group(&group, |_| 1),
+        );
+
+        assert_eq!(operations.run_order(&FakeAutotuneKey)[0], 2);
+    }
 }

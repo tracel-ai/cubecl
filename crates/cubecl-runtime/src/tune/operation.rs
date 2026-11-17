@@ -105,6 +105,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
         self.checksum = self.names_hash() as u64;
+        self.run_orders = Mutex::new(HashMap::new());
         self
     }
 
