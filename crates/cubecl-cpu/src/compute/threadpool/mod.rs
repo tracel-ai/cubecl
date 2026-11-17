@@ -1,22 +1,23 @@
-use crossbeam_utils::CachePadded;
 use cubecl_core::CubeDim;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
     memory_management::{ErrorGraph, MemoryManagement},
     storage::BytesStorage,
 };
-use std::sync::{Arc, OnceLock, atomic::AtomicU64};
+use std::sync::{Arc, OnceLock};
 
 use cubecl_llvm::{PlironData, PlironEngine, SharedMemories};
 
 use crate::compute::{
     schedule::BindingsResource,
     threadpool::{
+        completion_counter::LaunchProgress,
         compute_task::ComputeTask,
         scheduler::{Scheduler, SchedulerVariant},
     },
 };
 
+pub mod completion_counter;
 pub mod compute_task;
 pub mod scheduler;
 
@@ -55,8 +56,7 @@ impl Threadpool {
         cube_count: [u32; 3],
         memory: &mut MemoryManagement<BytesStorage>,
         failures: &mut ErrorGraph,
-        next_counter_step: u64,
-        atomic_counter: &Arc<CachePadded<AtomicU64>>,
+        progress: &mut LaunchProgress,
     ) {
         let requirements = pliron_engine.requirements().clone();
 
@@ -87,6 +87,7 @@ impl Threadpool {
             self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
         }
 
+        let next_counter_step = progress.issue(cube_dim.num_elems() as u64);
         let mut i = 0;
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
@@ -95,12 +96,12 @@ impl Threadpool {
                     let mut pliron_data = base_data.clone();
                     pliron_data.set_unit_pos([unit_pos_x, unit_pos_y, unit_pos_z]);
 
-                    let atomic_counter = Arc::clone(atomic_counter);
+                    let completion = Arc::clone(progress.counter());
                     let compute_task = ComputeTask {
                         pliron_engine,
                         pliron_data,
                         next_counter_step,
-                        atomic_counter,
+                        completion,
                     };
                     self.scheduler.send(i, compute_task);
                     i += 1;
