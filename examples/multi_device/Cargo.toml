@@ -17,4 +17,3 @@ hip = ["cubecl/hip"]
 
 [dependencies]
 cubecl = { workspace = true, default-features = true, features = ["stdlib"] }
-half = { workspace = true }
