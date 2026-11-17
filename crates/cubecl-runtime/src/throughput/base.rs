@@ -190,7 +190,10 @@ impl SampleStats {
         let mean = samples.iter().map(Duration::as_secs_f64).sum::<f64>() / count;
         let squares = samples
             .iter()
-            .map(|sample| (sample.as_secs_f64() - mean).powi(2))
+            .map(|sample| {
+                let deviation = sample.as_secs_f64() - mean;
+                deviation * deviation
+            })
             .sum::<f64>();
         // A sample near `Duration::MAX` does not survive the round trip through `f64`.
         let duration = |secs: f64| Duration::try_from_secs_f64(secs).unwrap_or(Duration::MAX);

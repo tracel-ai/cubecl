@@ -94,7 +94,7 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
         "\n  {:<8}{:>18}{:>10}",
         format!("{access:?}"),
         "peak",
-        "std dev"
+        "time rsd"
     );
 
     for point in curve.points() {
@@ -114,7 +114,7 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
 
 fn deviation_label(value: &ThroughputValue) -> String {
     match value.relative_std_dev() {
-        Some(deviation) => format!("±{:.1}%", deviation * 100.0),
+        Some(deviation) => format!("{:.1}%", deviation * 100.0),
         None => String::from("N/A"),
     }
 }
@@ -155,7 +155,11 @@ fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
     for row in rows(&client) {
         let value = match row.key {
             Some(key) => match measure_peak_throughput(&client, key) {
-                Ok(value) => format!("{}  {}", value.format(&key), deviation_label(&value)),
+                Ok(value) => format!(
+                    "{}  time rsd {}",
+                    value.format(&key),
+                    deviation_label(&value)
+                ),
                 Err(unavailable) => unavailable.to_string(),
             },
             None => ThroughputError::Unsupported.to_string(),

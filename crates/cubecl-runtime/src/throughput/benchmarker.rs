@@ -307,7 +307,8 @@ impl ThroughputBenchmarker {
                 best = best.min(s);
                 stale += 1;
             }
-            if stale >= patience || start.elapsed() >= budget {
+            // A deviation needs two samples, however long the first took.
+            if stale >= patience || (start.elapsed() >= budget && samples.len() >= 2) {
                 break;
             }
         }
@@ -418,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn one_sample_has_no_statistics() {
+    fn a_sample_past_the_budget_is_followed_by_a_second() {
         let (_, samples) = ThroughputBenchmarker::sample_peak_duration(
             1,
             |_| Duration::from_millis(5),
@@ -426,7 +427,12 @@ mod tests {
             SAMPLE_PATIENCE,
         );
 
-        assert_eq!(samples, None);
+        assert_eq!(samples.map(|samples| samples.count), Some(2));
+    }
+
+    #[test]
+    fn one_sample_has_no_statistics() {
+        assert_eq!(SampleStats::new(&[Duration::from_millis(5)]), None);
     }
 
     #[test]
