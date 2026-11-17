@@ -60,8 +60,9 @@ pub struct LaneMap {
 }
 
 impl LaneMap {
-    /// Units of the plane a lane map lays out.
-    const PLANE_UNITS: usize = 32;
+    /// Units of the plane a lane map lays out: the plane a kernel reading lane runs is launched
+    /// at, which a host sizing one reads rather than stating its own.
+    pub const PLANE_UNITS: usize = 32;
 
     /// NVIDIA's `m16n8k16`: unit `u` holds quad `u % 4` of `k`, an `A`'s rows `u / 4` and
     /// `u / 4 + 8`, a `B`'s column `u / 4`.

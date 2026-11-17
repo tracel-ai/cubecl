@@ -111,6 +111,89 @@ pub fn test_tf32_scalar_and_vector_rounding<R: Runtime>(client: Client) {
     }
 }
 
+/// Arithmetic shift of an `i32` reinterpreted from a `u32`: signedness must come from the shift,
+/// not from where the operand came from.
+#[cube(launch)]
+pub fn kernel_shr_signed_from_unsigned(input: &[u32], output: &mut [i32]) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = i32::cast_from(input[ABSOLUTE_POS]) >> 1;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_shr_signed_from_unsigned_vector(
+    input: &[Vector<u32, Const<4>>],
+    output: &mut [Vector<i32, Const<4>>],
+) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] =
+            Vector::<i32, Const<4>>::cast_from(input[ABSOLUTE_POS]) >> Vector::new(1);
+    }
+}
+
+pub fn test_shr_signed_from_unsigned<R: Runtime>(client: Client) {
+    let values = [0x8000_0000u32, 0xFFFF_FFF0, 0x7FFF_FFFF, 4];
+    let expected = values.map(|v| (v as i32) >> 1);
+    let launches = [
+        kernel_shr_signed_from_unsigned::launch,
+        kernel_shr_signed_from_unsigned_vector::launch,
+    ];
+    for (lanes, launch) in [1, 4].into_iter().zip(launches) {
+        let input = client.create_from_slice(u32::as_bytes(&values));
+        let output = client.empty(values.len() * size_of::<i32>());
+        launch(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            unsafe { BufferArg::from_raw_parts(input, values.len() / lanes) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), values.len() / lanes) },
+        );
+        let bytes = client.read_one(output).unwrap();
+        assert_eq!(i32::from_bytes(&bytes), expected, "width={lanes}");
+    }
+}
+
+/// The reverse: a logical shift of a `u32` reinterpreted from an `i32`.
+#[cube(launch)]
+pub fn kernel_shr_unsigned_from_signed(input: &[i32], output: &mut [u32]) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = u32::cast_from(input[ABSOLUTE_POS]) >> 1;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_shr_unsigned_from_signed_vector(
+    input: &[Vector<i32, Const<4>>],
+    output: &mut [Vector<u32, Const<4>>],
+) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] =
+            Vector::<u32, Const<4>>::cast_from(input[ABSOLUTE_POS]) >> Vector::new(1);
+    }
+}
+
+pub fn test_shr_unsigned_from_signed<R: Runtime>(client: Client) {
+    let values = [i32::MIN, -16, i32::MAX, 4];
+    let expected = values.map(|v| (v as u32) >> 1);
+    let launches = [
+        kernel_shr_unsigned_from_signed::launch,
+        kernel_shr_unsigned_from_signed_vector::launch,
+    ];
+    for (lanes, launch) in [1, 4].into_iter().zip(launches) {
+        let input = client.create_from_slice(i32::as_bytes(&values));
+        let output = client.empty(values.len() * size_of::<u32>());
+        launch(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            unsafe { BufferArg::from_raw_parts(input, values.len() / lanes) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), values.len() / lanes) },
+        );
+        let bytes = client.read_one(output).unwrap();
+        assert_eq!(u32::from_bytes(&bytes), expected, "width={lanes}");
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_numeric {
@@ -134,6 +217,18 @@ macro_rules! testgen_numeric {
         fn test_tf32_scalar_and_vector_rounding() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::numeric::test_tf32_scalar_and_vector_rounding::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shr_signed_from_unsigned() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::numeric::test_shr_signed_from_unsigned::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shr_unsigned_from_signed() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::numeric::test_shr_unsigned_from_signed::<TestRuntime>(client);
         }
     };
 }

@@ -3378,7 +3378,6 @@ name = "multi_device"
 version = "0.12.0-pre.2"
 dependencies = [
  "cubecl",
- "half",
 ]
 
 [[package]]
