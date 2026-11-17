@@ -290,11 +290,7 @@ where
             // the candidates run in the plan's order, the one the measurement follows, so the
             // best ranked candidate that launches runs rather than the first declared.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
-                match execute_in_plan_order(
-                    &operations,
-                    &tuner.run_order(&key, &operations),
-                    inputs,
-                ) {
+                match execute_in_plan_order(&operations, &operations.run_order(&key), inputs) {
                     Ok(output) => output,
                     Err(failures) => panic!(
                         "All autotune operations failed, no viable operation found.\n{failures:?}"
@@ -305,7 +301,7 @@ where
     }
 }
 
-/// Runs the candidates in `order`, the key's [run order](super::Tuner::run_order), and hands
+/// Runs the candidates in `order`, the key's [run order](TunableSet::run_order), and hands
 /// back the first output, or every candidate's error when none launches. A candidate that fails to
 /// launch is skipped, as the measurement skips it.
 fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
@@ -349,15 +345,6 @@ mod tests {
         TunableSet::new(|_: &()| FakeAutotuneKey, |_: &FakeAutotuneKey, _: &()| ())
     }
 
-    fn planned(operations: &TunableSet<FakeAutotuneKey, (), usize>) -> Vec<usize> {
-        operations
-            .plan(&FakeAutotuneKey)
-            .order(operations.len())
-            .into_iter()
-            .map(|(index, _)| index)
-            .collect()
-    }
-
     fn answers(index: usize) -> impl Fn(()) -> Result<usize, String> {
         move |_| Ok(index)
     }
@@ -380,7 +367,7 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &planned(&operations), ()).ok(),
+            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
             Some(1)
         );
     }
@@ -403,7 +390,7 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &planned(&operations), ()).ok(),
+            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
             Some(2)
         );
     }
@@ -422,10 +409,38 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &planned(&operations), ()).ok(),
+            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
             Some(1)
         );
         let nothing = set().with(Tunable::<FakeAutotuneKey, (), usize>::new("fails", fails));
-        assert!(execute_in_plan_order(&nothing, &planned(&nothing), ()).is_err());
+        assert!(execute_in_plan_order(&nothing, &nothing.run_order(&FakeAutotuneKey), ()).is_err());
+    }
+
+    #[test]
+    fn an_untuned_key_is_planned_once() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counted = asked.clone();
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", move |_| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            1
+        });
+        let operations = set()
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("first", answers(0))
+                    .group(&group, |_| 1),
+            )
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("second", answers(1))
+                    .group(&group, |_| 2),
+            );
+
+        let first = operations.run_order(&FakeAutotuneKey);
+        let planned = asked.load(Ordering::Relaxed);
+        let again = operations.run_order(&FakeAutotuneKey);
+
+        assert_eq!((&*first, &*again), (&[1, 0][..], &[1, 0][..]));
+        assert_eq!(asked.load(Ordering::Relaxed), planned);
     }
 }

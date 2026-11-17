@@ -5,6 +5,8 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
@@ -61,6 +63,9 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
     short_circuit: bool,
+    /// Planned once a key: ranking candidates can build every one's blueprint, which costs
+    /// more than the launch, and an untuned key is reached at every layer of a compile pass.
+    run_orders: Mutex<HashMap<K, Arc<[usize]>>>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
@@ -74,6 +79,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             bounds_gen: None,
             eviction: None,
             short_circuit: true,
+            run_orders: Mutex::new(HashMap::new()),
         };
         set.checksum = set.names_hash() as u64;
         set
@@ -134,6 +140,23 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Returns the [autotune plan](TunePlan) for the given set.
     pub(crate) fn plan(&self, key: &K) -> TunePlan {
         TunePlan::new(key, &self.tunables)
+    }
+
+    /// The candidates of `key` in the order an untuned key runs them: its plan's
+    /// [order](TunePlan::order).
+    pub(crate) fn run_order(&self, key: &K) -> Arc<[usize]> {
+        if let Some(order) = self.run_orders.lock().get(key) {
+            return order.clone();
+        }
+        // Planned outside the lock: a priority may run for long.
+        let order: Arc<[usize]> = self
+            .plan(key)
+            .order(self.len())
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect();
+        self.run_orders.lock().insert(key.clone(), order.clone());
+        order
     }
 
     /// Returns the operation for the given index, matching the order returned by
