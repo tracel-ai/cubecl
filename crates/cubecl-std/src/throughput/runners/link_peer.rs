@@ -20,8 +20,9 @@ const UNITS_PER_CUBE: u32 = 256;
 
 const MAX_CUBES: u32 = 1024;
 
-/// The most a peer kernel moves: a buffer's length in `u32`s is held in 32 bits.
-const MAX_BYTES: u64 = u32::MAX as u64 * 4;
+/// The most a link probe moves in one pass: a peer kernel's buffer length in `u32`s is held in 32
+/// bits, and every route is held to the same bound so their curves compare.
+pub const MAX_BYTES: u64 = u32::MAX as u64 * 4;
 
 /// Builds [`peer_load`] on `destination`, moving `bytes` of `source`'s memory per pass, every load
 /// crossing the link. `ops_count` is the bytes moved.

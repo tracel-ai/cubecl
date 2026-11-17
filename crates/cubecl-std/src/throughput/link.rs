@@ -162,14 +162,13 @@ impl<'a> LinkProber<'a> {
             (LinkRoute::PeerStore, [source, destination]) => {
                 source.peer_access(destination) >= PeerAccess::Memory
             }
-            (LinkRoute::Collective(_), [_, _, ..]) => {
-                self.members.iter().all(Client::has_device_transport)
-            }
+            (LinkRoute::Collective(_), [_, _, ..]) => self.group().is_some(),
             _ => false,
         }
     }
 
-    /// The members as a group, or `None` where the runtime has no device transport.
+    /// The members as a group, or `None` where they cannot be one: no device transport, mixed
+    /// runtimes, or devices out of order. Building one sets up no communicator.
     fn group(&self) -> Option<&ClientGroup> {
         self.group
             .get_or_init(|| ClientGroup::new(self.members.to_vec()).ok())

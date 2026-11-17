@@ -3,13 +3,14 @@ use cubecl_common::profile::Instant;
 use cubecl_core::{future::block_on, prelude::*};
 use cubecl_runtime::throughput::{KernelConfig, ThroughputError};
 
-use crate::throughput::memory_probe;
+use crate::throughput::{link_peer::MAX_BYTES, memory_probe};
 
 /// Builds `Client::to_client` from `source` to `destination`, `bytes` per pass, over whichever
 /// route the runtime takes. `ops_count` is the bytes moved.
 ///
 /// # Errors
 ///
+/// [`ThroughputError::Unsupported`] for more than [`MAX_BYTES`],
 /// [`ThroughputError::Allocation`] where `source` has no room for the buffer, and
 /// [`ThroughputError::Launch`] where the transfer did not arrive.
 pub fn build_kernel(
@@ -17,6 +18,9 @@ pub fn build_kernel(
     destination: &Client,
     bytes: u64,
 ) -> Result<KernelConfig, ThroughputError> {
+    if bytes > MAX_BYTES {
+        return Err(ThroughputError::Unsupported);
+    }
     let [buffer] = memory_probe::reserve(source, [bytes as usize])?;
 
     // A failed receive leaves its failure on the destination it never wrote, which a sync does

@@ -25,16 +25,20 @@ fn main() {
         }
     }
 
-    for members in 2..=clients.len() {
-        for kind in COLLECTIVES {
-            let route = LinkRoute::Collective(kind);
-            let label = format!("{kind} over {members}");
-            print_curve(
-                &label,
-                &clients[..members],
-                route,
-                bus_factor(kind, members),
-            );
+    let mut runtimes: Vec<&str> = clients.iter().map(Client::name).collect();
+    runtimes.dedup();
+    for runtime in runtimes {
+        let group: Vec<Client> = clients
+            .iter()
+            .filter(|client| client.name() == runtime)
+            .cloned()
+            .collect();
+        for members in 2..=group.len() {
+            for kind in COLLECTIVES {
+                let route = LinkRoute::Collective(kind);
+                let label = format!("{kind} over {members} {runtime}");
+                print_curve(&label, &group[..members], route, bus_factor(kind, members));
+            }
         }
     }
 }

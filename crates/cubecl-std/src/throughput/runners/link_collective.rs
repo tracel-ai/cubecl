@@ -10,7 +10,7 @@ use cubecl_runtime::{
     throughput::{KernelConfig, ThroughputError},
 };
 
-use crate::throughput::memory_probe;
+use crate::throughput::{link_peer::MAX_BYTES, memory_probe};
 
 const REDUCED: ElemType = ElemType::Float(FloatKind::F32);
 
@@ -20,7 +20,7 @@ const REDUCED: ElemType = ElemType::Float(FloatKind::F32);
 /// # Errors
 ///
 /// [`ThroughputError::Unsupported`] for a collective that is not an all-reduce, an all-gather or a
-/// reduce-scatter, or a reduction the group cannot do on `f32`;
+/// reduce-scatter, a reduction the group cannot do on `f32`, or more than [`MAX_BYTES`];
 /// [`ThroughputError::Allocation`] where a member has no room for its buffers; and
 /// [`ThroughputError::Launch`] where the collective did not run.
 pub fn build_kernel(
@@ -28,6 +28,9 @@ pub fn build_kernel(
     kind: Collective,
     bytes: u64,
 ) -> Result<KernelConfig, ThroughputError> {
+    if bytes > MAX_BYTES {
+        return Err(ThroughputError::Unsupported);
+    }
     let members = group.clients().len() as u64;
     let unit = REDUCED.size() as u64 * members;
     let bytes = (bytes / unit).max(1) * unit;
@@ -57,15 +60,17 @@ pub fn build_kernel(
     let group = group.clone();
     let sample = Box::new(move |iterations: usize| {
         let start = Instant::now();
-        for _ in 0..iterations {
+        // A skip guard held across any call queues nothing for it, and a zero reads as no timing.
+        let skipped = (0..iterations).fold(false, |skipped, _| {
+            let skips = group.skips_communication();
             queue(&group, kind, &buffers);
-        }
+            skipped | skips | group.skips_communication()
+        });
         for client in group.clients() {
             client.sync_collective();
             let _ = block_on(client.sync());
         }
-        // A skip guard taken meanwhile queues nothing, and a zero reads as no timing.
-        match group.skips_communication() {
+        match skipped {
             true => Duration::ZERO,
             false => start.elapsed(),
         }
