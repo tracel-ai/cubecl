@@ -8,6 +8,7 @@ use derive_more::Display;
 
 use core::time::Duration;
 
+use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
 
 use alloc::string::{String, ToString};
@@ -39,6 +40,9 @@ use super::{
 pub struct Tuner<K: AutotuneKey> {
     cache: Arc<Mutex<TuneCache<K>>>,
     logger: Arc<Mutex<Logger>>,
+    /// Planned once a key: ranking candidates can build every one's blueprint, which costs
+    /// more than the launch, and an untuned key is reached at every layer of a compile pass.
+    run_orders: Mutex<HashMap<K, Arc<[usize]>>>,
 }
 
 /// The measured outcome for a given autotune invocation.
@@ -248,7 +252,29 @@ impl<K: AutotuneKey> Tuner<K> {
         Self {
             cache: Arc::new(Mutex::new(TuneCache::new(name, hardware))),
             logger: Arc::new(Mutex::new(Logger::new())),
+            run_orders: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The candidates of `key` in the order an untuned key runs them: its plan's
+    /// [order](TunePlan::order).
+    pub(crate) fn run_order<F: TuneInputs, Out, Id>(
+        &self,
+        key: &K,
+        tunables: &TunableSet<K, F, Out, Id>,
+    ) -> Arc<[usize]> {
+        if let Some(order) = self.run_orders.lock().get(key) {
+            return order.clone();
+        }
+        // Planned outside the lock: a priority may run for long, and other cards share the tuner.
+        let order: Arc<[usize]> = tunables
+            .plan(key)
+            .order(tunables.len())
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect();
+        self.run_orders.lock().insert(key.clone(), order.clone());
+        order
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
