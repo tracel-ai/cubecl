@@ -8,7 +8,7 @@
 
 mod cpu;
 mod cuda;
-mod hardware_identity;
+pub(crate) mod hardware_identity;
 mod hip;
 mod metal;
 mod wgpu;

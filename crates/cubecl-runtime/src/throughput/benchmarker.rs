@@ -1,14 +1,15 @@
 use crate::{
     config::CubeClRuntimeConfig,
-    throughput::{SampleStats, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue},
+    throughput::{
+        SampleStats, ThroughputCache, ThroughputCacheKey, ThroughputError, ThroughputKey,
+        ThroughputValue,
+    },
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use cubecl_common::profile::{Duration, Instant};
 use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
-
-type Cache = Arc<Mutex<ThroughputCache>>;
 
 /// Wall clock a warmup may spend growing its iteration count. Generous next to
 /// the tens of milliseconds a converging one needs, and the only thing bounding
@@ -64,14 +65,14 @@ pub struct Ranked {
 }
 
 /// A marker for measuring throughput of compute kernels.
-pub struct ThroughputBenchmarker {
-    cache: Cache,
+pub struct ThroughputBenchmarker<K = ThroughputKey> {
+    cache: Arc<Mutex<ThroughputCache<K>>>,
     cache_enabled: bool,
 }
 
-impl ThroughputBenchmarker {
+impl<K: ThroughputCacheKey + Copy> ThroughputBenchmarker<K> {
     /// Creates a new `ThroughputBenchmarker` with the given cache.
-    pub fn new(cache: Cache) -> Self {
+    pub fn new(cache: Arc<Mutex<ThroughputCache<K>>>) -> Self {
         let cache_enabled = !CubeClRuntimeConfig::get().throughput.disable_cache;
         Self {
             cache,
@@ -80,7 +81,7 @@ impl ThroughputBenchmarker {
     }
 
     /// The value already measured for `key`, where the cache is on and holds one.
-    pub fn cached(&self, key: ThroughputKey) -> Option<ThroughputValue> {
+    pub fn cached(&self, key: K) -> Option<ThroughputValue> {
         if !self.cache_enabled {
             return None;
         }
@@ -95,7 +96,7 @@ impl ThroughputBenchmarker {
     /// Whatever `probe` reports. Only a measurement is cached.
     pub fn measure(
         &mut self,
-        key: ThroughputKey,
+        key: K,
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
     ) -> Result<ThroughputValue, ThroughputError> {
         if self.cache_enabled
@@ -112,7 +113,9 @@ impl ThroughputBenchmarker {
 
         Ok(value)
     }
+}
 
+impl ThroughputBenchmarker {
     /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
     pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
         let sample = kernel_config.sample;

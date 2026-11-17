@@ -66,7 +66,7 @@ impl Display for HardwareIdentity {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use alloc::string::ToString;
     use alloc::vec;
@@ -159,7 +159,7 @@ mod tests {
         }
     }
 
-    fn l4() -> DeviceProperties {
+    pub(crate) fn l4() -> DeviceProperties {
         let hardware = HardwareProperties {
             load_width: 128,
             vector_register_count: None,
