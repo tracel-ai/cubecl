@@ -3,6 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::launch::arg::adding::adding_tile;
+use crate::launch::arg::destination::{ServedDestination, ServedDestinationExpand};
 use crate::launch::arg::tensor::TileTensorExpand;
 use crate::space::Extent;
 use crate::*;
@@ -94,12 +95,12 @@ impl<'a> LastArrival<'a> {
         self.own.clone()
     }
 
-    /// Hand `sum`, opened on [`tile`](LastArrival::tile), on to `out` with a cast: drained straight
-    /// into it where this run holds the box whole, parked and merged by the last run to arrive
-    /// otherwise. Every unit of the cube reaches it.
-    pub fn hand_on(&self, sum: &Tile, out: &mut Tile) {
+    /// Hand `sum`, opened on [`tile`](LastArrival::tile), on to `dest` at this box: the sum
+    /// itself where this run holds the box whole, otherwise parked, and the total merged by the
+    /// last run to arrive, which alone hands it on. Every unit of the cube reaches it.
+    pub fn hand_on<D: ServedDestination>(&self, sum: &Tile, dest: &D) {
         let slot = self.own.projection();
-        let output = out.projection();
+        let output = dest.tile().projection();
         comptime!(assert!(
             slot.logical_axes() == output.logical_axes(),
             "LastArrival::hand_on: the slots span {:?} and the output {:?}; a sum opened on a slot \
@@ -108,7 +109,7 @@ impl<'a> LastArrival<'a> {
             output.logical_axes()
         ));
         if self.holders == 1 {
-            sum.drained_into(&out.at(&self.region));
+            sum.consumed_by::<D>(dest, &self.region);
         } else {
             sum.drained_into(&self.tile());
             // The part lands at device scope before the run counts itself in.
@@ -130,8 +131,7 @@ impl<'a> LastArrival<'a> {
                 }
                 // Every line of the total is in before any is read back.
                 sync_storage();
-                let mut out_box = out.at(&self.region);
-                out_box.copy_cast_from(&self.slots.at(&total));
+                self.slots.at(&total).consumed_by::<D>(dest, &self.region);
                 if UNIT_POS == 0 {
                     self.arrivals[self.counter].store(0u32);
                 }

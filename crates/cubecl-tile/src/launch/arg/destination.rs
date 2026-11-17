@@ -56,8 +56,16 @@ pub trait ServedDestination: CubeType {
 pub trait OpenedDestination: CubeType {
     /// Consume the output tile at `at`, once per finished tile, in the order the owner computes
     /// them, possibly in divergent control flow, so it may not use plane operations or
-    /// synchronize unless the routine says otherwise. `sum` may carry scales
-    /// ([`Tile::scaled`]) that a draining reader applies and any other reader must.
+    /// synchronize unless the routine says otherwise.
+    ///
+    /// `sum` is a register sum, which may carry scales ([`Tile::scaled`]) that a draining reader
+    /// applies and any other reader must, or a memory tile holding a finished total that
+    /// partials were merged into. A total:
+    /// - is consumed by every unit of the owner in uniform control flow, its units copying its
+    ///   lines together, so the call may synchronize the owner (a bulk store does);
+    /// - is not read back in the call, another unit may have written those lines: a destination
+    ///   that sends waits for [`close`](Self::close) or [`finish`](ServedDestination::finish);
+    /// - is valid only during the call, its memory being reused.
     fn consume(&mut self, at: &Region, sum: &Tile);
 
     /// Close once per [`open`](ServedDestination::open), after the last
