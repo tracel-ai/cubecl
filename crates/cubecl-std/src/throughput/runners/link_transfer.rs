@@ -20,10 +20,10 @@ pub fn build_kernel(
     let [buffer] = memory_probe::reserve(source, [bytes as usize])?;
 
     // A failed receive leaves its failure on the destination it never wrote, which a sync does
-    // not report.
+    // not report. Asked first: a receive that never posted leaves the send waiting for it.
     let received = source.clone().to_client(buffer.clone(), destination);
-    let _ = block_on(source.sync());
     block_on(destination.sync_buffers([&received])).map_err(|_| ThroughputError::Launch)?;
+    let _ = block_on(source.sync());
 
     let (sender, receiver) = (source.clone(), destination.clone());
     let sample = Box::new(move |iterations: usize| {

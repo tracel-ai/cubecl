@@ -56,13 +56,16 @@ impl ThroughputCache<LinkKey> {
     /// named by its PCI address too. That address is local to the host, and a stored cache can
     /// travel to another, so a stored one is also named for the host.
     pub fn get_for_link(runtime: &str, members: &[&DeviceProperties]) -> Option<Arc<Mutex<Self>>> {
-        Some(cached(&LINK_CACHE, link_name(runtime, members)?))
+        Some(cached(
+            &LINK_CACHE,
+            link_name(&host_id()?, runtime, members)?,
+        ))
     }
 }
 
-/// The name of the cache for the link between `members`, in order, or `None` where a member's
-/// place cannot be named.
-fn link_name(runtime: &str, members: &[&DeviceProperties]) -> Option<String> {
+/// The name of the cache on `host` for the link between `members`, in order, or `None` where a
+/// member's place cannot be named.
+fn link_name(host: &str, runtime: &str, members: &[&DeviceProperties]) -> Option<String> {
     let places = members
         .iter()
         .map(|properties| {
@@ -78,7 +81,7 @@ fn link_name(runtime: &str, members: &[&DeviceProperties]) -> Option<String> {
         })
         .collect::<Option<Vec<_>>>()?;
 
-    Some(format!("link_{}_{}", host_id()?, places.join("__")))
+    Some(format!("link_{host}_{}", places.join("__")))
 }
 
 impl ThroughputCache {
@@ -196,20 +199,26 @@ mod tests {
 
     #[test]
     fn a_card_with_no_place_has_no_link_cache() {
-        assert_eq!(link_name("cuda", &[&l4_at(0x83), &l4()]), None);
+        assert_eq!(link_name("host", "cuda", &[&l4_at(0x83), &l4()]), None);
     }
 
     #[test]
     fn identical_cards_in_other_slots_are_another_link() {
         let (a, b, c) = (l4_at(0x83), l4_at(0x86), l4_at(0xc3));
 
-        assert_ne!(link_name("cuda", &[&a, &b]), link_name("cuda", &[&a, &c]));
+        assert_ne!(
+            link_name("host", "cuda", &[&a, &b]),
+            link_name("host", "cuda", &[&a, &c])
+        );
     }
 
     #[test]
     fn a_link_is_named_in_the_order_its_bytes_move() {
         let (a, b) = (l4_at(0x83), l4_at(0x86));
 
-        assert_ne!(link_name("cuda", &[&a, &b]), link_name("cuda", &[&b, &a]));
+        assert_ne!(
+            link_name("host", "cuda", &[&a, &b]),
+            link_name("host", "cuda", &[&b, &a])
+        );
     }
 }

@@ -4,6 +4,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_runtime::{
     client::{Client, ClientGroup},
     execution::{StreamMode, StreamModeOverride},
+    logging::TransferRoute,
     server::PeerAccess,
     throughput::{
         DEFAULT_WORKING_SET_BYTES, KernelConfig, LinkKey, LinkRoute, MemoryCurve, MemoryPoint,
@@ -35,6 +36,16 @@ pub fn measure_link_throughput(
     key: LinkKey,
 ) -> Result<ThroughputValue, ThroughputError> {
     LinkProber::new(members).measure(key)
+}
+
+/// The route `Client::to_client` takes from `source` to `destination`: the device transport
+/// between two devices of one runtime that has one, the host otherwise.
+pub fn transfer_route(source: &Client, destination: &Client) -> TransferRoute {
+    let same_runtime = source.service_id().service == destination.service_id().service;
+    match source.has_device_transport() && same_runtime {
+        true => TransferRoute::Device,
+        false => TransferRoute::Host,
+    }
 }
 
 /// Measures `route` between `members` across a range of sizes, from a few kilobytes up to the
@@ -78,7 +89,9 @@ impl<'a> LinkProber<'a> {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            if self.members.iter().any(Client::skips_communication) {
+            // Before the cache: a route the members no longer take would answer the rate of one
+            // they took before.
+            if !self.supports(key.route) {
                 return Err(ThroughputError::Unsupported);
             }
             let Some(first) = self.members.first() else {
@@ -120,33 +133,40 @@ impl<'a> LinkProber<'a> {
     }
 
     fn build(&self, route: LinkRoute, bytes: u64) -> Result<KernelConfig, ThroughputError> {
-        let (source, destination) = match self.members {
-            [source, destination, ..] => (source, destination),
-            _ => return Err(ThroughputError::Unsupported),
+        let [source, destination, ..] = self.members else {
+            return Err(ThroughputError::Unsupported);
         };
         match route {
-            LinkRoute::Transfer if self.members.len() == 2 => {
-                link_transfer::build_kernel(source, destination, bytes)
-            }
-            LinkRoute::PeerLoad if self.binds(destination, source) => {
-                link_peer::build_load(source, destination, bytes)
-            }
-            LinkRoute::PeerStore if self.binds(source, destination) => {
-                link_peer::build_store(source, destination, bytes)
-            }
+            LinkRoute::Transfer(_) => link_transfer::build_kernel(source, destination, bytes),
+            LinkRoute::PeerLoad => link_peer::build_load(source, destination, bytes),
+            LinkRoute::PeerStore => link_peer::build_store(source, destination, bytes),
             LinkRoute::Collective(kind) => self
                 .group()
                 .ok_or(ThroughputError::Unsupported)
                 .and_then(|group| link_collective::build_kernel(group, kind, bytes)),
-            LinkRoute::Transfer | LinkRoute::PeerLoad | LinkRoute::PeerStore => {
-                Err(ThroughputError::Unsupported)
-            }
         }
     }
 
-    /// Whether the members are a pair and `kernel`'s kernels can bind `owner`'s memory.
-    fn binds(&self, kernel: &Client, owner: &Client) -> bool {
-        self.members.len() == 2 && kernel.peer_access(owner) >= PeerAccess::Memory
+    /// Whether the members move bytes over `route` now.
+    fn supports(&self, route: LinkRoute) -> bool {
+        if self.members.iter().any(Client::skips_communication) {
+            return false;
+        }
+        match (route, self.members) {
+            (LinkRoute::Transfer(taken), [source, destination]) => {
+                transfer_route(source, destination) == taken
+            }
+            (LinkRoute::PeerLoad, [source, destination]) => {
+                destination.peer_access(source) >= PeerAccess::Memory
+            }
+            (LinkRoute::PeerStore, [source, destination]) => {
+                source.peer_access(destination) >= PeerAccess::Memory
+            }
+            (LinkRoute::Collective(_), [_, _, ..]) => {
+                self.members.iter().all(Client::has_device_transport)
+            }
+            _ => false,
+        }
     }
 
     /// The members as a group, or `None` where the runtime has no device transport.
@@ -161,7 +181,7 @@ impl<'a> LinkProber<'a> {
     fn size_cap(&self, route: LinkRoute) -> u64 {
         let buffers = match route {
             LinkRoute::Collective(_) => 2,
-            LinkRoute::Transfer | LinkRoute::PeerLoad | LinkRoute::PeerStore => 1,
+            LinkRoute::Transfer(_) | LinkRoute::PeerLoad | LinkRoute::PeerStore => 1,
         };
         self.members
             .iter()

@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_common::profile::Instant;
+use cubecl_common::profile::{Duration, Instant};
 use cubecl_core::{
     future::block_on,
     ir::{ElemType, FloatKind},
@@ -64,7 +64,11 @@ pub fn build_kernel(
             client.sync_collective();
             let _ = block_on(client.sync());
         }
-        start.elapsed()
+        // A skip guard taken meanwhile queues nothing, and a zero reads as no timing.
+        match group.skips_communication() {
+            true => Duration::ZERO,
+            false => start.elapsed(),
+        }
     });
 
     sample(1);

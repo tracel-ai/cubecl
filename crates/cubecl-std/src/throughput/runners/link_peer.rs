@@ -2,12 +2,13 @@ use alloc::boxed::Box;
 use cubecl::prelude::*;
 use cubecl_common::profile::Instant;
 use cubecl_core as cubecl;
+use cubecl_core::ir::{ElemType, UIntKind};
 use cubecl_runtime::{
-    server::Handle,
+    server::{Handle, PeerAccess},
     throughput::{KernelConfig, ThroughputError},
 };
 
-use crate::throughput::{memory_probe, verify::verify};
+use crate::throughput::{LaunchConfig, memory_probe, verify::verify};
 
 /// `u32`s per vector a peer kernel moves: 16 bytes, the widest load every runtime issues.
 const VECTOR_WIDTH: usize = 4;
@@ -19,21 +20,27 @@ const UNITS_PER_CUBE: u32 = 256;
 
 const MAX_CUBES: u32 = 1024;
 
+/// The most a peer kernel moves: a buffer's length in `u32`s is held in 32 bits.
+const MAX_BYTES: u64 = u32::MAX as u64 * 4;
+
 /// Builds [`peer_load`] on `destination`, moving `bytes` of `source`'s memory per pass, every load
 /// crossing the link. `ops_count` is the bytes moved.
 ///
 /// # Errors
 ///
-/// [`ThroughputError::Allocation`] where either device has no room for its buffer,
-/// [`ThroughputError::Unsupported`] where `source` cannot share it, and
-/// [`ThroughputError::Launch`] where the kernel did not run.
+/// [`ThroughputError::Unsupported`] where `destination`'s kernels cannot bind `source`'s memory or
+/// `bytes` is more than a kernel can address, [`ThroughputError::Allocation`] where either device
+/// has no room for its buffer, and [`ThroughputError::Launch`] where the kernel did not run.
 pub fn build_load(
     source: &Client,
     destination: &Client,
     bytes: u64,
 ) -> Result<KernelConfig, ThroughputError> {
-    let bytes = whole_vectors(bytes);
-    let peer = shared(source, bytes)?;
+    let bytes = movable(destination, source, bytes)?;
+    let peer = initialized(source, bytes)?;
+    let peer = source
+        .share_with_peers(&peer)
+        .map_err(|_| ThroughputError::Unsupported)?;
     let [local] = memory_probe::reserve(destination, [bytes as usize])?;
 
     let launcher = destination.clone();
@@ -67,9 +74,12 @@ pub fn build_store(
     destination: &Client,
     bytes: u64,
 ) -> Result<KernelConfig, ThroughputError> {
-    let bytes = whole_vectors(bytes);
-    let [local] = memory_probe::reserve(source, [bytes as usize])?;
-    let peer = shared(destination, bytes)?;
+    let bytes = movable(source, destination, bytes)?;
+    let local = initialized(source, bytes)?;
+    let [peer] = memory_probe::reserve(destination, [bytes as usize])?;
+    let peer = destination
+        .share_with_peers(&peer)
+        .map_err(|_| ThroughputError::Unsupported)?;
 
     let launcher = source.clone();
     let written = peer.clone();
@@ -90,12 +100,24 @@ pub fn build_store(
     })
 }
 
-/// A buffer of `bytes` on `owner`, bound for its peers' kernels.
-fn shared(owner: &Client, bytes: u64) -> Result<Handle, ThroughputError> {
-    let [buffer] = memory_probe::reserve(owner, [bytes as usize])?;
-    owner
-        .share_with_peers(&buffer)
-        .map_err(|_| ThroughputError::Unsupported)
+/// `bytes` in whole vectors, where `kernel`'s kernels can bind `owner`'s memory and address them.
+fn movable(kernel: &Client, owner: &Client, bytes: u64) -> Result<u64, ThroughputError> {
+    if kernel.peer_access(owner) < PeerAccess::Memory || bytes > MAX_BYTES {
+        return Err(ThroughputError::Unsupported);
+    }
+    Ok(whole_vectors(bytes))
+}
+
+/// A buffer on `owner` holding at least `bytes`, every line of it written, since a kernel's input
+/// must be.
+fn initialized(owner: &Client, bytes: u64) -> Result<Handle, ThroughputError> {
+    let dtype = ElemType::UInt(UIntKind::U32);
+    let config = LaunchConfig::for_device(owner, dtype);
+    let line_bytes = (config.vector_size * dtype.size()) as u64;
+    let lines = bytes.div_ceil(line_bytes);
+    let [buffer] = memory_probe::reserve(owner, [(lines * line_bytes) as usize])?;
+    memory_probe::prime(owner, &buffer, lines as usize, config, dtype);
+    Ok(buffer)
 }
 
 /// `bytes` rounded down to whole vectors, at least one.

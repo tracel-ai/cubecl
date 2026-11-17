@@ -1,11 +1,12 @@
-use crate::server::Collective;
+use crate::{logging::TransferRoute, server::Collective};
 
 /// How a link probe moves its bytes between devices.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum LinkRoute {
-    /// `Client::to_client` from the first member to the second.
-    Transfer,
+    /// `Client::to_client` from the first member to the second, over the route the runtime takes
+    /// between them: a rate over the device transport says nothing about a copy through the host.
+    Transfer(TransferRoute),
     /// A kernel on the second member loading from the first member's memory.
     PeerLoad,
     /// A kernel on the first member storing into the second member's memory, ending behind a

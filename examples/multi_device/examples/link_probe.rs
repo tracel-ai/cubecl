@@ -1,15 +1,9 @@
 use cubecl::{
     prelude::Client,
     server::Collective,
-    std::throughput::measure_link_curve,
+    std::throughput::{measure_link_curve, transfer_route},
     throughput::{LinkRoute, MemoryCurve},
 };
-
-const PAIR_ROUTES: [LinkRoute; 3] = [
-    LinkRoute::Transfer,
-    LinkRoute::PeerLoad,
-    LinkRoute::PeerStore,
-];
 
 const COLLECTIVES: [Collective; 3] = [
     Collective::AllReduce,
@@ -23,7 +17,8 @@ fn main() {
 
     for (from, source) in clients.iter().enumerate() {
         for (to, destination) in clients.iter().enumerate().filter(|(to, _)| *to != from) {
-            for route in PAIR_ROUTES {
+            let transfer = LinkRoute::Transfer(transfer_route(source, destination));
+            for route in [transfer, LinkRoute::PeerLoad, LinkRoute::PeerStore] {
                 let pair = [source.clone(), destination.clone()];
                 print_curve(&format!("{route:?} {from} -> {to}"), &pair, route, 1.0);
             }
