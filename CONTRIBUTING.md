@@ -13,6 +13,9 @@ Before you start working on a contribution, please take a moment to look through
 the [issue tracker][1] for this project. This will give you an
 idea of what kind of work is currently being planned or is in progress.
 
+If you (or an AI agent) file an issue, follow the [issue instructions][8]: keep it short, and
+separate what you observed from what you suspect.
+
 ### Step 2: Get Familiar with the project
 
 Familiarize yourself with the structure of the project, the purpose of different components, and how they
@@ -128,3 +131,4 @@ discord server:
 [5]: https://desktop.github.com/
 [6]: https://doc.rust-lang.org/std/result/enum.Result.html#recommended-message-style
 [7]: https://discord.gg/uPEBbYYDB6
+[8]: https://github.com/tracel-ai/cubecl/blob/main/.github/agents/issue_instructions.md
