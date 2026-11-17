@@ -205,6 +205,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
+                num_cpu_physical_cores: None,
                 last_level_cache_size,
                 max_vector_size: VectorSize::MAX,
                 cube_mma_reserved_shared_memory: 0,
@@ -235,6 +236,13 @@ impl DeviceService for CudaServer {
                 ty,
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
+        }
+        // A 16-bit float's atomic load and store are plain volatile accesses, which every arch
+        // has; its exchange is not, since `atomicExch` has no 16-bit overload.
+        for kind in [FloatKind::F16, FloatKind::BF16] {
+            let ty = Type::atomic(ElemType::Float(kind));
+            device_props.register_atomic_type_usage(ty, AtomicUsage::LoadStore);
+            device_props.register_shared_atomic_type_usage(ty, AtomicUsage::LoadStore);
         }
         // Shared memory takes the scalar atomics: PTX's vector atomics (`.v2`, `.v4`, `.v8`)
         // address global memory only.
