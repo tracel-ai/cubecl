@@ -404,7 +404,7 @@ impl VectorTile {
         #[comptime] tile: &VectorTile,
     ) -> Coords<u32> {
         let rank = space.rank();
-        let order = comptime!(tile.order(space));
+        let order = tile.order(space);
         let digits = Coords::constant(comptime!(
             order.iter().map(|&(_, count, _)| count).collect::<Vec<_>>()
         ))
