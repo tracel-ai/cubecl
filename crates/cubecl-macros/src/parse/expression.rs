@@ -33,6 +33,15 @@ impl Expression {
     pub fn from_branch_selector(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let is_comptime = matches!(&expr, Expr::Macro(mac) if mac.mac.path.is_ident("comptime"));
         let outer = core::mem::replace(&mut context.in_branch_selector, is_comptime);
+        let result = Self::from_expr(expr, context);
+        context.in_branch_selector = outer;
+        result
+    }
+
+    /// Parses the whole condition of an `if` or the whole value of a `match`.
+    pub fn from_branch_selector_value(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+        let is_comptime = matches!(&expr, Expr::Macro(mac) if mac.mac.path.is_ident("comptime"));
+        let outer = core::mem::replace(&mut context.in_branch_selector, is_comptime);
         let result = Self::from_expr_value(expr, context);
         context.in_branch_selector = outer;
         result

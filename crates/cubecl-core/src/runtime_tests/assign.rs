@@ -109,6 +109,7 @@ fn kernel_compound_assign_kinds(input: &[u32], output: &mut [u32], #[comptime] s
 }
 
 #[derive(CubeType, Clone, Copy)]
+#[expand(derive(Clone, Copy))]
 struct Cursor {
     slot: u32,
 }
@@ -213,6 +214,40 @@ pub fn test_mut_ref_struct_field<R: Runtime>(client: Client) {
 
     unsafe {
         kernel_mut_ref_struct_field::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [5, 8]);
+}
+
+#[cube]
+impl Cursor {
+    fn snapshot_and_bump(self, original: &mut Cursor) -> u32 {
+        original.slot += 3u32;
+        self.slot
+    }
+}
+
+#[cube(launch_unchecked)]
+fn kernel_copy_owned_receiver(output: &mut [u32]) {
+    let mut cursor = Cursor {
+        slot: 5u32.runtime(),
+    };
+    let snapshot = cursor.snapshot_and_bump(&mut cursor);
+    output[0] = snapshot;
+    output[1] = cursor.slot;
+}
+
+pub fn test_copy_owned_receiver<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_copy_owned_receiver::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -470,6 +505,12 @@ macro_rules! testgen_assign {
             fn test_mut_ref_struct_field() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::assign::test_mut_ref_struct_field::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_copy_owned_receiver() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_copy_owned_receiver::<TestRuntime>(client);
             }
         }
     };
