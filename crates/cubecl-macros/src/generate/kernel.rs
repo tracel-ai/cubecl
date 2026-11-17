@@ -4,9 +4,12 @@ use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt 
 use inflections::case::to_snake_case;
 use proc_macro2::{Literal, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use syn::{Ident, TypeParamBound, parse_quote};
+use syn::{
+    FnArg, Ident, Receiver, ReceiverKind, Token, TypeParamBound, parse_quote, spanned::Spanned,
+};
 
 use crate::{
+    expression::Expression,
     generate::statement::name_debug_var,
     parse::{
         kernel::{
@@ -16,6 +19,7 @@ use crate::{
         signature::KernelReturns,
     },
     paths::{core_type, frontend_type, prelude_type},
+    statement::Statement,
 };
 
 impl ToTokens for ExecutionMode {
@@ -40,7 +44,33 @@ impl KernelFn {
         })
     }
 
+    /// Owned `self` needs to be read from a place if the receiver is a place expression
+    fn patch_self_place(&mut self) {
+        if let Some(FnArg::Receiver(
+            rec @ Receiver {
+                kind: ReceiverKind::Value,
+                ..
+            },
+        )) = &mut self.sig.receiver_arg
+            && let KernelBody::Block(block) = &mut self.body
+        {
+            let into_mut = prelude_type("IntoMut");
+            rec.mutability = Some(Token![mut](rec.span()));
+            let tokens = quote![self = #into_mut::read_place(self, scope)];
+            block.inner.insert(
+                0,
+                Statement::Expression {
+                    expression: Box::new(Expression::VerbatimTerminated { tokens }),
+                    terminated: true,
+                    span: Some(rec.span()),
+                },
+            );
+        }
+    }
+
     pub fn to_tokens_mut(&mut self) -> TokenStream {
+        self.patch_self_place();
+
         let attrs = &self.attrs;
         let vis = &self.vis;
         let sig = &self.sig;
