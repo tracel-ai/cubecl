@@ -12,6 +12,7 @@ mod destination;
 mod distributed;
 mod dynamic_contraction;
 mod edge_identity;
+mod folded;
 mod erased;
 mod gather;
 mod imperative;
