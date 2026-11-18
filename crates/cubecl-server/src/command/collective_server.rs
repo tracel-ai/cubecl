@@ -360,13 +360,26 @@ pub trait CollectiveServer: Sized {
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let timing = self.collectives().take_timing();
         let last_end = self.collectives().take_last_end();
+        let compute_tail = self.collectives().compute_tail_other_than(Some(stream_id));
+        // A collective stream no collective ran on since a compute stream waited for it holds
+        // nothing to wait for, and a capturing stream must not wait on one outside its capture.
+        let comm_is_tail = self.collectives().comm_stream_is_tail();
         let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
         drop(command);
         marks.reach(stream);
-        marks.synced(self.comm_stream(), stream, last_end.as_ref())
+        if let Some(compute_tail) = compute_tail {
+            Self::Driver::wait_for(stream, compute_tail)?;
+        }
+        marks.synced(
+            comm_is_tail.then(|| self.comm_stream()),
+            stream,
+            last_end.as_ref(),
+        )?;
+        self.collectives().comm_stream_synced(stream_id, stream);
+        Ok(())
     }
 
     /// Sends `desc` to `device_id_dst`, whose server receives it with [`recv`](Self::recv).
@@ -428,6 +441,9 @@ pub trait CollectiveServer: Sized {
 /// for every peer. A single element connects the algorithm they pick, the ring on a single node.
 fn connect<S: CollectiveServer>(server: &mut S, id: &CommunicationId) -> Result<(), ServerError> {
     let comm = *server.collectives().get(id)?;
+    if let Some(compute_tail) = server.collectives().compute_tail_other_than(None) {
+        S::Driver::wait_for(server.comm_stream(), compute_tail)?;
+    }
     let element = server.connect_element();
     let elements = S::Driver::elements(ElemType::Float(FloatKind::F32), CONNECT_ELEMENT_SIZE)?;
     let connected = S::Driver::all_reduce(
@@ -478,8 +494,12 @@ fn settle<S: CollectiveServer, const N: usize, Plan>(
     }
 }
 
-/// Runs `collective` on the collective stream over `bindings`, once the compute stream has
-/// written them, keeping them borrowed until the compute stream waits as `wait` says.
+/// Runs `collective` over `bindings` once the compute stream has written them, keeping them
+/// borrowed until the compute stream waits as `wait` says.
+///
+/// One the compute stream waits for at once runs on it when nothing else orders it: nothing can
+/// overlap it, and the two waits across streams cost several times a small collective on HIP,
+/// where each stream is its own hardware queue.
 ///
 /// # Errors
 ///
@@ -501,6 +521,10 @@ fn run<S: CollectiveServer, const N: usize>(
 ) -> Result<(), ServerError> {
     let comm = *server.collectives().get(group)?;
     let comm_stream = server.comm_stream();
+    let on_compute = server.collectives().runs_on_compute(stream_id, wait);
+    let awaited = server
+        .collectives()
+        .compute_tail_other_than(Some(stream_id));
     let marks = CommunicationMarks::new(server, timing);
 
     let mut command = server.command(stream_id, bindings.iter())?;
@@ -511,13 +535,20 @@ fn run<S: CollectiveServer, const N: usize>(
     let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
 
-    marks.hand_over(comm_stream, stream)?;
-    collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
-    let ended = marks.ended(comm_stream, stream, wait);
+    let part_stream = marks.begin(on_compute, comm_stream, stream, awaited)?;
+    collective(&comm, core::array::from_fn(|i| &resources[i]), part_stream)?;
+    let ended = marks.finish(on_compute, comm_stream, stream, wait);
     // Dropping the command releases bindings borrowed from other streams at this point of
     // the compute stream, which only waits for the collective under `ComputeWait::Now`.
     drop(command);
-    server.collectives().collective_queued(marks.end);
+    // A compute stream whose wait failed is not ordered after the collective.
+    let waited = match &ended {
+        Ok(()) => wait,
+        Err(_) => ComputeWait::AtSync,
+    };
+    server
+        .collectives()
+        .collective_ran(waited, marks.end, stream_id, stream);
     ended
 }
 
@@ -713,6 +744,64 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
         S::Driver::wait_for(part_stream, compute)
     }
 
+    /// Starts a collective on `compute` when `on_compute`, or else on `collectives` once it has
+    /// waited for `awaited` and for the work queued on `compute`, and returns the stream it runs on.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the streams.
+    fn begin(
+        &mut self,
+        on_compute: bool,
+        collectives: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        awaited: Option<StreamSignal<S::Driver>>,
+    ) -> Result<StreamSignal<S::Driver>, ServerError> {
+        if on_compute {
+            self.reach(compute);
+            return Ok(compute);
+        }
+        if let Some(awaited) = awaited {
+            S::Driver::wait_for(collectives, awaited)?;
+        }
+        self.hand_over(collectives, compute)?;
+        Ok(collectives)
+    }
+
+    /// Ends a collective [`begin`](Self::begin) started, which `compute` waits for as `wait` says.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the two.
+    fn finish(
+        &mut self,
+        on_compute: bool,
+        collectives: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        if on_compute {
+            self.ended_on_compute(compute);
+            return Ok(());
+        }
+        self.ended(collectives, compute, wait)
+    }
+
+    /// A part on the compute stream is all wait: its window and the wait's both run from where the
+    /// compute stream reached it to where it ended.
+    fn ended_on_compute(&mut self, compute: StreamSignal<S::Driver>) {
+        let (Some(reached), Some(end)) = (self.reached.clone(), self.end.clone()) else {
+            return;
+        };
+        if let Err(error) = end.record(compute) {
+            *self = Self::failed(error);
+            return;
+        }
+        self.timing
+            .part_measured(EventProfiler::span(&reached, &end));
+        self.wait_measured(&end);
+    }
+
     /// The compute stream `compute` reaches its wait for the collectives queued so far.
     fn reach(&mut self, compute: StreamSignal<S::Driver>) {
         if let Some(reached) = &self.reached
@@ -755,7 +844,7 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
         Ok(())
     }
 
-    /// `compute` waits for every collective queued on `collectives`, and the wait's window runs
+    /// `compute` waits for every collective queued on `collectives`, if any, and the wait's window runs
     /// to `last_end`, where the last of them ends, or reads back empty without one. Not to this
     /// sync's own mark: an idle stream reaches it once queued, which is no part of the wait.
     ///
@@ -764,11 +853,13 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
     /// The driver's refusal to order the two.
     fn synced(
         &mut self,
-        collectives: StreamSignal<S::Driver>,
+        collectives: Option<StreamSignal<S::Driver>>,
         compute: StreamSignal<S::Driver>,
         last_end: Option<&Mark<S::Events>>,
     ) -> Result<(), ServerError> {
-        self.order(collectives, compute, ComputeWait::Now)?;
+        if let Some(collectives) = collectives {
+            self.order(collectives, compute, ComputeWait::Now)?;
+        }
         if let (Some(_), Some(last_end)) = (&self.end, last_end) {
             self.wait_measured(last_end);
         }
