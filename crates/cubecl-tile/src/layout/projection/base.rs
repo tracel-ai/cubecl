@@ -383,6 +383,37 @@ impl Projection {
         self.physical.iter().all(|m| m.identity_axis().is_some())
     }
 
+    /// Why a projection stated over a plain buffer, where an axis spans several dims, cannot be
+    /// served at `vector_size`, if it cannot: its axes must run in the order of its coordinates,
+    /// each axis's at its first dim, and a line wider than one value runs along the last of them,
+    /// so the innermost dim must carry the last axis. (A storage tiling states its own order; its
+    /// loads are its tiles.)
+    pub(crate) fn axes_in_dim_order(&self, vector_size: usize) -> Result<(), Refusal> {
+        if !self.is_tiled() {
+            return Ok(());
+        }
+        let by_dim: Vec<Axis> = self
+            .carried_groups()
+            .into_iter()
+            .filter_map(|pa| match self.physical[pa].addressed() {
+                Addressed::By(axis) => Some(axis),
+                Addressed::Broadcast => None,
+            })
+            .collect();
+        let stated: Vec<Axis> = self
+            .axes
+            .iter()
+            .copied()
+            .filter(|&axis| self.addresses(axis))
+            .collect();
+        let innermost = self.physical.last().map(PhysicalAxisMap::addressed);
+        let lined = vector_size == 1 || innermost == stated.last().copied().map(Addressed::By);
+        match stated == by_dim && lined {
+            true => Ok(()),
+            false => Err(Refusal::AxesOutOfDimOrder { stated, by_dim }),
+        }
+    }
+
     /// Why a gathered projection cannot be served at `vector_size`, if it cannot.
     pub(crate) fn validate(&self, vector_size: usize) -> Result<(), Refusal> {
         if self.is_invertible() {
