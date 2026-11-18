@@ -47,6 +47,21 @@ impl HardwareIdentity {
             self.runtime, self.fingerprint, self.name, self.parallelism
         )
     }
+
+    /// The hardware of a device of `runtime` reporting `properties`, written with the PCI slot it
+    /// sits in, as a link's throughput cache names its members: a link's rate moves with where its
+    /// cards sit. `None` where the device reports no slot.
+    pub(crate) fn name_in_slot(runtime: &str, properties: &DeviceProperties) -> Option<String> {
+        let pci = properties.identity.physical.as_ref()?.pci_address?;
+        Some(format!(
+            "{}_pci{:04x}{:02x}{:02x}{:x}",
+            Self::new(runtime, properties),
+            pci.domain,
+            pci.bus,
+            pci.device,
+            pci.function
+        ))
+    }
 }
 
 /// `text` made fit for one path segment, since a runtime names itself `wgpu<spirv>`. Done at
@@ -71,7 +86,10 @@ mod tests {
     use alloc::string::ToString;
     use alloc::vec;
     use cubecl_common::profile::TimingMethod;
-    use cubecl_ir::{HardwareProperties, MemoryDeviceProperties, VectorSize, features::Features};
+    use cubecl_ir::{
+        HardwareProperties, MemoryDeviceProperties, PciAddress, PhysicalDevice, VectorSize,
+        features::Features,
+    };
 
     #[test]
     fn a_gpu_is_identified_by_its_runtime_target_name_and_multiprocessors() {
@@ -190,6 +208,32 @@ mod tests {
                 physical: None,
             },
         )
+    }
+
+    fn l4_at(bus: u8) -> DeviceProperties {
+        let mut properties = l4();
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = Some(PciAddress {
+            domain: 0,
+            bus,
+            device: 0,
+            function: 0,
+        });
+        properties.identity.physical = Some(physical);
+        properties
+    }
+
+    #[test]
+    fn a_card_with_no_slot_has_no_name_in_one() {
+        assert_eq!(HardwareIdentity::name_in_slot("cuda", &l4()), None);
+    }
+
+    #[test]
+    fn identical_cards_in_other_slots_are_named_apart() {
+        assert_ne!(
+            HardwareIdentity::name_in_slot("cuda", &l4_at(0x83)),
+            HardwareIdentity::name_in_slot("cuda", &l4_at(0x86))
+        );
     }
 
     fn rtx_2060() -> HardwareIdentity {
