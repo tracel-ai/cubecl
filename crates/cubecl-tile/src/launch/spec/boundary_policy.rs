@@ -17,4 +17,7 @@ pub enum BoundaryPolicy {
     /// a caller that compiles its kernels ahead of the calls needs, where a call's extents fall
     /// between the ones it compiled for.
     AnyExtent(Boundary),
+    /// Checked with this boundary on the dimensions this launch's tiles overhang, the ones an
+    /// operand that states no policy is checked on with [`Boundary::Zero`].
+    Overhanging(Boundary),
 }

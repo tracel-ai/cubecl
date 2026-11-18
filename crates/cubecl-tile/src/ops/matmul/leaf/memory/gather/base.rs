@@ -368,7 +368,11 @@ fn masked_bound_depends_on(
 ) -> bool {
     rhs.dimensions().contains(&tap)
         && rhs.carriers(tap).iter().any(|&pa| {
-            boundaries.get(pa).copied().flatten() == Some(Boundary::Zero)
+            boundaries
+                .get(pa)
+                .copied()
+                .flatten()
+                .is_some_and(Boundary::masks)
                 && rhs
                     .physical_axis(pa)
                     .terms()

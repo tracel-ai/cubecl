@@ -347,8 +347,15 @@ impl Tile {
     fn clamped(&self, #[comptime] dimension: Dimension, coord: u32) -> u32 {
         let memory = self.mem("indexed_at");
         let p = comptime!(placed_axis(&memory.projection, dimension).unwrap());
-        let zero =
-            comptime!(memory.window.boundaries.get(p).copied().flatten() == Some(Boundary::Zero));
+        let zero = comptime!(
+            memory
+                .window
+                .boundaries
+                .get(p)
+                .copied()
+                .flatten()
+                .is_some_and(Boundary::masks)
+        );
         if zero {
             coord
         } else {

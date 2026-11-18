@@ -25,7 +25,9 @@ impl Boundaries {
         let boundary = match policy {
             Some(BoundaryPolicy::Unchecked) => return None,
             Some(BoundaryPolicy::Every(boundary)) => return Some(boundary),
-            Some(BoundaryPolicy::AnyExtent(boundary)) => boundary,
+            Some(BoundaryPolicy::AnyExtent(boundary) | BoundaryPolicy::Overhanging(boundary)) => {
+                boundary
+            }
             None => Boundary::Zero,
         };
         let overhangs = addressed
@@ -81,7 +83,7 @@ impl Boundaries {
         let one_extent = !matches!(policy, Some(BoundaryPolicy::AnyExtent(_)));
         let whole_lines = |pa: usize| {
             one_extent
-                && boundary == Boundary::Zero
+                && boundary.masks()
                 && !projection.may_underflow()
                 && coords
                     .physical_axis(pa)
