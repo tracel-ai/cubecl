@@ -91,10 +91,11 @@ pub fn memory_curve(device: &Device) {
 
 fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
     println!(
-        "\n  {:<8}{:>18}{:>10}",
+        "\n  {:<8}{:>18}{:>10}{:>10}",
         format!("{access:?}"),
         "peak",
-        "time rsd"
+        "time rsd",
+        "max"
     );
 
     for point in curve.points() {
@@ -104,17 +105,26 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
         };
 
         println!(
-            "    {:>10}{:>14}{:>10}",
+            "    {:>10}{:>14}{:>10}{:>10}",
             bytes_label(point.bytes),
             rate,
-            deviation_label(&point.value)
+            deviation_label(&point.value),
+            max_label(&point.value)
         );
     }
 }
 
 fn deviation_label(value: &ThroughputValue) -> String {
-    match value.relative_std_dev() {
-        Some(deviation) => format!("{:.1}%", deviation * 100.0),
+    percent_label(value.relative_std_dev(), "")
+}
+
+fn max_label(value: &ThroughputValue) -> String {
+    percent_label(value.relative_max(), "+")
+}
+
+fn percent_label(fraction: Option<f64>, sign: &str) -> String {
+    match fraction {
+        Some(fraction) => format!("{sign}{:.1}%", fraction * 100.0),
         None => String::from("N/A"),
     }
 }
@@ -156,9 +166,10 @@ fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
         let value = match row.key {
             Some(key) => match measure_peak_throughput(&client, key) {
                 Ok(value) => format!(
-                    "{}  time rsd {}",
+                    "{}  time rsd {}  max {}",
                     value.format(&key),
-                    deviation_label(&value)
+                    deviation_label(&value),
+                    max_label(&value)
                 ),
                 Err(unavailable) => unavailable.to_string(),
             },

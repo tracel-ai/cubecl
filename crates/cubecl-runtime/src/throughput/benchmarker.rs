@@ -1,8 +1,7 @@
 use crate::{
     config::CubeClRuntimeConfig,
     throughput::{
-        SampleStats, ThroughputCache, ThroughputCacheKey, ThroughputError, ThroughputKey,
-        ThroughputValue,
+        ThroughputCache, ThroughputCacheKey, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::boxed::Box;
@@ -121,14 +120,10 @@ impl ThroughputBenchmarker {
         let sample = kernel_config.sample;
 
         let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let (duration, samples) =
-            Self::sample_peak_duration(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
+        let samples =
+            Self::sample_until_settled(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
 
-        ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
-            samples,
-        }
+        ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples)
     }
 
     /// Warms the device on one shape and reports the count a sample should carry.
@@ -145,18 +140,14 @@ impl ThroughputBenchmarker {
     /// count [`warm`](Self::warm) settled.
     pub fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
         let iterations = iterations.max(kernel_config.min_iterations).max(1);
-        let (duration, samples) = Self::sample_peak_duration(
+        let samples = Self::sample_until_settled(
             iterations,
             &kernel_config.sample,
             SAMPLE_BUDGET,
             SAMPLE_PATIENCE,
         );
 
-        ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
-            samples,
-        }
+        ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples)
     }
 
     /// Times one shape briefly, to order it against the others rather than to
@@ -175,14 +166,9 @@ impl ThroughputBenchmarker {
         let samples: alloc::vec::Vec<Duration> = (0..RANK_SAMPLES)
             .map(|_| (kernel_config.sample)(iterations))
             .collect();
-        let fastest = samples.iter().copied().min().unwrap_or(Duration::MAX);
 
         Ranked {
-            value: ThroughputValue {
-                ops_count: kernel_config.ops_count,
-                duration: fastest / iterations as u32,
-                samples: SampleStats::new(&samples),
-            },
+            value: ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples),
             iterations,
         }
     }
@@ -276,14 +262,14 @@ impl ThroughputBenchmarker {
         iterations
     }
 
-    /// Sample the peak throughput of the kernel by running it multiple times
-    /// and measuring the duration of each iteration, with the statistics of the samples taken.
-    fn sample_peak_duration(
+    /// Samples the kernel at `iterations` until its fastest sample stops improving or the budget
+    /// runs out, and returns every sample taken.
+    fn sample_until_settled(
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
         budget: Duration,
         patience: usize,
-    ) -> (Duration, Option<SampleStats>) {
+    ) -> alloc::vec::Vec<Duration> {
         debug_assert!(
             iterations > 0,
             "iterations must be positive to avoid division by zero"
@@ -316,16 +302,14 @@ impl ThroughputBenchmarker {
             }
         }
 
-        (
-            Duration::from_secs_f64(best / iterations as f64),
-            SampleStats::new(&samples),
-        )
+        samples
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::throughput::SampleStats;
     use core::cell::Cell;
 
     fn spin(duration: Duration) {
@@ -380,7 +364,7 @@ mod tests {
     #[test]
     fn a_timer_reading_zero_still_stops_sampling() {
         let calls = Cell::new(0);
-        let _ = ThroughputBenchmarker::sample_peak_duration(
+        let _ = ThroughputBenchmarker::sample_until_settled(
             1,
             |_| {
                 calls.set(calls.get() + 1);
@@ -396,7 +380,7 @@ mod tests {
     #[test]
     fn sampling_keeps_the_deviation_of_its_samples() {
         let calls = Cell::new(0u64);
-        let (fastest, samples) = ThroughputBenchmarker::sample_peak_duration(
+        let samples = ThroughputBenchmarker::sample_until_settled(
             10,
             |iterations| {
                 calls.set(calls.get() + 1);
@@ -410,9 +394,10 @@ mod tests {
             SAMPLE_BUDGET,
             SAMPLE_PATIENCE,
         );
-        let samples = samples.expect("more than one sample");
+        let value = ThroughputValue::from_samples(1, 10, &samples);
+        let samples = value.samples.expect("more than one sample");
 
-        assert_eq!(fastest, Duration::from_nanos(1_000));
+        assert_eq!(value.duration, Duration::from_nanos(1_000));
         assert!(
             (Duration::from_micros(10)..Duration::from_micros(12)).contains(&samples.mean),
             "mean {:?}",
@@ -423,14 +408,14 @@ mod tests {
 
     #[test]
     fn a_sample_past_the_budget_is_followed_by_a_second() {
-        let (_, samples) = ThroughputBenchmarker::sample_peak_duration(
+        let samples = ThroughputBenchmarker::sample_until_settled(
             1,
             |_| Duration::from_millis(5),
             Duration::ZERO,
             SAMPLE_PATIENCE,
         );
 
-        assert_eq!(samples.map(|samples| samples.count), Some(2));
+        assert_eq!(samples.len(), 2);
     }
 
     #[test]
@@ -450,6 +435,46 @@ mod tests {
         let samples = SampleStats::new(&[Duration::from_millis(1), Duration::MAX]);
 
         assert!(samples.is_some());
+    }
+
+    #[test]
+    fn the_slowest_sample_is_kept() {
+        let samples = SampleStats::new(&[
+            Duration::from_micros(10),
+            Duration::from_micros(30),
+            Duration::from_micros(20),
+        ])
+        .expect("three samples");
+
+        assert_eq!(samples.max, Duration::from_micros(30));
+        let above_mean = samples.relative_max().expect("a mean above zero");
+        assert!(
+            (above_mean - 0.5).abs() < 1e-9,
+            "max sits {above_mean} above the mean"
+        );
+    }
+
+    #[test]
+    fn a_value_from_the_largest_sample_does_not_panic() {
+        let value = ThroughputValue::from_samples(1, 1, &[Duration::MAX]);
+
+        assert_eq!(value.duration, Duration::MAX);
+    }
+
+    #[test]
+    fn a_pass_under_a_nanosecond_rounds_to_the_nearest() {
+        let value = ThroughputValue::from_samples(1, 4_000_000, &[Duration::from_millis(3)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn a_count_past_u32_divides_whole() {
+        let iterations = 1usize << 33;
+        let value = ThroughputValue::from_samples(1, iterations, &[Duration::from_nanos(1 << 33)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
     }
 
     #[test]

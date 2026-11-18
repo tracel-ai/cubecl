@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// What the probes measure, as opposed to which release ran them. Bump it when
 /// a probe changes what it reports.
-pub const PROBE_VERSION: u32 = 5;
+pub const PROBE_VERSION: u32 = 4;
 
 /// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
 /// default working set. The probe's buffer is a multiple of this, and both are
@@ -167,7 +167,7 @@ pub struct ThroughputValue {
     pub samples: Option<SampleStats>,
 }
 
-/// The mean and standard deviation of a probe's samples, each a whole sample at one iteration
+/// The mean, standard deviation and slowest of a probe's samples, each a whole sample at one iteration
 /// count, so neither is lost to rounding a per-iteration time.
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
@@ -178,6 +178,8 @@ pub struct SampleStats {
     pub mean: Duration,
     /// Their sample standard deviation.
     pub std_dev: Duration,
+    /// The slowest of them.
+    pub max: Duration,
 }
 
 impl SampleStats {
@@ -201,6 +203,7 @@ impl SampleStats {
             count: samples.len(),
             mean: duration(mean),
             std_dev: duration(num_traits::Float::sqrt(squares / (count - 1.0))),
+            max: samples.iter().copied().max().unwrap_or_default(),
         })
     }
 
@@ -212,7 +215,18 @@ impl SampleStats {
         }
         Some(self.std_dev.as_secs_f64() / self.mean.as_secs_f64())
     }
+
+    /// How far the slowest sample sits above the mean, as a fraction of the mean, or `None` where
+    /// the timer read zero.
+    pub fn relative_max(&self) -> Option<f64> {
+        if self.mean.is_zero() {
+            return None;
+        }
+        Some(self.max.as_secs_f64() / self.mean.as_secs_f64() - 1.0)
+    }
 }
+
+const NANOS_PER_SEC: u128 = 1_000_000_000;
 
 impl ThroughputValue {
     /// A zero-initialized throughput value, representing no operations or duration.
@@ -222,10 +236,34 @@ impl ThroughputValue {
         samples: None,
     };
 
+    /// The value of samples each `iterations` long: the fastest per iteration, and the statistics
+    /// of all of them.
+    pub fn from_samples(ops_count: usize, iterations: usize, samples: &[Duration]) -> Self {
+        let fastest = samples.iter().copied().min().unwrap_or(Duration::MAX);
+        let iterations = iterations.max(1) as u128;
+        // To the nearest nanosecond: a kernel under half a nanosecond a pass would otherwise read
+        // as taking no time.
+        let nanos = (fastest.as_nanos() + iterations / 2) / iterations;
+
+        Self {
+            ops_count,
+            duration: Duration::new(
+                (nanos / NANOS_PER_SEC) as u64,
+                (nanos % NANOS_PER_SEC) as u32,
+            ),
+            samples: SampleStats::new(samples),
+        }
+    }
+
     /// The samples' standard deviation over their mean, or `None` where fewer than two were
     /// taken.
     pub fn relative_std_dev(&self) -> Option<f64> {
         self.samples.and_then(|samples| samples.relative_std_dev())
+    }
+
+    /// How far the slowest sample sits above the mean, or `None` where fewer than two were taken.
+    pub fn relative_max(&self) -> Option<f64> {
+        self.samples.and_then(|samples| samples.relative_max())
     }
 
     /// Returns the operations per second.
