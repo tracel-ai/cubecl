@@ -13,7 +13,9 @@ use cubecl_runtime::{
     },
 };
 
-use crate::throughput::{ShapeSweep, link_collective, link_peer, link_transfer};
+use crate::throughput::{
+    ShapeSweep, link_collective, link_peer, link_peer::MAX_BYTES, link_transfer,
+};
 
 /// One link probe at a time in the process. A probe holds several devices, which no device's
 /// exclusive hold can do: it runs on that device's thread, which the probe then calls into.
@@ -91,7 +93,7 @@ impl<'a> LinkProber<'a> {
         {
             // Before the cache: a route the members no longer take would answer the rate of one
             // they took before.
-            if !self.supports(key.route) {
+            if !self.supports(key.route) || key.bytes > MAX_BYTES {
                 return Err(ThroughputError::Unsupported);
             }
             let Some(first) = self.members.first() else {
