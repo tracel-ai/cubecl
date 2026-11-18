@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// What the probes measure, as opposed to which release ran them. Bump it when
 /// a probe changes what it reports.
-pub const PROBE_VERSION: u32 = 5;
+pub const PROBE_VERSION: u32 = 4;
 
 /// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
 /// default working set. The probe's buffer is a multiple of this, and both are
@@ -226,6 +226,8 @@ impl SampleStats {
     }
 }
 
+const NANOS_PER_SEC: u128 = 1_000_000_000;
+
 impl ThroughputValue {
     /// A zero-initialized throughput value, representing no operations or duration.
     pub const ZERO: Self = Self {
@@ -238,10 +240,17 @@ impl ThroughputValue {
     /// of all of them.
     pub fn from_samples(ops_count: usize, iterations: usize, samples: &[Duration]) -> Self {
         let fastest = samples.iter().copied().min().unwrap_or(Duration::MAX);
+        let iterations = iterations.max(1) as u128;
+        // To the nearest nanosecond: a kernel under half a nanosecond a pass would otherwise read
+        // as taking no time.
+        let nanos = (fastest.as_nanos() + iterations / 2) / iterations;
 
         Self {
             ops_count,
-            duration: fastest / u32::try_from(iterations.max(1)).unwrap_or(u32::MAX),
+            duration: Duration::new(
+                (nanos / NANOS_PER_SEC) as u64,
+                (nanos % NANOS_PER_SEC) as u32,
+            ),
             samples: SampleStats::new(samples),
         }
     }

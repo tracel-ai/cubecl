@@ -460,6 +460,21 @@ mod tests {
     }
 
     #[test]
+    fn a_pass_under_a_nanosecond_rounds_to_the_nearest() {
+        let value = ThroughputValue::from_samples(1, 4_000_000, &[Duration::from_millis(3)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
+    fn a_count_past_u32_divides_whole() {
+        let iterations = 1usize << 33;
+        let value = ThroughputValue::from_samples(1, iterations, &[Duration::from_nanos(1 << 33)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
     fn identical_samples_deviate_by_nothing() {
         let sample = Duration::from_micros(7);
         let samples = SampleStats::new(&[sample; 4]).expect("four samples");
