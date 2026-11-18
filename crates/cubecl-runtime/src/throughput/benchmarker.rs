@@ -453,6 +453,13 @@ mod tests {
     }
 
     #[test]
+    fn a_value_from_the_largest_sample_does_not_panic() {
+        let value = ThroughputValue::from_samples(1, 1, &[Duration::MAX]);
+
+        assert_eq!(value.duration, Duration::MAX);
+    }
+
+    #[test]
     fn identical_samples_deviate_by_nothing() {
         let sample = Duration::from_micros(7);
         let samples = SampleStats::new(&[sample; 4]).expect("four samples");

@@ -241,7 +241,7 @@ impl ThroughputValue {
 
         Self {
             ops_count,
-            duration: fastest.div_f64(iterations.max(1) as f64),
+            duration: fastest / u32::try_from(iterations.max(1)).unwrap_or(u32::MAX),
             samples: SampleStats::new(samples),
         }
     }
