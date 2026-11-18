@@ -18,6 +18,8 @@ pub use arg::destination::{
 pub use arg::last_arrival::LastArrival;
 pub use arg::output::{Output, OutputArgs};
 pub use arg::relay::Relay;
+pub use arg::stored_tile_operand::StoredTileOperand;
+pub use arg::tile_operand::TileOperand;
 pub use arg::tma::{TmaBox, TmaCoordinates, TmaLanding, TmaTerm};
 pub use base::{Grid, spawnable};
 pub use binding::{Arg, Bound, Labelled, Unbound, Unlabelled};
