@@ -366,10 +366,10 @@ pub trait CollectiveServer: Sized {
         let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
         drop(command);
+        marks.reach(stream);
         if let Some(compute_tail) = compute_tail {
             Self::Driver::wait_for(stream, compute_tail)?;
         }
-        marks.reach(stream);
         marks.synced(self.comm_stream(), stream, last_end.as_ref())?;
         self.collectives().comm_stream_synced(stream_id, stream);
         Ok(())
@@ -534,9 +534,14 @@ fn run<S: CollectiveServer, const N: usize>(
     // Dropping the command releases bindings borrowed from other streams at this point of
     // the compute stream, which only waits for the collective under `ComputeWait::Now`.
     drop(command);
+    // A compute stream whose wait failed is not ordered after the collective.
+    let waited = match &ended {
+        Ok(()) => wait,
+        Err(_) => ComputeWait::AtSync,
+    };
     server
         .collectives()
-        .collective_ran(wait, marks.end, stream_id, stream);
+        .collective_ran(waited, marks.end, stream_id, stream);
     ended
 }
 
