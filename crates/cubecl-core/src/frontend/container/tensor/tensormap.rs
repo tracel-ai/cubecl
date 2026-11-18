@@ -129,8 +129,8 @@ impl<E: CubePrimitive, K: TensorMapKind> Copy for TensorMap<E, K> {}
 
 impl<E: CubePrimitive, K: TensorMapKind> TensorMap<E, K> {}
 
-impl<E: CubePrimitive, K: TensorMapKind> IntoMut for NativeExpand<TensorMap<E, K>> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<E: CubePrimitive, K: TensorMapKind> PlaceExpand for NativeExpand<TensorMap<E, K>> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {

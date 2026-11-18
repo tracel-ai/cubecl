@@ -404,7 +404,7 @@ impl KernelFn {
         })
     }
 
-    /// We need to call `IntoMut::into_mut` on mutable owned inputs since their
+    /// We need to call `PlaceExpand::create_mut_place` on mutable owned inputs since their
     /// local variables need to be identified as mut, which is done at
     /// initialization.
     ///
@@ -414,14 +414,14 @@ impl KernelFn {
     /// need to adjust the mutability here.
     fn patch_mut_owned_inputs(block: &mut Block, sig: &KernelSignature) {
         let mut mappings = Vec::new();
-        let into_mut = frontend_type("IntoMut");
+        let place_expand = frontend_type("PlaceExpand");
 
         for s in sig.parameters.iter() {
             if s.mutability.is_some() {
                 let name = s.name.clone();
                 let expression = Expression::Verbatim {
                     tokens: quote! {
-                        let mut #name = #into_mut::into_mut(#name, scope);
+                        let mut #name = #place_expand::create_mut_place(#name, scope);
                     },
                 };
                 let stmt = Statement::Expression {

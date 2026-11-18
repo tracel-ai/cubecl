@@ -47,7 +47,7 @@
 //! ```
 
 use super::element_positions::expand_position;
-use super::{CubeDebug, CubePrimitive, CubeType, IntoMut, NativeExpand, SliceExpand};
+use super::{CubeDebug, CubePrimitive, CubeType, PlaceExpand, NativeExpand, SliceExpand};
 use crate::unexpanded;
 use crate::{self as cubecl, prelude::*};
 use core::marker::PhantomData;
@@ -246,8 +246,8 @@ impl<C: CubeType, S: MatrixScope> IntoExpand for MatrixExpand<C, S> {
     }
 }
 
-impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<C: CubeType, S: MatrixScope> PlaceExpand for MatrixExpand<C, S> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {
@@ -269,8 +269,8 @@ impl<A: CubeType, B: CubeType, CD: CubeType> IntoExpand for MmaDefinitionExpand<
     }
 }
 
-impl<A: CubeType, B: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<A, B, CD> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<A: CubeType, B: CubeType, CD: CubeType> PlaceExpand for MmaDefinitionExpand<A, B, CD> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {
@@ -1363,8 +1363,8 @@ impl ExpandTypeClone for MatrixLayout {
     }
 }
 
-impl IntoMut for MatrixLayout {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl PlaceExpand for MatrixLayout {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {

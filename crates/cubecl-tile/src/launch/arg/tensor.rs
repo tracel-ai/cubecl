@@ -6,7 +6,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand};
 use cubecl::frontend::{buffer_len::expand_buffer_length_native, slice};
 use cubecl::ir::pliron::value::Value;
 use cubecl::ir::{ElemType, Scope, types::VectorType};
@@ -941,8 +941,8 @@ impl ExpandTypeClone for TileTensorExpand<'_> {
     }
 }
 
-impl IntoMut for TileTensorExpand<'_> {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for TileTensorExpand<'_> {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {

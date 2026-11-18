@@ -7,7 +7,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::algebra::{Integer, IntegerExpand, simplified_add, simplified_mul};
 
-/// An immutable coordinate/extent list whose expand's `IntoMut` is the identity.
+/// An immutable coordinate/extent list whose expand's `PlaceExpand` is the identity.
 /// Copying into mutable slots (as `Sequence` does) would erase constness.
 pub struct Coords<C: Int> {
     _c: core::marker::PhantomData<C>,
@@ -151,8 +151,8 @@ impl<C: Int> IntoExpand for CoordsExpand<C> {
 }
 
 /// Identity, to keep constness (see [`Coords`]).
-impl<C: Int> IntoMut for CoordsExpand<C> {
-    fn into_mut(self, _: &Scope) -> Self {
+impl<C: Int> PlaceExpand for CoordsExpand<C> {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {
@@ -239,7 +239,11 @@ impl<C: Int> CoordsExpand<C> {
 
     pub fn __expand_stored_method(&self, scope: &Scope) -> CoordsExpand<C> {
         CoordsExpand {
-            values: self.values.iter().map(|v| (*v).into_mut(scope)).collect(),
+            values: self
+                .values
+                .iter()
+                .map(|v| (*v).create_mut_place(scope))
+                .collect(),
         }
     }
 
