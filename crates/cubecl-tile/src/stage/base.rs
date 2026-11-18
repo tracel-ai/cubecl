@@ -1,6 +1,7 @@
 //! Where a stage lives and how it lays its cells out ([`StageStorage`]).
 
-use crate::{ChunkSwizzle, Dimension, LineBytes, Refusal, Space, StageForm};
+use crate::launch::Delivery;
+use crate::{ChunkSwizzle, Dimension, Instruction, LineBytes, Refusal, Space, StageForm};
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
@@ -39,6 +40,22 @@ impl RowChunks {
     /// 16 bytes a unit (`cp.async`), and into a stage that starts mid-sector each copy is split,
     /// so every global sector it reads is fetched twice.
     pub const STAGE_ALIGNMENT_BYTES: usize = 128;
+
+    /// The arrangement a stage asked for as `self` takes where `instruction` reads it and
+    /// `delivery` writes it: the one asked for, made one both can use. A fragment API reading
+    /// rows off a pointer and a stride (cmma) reads no swizzled row, so a swizzle becomes the
+    /// other arrangement that keeps rows on distinct banks, padding; a TMA box lands rows dense,
+    /// so padding becomes rows in order.
+    pub(crate) fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
+        let read = match (self, instruction) {
+            (Self::Swizzled, Instruction::Cmma) => Self::Padded,
+            (chunks, _) => chunks,
+        };
+        match (read, delivery) {
+            (Self::Padded, Delivery::Tma) => Self::InOrder,
+            (chunks, _) => chunks,
+        }
+    }
 }
 
 /// How a value reaches the unit asking for it, out of the lines the plane holds.
@@ -52,6 +69,20 @@ pub enum UnitRead {
 }
 
 impl StageStorage {
+    /// This storage as a stage read by `instruction` and written by `delivery` lays its cells
+    /// out: a tiled stage's rows arranged as both can use ([`RowChunks::read_by`]); any other
+    /// storage as it is. What a host that names its instruction asks; one that names its Step
+    /// asks the Step ([`ProductStep::stage_storage`](crate::ProductStep::stage_storage)).
+    pub fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
+        match self {
+            Self::Tiled { block, chunks } => Self::Tiled {
+                block,
+                chunks: chunks.read_by(instruction, delivery),
+            },
+            other => other,
+        }
+    }
+
     /// The swizzle a TMA descriptor moving the whole of a stage over `space` in one box lands its
     /// rows with, so they lie as this storage keeps them: the stage's lines `vector_size` values of
     /// `elem_bits` bits, which a line holds whole bytes of (a packed operand's line is its words).
