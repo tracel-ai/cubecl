@@ -1456,6 +1456,7 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "md-5",
+ "num-traits",
  "pliron",
  "rand 0.10.2",
  "serde",
