@@ -556,8 +556,8 @@ mod __cube_type {
         }
     }
 
-    impl<E: Numeric, IO> IntoMut for ErasedTensorExpand<E, IO> {
-        fn into_mut(self, _scope: &Scope) -> Self {
+    impl<E: Numeric, IO> PlaceExpand for ErasedTensorExpand<E, IO> {
+        fn create_mut_place(self, _scope: &Scope) -> Self {
             self
         }
         fn read_place(self, _scope: &Scope) -> Self {

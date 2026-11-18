@@ -39,8 +39,8 @@ impl<T: CubeType> cubecl::prelude::CubeType for RuntimeCell<T> {
     type ExpandType = RuntimeCellExpand<T>;
 }
 
-impl<T: CubeType> cubecl::prelude::IntoMut for RuntimeCellExpand<T> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<T: CubeType> cubecl::prelude::PlaceExpand for RuntimeCellExpand<T> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         Self {
             // We keep the same as a cell would do.
             value: self.value,

@@ -6,7 +6,7 @@ use pliron::{
 
 use crate::prelude::*;
 
-use super::{IntoMut, IntoRuntime, NativeAssign, NativeExpand};
+use super::{IntoRuntime, NativeAssign, NativeExpand, PlaceExpand};
 
 macro_rules! declare_uint {
     ($primitive:ident, $kind: ident) => {
@@ -58,8 +58,8 @@ macro_rules! declare_uint {
             }
         }
 
-        impl IntoMut for $primitive {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl PlaceExpand for $primitive {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
                 self
             }
             fn read_place(self, _scope: &Scope) -> Self {
@@ -137,8 +137,8 @@ impl IntoExpand for usize {
     }
 }
 
-impl IntoMut for usize {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl PlaceExpand for usize {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {
@@ -215,8 +215,8 @@ impl IntoExpand for isize {
     }
 }
 
-impl IntoMut for isize {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl PlaceExpand for isize {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {

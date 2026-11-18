@@ -638,8 +638,8 @@ macro_rules! impl_expand_traits {
             }
         }
 
-        impl<$generic: $bound> IntoMut for $ty {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl<$generic: $bound> PlaceExpand for $ty {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
                 self
             }
             fn read_place(self, _scope: &Scope) -> Self {

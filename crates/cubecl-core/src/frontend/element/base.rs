@@ -36,7 +36,7 @@ use variadics_please::{all_tuples, all_tuples_enumerated};
 pub trait CubeType {
     type ExpandType: IntoExpand<Expand = Self::ExpandType>
         + ExpandTypeClone
-        + IntoMut
+        + PlaceExpand
         + CubeDebug
         + AsRefExpand
         + AsMutExpand;
@@ -347,14 +347,14 @@ pub trait IntoComptime: Sized {
 impl<T: Sized> IntoComptime for T {}
 
 /// Convert an expand type to a version with mutable registers when necessary.
-pub trait IntoMut: Sized {
+pub trait PlaceExpand: Sized {
     /// Convert the variable into a potentially new mutable variable in `scope`, copying if needed.
-    fn into_mut(self, scope: &Scope) -> Self;
+    fn create_mut_place(self, scope: &Scope) -> Self;
     fn read_place(self, scope: &Scope) -> Self;
 }
 
-impl<T: IntoMut> IntoMut for &T {
-    fn into_mut(self, _: &Scope) -> Self {
+impl<T: PlaceExpand> PlaceExpand for &T {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {
@@ -362,8 +362,8 @@ impl<T: IntoMut> IntoMut for &T {
     }
 }
 
-impl<T: IntoMut> IntoMut for &mut T {
-    fn into_mut(self, _: &Scope) -> Self {
+impl<T: PlaceExpand> PlaceExpand for &mut T {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {
@@ -371,8 +371,8 @@ impl<T: IntoMut> IntoMut for &mut T {
     }
 }
 
-impl<T: IntoMut> IntoMut for *const T {
-    fn into_mut(self, _: &Scope) -> Self {
+impl<T: PlaceExpand> PlaceExpand for *const T {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {
@@ -380,8 +380,8 @@ impl<T: IntoMut> IntoMut for *const T {
     }
 }
 
-impl<T: IntoMut> IntoMut for *mut T {
-    fn into_mut(self, _: &Scope) -> Self {
+impl<T: PlaceExpand> PlaceExpand for *mut T {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {
@@ -389,7 +389,7 @@ impl<T: IntoMut> IntoMut for *mut T {
     }
 }
 
-pub fn into_mut_assign<T: RuntimeAssign>(value: T, scope: &Scope) -> T::Expand {
+pub fn create_mut_place_assign<T: RuntimeAssign>(value: T, scope: &Scope) -> T::Expand {
     let mut out = value.init_mut(scope);
     out.__expand_assign_method(scope, value.into_expand(scope));
     out
@@ -768,12 +768,12 @@ macro_rules! tuple_cube_type {
 }
 macro_rules! tuple_init {
     ($($P:ident),*) => {
-        impl<$($P: IntoMut),*> IntoMut for ($($P,)*) {
+        impl<$($P: PlaceExpand),*> PlaceExpand for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn into_mut(self, scope: &Scope) -> Self {
+            fn create_mut_place(self, scope: &Scope) -> Self {
                 let ($($P,)*) = self;
                 ($(
-                    $P.into_mut(scope),
+                    $P.create_mut_place(scope),
                 )*)
             }
             fn read_place(self, scope: &Scope) -> Self {
@@ -849,9 +849,9 @@ pub trait NativeAssign: CubeType {
     }
 }
 
-impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T> {
-    fn into_mut(self, scope: &Scope) -> Self {
-        into_mut_assign(self, scope)
+impl<T: NativeAssign + NativeCubeType + CanReadValue> PlaceExpand for NativeExpand<T> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
+        create_mut_place_assign(self, scope)
     }
     fn read_place(self, scope: &Scope) -> Self {
         // Need to preserve constants for loop unrolling
@@ -936,12 +936,12 @@ pub(crate) fn init_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue
     scope.create_local_mut(ty, None).into()
 }
 
-impl<T: IntoMut> IntoMut for Option<T> {
-    fn into_mut(self, scope: &Scope) -> Self {
-        self.map(|o| IntoMut::into_mut(o, scope))
+impl<T: PlaceExpand> PlaceExpand for Option<T> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
+        self.map(|o| PlaceExpand::create_mut_place(o, scope))
     }
     fn read_place(self, scope: &Scope) -> Self {
-        self.map(|o| IntoMut::read_place(o, scope))
+        self.map(|o| PlaceExpand::read_place(o, scope))
     }
 }
 
@@ -963,9 +963,11 @@ impl<T: ExpandTypeClone> ExpandTypeClone for Vec<T> {
     }
 }
 
-impl<T: IntoMut> IntoMut for Vec<T> {
-    fn into_mut(self, scope: &Scope) -> Self {
-        self.into_iter().map(|e| e.into_mut(scope)).collect()
+impl<T: PlaceExpand> PlaceExpand for Vec<T> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
+        self.into_iter()
+            .map(|e| e.create_mut_place(scope))
+            .collect()
     }
     fn read_place(self, scope: &Scope) -> Self {
         self.into_iter().map(|e| e.read_place(scope)).collect()
@@ -1042,8 +1044,8 @@ impl ExpandTypeClone for () {
     }
 }
 
-impl IntoMut for () {
-    fn into_mut(self, _: &Scope) {}
+impl PlaceExpand for () {
+    fn create_mut_place(self, _: &Scope) {}
     fn read_place(self, _: &Scope) {}
 }
 

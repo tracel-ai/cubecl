@@ -59,9 +59,8 @@ impl Statement {
 
                 let init = match (is_mut, init) {
                     (true, Some(init)) => {
-                        let into_mut = frontend_type("IntoMut");
-                        let init_ty =
-                            quote_spanned![init.span()=> #into_mut::into_mut(#init, scope)];
+                        let place_expand = frontend_type("PlaceExpand");
+                        let init_ty = quote_spanned![init.span()=> #place_expand::create_mut_place(#init, scope)];
                         Some(quote! {{
                             #init_ty
                         }})

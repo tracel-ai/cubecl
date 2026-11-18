@@ -5,7 +5,9 @@
 use std::marker::PhantomData;
 
 use cubecl::define_size;
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ElemType, ExpandValue, Scope, VectorSize};
 use cubecl::prelude::*;
 use cubecl::unexpanded;
@@ -322,8 +324,8 @@ macro_rules! expand_value {
                 self.clone()
             }
         }
-        impl$(<$param: $bound>)? IntoMut for $ty {
-            fn into_mut(self, _: &Scope) -> Self {
+        impl$(<$param: $bound>)? PlaceExpand for $ty {
+            fn create_mut_place(self, _: &Scope) -> Self {
                 self
             }
             fn read_place(self, _: &Scope) -> Self {

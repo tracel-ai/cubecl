@@ -10,7 +10,7 @@ use cubecl_ir::{VectorSize, dialect::general::FreeOp, interfaces::TypedExt, type
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, IntoMut, NativeExpand},
+    frontend::{CubePrimitive, CubeType, PlaceExpand, NativeExpand},
     ir::Scope,
     prelude::*,
 };
@@ -28,8 +28,8 @@ impl<E: NativeCubeType + ?Sized> Clone for Shared<E> {
     }
 }
 
-impl<T: NativeCubeType + ?Sized> IntoMut for NativeExpand<Shared<T>> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<T: NativeCubeType + ?Sized> PlaceExpand for NativeExpand<Shared<T>> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
         self
     }
     fn read_place(self, _scope: &Scope) -> Self {
@@ -131,7 +131,7 @@ impl<T: CubePrimitive> Shared<T> {
 #[cube]
 impl<T: NativeCubeType + ?Sized> Shared<T>
 where
-    NativeExpand<T>: IntoMut, // This is automatically true but Rust doesn't want to infer it
+    NativeExpand<T>: PlaceExpand, // This is automatically true but Rust doesn't want to infer it
 {
     pub fn inner_ref(&self) -> &T {
         intrinsic!(|scope| { unsafe { self.as_type_ref_unchecked() } })

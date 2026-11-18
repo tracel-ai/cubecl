@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand};
 use cubecl::ir::{ElemType, ExpandValue, Scope};
 use cubecl::prelude::*;
 use cubecl::unexpanded;
@@ -221,8 +221,8 @@ impl ExpandTypeClone for ErasedRecipeExpand {
         self.clone()
     }
 }
-impl IntoMut for ErasedRecipeExpand {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for ErasedRecipeExpand {
+    fn create_mut_place(self, _: &Scope) -> Self {
         self
     }
     fn read_place(self, _: &Scope) -> Self {

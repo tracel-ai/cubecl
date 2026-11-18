@@ -80,7 +80,7 @@ mod new {
 
     impl<T: CubePrimitive> ArrayExpand<T> {
         pub fn __expand_clone_method(&self, scope: &Scope) -> Self {
-            Self::into_mut(*self, scope)
+            Self::create_mut_place(*self, scope)
         }
     }
 
@@ -113,7 +113,7 @@ mod new {
         }
 
         pub fn __expand_clone_method(&self, scope: &Scope) -> Self {
-            Self::into_mut(*self, scope)
+            Self::create_mut_place(*self, scope)
         }
     }
 }
@@ -260,25 +260,25 @@ impl<T: CubePrimitive, const N: usize> ReadValue for NativeExpand<[T; N]> {
     }
 }
 
-impl<C: CubePrimitive> IntoMut for ArrayExpand<C> {
-    fn into_mut(self, scope: &Scope) -> Self {
+impl<C: CubePrimitive> PlaceExpand for ArrayExpand<C> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
         let mut out = Array::__expand_new(scope, self.__expand_len_method(scope));
         out.__expand_assign_method(scope, self);
         out
     }
     fn read_place(self, scope: &Scope) -> Self {
-        self.into_mut(scope)
+        self.create_mut_place(scope)
     }
 }
 
-impl<C: CubePrimitive, const N: usize> IntoMut for NativeExpand<[C; N]> {
-    fn into_mut(self, scope: &Scope) -> Self {
+impl<C: CubePrimitive, const N: usize> PlaceExpand for NativeExpand<[C; N]> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
         let mut uninit = Self::__expand_zeroed(scope);
         uninit.__expand_assign_method(scope, self);
         uninit
     }
     fn read_place(self, scope: &Scope) -> Self {
-        self.into_mut(scope)
+        self.create_mut_place(scope)
     }
 }
 
