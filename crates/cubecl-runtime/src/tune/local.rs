@@ -115,8 +115,8 @@ where
     /// Get or initialize the [`TunableSet`] for `id`.
     ///
     /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`
-    /// *and* by `id`, so the initializer runs once per device rather than once
-    /// per process.
+    /// *and* by `id`, so the initializer runs once per device, until a
+    /// [`clear`](Self::clear), rather than once per process.
     ///
     /// The device is part of the key because a set is routinely built from the
     /// device it will run on: a closure captures that device's
@@ -204,9 +204,12 @@ where
     /// Clear the autotune state, and the sets [`init`](Self::init) built, which keep the run
     /// orders they planned.
     pub fn clear(&self) {
-        let mut sets = self.sets.write();
-        self.state.lock().take();
-        sets.take();
+        // Dropped after unlocking: a captured value's drop may call back into this tuner.
+        let cleared = {
+            let mut sets = self.sets.write();
+            (self.state.lock().take(), sets.take())
+        };
+        core::mem::drop(cleared);
     }
 
     #[cfg(feature = "autotune-checks")]
