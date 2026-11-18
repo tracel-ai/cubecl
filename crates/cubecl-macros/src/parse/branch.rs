@@ -330,7 +330,7 @@ impl Block {
                 expression,
                 terminated: false,
                 span,
-            }) => (Some(expression), span),
+            }) if expression.needs_terminator() => (Some(expression), span),
             Some(stmt) => {
                 statements.push(stmt);
                 (None, None)
