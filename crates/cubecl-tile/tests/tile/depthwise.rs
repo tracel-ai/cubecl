@@ -63,7 +63,7 @@ fn depthwise_kernel(
             for cell in plane {
                 let mut out = out
                     .at(&cell)
-                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 out.mm(&input.at(&cell), &weight.at(&cell));
             }
         }

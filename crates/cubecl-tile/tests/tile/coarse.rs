@@ -48,7 +48,7 @@ fn coarse_lhs_matmul(
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_region.mma(&a.at(&region), &b.at(&region));
     }
 }

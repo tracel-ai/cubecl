@@ -69,7 +69,7 @@ fn scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
@@ -95,7 +95,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -129,8 +129,8 @@ fn factored_matmul<E: Numeric>(
     let b = b.tile(&space);
     let mut c = c.tile(&space);
     let acc = match registers {
-        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SUM_PROD),
-        None => c.accumulator::<E>(&a, &b, Semiring::SUM_PROD),
+        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SumProd),
+        None => c.accumulator::<E>(&a, &b, Semiring::SumProd),
     };
     let (a, a_factor) = a.factor(&acc);
     for region in space.over(&level) {
@@ -163,7 +163,7 @@ fn two_level_scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         match side {
             Scaled::Lhs => c_r.mma(
                 &a.at(&region)
@@ -199,7 +199,7 @@ fn scaled_matmul_cmma<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -367,7 +367,7 @@ fn per_tensor_factor(
     let (a, factor) = if whole {
         a.factor_whole()
     } else {
-        let sum = c.register_accumulator::<f32>(&a, &b, SOFTWARE_MATMUL, Semiring::SUM_PROD);
+        let sum = c.register_accumulator::<f32>(&a, &b, SOFTWARE_MATMUL, Semiring::SumProd);
         a.factor(&sum)
     };
     out[0] = factor.whole();
@@ -1536,7 +1536,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         match side {
@@ -1685,14 +1685,14 @@ fn wide_lhs_scaled_matmul(
     for region in space.over(&level) {
         let mut c_r = c.at(&region).accumulating(
             comptime!(SoftwareMatmul::new(64).component_fanout()),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r
                 .accumulating(
                     comptime!(SoftwareMatmul::new(64).component_fanout()),
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 )
                 .mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -1985,7 +1985,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     let scale = scale.tile(&space);
     let c = c.tile(&space);
     let mut stage = b.stage(level.clone(), StageStorage::Strided);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     for region in space.over(&level) {
         stage.copy_from(&b.at(&region));
         sync_cube();
@@ -2158,13 +2158,10 @@ fn chunked_scaled_matmul<E: Numeric>(
             let mut lines =
                 scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
             let sum = match registers {
-                Some(config) => c_plane.register_accumulator::<E>(
-                    &a_plane,
-                    &b_plane,
-                    config,
-                    Semiring::SUM_PROD,
-                ),
-                None => c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD),
+                Some(config) => {
+                    c_plane.register_accumulator::<E>(&a_plane, &b_plane, config, Semiring::SumProd)
+                }
+                None => c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd),
             };
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
@@ -2606,7 +2603,7 @@ fn partitioned_scaled_matmul<E: Numeric>(
             let c_plane = c_cube.at(&plane);
             let mut lines =
                 scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
-            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD);
+            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd);
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
                 for step in chunk {
@@ -2708,7 +2705,7 @@ fn stepped_scaled_matmul<E: Numeric>(
         for plane in cube {
             let (a_plane, b_plane) = (a_cube.at(&plane), b_cube.at(&plane));
             let (scale_plane, c_plane) = (scale_cube.at(&plane), c_cube.at(&plane));
-            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD);
+            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd);
             for step in plane {
                 let mut sum_step = sum.at(&step);
                 sum_step.mma(
@@ -2914,7 +2911,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
     for cube in space {
         let (a_cube, b_cube) = (a.at(&cube), b.at(&cube));
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
-        let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Semiring::SUM_PROD);
+        let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Semiring::SumProd);
         let run = cube.walk();
         let staged = match unpacked {
             Unpacked::ByEachPlane => b_cube.clone(),
@@ -3352,7 +3349,7 @@ fn staged_scaled_matmul(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });

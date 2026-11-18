@@ -293,7 +293,7 @@ fn stream_matmul<E: Numeric>(
             &a_region,
             &b_region,
             comptime!(SOFTWARE_MATMUL),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for cell in region.over(&inner).range(from, steps) {
             match leaf.clone() {
@@ -336,7 +336,7 @@ fn stream_matmul_staged_rhs<E: Numeric>(
             &a_region,
             &b_region,
             comptime!(SOFTWARE_MATMUL),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         let cells = region.over(&inner).range(from, steps);
         let mut stages =
@@ -379,7 +379,7 @@ fn stream_matmul_prefix<E: Numeric>(
             &a_region,
             &b_region,
             comptime!(SOFTWARE_MATMUL),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for cell in region.over(&inner).range(from, steps) {
             contract(&acc, &a_region, &b_region, &cell);
@@ -827,7 +827,7 @@ fn merged_stream_matmul(
             &a_region,
             &b_region,
             comptime!(SOFTWARE_MATMUL),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for cell in region.over(&steps).range(from, count) {
             contract(&acc, &a_region, &b_region, &cell);

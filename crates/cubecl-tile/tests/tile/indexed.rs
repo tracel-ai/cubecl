@@ -135,7 +135,7 @@ fn indexed_matmul_kernel(
     for tile in space.over(&rows) {
         let mut o = out
             .at(&tile)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         o.mm(&x.at(&tile), &w.at(&tile));
     }
 }
@@ -160,7 +160,7 @@ fn indexed_staged_matmul_kernel(
     stages.pipelined(tiles, |slot, tile| {
         let mut o = out
             .at(tile)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         slot.consume(|w_s| {
             o.mm(&x.at(tile), w_s);
         });
@@ -186,7 +186,7 @@ fn indexed_walking_matmul_kernel<E: Numeric>(
     for tile in space.over(&rows) {
         let (o, x_t, w_t) = (out.at(&tile), x.at(&tile), w.at(&tile));
         let mut sum =
-            o.register_accumulator::<E>(&x_t, &w_t, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
+            o.register_accumulator::<E>(&x_t, &w_t, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         sum.zero();
         for k_step in tile.walk_within(&w_t) {
             sum.mma(&x_t.at(&k_step), &w_t.at(&k_step));

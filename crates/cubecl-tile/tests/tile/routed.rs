@@ -139,7 +139,7 @@ fn routed_matmul_kernel(
         for slab in tok.over(&expert).routed(EXPERT, e) {
             let mut o = out
                 .at(&slab)
-                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
             o.mm(&x.at(&slab), &w.at(&slab));
         }
     }
@@ -169,7 +169,7 @@ fn routed_staged_matmul_kernel(
         stages.pipelined(experts, |slot, slab| {
             let mut o = out
                 .at(slab)
-                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
             slot.consume(|w_s| {
                 o.mm(&x.at(slab), w_s);
             });
@@ -339,7 +339,7 @@ fn routed_block_matmul_kernel<E: Numeric>(
                 &x_s,
                 &w_s,
                 comptime!(SOFTWARE_MATMUL),
-                Semiring::SUM_PROD,
+                Semiring::SumProd,
             );
             for step in slab.over(&depth) {
                 let mut acc_s = acc.at(&step);

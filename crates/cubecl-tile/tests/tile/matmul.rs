@@ -223,7 +223,7 @@ fn contract_staged(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
@@ -287,7 +287,7 @@ fn matmul_smem_ring_scheduled(
 #[cube]
 fn contract_on_the_last_unit(c: &Tile, a: &Tile, b: &Tile) {
     if UNIT_POS == CUBE_DIM - 1 {
-        let mut c = c.clone().accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+        let mut c = c.clone().accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c.mma(a, b);
     }
 }
@@ -311,7 +311,7 @@ fn matmul_smem_ring_accumulate(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });
@@ -337,7 +337,7 @@ fn matmul_lhs_smem_ring(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         let b_r = b.at(region);
         slot.consume(|a_s| {
             c_r.mma(a_s, &b_r);
@@ -377,7 +377,7 @@ fn matmul_padded_rhs_stage(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         let a_r = a.at(region);
         slot.consume(|b_s| {
             c_r.mma(&a_r, b_s);
@@ -422,7 +422,7 @@ fn matmul_padded_lhs_stage_two_levels(
         stages.pipelined(walk, |slot, region| {
             let mut c_r = c_o
                 .at(region)
-                .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
             let b_r = b_o.at(region);
             slot.consume(|a_s| {
                 c_r.mma(a_s, &b_r);
@@ -456,7 +456,7 @@ fn matmul_two_levels_smem_then_in_place(
             for cell in region.over(&inner) {
                 let mut c_r = c_o
                     .at(&cell)
-                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 c_r.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -495,7 +495,7 @@ fn matmul_two_levels_smem_then_smem(
             inner_ring.pipelined(cells, |slot, cell| {
                 let mut c_r = c_o
                     .at(cell)
-                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 slot.consume(|a_i, b_i| {
                     c_r.mma(a_i, b_i);
                 });
@@ -548,7 +548,7 @@ fn promoted_matmul_two_levels_in_place<EA: Numeric>(
             let c_p = c.at(&plane);
             let a_p = a.at(&plane);
             let b_p = b.at(&plane);
-            let acc = c_p.register_accumulator::<EA>(&a_p, &b_p, config, Semiring::SUM_PROD);
+            let acc = c_p.register_accumulator::<EA>(&a_p, &b_p, config, Semiring::SumProd);
             for step in plane {
                 let mut acc_s = acc.at(&step);
                 acc_s.mma(&a_p.at(&step), &b_p.at(&step));
@@ -574,7 +574,7 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for outer in space.over(&outer) {
         let acc_o = acc.at(&outer);
         let a_o = a.at(&outer);
@@ -610,7 +610,7 @@ fn cmma_matmul_k_walk<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);
     stages.pipelined(walk, |slot, region| {
@@ -639,7 +639,7 @@ fn cmma_matmul_two_levels_planes<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let walk = space.over(&outer);
     let mut stages = Stages::smem(
         &walk,
@@ -687,7 +687,7 @@ fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
         &walk,
@@ -739,7 +739,7 @@ fn cmma_matmul_partition_in_one_call<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
         &walk,
@@ -789,7 +789,7 @@ fn cmma_matmul_five_levels<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
         &walk,
@@ -1621,7 +1621,7 @@ fn check_matmul_cpu(m: usize, n: usize, k: usize, levels: Vec<Level>) {
         runs,
         inner,
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
     assert_tiled_matmul(&client, c.handle(), m, n, k, tile_edge);
@@ -1673,7 +1673,7 @@ fn matmul_cpu_dynamic_k() {
         None,
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
     assert_tiled_matmul(&client, c.handle(), m, n, k, edge);
@@ -1725,7 +1725,7 @@ fn register_matmul_unit_spread_n() {
         None,
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2210,7 +2210,7 @@ fn matmul_direct_vectorized() {
         None,
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2412,7 +2412,7 @@ fn register_matmul_promoted_accumulator() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2459,7 +2459,7 @@ fn tropical_matmul_in_place() {
         None,
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::MIN_SUM,
+        Semiring::MinSum,
         f32::elem_type_native(),
     );
 
@@ -2518,7 +2518,7 @@ fn tropical_matmul_promoted() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::MAX_SUM,
+        Semiring::MaxSum,
         dtype,
     );
 
@@ -2660,7 +2660,7 @@ fn plane_staged_matmul<E: Numeric>(
                 &a_p,
                 &b_p,
                 comptime!(SOFTWARE_MATMUL),
-                Semiring::SUM_PROD,
+                Semiring::SumProd,
             );
             let walk = plane.walk();
             let mut stages = Stages::smem(&walk, &a_p, &b_p, StageStorage::Strided, depth, None);
@@ -2699,9 +2699,9 @@ fn matmul_on_either_sum<EA: Numeric>(
             let b_p = b.at(&plane);
             let acc = match registers {
                 Some(config) => {
-                    c_p.register_accumulator::<EA>(&a_p, &b_p, config, Semiring::SUM_PROD)
+                    c_p.register_accumulator::<EA>(&a_p, &b_p, config, Semiring::SumProd)
                 }
-                None => c_p.accumulator::<EA>(&a_p, &b_p, Semiring::SUM_PROD),
+                None => c_p.accumulator::<EA>(&a_p, &b_p, Semiring::SumProd),
             };
             for step in plane {
                 let mut acc_s = acc.at(&step);
@@ -2860,7 +2860,7 @@ fn register_matmul_lined_lhs() {
         None,
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2897,7 +2897,7 @@ fn register_matmul_promoted_lined_lhs() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         SOFTWARE_MATMUL,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2946,7 +2946,7 @@ fn check_summing_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budg
         None,
         launcher.partitioning().level(0),
         SoftwareMatmul::new(budget),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
 
@@ -3012,7 +3012,7 @@ fn check_promoted_summing_step(config: SoftwareMatmul) {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         config,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         dtype,
     );
 
@@ -3088,7 +3088,7 @@ fn check_a_promoted_step_sums_wider_than_its_output(config: SoftwareMatmul) {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         config,
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         acc,
     );
 
@@ -3140,7 +3140,7 @@ fn register_matmul_summing_step_two_contracted_dimensions() {
         None,
         launcher.partitioning().level(0),
         SoftwareMatmul::new(64),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
 
@@ -3218,7 +3218,7 @@ fn register_matmul_unit_group_reduce() {
         None,
         launcher.partitioning().level(0),
         SoftwareMatmul::new(edge * n),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         f32::elem_type_native(),
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -3265,7 +3265,7 @@ fn register_matmul_promoted_unit_group_reduce() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         SoftwareMatmul::new(edge * n),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         dtype,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -3312,7 +3312,7 @@ fn register_matmul_promoted_summing_step_unit_group_reduce() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         SoftwareMatmul::new(edge * n),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
         dtype,
     );
 
@@ -3609,8 +3609,8 @@ fn staged_matmul_on_either_sum<E: Numeric>(
     let b = b.tile(&space);
     let c = c.tile(&space);
     let acc = match registers {
-        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SUM_PROD),
-        None => c.accumulator::<E>(&a, &b, Semiring::SUM_PROD),
+        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SumProd),
+        None => c.accumulator::<E>(&a, &b, Semiring::SumProd),
     };
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);

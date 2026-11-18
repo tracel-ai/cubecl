@@ -98,8 +98,8 @@ fn lane_run_matmul(
     // `b` decodes as its fragments load, so the accumulator picks the manual mma, which decodes in
     // its registers.
     let acc = match first {
-        First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD),
-        First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SUM_PROD),
+        First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SumProd),
+        First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SumProd),
     };
     let (b, b_factor) = b.factor(&acc);
     match staged {

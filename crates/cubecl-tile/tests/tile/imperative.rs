@@ -44,7 +44,7 @@ fn ring_matmul(
             for cell in region {
                 let mut c_cell = c_block
                     .at(&cell)
-                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -84,7 +84,7 @@ fn role_split_matmul(
                     for cell in &region {
                         let mut c_cell = c_block
                             .at(&cell)
-                            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                         c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
                     }
                 });

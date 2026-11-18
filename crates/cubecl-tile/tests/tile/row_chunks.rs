@@ -67,7 +67,7 @@ fn staged_k_walk<EA: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile(&space);
-    let mut acc = c.accumulator::<EA>(&a, &b, Semiring::SUM_PROD);
+    let mut acc = c.accumulator::<EA>(&a, &b, Semiring::SumProd);
     let walk = space.over(&outer);
     if comptime!(staging == Staging::Global) {
         for region in walk {

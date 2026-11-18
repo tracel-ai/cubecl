@@ -52,7 +52,7 @@ fn tile_order_one_row_product<E: Numeric>(
             &x,
             &values,
             comptime!(SoftwareMatmul::new(256)),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in cube {
             let mut acc_s = acc.at(&step);

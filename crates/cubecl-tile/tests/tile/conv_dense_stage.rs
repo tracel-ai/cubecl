@@ -36,7 +36,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
     let out = out.tile(&space);
     for cube in space.over(&cubes) {
         let (input, weight, out) = (input.at(&cube), weight.at(&cube), out.at(&cube));
-        let acc = out.accumulator::<E>(&input, &weight, Semiring::SUM_PROD);
+        let acc = out.accumulator::<E>(&input, &weight, Semiring::SumProd);
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &input, &weight, storage.clone(), 1usize, None);
         stages.pipelined(walk, |slot, region| {

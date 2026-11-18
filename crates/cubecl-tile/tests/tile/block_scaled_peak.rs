@@ -80,7 +80,7 @@ fn block_scaled_peak<E: Numeric>(
         let acc = c.accumulator::<E>(
             &a.mul(&a_scales.tile(&space).at(&cube)).scales_kept_beside(),
             &b.mul(&b_scales.tile(&space).at(&cube)).scales_kept_beside(),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
@@ -122,7 +122,7 @@ fn float_peak(
     let c = c.tile(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
-        let acc = c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD);
+        let acc = c.accumulator::<f32>(&a, &b, Semiring::SumProd);
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
         stages.pipelined(walk, |slot, region| {
