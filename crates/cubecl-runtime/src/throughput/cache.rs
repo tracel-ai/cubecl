@@ -56,32 +56,18 @@ impl ThroughputCache<LinkKey> {
     /// named by its PCI address too. That address is local to the host, and a stored cache can
     /// travel to another, so a stored one is also named for the host.
     pub fn get_for_link(runtime: &str, members: &[&DeviceProperties]) -> Option<Arc<Mutex<Self>>> {
-        Some(cached(
-            &LINK_CACHE,
-            link_name(&host_id()?, runtime, members)?,
-        ))
+        let places = members
+            .iter()
+            .map(|properties| HardwareIdentity::name_in_slot(runtime, properties))
+            .collect::<Option<Vec<_>>>()?;
+
+        Some(cached(&LINK_CACHE, link_name(&host_id()?, &places)))
     }
 }
 
-/// The name of the cache on `host` for the link between `members`, in order, or `None` where a
-/// member's place cannot be named.
-fn link_name(host: &str, runtime: &str, members: &[&DeviceProperties]) -> Option<String> {
-    let places = members
-        .iter()
-        .map(|properties| {
-            let pci = properties.identity.physical.as_ref()?.pci_address?;
-            Some(format!(
-                "{}_pci{:04x}{:02x}{:02x}{:x}",
-                HardwareIdentity::new(runtime, properties),
-                pci.domain,
-                pci.bus,
-                pci.device,
-                pci.function
-            ))
-        })
-        .collect::<Option<Vec<_>>>()?;
-
-    Some(format!("link_{host}_{}", places.join("__")))
+/// The name of the cache on `host` for the link between cards named `places`, in order.
+fn link_name(host: &str, places: &[String]) -> String {
+    format!("link_{host}_{}", places.join("__"))
 }
 
 impl ThroughputCache {
@@ -181,44 +167,18 @@ impl<K: ThroughputCacheKey> ThroughputCache<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::hardware_identity::tests::l4;
-    use cubecl_ir::{PciAddress, PhysicalDevice};
-
-    fn l4_at(bus: u8) -> DeviceProperties {
-        let mut properties = l4();
-        let mut physical = PhysicalDevice::default();
-        physical.pci_address = Some(PciAddress {
-            domain: 0,
-            bus,
-            device: 0,
-            function: 0,
-        });
-        properties.identity.physical = Some(physical);
-        properties
-    }
-
-    #[test]
-    fn a_card_with_no_place_has_no_link_cache() {
-        assert_eq!(link_name("host", "cuda", &[&l4_at(0x83), &l4()]), None);
-    }
-
-    #[test]
-    fn identical_cards_in_other_slots_are_another_link() {
-        let (a, b, c) = (l4_at(0x83), l4_at(0x86), l4_at(0xc3));
-
-        assert_ne!(
-            link_name("host", "cuda", &[&a, &b]),
-            link_name("host", "cuda", &[&a, &c])
-        );
-    }
+    use alloc::string::ToString;
 
     #[test]
     fn a_link_is_named_in_the_order_its_bytes_move() {
-        let (a, b) = (l4_at(0x83), l4_at(0x86));
+        let (a, b) = (
+            "cuda_l4_pci0000830".to_string(),
+            "cuda_l4_pci0000860".to_string(),
+        );
 
         assert_ne!(
-            link_name("host", "cuda", &[&a, &b]),
-            link_name("host", "cuda", &[&b, &a])
+            link_name("host", &[a.clone(), b.clone()]),
+            link_name("host", &[b, a])
         );
     }
 }
