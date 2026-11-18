@@ -201,9 +201,11 @@ where
         Some(operations.identity(fastest_index).clone())
     }
 
-    /// Clear the autotune state.
+    /// Clear the autotune state, and the sets [`init`](Self::init) built, which keep the run
+    /// orders they planned.
     pub fn clear(&self) {
         self.state.lock().take();
+        self.sets.write().take();
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -463,5 +465,37 @@ mod tests {
         );
 
         assert_eq!(operations.run_order(&FakeAutotuneKey)[0], 2);
+    }
+
+    #[test]
+    fn a_cleared_tuner_plans_its_keys_afresh() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+
+        let second_leads = Arc::new(AtomicBool::new(false));
+        let read = second_leads.clone();
+        let build = move || {
+            let read = read.clone();
+            let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+            TunableSet::new(|_: &()| FakeAutotuneKey, |_: &FakeAutotuneKey, _: &()| ())
+                .with(
+                    Tunable::<FakeAutotuneKey, (), ()>::new("first", |_| Ok::<_, String>(()))
+                        .group(&group, |_| 1),
+                )
+                .with(
+                    Tunable::<FakeAutotuneKey, (), ()>::new("second", |_| Ok::<_, String>(()))
+                        .group(
+                            &group,
+                            move |_| if read.load(Ordering::Relaxed) { 2 } else { 0 },
+                        ),
+                )
+        };
+        let tuner = LocalTuner::<FakeAutotuneKey, u8>::new("test");
+        let before = tuner.init(&0, build.clone()).run_order(&FakeAutotuneKey);
+
+        second_leads.store(true, Ordering::Relaxed);
+        tuner.clear();
+
+        let after = tuner.init(&0, build).run_order(&FakeAutotuneKey);
+        assert_eq!((&*before, &*after), (&[0, 1][..], &[1, 0][..]));
     }
 }
