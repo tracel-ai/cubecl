@@ -23,8 +23,13 @@ impl MmaData {
         let (lhs_layout, rhs_layout) =
             comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
         let load = deep_load(lhs, rhs);
+        let keys = lhs.rhs_keys();
+        let rhs_io = comptime!(MmaIo {
+            rhs_keys: keys,
+            ..io
+        });
         let a = lhs.mma_operand::<L>(MatrixIdent::A, m, n, k, lhs_layout, io, operands, load);
-        let b = rhs.mma_operand::<R>(MatrixIdent::B, m, n, k, rhs_layout, io, operands, load);
+        let b = rhs.mma_operand::<R>(MatrixIdent::B, m, n, k, rhs_layout, rhs_io, operands, load);
 
         match &mut self.fragment {
             MmaFragment::Acc(acc) => match (&a.fragment, &b.fragment) {

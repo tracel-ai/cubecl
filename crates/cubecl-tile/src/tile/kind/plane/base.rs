@@ -58,6 +58,21 @@ impl PlaneTile {
         }
     }
 
+    /// Whether this tile is a manual-mma accumulator, which a contraction may reread as its `A`
+    /// ([`accumulators_as_a`]).
+    pub(crate) fn is_mma_accumulator(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Mma(data) => match &data.fragment {
+                MmaFragment::Acc(_) => comptime!(true),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Rhs(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile contracts through the block-scaled instruction, which reads its factors'
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
@@ -303,11 +318,15 @@ impl PlaneTile {
         }
     }
 
-    /// Whether this tile loads out of `src`, its window, beside a neighbour of its grid in one
-    /// instruction ([`MmaData::pairs_from`]).
-    pub(crate) fn pairs_from<T: Numeric>(&self, src: &Tile) -> comptime_type!(bool) {
+    /// Whether this tile loads out of `src`, its window, beside its neighbour along `along` in
+    /// one instruction ([`MmaData::pairs_from`]).
+    pub(crate) fn pairs_from<T: Numeric>(
+        &self,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) -> comptime_type!(bool) {
         match self {
-            PlaneTile::Mma(data) => data.pairs_from::<T>(src),
+            PlaneTile::Mma(data) => data.pairs_from::<T>(src, along),
             PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         }
     }
@@ -898,7 +917,10 @@ impl PlanePartition {
             0usize,
             0usize,
         ));
-        let pairs = self.at(0usize, 0usize).pairs_from::<T>(&first);
+        let pairs = match along {
+            Some(axis) => self.at(0usize, 0usize).pairs_from::<T>(&first, axis),
+            None => comptime!(false),
+        };
         match comptime!(along.filter(|_| pairs)) {
             Some(along) => self.fill_pairs_from::<T>(src, along, edges),
             None =>

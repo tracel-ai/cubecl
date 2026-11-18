@@ -36,7 +36,7 @@ impl StoragePartitioning {
     /// the trailing dims. `None` where the buffer's order is no partitioning. Its
     /// [`stagger`](Self::stagger) is not read back: a padded coarsest stride orders the pieces as a
     /// dense one does, so the tiles and their order read the same, but a reader asking where runs
-    /// are contiguous asks the geometry's strides ([`Geometry::dense_run`]).
+    /// are contiguous asks the geometry's strides (`Geometry::dense_run`).
     pub fn new(geometry: &Geometry, labels: &[Axis]) -> Option<Self> {
         let rank = geometry.rank();
         let unlabelled = rank.saturating_sub(labels.len());

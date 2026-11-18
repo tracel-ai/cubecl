@@ -190,6 +190,21 @@ impl ToLLVMDialect for CastOp {
             rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
             return Ok(());
         }
+        // An encode the pipeline left for the target, which converts `f32` to fp8 itself.
+        #[cfg(feature = "nvptx")]
+        if ctx.target() == LlvmTarget::Nvptx
+            && let Some(format) = crate::shared::native_decode::NativeDecode::encoded_by(
+                ctx,
+                in_ty,
+                self.result_type(ctx),
+            )
+        {
+            let res_ty = cube_type_to_llvm(ctx, self.result_type(ctx));
+            let input = self.input(ctx);
+            let value = crate::nvptx::native_decode::encode(ctx, rewriter, format, input, res_ty);
+            rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
+            return Ok(());
+        }
         let in_ty = extract_elem_type(ctx, in_ty);
         let out_ty = self.get_result(ctx).get_type(ctx);
         let out_ty = extract_elem_type(ctx, out_ty);

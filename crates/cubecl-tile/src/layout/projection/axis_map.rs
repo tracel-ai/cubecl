@@ -212,7 +212,7 @@ impl PhysicalAxisMap {
 
     /// The same combination plus a signed constant or dynamic `offset`, added before any
     /// [`over`](Self::over). A partition shifted stays one cell a position, moved:
-    /// [`Translated`](Composition::Translated).
+    /// `Composition::Translated`.
     pub fn shifted(mut self, offset: impl Into<Offset>) -> Self {
         let offset = offset.into();
         assert!(
