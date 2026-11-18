@@ -467,6 +467,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
     fn a_count_past_u32_divides_whole() {
         let iterations = 1usize << 33;
         let value = ThroughputValue::from_samples(1, iterations, &[Duration::from_nanos(1 << 33)]);
