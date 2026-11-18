@@ -147,6 +147,11 @@ pub enum Expression {
         index: Box<Expression>,
         span: Span,
     },
+    IndexRef {
+        expr: Box<Expression>,
+        index: Box<Expression>,
+        span: Span,
+    },
     IndexMut {
         expr: Box<Expression>,
         index: Box<Expression>,
@@ -387,7 +392,7 @@ mod tests {
         }
     }
     fn index(inner: Expression) -> Expression {
-        Expression::Index {
+        Expression::IndexRef {
             expr: Box::new(inner),
             index: Box::new(lit()),
             span: Span::call_site(),

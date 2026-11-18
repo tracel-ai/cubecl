@@ -177,6 +177,12 @@ pub fn struct_array_field_assign(structs: &mut [ArrayStruct]) {
     structs[i].values[i] = 100 + UNIT_POS;
 }
 
+#[cube(launch)]
+pub fn struct_mutable_field_receiver(output: &mut [Cam]) {
+    let i = UNIT_POS as usize;
+    output[i].t.scale(2.0);
+}
+
 /// The bytes of `structs`. `T` must have no padding.
 fn bytes_of<T: Copy>(structs: &[T]) -> &[u8] {
     unsafe { core::slice::from_raw_parts(structs.as_ptr().cast(), size_of_val(structs)) }
@@ -486,6 +492,22 @@ pub fn test_struct_array_field_assign<R: Runtime>(client: Client) {
     assert_eq!(actual, expected);
 }
 
+pub fn test_struct_mutable_field_receiver<R: Runtime>(client: Client) {
+    let structs = [cam([1.0, 2.0, 3.0], 7.0), cam([-4.0, 5.0, -6.0], 9.0)];
+    let output = client.create_from_slice(bytes_of(&structs));
+
+    struct_mutable_field_receiver::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(2),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 2) },
+    );
+
+    let actual = structs_from::<Cam>(&client.read_one_unchecked(output));
+    let expected = [cam([2.0, 4.0, 6.0], 7.0), cam([-8.0, 10.0, -12.0], 9.0)];
+    assert_eq!(actual, expected);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_structs {
@@ -559,6 +581,14 @@ macro_rules! testgen_structs {
             fn test_struct_array_field_assign() {
                 let client = TestRuntime::client(&Default::default());
                 $crate::runtime_tests::structs::test_struct_array_field_assign::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_struct_mutable_field_receiver() {
+                let client = TestRuntime::client(&Default::default());
+                $crate::runtime_tests::structs::test_struct_mutable_field_receiver::<TestRuntime>(
                     client,
                 );
             }

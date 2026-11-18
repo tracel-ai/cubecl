@@ -769,7 +769,7 @@ impl<E: CubePrimitive> SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &NativeExpand<E> {
-        read_offset::expand::<E>(scope, self, index, false)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, false))
     }
 
     #[doc(hidden)]
@@ -778,15 +778,27 @@ impl<E: CubePrimitive> SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut NativeExpand<E> {
-        write_offset::expand::<E>(scope, self, index, false)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, false))
     }
 }
 
 impl<E: SliceElement> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     type Output = E::ExpandType;
+    type PlaceOutput<'a>
+        = E::ExpandType
+    where
+        E: 'a;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
-        read_offset::expand::<E>(scope, self, index, true)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, true))
+    }
+
+    fn __expand_index_owned_method(
+        &self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> Self::Output {
+        elem_ptr::expand::<E>(scope, self, index, true)
     }
 }
 
@@ -796,7 +808,7 @@ impl<E: SliceElement> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut Self::Output {
-        write_offset::expand::<E>(scope, self, index, true)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, true))
     }
 }
 
@@ -835,30 +847,16 @@ fn elem_ptr<E: SliceElement>(
     index_expand(scope, list, index, checked)
 }
 
-mod read_offset {
+mod elem_ptr {
     use super::*;
 
-    pub fn expand<'a, E: SliceElement>(
+    pub(super) fn expand<E: SliceElement>(
         scope: &Scope,
         slice: &SliceExpand<E>,
         index: NativeExpand<usize>,
         checked: bool,
-    ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
+    ) -> <E as cubecl::prelude::CubeType>::ExpandType {
         let elem = elem_ptr(scope, slice, index, checked);
-        scope.create_kernel_ref(E::__expand_place(scope, elem.into()))
-    }
-}
-
-mod write_offset {
-    use super::*;
-
-    pub fn expand<'a, E: SliceElement>(
-        scope: &Scope,
-        slice: &SliceExpand<E>,
-        index: <usize as CubeType>::ExpandType,
-        checked: bool,
-    ) -> &'a mut E::ExpandType {
-        let elem = elem_ptr(scope, slice, index, checked);
-        scope.create_kernel_ref(E::__expand_place(scope, elem.into()))
+        E::__expand_place(scope, elem.into())
     }
 }

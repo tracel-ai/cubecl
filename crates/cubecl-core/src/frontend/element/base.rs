@@ -854,7 +854,11 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T
         into_mut_assign(self, scope)
     }
     fn read_place(self, scope: &Scope) -> Self {
-        self.read_value(scope).into()
+        // Need to preserve constants for loop unrolling
+        match self.expand {
+            ExpandValue::Value(_) => self.read_value(scope).into(),
+            ExpandValue::Constant { .. } => self,
+        }
     }
 }
 

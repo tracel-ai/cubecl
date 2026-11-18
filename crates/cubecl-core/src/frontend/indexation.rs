@@ -30,7 +30,12 @@ where
 
 pub trait IndexExpand<I> {
     type Output;
+    type PlaceOutput<'a>
+    where
+        Self: 'a;
+
     fn __expand_index_method(&self, scope: &Scope, index: I) -> &Self::Output;
+    fn __expand_index_owned_method(&self, scope: &Scope, index: I) -> Self::PlaceOutput<'_>;
 }
 
 pub trait CubeIndexMut<I: CubeType>:

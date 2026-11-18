@@ -209,8 +209,13 @@ impl Expression {
                     .collect::<Result<Vec<_>, _>>()?;
                 // Hack to at least somewhat support mutable methods
                 let ends_in_mut = method.method.to_string().ends_with("_mut");
-                let receiver =
-                    Expression::from_expr_receiver(*method.receiver.clone(), ends_in_mut, context)?;
+                let ends_in_ref = method.method.to_string().ends_with("_ref");
+                let receiver = Expression::from_expr_receiver(
+                    *method.receiver.clone(),
+                    ends_in_ref,
+                    ends_in_mut,
+                    context,
+                )?;
 
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
@@ -325,19 +330,7 @@ impl Expression {
                     .collect::<Result<_, _>>()?;
                 Expression::Tuple { elements }
             }
-            Expr::Index(expr_index) => {
-                let span = expr_index.span();
-                let index = parse_index_expr(expr_index, context, false)?;
-                if matches!(index, Expression::Verbatim { .. }) {
-                    index
-                } else {
-                    Expression::Unary {
-                        input: Box::new(index),
-                        operator: Operator::Deref,
-                        span,
-                    }
-                }
-            }
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, false, false)?,
             Expr::Repeat(repeat) => Expression::ArrayInit {
                 init: Box::new(Expression::from_expr_value(*repeat.expr, context)?),
                 len: repeat.len,
@@ -544,7 +537,7 @@ impl Expression {
     pub fn from_expr_reference(expr: ExprReference, context: &mut Context) -> syn::Result<Self> {
         let is_mutable = expr.mutability.is_some();
         let expression = match *expr.expr {
-            Expr::Index(expr_index) => parse_index_expr(expr_index, context, is_mutable)?,
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, true, is_mutable)?,
             Expr::Unary(ExprUnary {
                 op: UnOp::Deref(_),
                 expr,
@@ -566,7 +559,7 @@ impl Expression {
                 let inner = match other {
                     // A field of an indexed element is a place in the container: `&mut buf[i].x`
                     // refers to the field in the buffer, not to a copy of it.
-                    Expr::Field(_) => Self::from_expr_place(other, is_mutable, context)?,
+                    Expr::Field(_) => Self::from_expr_place(other, true, is_mutable, context)?,
                     other => Expression::from_expr(other, context)?,
                 };
                 match is_mutable {
@@ -584,11 +577,16 @@ impl Expression {
 
     /// A place: an indexed element is not read, so a field of it is the field's place in the
     /// container. Anything else is parsed as a value.
-    fn from_expr_place(expr: Expr, is_mut: bool, context: &mut Context) -> syn::Result<Self> {
+    fn from_expr_place(
+        expr: Expr,
+        is_ref: bool,
+        is_mut: bool,
+        context: &mut Context,
+    ) -> syn::Result<Self> {
         match expr {
-            Expr::Index(expr_index) => parse_index_expr(expr_index, context, is_mut),
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, is_ref, is_mut),
             Expr::Field(field) => Ok(Expression::FieldAccess {
-                base: Box::new(Self::from_expr_place(*field.base, is_mut, context)?),
+                base: Box::new(Self::from_expr_place(*field.base, is_ref, is_mut, context)?),
                 field: field.member,
             }),
             other => Self::from_expr(other, context),
@@ -597,13 +595,16 @@ impl Expression {
 
     pub fn from_expr_receiver(
         expr: Expr,
+        ends_in_ref: bool,
         ends_in_mut: bool,
         context: &mut Context,
     ) -> syn::Result<Self> {
         match expr {
             // Assuming immutable is not ideal, but unsure we can fix this. For now just make atomics work.
             // Rust does a lot of magic around indexing that we can't really replicate
-            Expr::Index(expr_index) => parse_index_expr(expr_index, context, ends_in_mut),
+            Expr::Index(expr_index) => {
+                parse_index_expr(expr_index, context, ends_in_ref || ends_in_mut, ends_in_mut)
+            }
             other => Self::from_expr(other, context),
         }
     }
@@ -612,10 +613,11 @@ impl Expression {
 fn parse_index_expr(
     expr_index: ExprIndex,
     context: &mut Context,
+    is_ref: bool,
     is_mut: bool,
 ) -> syn::Result<Expression> {
     let span = expr_index.span();
-    let expr = Expression::from_expr_receiver(*expr_index.expr.clone(), is_mut, context)?;
+    let expr = Expression::from_expr(*expr_index.expr.clone(), context)?;
     let index = Expression::from_expr_value(*expr_index.index.clone(), context)?;
     let expression = if expr.is_const() && index.is_const() {
         Expression::Verbatim {
@@ -626,8 +628,14 @@ fn parse_index_expr(
             Expression::Array { elements, span } => generate_strided_index(&expr, elements, span)?,
             index => index,
         };
-        if is_mut {
+        if is_ref && is_mut {
             Expression::IndexMut {
+                expr: Box::new(expr),
+                index: Box::new(index),
+                span,
+            }
+        } else if is_ref {
+            Expression::IndexRef {
                 expr: Box::new(expr),
                 index: Box::new(index),
                 span,
