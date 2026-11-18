@@ -51,22 +51,26 @@ fn print_curve(label: &str, members: &[Client], route: LinkRoute, bus_factor: f6
     }
 
     println!(
-        "\n  {label:<24}{:>12}{:>12}{:>10}",
-        "algbw", "busbw", "time rsd"
+        "\n  {label:<24}{:>12}{:>12}{:>10}{:>10}",
+        "algbw", "busbw", "time rsd", "max"
     );
     for point in curve.points() {
         let rate = curve.ceiling_at(point.bytes).unwrap_or(f64::NAN);
-        let deviation = match point.value.relative_std_dev() {
-            Some(deviation) => format!("{:.1}%", deviation * 100.0),
-            None => String::from("N/A"),
-        };
         println!(
-            "    {:>10}{:>14.2} GB/s{:>7.2} GB/s{:>10}",
+            "    {:>10}{:>14.2} GB/s{:>7.2} GB/s{:>10}{:>10}",
             bytes_label(point.bytes),
             rate / 1e9,
             rate * bus_factor / 1e9,
-            deviation
+            percent_label(point.value.relative_std_dev(), ""),
+            percent_label(point.value.relative_max(), "+")
         );
+    }
+}
+
+fn percent_label(fraction: Option<f64>, sign: &str) -> String {
+    match fraction {
+        Some(fraction) => format!("{sign}{:.1}%", fraction * 100.0),
+        None => String::from("N/A"),
     }
 }
 
