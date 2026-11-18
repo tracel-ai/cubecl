@@ -31,13 +31,20 @@ impl<'a, T: CubePrimitive, C: Coordinates + 'a> Masked<'a, T, C> {
     }
 
     pub fn read(&self, pos: C) -> T {
-        if comptime!(self.check && self.fill.is_some()) {
-            self.view.read_masked(pos, self.fill.unwrap())
-        } else if comptime!(self.check) {
-            self.view.read_checked(pos)
+        if comptime!(self.check) {
+            self.read_masked(pos)
         } else {
             // `check == false`: the launch proved this access in-bounds.
             self.view.read_unchecked(pos)
+        }
+    }
+
+    /// The value at `pos`, or past the overhang the fill: the one given, or zero.
+    fn read_masked(&self, pos: C) -> T {
+        if comptime!(self.fill.is_some()) {
+            self.view.read_masked(pos, self.fill.unwrap())
+        } else {
+            self.view.read_checked(pos)
         }
     }
 
