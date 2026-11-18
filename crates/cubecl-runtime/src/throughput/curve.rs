@@ -13,7 +13,9 @@
 
 use alloc::vec::Vec;
 
-use crate::throughput::{MemoryAccess, MemorySpec, ThroughputKey, ThroughputMode, ThroughputValue};
+use crate::throughput::{
+    LinkRoute, MemoryAccess, MemorySpec, ThroughputKey, ThroughputMode, ThroughputValue,
+};
 
 /// The smallest working set a curve is measured at, in bytes moved per pass.
 ///
@@ -71,26 +73,41 @@ pub struct MemoryPoint {
     pub value: ThroughputValue,
 }
 
-/// Memory throughput measured across a range of working sets.
+/// Which traffic a [`MemoryCurve`] measured.
+#[derive(Eq, PartialEq, Clone, Copy, Hash, Debug)]
+pub enum Traffic {
+    /// Across one device's memory interface.
+    Memory(MemoryAccess),
+    /// Between devices, whose [`LinkKey`](super::LinkKey) values count bytes as their operations.
+    Link(LinkRoute),
+}
+
+impl From<MemoryAccess> for Traffic {
+    fn from(access: MemoryAccess) -> Self {
+        Self::Memory(access)
+    }
+}
+
+/// Memory throughput measured across a range of working sets, on one device or between several.
 ///
 /// Built by sweeping one probe over [`working_set_sweep`]; ask it for the
 /// ceiling of a given working set with [`ceiling_at`](Self::ceiling_at).
 #[derive(PartialEq, Clone, Debug)]
 pub struct MemoryCurve {
-    access: MemoryAccess,
+    traffic: Traffic,
     /// Ascending by `bytes`, deduplicated, and every rate finite and positive.
     points: Vec<MemoryPoint>,
 }
 
 impl MemoryCurve {
-    /// Assembles a curve from points measured with `access`.
+    /// Assembles a curve from points measured over `traffic`.
     ///
     /// A point with an empty working set, or a rate that isn't finite and
     /// positive (an unsupported or failed probe), describes nothing and is
     /// dropped; duplicated working sets keep the first point.
-    pub fn new(access: MemoryAccess, points: impl IntoIterator<Item = MemoryPoint>) -> Self {
+    pub fn new(traffic: impl Into<Traffic>, points: impl IntoIterator<Item = MemoryPoint>) -> Self {
         let mut curve = Self {
-            access,
+            traffic: traffic.into(),
             points: Vec::new(),
         };
 
@@ -147,9 +164,12 @@ impl MemoryCurve {
 
     /// What a point measured, in bytes moved per second.
     fn rate(&self, point: &MemoryPoint) -> f64 {
-        let mode = ThroughputMode::Memory(MemorySpec::new(self.access, point.bytes));
-
-        point.value.bytes_per_s(&ThroughputKey { mode })
+        match self.traffic {
+            Traffic::Memory(access) => point.value.bytes_per_s(&ThroughputKey {
+                mode: ThroughputMode::Memory(MemorySpec::new(access, point.bytes)),
+            }),
+            Traffic::Link(_) => point.value.ops_per_s(),
+        }
     }
 }
 
