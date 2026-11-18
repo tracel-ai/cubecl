@@ -288,6 +288,11 @@ impl Tile {
         // to directly, through a scratch: where none was opened, the drain opens the smallest.
         let levels = self.factor_levels();
         let scaled = comptime!(levels > 0);
+        let total = self.is_memory();
+        comptime!(assert!(
+            !(total && scaled),
+            "Tile::drained_into: a memory tile is a merged total, which carries no scales"
+        ));
         let unopened = self.scratch_unopened();
         let in_place = self.casts_in_place_to::<Served, Out>();
         let bounces = dest.fragments_bounce(in_place);
@@ -544,12 +549,13 @@ impl Tile {
             },
             // No grid: the accumulator is one tile and the drain is one store.
             TileKind::PlaneTile(_) => drain_leaf::<A, Out>(self, dest, comptime!(DrainPass::Copy)),
-            TileKind::Memory(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => {
-                panic!("Tile::drained_into: a plane-resident accumulator drains; nothing else does")
-            }
+            // A finished total merged in memory: the holder's units copy its lines, whoever
+            // filled the buffer the destination windows.
+            TileKind::Memory(_) => dest.clone().copy_cast_from(self),
+            TileKind::TmaGmem(_) | TileKind::Procedural(_) | TileKind::Lines(_) => panic!(
+                "Tile::drained_into: an accumulator or a total merged in memory drains; nothing \
+                 else does"
+            ),
         }
     }
 }

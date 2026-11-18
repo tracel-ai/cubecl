@@ -16,6 +16,10 @@ use cubecl::{
 };
 
 use super::{Form, implied};
+use cubecl_tile::kind::Write;
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand,
+};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
 
@@ -90,6 +94,42 @@ fn smem_cyclic_split_matmul<E: Numeric>(
         }
         c_cube.copy_from(&sum.source);
     }
+}
+
+/// The same product, the finished total handed to the output's destination rather than copied by
+/// the kernel.
+#[cube(launch)]
+fn smem_consumed_matmul<E: Numeric, O: Destination>(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    out: &O::Arg<E>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let c = dest.tile();
+    for cube in &space {
+        let c_cube = c.at(&cube);
+        let sum = c_cube.smem_accumulation::<E>();
+        for plane in &cube {
+            let a_plane = a.at(&plane);
+            let b_plane = b.at(&plane);
+            let sink_plane = sum.sink.at(&plane);
+            let mut partial = sink_plane.register_accumulator::<E>(
+                &a_plane,
+                &b_plane,
+                comptime!(SOFTWARE_MATMUL),
+                Semiring::SUM_PROD,
+            );
+            partial.mma(&a_plane, &b_plane);
+            partial.drained_into(&sink_plane);
+        }
+        sync_cube();
+        sum.source.consumed_by::<O::Served<E>>(&dest, &cube);
+    }
+    dest.finish();
 }
 
 fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
@@ -253,6 +293,69 @@ fn planes_sum_their_slices_in_shared_memory() {
     }
     let (m, n, k) = (4, 4, 32);
     assert_matches(&run(m, n, k, (4, 4), 4, Meet::Atomic), m, n, k);
+}
+
+/// Four planes' partials merged in shared memory, the total handed to a storing destination.
+#[test]
+fn a_merged_total_is_consumed_by_a_destination() {
+    let client = cubecl::test_device().client();
+    if !adds_atomically_in_shared_memory(&client) {
+        return;
+    }
+    let (m, n, k, planes) = (4, 4, 32, 4);
+    let dtype = f32::elem_type_native();
+    let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..k * n).map(|i| (i % 5) as f32 - 2.0).collect();
+    let (a_handle, _) = TestInput::builder(client.clone(), shape![m, k])
+        .dtype(dtype)
+        .custom(a)
+        .generate_with_f32_host_data();
+    let (b_handle, _) = TestInput::builder(client.clone(), shape![k, n])
+        .dtype(dtype)
+        .custom(b)
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![m, n])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, 4), (N, 4), (K, k / planes)])
+                .planes(&[(K, planes)])
+                .cubes(&[M, N])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let bound = launcher
+        .arg(out.clone().binding(), dtype)
+        .dimensions(&[M, N])
+        .build()
+        .unwrap();
+    smem_consumed_matmul::launch::<Buffered>(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            a_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, K]),
+        ),
+        TileTensorLaunch::new(
+            b_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[K, N]),
+        ),
+        Buffered::arg((bound, Write::Replace)),
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    assert_matches(&got, m, n, k);
 }
 
 /// Several cubes, each with its own accumulator: a box's sum never sees another box's planes.

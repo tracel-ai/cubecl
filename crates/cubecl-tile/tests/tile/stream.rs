@@ -816,7 +816,7 @@ fn merged_stream_matmul(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut out = out.tile(&space);
+    let out = out.tile(&space);
     let portion = space.walk().portion(steps.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
@@ -832,7 +832,7 @@ fn merged_stream_matmul(
         for cell in region.over(&steps).range(from, count) {
             contract(&acc, &a_region, &b_region, &cell);
         }
-        merge.hand_on(&acc, &mut out);
+        merge.hand_on::<Tile>(&acc, &out);
     }
 }
 

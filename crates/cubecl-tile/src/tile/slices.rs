@@ -139,6 +139,27 @@ impl DimensionSlices {
         }
     }
 
+    /// `self[c] = self[c] · exp(bias[c])`, the procedural `bias` read at each cell's coordinates as
+    /// a log-weight: a cell whose bias is the minimum value or below is masked and becomes zero,
+    /// whatever its score. It weighs scores by a decay instead of a softmax where their holder
+    /// keeps them. A cmma fragment is drained into a window first.
+    pub fn mul_exp<E: Float>(&mut self, bias: &Tile) {
+        let recipe = bias.recipe();
+        match &mut self.kind {
+            DimensionSlicesKind::Registers(block) => block.mul_exp_along::<E>(recipe, &self.space),
+            DimensionSlicesKind::Window(window) => {
+                window.mul_exp_along::<E>(recipe, &self.space, self.dimension)
+            }
+            DimensionSlicesKind::Fragments(partition) => {
+                partition.mul_exp_along::<E>(recipe, &self.space)
+            }
+            DimensionSlicesKind::Fragment(tile) => {
+                let mut fragment = tile.manual_fragment();
+                fragment.mul_exp_along::<E>(recipe, &self.space, (0usize, 0usize))
+            }
+        }
+    }
+
     /// Each slice's max, starting from `seed`'s.
     pub(crate) fn maxima<E: Float>(&self, seed: &Array<E>) -> Array<E> {
         match &self.kind {
@@ -348,6 +369,11 @@ impl DimensionSlices {
     /// `2^(value · scale − offset)`, a cell of [`exp2_scaled_minus`](Self::exp2_scaled_minus).
     pub(crate) fn exp2_scaled_minus_cell<E: Float>(value: E, scale: E, offset: E) -> E {
         (value * scale - offset).exp2()
+    }
+
+    /// `value · exp(bias)`, zero where `bias` is the minimum value.
+    pub(crate) fn mul_exp_cell<E: Float>(value: E, bias: E) -> E {
+        select(bias > E::min_value(), value * bias.exp(), E::from_int(0))
     }
 
     /// `exp(value − slice)`, zero where `slice` is itself masked: a slice with nothing live yet,

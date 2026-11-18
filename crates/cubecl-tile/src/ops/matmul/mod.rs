@@ -7,6 +7,7 @@ pub(crate) mod instruction;
 pub(crate) mod leaf;
 pub(crate) mod mma_io;
 pub(crate) mod software_matmul;
+pub(crate) mod step;
 
 pub(crate) use descent::Descent;
 pub(crate) use leaf::*;
