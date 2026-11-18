@@ -204,8 +204,9 @@ where
     /// Clear the autotune state, and the sets [`init`](Self::init) built, which keep the run
     /// orders they planned.
     pub fn clear(&self) {
+        let mut sets = self.sets.write();
         self.state.lock().take();
-        self.sets.write().take();
+        sets.take();
     }
 
     #[cfg(feature = "autotune-checks")]
