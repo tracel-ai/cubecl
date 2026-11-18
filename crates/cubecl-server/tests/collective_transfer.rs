@@ -881,8 +881,28 @@ fn a_sync_from_another_compute_stream_waits_for_the_last_collective() {
         server.sync_collective(StreamId { value: 2 }).unwrap();
     });
 
-    // The compute stream that ran the collective, then the collective stream.
-    assert_eq!(waits, 2);
+    // Only the compute stream that ran the collective: nothing ran on the collective stream.
+    assert_eq!(waits, 1);
+}
+
+#[test_log::test]
+fn a_sync_on_the_stream_that_ran_the_collectives_waits_on_no_other() {
+    let (mut server, device) = joined_alone(80);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+
+    let waits = waits_across_streams(|| server.sync_collective(STREAM).unwrap());
+
+    assert_eq!(waits, 0);
+}
+
+#[test_log::test]
+fn a_sync_after_a_collective_left_for_it_waits_for_the_collective_stream() {
+    let (mut server, device) = joined_alone(81);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::AtSync);
+
+    let waits = waits_across_streams(|| server.sync_collective(STREAM).unwrap());
+
+    assert_eq!(waits, 1);
 }
 
 #[test_log::test]

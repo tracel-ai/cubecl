@@ -361,6 +361,9 @@ pub trait CollectiveServer: Sized {
         let timing = self.collectives().take_timing();
         let last_end = self.collectives().take_last_end();
         let compute_tail = self.collectives().compute_tail_other_than(Some(stream_id));
+        // A collective stream no collective ran on since a compute stream waited for it holds
+        // nothing to wait for, and a capturing stream must not wait on one outside its capture.
+        let comm_is_tail = self.collectives().comm_stream_is_tail();
         let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());
@@ -370,7 +373,11 @@ pub trait CollectiveServer: Sized {
         if let Some(compute_tail) = compute_tail {
             Self::Driver::wait_for(stream, compute_tail)?;
         }
-        marks.synced(self.comm_stream(), stream, last_end.as_ref())?;
+        marks.synced(
+            comm_is_tail.then(|| self.comm_stream()),
+            stream,
+            last_end.as_ref(),
+        )?;
         self.collectives().comm_stream_synced(stream_id, stream);
         Ok(())
     }
@@ -837,7 +844,7 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
         Ok(())
     }
 
-    /// `compute` waits for every collective queued on `collectives`, and the wait's window runs
+    /// `compute` waits for every collective queued on `collectives`, if any, and the wait's window runs
     /// to `last_end`, where the last of them ends, or reads back empty without one. Not to this
     /// sync's own mark: an idle stream reaches it once queued, which is no part of the wait.
     ///
@@ -846,11 +853,13 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
     /// The driver's refusal to order the two.
     fn synced(
         &mut self,
-        collectives: StreamSignal<S::Driver>,
+        collectives: Option<StreamSignal<S::Driver>>,
         compute: StreamSignal<S::Driver>,
         last_end: Option<&Mark<S::Events>>,
     ) -> Result<(), ServerError> {
-        self.order(collectives, compute, ComputeWait::Now)?;
+        if let Some(collectives) = collectives {
+            self.order(collectives, compute, ComputeWait::Now)?;
+        }
         if let (Some(_), Some(last_end)) = (&self.end, last_end) {
             self.wait_measured(last_end);
         }

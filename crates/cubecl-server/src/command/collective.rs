@@ -323,6 +323,12 @@ impl<D: CollectiveDriver, E: EventApi> Collectives<D, E> {
         });
     }
 
+    /// Whether the last collective ran on the collective stream for a sync to wait for, or a
+    /// group joined there and no compute stream has waited for it since.
+    pub fn comm_stream_is_tail(&self) -> bool {
+        matches!(self.tail, Some(CollectiveTail::Comm))
+    }
+
     /// Compute stream `from`, whose signal is `compute`, waited for the collective stream.
     pub fn comm_stream_synced(&mut self, from: StreamId, compute: StreamSignal<D>) {
         if let Some(CollectiveTail::Comm) = self.tail {
