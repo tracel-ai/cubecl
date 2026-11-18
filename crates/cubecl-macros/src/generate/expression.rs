@@ -157,7 +157,8 @@ impl Expression {
                 let mut operands = Operands::new(context);
                 let input = operands.track(context, |context| input.to_tokens(context));
                 let op = format_ident!("__expand_{}_method", operator.op_name());
-                let args = args_with_position(&[], Vec::new(), operands.position(context, *span));
+                let args =
+                    args_with_position(&[], Vec::new(), operands.position(context, *span), false);
                 quote! {
                     #input.#op(#args)
                 }
@@ -247,7 +248,8 @@ impl Expression {
                 let arg_tokens = operands.track_args(context, args);
                 let (generics, path) =
                     operands.track(context, |context| split_generics(func, context));
-                let args = args_with_position(args, arg_tokens, operands.position(context, *span));
+                let args =
+                    args_with_position(args, arg_tokens, operands.position(context, *span), false);
                 quote_spanned! {*span=>#path::expand #generics(#args)}
             }
             Expression::CompilerIntrinsic { func, args } => {
@@ -278,7 +280,8 @@ impl Expression {
                 let arg_tokens = operands.track_args(context, args);
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
-                let args = args_with_position(args, arg_tokens, operands.position(context, *span));
+                let args =
+                    args_with_position(args, arg_tokens, operands.position(context, *span), false);
                 quote_spanned! {*span=>#ty_path::#name(#args)}
             }
             Expression::MethodCall {
@@ -289,6 +292,7 @@ impl Expression {
                 span,
                 ..
             } => {
+                let call = prelude_type("__expand_method_call");
                 let method = format_ident!("__expand_{method}_method");
                 let mut operands = Operands::new(context);
                 let arg_tokens = operands.track_args(context, args);
@@ -297,8 +301,9 @@ impl Expression {
                         .as_const(context)
                         .unwrap_or_else(|| receiver.to_tokens(context))
                 });
-                let args = args_with_position(args, arg_tokens, operands.position(context, *span));
-                quote_spanned! {*span=>#receiver.#method #generics(#args)}
+                let args =
+                    args_with_position(args, arg_tokens, operands.position(context, *span), true);
+                quote_spanned! {*span=>#call(scope, |scope| #receiver.#method #generics(#args))}
             }
             Expression::Break {
                 closure_scope,
@@ -1260,8 +1265,15 @@ fn args_with_position(
     args: &[Expression],
     mut tokens: Vec<TokenStream>,
     position: Option<TokenStream>,
+    with_call_start: bool,
 ) -> TokenStream {
-    let scope = quote![scope];
+    let scope = match with_call_start {
+        true => quote![{
+            scope.start_call_args();
+            scope
+        }],
+        false => quote![scope],
+    };
     let Some(position) = position else {
         return quote![#scope, #(#tokens),*];
     };

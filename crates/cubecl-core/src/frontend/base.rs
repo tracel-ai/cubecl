@@ -1,4 +1,5 @@
 use cubecl_ir::Scope;
+use pliron::irbuild::inserter::OpInsertionPoint;
 
 use crate::frontend::{ConstRuntimeAssign, CubeType, NativeExpand, PlaceExpand};
 
@@ -93,6 +94,51 @@ impl<T> PlainPlaceAccess<T> for PlaceHelper<T> {
 impl<T: PlaceExpand> PlaceHelper<T> {
     pub fn __expand_read_place(self, scope: &Scope) -> T {
         self.0.read_place(scope)
+    }
+}
+
+/// Receivers must be loaded before their arguments are evaluated, but the call site doesn't know
+/// the receiver type. So methods need to place their receiver load "out of order", before the args
+/// are evaluated. This works in tandem with `__expand_read_receiver` to temporarily override the
+/// insertion point for the receiver read to the point before the method args start evaluating.
+///
+/// The macro needs to generate `scope.start_call_args()` in a block with the scope arg, so it's
+/// evaluated right before the first actual arg.
+pub fn __expand_method_call<R>(scope: &Scope, call: impl FnOnce(&Scope) -> R) -> R {
+    let res = call(scope);
+    scope.end_call_args();
+    res
+}
+
+pub fn __expand_read_receiver<T: PlaceExpand>(scope: &Scope, value: T) -> T {
+    let current_pos = scope.inserter().get_insertion_point();
+    let before_recv = scope.before_call_args_pos();
+
+    // If the point is the same we need to append normally and not reset, otherwise the point gets
+    // set before the load and everything breaks
+    if is_same_point(&current_pos, &before_recv) {
+        value.read_place(scope)
+    } else {
+        scope.inserter().set_insertion_point(before_recv);
+        let value = value.read_place(scope);
+        scope.inserter().set_insertion_point(current_pos);
+        value
+    }
+}
+
+// Can't be bothered to upstream an equality impl
+fn is_same_point(lhs: &OpInsertionPoint, rhs: &OpInsertionPoint) -> bool {
+    match (lhs, rhs) {
+        (OpInsertionPoint::Unset, OpInsertionPoint::Unset) => true,
+        (OpInsertionPoint::AtBlockStart(lhs), OpInsertionPoint::AtBlockStart(rhs)) => lhs == rhs,
+        (OpInsertionPoint::AtBlockEnd(lhs), OpInsertionPoint::AtBlockEnd(rhs)) => lhs == rhs,
+        (OpInsertionPoint::AfterOperation(lhs), OpInsertionPoint::AfterOperation(rhs)) => {
+            lhs == rhs
+        }
+        (OpInsertionPoint::BeforeOperation(lhs), OpInsertionPoint::BeforeOperation(rhs)) => {
+            lhs == rhs
+        }
+        _ => false,
     }
 }
 

@@ -10,7 +10,7 @@ use cubecl_ir::{VectorSize, dialect::general::FreeOp, interfaces::TypedExt, type
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, PlaceExpand, NativeExpand},
+    frontend::{CubePrimitive, CubeType, NativeExpand, PlaceExpand},
     ir::Scope,
     prelude::*,
 };

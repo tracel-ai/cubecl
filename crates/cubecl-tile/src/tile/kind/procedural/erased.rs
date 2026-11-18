@@ -3,7 +3,9 @@
 use core::marker::PhantomData;
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ElemType, ExpandValue, Scope};
 use cubecl::prelude::*;
 use cubecl::unexpanded;

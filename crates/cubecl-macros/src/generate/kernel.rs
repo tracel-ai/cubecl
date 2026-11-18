@@ -54,9 +54,9 @@ impl KernelFn {
         )) = &mut self.sig.receiver_arg
             && let KernelBody::Block(block) = &mut self.body
         {
-            let place_expand = prelude_type("PlaceExpand");
+            let read_receiver = prelude_type("__expand_read_receiver");
             rec.mutability = Some(Token![mut](rec.span()));
-            let tokens = quote![self = #place_expand::read_place(self, scope)];
+            let tokens = quote![self = #read_receiver(scope, self)];
             block.inner.insert(
                 0,
                 Statement::Expression {

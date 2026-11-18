@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ExpandValue, Scope};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::QuantValue;

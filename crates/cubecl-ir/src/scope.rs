@@ -15,6 +15,7 @@ use core::{
 use cubecl_common::format::type_name_sanitized;
 use cubecl_environment::collections::HashMap;
 use derive_more::{Eq, PartialEq};
+use derive_new::new;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
@@ -153,20 +154,32 @@ pub fn ident(name: impl Into<String>) -> Identifier {
     Identifier::try_new(name.into()).unwrap()
 }
 
+#[derive(new)]
 pub struct GlobalState {
+    #[new(default)]
     pub reference_arena: DropBump,
+    #[new(default)]
     pub errors: Vec<String>,
+    #[new(default)]
     pub warnings: Vec<String>,
 
     pub module: ModuleOp,
     pub module_inserter: OpInserter,
     pub entry_func: FuncOp,
+    #[new(default)]
     pub ident_unique_id: AtomicUsize,
+    #[new(default)]
     pub typemap: Types,
+    #[new(default)]
     pub sizemap: Sizes,
+    #[new(default)]
     pub modes: InstructionModes,
+    #[new(default)]
     pub target_properties: TargetProperties,
+    #[new(default)]
     pub device_properties: Option<Arc<DeviceProperties>>,
+    #[new(default)]
+    pub before_call_args_pos: Vec<OpInsertionPoint>,
 }
 
 unsafe impl Send for GlobalState {}
@@ -353,20 +366,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     entry_func.set_entrypoint_abi(&mut ctx, abi);
     module_inserter.append_op(&ctx, &entry_func);
 
-    let mut state = GlobalState {
-        reference_arena: Default::default(),
-        module,
-        module_inserter,
-        entry_func,
-        ident_unique_id: Default::default(),
-        typemap: Default::default(),
-        sizemap: Default::default(),
-        modes: Default::default(),
-        target_properties: Default::default(),
-        device_properties: Default::default(),
-        errors: Default::default(),
-        warnings: Default::default(),
-    };
+    let mut state = GlobalState::new(module, module_inserter, entry_func);
     settings.address_type.register(&mut state);
 
     ctx.set_aux_ty(state);
@@ -389,20 +389,7 @@ fn dummy_context() -> Rc<UnsafeCell<Context>> {
     let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
     module_inserter.append_op(&ctx, &entry_func);
 
-    let state = GlobalState {
-        reference_arena: Default::default(),
-        module,
-        module_inserter,
-        entry_func,
-        ident_unique_id: Default::default(),
-        typemap: Default::default(),
-        sizemap: Default::default(),
-        modes: Default::default(),
-        target_properties: Default::default(),
-        device_properties: Default::default(),
-        errors: Default::default(),
-        warnings: Default::default(),
-    };
+    let state = GlobalState::new(module, module_inserter, entry_func);
 
     ctx.set_aux_ty(state);
     Rc::new(UnsafeCell::new(ctx))
@@ -906,6 +893,23 @@ impl Scope {
                 return_value: None,
             }),
         }
+    }
+
+    pub fn start_call_args(&self) {
+        let point = self.inserter().get_insertion_point();
+        self.state_mut().before_call_args_pos.push(point);
+    }
+
+    pub fn end_call_args(&self) {
+        self.state_mut().before_call_args_pos.pop();
+    }
+
+    pub fn before_call_args_pos(&self) -> OpInsertionPoint {
+        self.state_mut()
+            .before_call_args_pos
+            .last()
+            .copied()
+            .unwrap_or_else(|| self.inserter().get_insertion_point())
     }
 
     // Adds a validation error.

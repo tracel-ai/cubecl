@@ -6,7 +6,9 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::frontend::{buffer_len::expand_buffer_length_native, slice};
 use cubecl::ir::pliron::value::Value;
 use cubecl::ir::{ElemType, Scope, types::VectorType};

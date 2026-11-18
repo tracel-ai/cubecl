@@ -46,7 +46,7 @@
 //! }
 //! ```
 
-use super::{CubeDebug, CubePrimitive, CubeType, PlaceExpand, NativeExpand, SliceExpand};
+use super::{CubeDebug, CubePrimitive, CubeType, NativeExpand, PlaceExpand, SliceExpand};
 use crate::unexpanded;
 use crate::{self as cubecl, prelude::*};
 use core::marker::PhantomData;
