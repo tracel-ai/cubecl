@@ -219,6 +219,7 @@ mod tests {
                 value: ThroughputValue {
                     ops_count: (bytes / 4) as usize,
                     duration: Duration::from_secs_f64(bytes as f64 / bytes_per_s),
+                    samples: None,
                 },
             }),
         )

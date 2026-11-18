@@ -118,13 +118,10 @@ impl ThroughputBenchmarker {
         let sample = kernel_config.sample;
 
         let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let duration =
-            Self::sample_peak_duration(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
+        let samples =
+            Self::sample_until_settled(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
 
-        ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
-        }
+        ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples)
     }
 
     /// Warms the device on one shape and reports the count a sample should carry.
@@ -141,17 +138,14 @@ impl ThroughputBenchmarker {
     /// count [`warm`](Self::warm) settled.
     pub fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
         let iterations = iterations.max(kernel_config.min_iterations).max(1);
-        let duration = Self::sample_peak_duration(
+        let samples = Self::sample_until_settled(
             iterations,
             &kernel_config.sample,
             SAMPLE_BUDGET,
             SAMPLE_PATIENCE,
         );
 
-        ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
-        }
+        ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples)
     }
 
     /// Times one shape briefly, to order it against the others rather than to
@@ -167,18 +161,12 @@ impl ThroughputBenchmarker {
             .max(kernel_config.min_iterations)
             .max(1);
 
-        let mut fastest = Duration::MAX;
-        for _ in 0..RANK_SAMPLES {
-            fastest = fastest.min((kernel_config.sample)(iterations));
-        }
-
-        let duration = fastest / iterations as u32;
+        let samples: alloc::vec::Vec<Duration> = (0..RANK_SAMPLES)
+            .map(|_| (kernel_config.sample)(iterations))
+            .collect();
 
         Ranked {
-            value: ThroughputValue {
-                ops_count: kernel_config.ops_count,
-                duration,
-            },
+            value: ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples),
             iterations,
         }
     }
@@ -272,14 +260,14 @@ impl ThroughputBenchmarker {
         iterations
     }
 
-    /// Sample the peak throughput of the kernel by running it multiple times
-    /// and measuring the duration of each iteration.
-    fn sample_peak_duration(
+    /// Samples the kernel at `iterations` until its fastest sample stops improving or the budget
+    /// runs out, and returns every sample taken.
+    fn sample_until_settled(
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
         budget: Duration,
         patience: usize,
-    ) -> Duration {
+    ) -> alloc::vec::Vec<Duration> {
         debug_assert!(
             iterations > 0,
             "iterations must be positive to avoid division by zero"
@@ -289,13 +277,16 @@ impl ThroughputBenchmarker {
         const REL_TOL: f64 = 0.01;
 
         let mut best = f64::INFINITY;
+        let mut samples = alloc::vec::Vec::new();
         let mut stale = 0;
         // Wall clock, not the sum of what the samples report: a probe whose
         // timer reads zero would otherwise never spend any of the budget.
         let start = Instant::now();
 
         for _ in 0..MAX_SAMPLES {
-            let s = sample_once(iterations).as_secs_f64();
+            let sample = sample_once(iterations);
+            samples.push(sample);
+            let s = sample.as_secs_f64();
             if s < best * (1.0 - REL_TOL) {
                 best = s;
                 stale = 0;
@@ -303,18 +294,20 @@ impl ThroughputBenchmarker {
                 best = best.min(s);
                 stale += 1;
             }
-            if stale >= patience || start.elapsed() >= budget {
+            // A deviation needs two samples, however long the first took.
+            if stale >= patience || (start.elapsed() >= budget && samples.len() >= 2) {
                 break;
             }
         }
 
-        Duration::from_secs_f64(best / iterations as f64)
+        samples
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::throughput::SampleStats;
     use core::cell::Cell;
 
     fn spin(duration: Duration) {
@@ -369,7 +362,7 @@ mod tests {
     #[test]
     fn a_timer_reading_zero_still_stops_sampling() {
         let calls = Cell::new(0);
-        let _ = ThroughputBenchmarker::sample_peak_duration(
+        let _ = ThroughputBenchmarker::sample_until_settled(
             1,
             |_| {
                 calls.set(calls.get() + 1);
@@ -380,6 +373,114 @@ mod tests {
         );
 
         assert!(calls.get() < 200, "ran {} samples", calls.get());
+    }
+
+    #[test]
+    fn sampling_keeps_the_deviation_of_its_samples() {
+        let calls = Cell::new(0u64);
+        let samples = ThroughputBenchmarker::sample_until_settled(
+            10,
+            |iterations| {
+                calls.set(calls.get() + 1);
+                let per_iter = if calls.get().is_multiple_of(2) {
+                    1_200
+                } else {
+                    1_000
+                };
+                Duration::from_nanos(per_iter * iterations as u64)
+            },
+            SAMPLE_BUDGET,
+            SAMPLE_PATIENCE,
+        );
+        let value = ThroughputValue::from_samples(1, 10, &samples);
+        let samples = value.samples.expect("more than one sample");
+
+        assert_eq!(value.duration, Duration::from_nanos(1_000));
+        assert!(
+            (Duration::from_micros(10)..Duration::from_micros(12)).contains(&samples.mean),
+            "mean {:?}",
+            samples.mean
+        );
+        assert!(samples.std_dev > Duration::ZERO);
+    }
+
+    #[test]
+    fn a_sample_past_the_budget_is_followed_by_a_second() {
+        let samples = ThroughputBenchmarker::sample_until_settled(
+            1,
+            |_| Duration::from_millis(5),
+            Duration::ZERO,
+            SAMPLE_PATIENCE,
+        );
+
+        assert_eq!(samples.len(), 2);
+    }
+
+    #[test]
+    fn one_sample_has_no_statistics() {
+        assert_eq!(SampleStats::new(&[Duration::from_millis(5)]), None);
+    }
+
+    #[test]
+    fn a_timer_reading_zero_has_no_relative_deviation() {
+        let samples = SampleStats::new(&[Duration::ZERO, Duration::ZERO]).expect("two samples");
+
+        assert_eq!(samples.relative_std_dev(), None);
+    }
+
+    #[test]
+    fn a_sample_at_the_largest_duration_does_not_panic() {
+        let samples = SampleStats::new(&[Duration::from_millis(1), Duration::MAX]);
+
+        assert!(samples.is_some());
+    }
+
+    #[test]
+    fn the_slowest_sample_is_kept() {
+        let samples = SampleStats::new(&[
+            Duration::from_micros(10),
+            Duration::from_micros(30),
+            Duration::from_micros(20),
+        ])
+        .expect("three samples");
+
+        assert_eq!(samples.max, Duration::from_micros(30));
+        let above_mean = samples.relative_max().expect("a mean above zero");
+        assert!(
+            (above_mean - 0.5).abs() < 1e-9,
+            "max sits {above_mean} above the mean"
+        );
+    }
+
+    #[test]
+    fn a_value_from_the_largest_sample_does_not_panic() {
+        let value = ThroughputValue::from_samples(1, 1, &[Duration::MAX]);
+
+        assert_eq!(value.duration, Duration::MAX);
+    }
+
+    #[test]
+    fn a_pass_under_a_nanosecond_rounds_to_the_nearest() {
+        let value = ThroughputValue::from_samples(1, 4_000_000, &[Duration::from_millis(3)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn a_count_past_u32_divides_whole() {
+        let iterations = 1usize << 33;
+        let value = ThroughputValue::from_samples(1, iterations, &[Duration::from_nanos(1 << 33)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
+    fn identical_samples_deviate_by_nothing() {
+        let sample = Duration::from_micros(7);
+        let samples = SampleStats::new(&[sample; 4]).expect("four samples");
+
+        assert_eq!(samples.std_dev, Duration::ZERO);
     }
 
     /// Passes at one iteration count sit microseconds apart, so a plateau of
