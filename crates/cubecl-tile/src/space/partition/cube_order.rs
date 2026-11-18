@@ -11,9 +11,9 @@ pub enum CubeOrder {
     /// The box at `(x, y)` goes to the cube at `(x, y)`.
     #[default]
     RowMajor,
-    /// Cubes snake down the second axis in strips `width` wide along the first.
+    /// Cubes snake down the second dimension in strips `width` wide along the first.
     SwizzleRow(usize),
-    /// Cubes snake along the first axis in strips `width` wide along the second.
+    /// Cubes snake along the first dimension in strips `width` wide along the second.
     SwizzleCol(usize),
 }
 
@@ -53,14 +53,14 @@ pub(crate) fn cube_positions(
     }
 }
 
-/// [`swizzle`](fn@swizzle) over strips cut from an axis of `strip_axis` elements that
+/// [`swizzle`](fn@swizzle) over strips cut from a dimension of `strip_dimension` elements that
 /// `step_length` need not divide; the last strip holds what is left.
 #[cube]
 pub(crate) fn swizzle_ragged(
     index: usize,
     num_steps: usize,
     #[comptime] step_length: u32,
-    strip_axis: usize,
+    strip_dimension: usize,
 ) -> Coords2d {
     comptime!(assert!(
         step_length > 0,
@@ -71,7 +71,7 @@ pub(crate) fn swizzle_ragged(
     let strip_index = index / full;
     let strip_offset = step_length * strip_index;
     // An index past the grid leaves nothing, and takes a whole width rather than divide by zero.
-    let left = (strip_axis as u32).saturating_sub(strip_offset);
+    let left = (strip_dimension as u32).saturating_sub(strip_offset);
     let width = if left < step_length && left > 0 {
         left
     } else {

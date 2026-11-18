@@ -27,22 +27,22 @@ impl MatrixGrid {
         if level.coverage() != Coverage::Walk {
             return MatrixGrid { rows: 1, cols: 1 };
         }
-        let edges = MatrixAxes::edges(space);
-        for (p, axis) in space.axes().enumerate() {
+        let edges = MatrixDimensions::edges(space);
+        for (p, dimension) in space.dimensions().enumerate() {
             let tiles = level
-                .tiles_const(space, axis)
+                .tiles_const(space, dimension)
                 .expect("plane partition level: tile counts must be comptime");
             assert!(
                 p == edges.row_split || p == edges.col_split || tiles == 1,
-                "plane partition level: leading (batch) axes must hand out one tile"
+                "plane partition level: leading (batch) dimensions must hand out one tile"
             );
         }
         MatrixGrid {
             rows: level
-                .tiles_const(space, space.axis_at(edges.row_split))
+                .tiles_const(space, space.dimension_at(edges.row_split))
                 .unwrap(),
             cols: level
-                .tiles_const(space, space.axis_at(edges.col_split))
+                .tiles_const(space, space.dimension_at(edges.col_split))
                 .unwrap(),
         }
     }

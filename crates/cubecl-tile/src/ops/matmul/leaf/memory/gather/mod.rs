@@ -1,4 +1,4 @@
-//! The N-D nest, for operands whose contracted axes are gathered rather than lined.
+//! The N-D nest, for operands whose contracted dimensions are gathered rather than lined.
 
 pub(crate) mod base;
 pub(crate) mod coords;

@@ -13,7 +13,7 @@ pub enum StridedLayout {
 ///
 /// Exceeds `shape.iter().product()` for jumpy strides (e.g. a slice stepping
 /// over padding) and is less than it for broadcast strides (a stride of 0
-/// makes every index in that dim share the same physical offset).
+/// makes every index in that axis share the same physical offset).
 pub fn physical_extent(shape: &Shape, strides: &Strides) -> usize {
     let mut max_offset = 0usize;
     for (s, d) in strides.iter().zip(shape.iter()) {

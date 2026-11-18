@@ -1,8 +1,8 @@
-//! A box the TMA engine loads through a descriptor whose dims are not the tile's own axes
-//! ([`TileTensorLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split axes
-//! `(M, KB, KI)` a packed product states its float input over, the descriptor over the matrix as
-//! it lies, each position landing at the column `KB · block + KI`. Each cube lands its box in
-//! shared memory and copies it out over the same axes.
+//! A box the TMA engine loads through a descriptor whose axes are not the tile's own dimensions
+//! ([`TileTensorLaunch::tensor_map_folded`]): a `rows × k` matrix read over the block-split
+//! dimensions `(M, KB, KI)` a packed product states its float input over, the descriptor over the
+//! matrix as it lies, each position landing at the column `KB · block + KI`. Each cube lands its
+//! box in shared memory and copies it out over the same dimensions.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput};
@@ -12,9 +12,9 @@ use cubecl::zspace::{shape, strides};
 use cubecl_tile::launch::{TmaCoordinates, TmaTerm};
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const KB: Axis = Axis(1);
-const KI: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const KB: Dimension = Dimension(1);
+const KI: Dimension = Dimension(2);
 
 /// Rows and values of `k` of the matrix, and the block `k` is split in.
 const ROWS: usize = 32;
@@ -65,13 +65,13 @@ fn a_block_split_box_lands_through_a_folded_descriptor() {
         ),
         Form::Static,
     );
-    // The output over the same axes, the matrix's bytes restated: `KB` steps a block.
+    // The output over the same dimensions, the matrix's bytes restated: `KB` steps a block.
     let mut restated = output.clone().binding();
     restated.shape = shape![ROWS, blocks, BLOCK];
     restated.strides = strides![K, BLOCK, 1];
     let dst = launcher
         .arg(restated, dtype)
-        .axes(&[M, KB, KI])
+        .dimensions(&[M, KB, KI])
         .vectorize(1)
         .build()
         .unwrap();
@@ -92,10 +92,13 @@ fn a_block_split_box_lands_through_a_folded_descriptor() {
         dtype,
     );
     let coordinates = TmaCoordinates {
-        dims: vec![
+        axes: vec![
             vec![],
-            vec![TmaTerm::axis(0)],
-            vec![TmaTerm::axis(1).times(BLOCK as u32), TmaTerm::axis(2)],
+            vec![TmaTerm::dimension(0)],
+            vec![
+                TmaTerm::dimension(1).times(BLOCK as u32),
+                TmaTerm::dimension(2),
+            ],
         ],
     };
     let src = TileTensorLaunch::tensor_map_folded(

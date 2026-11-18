@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::{Axis, ComputeScope, Coverage, Level, Partitioning, Space, Spread};
+use crate::{ComputeScope, Coverage, Dimension, Level, Partitioning, Space, Spread};
 
 /// The leaf row's glyph.
 const LEAF: char = '◦';
@@ -11,51 +11,54 @@ const LEVEL: &str = "  ";
 const TIMES: &str = " × ";
 const GAP: &str = "    ";
 
-/// A [`Partitioning`] with a name for each of its axes; unnamed axes print their index.
+/// A [`Partitioning`] with a name for each of its dimensions; unnamed dimensions print their index.
 pub struct LevelTable<'a> {
     partitioning: &'a Partitioning,
-    labels: &'a [(Axis, &'a str)],
+    labels: &'a [(Dimension, &'a str)],
 }
 
 impl<'a> LevelTable<'a> {
-    pub(crate) fn new(partitioning: &'a Partitioning, labels: &'a [(Axis, &'a str)]) -> Self {
+    pub(crate) fn new(partitioning: &'a Partitioning, labels: &'a [(Dimension, &'a str)]) -> Self {
         LevelTable {
             partitioning,
             labels,
         }
     }
 
-    fn label(&self, axis: Axis) -> String {
-        match self.labels.iter().find(|&&(named, _)| named == axis) {
+    fn label(&self, dimension: Dimension) -> String {
+        match self.labels.iter().find(|&&(named, _)| named == dimension) {
             Some(&(_, name)) => name.to_string(),
-            None => format!("a{}", axis.0),
+            None => format!("a{}", dimension.0),
         }
     }
 
     /// Every row of the table, leaf up.
     fn rows(&self) -> Vec<Row> {
-        let axes: Vec<Axis> = self.partitioning.space().axes().collect();
+        let dimensions: Vec<Dimension> = self.partitioning.space().dimensions().collect();
         let mut space = self.partitioning.space().clone();
         let mut rows: Vec<Row> = self
             .partitioning
             .levels()
             .iter()
             .map(|level| {
-                let row = Row::of(level, &space, &axes);
+                let row = Row::of(level, &space, &dimensions);
                 space = level.child(&space);
                 row
             })
             .collect();
         rows.reverse();
-        rows.insert(0, Row::leaf(&space, &axes));
+        rows.insert(0, Row::leaf(&space, &dimensions));
         rows
     }
 }
 
 impl Display for LevelTable<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let axes: Vec<Axis> = self.partitioning.space().axes().collect();
-        let header: Vec<String> = axes.iter().map(|&axis| self.label(axis)).collect();
+        let dimensions: Vec<Dimension> = self.partitioning.space().dimensions().collect();
+        let header: Vec<String> = dimensions
+            .iter()
+            .map(|&dimension| self.label(dimension))
+            .collect();
         let rows = self.rows();
 
         let counts = Block::new("count", &header, rows.iter().map(|row| &row.counts));
@@ -94,7 +97,7 @@ impl Display for LevelTable<'_> {
     }
 }
 
-/// Prints the table with no axis named; see [`Partitioning::table`].
+/// Prints the table with no dimension named; see [`Partitioning::table`].
 impl Display for Partitioning {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.table(&[]).fmt(f)
@@ -110,25 +113,31 @@ struct Row {
 }
 
 impl Row {
-    fn of(level: &Level, space: &Space, axes: &[Axis]) -> Row {
+    fn of(level: &Level, space: &Space, dimensions: &[Dimension]) -> Row {
         Row {
             glyph: Row::glyph(level.coverage()),
             coverage: Row::coverage(level, space),
-            counts: axes
+            counts: dimensions
                 .iter()
-                .map(|&axis| Row::count(level, space, axis))
+                .map(|&dimension| Row::count(level, space, dimension))
                 .collect(),
-            tile: axes.iter().map(|&axis| Row::extent(space, axis)).collect(),
+            tile: dimensions
+                .iter()
+                .map(|&dimension| Row::extent(space, dimension))
+                .collect(),
         }
     }
 
     /// The leaf row: every count is a one.
-    fn leaf(space: &Space, axes: &[Axis]) -> Row {
+    fn leaf(space: &Space, dimensions: &[Dimension]) -> Row {
         Row {
             glyph: LEAF,
             coverage: String::new(),
-            counts: axes.iter().map(|_| "·".to_string()).collect(),
-            tile: axes.iter().map(|&axis| Row::extent(space, axis)).collect(),
+            counts: dimensions.iter().map(|_| "·".to_string()).collect(),
+            tile: dimensions
+                .iter()
+                .map(|&dimension| Row::extent(space, dimension))
+                .collect(),
         }
     }
 
@@ -146,9 +155,9 @@ impl Row {
     /// What a level covers, in words.
     fn coverage(level: &Level, space: &Space) -> String {
         let counts: Vec<Option<usize>> = level
-            .axes()
+            .dimensions()
             .iter()
-            .map(|&axis| level.tiles_const(space, axis))
+            .map(|&dimension| level.tiles_const(space, dimension))
             .collect();
         let total = counts
             .iter()
@@ -158,9 +167,9 @@ impl Row {
             None => "?".to_string(),
         };
         let interleaved = level
-            .axes()
+            .dimensions()
             .iter()
-            .any(|&axis| level.spread(axis) == Some(Spread::Interleaved));
+            .any(|&dimension| level.spread(dimension) == Some(Spread::Interleaved));
         let mut note = match level.coverage() {
             Coverage::Distribute(ComputeScope::Cube) => match level.shared_by() {
                 Some(cubes) => format!("{cubes} cubes sharing {many} boxes"),
@@ -188,22 +197,22 @@ impl Row {
         note
     }
 
-    /// How many tiles a level takes along one axis, as printed.
-    fn count(level: &Level, space: &Space, axis: Axis) -> String {
-        match level.count(axis) {
+    /// How many tiles a level takes along one dimension, as printed.
+    fn count(level: &Level, space: &Space, dimension: Dimension) -> String {
+        match level.count(dimension) {
             None => "·".to_string(),
-            Some(_) => match level.tiles_const(space, axis) {
+            Some(_) => match level.tiles_const(space, dimension) {
                 Some(tiles) => tiles.to_string(),
                 None => "?".to_string(),
             },
         }
     }
 
-    /// `axis`'s extent, or the mark a dynamic one prints as.
-    fn extent(space: &Space, axis: Axis) -> String {
-        match space.is_dynamic(axis) {
+    /// `dimension`'s extent, or the mark a dynamic one prints as.
+    fn extent(space: &Space, dimension: Dimension) -> String {
+        match space.is_dynamic(dimension) {
             true => "?".to_string(),
-            false => space.extent(axis).to_string(),
+            false => space.extent(dimension).to_string(),
         }
     }
 }
@@ -281,10 +290,10 @@ mod tests {
     use super::*;
     use crate::{Levels, Space};
 
-    const B: Axis = Axis(0);
-    const M: Axis = Axis(1);
-    const N: Axis = Axis(2);
-    const K: Axis = Axis(3);
+    const B: Dimension = Dimension(0);
+    const M: Dimension = Dimension(1);
+    const N: Dimension = Dimension(2);
+    const K: Dimension = Dimension(3);
 
     /// A staged matmul's five levels.
     fn staged() -> Partitioning {
@@ -323,9 +332,9 @@ mod tests {
         );
     }
 
-    /// An unlabelled axis prints its index.
+    /// An unlabelled dimension prints its index.
     #[test]
-    fn an_unlabelled_axis_prints_its_index() {
+    fn an_unlabelled_dimension_prints_its_index() {
         let table = staged().to_string();
 
         assert!(table.contains("a0 × a1 × a2 ×  a3"), "{table}");
@@ -333,7 +342,7 @@ mod tests {
 
     /// A dynamic count prints as a question.
     #[test]
-    fn a_dynamic_axis_prints_a_question() {
+    fn a_dynamic_dimension_prints_a_question() {
         let partitioning = Partitioning::new(
             Space::new(&[(M, 512), (K, 4096)]).with_dynamic(&[K]),
             Levels::leaf(&[(M, 64), (K, 32)])
@@ -360,9 +369,9 @@ mod tests {
         assert!(partitioning.to_string().contains('▣'));
     }
 
-    /// An overhanging axis counts its partial tile.
+    /// An overhanging dimension counts its partial tile.
     #[test]
-    fn an_overhanging_axis_counts_its_partial_tile() {
+    fn an_overhanging_dimension_counts_its_partial_tile() {
         let partitioning = Partitioning::new(
             Space::new(&[(M, 500), (K, 4096)]),
             Levels::leaf(&[(M, 128), (K, 32)])

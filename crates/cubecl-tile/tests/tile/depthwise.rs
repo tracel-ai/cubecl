@@ -1,12 +1,13 @@
 //! Depthwise convolution as a client of the tile DSL: the same gather-reduce [`conv`] runs, with
-//! the channel axis *batched* rather than contracted.
+//! the channel dimension *batched* rather than contracted.
 //!
 //! A dense convolution contracts input channels into output channels, so `CI` appears in the two
 //! operands and not in the accumulator. Depthwise, each channel has its own filter and its own
-//! output channel, so one axis `C` appears in *all three* operands. That is the whole difference.
+//! output channel, so one dimension `C` appears in *all three* operands. That is the whole
+//! difference.
 //!
-//! `C` is then a batch axis (an axis the walk splits and the leaf never contracts), and the
-//! contraction is over the window taps `RH`/`RW` alone.
+//! `C` is then a batch dimension (a dimension the walk splits and the leaf never contracts), and
+//! the contraction is over the window taps `RH`/`RW` alone.
 //!
 //! Stating it that way is what keeps this a space-and-projection change rather than a new kernel:
 //! the input's [`Projection`] is the same `Ih = Oh*stride + Rh*dilation` gather, the weight drops
@@ -32,17 +33,18 @@ use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 /// specialization, no unit fan-out: the lines here run along the channel, not along `K`.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
-// Output positions, window taps, and the one channel axis every operand shares.
-const B: Axis = Axis(5);
-const OH: Axis = Axis(0);
-const OW: Axis = Axis(1);
-const C: Axis = Axis(2);
-const RH: Axis = Axis(3);
-const RW: Axis = Axis(4);
+// Output positions, window taps, and the one channel dimension every operand shares.
+const B: Dimension = Dimension(5);
+const OH: Dimension = Dimension(0);
+const OW: Dimension = Dimension(1);
+const C: Dimension = Dimension(2);
+const RH: Dimension = Dimension(3);
+const RW: Dimension = Dimension(4);
 
 /// The same body the dense convolution runs: this cube's box of the output, then this plane's
-/// channel of it, contracted whole at the leaf. `C` being in the accumulator's own axes is what
-/// makes it a batch axis rather than a contracted one; the leaf reads that off the spaces.
+/// channel of it, contracted whole at the leaf. `C` being in the accumulator's own dimensions is
+/// what makes it a batch dimension rather than a contracted one; the leaf reads that off the
+/// spaces.
 #[cube(launch)]
 fn depthwise_kernel(
     input: &TileTensor<'_>,
@@ -150,12 +152,12 @@ impl Depthwise {
             Form::Static,
         );
 
-        // Two gathered physical axes, one per spatial pair; the channel axis rides identity, as
-        // it does for the dense case: it is only the weight and accumulator that change.
+        // Two gathered physical axes, one per spatial pair; the channel dimension rides identity,
+        // as it does for the dense case: it is only the weight and accumulator that change.
         let in_spec = TileSpec::new(Projection::new(
             // The contracted taps come last: the gather leaf lines the input along the
-            // fastest contracted axis, so `RW` has to be the operand's innermost logical
-            // axis. The physical maps below stay in physical order (H, W, C) regardless.
+            // fastest contracted dimension, so `RW` has to be the operand's innermost logical
+            // dimension. The physical maps below stay in physical order (H, W, C) regardless.
             &[B, OH, OW, C, RH, RW],
             &[
                 PhysicalAxisMap::of(B),

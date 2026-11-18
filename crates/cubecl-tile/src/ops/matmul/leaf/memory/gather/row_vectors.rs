@@ -37,7 +37,7 @@ pub(super) struct RowVectors<'a, EL: Numeric, L: Size> {
 #[cube]
 impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
     pub fn new(lhs: &'a Tile, #[comptime] problem: &GatherProblem) -> RowVectors<'a, EL, L> {
-        let advanceable = lhs.run_advanceable(problem.block.fastest_axis());
+        let advanceable = lhs.run_advanceable(problem.block.fastest_dimension());
         let reads = comptime!(match (problem.lhs, advanceable) {
             (LhsRole::PerCell, _) => RowReads::PerCell,
             (LhsRole::FreeOfColumn, false) => RowReads::Checked,
@@ -75,7 +75,7 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
             let split = self.lhs.nd_split::<EL, L>();
             let rank = comptime!(split.rank);
             let rows_per_vector = problem.rows_per_vector();
-            let fastest = problem.block.fastest_axis();
+            let fastest = problem.block.fastest_dimension();
             let run = problem.block.fastest_extent();
             let first_step = step_coords(tap_coords, 0u32);
             let last_step = step_coords(tap_coords, comptime!((run - 1) as u32));
@@ -175,7 +175,7 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
         for pa in 0..rank {
             anchor.push(self.anchors[row_vector * comptime!(rank) + pa]);
         }
-        let fastest = problem.block.fastest_axis();
+        let fastest = problem.block.fastest_dimension();
         let at = split.map.advance(&anchor, pos, comptime!(vec![fastest]));
         split.view.read_unchecked(at)
     }

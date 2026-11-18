@@ -175,7 +175,7 @@ impl core::fmt::Display for ProductStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Axis;
+    use crate::Dimension;
     use crate::ops::matmul::instruction::tests::{
         F32, HALF, cuda, metal, plain, shape, sum_is_next_a, sum_is_not_next_a,
     };
@@ -274,7 +274,7 @@ mod tests {
     fn a_stage_is_arranged_as_its_step_reads_it() {
         let target = sum_is_next_a();
         let tiled = |chunks| StageStorage::Tiled {
-            block: vec![(Axis(0), 16), (Axis(1), 16), (Axis(2), 32)],
+            block: vec![(Dimension(0), 16), (Dimension(1), 16), (Dimension(2), 32)],
             chunks,
         };
         let staged = |step: ProductStep, device: &DeviceProperties, chunks, delivery| {

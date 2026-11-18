@@ -1,10 +1,10 @@
 //! A contraction cut across a cube's planes, summed back together in shared memory.
 //!
-//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
-//! `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube synchronizes, and
-//! the sum leaves through a plain store. Nothing reaches global memory but the finished box, so
-//! the output is not zeroed first and binds as an ordinary tile. The planes meet atomically
-//! ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
+//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own
+//! slice of `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube
+//! synchronizes, and the sum leaves through a plain store. Nothing reaches global memory but the
+//! finished box, so the output is not zeroed first and binds as an ordinary tile. The planes meet
+//! atomically ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -23,9 +23,9 @@ use cubecl_tile::launch::{
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
@@ -219,10 +219,10 @@ fn run(
             dtype,
         ),
         Meet::Cyclic { out_width } => {
-            let wide = |handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]| {
+            let wide = |handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]| {
                 launcher
                     .arg(handle.clone().binding(), handle.dtype)
-                    .axes(axes)
+                    .dimensions(dimensions)
                     .vectorize(out_width)
                     .build()
                     .unwrap()
@@ -331,7 +331,7 @@ fn a_merged_total_is_consumed_by_a_destination() {
     );
     let bound = launcher
         .arg(out.clone().binding(), dtype)
-        .axes(&[M, N])
+        .dimensions(&[M, N])
         .build()
         .unwrap();
     smem_consumed_matmul::launch::<Buffered>(
@@ -553,8 +553,12 @@ fn short_window_matmul(copies: bool) {
     );
     // Bound through the launcher, which reads the overhang off the partitioning and masks the
     // output's writes past its edge.
-    let bind = |binding, element, axes: &'static [Axis]| {
-        launcher.arg(binding, element).axes(axes).build().unwrap()
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
     };
     fragment_matmul_into_a_short_window::launch(
         &client,
@@ -699,8 +703,12 @@ fn a_fragment_taller_than_its_box_adds_only_the_rows_of_its_box() {
         ),
         Form::Static,
     );
-    let bind = |binding, element, axes: &'static [Axis]| {
-        launcher.arg(binding, element).axes(axes).build().unwrap()
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
     };
     smem_split_fragment_matmul::launch(
         &client,

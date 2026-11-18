@@ -1,6 +1,6 @@
 //! A reduction over a scaled operand: every value read under the scales it carries.
 //!
-//! The scales are the operand's own ([`Tile::mul`]), so `reduce_axis` reads the values as the
+//! The scales are the operand's own ([`Tile::mul`]), so `reduce_dimension` reads the values as the
 //! contraction does, under them: a row of packed weights sums to the row of their dequantized
 //! values, not of their codes.
 
@@ -12,12 +12,12 @@ use cubecl::{
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-/// Which block of columns, and where inside it. Together they are the column axis.
-const CB: Axis = Axis(1);
-const CI: Axis = Axis(2);
+const ROW: Dimension = Dimension(0);
+/// Which block of columns, and where inside it. Together they are the column dimension.
+const CB: Dimension = Dimension(1);
+const CI: Dimension = Dimension(2);
 /// The output's one column: a register block drains into a matrix.
-const C: Axis = Axis(3);
+const C: Dimension = Dimension(3);
 
 /// The register block the reduction in registers accumulates in.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
@@ -36,7 +36,7 @@ fn reduce_scaled_into_memory(
     out.init::<f32>(0.0f32);
     for region in space.over(&level) {
         let mut out_region = out.at(&region);
-        out_region.reduce_axis_accumulate(&weights.at(&region), Monoid::Sum);
+        out_region.reduce_dimension_accumulate(&weights.at(&region), Monoid::Sum);
     }
 }
 
@@ -55,7 +55,7 @@ fn reduce_scaled_in_registers(
     sum.init::<f32>(0.0f32);
     for region in space.over(&level) {
         let mut sum_region = sum.at(&region);
-        sum_region.reduce_axis_accumulate(&weights.at(&region), Monoid::Sum);
+        sum_region.reduce_dimension_accumulate(&weights.at(&region), Monoid::Sum);
     }
     sum.drained_into(&out);
 }
@@ -135,12 +135,12 @@ fn check_reduce_under_scales(registers: bool, blocks: usize, leaf_blocks: usize)
         .unwrap();
     let s_op = launch
         .arg(s_tensor.binding(), dtype)
-        .axes(&[ROW, CB])
+        .dimensions(&[ROW, CB])
         .build()
         .unwrap();
     let out_op = launch
         .arg(out.clone().binding(), dtype)
-        .axes(&[ROW, C])
+        .dimensions(&[ROW, C])
         .build()
         .unwrap();
     let level = launch.partitioning().level(0);

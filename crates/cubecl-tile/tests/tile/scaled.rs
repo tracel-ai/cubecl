@@ -1,16 +1,17 @@
 //! `c.mm(&a.mul(&s), &b)`: the contraction with one
 //! factor scaled by a **real operand**, on the factor the kernel wrote it on.
 //!
-//! *Which* operand is not stated: the scales' own axes say it. A scale over the output's columns
-//! is a fact about the rhs's columns and nothing else could multiply it in; anything else scales the
-//! lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where cheapest.
+//! *Which* operand is not stated: the scales' own dimensions say it. A scale over the output's
+//! columns is a fact about the rhs's columns and nothing else could multiply it in; anything else
+//! scales the lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where
+//! cheapest.
 //!
 //! The point is what the kernel signature says: the values are a tensor of values, the scales a
 //! tensor of scales, both named at the call, and the scaling is a verb the kernel writes. Nothing
 //! decodes behind a read or rides a side channel, so `f16` scales work with no widening pass.
 //!
 //! The scales resolve at their own granularity through their own projection: a plain `KB` for a
-//! per-block scale, `KI` too for a per-element one, an omitted axis for a broadcast.
+//! per-block scale, `KI` too for a per-element one, an omitted dimension for a broadcast.
 
 use crate::support::{HostData, HostDataType, TestInput, skip_unless_plane_holds};
 use cubecl::{
@@ -40,11 +41,11 @@ enum Scaled {
     Rhs,
 }
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-/// The contraction, as the two axes a block makes of it: which block, and where inside it.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+/// The contraction, as the two dimensions a block makes of it: which block, and where inside it.
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 
 /// The register block the contractions here run under, but for the wide-lhs one.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
@@ -77,7 +78,8 @@ fn scaled_matmul(
 }
 
 /// [`scaled_matmul`] with the accumulator promoted to registers: the partials never round-trip
-/// through `c`'s element between `K` steps, which is the form a decode step's one-row product wants.
+/// through `c`'s element between `K` steps, which is the form a decode step's one-row product
+/// wants.
 #[cube(launch)]
 fn scaled_matmul_promoted<E: Numeric>(
     a: &TileTensor<'_>,
@@ -211,7 +213,7 @@ fn scaled_matmul_cmma<E: Numeric>(
 /// **Two scale levels, applied in order.** `nvfp4`'s shape: a scale per block of the contraction,
 /// under one factor for the whole tensor.
 ///
-/// The second level is an operand like the first, spanning the same axes and distinguishing
+/// The second level is an operand like the first, spanning the same dimensions and distinguishing
 /// fewer of them, and it rides the same [`Scales`] as the block level. Nothing in the kernel
 /// counts levels: it windows `scales` and hands it to the leaf.
 #[test]
@@ -299,7 +301,8 @@ fn two_levels_multiply_in_order() {
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // Same axes as the level below it, addressing neither: one value over all their tiles.
+            // Same dimensions as the level below it, addressing neither: one value over all their
+            // tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -538,7 +541,8 @@ fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // Same axes as the level below it, addressing neither: one value over all their tiles.
+            // Same dimensions as the level below it, addressing neither: one value over all their
+            // tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -776,14 +780,14 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
     }
 }
 
-/// **A scale over no axis at all.** The base of the hierarchy: one number covering everything,
+/// **A scale over no dimension at all.** The base of the hierarchy: one number covering everything,
 /// which is what a per-tensor level is.
 ///
-/// Spelled the way every other granularity is, by which axes the operand distinguishes. The nest
-/// still names `[M, KB]`, so the scales' matrix has the shape any other level's would; the
+/// Spelled the way every other granularity is, by which dimensions the operand distinguishes. The
+/// nest still names `[M, KB]`, so the scales' matrix has the shape any other level's would; the
 /// projection addresses neither, so every position reads the same value. Nothing says "per tensor".
 #[test]
-fn a_scale_over_no_axis_covers_everything() {
+fn a_scale_over_no_dimension_covers_everything() {
     let (rows, cols, block, blocks) = (4, 4, 8, 2);
     let depth = block * blocks;
 
@@ -1095,7 +1099,7 @@ fn f16_scales_are_read_as_f16() {
 }
 
 /// The scales span `N`, so they scale the rhs, and the call site says so
-/// on the rhs; the leaf checks that against the axes.
+/// on the rhs; the leaf checks that against the dimensions.
 #[test]
 fn scales_over_the_columns_scale_the_rhs() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
@@ -1626,7 +1630,7 @@ fn rhs_scales_are_served_several_at_a_time() {
             s_t.binding().into_tensor_arg(),
             dtype,
             plane_units,
-            // `N` innermost: the width lands on the axis the scales vary over fastest, and
+            // `N` innermost: the width lands on the dimension the scales vary over fastest, and
             // spanning it is what makes them the rhs's.
             TileSpec::new(Projection::new(
                 &[KB, KI, N],
@@ -1696,11 +1700,11 @@ fn wide_lhs_scaled_matmul(
 }
 
 /// **Scales served as lines along the contraction.** The lhs's scales vary over `KB` and nothing
-/// else, so `KB` is their innermost axis and a read serves several blocks of `K` at once.
+/// else, so `KB` is their innermost dimension and a read serves several blocks of `K` at once.
 ///
-/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled so
-/// each one's unit is a constant, and the lines under one scale line stay rolled, since they all take
-/// the same scale. One row here, so the scales are per block of `K` alone.
+/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled
+/// so each one's unit is a constant, and the lines under one scale line stay rolled, since they all
+/// take the same scale. One row here, so the scales are per block of `K` alone.
 #[test]
 fn lhs_scales_are_served_several_at_a_time() {
     let (cols, block, blocks, plane_units) = (4, 4, 4, 4);
@@ -1773,7 +1777,7 @@ fn lhs_scales_are_served_several_at_a_time() {
             s_t.binding().into_tensor_arg(),
             dtype,
             plane_units,
-            // `KB` innermost and alone: the width lands on the axis the scales vary over.
+            // `KB` innermost and alone: the width lands on the dimension the scales vary over.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::of(KB)])),
         ),
         TileTensorLaunch::new(
@@ -2112,9 +2116,10 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
     }
 }
 
-/// The columns, as the two axes a storage tile makes of them: which tile, and where inside it.
-const NB: Axis = Axis(4);
-const NI: Axis = Axis(5);
+/// The columns, as the two dimensions a storage tile makes of them: which tile, and where inside
+/// it.
+const NB: Dimension = Dimension(4);
+const NI: Dimension = Dimension(5);
 
 /// `c = a · (b ⊗ s)` over a weight **stored in tile order**, walked the way the memory-bound
 /// kernel walks it on either arm: the cube grid, the planes, the chunks a plane walks under one
@@ -2300,9 +2305,9 @@ impl TileOrdered {
         launcher
             .arg(a_t.binding(), f32::elem_type_native())
             .gathered(
-                Projection::dims()
-                    .dim(M)
-                    .dim(split(&[(KB, self.k_tiles), (KI, self.tile)]))
+                Projection::axes()
+                    .axis(M)
+                    .axis(split(&[(KB, self.k_tiles), (KI, self.tile)]))
                     .build(),
             )
             .vectorize(32 / Self::FIELD.size_bits())
@@ -2311,7 +2316,7 @@ impl TileOrdered {
     }
 
     /// The activation in `elem`, stated as its rows by its blocks by the position inside one, a
-    /// dim an axis: the same values as [`a_op`](Self::a_op), bound directly, which a stage can
+    /// axis a dimension: the same values as [`a_op`](Self::a_op), bound directly, which a stage can
     /// hold.
     fn a_op_blocked(&self, client: &Client, launcher: &Launcher, elem: ElemType) -> Bound {
         let (a_t, _) =
@@ -2321,7 +2326,7 @@ impl TileOrdered {
                 .generate_with_f32_host_data();
         launcher
             .arg(a_t.binding(), elem)
-            .axes(&[M, KB, KI])
+            .dimensions(&[M, KB, KI])
             .vectorize(32 / Self::FIELD.size_bits())
             .build()
             .unwrap()
@@ -2342,7 +2347,14 @@ impl TileOrdered {
         binding.strides = contiguous_strides(&shape).into();
         let b = launcher
             .arg(binding, u32::elem_type_native())
-            .gathered(Projection::dims().dim(NB).dim(KB).dim(NI).dim(KI).build())
+            .gathered(
+                Projection::axes()
+                    .axis(NB)
+                    .axis(KB)
+                    .axis(NI)
+                    .axis(KI)
+                    .build(),
+            )
             .packed(Self::FIELD);
         match read {
             Some(values) => b.vectorize(values),
@@ -2361,10 +2373,10 @@ impl TileOrdered {
         scales: TileScales,
         served: usize,
     ) -> Bound {
-        let axes = Projection::dims()
-            .dim(NB)
-            .dim(KB)
-            .dim(NI)
+        let dimensions = Projection::axes()
+            .axis(NB)
+            .axis(KB)
+            .axis(NI)
             .spanning(KI)
             .build();
         let shape = vec![self.n_tiles, self.k_tiles, self.tile];
@@ -2379,7 +2391,7 @@ impl TileOrdered {
                 .generate_with_f32_host_data();
                 launcher
                     .arg(s_t.binding(), f32::elem_type_native())
-                    .gathered(axes)
+                    .gathered(dimensions)
                     .vectorize(served)
                     .build()
                     .unwrap()
@@ -2405,7 +2417,7 @@ impl TileOrdered {
                 binding.strides = contiguous_strides(&shape).into();
                 launcher
                     .arg(binding, u32::elem_type_native())
-                    .gathered(axes)
+                    .gathered(dimensions)
                     .packed(Field::of_scale(ScaleDtype::UE4M3))
                     .vectorize(served)
                     .build()
@@ -2418,9 +2430,9 @@ impl TileOrdered {
         launcher
             .arg(c.clone().binding(), c.dtype)
             .gathered(
-                Projection::dims()
-                    .dim(M)
-                    .dim(split(&[(NB, self.n_tiles), (NI, self.tile)]))
+                Projection::axes()
+                    .axis(M)
+                    .axis(split(&[(NB, self.n_tiles), (NI, self.tile)]))
                     .build(),
             )
             .build()
@@ -2763,7 +2775,7 @@ enum CopiedThrough {
 }
 
 /// A tile-ordered weight copied decoded: its words under their scales, into a dense output over
-/// the weight's own axes, one cube a tile column, reaching it as `through` says.
+/// the weight's own dimensions, one cube a tile column, reaching it as `through` says.
 #[cube(launch)]
 fn decoded_tile_order_copy(
     b: &TileTensor<'_>,
@@ -2843,7 +2855,7 @@ fn check_decoded_tile_order_copy(through: CopiedThrough) {
         s_op.arg(),
         launcher
             .arg(out.clone().binding(), dtype)
-            .axes(&[NB, KB, NI, KI])
+            .dimensions(&[NB, KB, NI, KI])
             .vectorize(w.tile)
             .build()
             .unwrap()
@@ -2959,7 +2971,7 @@ enum StagesHeld {
 }
 
 impl StagesHeld {
-    /// The storage, its blocks `fragment` wide along every axis the instruction spans.
+    /// The storage, its blocks `fragment` wide along every dimension the instruction spans.
     fn storage(self, fragment: usize) -> StageStorage {
         match self {
             Self::Strided => StageStorage::Strided,
@@ -3227,8 +3239,8 @@ fn check_scaled_copy(staged: bool) {
         .dtype(dtype)
         .custom(s.clone())
         .generate_with_f32_host_data();
-    // A stage is dense over its axes, one dim each; copied back out, it lands in a buffer laid
-    // out the same way. A direct copy writes the values' own layout.
+    // A stage is dense over its dimensions, one axis each; copied back out, it lands in a buffer
+    // laid out the same way. A direct copy writes the values' own layout.
     let out_shape = match staged {
         true => shape![rows, blocks, block],
         false => shape![rows, depth],

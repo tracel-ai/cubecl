@@ -2,11 +2,12 @@
 //!
 //! A quantized tensor is values stored small beside a coarser tensor of scales. Decoding it is not
 //! a matmul verb and not a quantization feature: it is the elementwise product of two tiles, one
-//! spanning fewer axes than the other and so spreading each value across the axes it omits.
+//! spanning fewer dimensions than the other and so spreading each value across the dimensions it
+//! omits.
 //!
-//! Proven here with the axes doing all the work. `COL` is spelled `(CB, CI)`: which block of
+//! Proven here with the dimensions doing all the work. `COL` is spelled `(CB, CI)`: which block of
 //! columns, and where inside it. The weights address both and the scales address `CB` alone, so
-//! one scale per block is a fact about which axes the operand distinguishes; nothing divides.
+//! one scale per block is a fact about which dimensions the operand distinguishes; nothing divides.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput};
@@ -16,13 +17,13 @@ use cubecl::{
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-/// Which block of columns, and where inside it. Together they are the column axis.
-const CB: Axis = Axis(1);
-const CI: Axis = Axis(2);
+const ROW: Dimension = Dimension(0);
+/// Which block of columns, and where inside it. Together they are the column dimension.
+const CB: Dimension = Dimension(1);
+const CI: Dimension = Dimension(2);
 
 /// `out = weights ⊗ scales`. The weights arrive packed and unpack at the read; the scales
-/// broadcast over the axis they omit. Neither fact is stated here; both are the operands'.
+/// broadcast over the dimension they omit. Neither fact is stated here; both are the operands'.
 #[cube(launch)]
 fn dequantize(
     weights: &TileTensor<'_>,
@@ -64,7 +65,7 @@ fn a_packed_tensor_decodes_against_its_scales() {
     // Distinct per `(row, block)`, halves so the reference is exact.
     let s: Vec<f32> = (0..rows * blocks).map(|i| (i as f32 + 1.0) / 2.0).collect();
 
-    // The scales are an operand like the others, and the axis they omit is the whole statement
+    // The scales are an operand like the others, and the dimension they omit is the whole statement
     // that one of their values covers a block of columns.
     let launch = implied(
         &client,
@@ -92,7 +93,7 @@ fn a_packed_tensor_decodes_against_its_scales() {
         .zeros()
         .generate_without_host_data();
 
-    // `COL` is one physical dim that `(CB, CI)` partition, so each operand that spans both says
+    // `COL` is one physical axis that `(CB, CI)` partition, so each operand that spans both says
     // so; the scales span only `CB` and address it as it stands.
     let split = || {
         Projection::new(
@@ -122,7 +123,7 @@ fn a_packed_tensor_decodes_against_its_scales() {
     // taken by the run of values that block holds.
     let s_op = launcher
         .arg(s_tensor.binding(), dtype)
-        .axes(&[ROW, CB])
+        .dimensions(&[ROW, CB])
         .vectorize(scale_units)
         .build()
         .unwrap();

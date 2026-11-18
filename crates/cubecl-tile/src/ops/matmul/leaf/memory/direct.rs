@@ -1,4 +1,4 @@
-//! The 2-D contraction nest: a single contracted axis, no gathered operands.
+//! The 2-D contraction nest: a single contracted dimension, no gathered operands.
 
 use cubecl::prelude::*;
 
@@ -45,9 +45,9 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     ));
     comptime!(assert!(
         shape
-            .matrix_axes(&lhs.place.space, &rhs.place.space)
+            .matrix_dimensions(&lhs.place.space, &rhs.place.space)
             .is_some(),
-        "contract: the 2-D nest reads each operand as one matrix, and no grouping of these axes \
+        "contract: the 2-D nest reads each operand as one matrix, and no grouping of these dimensions \
          gives one; the N-D nest reads them a cell at a time"
     ));
 
@@ -85,8 +85,8 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
     let aw = shape.aw;
     let matrices = shape.matrices();
 
-    let lhs_axes = comptime!(shape.lhs_axes(&lhs.place.space));
-    let rhs_axes = comptime!(shape.rhs_axes(&rhs.place.space));
+    let lhs_dimensions = comptime!(shape.lhs_dimensions(&lhs.place.space));
+    let rhs_dimensions = comptime!(shape.rhs_dimensions(&rhs.place.space));
 
     let lhs_k_lines = kc.div_ceil(lw);
     let component_fanout = config.component_fanout;
@@ -95,24 +95,24 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
     // its lift carried by the factor.
     let (lhs, rhs) = (lhs.placed(), rhs.placed());
     for mat in 0..matrices {
-        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, mat);
-        let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, mat);
+        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_dimensions, mat);
+        let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_dimensions, mat);
         let lhs_scales = lhs.reader(
-            lhs_axes,
+            lhs_dimensions,
             mat,
             comptime!(Side::Lhs),
             shape.space.clone(),
-            shape.acc_axes,
+            shape.acc_dimensions,
         );
         let rhs_scales = rhs.reader(
-            rhs_axes,
+            rhs_dimensions,
             mat,
             comptime!(Side::Rhs),
             shape.space.clone(),
-            shape.acc_axes,
+            shape.acc_dimensions,
         );
         let mut acc_view =
-            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, &shape.space, semiring.add());
+            acc.matrix_accumulate::<E, A>(mat, shape.acc_dimensions, &shape.space, semiring.add());
 
         // Split into an in-bounds body kept in registers and a checked edge body.
         let lhs_check = comptime!(lhs_mat.check);
