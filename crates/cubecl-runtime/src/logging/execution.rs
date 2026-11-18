@@ -132,6 +132,7 @@ pub enum CollectivePath {
 
 /// How a transfer's bytes travel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum TransferRoute {
     /// Device to device, over the runtime's device transport, as a send part and a receive part.
     Device,
