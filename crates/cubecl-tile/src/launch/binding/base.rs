@@ -221,6 +221,9 @@ impl<'a> Arg<'a, Labelled> {
             projection,
             addressed,
         } = labels;
+        if data.projection.is_some() && !stored.is_tiled() {
+            projection.dimensions_in_axis_order(width)?;
+        }
         projection.validate(width)?;
         // A stated width is checked here: `stride / width` would truncate silently. A line runs
         // along the innermost axis's dimension; a buffer with no labelled axis has none.

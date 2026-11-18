@@ -75,7 +75,10 @@ fn copied(m: usize, k: usize, tk: usize, boundary: Boundary) -> (Vec<f32>, HostD
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
     );
-    (data, HostData::from_tensor_handle(&client, out, HostDataType::F32))
+    (
+        data,
+        HostData::from_tensor_handle(&client, out, HostDataType::F32),
+    )
 }
 
 /// Every row's cells: its values, then `fill` past its edge.

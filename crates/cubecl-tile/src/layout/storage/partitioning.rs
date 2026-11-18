@@ -28,6 +28,9 @@ pub struct StoragePartitioning {
     tiles: PieceList<(Dimension, usize)>,
     /// The rest of each dimension, finest first; its counts are what the extents leave.
     order: SmallVec<[Dimension; Space::MAX_RANK]>,
+    /// The count of each piece of `order` read off a buffer where its dimension spans several
+    /// axes, each piece its own axis's extent; `None` where the extents leave it.
+    rest_counts: SmallVec<[Option<usize>; Space::MAX_RANK]>,
     /// How far apart the coarsest pieces start: back to back where `None`.
     stagger: Option<Stagger>,
 }
@@ -68,6 +71,23 @@ impl StoragePartitioning {
         {
             return None;
         }
+        // Only a dimension spanning several plain axes has counts of its own, so a partitioning
+        // read off a buffer equals the one stated for it wherever none does.
+        let rest_counts: SmallVec<[Option<usize>; Space::MAX_RANK]> = rest
+            .iter()
+            .map(|&(axis, extent, _)| {
+                let label = labels[axis - unlabelled];
+                let pieces = rest
+                    .iter()
+                    .filter(|&&(other, _, _)| labels[other - unlabelled] == label)
+                    .count();
+                (pieces > 1).then_some(extent)
+            })
+            .collect();
+        let rest_counts = match rest_counts.iter().any(Option::is_some) {
+            true => rest_counts,
+            false => SmallVec::new(),
+        };
         Some(Self {
             tiles: stated
                 .iter()
@@ -77,6 +97,7 @@ impl StoragePartitioning {
                 .iter()
                 .map(|&(axis, _, _)| labels[axis - unlabelled])
                 .collect(),
+            rest_counts,
             stagger: None,
         })
     }
@@ -287,7 +308,15 @@ impl StoragePartitioning {
                 stated: true,
             })
             .collect();
-        for &dimension in &self.order {
+        for (piece, &dimension) in self.order.iter().enumerate() {
+            if let Some(count) = self.rest_counts.get(piece).copied().flatten() {
+                pieces.push(Piece {
+                    dimension,
+                    count,
+                    stated: false,
+                });
+                continue;
+            }
             let extent = extents
                 .iter()
                 .find(|&&(a, _)| a == dimension)
@@ -340,6 +369,7 @@ impl StorageLevels {
         StoragePartitioning {
             tiles: self.tiles,
             order: SmallVec::from_slice(order),
+            rest_counts: SmallVec::new(),
             stagger: None,
         }
     }
