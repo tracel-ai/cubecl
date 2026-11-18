@@ -20,8 +20,8 @@ use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Projection, Scratch, Semiring, SoftwareMatmul, Space, StageStorage,
-    Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
+    Axis, FragmentSource, Instruction, Levels, Partitioning, Projection, Scratch, Semiring,
+    SoftwareMatmul, Space, StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
@@ -269,6 +269,191 @@ fn register_plane_attention<E: Float>(
         }
         out_cube.write();
     }
+}
+
+/// [`register_plane_attention`] stating only each plane's tile: the plane holds its rows by a
+/// block of keys, the whole head dim and the whole value dim, and calls each product once a block.
+/// The tile picks the instruction, cuts the score into the cells it keeps in registers, walks the
+/// head dim, and reads runs of the score's cells as the value's `A`, walking the keys.
+#[cube(launch)]
+#[allow(clippy::too_many_arguments)]
+fn cut_plane_attention<E: Float>(
+    q: &TileTensor<'_>,
+    k: &TileTensor<'_>,
+    v: &TileTensor<'_>,
+    out: &TileTensor<'_>,
+    keys: u32,
+    queries: u32,
+    scale: f32,
+    space: Partitioning,
+    #[comptime] causal: bool,
+    #[comptime] block_keys: usize,
+    #[define(E)] _dtype: ElemType,
+) {
+    let q = q.tile(&space);
+    let k = k.tile(&space).within(S, 0, keys as usize);
+    let v = v.tile(&space).within(S, 0, keys as usize);
+    let out = out.tile(&space);
+    let bias = Procedural::new::<f32, Attended>(
+        comptime!(space.space().subspace(&[Q, S])),
+        Attended {
+            keys,
+            queries,
+            causal,
+        },
+    )
+    .tile_in::<f32>(&space);
+    for cube in space {
+        let mut out_cube = out.at(&cube).planes_output::<f32>(&cube);
+        for plane in cube {
+            let (q_p, k_p, v_p) = (q.at(&plane), k.at(&plane), v.at(&plane));
+            let bias_p = bias.at(&plane);
+            let origin = plane.origin(S);
+            let reach = select(keys as usize > origin, keys as usize - origin, 0usize);
+            let keys_walk = plane.walk();
+            let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
+            let walk = keys_walk.range(0, blocks);
+            let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
+            q_s.copy_from(&q_p);
+            sync_plane();
+            let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            let acc =
+                out.at(&plane)
+                    .accumulator::<f32>(&logits.cast::<E>(), &v_p, Semiring::SUM_PROD);
+            let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
+            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
+            stages.pipelined(walk, |slot, stage| {
+                let bias_s = bias_p.at(stage);
+                slot.consume(|k_s, v_s| {
+                    let mut logits = logits.clone();
+                    logits.reset();
+                    logits.mma(&q_s, k_s);
+                    let correction = softmax.step(&logits, &bias_s, scale);
+                    let p = logits.cast::<E>();
+                    acc.along(V).mul(&correction);
+                    // The output's sum sits at the plane, above the walk over the blocks: this
+                    // block's product adds into it at the stage.
+                    let mut sum = acc.at(stage);
+                    sum.mma(&p, v_s);
+                });
+            });
+            acc.along(V).mul(&softmax.recip_l());
+            out_cube.drain(&acc, &plane);
+        }
+        out_cube.write();
+    }
+}
+
+/// [`cut_plane_attention`] on `case`, the planes' tiles `rows × block` of `8 × 8` cells.
+fn run_cut<E: Float + CubeElement>(case: Case) {
+    let client: Client = cubecl::test_device().client();
+    let e_ty = E::elem_type_native();
+    let f32_ty = f32::elem_type_native();
+    let offered = client.properties().features.matmul.mma.iter().any(|cfg| {
+        cfg.a_type == e_ty
+            && cfg.b_type == e_ty
+            && cfg.cd_type == f32_ty
+            && [cfg.m, cfg.n, cfg.k] == [8, 8, 8]
+    });
+    if !offered {
+        ValidationResult::Skipped(format!("no m8n8k8 {e_ty:?} instruction summing in f32"))
+            .enforce();
+        return;
+    }
+    // The tile keeps the score in registers only where the crate's transport adds a call the
+    // fragment API lacks: elsewhere, as on Metal, it drains it, and this kernel holds nothing.
+    let values = FragmentSource::Values(e_ty);
+    let held = Instruction::for_stage_accumulator(
+        client.properties(),
+        client.target_properties(),
+        values,
+        values,
+        f32_ty,
+        [8, 8, 8],
+    )
+    .map(|call| call.instruction);
+    if !matches!(held, Some(Instruction::Mma { .. })) {
+        ValidationResult::Skipped(format!(
+            "the tile keeps no {e_ty:?} score in registers here, it drains it ({held:?})"
+        ))
+        .enforce();
+        return;
+    }
+    let Case {
+        queries,
+        keys,
+        attended,
+        head,
+        value,
+        rows,
+        block,
+        planes,
+        causal,
+        ..
+    } = case;
+    let (plane_rows, block_keys) = (8 * rows, 8 * block);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(Q, queries), (S, keys), (D, head), (V, value)]),
+            planes_over(
+                Levels::leaf(&[(Q, plane_rows), (S, block_keys), (D, head), (V, value)]),
+                PlanesAlong::Queries,
+                planes,
+                keys / block_keys,
+            )
+            .cubes(&[Q])
+            .build(),
+        ),
+        Form::Static,
+    );
+    let (q_data, k_data, v_data, q_handle, k_handle, v_handle) =
+        inputs::<E>(&client, queries, keys, attended, head, value, false);
+    let out_handle = TestInput::builder(client.clone(), Shape::new([queries, value]))
+        .dtype(f32_ty)
+        .zeros()
+        .generate_without_host_data();
+    let scale = 1. / (head as f32).sqrt();
+    cut_plane_attention::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            q_handle.binding().into_tensor_arg(),
+            e_ty,
+            1,
+            TileSpec::direct(&[Q, D]),
+        ),
+        TileTensorLaunch::new(
+            k_handle.binding().into_tensor_arg(),
+            e_ty,
+            1,
+            TileSpec::direct(&[S, D]),
+        ),
+        TileTensorLaunch::new(
+            v_handle.binding().into_tensor_arg(),
+            e_ty,
+            1,
+            TileSpec::direct(&[S, V]),
+        ),
+        TileTensorLaunch::new(
+            out_handle.clone().binding().into_tensor_arg(),
+            f32_ty,
+            1,
+            TileSpec::direct(&[Q, V]),
+        ),
+        attended as u32,
+        queries as u32,
+        scale,
+        launcher.partitioning_arg(),
+        causal,
+        block_keys,
+        e_ty,
+    );
+    let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
+    check(
+        &out, &q_data, &k_data, &v_data, queries, keys, attended, head, value, causal, false,
+    );
 }
 
 #[cube(launch)]
@@ -575,8 +760,13 @@ fn run<E: Float + CubeElement>(case: Case) {
 /// steps the keys `run` leaves at a time. The score contracts `m16n8k16` on each leaf of a run,
 /// and the value the run at once, `m16n8k8` for a run of one and `m16n8k16` for a run of two.
 fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize) {
+    run_registers_at(E::elem_type_native(), case, ending, run)
+}
+
+/// [`run_registers`] with every operand at `e_ty`, an element no `Float` type stands for (an
+/// 8-bit float) included.
+fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
     let client: Client = cubecl::test_device().client();
-    let e_ty = E::elem_type_native();
     let f32_ty = f32::elem_type_native();
     let offered = |k: u32| {
         client.properties().features.matmul.mma.iter().any(|cfg| {
@@ -586,10 +776,12 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
                 && [cfg.m, cfg.n, cfg.k] == [16, 8, k]
         })
     };
+    // The score's instruction is as deep as a register holds its operand's cells in two rows.
+    let depth = 32 / e_ty.size();
     let value_depth = 8 * run as u32;
-    if !(offered(16) && offered(value_depth)) {
+    if !(offered(depth as u32) && offered(value_depth)) {
         ValidationResult::Skipped(format!(
-            "no m16n8k16 and m16n8k{value_depth} {e_ty:?} instructions summing in f32"
+            "no m16n8k{depth} and m16n8k{value_depth} {e_ty:?} instructions summing in f32"
         ))
         .enforce();
         return;
@@ -606,7 +798,7 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
         causal,
         ..
     } = case;
-    let (m, n, depth) = (16, 8, 16);
+    let (m, n) = (16, 8);
     let launcher = implied(
         &client,
         Partitioning::new(
@@ -630,7 +822,7 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
         Form::Static,
     );
     let (q_data, k_data, v_data, q_handle, k_handle, v_handle) =
-        inputs::<E>(&client, queries, keys, attended, head, value, false);
+        inputs_at(&client, e_ty, queries, keys, attended, head, value, false);
     let out_handle = TestInput::builder(client.clone(), Shape::new([queries, value]))
         .dtype(f32_ty)
         .zeros()
@@ -686,8 +878,24 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
     match ending {
-        Ending::Normalized => check(
-            &out, &q_data, &k_data, &v_data, queries, keys, attended, head, value, causal, false,
+        // Operands and probabilities of `e_ty`: a few of its ulps through two contractions, three
+        // bits of mantissa an 8-bit float's.
+        Ending::Normalized => check_within(
+            &out,
+            &q_data,
+            &k_data,
+            &v_data,
+            queries,
+            keys,
+            attended,
+            head,
+            value,
+            causal,
+            false,
+            match e_ty.size() {
+                1 => 6e-2,
+                _ => 2e-2,
+            },
         ),
         Ending::Undivided => {
             let max = HostData::from_tensor_handle(&client, max_handle, HostDataType::F32);
@@ -720,7 +928,37 @@ pub(super) fn inputs<E: Float + CubeElement>(
     cubecl::std::tensor::TensorHandle,
     cubecl::std::tensor::TensorHandle,
 ) {
-    let e_ty = E::elem_type_native();
+    inputs_at(
+        client,
+        E::elem_type_native(),
+        queries,
+        keys,
+        attended,
+        head,
+        value,
+        transposed_keys,
+    )
+}
+
+/// [`inputs`] at `e_ty`.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn inputs_at(
+    client: &Client,
+    e_ty: ElemType,
+    queries: usize,
+    keys: usize,
+    attended: usize,
+    head: usize,
+    value: usize,
+    transposed_keys: bool,
+) -> (
+    HostData,
+    HostData,
+    HostData,
+    cubecl::std::tensor::TensorHandle,
+    cubecl::std::tensor::TensorHandle,
+    cubecl::std::tensor::TensorHandle,
+) {
     let wobble =
         |i: usize, salt: usize| ((i * 2654435761 + salt * 40503) % 2048) as f32 / 512. - 2.;
     let key_cell = |j: usize, d: usize| match j < attended {
@@ -811,7 +1049,8 @@ fn reference_row(
     (max, sum, out)
 }
 
-/// `out` against the attention computed on the host ([`reference_row`]).
+/// `out` against the attention computed on the host ([`reference_row`]), for `f16` operands and
+/// probabilities: a few ulps of each through two contractions.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn check(
     out: &HostData,
@@ -825,6 +1064,38 @@ pub(super) fn check(
     value: usize,
     causal: bool,
     transposed_keys: bool,
+) {
+    check_within(
+        out,
+        q_data,
+        k_data,
+        v_data,
+        queries,
+        keys,
+        attended,
+        head,
+        value,
+        causal,
+        transposed_keys,
+        2e-2,
+    );
+}
+
+/// [`check`], each output within `tolerance` of the host's relative to one plus its size.
+#[allow(clippy::too_many_arguments)]
+fn check_within(
+    out: &HostData,
+    q_data: &HostData,
+    k_data: &HostData,
+    v_data: &HostData,
+    queries: usize,
+    keys: usize,
+    attended: usize,
+    head: usize,
+    value: usize,
+    causal: bool,
+    transposed_keys: bool,
+    tolerance: f64,
 ) {
     for i in 0..queries {
         let (_, _, row) = reference_row(
@@ -842,10 +1113,8 @@ pub(super) fn check(
         );
         for (c, &expected) in row.iter().enumerate() {
             let actual = out.get_f32(&[i, c]) as f64;
-            // f16 operands and probabilities: a few ulps of each through two contractions.
-            let tolerance = 2e-2 * (1. + expected.abs());
             assert!(
-                (actual - expected).abs() <= tolerance,
+                (actual - expected).abs() <= tolerance * (1. + expected.abs()),
                 "out[{i}, {c}] = {actual}, expected {expected}"
             );
         }
@@ -1269,6 +1538,25 @@ fn register_plane_attention_hands_its_undivided_state_by_rows() {
     );
 }
 
+/// An 8-bit score's run of four fragments is the `A` of one `m16n8k32` call: its cells lie along
+/// the rows, the value reading its keys in their order. Causally and past the attended keys too,
+/// so the masked cells, at the keys the run holds them at, weigh nothing.
+#[test]
+fn register_plane_attention_contracts_a_run_of_four_8_bit_score_fragments() {
+    let e4m3 = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    run_registers_at(e4m3, REGISTER_PREFILL, Ending::Normalized, 4);
+    run_registers_at(
+        e4m3,
+        Case {
+            attended: 100,
+            causal: true,
+            ..REGISTER_PREFILL
+        },
+        Ending::Normalized,
+        4,
+    );
+}
+
 /// The value contracting two of the score's fragments at once, `m16n8k16` reading both as its
 /// `A`: causally and past the attended keys, so the masked cells of a run weigh nothing.
 #[test]
@@ -1399,5 +1687,33 @@ fn unit_attention_hands_its_undivided_state() {
         causal: true,
         ending: Ending::Undivided,
         ..UNIT
+    });
+}
+
+/// A plane stating only its tile, `16 × 16` keys a block by the whole head and value dims: the
+/// tile cuts its score into `8 × 8` cells held in registers, walks the head dim, and the value
+/// reads runs of the score's cells, walking the keys. Causally and past the attended keys too.
+#[test]
+fn a_plane_stating_its_tile_holds_a_score_the_tile_cuts() {
+    let case = Case {
+        queries: 32,
+        keys: 64,
+        attended: 64,
+        head: 16,
+        value: 16,
+        edge: 0,
+        rows: 2,
+        block: 2,
+        planes: 2,
+        along: PlanesAlong::Queries,
+        causal: false,
+        unbiased: false,
+        over_run: false,
+    };
+    run_cut::<half::f16>(case);
+    run_cut::<half::f16>(Case {
+        attended: 50,
+        causal: true,
+        ..case
     });
 }

@@ -370,8 +370,8 @@ impl Procedural {
     }
 
     /// A source over `space` that is zero everywhere, computing at `T`. It reads as zeros like a
-    /// [`Constant`] zero, and an op it is handed to may skip it: a bias of zeros
-    /// ([`OnlineSoftmax::step`]) is no bias.
+    /// `Constant` zero, and an op it is handed to may skip it: a bias of zeros
+    /// ([`OnlineSoftmax::step`](crate::ops::softmax::OnlineSoftmax::step)) is no bias.
     pub fn zero<T: Numeric>(_space: Space) -> Self {
         unexpanded!()
     }

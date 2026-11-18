@@ -66,6 +66,7 @@ pub use ops::matmul::instruction::{
     BlockScaledOperands, FragmentSource, Instruction, MmaOperands, ShapedInstruction,
 };
 pub use ops::matmul::software_matmul::SoftwareMatmul;
+pub use ops::matmul::step::{ProductStep, StepCost};
 pub use space::axis::Axis;
 pub use space::base::Space;
 pub use space::partition::base::Partitioning;

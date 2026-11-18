@@ -69,6 +69,10 @@ pub(crate) fn cast_f32_to_dtype(data: &[f32], dtype: ElemType) -> Vec<u8> {
             let casted: Vec<half::bf16> = data.iter().map(|&x| half::bf16::from_f32(x)).collect();
             half::bf16::as_bytes(&casted).to_vec()
         }
+        ElemType::Float(FloatKind::E4M3) => data
+            .iter()
+            .map(|&x| cubecl::e4m3::from_f32(x).to_bits())
+            .collect(),
         ElemType::UInt(cubecl::ir::UIntKind::U32) => {
             let casted: Vec<u32> = data.iter().map(|&x| x as u32).collect();
             u32::as_bytes(&casted).to_vec()
