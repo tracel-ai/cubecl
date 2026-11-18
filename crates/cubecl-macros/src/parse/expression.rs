@@ -357,7 +357,10 @@ impl Expression {
                     for arm in mat.arms.iter() {
                         arms.push(MatchArm {
                             pat: arm.pat.clone(),
-                            expr: Box::new(Self::from_expr(arm.body.as_ref().clone(), context)?),
+                            expr: Box::new(Self::from_expr_value(
+                                arm.body.as_ref().clone(),
+                                context,
+                            )?),
                         });
                     }
 
@@ -376,7 +379,7 @@ impl Expression {
                                 let (expr, _) = context.in_scope(|context| {
                                     add_variables_from_pat(&arm.pat, context);
                                     context.in_closure_scope(scope, |context| {
-                                        Self::from_expr(arm.body.as_ref().clone(), context)
+                                        Self::from_expr_value(arm.body.as_ref().clone(), context)
                                     })
                                 })?;
                                 arms.push(MatchArm {
