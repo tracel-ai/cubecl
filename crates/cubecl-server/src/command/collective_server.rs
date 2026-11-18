@@ -366,7 +366,9 @@ pub trait CollectiveServer: Sized {
         let stream = command.stream().signal();
         drop(command);
         marks.reach(stream);
-        marks.synced(self.comm_stream(), stream, last_end.as_ref())
+        marks.synced(self.comm_stream(), stream, last_end.as_ref())?;
+        self.collectives().comm_stream_synced(stream_id, stream);
+        Ok(())
     }
 
     /// Sends `desc` to `device_id_dst`, whose server receives it with [`recv`](Self::recv).
@@ -478,8 +480,12 @@ fn settle<S: CollectiveServer, const N: usize, Plan>(
     }
 }
 
-/// Runs `collective` on the collective stream over `bindings`, once the compute stream has
-/// written them, keeping them borrowed until the compute stream waits as `wait` says.
+/// Runs `collective` over `bindings` once the compute stream has written them, keeping them
+/// borrowed until the compute stream waits as `wait` says.
+///
+/// One the compute stream waits for at once runs on it when nothing else orders it: nothing can
+/// overlap it, and the two waits across streams cost several times a small collective on HIP,
+/// where each stream is its own hardware queue.
 ///
 /// # Errors
 ///
@@ -501,6 +507,8 @@ fn run<S: CollectiveServer, const N: usize>(
 ) -> Result<(), ServerError> {
     let comm = *server.collectives().get(group)?;
     let comm_stream = server.comm_stream();
+    let on_compute = server.collectives().runs_on_compute(stream_id, wait);
+    let awaited = server.collectives().awaited_by_comm_stream(stream_id);
     let marks = CommunicationMarks::new(server, timing);
 
     let mut command = server.command(stream_id, bindings.iter())?;
@@ -511,13 +519,15 @@ fn run<S: CollectiveServer, const N: usize>(
     let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
 
-    marks.hand_over(comm_stream, stream)?;
-    collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
-    let ended = marks.ended(comm_stream, stream, wait);
+    let part_stream = marks.begin(on_compute, comm_stream, stream, awaited)?;
+    collective(&comm, core::array::from_fn(|i| &resources[i]), part_stream)?;
+    let ended = marks.finish(on_compute, comm_stream, stream, wait);
     // Dropping the command releases bindings borrowed from other streams at this point of
     // the compute stream, which only waits for the collective under `ComputeWait::Now`.
     drop(command);
-    server.collectives().collective_queued(marks.end);
+    server
+        .collectives()
+        .collective_ran(wait, marks.end, stream_id, stream);
     ended
 }
 
@@ -711,6 +721,64 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
             }
         }
         S::Driver::wait_for(part_stream, compute)
+    }
+
+    /// Starts a collective on `compute` when `on_compute`, or else on `collectives` once it has
+    /// waited for `awaited` and for the work queued on `compute`, and returns the stream it runs on.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the streams.
+    fn begin(
+        &mut self,
+        on_compute: bool,
+        collectives: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        awaited: Option<StreamSignal<S::Driver>>,
+    ) -> Result<StreamSignal<S::Driver>, ServerError> {
+        if on_compute {
+            self.reach(compute);
+            return Ok(compute);
+        }
+        if let Some(awaited) = awaited {
+            S::Driver::wait_for(collectives, awaited)?;
+        }
+        self.hand_over(collectives, compute)?;
+        Ok(collectives)
+    }
+
+    /// Ends a collective [`begin`](Self::begin) started, which `compute` waits for as `wait` says.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to order the two.
+    fn finish(
+        &mut self,
+        on_compute: bool,
+        collectives: StreamSignal<S::Driver>,
+        compute: StreamSignal<S::Driver>,
+        wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        if on_compute {
+            self.ended_on_compute(compute);
+            return Ok(());
+        }
+        self.ended(collectives, compute, wait)
+    }
+
+    /// A part on the compute stream is all wait: its window and the wait's both run from where the
+    /// compute stream reached it to where it ended.
+    fn ended_on_compute(&mut self, compute: StreamSignal<S::Driver>) {
+        let (Some(reached), Some(end)) = (self.reached.clone(), self.end.clone()) else {
+            return;
+        };
+        if let Err(error) = end.record(compute) {
+            *self = Self::failed(error);
+            return;
+        }
+        self.timing
+            .part_measured(EventProfiler::span(&reached, &end));
+        self.wait_measured(&end);
     }
 
     /// The compute stream `compute` reaches its wait for the collectives queued so far.

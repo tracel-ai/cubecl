@@ -272,6 +272,7 @@ impl CollectiveDriver for Fake {
     const LIBRARY: &'static str = "the fake";
 
     fn wait_for(_stream: (), _queued_on: ()) -> Result<(), ServerError> {
+        count_wait();
         Ok(())
     }
 
@@ -376,6 +377,19 @@ std::thread_local! {
     static EVENTS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     /// The device clock this thread's fake streams share, a tick per event recorded.
     static CLOCK: Cell<u64> = const { Cell::new(0) };
+    /// The waits this thread has ordered one stream after another with.
+    static WAITS: Cell<usize> = const { Cell::new(0) };
+}
+
+fn count_wait() {
+    WAITS.with(|waits| waits.set(waits.get() + 1));
+}
+
+/// The waits across streams `queue` orders.
+fn waits_across_streams(queue: impl FnOnce()) -> usize {
+    let before = WAITS.with(Cell::get);
+    queue();
+    WAITS.with(Cell::get) - before
 }
 
 /// Sets this thread's device clock to `micros`.
@@ -428,6 +442,7 @@ impl EventApi for FakeEvents {
     }
 
     fn stream_wait_event(_stream: (), _event: &Self::Event) -> Result<(), DriverError> {
+        count_wait();
         Ok(())
     }
 
@@ -727,6 +742,16 @@ fn a_timing_its_refused_send_never_used_is_dropped_rather_than_given_to_the_next
 }
 
 fn all_reduce(server: &mut FakeServer, device: DeviceId, timing: Option<CommunicationTiming>) {
+    all_reduce_on(server, device, timing, STREAM, ComputeWait::AtSync);
+}
+
+fn all_reduce_on(
+    server: &mut FakeServer,
+    device: DeviceId,
+    timing: Option<CommunicationTiming>,
+    stream: StreamId,
+    wait: ComputeWait,
+) {
     let (src, dst) = (server.allocated(), server.allocated());
     if let Some(timing) = timing {
         server.time_next_communication(timing);
@@ -740,9 +765,9 @@ fn all_reduce(server: &mut FakeServer, device: DeviceId, timing: Option<Communic
             src.binding(),
             dst.binding(),
             reduction,
-            STREAM,
+            stream,
             vec![device],
-            ComputeWait::AtSync,
+            wait,
         )
         .unwrap();
 }
@@ -786,6 +811,94 @@ fn a_sync_after_an_untimed_collective_reads_back_empty() {
     let wait = timed_sync(&mut server, STREAM);
 
     assert!(cubecl_environment::future::block_on(wait.resolve()).is_none());
+}
+
+#[test_log::test]
+fn a_collective_waited_for_at_once_runs_on_its_compute_stream() {
+    let (mut server, device) = joined_alone(73);
+
+    let waits = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    });
+
+    assert_eq!(waits, 0);
+}
+
+#[test_log::test]
+fn a_collective_left_for_the_sync_runs_on_the_collective_stream() {
+    let (mut server, device) = joined_alone(74);
+
+    let waits = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::AtSync);
+    });
+
+    assert_eq!(
+        waits, 1,
+        "the collective stream waits for the compute stream"
+    );
+}
+
+#[test_log::test]
+fn a_collective_after_one_left_for_the_sync_follows_it_on_the_collective_stream() {
+    let (mut server, device) = joined_alone(75);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::AtSync);
+
+    let follows = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    });
+    let then = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    });
+
+    assert_eq!(follows, 2, "both streams wait for each other");
+    assert_eq!(
+        then, 0,
+        "the compute stream already follows every collective"
+    );
+}
+
+#[test_log::test]
+fn a_collective_from_another_compute_stream_waits_for_the_last_one() {
+    let (mut server, device) = joined_alone(76);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    let other = StreamId { value: 2 };
+
+    let waits = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, other, ComputeWait::Now);
+    });
+
+    // The collective stream waits for the other compute stream, then for this one, and this one
+    // waits for it.
+    assert_eq!(waits, 3);
+}
+
+#[test_log::test]
+fn a_collective_on_its_compute_stream_is_exposed_for_its_whole_part() {
+    let (mut server, device) = joined_alone(77);
+    let mut timing = CommunicationTiming::default();
+    let (part, wait) = (timing.part_window(), timing.wait_window());
+
+    all_reduce_on(&mut server, device, Some(timing), STREAM, ComputeWait::Now);
+
+    let (part, wait) = (read(part), read(wait));
+    assert!(part > cubecl_common::profile::Duration::ZERO);
+    assert_eq!(wait, part);
+}
+
+#[test_log::test]
+fn a_sync_after_a_collective_on_its_compute_stream_waits_for_nothing() {
+    let (mut server, device) = joined_alone(78);
+    all_reduce_on(
+        &mut server,
+        device,
+        Some(CommunicationTiming::default()),
+        STREAM,
+        ComputeWait::Now,
+    );
+
+    let wait = timed_sync(&mut server, STREAM);
+
+    assert_eq!(read(wait), cubecl_common::profile::Duration::ZERO);
 }
 
 #[test]

@@ -11,11 +11,14 @@
 
 use super::{DeviceResource, DeviceStream, Driver};
 use crate::device_events::{EventApi, Mark};
-use crate::server::{CommunicationId, CommunicationTiming, ReduceOperation, ServerError};
+use crate::server::{
+    CommunicationId, CommunicationTiming, ComputeWait, ReduceOperation, ServerError,
+};
 use alloc::{format, vec, vec::Vec};
 use cubecl_common::device::DeviceId;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
+use cubecl_environment::stream::StreamId;
 use cubecl_ir::ElemType;
 
 /// The driver's handle for a stream.
@@ -208,6 +211,17 @@ pub struct Elements<T> {
 /// The groups this device has joined, the timing its next communication was given, and where the
 /// last collective it queued ends.
 ///
+/// The stream a device's collectives so far are all ordered before, which the next one follows:
+/// two collectives over one communicator must never run at once.
+#[derive(Debug, Clone, Copy)]
+pub enum CollectiveTail<S> {
+    /// The collective stream, where the last collective ran for a compute stream to wait at its
+    /// next sync.
+    Comm,
+    /// The compute stream with this id and signal, which waited for the last collective.
+    Compute(StreamId, S),
+}
+
 /// One per server, unlike the identifiers behind
 /// [`group_id`](CollectiveDriver::group_id): an identifier is what every rank
 /// of a group agrees on, a communicator is one rank's membership of it.
@@ -220,6 +234,7 @@ pub struct Collectives<D: CollectiveDriver, E: EventApi> {
     next_timing: Option<CommunicationTiming>,
     /// The end of the last collective queued since the last sync, while it was timed.
     last_end: Option<Mark<E>>,
+    tail: Option<CollectiveTail<StreamSignal<D>>>,
 }
 
 impl<D: CollectiveDriver, E: EventApi> core::fmt::Debug for Collectives<D, E> {
@@ -243,6 +258,7 @@ impl<D: CollectiveDriver, E: EventApi> Collectives<D, E> {
             broken: HashMap::default(),
             next_timing: None,
             last_end: None,
+            tail: None,
         }
     }
 
@@ -266,6 +282,52 @@ impl<D: CollectiveDriver, E: EventApi> Collectives<D, E> {
     /// An untimed one forgets the end of the one before, which no longer ends the stream.
     pub fn collective_queued(&mut self, end: Option<Mark<E>>) {
         self.last_end = end;
+        self.tail = Some(CollectiveTail::Comm);
+    }
+
+    /// Whether a collective queued from compute stream `from`, which waits for it as `wait` says,
+    /// runs on that compute stream: only when it waits at once, and every collective before it is
+    /// already ordered before that stream.
+    pub fn runs_on_compute(&self, from: StreamId, wait: ComputeWait) -> bool {
+        match (wait, self.tail) {
+            (ComputeWait::AtSync, _) => false,
+            (ComputeWait::Now, None) => true,
+            (ComputeWait::Now, Some(CollectiveTail::Comm)) => false,
+            (ComputeWait::Now, Some(CollectiveTail::Compute(tail, _))) => tail == from,
+        }
+    }
+
+    /// The compute stream a collective queued on the collective stream from `from` waits for
+    /// first: the one the last collective ran on or was waited by, when it is not `from`.
+    pub fn awaited_by_comm_stream(&self, from: StreamId) -> Option<StreamSignal<D>> {
+        match self.tail {
+            Some(CollectiveTail::Compute(tail, signal)) => (tail != from).then_some(signal),
+            Some(CollectiveTail::Comm) | None => None,
+        }
+    }
+
+    /// A collective queued from compute stream `from`, whose signal is `compute`, ran and ended
+    /// at `end` when it was timed. One waited for at once leaves that compute stream ordered after
+    /// it, wherever it ran.
+    pub fn collective_ran(
+        &mut self,
+        wait: ComputeWait,
+        end: Option<Mark<E>>,
+        from: StreamId,
+        compute: StreamSignal<D>,
+    ) {
+        self.last_end = end;
+        self.tail = Some(match wait {
+            ComputeWait::Now => CollectiveTail::Compute(from, compute),
+            ComputeWait::AtSync => CollectiveTail::Comm,
+        });
+    }
+
+    /// Compute stream `from`, whose signal is `compute`, waited for the collective stream.
+    pub fn comm_stream_synced(&mut self, from: StreamId, compute: StreamSignal<D>) {
+        if let Some(CollectiveTail::Comm) = self.tail {
+            self.tail = Some(CollectiveTail::Compute(from, compute));
+        }
     }
 
     /// Where the collectives queued since the last sync end, which a sync waits for: `None`
