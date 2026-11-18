@@ -443,7 +443,7 @@ impl core::fmt::Debug for ResourceLimitError {
 }
 
 /// A collective operation between the devices of one runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum Collective {
     /// Setting up the communication between a group of devices.
