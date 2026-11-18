@@ -873,6 +873,19 @@ fn a_collective_from_another_compute_stream_waits_for_the_last_one() {
 }
 
 #[test_log::test]
+fn a_sync_from_another_compute_stream_waits_for_the_last_collective() {
+    let (mut server, device) = joined_alone(79);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+
+    let waits = waits_across_streams(|| {
+        server.sync_collective(StreamId { value: 2 }).unwrap();
+    });
+
+    // The compute stream that ran the collective, then the collective stream.
+    assert_eq!(waits, 2);
+}
+
+#[test_log::test]
 fn a_collective_on_its_compute_stream_is_exposed_for_its_whole_part() {
     let (mut server, device) = joined_alone(77);
     let mut timing = CommunicationTiming::default();

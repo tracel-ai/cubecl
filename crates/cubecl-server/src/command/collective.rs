@@ -297,11 +297,11 @@ impl<D: CollectiveDriver, E: EventApi> Collectives<D, E> {
         }
     }
 
-    /// The compute stream a collective queued on the collective stream from `from` waits for
-    /// first: the one the last collective ran on or was waited by, when it is not `from`.
-    pub fn awaited_by_comm_stream(&self, from: StreamId) -> Option<StreamSignal<D>> {
+    /// The compute stream that ran or waited for the last collective, when it is not `from`: a
+    /// collective, or a sync, from `from` waits for it first.
+    pub fn compute_tail_other_than(&self, from: Option<StreamId>) -> Option<StreamSignal<D>> {
         match self.tail {
-            Some(CollectiveTail::Compute(tail, signal)) => (tail != from).then_some(signal),
+            Some(CollectiveTail::Compute(tail, signal)) => (Some(tail) != from).then_some(signal),
             Some(CollectiveTail::Comm) | None => None,
         }
     }

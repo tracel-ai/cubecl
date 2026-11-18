@@ -360,11 +360,15 @@ pub trait CollectiveServer: Sized {
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let timing = self.collectives().take_timing();
         let last_end = self.collectives().take_last_end();
+        let compute_tail = self.collectives().compute_tail_other_than(Some(stream_id));
         let marks = CommunicationMarks::new(self, timing);
         let mut command = self.command(stream_id, [].into_iter())?;
         let mut marks = marks.unless_capturing(command.stream());
         let stream = command.stream().signal();
         drop(command);
+        if let Some(compute_tail) = compute_tail {
+            Self::Driver::wait_for(stream, compute_tail)?;
+        }
         marks.reach(stream);
         marks.synced(self.comm_stream(), stream, last_end.as_ref())?;
         self.collectives().comm_stream_synced(stream_id, stream);
@@ -430,6 +434,9 @@ pub trait CollectiveServer: Sized {
 /// for every peer. A single element connects the algorithm they pick, the ring on a single node.
 fn connect<S: CollectiveServer>(server: &mut S, id: &CommunicationId) -> Result<(), ServerError> {
     let comm = *server.collectives().get(id)?;
+    if let Some(compute_tail) = server.collectives().compute_tail_other_than(None) {
+        S::Driver::wait_for(server.comm_stream(), compute_tail)?;
+    }
     let element = server.connect_element();
     let elements = S::Driver::elements(ElemType::Float(FloatKind::F32), CONNECT_ELEMENT_SIZE)?;
     let connected = S::Driver::all_reduce(
@@ -508,7 +515,9 @@ fn run<S: CollectiveServer, const N: usize>(
     let comm = *server.collectives().get(group)?;
     let comm_stream = server.comm_stream();
     let on_compute = server.collectives().runs_on_compute(stream_id, wait);
-    let awaited = server.collectives().awaited_by_comm_stream(stream_id);
+    let awaited = server
+        .collectives()
+        .compute_tail_other_than(Some(stream_id));
     let marks = CommunicationMarks::new(server, timing);
 
     let mut command = server.command(stream_id, bindings.iter())?;
