@@ -259,6 +259,80 @@ pub fn test_copy_owned_receiver<R: Runtime>(client: Client) {
     assert_eq!(u32::from_bytes(&actual), [5, 8]);
 }
 
+#[cube(launch_unchecked)]
+fn kernel_copy_receiver_before_args(output: &mut [u32]) {
+    let mut cursor = Cursor {
+        slot: 5u32.runtime(),
+    };
+
+    let snapshot = cursor.snapshot_and_bump({
+        cursor.slot += 3u32;
+        &mut cursor
+    });
+
+    output[0] = snapshot;
+    output[1] = cursor.slot;
+}
+
+pub fn test_copy_receiver_before_args<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_copy_receiver_before_args::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [5, 11]);
+}
+
+#[cube(launch_unchecked)]
+fn kernel_copy_receiver_at_branch_start(input: &[u32], output: &mut [u32]) {
+    let mut cursor = Cursor {
+        slot: 5u32.runtime(),
+    };
+
+    if input[0] != 0u32 {
+        let snapshot = cursor.snapshot_and_bump({
+            cursor.slot += 3u32;
+            &mut cursor
+        });
+        output[0] = snapshot;
+    } else {
+        let snapshot = cursor.snapshot_and_bump({
+            cursor.slot += 6u32;
+            &mut cursor
+        });
+        output[0] = snapshot;
+    }
+
+    output[1] = cursor.slot;
+}
+
+pub fn test_copy_receiver_at_branch_start<R: Runtime>(client: Client) {
+    for (flag, expected) in [(1u32, [5u32, 11]), (0u32, [5u32, 14])] {
+        let input = client.create_from_slice(u32::as_bytes(&[flag]));
+        let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+        unsafe {
+            kernel_copy_receiver_at_branch_start::launch_unchecked(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(1),
+                BufferArg::from_raw_parts(input, 1),
+                BufferArg::from_raw_parts(output.clone(), 2),
+            );
+        }
+
+        let actual = client.read_one(output).unwrap();
+        assert_eq!(u32::from_bytes(&actual), expected, "flag = {flag}");
+    }
+}
+
 pub fn test_compound_assign_runtime_word<R: Runtime>(client: Client) {
     for (has_perm, expected) in [(true, 0b1010 ^ 0b0110), (false, 0b1010)] {
         let perm = client.create_from_slice(u32::as_bytes(&[0b0110]));
@@ -511,6 +585,18 @@ macro_rules! testgen_assign {
             fn test_copy_owned_receiver() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::assign::test_copy_owned_receiver::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_copy_receiver_before_args() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_copy_receiver_before_args::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_copy_receiver_at_branch_start() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_copy_receiver_at_branch_start::<TestRuntime>(client);
             }
         }
     };

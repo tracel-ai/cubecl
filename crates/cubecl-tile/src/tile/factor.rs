@@ -4,7 +4,9 @@
 //! itself under `[t]`.
 
 use cubecl::frontend::{
+    
     AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+,
 };
 use cubecl::ir::{ExpandValue, Scope, types::Fp8Format};
 use cubecl::prelude::*;

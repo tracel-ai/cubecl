@@ -112,12 +112,12 @@ pub fn if_expand(scope: &Scope, condition: NativeExpand<bool>, block: impl FnOnc
             let if_op = IfOp::new(scope.ctx_mut(), cond);
 
             let then_block = if_op.then_block(scope.ctx());
-            let then_child = scope.branch_child(OpInserter::new_at_block_end(then_block));
+            let then_child = scope.branch_child(OpInserter::new_at_block_start(then_block));
             block(&then_child);
             then_child.terminate_yield();
 
             let else_block = if_op.else_block(scope.ctx());
-            let else_child = scope.branch_child(OpInserter::new_at_block_end(else_block));
+            let else_child = scope.branch_child(OpInserter::new_at_block_start(else_block));
             else_child.terminate_yield();
 
             scope.register(&if_op);
@@ -144,7 +144,7 @@ impl IfElseExpand {
                 if_op, then_child, ..
             } => {
                 let else_body = if_op.else_block(scope.ctx());
-                let else_child = scope.branch_child(OpInserter::new_at_block_end(else_body));
+                let else_child = scope.branch_child(OpInserter::new_at_block_start(else_body));
                 else_block(&else_child);
                 else_child.terminate_yield();
 
@@ -173,7 +173,7 @@ pub fn if_else_expand(
             let cond = condition.read_value(scope);
             let if_op = IfOp::new(scope.ctx_mut(), cond);
             let if_block = if_op.then_block(scope.ctx());
-            let then_child = scope.branch_child(OpInserter::new_at_block_end(if_block));
+            let then_child = scope.branch_child(OpInserter::new_at_block_start(if_block));
             then_block(&then_child);
             then_child.terminate_yield();
 
@@ -212,7 +212,7 @@ impl<C: Assign> IfElseExprExpand<C> {
                 ..
             } => {
                 let else_body = if_op.else_block(scope.ctx());
-                let else_child = scope.branch_child(OpInserter::new_at_block_end(else_body));
+                let else_child = scope.branch_child(OpInserter::new_at_block_start(else_body));
                 let ret = else_block(&else_child);
                 out.__expand_assign_method(&else_child, ret.into_expand(scope));
                 else_child.terminate_yield();
@@ -243,7 +243,7 @@ pub fn if_else_expr_expand<C: RuntimeAssign>(
             let cond = condition.read_value(scope);
             let if_op = IfOp::new(scope.ctx_mut(), cond);
             let then_body = if_op.then_block(scope.ctx());
-            let then_child = scope.branch_child(OpInserter::new_at_block_end(then_body));
+            let then_child = scope.branch_child(OpInserter::new_at_block_start(then_body));
             let ret = then_block(&then_child);
             let mut out = ret.init_mut(scope);
             out.__expand_assign_method(&then_child, ret.into_expand(scope));
@@ -270,7 +270,7 @@ impl<I: Int> SwitchExpand<I> {
         let value = I::from(value).unwrap();
         self.cases.push(value);
         let body = self.switch_op.append_case_block(scope.ctx_mut());
-        let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+        let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
         block(&case_child);
         case_child.terminate_yield();
         self.children.push(case_child);
@@ -299,7 +299,7 @@ pub fn switch_expand<I: Int>(
     let switch_op = SwitchOp::new(scope.ctx_mut(), value);
 
     let default_body = switch_op.default_block(scope.ctx());
-    let default_child = scope.branch_child(OpInserter::new_at_block_end(default_body));
+    let default_child = scope.branch_child(OpInserter::new_at_block_start(default_body));
     default_block(&default_child);
     default_child.terminate_yield();
 
@@ -327,7 +327,7 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         let value = I::from(value).unwrap();
         self.cases.push(value);
         let body = self.switch_op.append_case_block(scope.ctx_mut());
-        let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+        let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
         let ret = block(&case_child);
         self.out
             .__expand_assign_method(&case_child, ret.into_expand(scope));
@@ -359,7 +359,7 @@ pub fn switch_expand_expr<I: Int, C: RuntimeAssign>(
     let switch_op = SwitchOp::new(scope.ctx_mut(), value);
 
     let default_body = switch_op.default_block(scope.ctx());
-    let default_child = scope.branch_child(OpInserter::new_at_block_end(default_body));
+    let default_child = scope.branch_child(OpInserter::new_at_block_start(default_body));
     let default = default_block(&default_child);
     let mut out = default.init_mut(scope);
     out.__expand_assign_method(&default_child, default.into_expand(scope));
@@ -406,7 +406,7 @@ impl<T: CubeEnum> MatchExpand<T> {
             } => {
                 cases.push(value);
                 let body = switch_op.append_case_block(scope.ctx_mut());
-                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
                 block(&case_child, (*runtime_value).clone_unchecked());
                 case_child.terminate_yield();
                 children.push(case_child);
@@ -435,7 +435,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 let body = switch_op.default_block(scope.ctx());
-                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
                 block(&case_child, (*runtime_value).clone_unchecked());
                 case_child.terminate_yield();
                 children.push(case_child);
@@ -467,7 +467,7 @@ impl<T: CubeEnum> MatchExpand<T> {
             } => {
                 if !has_default {
                     let default_body = switch_op.default_block(scope.ctx());
-                    let mut inserter = OpInserter::new_at_block_end(default_body);
+                    let mut inserter = OpInserter::new_at_block_start(default_body);
                     let unreachable = UnreachableOp::new(scope.ctx_mut());
                     inserter.append_op(scope.ctx(), &unreachable);
                 }
@@ -512,7 +512,7 @@ pub fn match_expand<T: CubeEnum>(
 
             let switch_op = SwitchOp::new(scope.ctx_mut(), discriminant);
             let body = switch_op.append_case_block(scope.ctx_mut());
-            let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+            let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
             arm0(&case_child, runtime_value.clone_unchecked());
             case_child.terminate_yield();
 
@@ -563,7 +563,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
             } => {
                 cases.push(value);
                 let body = switch_op.append_case_block(scope.ctx_mut());
-                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
                 case_child.terminate_yield();
@@ -600,7 +600,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 let body = switch_op.default_block(scope.ctx());
-                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
                 case_child.terminate_yield();
@@ -638,7 +638,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
             } => {
                 if !has_default {
                     let default_body = switch_op.default_block(scope.ctx());
-                    let mut inserter = OpInserter::new_at_block_end(default_body);
+                    let mut inserter = OpInserter::new_at_block_start(default_body);
                     let unreachable = UnreachableOp::new(scope.ctx_mut());
                     inserter.append_op(scope.ctx(), &unreachable);
                 }
@@ -687,7 +687,7 @@ pub fn match_expand_expr<T: CubeEnum, C: RuntimeAssign>(
 
             let switch_op = SwitchOp::new(scope.ctx_mut(), discriminant);
             let body = switch_op.append_case_block(scope.ctx_mut());
-            let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
+            let case_child = scope.branch_child(OpInserter::new_at_block_start(body));
             let ret_val = arm0(&case_child, runtime_value.clone_unchecked());
 
             let mut out = ret_val.init_mut(scope);
@@ -850,7 +850,7 @@ impl WhileBuilder {
         } = self;
 
         let body = while_op.after_block(scope.ctx());
-        let body = scope.loop_child(OpInserter::new_at_block_end(body));
+        let body = scope.loop_child(OpInserter::new_at_block_start(body));
         block(&body);
         body.terminate_yield();
 
