@@ -8,7 +8,9 @@ use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_runtime::execution::{
     KernelHandling, KernelOutcome, KernelRegistration, LaunchPurpose, SettledKernel,
+    WorkCompilationFailure,
 };
+use cubecl_runtime::id::KernelId;
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -119,7 +121,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         // launch reads this flag and nothing else, neither the launch's
         // purpose nor the store. A race's launch leaves it unset, for the
         // work's first to record.
-        if !loaded.recorded && LaunchPurpose::running() == LaunchPurpose::Work {
+        if !loaded.recorded && LaunchPurpose::running().is_works() {
             loaded.recorded = true;
             if let Some(work) = self.work.as_mut() {
                 work.record(&id.kernel);
@@ -146,10 +148,18 @@ impl<T: CompilationTarget> KernelLoader<T> {
                 id: id.clone(),
                 kernel,
                 registration: None,
+                purpose: LaunchPurpose::running(),
             });
             self.compile_queue(asked, logger);
 
             if let Some(err) = self.failed.remove(id) {
+                // A launch of the work meeting a failure its batch kept lists
+                // it, to the collector the launch counts to: the batch listed
+                // it only when it compiled the kernel for the work, and only
+                // to the collector that queued it.
+                if LaunchPurpose::running() == LaunchPurpose::Work {
+                    WorkCompilationFailure::record(&id.kernel, &err);
+                }
                 return Err(err);
             }
             // An environment switch during the batch drops every kernel loaded
@@ -179,10 +189,14 @@ impl<T: CompilationTarget> KernelLoader<T> {
         // compiles again when it is launched or queued.
         self.failed.clear();
         // Asked for and queued, it takes the registration it was queued
-        // with; asked for alone, it registers with the override open now.
+        // with, and is the work's if either launch was; asked for alone, it
+        // registers with the override open now.
         let asked = asked.map(|mut asked| {
             asked.registration = match queue.iter_mut().find(|queued| queued.id == asked.id) {
-                Some(queued) => queued.registration.take(),
+                Some(queued) => {
+                    asked.purpose = asked.purpose.joined(queued.purpose);
+                    queued.registration.take()
+                }
                 None => KernelRegistration::register(),
             };
             asked
@@ -211,18 +225,25 @@ impl<T: CompilationTarget> KernelLoader<T> {
             kernel: kernel.id(),
             variant,
         };
+        let purpose = LaunchPurpose::running();
         // Before anything that leaves the kernel alone: a work's launch queued
         // in a compile-only pass is the work's, whoever queued it first.
-        if LaunchPurpose::running() == LaunchPurpose::Work
+        if purpose.is_works()
             && let Some(work) = self.work.as_mut()
         {
             work.record(&id.kernel);
         }
-        if self.loaded.contains(&id) || self.queue.contains(&id) {
+        if self.loaded.contains(&id) {
+            return;
+        }
+        // Queued by a race first, a kernel the work queues too is the
+        // work's: its failure is then the work's to hear.
+        if self.queue.join(&id, purpose) {
             return;
         }
         self.failed.remove(&id);
-        self.queue.push(id, kernel, KernelRegistration::register());
+        self.queue
+            .push(id, kernel, KernelRegistration::register(), purpose);
     }
 
     /// Keeps a loaded kernel, or the reason it failed.
@@ -480,23 +501,33 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
         self.kernels.len()
     }
 
-    fn contains(&self, id: &ArtifactId<V>) -> bool {
-        self.ids.contains(id)
-    }
-
     /// Queues `kernel` under `id`, which is not queued yet.
     fn push(
         &mut self,
         id: ArtifactId<V>,
         kernel: Box<dyn CubeKernel>,
         registration: Option<KernelRegistration>,
+        purpose: LaunchPurpose,
     ) {
         self.ids.insert(id.clone());
         self.kernels.push(Queued {
             id,
             kernel,
             registration,
+            purpose,
         });
+    }
+
+    /// Whether `id` is queued already, its purpose joined with `purpose`
+    /// when it is.
+    fn join(&mut self, id: &ArtifactId<V>, purpose: LaunchPurpose) -> bool {
+        if !self.ids.contains(id) {
+            return false;
+        }
+        if let Some(queued) = self.kernels.iter_mut().find(|queued| &queued.id == id) {
+            queued.purpose = queued.purpose.joined(purpose);
+        }
+        true
     }
 
     /// Every queued kernel, leaving the queue empty.
@@ -513,6 +544,8 @@ struct Queued<V> {
     /// The registration it was queued with, handed to the batch that
     /// compiles it.
     registration: Option<KernelRegistration>,
+    /// What the launches that queued it were issued for.
+    purpose: LaunchPurpose,
 }
 
 impl<V: Clone> Queued<V> {
@@ -521,6 +554,7 @@ impl<V: Clone> Queued<V> {
             id: self.id.clone(),
             kernel: &*self.kernel,
             registration: self.registration.take(),
+            purpose: self.purpose,
         }
     }
 }
@@ -531,6 +565,8 @@ struct Request<'k, V> {
     kernel: &'k dyn CubeKernel,
     /// Its registration, if an override was open to register it.
     registration: Option<KernelRegistration>,
+    /// What the launches asking for it were issued for.
+    purpose: LaunchPurpose,
 }
 
 /// One kernel on its way through [`KernelLoader::compile`].
@@ -541,6 +577,9 @@ struct Job<'k, T: CompilationTarget> {
     step: Step<T>,
     /// Where it stands in its collector's count.
     count: JobCount,
+    /// What the launches asking for it were issued for: a failure is the
+    /// work's to hear only when one of them was the work's.
+    purpose: LaunchPurpose,
 }
 
 /// Where a [`Job`] stands in the count of the collector it was registered
@@ -559,6 +598,14 @@ impl JobCount {
     fn record(&mut self, load: KernelHandling) {
         if let Self::Settled(settled) = self {
             settled.record(load);
+        }
+    }
+
+    /// List the job's kernel as one the work could not obtain, once it
+    /// settled.
+    fn fail_work(&self, kernel: &KernelId, error: &LaunchError) {
+        if let Self::Settled(settled) = self {
+            settled.fail_work(kernel, error);
         }
     }
 }
@@ -618,6 +665,7 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 Some(registration) => JobCount::Registered(registration),
                 None => JobCount::Uncounted,
             },
+            purpose: request.purpose,
         }
     }
 
@@ -804,6 +852,14 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 unreachable!("every job is lowered, then finalized or reused, or failed")
             }
         };
+        // A race's candidate that fails is dropped from its race, silently;
+        // the work's kernel that fails is one its launches can never run,
+        // which a pass discarding them hears only here.
+        if let Err(err) = &result
+            && self.purpose == LaunchPurpose::Work
+        {
+            self.count.fail_work(&self.id.kernel, err);
+        }
         JobOutcome {
             id: self.id,
             result,
@@ -1443,6 +1499,120 @@ mod tests {
         let work = loader.work.as_mut().unwrap();
         assert!(!work.holds(&Numbered(1).id()), "queued for a race");
         assert!(work.holds(&Numbered(2).id()), "queued for the work");
+    }
+
+    /// A kernel the work queued that fails in its batch is listed among the
+    /// collector's work failures, though no launch of it ever runs; one a
+    /// race queued is counted failed and listed nowhere.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_queued_work_kernel_that_fails_is_listed_and_a_race_one_is_not() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let mut loader = loader(2);
+        loader.target.compiler.panicking = Some(1);
+        let logger = ServerLogger::default();
+        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        loader.compile_queued(&logger);
+        assert_eq!(collector.statistics().compilation.failed, 1);
+        assert!(
+            collector.work_failures().is_empty(),
+            "a race's failure is its own"
+        );
+
+        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        loader.compile_queued(&logger);
+        let failures = collector.work_failures();
+        assert_eq!(failures.len(), 1, "the work's failure is listed");
+        assert_eq!(failures[0].kernel, Numbered(1).id());
+        assert!(
+            alloc::format!("{}", failures[0].error).contains("kernel 1 panicked"),
+            "the failure keeps the panic's message: {}",
+            failures[0].error
+        );
+        core::mem::drop(compile);
+    }
+
+    /// A kernel a race queued and the work queued after is the work's: its
+    /// failure is listed.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_queued_by_a_race_then_the_work_is_the_works() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let mut loader = loader(2);
+        loader.target.compiler.failing = Some(1);
+        let logger = ServerLogger::default();
+        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        loader.compile_queued(&logger);
+        assert_eq!(collector.work_failures().len(), 1);
+        core::mem::drop(compile);
+    }
+
+    /// A load the work asks for under a compile pass, its launch discarded,
+    /// lists a failure; a race's does not.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_work_load_that_fails_is_listed() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let mut loader = loader(1);
+        loader.target.compiler.failing = Some(0);
+        let logger = ServerLogger::default();
+        let raced = LaunchPurpose::Race.apply(|| loader.load(&Numbered(0), &id(0), &logger));
+        assert!(raced.is_err());
+        assert!(collector.work_failures().is_empty());
+        let worked = LaunchPurpose::Work.apply(|| loader.load(&Numbered(0), &id(0), &logger));
+        assert!(worked.is_err());
+        assert_eq!(collector.work_failures().len(), 1);
+        core::mem::drop(tune);
+    }
+
+    /// A race's failure the work's launch then meets, reported from the
+    /// batch rather than compiled again, is listed then; a provisional run's
+    /// is not.
+    #[test]
+    #[serial_test::serial(records)]
+    fn the_work_meeting_a_races_failure_lists_it() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let mut loader = loader(2);
+        loader.target.compiler.failing = Some(1);
+        let logger = ServerLogger::default();
+        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        loader.compile_queued(&logger);
+        let provisional =
+            LaunchPurpose::Provisional.apply(|| loader.load(&Numbered(1), &id(1), &logger));
+        assert!(provisional.is_err());
+        assert!(collector.work_failures().is_empty(), "a provisional run's");
+
+        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        loader.compile_queued(&logger);
+        let worked = LaunchPurpose::Work.apply(|| loader.load(&Numbered(1), &id(1), &logger));
+        assert!(worked.is_err());
+        assert_eq!(
+            collector.statistics().compilation.failed,
+            2,
+            "reported, not tried"
+        );
+        assert_eq!(collector.work_failures().len(), 1);
+        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        loader.compile_queued(&logger);
+        assert_eq!(
+            collector.work_failures().len(),
+            1,
+            "one kernel is listed once, however often the work meets it"
+        );
+        core::mem::drop(tune);
     }
 
     /// A loader over a fake target, recording the work's launches in memory
