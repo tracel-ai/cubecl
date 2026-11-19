@@ -924,6 +924,9 @@ impl CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
+        // Arguments refused while they were registered never run: the scope
+        // leaves the outputs carrying why.
+        bindings.check_arguments()?;
         let address_type = kernel_id.address_type;
         let grid_constants = self
             .ctx

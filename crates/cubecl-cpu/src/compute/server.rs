@@ -465,6 +465,9 @@ impl Server for CpuServer {
             written,
         )
         .execute(|server| {
+            // Arguments refused while they were registered never run: the scope
+            // leaves the outputs carrying why.
+            bindings.check_arguments()?;
             server.streams_pool.clear();
             bindings
                 .resources

@@ -352,6 +352,12 @@ pub enum LaunchError {
     #[error("The device was poisoned during launch\nCaused by:\n  {0}")]
     DevicePoisoned(#[from] DevicePoison),
 
+    /// A value registered for the launch does not fit the kernel's address
+    /// type, so the kernel would read it truncated and address the wrong
+    /// memory. Boxed, so the error a launch carries stays small.
+    #[error("A launch argument does not fit the kernel's address type\n{0}")]
+    ArgumentOverflow(Box<ArgumentOverflow>),
+
     /// Unknown launch error.
     #[error(
         "An unknown error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
@@ -408,6 +414,45 @@ pub enum ResourceLimitError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+/// A value registered for a launch that the integer type the kernel reads it
+/// as cannot hold: a tensor's shape, stride or buffer length, or a `usize` or
+/// `isize` scalar, all read as the kernel's address type.
+///
+/// Converting it anyway would hand the kernel the value truncated, and the
+/// kernel would address memory other than the argument's with no error, so
+/// the launch is refused instead and its outputs carry this error.
+#[derive(Error, Clone, PartialEq, Eq)]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
+#[error(
+    "Kernel `{kernel}` cannot launch: argument `{argument}` has {quantity} {value}, outside the \
+     range of `{ty}`, the type its address type reads it as. Launch the kernel with a wider \
+     address type (`AddressType::U64`)."
+)]
+pub struct ArgumentOverflow {
+    /// The name of the kernel the argument was registered for.
+    pub kernel: String,
+    /// The name of the argument, as the kernel's signature spells it.
+    pub argument: String,
+    /// Which of the argument's values overflowed, such as `stride 1`.
+    pub quantity: String,
+    /// The value that does not fit.
+    pub value: i128,
+    /// The integer type the kernel reads the value as, such as `u32`.
+    pub ty: String,
+}
+
+impl From<ArgumentOverflow> for LaunchError {
+    fn from(overflow: ArgumentOverflow) -> Self {
+        Self::ArgumentOverflow(Box::new(overflow))
+    }
+}
+
+impl core::fmt::Debug for ArgumentOverflow {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
 }
 
 impl LaunchError {
@@ -1827,6 +1872,13 @@ pub struct KernelArguments {
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
+    /// Why the arguments cannot be launched, found while they were
+    /// registered: a value `info` would have held truncated, above all.
+    ///
+    /// `info` still has the layout the kernel expects, so the launch compiles
+    /// as any other would; a server refuses to run it with this error, which
+    /// its outputs then carry to whoever reads them.
+    pub argument_error: Option<LaunchError>,
 }
 
 impl core::fmt::Display for KernelArguments {
@@ -1844,6 +1896,20 @@ impl KernelArguments {
     /// Create a new bindings struct
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether these arguments can be launched: a server checks it where its
+    /// launch would start running, so the error claims the launch's outputs.
+    ///
+    /// # Errors
+    ///
+    /// The [`argument_error`](Self::argument_error) found while the arguments
+    /// were registered.
+    pub fn check_arguments(&self) -> Result<(), LaunchError> {
+        match &self.argument_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 
     /// Add a buffer binding

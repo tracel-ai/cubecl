@@ -511,6 +511,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             written,
         )
         .execute(|server| {
+            // Arguments refused while they were registered never run: the scope
+            // leaves the outputs carrying why.
+            args.check_arguments()?;
             server.streams_pool.clear();
             // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
             // automatically when the guard drops.

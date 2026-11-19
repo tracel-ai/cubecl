@@ -210,6 +210,9 @@ impl MetalServer {
         bindings: KernelArguments,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // Arguments refused while they were registered never run: the scope
+        // leaves the outputs carrying why.
+        bindings.check_arguments()?;
         let mut command = self.command(stream_id, bindings.buffers())?;
 
         let KernelArguments {

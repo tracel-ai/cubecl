@@ -837,6 +837,9 @@ impl HipServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
+        // Arguments refused while they were registered never run: the scope
+        // leaves the outputs carrying why.
+        bindings.check_arguments()?;
         for peer in bindings.peers() {
             self.enable_peer(peer.binding().service.device)?;
         }
