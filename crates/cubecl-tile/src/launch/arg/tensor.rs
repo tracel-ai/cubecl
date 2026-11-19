@@ -991,7 +991,10 @@ mod tests {
     }
 
     /// A `[4]` `u32` table keyed by `keys`, expanded as a kernel argument outside any launch.
-    fn expanded_table(builder: &mut KernelBuilder, keys: &[Dimension]) -> TileTensorExpand<'static> {
+    fn expanded_table(
+        builder: &mut KernelBuilder,
+        keys: &[Dimension],
+    ) -> TileTensorExpand<'static> {
         let arg = TileTensorCompilationArg {
             values: ValuesCompilationArg::Tensor {
                 buffer: BufferCompilationArg { inplace: None },
