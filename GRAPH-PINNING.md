@@ -14,9 +14,10 @@ Graphs recorded on one stream replay one at a time, in stream order. The room a 
 temporaries used is only written while that graph replays, and nothing needs it between
 replays. So a guarded page's free room may be carved by another capture on the same stream.
 
-- **Who may carve a pinned page:** a capture on the stream whose memory holds it, from its
-  warmup run (`graph_prepare`) to `stop_capture`. Work outside a capture never may, because
-  it outlives the next replay, which would write over it. `StreamCapture::pinned_pages()`
+- **Who may carve a pinned page:** the logical stream that owns a capture on the backend
+  stream whose memory holds it, from `graph_prepare` to `stop_capture`. Work outside a capture
+  never may, because it outlives the next replay, which would write over it. Neither may
+  another logical stream folded onto the same backend stream. `StreamCapture::pinned_pages`
   answers `Share` or `Avoid`, and `Command::reserve` passes it to
   `MemoryManagement::reserve_sharing`.
 - **What a capture can take:** only free slices. A handle that holds a slice (a graph's
@@ -59,10 +60,17 @@ runs before it is recorded:
    size. When the run returns, with its output still held, `graph_end_run` drains the
    deferred frees and marks each listed allocation as outlived (held) or not.
 2. **Place by the run before.** From the second run on, the allocation at position *i* is
-   placed by what the run before found there. An output reserves off the room other graphs
-   pinned (`PinnedPages::Avoid`), and a temporary carves it (`Share`). The planning run measures
-   the very placement the recording repeats. Setting outputs' room aside up front would take
-   room the planning run's temporaries reused: an output often lands where a freed temporary was.
+   placed by what the run before found there. An output goes to a separate arena
+   (`PinnedPages::Separate`), and a temporary carves the shared room (`Share`). The planning run
+   measures the very placement the recording repeats. Setting outputs' room aside up front would
+   take room the planning run's temporaries reused: an output often lands where a freed
+   temporary was.
+
+   The separate arena holds what outlives a capture: the outputs, and the metadata a capture's
+   info cache keeps for its graph (`Command::create_metadata`), which during a capture is cached
+   at any size. Only such allocations carve it, each held while its graph lives, so they pack
+   together. Placing an output merely off the pinned pages (`Avoid`) would not do: every page
+   a recording touches is pinned, so each graph's output would take a fresh page.
 3. **Until stable.** The planning runs repeat until two runs in a row list the same allocations,
    at most four times. A first run can take another path (a cold metadata cache, a tune, a
    fused optimization being built).
@@ -83,6 +91,9 @@ What this leaves to callers:
    This is safe and only costs memory, so drain fusion before each run ends.
 4. **One stream, one order.** Graphs on different streams never share room, because each stream
    reserves from its own memory.
+5. **A capture ends however its caller does.** A prepared capture discards its stream's
+   launches, so none may be left prepared: `graph_end_run` ends the capture it was planning when
+   it fails, and `Client::capture` ends it should the work panic.
 
 The graph still holds strong bindings to every buffer it writes (`Graph::written`), so an
 output stays its graph's even if the caller drops it.
