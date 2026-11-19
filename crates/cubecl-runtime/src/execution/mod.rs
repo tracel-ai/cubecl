@@ -46,6 +46,7 @@ pub use purpose::LaunchPurpose;
 pub use statistics::{
     AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelHandling, KernelOutcome,
     KernelRegistration, Registration, SettledKernel, StatisticsCollector, StatisticsReader,
+    WorkCompilationFailure,
 };
 pub(crate) use statistics::{StatisticsRecorder, TuneOutcome, TuneRegistration};
 // Only a persisted pick names it.
