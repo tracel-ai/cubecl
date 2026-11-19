@@ -726,7 +726,7 @@ pub struct TileTensorCompilationArg {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum ValuesCompilationArg {
     Tensor {
-        tensor: TensorCompilationArg,
+        buffer: BufferCompilationArg,
         width: usize,
     },
     TensorMap {
@@ -756,7 +756,7 @@ impl LaunchArg for TileTensor<'static> {
         let values = match values {
             ValuesLaunch::Tensor { tensor, width } => {
                 let line_size = element.size() * width;
-                let meta = TensorMetaLaunch::new(tensor.size() / width, tensor.shape().len());
+                let rank = tensor.shape().len();
                 let buffer = match &tensor {
                     TensorArg::Handle { .. } => BufferCompilationArg { inplace: None },
                     TensorArg::Alias { input_pos, .. } => BufferCompilationArg {
@@ -764,11 +764,8 @@ impl LaunchArg for TileTensor<'static> {
                     },
                 };
                 launcher.register_tensor(tensor, line_size);
-                let meta = TensorMeta::register(meta, launcher);
-                ValuesCompilationArg::Tensor {
-                    tensor: TensorCompilationArg { meta, buffer },
-                    width,
-                }
+                <usize as LaunchArg>::register(rank, launcher);
+                ValuesCompilationArg::Tensor { buffer, width }
             }
             ValuesLaunch::TensorMap { map, layout, width } => {
                 let layout = layout.register(&map, Type::new(element), launcher);
@@ -812,8 +809,8 @@ impl LaunchArg for TileTensor<'static> {
         builder: &mut KernelBuilder,
     ) -> TileTensorExpand<'static> {
         let values = match &arg.values {
-            ValuesCompilationArg::Tensor { tensor, width } => {
-                let buffer = match tensor.buffer.inplace {
+            ValuesCompilationArg::Tensor { buffer, width } => {
+                let buffer = match buffer.inplace {
                     Some(id) => builder.inplace(id),
                     None => {
                         let scope = &builder.scope;
@@ -825,10 +822,17 @@ impl LaunchArg for TileTensor<'static> {
                         builder.tensor(line)
                     }
                 };
-                let meta = TensorMeta::expand(&tensor.meta, builder);
+                let rank = <usize as LaunchArg>::expand(&(), builder);
                 let scope = &builder.scope;
                 let _held = scope.define_type::<Held>(arg.element);
+                // A tile reads only within its buffer, so the tensor's length is the buffer's: no
+                // view's shape is counted, and a view that repeats its buffer at stride zero,
+                // whose shape counts every repetition, registers nothing that can overflow.
                 let len = expand_buffer_length_native(scope, buffer);
+                let meta = TensorMetaExpand {
+                    len: len.into(),
+                    rank,
+                };
                 let values = slice::from_raw_parts::<Held>(
                     scope,
                     buffer,
@@ -928,19 +932,36 @@ impl AsMutExpand for TileTensorExpand<'_> {
 #[cfg(test)]
 mod tests {
     use cubecl::ir::FloatKind;
+    use cubecl::zspace;
 
     use super::*;
 
+    /// Queries packed end to end viewed once per sequence repeat their buffer at stride zero, so
+    /// the view's shape counts `2^33` values a `u32` launch cannot hold, though its buffer holds
+    /// `2^13`. Registering it sends no length, so nothing overflows.
+    #[test]
+    fn a_view_repeating_its_buffer_past_u32_registers() {
+        let shape = zspace::Shape::new([1 << 20, 1 << 13]);
+        assert_eq!(shape.iter().product::<usize>(), 1 << 33);
+        let tensor = TensorArg::Alias {
+            input_pos: 0,
+            strides: zspace::Strides::new(&[0, 1]),
+            shape,
+        };
+        let element = ElemType::Float(FloatKind::F32);
+        let spec = TileSpec::direct(&[Axis(0), Axis(1)]);
+        let mut launcher = KernelLauncher::new(builder_settings());
+        TileTensor::register(
+            TileTensorLaunch::new(tensor, element, 1, spec),
+            &mut launcher,
+        );
+    }
+
     /// A one-axis buffer of `f32`, expanded as a kernel argument outside any launch.
     fn expanded_f32_buffer(builder: &mut KernelBuilder) -> TileTensorExpand<'static> {
-        let mut launcher = KernelLauncher::new(builder_settings());
-        let meta = TensorMeta::register(TensorMetaLaunch::new(4, 1), &mut launcher);
         let arg = TileTensorCompilationArg {
             values: ValuesCompilationArg::Tensor {
-                tensor: TensorCompilationArg {
-                    meta,
-                    buffer: BufferCompilationArg { inplace: None },
-                },
+                buffer: BufferCompilationArg { inplace: None },
                 width: 1,
             },
             spec: Arc::new(TileSpec::direct(&[Axis(0)])),
@@ -971,14 +992,9 @@ mod tests {
 
     /// A `[4]` `u32` table keyed by `keys`, expanded as a kernel argument outside any launch.
     fn expanded_table(builder: &mut KernelBuilder, keys: &[Axis]) -> TileTensorExpand<'static> {
-        let mut launcher = KernelLauncher::new(builder_settings());
-        let meta = TensorMeta::register(TensorMetaLaunch::new(4, keys.len()), &mut launcher);
         let arg = TileTensorCompilationArg {
             values: ValuesCompilationArg::Tensor {
-                tensor: TensorCompilationArg {
-                    meta,
-                    buffer: BufferCompilationArg { inplace: None },
-                },
+                buffer: BufferCompilationArg { inplace: None },
                 width: 1,
             },
             spec: Arc::new(TileSpec::direct(keys)),
