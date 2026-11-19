@@ -66,22 +66,27 @@ impl Indexing {
     }
 
     /// What an operand bound `width` values a line owes where an entry moves its window, the
-    /// values' or a scale's spanning the placed axis: a buffer neither storage-tiled nor paged, one
-    /// dim of which is the axis alone, read one value a line where that dim is the innermost, since
-    /// an entry is an element and a line would straddle two; under a run, a buffer over its
-    /// labelled dims, as [`Tile::within`] places.
+    /// values' or a scale's spanning the placed axis: a buffer that is not paged, one dim of which
+    /// is the axis alone, read one value a line where that dim is the innermost, since an entry is
+    /// an element and a line would straddle two. A coordinate moves that one dim by its stride, so
+    /// the buffer may be storage-tiled along its other dims, as a stack of matrices stored in tiles
+    /// is, slab by slab; no stored tile may span the axis. A run is placed over a buffer's labelled
+    /// dims alone, as [`Tile::within`] places, never a storage-tiled one.
     ///
     /// # Errors
     ///
     /// The [`Refusal`] naming the first rule `spec` breaks.
     pub(crate) fn places(&self, spec: &TileSpec, width: usize) -> Result<(), Refusal> {
         let projection = &spec.projection;
-        let stated =
-            projection.is_tiled() || !spec.stored_tiles.is_empty() || spec.paging.is_some();
-        let gathered = matches!(self, Indexing::Run(_)) && !projection.is_direct();
+        let tiled = projection.is_tiled() || !spec.stored_tiles.is_empty();
+        let stated = spec.paging.is_some()
+            || match self {
+                Indexing::Coordinate(axis) => spec.stored_tiles.iter().any(|&(a, _)| a == *axis),
+                Indexing::Run(_) => tiled || !projection.is_direct(),
+            };
         let dim = placed_dim(projection, self.axis());
         match dim {
-            _ if stated || gathered => Err(Refusal::IndexOfAStatedLayout),
+            _ if stated => Err(Refusal::IndexOfAStatedLayout),
             None => Err(Refusal::IndexOfAStatedLayout),
             Some(dim)
                 if dim + 1 == projection.physical_rank()
@@ -692,6 +697,35 @@ mod tests {
         assert_eq!(
             run.validate(&packed, 1, &[M]),
             Err(Refusal::IndexAlongALine(K))
+        );
+    }
+
+    /// A stack of matrices stored in tiles, each slab one dim of its own the tiling leaves whole:
+    /// a coordinate moves that dim by its stride, so it places one slab. A tiling that splits the
+    /// placed axis, a stored tile spanning it, or a run over the tiled buffer is refused.
+    #[test]
+    fn a_coordinate_places_a_dim_the_storage_tiling_leaves_whole() {
+        let stack = |order: &[Axis]| TileSpec::new(Projection::tiled(&[EXPERT, N, K], order));
+        let mut slabs = stack(&[EXPERT, N, K, N, K]);
+        slabs.stored_tiles = vec![(K, 8), (N, 8)];
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&slabs, 1, &[M]),
+            Ok(())
+        );
+        assert_eq!(
+            Indexing::Run(EXPERT).validate(&slabs, 1, &[M]),
+            Err(Refusal::IndexOfAStatedLayout)
+        );
+        let split = stack(&[EXPERT, N, K, EXPERT, N, K]);
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&split, 1, &[M]),
+            Err(Refusal::IndexOfAStatedLayout)
+        );
+        let mut spanned = stack(&[EXPERT, N, K, N, K]);
+        spanned.stored_tiles = vec![(EXPERT, 2)];
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&spanned, 1, &[M]),
+            Err(Refusal::IndexOfAStatedLayout)
         );
     }
 

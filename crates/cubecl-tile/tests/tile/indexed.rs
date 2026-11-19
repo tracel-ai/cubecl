@@ -7,6 +7,7 @@
 //! place themselves at.
 #![allow(non_snake_case)]
 
+use super::quant::column_reads::offset;
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{
@@ -15,6 +16,7 @@ use cubecl::{
 };
 use cubecl_tile::kind::Boundary;
 use cubecl_tile::launch::Refusal;
+use cubecl_tile::layout::StorageLevels;
 use cubecl_tile::*;
 
 /// Row: a token, or a token's slot.
@@ -203,9 +205,91 @@ enum Reading {
     Walking,
 }
 
-/// The rows in tiles of `tile`, the weights `[EXPERT, K, N]` keyed by the row tile: `entries`
-/// holds one expert per tile.
-fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -> HostData {
+/// How each slab of the weights `[EXPERT, K, N]` lies, the slabs one after another.
+#[derive(Clone, Copy, Debug)]
+enum SlabLayout {
+    /// Each slab's `K × N` in plain rows.
+    Rows,
+    /// Each slab's `K × N` stored in tiles of `k × n`.
+    Tiles { k: usize, n: usize },
+}
+
+/// What an entry past the last slab reads.
+#[derive(Clone, Copy, Debug)]
+enum PastTheStack {
+    /// The last slab, as a routed walk clamps: the table is device data, and a read past the
+    /// weights would land outside their buffer.
+    Clamped,
+    /// Zeros: the operand checks its expert axis.
+    Zero,
+}
+
+impl SlabLayout {
+    /// The weights on `client`, laid as this says, and the spec they are read under, reading
+    /// `past` the last slab as it says.
+    fn weights(self, client: &Client, past: PastTheStack) -> (TensorHandle, TileSpec) {
+        let f32_ty = f32::elem_type_native();
+        let w = weights();
+        let (handle, spec) = match self {
+            SlabLayout::Rows => {
+                let (handle, _) =
+                    TestInput::builder(client.clone(), Shape::new([EXPERTS, FEATURES, FEATURES]))
+                        .dtype(f32_ty)
+                        .custom(w)
+                        .generate_with_f32_host_data();
+                (handle, TileSpec::direct(&[EXPERT, K, N]))
+            }
+            SlabLayout::Tiles {
+                k: tile_k,
+                n: tile_n,
+            } => {
+                let axes = [K, N];
+                let storage = StorageLevels::new(&[(N, tile_n)])
+                    .tile(&[(K, tile_k)])
+                    .grid(&[N, K]);
+                let geometry = storage
+                    .physical(&[(K, FEATURES), (N, FEATURES)])
+                    .expect("the tiles close a slab");
+                let labels = geometry.labels(&axes);
+                let slab = FEATURES * FEATURES;
+                let mut stored = vec![0f32; EXPERTS * slab];
+                for e in 0..EXPERTS {
+                    for k in 0..FEATURES {
+                        for n in 0..FEATURES {
+                            let at = offset(&geometry, &labels, &axes, &[k, n]);
+                            stored[e * slab + at] = w[e * slab + k * FEATURES + n];
+                        }
+                    }
+                }
+                let lead = |first: usize, rest: &[usize]| [&[first][..], rest].concat();
+                let handle = TensorHandle::new(
+                    client.create(Bytes::from_elems(stored)),
+                    lead(EXPERTS, geometry.shape()),
+                    lead(slab, geometry.strides()),
+                    f32_ty,
+                );
+                let labels = [&[EXPERT][..], &labels].concat();
+                let mut spec = TileSpec::new(Projection::tiled(&[EXPERT, K, N], &labels));
+                spec.stored_tiles = storage.tiles().to_vec();
+                (handle, spec)
+            }
+        };
+        match past {
+            PastTheStack::Clamped => (handle, spec),
+            PastTheStack::Zero => (handle, spec.boundaries(&[Some(Boundary::Zero), None, None])),
+        }
+    }
+}
+
+/// The rows in tiles of `tile`, the weights `[EXPERT, K, N]` laid as `layout` says and keyed by
+/// the row tile: `entries` holds one expert per tile, an entry past the last read as `past` says.
+fn run(
+    entries: &[u32],
+    tile: usize,
+    layout: SlabLayout,
+    past: PastTheStack,
+    reading: Reading,
+) -> HostData {
     let client = cubecl::test_device().client();
     let launcher = implied(
         &client,
@@ -228,10 +312,7 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
         .dtype(f32_ty)
         .custom(activations())
         .generate_with_f32_host_data();
-    let (w, _) = TestInput::builder(client.clone(), Shape::new([EXPERTS, FEATURES, FEATURES]))
-        .dtype(f32_ty)
-        .custom(weights())
-        .generate_with_f32_host_data();
+    let (w, weights_spec) = layout.weights(&client, past);
     let routes = table(&client, entries, Shape::new([entries.len()]), &[M]);
     let out = unwritten_output(&client);
 
@@ -279,16 +360,18 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
     HostData::from_tensor_handle(&client, out, HostDataType::F32)
 }
 
-fn weights_spec() -> TileSpec {
-    TileSpec::direct(&[EXPERT, K, N])
-}
-
 /// One entry a row: each row's expert. Two tables over the same weights, so the answer follows
 /// the table; an index that did nothing would read the first slab under both.
 #[test]
 fn a_routed_operand_contracts_each_row_against_the_expert_its_table_names() {
     for routes in [ROUTES, [1, 1, 0, 2]] {
-        let got = run(&routes, 1, weights_spec(), Reading::InPlace);
+        let got = run(
+            &routes,
+            1,
+            SlabLayout::Rows,
+            PastTheStack::Clamped,
+            Reading::InPlace,
+        );
         let want = expected(|m| routes[m] as usize, &weights());
         assert_cells(&got, &want, "routed");
     }
@@ -298,7 +381,13 @@ fn a_routed_operand_contracts_each_row_against_the_expert_its_table_names() {
 /// data, and a read past the weights would land outside their buffer.
 #[test]
 fn a_route_past_the_last_expert_clamps_to_it() {
-    let got = run(&[99, 0, 2, 1], 1, weights_spec(), Reading::InPlace);
+    let got = run(
+        &[99, 0, 2, 1],
+        1,
+        SlabLayout::Rows,
+        PastTheStack::Clamped,
+        Reading::InPlace,
+    );
     let want = expected(|m| [EXPERTS - 1, 0, 2, 1][m], &weights());
     assert_cells(&got, &want, "clamped");
 }
@@ -307,8 +396,13 @@ fn a_route_past_the_last_expert_clamps_to_it() {
 /// drains the identity, with no branch in the kernel.
 #[test]
 fn a_route_past_the_last_expert_reads_zero_where_the_operand_checks_it() {
-    let checked = weights_spec().boundaries(&[Some(Boundary::Zero), None, None]);
-    let got = run(&[99, 0, 2, 1], 1, checked, Reading::InPlace);
+    let got = run(
+        &[99, 0, 2, 1],
+        1,
+        SlabLayout::Rows,
+        PastTheStack::Zero,
+        Reading::InPlace,
+    );
     let want = expected(|m| [99, 0, 2, 1][m], &weights());
     assert_cells(&got, &want, "checked");
 }
@@ -318,7 +412,13 @@ fn a_route_past_the_last_expert_reads_zero_where_the_operand_checks_it() {
 #[test]
 fn a_row_whose_route_names_no_expert_holds_nothing_to_walk() {
     let routes = [99, 0, 2, 1];
-    let got = run(&routes, 1, weights_spec(), Reading::Walking);
+    let got = run(
+        &routes,
+        1,
+        SlabLayout::Rows,
+        PastTheStack::Clamped,
+        Reading::Walking,
+    );
     let want = expected(|m| routes[m] as usize, &weights());
     assert_cells(&got, &want, "routed, walked");
 }
@@ -328,7 +428,13 @@ fn a_row_whose_route_names_no_expert_holds_nothing_to_walk() {
 #[test]
 fn a_tile_whose_group_names_no_slab_holds_nothing_to_walk() {
     let groups = [99u32, 2];
-    let got = run(&groups, 2, weights_spec(), Reading::Walking);
+    let got = run(
+        &groups,
+        2,
+        SlabLayout::Rows,
+        PastTheStack::Clamped,
+        Reading::Walking,
+    );
     let want = expected(|m| groups[m / 2] as usize, &weights());
     assert_cells(&got, &want, "grouped, walked");
 }
@@ -339,7 +445,13 @@ fn a_tile_whose_group_names_no_slab_holds_nothing_to_walk() {
 #[test]
 fn a_grouped_operand_contracts_each_tile_of_rows_against_its_group() {
     let groups = [2u32, 0];
-    let got = run(&groups, 2, weights_spec(), Reading::InPlace);
+    let got = run(
+        &groups,
+        2,
+        SlabLayout::Rows,
+        PastTheStack::Clamped,
+        Reading::InPlace,
+    );
     let want = expected(|m| groups[m / 2] as usize, &weights());
     assert_cells(&got, &want, "grouped");
 }
@@ -349,9 +461,48 @@ fn a_grouped_operand_contracts_each_tile_of_rows_against_its_group() {
 #[test]
 fn a_grouped_operand_stages_the_slab_of_each_tile() {
     let groups = [1u32, 2];
-    let got = run(&groups, 2, weights_spec(), Reading::Staged);
+    let got = run(
+        &groups,
+        2,
+        SlabLayout::Rows,
+        PastTheStack::Clamped,
+        Reading::Staged,
+    );
     let want = expected(|m| groups[m / 2] as usize, &weights());
     assert_cells(&got, &want, "grouped, staged");
+}
+
+/// Each slab's `K × N` stored in tiles, the slabs one after another: the table moves the window
+/// along the expert, a dim the storage tiling leaves whole, by its stride, read in place, staged,
+/// or walked a step of `K` at a time. Routed rows and grouped tiles alike.
+#[test]
+fn a_routed_operand_stored_in_tiles_reads_the_expert_its_table_names() {
+    let tiles = SlabLayout::Tiles { k: 2, n: 2 };
+    for reading in [Reading::InPlace, Reading::Staged, Reading::Walking] {
+        let got = run(&ROUTES, 1, tiles, PastTheStack::Clamped, reading);
+        let want = expected(|m| ROUTES[m] as usize, &weights());
+        assert_cells(&got, &want, "routed, in tiles");
+        let groups = [2u32, 0];
+        let got = run(&groups, 2, tiles, PastTheStack::Clamped, reading);
+        let want = expected(|m| groups[m / 2] as usize, &weights());
+        assert_cells(&got, &want, "grouped, in tiles");
+    }
+}
+
+/// Slabs stored in tiles whose expert axis is checked read zero past the last slab, as slabs in
+/// rows do.
+#[test]
+fn a_route_past_the_last_expert_reads_zero_over_slabs_stored_in_tiles() {
+    let tiles = SlabLayout::Tiles { k: 2, n: 2 };
+    let got = run(
+        &[99, 0, 2, 1],
+        1,
+        tiles,
+        PastTheStack::Zero,
+        Reading::InPlace,
+    );
+    let want = expected(|m| [99, 0, 2, 1][m], &weights());
+    assert_cells(&got, &want, "checked, in tiles");
 }
 
 /// `out[rows] = x[rows] · (W[e] ⊗ s[e])` with `W` packed eight bits a field, four to a word, and
