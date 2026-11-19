@@ -29,6 +29,10 @@
 //! path that isn't a scalar is taken for one, and the bound on it reports a
 //! type that isn't.
 //!
+//! A function may return a `bool` or a `Vector<bool, N>`, which comes back as
+//! a `bool` or a `Vec<bool>`. A kernel has no buffer of truths, so each is
+//! stored as a `u32`; for the same reason, neither can be a parameter.
+//!
 //! A `#[comptime]` parameter is compiled into the kernel, so it may be of any
 //! type a kernel takes as comptime: a scalar, or a configuration like an enum.
 //!
@@ -115,6 +119,11 @@ fn returns_array(ty: &Type) -> bool {
     }
 }
 
+/// Whether a type is `bool`.
+fn is_bool(ty: &Type) -> bool {
+    matches!(ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("bool"))
+}
+
 /// The element and the width of a `Vector<T, N>`.
 fn vector_args(ty: &Type) -> Option<(&Type, &Type)> {
     let Type::Path(path) = ty else {
@@ -172,8 +181,8 @@ impl Launch {
                  - an `Array<T>` of scalars\n\
                  - a `Vector<T, N>` of scalars, `N` a generic with a single `Size` bound\n\
                  - a cube type deriving `CubeHarness`\n\
-                 and the function must return them, a tuple of them, or nothing when it writes \
-                 into a mutable slice",
+                 and the function must return them, a `bool` or a `Vector<bool, N>`, a tuple of \
+                 them, or nothing when it writes into a mutable slice",
             )
             .into_compile_error(),
         }
@@ -359,17 +368,34 @@ impl Launch {
             params.push((param.name.clone(), value));
         }
 
-        fn returnable(ty: &Type, classify: &dyn Fn(&Type) -> Option<HarnessValue>) -> bool {
+        // A truth only crosses back, stored as a `u32`: alone, or as a vector at a named width.
+        let returns_truth = |ty: &Type| match vector_args(ty) {
+            Some((elem, Type::Path(size))) => {
+                is_bool(elem) && size.path.get_ident().is_some_and(&is_size)
+            }
+            Some(_) => false,
+            None => is_bool(ty),
+        };
+
+        fn returnable(
+            ty: &Type,
+            classify: &dyn Fn(&Type) -> Option<HarnessValue>,
+            returns_truth: &dyn Fn(&Type) -> bool,
+        ) -> bool {
             match ty {
                 Type::Tuple(tuple) => {
-                    !tuple.elems.is_empty() && tuple.elems.iter().all(|ty| returnable(ty, classify))
+                    !tuple.elems.is_empty()
+                        && tuple
+                            .elems
+                            .iter()
+                            .all(|ty| returnable(ty, classify, returns_truth))
                 }
                 ty => match array_elem(ty) {
                     Some(elem) => matches!(
                         classify(elem),
                         Some(HarnessValue::Scalar(_) | HarnessValue::Generic(_))
                     ),
-                    None => classify(ty).is_some(),
+                    None => classify(ty).is_some() || returns_truth(ty),
                 },
             }
         }
@@ -383,7 +409,7 @@ impl Launch {
             .iter()
             .any(|(_, value)| matches!(value, HarnessValue::Slice { mutable: true, .. }));
         let returns_unit = matches!(returns, Type::Tuple(tuple) if tuple.elems.is_empty());
-        if !(returns_unit && writes_back || returnable(returns, &classify)) {
+        if !(returns_unit && writes_back || returnable(returns, &classify, &returns_truth)) {
             return None;
         }
 
@@ -729,6 +755,17 @@ mod tests {
     }
 
     #[test]
+    fn truths_cross_back() {
+        let plan = plan(parse_quote! {
+            fn f<N: Size>(x: Vector<f32, N>) -> (bool, Vector<bool, N>) { (true, x) }
+        })
+        .unwrap();
+
+        assert_eq!(plan.returns, parse_quote!((bool, Vector<bool, N>)));
+        assert!(returns_array(&plan.returns));
+    }
+
+    #[test]
     fn vectors_cross_at_a_named_width() {
         let plan = plan(parse_quote! {
             fn f<F: Float, N: Size>(x: Vector<F, N>, y: Vector<u32, N>) -> (Vector<F, N>, u32) { x }
@@ -928,8 +965,7 @@ mod tests {
         let impure: Vec<ItemFn> = vec![
             parse_quote! { fn f(x: u32) {} },
             parse_quote! { fn f(x: bool) -> u32 { 0 } },
-            parse_quote! { fn f(x: u32) -> bool { true } },
-            parse_quote! { fn f(x: u32) -> (u32, bool) { (x, true) } },
+            parse_quote! { fn f(x: u32) -> Vector<bool, Const<4>> { 0 } },
             parse_quote! { fn f(x: u32) -> (u32, ()) { (x, ()) } },
             parse_quote! { fn f(x: u32) -> usize { 0 } },
             parse_quote! { fn f(x: u32) -> (u32, isize) { (x, 0) } },

@@ -12,8 +12,9 @@ use crate::{self as cubecl};
 
 /// A value a harness kernel can return to the host.
 ///
-/// Implemented for every scalar, for arrays and vectors of them, for tuples
-/// of them, and for structs with `#[derive(CubeHarness)]`.
+/// Implemented for every scalar, for arrays and vectors of them, for `bool`
+/// and vectors of it, for tuples of them, and for structs with
+/// `#[derive(CubeHarness)]`.
 ///
 /// An array's length and a vector's width are comptime, so they're only
 /// known once the kernel is expanded. A harness returning one expands its
@@ -186,6 +187,82 @@ impl<T: Scalar + CubeElement, N: Size> HarnessOutput for Vector<T, N> {
         lens: &mut impl Iterator<Item = usize>,
     ) -> Vec<T> {
         <Array<T> as HarnessOutput>::read(bytes, lens)
+    }
+}
+
+#[cube]
+fn store_bool(out: &mut Box<[u32]>, value: bool) {
+    out[0] = u32::cast_from(value);
+}
+
+/// A truth has no buffer of its own: it is stored as a `u32`, one where it holds.
+impl HarnessOutput for bool {
+    type Out = Box<[u32]>;
+    type Host = bool;
+
+    fn alloc(
+        client: &Client,
+        lens: &mut impl Iterator<Item = usize>,
+        handles: &mut Vec<Handle>,
+    ) -> BufferArg {
+        <u32 as HarnessOutput>::alloc(client, lens, handles)
+    }
+
+    fn __expand_store(
+        scope: &Scope,
+        out: &mut NativeExpand<Box<[u32]>>,
+        value: NativeExpand<bool>,
+    ) {
+        store_bool::expand(scope, out, value);
+    }
+
+    fn read(
+        bytes: &mut impl Iterator<Item = Bytes>,
+        lens: &mut impl Iterator<Item = usize>,
+    ) -> bool {
+        <u32 as HarnessOutput>::read(bytes, lens) != 0
+    }
+}
+
+#[cube]
+fn store_bool_vector<N: Size>(out: &mut Box<[u32]>, value: Vector<bool, N>) {
+    #[unroll]
+    for i in 0..N::value() {
+        out[i] = u32::cast_from(value.extract(i));
+    }
+}
+
+/// A vector of truths comes back as a `Vec<bool>` of its width, each lane stored as a `u32`.
+impl<N: Size> HarnessOutput for Vector<bool, N> {
+    type Out = Box<[u32]>;
+    type Host = Vec<bool>;
+
+    fn alloc(
+        client: &Client,
+        lens: &mut impl Iterator<Item = usize>,
+        handles: &mut Vec<Handle>,
+    ) -> BufferArg {
+        <Array<u32> as HarnessOutput>::alloc(client, lens, handles)
+    }
+
+    fn __expand_store(
+        scope: &Scope,
+        out: &mut NativeExpand<Box<[u32]>>,
+        value: NativeExpand<Vector<bool, N>>,
+    ) {
+        let width = N::__expand_value(scope);
+        scope.ctx_mut().aux_ty_mut::<HarnessLens>().0.push(width);
+        store_bool_vector::expand::<N>(scope, out, value);
+    }
+
+    fn read(
+        bytes: &mut impl Iterator<Item = Bytes>,
+        lens: &mut impl Iterator<Item = usize>,
+    ) -> Vec<bool> {
+        <Array<u32> as HarnessOutput>::read(bytes, lens)
+            .into_iter()
+            .map(|lane| lane != 0)
+            .collect()
     }
 }
 

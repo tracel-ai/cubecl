@@ -273,6 +273,21 @@ pub fn test_harness_comptime_enum<R: Runtime>() {
     assert_eq!(rounded::harness::<R, f32>(2.5, Rounding::Up), 3.0);
 }
 
+/// A truth, and a truth for every lane.
+#[cube(harness(always))]
+fn signs<N: Size>(x: Vector<f32, N>) -> (bool, Vector<bool, N>) {
+    let positive = x.greater_than(&Vector::new(0.0));
+    (x.extract(0usize) > 0.0, positive)
+}
+
+pub fn test_harness_bool<R: Runtime>() {
+    assert_eq!(
+        signs::harness::<R, Const<4>>(&[-1.0, 2.0, 0.0, 0.5]),
+        (false, vec![false, true, false, true])
+    );
+    assert_eq!(signs::harness::<R, Const<1>>(&[3.0]), (true, vec![true]));
+}
+
 /// Two widths, defined at launch in the order the generics are declared.
 #[cube(harness(always))]
 fn widened<N: Size, M: Size>(x: Vector<u32, N>) -> Vector<u32, M> {
@@ -434,6 +449,11 @@ macro_rules! testgen_harness {
     () => {
         mod harness {
             use super::*;
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_bool() {
+                cubecl_core::runtime_tests::harness::test_harness_bool::<TestRuntime>();
+            }
 
             #[$crate::runtime_tests::test_log::test]
             fn harness_scalar() {
