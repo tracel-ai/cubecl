@@ -164,7 +164,8 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     }
 
     /// The adapter description, from the list its graphics API enumerates: the one `request_adapter` would
-    /// select, in the order `enumerate_devices` lists them. It reports no memory size.
+    /// select, in the order `enumerate_devices` lists them. Its memory is the capacity a client on it
+    /// reports, where the graphics API states it without a device, as Vulkan does.
     fn description(device: &Self::Device) -> Option<DeviceDescription> {
         #[cfg(target_family = "wasm")]
         {
@@ -289,6 +290,7 @@ fn describe_adapter(adapter: &wgpu::Adapter) -> DeviceDescription {
     };
     let mut description = DeviceDescription::new(info.name.clone(), kind);
     description.physical = backend::physical_device(adapter, &info);
+    description.max_memory = backend::max_memory(adapter);
     // The driver's name and its own version string, e.g. `NVIDIA` and `580.82.09`; either can
     // be empty.
     let driver = [info.driver.trim(), info.driver_info.trim()]
