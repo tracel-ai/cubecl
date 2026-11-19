@@ -737,7 +737,7 @@ fn a_failed_scope_dooms_the_recording_window() {
     let binding = harness.buffers[0].binding.clone();
 
     harness.device.capture.prepare(StreamId::current()).unwrap();
-    harness.device.capture.begin([]).unwrap();
+    harness.device.capture.begin().unwrap();
 
     let _ = ExecuteScope::over(
         &mut harness.device,
@@ -778,7 +778,7 @@ fn a_skipped_scope_dooms_the_recording_window() {
     .execute(|_| Err::<(), ServerError>(error("the writer that never wrote")));
 
     harness.device.capture.prepare(StreamId::current()).unwrap();
-    harness.device.capture.begin([]).unwrap();
+    harness.device.capture.begin().unwrap();
 
     let outcome = ExecuteScope::launching(
         &mut harness.device,
@@ -812,7 +812,7 @@ fn a_clean_scope_hands_the_window_its_write_set() {
     let failed = harness.buffers[1].binding.clone();
 
     harness.device.capture.prepare(StreamId::current()).unwrap();
-    harness.device.capture.begin([]).unwrap();
+    harness.device.capture.begin().unwrap();
 
     let _ = ExecuteScope::over(
         &mut harness.device,

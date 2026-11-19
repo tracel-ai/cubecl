@@ -269,8 +269,8 @@ impl<'a, D: Driver> Command<'a, D> {
         }
     }
 
-    /// Give `memory` `size` bytes, where the capture under way places it: an output of a
-    /// recorded run on the room its rehearsal set aside, anything else where
+    /// Give `memory` `size` bytes, where the capture under way places it: what the rehearsal
+    /// found to be an output off the room the stream's graphs pinned, anything else where
     /// [`reserve`](Self::reserve) puts it. Every device allocation of a command goes through
     /// here, so a capture sees each one, in order.
     ///
@@ -279,7 +279,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Whatever the reservation or the bind reports.
     pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
         let reserved = match self.streams.current().capturing().place(size) {
-            Placement::Output(slot) => slot,
+            Placement::Output => self.reserve_sharing(size, PinnedPages::Avoid)?,
             Placement::Pools => self.reserve(size)?,
         };
         self.bind(reserved, memory.clone())?;

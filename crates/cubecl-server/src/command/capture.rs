@@ -14,8 +14,8 @@
 
 use super::{Command, DeviceStream, Driver};
 use crate::id::GraphId;
+use crate::memory_management::PageGuard;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationReason};
-use crate::memory_management::{PageGuard, PinnedPages};
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
@@ -266,20 +266,18 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     /// found — capture state back to none — so the whole prepare-then-open
     /// sequence can be retried.
     pub fn begin(&mut self) -> Result<(), ServerError> {
-        // The room the rehearsal's outputs need, set aside off the pages the
-        // stream's graphs share while pages may still be added: what the
-        // recorded run's outputs are placed on, so no other graph's replay
-        // writes over them.
-        let sizes: Vec<u64> = self.stream().capturing().output_sizes()?.collect();
-        let outputs = sizes
-            .into_iter()
-            .map(|size| self.command.reserve_sharing(size, PinnedPages::Avoid))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(ServerError::from)?;
+        // A recording with no plan could put an output on room another graph's
+        // replay writes.
+        if !self.stream().capturing().has_plan() {
+            return Err(ServerError::graph_state(
+                "a capture records only after its work was rehearsed: run it once or more \
+                 after `graph_rehearse`, each run ended by `graph_rehearsed`",
+            ));
+        }
         // Rejected before the reclaim below runs: a drop-queue flush issued on
         // a stream that is already recording would abort its live capture.
         // Opening releases the staging the rehearsal primed.
-        self.stream().capturing().begin(outputs)?;
+        self.stream().capturing().begin()?;
         // Reclaim deferred frees before the window opens: the rehearsal's pinned
         // staging buffers (and any other drop-queued slices) sit in the drop
         // queue until drained, so without this the recorded run finds no free

@@ -58,16 +58,20 @@ runs before it is recorded:
    pools grow to what the recording will ask for. Every allocation goes through `Command::allocate`, which lists it with its
    size. When the run returns, with its output still held, `graph_rehearsed` drains the
    deferred frees and marks each listed allocation as outlived (held) or not.
-2. **Until stable.** The rehearsal repeats until two runs in a row list the same allocations,
-   at most four times. A first run can take another path than the steady state (a tune, a fused
-   optimization being built).
-3. **Set aside.** As the window opens, one slice per output of the last run is reserved off
-   the shared room (`PinnedPages::Avoid`) and held for it.
-4. **Record.** The recorded run allocates the same sequence. Allocation *i* takes its slot when
-   the plan has an output of that size at *i*, and carves the shared room otherwise.
+2. **Place by the run before.** From the second run on, the allocation at position *i* is
+   placed by what the run before found there. An output reserves off the room other graphs
+   pinned (`PinnedPages::Avoid`), and a temporary carves it (`Share`). The rehearsal measures
+   the very placement the recording repeats. Setting outputs' room aside up front would take
+   room the rehearsal's temporaries reused: an output often lands where a freed temporary was.
+3. **Until stable.** The rehearsal repeats until two runs in a row list the same allocations,
+   at most four times. A first run can take another path (a cold metadata cache, a tune, a
+   fused optimization being built).
+4. **Record.** The recorded run allocates the same sequence under the same plan. The allocator
+   is deterministic, so each allocation lands where the last rehearsal's did, in room that
+   rehearsal grew.
 5. **Check.** At seal, a recorded run that allocated another size or another count, or kept a
    buffer its rehearsal let go, does not seal. That buffer sits on shared room. An output the
-   recording let go is no divergence: its slot only went back to the pools.
+   recording let go is no divergence: it only took room of its own it did not need.
 
 What this leaves to callers:
 

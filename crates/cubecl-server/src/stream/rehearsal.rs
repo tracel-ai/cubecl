@@ -9,15 +9,15 @@
 //! the work is over, by which time a recording has baked its address.
 //!
 //! So the work runs first as a rehearsal, its launches discarded: each run lists its
-//! allocations in order and, once it is over, which of them something still holds. The
-//! rehearsal repeats until two runs in a row allocate alike, since a first run can take
-//! another path than the steady state (a tune, a fused optimization being built). The
-//! recorded run then allocates the same sequence, and each allocation is placed by what the
-//! rehearsal found at its position: an output on room set aside for it before the window
-//! opens, a temporary on the shared room. A recording that allocates otherwise than its
-//! rehearsal does not seal.
+//! allocations in order and, once it is over, which of them something still holds. From the
+//! second run on, each allocation is placed by what the run before found at its position: an
+//! output off the room other graphs pinned, a temporary on it. The rehearsal repeats until two
+//! runs in a row allocate alike, since a first run can take another path than the steady state
+//! (a tune, a fused optimization being built). The recorded run then allocates the same
+//! sequence under the same plan, so it lands where the last rehearsal did, in room that
+//! rehearsal grew. A recording that allocates otherwise than its rehearsal does not seal.
 
-use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, WeakMemoryBinding};
+use crate::memory_management::{ManagedMemoryBinding, WeakMemoryBinding};
 use alloc::vec::Vec;
 
 /// One allocation of a finished rehearsal run.
@@ -29,13 +29,12 @@ pub struct Rehearsed {
     pub outlived: bool,
 }
 
-/// Where the recorded run's next allocation goes, by what the rehearsal found at its
-/// position.
-#[derive(Debug)]
+/// Where a run's next allocation goes, by what the run before found at its position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placement {
-    /// An output: the room set aside for it.
-    Output(ManagedMemoryHandle),
-    /// A temporary, or work outside a recording: the pools decide.
+    /// An output: off the room the stream's other graphs pinned, which their replays write.
+    Output,
+    /// A temporary, or work outside a capture: the pools decide.
     Pools,
 }
 
@@ -49,15 +48,12 @@ pub struct Rehearsal {
     /// the record never keeps one alive. Arrival usage: pushed per allocation, drained in
     /// order when the run ends.
     run: Vec<(u64, WeakMemoryBinding)>,
-    /// The last finished run, in allocation order. Position usage: the recording reads the
-    /// entry at its cursor.
+    /// The last finished run, in allocation order: the plan the next run follows. Position
+    /// usage: a run reads the entry at its cursor.
     last: Vec<Rehearsed>,
     /// Whether any run finished since the capture was prepared.
     rehearsed: bool,
-    /// The room set aside for each output of `last`, at its position; `None` for a
-    /// temporary or a slot already handed out. Position usage, as `last`.
-    slots: Vec<Option<ManagedMemoryHandle>>,
-    /// How many allocations the recorded run made so far: its position in `last`.
+    /// How many allocations the current run made so far: its position in `last`.
     cursor: usize,
     /// The first place the recorded run allocated otherwise than its rehearsal.
     diverged: Option<Divergence>,
@@ -84,14 +80,7 @@ impl Rehearsal {
     /// allocated what the run before it did: the work has reached its steady state, and the
     /// recording can follow it.
     pub fn finish_run(&mut self) -> bool {
-        let finished: Vec<Rehearsed> = self
-            .run
-            .drain(..)
-            .map(|(size_bytes, memory)| Rehearsed {
-                size_bytes,
-                outlived: memory.upgrade().is_some(),
-            })
-            .collect();
+        let finished = self.take_run();
         let stable = self.rehearsed && finished == self.last;
         self.last = finished;
         self.rehearsed = true;
@@ -103,65 +92,43 @@ impl Rehearsal {
         self.rehearsed
     }
 
-    /// The size of every output of the plan, in allocation order: what
-    /// [`set_aside`](Self::set_aside) needs room for.
-    pub fn output_sizes(&self) -> impl Iterator<Item = u64> + '_ {
-        self.last
-            .iter()
-            .filter(|rehearsed| rehearsed.outlived)
-            .map(|rehearsed| rehearsed.size_bytes)
-    }
-
-    /// Hold `slots`, one per [`output_sizes`](Self::output_sizes) entry in that order, for the
-    /// recorded run's outputs, and start the recording at the plan's first allocation.
-    pub fn set_aside(&mut self, slots: impl IntoIterator<Item = ManagedMemoryHandle>) {
-        let mut slots = slots.into_iter();
-        self.slots.clear();
-        self.slots.extend(
-            self.last
-                .iter()
-                .map(|rehearsed| rehearsed.outlived.then(|| slots.next()).flatten()),
-        );
+    /// Start the recorded run at the plan's first allocation.
+    pub fn start_recording(&mut self) {
         self.cursor = 0;
         self.diverged = None;
     }
 
-    /// Place the recorded run's next allocation, of `size_bytes`: on its slot when the plan
-    /// has an output of that size at that position. Anything else goes to the pools, and an
+    /// Place the current run's next allocation, of `size_bytes`: off the shared room when the
+    /// plan has an output of that size at that position. Anything else goes to the pools, and an
     /// allocation the plan does not have at that position is the divergence
     /// [`finish_recording`](Self::finish_recording) reports.
     pub fn place(&mut self, size_bytes: u64) -> Placement {
         let position = self.cursor;
         self.cursor += 1;
         let rehearsed = self.last.get(position).copied();
-        if rehearsed.map(|rehearsed| rehearsed.size_bytes) != Some(size_bytes) {
-            self.diverge(position, rehearsed, Some(size_bytes));
-            return Placement::Pools;
-        }
-        match self.slots[position].take() {
-            Some(slot) => Placement::Output(slot),
-            None => Placement::Pools,
+        match rehearsed {
+            Some(rehearsed) if rehearsed.size_bytes == size_bytes => match rehearsed.outlived {
+                true => Placement::Output,
+                false => Placement::Pools,
+            },
+            _ => {
+                self.diverge(position, rehearsed, Some(size_bytes));
+                Placement::Pools
+            }
         }
     }
 
     /// End the recorded run, once its deferred frees are reclaimed: the first place it
     /// allocated otherwise than the plan, if there is one — another size, another count, or a
     /// temporary it kept, which may sit on room another graph's replay writes. An output it
-    /// let go is no divergence: its slot only went back to the pools. The slots it never claimed go back to the pools.
+    /// let go is no divergence: it only took room of its own it did not need.
     pub fn finish_recording(&mut self) -> Option<Divergence> {
-        let recorded: Vec<Rehearsed> = self
-            .run
-            .drain(..)
-            .map(|(size_bytes, memory)| Rehearsed {
-                size_bytes,
-                outlived: memory.upgrade().is_some(),
-            })
-            .collect();
-        self.slots.clear();
-        if let Some(diverged) = self.diverged {
-            return Some(diverged);
+        let diverged = self.diverged;
+        let recorded = self.take_run();
+        if diverged.is_some() {
+            return diverged;
         }
-        // A kept temporary may sit on the shared room; a freed output only gave its slot back.
+        // A kept temporary may sit on the shared room; a freed output only took room of its own.
         let position = recorded
             .iter()
             .zip(&self.last)
@@ -181,9 +148,22 @@ impl Rehearsal {
         self.run.clear();
         self.last.clear();
         self.rehearsed = false;
-        self.slots.clear();
         self.cursor = 0;
         self.diverged = None;
+    }
+
+    /// The current run's allocations as it ends, each with whether something still holds it, and
+    /// the next run starting at the plan's first allocation.
+    fn take_run(&mut self) -> Vec<Rehearsed> {
+        self.cursor = 0;
+        self.diverged = None;
+        self.run
+            .drain(..)
+            .map(|(size_bytes, memory)| Rehearsed {
+                size_bytes,
+                outlived: memory.upgrade().is_some(),
+            })
+            .collect()
     }
 
     fn diverge(&mut self, position: usize, rehearsed: Option<Rehearsed>, recorded: Option<u64>) {
@@ -222,6 +202,7 @@ impl core::fmt::Display for Divergence {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_management::ManagedMemoryHandle;
 
     /// An allocation as a run makes it: the pool's own reference, which a real slice keeps, and
     /// the binding the work holds until it lets go.
@@ -269,26 +250,28 @@ mod tests {
         assert!(rehearsal.has_plan());
     }
 
-    /// The recorded run's outputs take the room set aside for them, by their position in the
-    /// plan, and its temporaries go to the pools; a run allocating as rehearsed does not diverge.
+    /// From the second run on, an allocation the run before found to be an output is placed off
+    /// the shared room, by its position; a temporary goes to the pools, and a run that allocates
+    /// as rehearsed does not diverge.
     #[test]
-    fn outputs_take_their_slots_by_position() {
+    fn outputs_are_placed_by_position() {
         let mut rehearsal = Rehearsal::default();
         let _rehearsed = run(&mut rehearsal, &[8, 16, 8], &[false, true, true]);
-        assert_eq!(rehearsal.output_sizes().collect::<Vec<_>>(), [16, 8]);
-        let (first, second) = (ManagedMemoryHandle::new(), ManagedMemoryHandle::new());
-        let first_id = first.clone().binding().id();
-        rehearsal.set_aside([first, second]);
 
-        assert!(matches!(rehearsal.place(8), Placement::Pools));
-        match rehearsal.place(16) {
-            Placement::Output(slot) => assert_eq!(slot.binding().id(), first_id),
-            Placement::Pools => panic!("the output at position 1 has a slot"),
-        }
-        assert!(matches!(rehearsal.place(8), Placement::Output(_)));
-
+        rehearsal.start_recording();
+        assert_eq!(rehearsal.place(8), Placement::Pools);
+        assert_eq!(rehearsal.place(16), Placement::Output);
+        assert_eq!(rehearsal.place(8), Placement::Output);
         let (_pools, _held) = record(&mut rehearsal, &[8, 16, 8], &[false, true, true]);
         assert_eq!(rehearsal.finish_recording(), None);
+    }
+
+    /// A first rehearsal run has no plan to follow: everything it allocates goes to the pools.
+    #[test]
+    fn a_first_run_places_everything_in_the_pools() {
+        let mut rehearsal = Rehearsal::default();
+        assert_eq!(rehearsal.place(8), Placement::Pools);
+        assert_eq!(rehearsal.place(16), Placement::Pools);
     }
 
     /// Note a recorded run's allocations, as [`run`] does for a rehearsal's.
@@ -310,12 +293,12 @@ mod tests {
     }
 
     /// A recorded run that keeps a rehearsed temporary diverges there: that buffer sits on the
-    /// shared room. One that lets a rehearsed output go does not: its slot only went back.
+    /// shared room. One that lets a rehearsed output go does not: it only took room of its own.
     #[test]
     fn keeping_a_temporary_diverges_and_freeing_an_output_does_not() {
         let mut rehearsal = Rehearsal::default();
         let _rehearsed = run(&mut rehearsal, &[8, 16], &[false, true]);
-        rehearsal.set_aside([ManagedMemoryHandle::new()]);
+        rehearsal.start_recording();
         let (_pools, _held) = record(&mut rehearsal, &[8, 16], &[true, false]);
         let divergence = rehearsal.finish_recording().expect("a kept temporary");
         assert_eq!(divergence.position, 0);
@@ -329,15 +312,15 @@ mod tests {
         let mut rehearsal = Rehearsal::default();
         let _rehearsed = run(&mut rehearsal, &[8, 16], &[false, false]);
 
-        rehearsal.set_aside([]);
-        assert!(matches!(rehearsal.place(8), Placement::Pools));
-        assert!(matches!(rehearsal.place(32), Placement::Pools));
+        rehearsal.start_recording();
+        assert_eq!(rehearsal.place(8), Placement::Pools);
+        assert_eq!(rehearsal.place(32), Placement::Pools);
         let (_pools, _held) = record(&mut rehearsal, &[8, 32], &[false, false]);
         let divergence = rehearsal.finish_recording().expect("another size");
         assert_eq!(divergence.position, 1);
         assert_eq!(divergence.recorded_bytes, Some(32));
 
-        rehearsal.set_aside([]);
+        rehearsal.start_recording();
         let (_pools, _held) = record(&mut rehearsal, &[8], &[false]);
         let divergence = rehearsal.finish_recording().expect("fewer buffers");
         assert_eq!((divergence.position, divergence.recorded_bytes), (1, None));

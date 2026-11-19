@@ -4,9 +4,7 @@
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
 use super::rehearsal::{Divergence, Placement, Rehearsal};
-use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, PageUpdate, PinnedPages,
-};
+use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate, PinnedPages};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -161,10 +159,12 @@ impl StreamCapture {
         }
     }
 
-    /// Where the next allocation of `size_bytes` goes: while recording, an output takes the
-    /// room set aside for it at its position in the plan.
+    /// Where the next allocation of `size_bytes` goes: while a capture is under way, what the
+    /// last rehearsal run found to be an output at its position is placed off the shared room,
+    /// in the rehearsal runs as in the recording, so the recording lands where the last
+    /// rehearsal did.
     pub fn place(&mut self, size_bytes: u64) -> Placement {
-        match self.is_recording() {
+        match self.is_active() {
             true => self.rehearsal.place(size_bytes),
             false => Placement::Pools,
         }
@@ -185,21 +185,9 @@ impl StreamCapture {
         Ok(self.rehearsal.finish_run())
     }
 
-    /// The size of every output the rehearsal found, in allocation order: the room
-    /// [`begin`](Self::begin) needs set aside.
-    ///
-    /// # Errors
-    ///
-    /// When no rehearsal run finished: the recording would have no plan, and an output it
-    /// allocated could land on room another graph's replay overwrites.
-    pub fn output_sizes(&self) -> Result<impl Iterator<Item = u64> + '_, ServerError> {
-        if !self.rehearsal.has_plan() {
-            return Err(ServerError::graph_state(
-                "a capture records only after its work was rehearsed: run it once or more \
-                 after `graph_prepare`, each run ended by `graph_rehearsed`",
-            ));
-        }
-        Ok(self.rehearsal.output_sizes())
+    /// Whether a rehearsal run finished, so a recording has a plan to follow.
+    pub fn has_plan(&self) -> bool {
+        self.rehearsal.has_plan()
     }
 
     /// End the recorded run, once its deferred frees are reclaimed: where it allocated
@@ -345,7 +333,8 @@ impl StreamCapture {
     }
 
     /// Open the window: launches from here until [`end`](Self::end) are
-    /// recorded rather than executed.
+    /// recorded rather than executed, and allocations follow the rehearsal's
+    /// plan.
     ///
     /// # Errors
     ///
@@ -353,17 +342,10 @@ impl StreamCapture {
     ///
     /// The staging the rehearsal primed goes back to the pool, for the
     /// recorded run to reuse.
-    ///
-    /// `outputs` is the room set aside for the plan's outputs, one slice per
-    /// [`output_sizes`](Self::output_sizes) entry in that order, held until the recorded run
-    /// allocates each.
-    pub fn begin(
-        &mut self,
-        outputs: impl IntoIterator<Item = ManagedMemoryHandle>,
-    ) -> Result<(), ServerError> {
+    pub fn begin(&mut self) -> Result<(), ServerError> {
         self.state.begin()?;
         self.primed.clear();
-        self.rehearsal.set_aside(outputs);
+        self.rehearsal.start_recording();
         Ok(())
     }
 
@@ -451,7 +433,7 @@ mod tests {
 
         let mut capture = StreamCapture::new(&DeviceCaptures::default());
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.record([a.clone(), b.clone()]);
         capture.record([b.clone(), c.clone()]);
         capture.record([a.clone()]);
@@ -483,7 +465,7 @@ mod tests {
         // Prepared is the rehearsal: it executes rather than records.
         capture.record([warmup]);
 
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.record([recorded.clone()]);
         capture.end(OWNER).unwrap();
 
@@ -511,7 +493,7 @@ mod tests {
 
         let mut capture = StreamCapture::new(&DeviceCaptures::default());
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.record([front.clone(), back.clone()]);
         // The same range again, from a second launch given the same tensor:
         // still one claim.
@@ -534,7 +516,7 @@ mod tests {
     fn a_window_owns_the_host_bytes_its_copies_read() {
         let mut capture = StreamCapture::new(&DeviceCaptures::default());
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.retain_host(Bytes::from_bytes_vec(alloc::vec![7u8; 4]));
         capture.end(OWNER).unwrap();
 
@@ -545,7 +527,7 @@ mod tests {
         );
 
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.retain_host(Bytes::from_bytes_vec(alloc::vec![7u8; 4]));
         capture.abort();
         capture.prepare(OWNER).unwrap();
@@ -568,18 +550,18 @@ mod tests {
         let (aborted, abandoned) = (buffer(), buffer());
         let mut capture = StreamCapture::new(&DeviceCaptures::default());
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.record([aborted]);
         capture.abort();
 
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.record([abandoned.clone()]);
         assert!(capture.end(neighbour).unwrap().is_abandoned());
         assert_eq!(ids(&capture.take_recorded()), ids(&[abandoned]));
 
         capture.prepare(neighbour).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         assert!(
             capture.take_recorded().is_empty(),
             "the abandoned window's buffers are not this capture's to answer for"
@@ -596,7 +578,7 @@ mod tests {
         assert_eq!(capture.cache_mode(), CacheMode::Normal);
         capture.prepare(OWNER).unwrap();
         assert_eq!(capture.cache_mode(), CacheMode::Capture);
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         assert_eq!(capture.cache_mode(), CacheMode::Capture);
         capture.end(OWNER).unwrap();
         assert_eq!(capture.cache_mode(), CacheMode::Normal);
@@ -620,13 +602,13 @@ mod tests {
             !status.is_capturing(OTHER),
             "another stream isn't capturing"
         );
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         assert!(status.is_capturing(OWNER), "the recorded run is part of it");
         capture.end(OWNER).unwrap();
         assert!(!status.is_capturing(OWNER), "a sealed capture is over");
 
         capture.prepare(OWNER).unwrap();
-        capture.begin([]).unwrap();
+        capture.begin().unwrap();
         capture.end(OTHER).unwrap();
         assert!(
             !status.is_capturing(OWNER),
@@ -665,14 +647,14 @@ mod tests {
 
         recording.prepare(OWNER).unwrap();
         assert!(!status.any_recording(), "a rehearsal records nothing");
-        recording.begin([]).unwrap();
+        recording.begin().unwrap();
         assert_eq!(recording_now(&recording), (PageUpdate::Forbidden, true));
         assert_eq!(recording_now(&neighbour), (PageUpdate::AddOnly, true));
         recording.end(OWNER).unwrap();
         assert_eq!(recording_now(&neighbour), (PageUpdate::Allow, false));
 
         recording.prepare(OWNER).unwrap();
-        recording.begin([]).unwrap();
+        recording.begin().unwrap();
         recording.abort();
         assert!(
             !status.any_recording(),
@@ -687,7 +669,7 @@ mod tests {
         );
 
         recording.prepare(OWNER).unwrap();
-        recording.begin([]).unwrap();
+        recording.begin().unwrap();
         drop(recording);
         assert!(
             !status.any_recording(),

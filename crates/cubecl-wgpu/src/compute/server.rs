@@ -687,9 +687,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
-        // A software graph shares no room with the stream's other graphs, so
-        // its outputs need none set aside.
-        stream.capturing.begin([])?;
+        stream.capturing.begin()?;
 
         // Submit the rehearsal's work and surface its failure now, so a rehearsal
         // failure is reported here — where the diagnostic points at the cause
