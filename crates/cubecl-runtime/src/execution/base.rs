@@ -25,6 +25,13 @@ pub enum LaunchMode {
     /// and, when the work queued it, to the collector of the override it
     /// was queued under ([`StatisticsCollector::work_failures`](super::StatisticsCollector::work_failures)).
     Queue,
+    /// Compile if needed, do everything the launch does on the host — resolve
+    /// its buffers, build its metadata — and discard it before the dispatch:
+    /// a launch of a graph capture's rehearsal. The recorded run then finds
+    /// every buffer the launch path allocates already in the pools, since it
+    /// may allocate none of its own. Nothing that reads the device runs, so a
+    /// dynamic cube count is never resolved.
+    Rehearse,
 }
 
 impl LaunchMode {
@@ -41,9 +48,20 @@ impl LaunchMode {
         }
     }
 
+    /// The mode of this launch issued on a stream that is capturing a graph: a
+    /// launch discarded there belongs to the capture's rehearsal, and does the
+    /// launch's host side so the recorded run allocates nothing the rehearsal
+    /// did not.
+    pub(crate) fn within_capture(self) -> Self {
+        match self.discards_launch() {
+            true => Self::Rehearse,
+            false => self,
+        }
+    }
+
     /// Whether the launch is discarded rather than run.
     pub fn discards_launch(self) -> bool {
-        matches!(self, Self::Compile | Self::Queue)
+        matches!(self, Self::Compile | Self::Queue | Self::Rehearse)
     }
 }
 
@@ -101,6 +119,16 @@ mod tests {
         let execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
         assert_eq!(mode(), LaunchMode::Execute);
         core::mem::drop(execute);
+    }
+
+    /// A launch a capturing stream discards belongs to the capture's rehearsal, so it
+    /// rehearses; one it runs is recorded or measured, and stays as it is.
+    #[test]
+    fn a_discarded_launch_within_a_capture_rehearses() {
+        assert_eq!(LaunchMode::Queue.within_capture(), LaunchMode::Rehearse);
+        assert_eq!(LaunchMode::Compile.within_capture(), LaunchMode::Rehearse);
+        assert_eq!(LaunchMode::Execute.within_capture(), LaunchMode::Execute);
+        assert!(LaunchMode::Rehearse.discards_launch());
     }
 
     /// A stream's mode overrides the process mode's default for that stream of

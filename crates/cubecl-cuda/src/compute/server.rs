@@ -209,6 +209,22 @@ impl Server for CudaServer {
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
+        // A rehearsal's launch builds what the launch path allocates — its
+        // metadata buffer, the staging that uploads it — and stops before the
+        // dispatch, so the recorded run allocates none of it.
+        if launch_mode == LaunchMode::Rehearse {
+            // A failure here is the recorded run's to report: it repeats this
+            // launch and needs what failed to build.
+            let _ = self.launch_checked(
+                id.kernel,
+                &loaded,
+                (1, 1, 1),
+                bindings,
+                stream_id,
+                launch_mode,
+            );
+            return;
+        }
         if launch_mode.discards_launch() {
             return;
         }
@@ -264,7 +280,9 @@ impl Server for CudaServer {
             bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+        .execute(|server| {
+            server.launch_checked(kernel_id, &loaded, count, bindings, stream_id, launch_mode)
+        });
         match outcome {
             ScopedOutcome::Executed(()) => peers.enqueued(),
             ScopedOutcome::Failed(error) | ScopedOutcome::Skipped(error) => peers.failed(&error),
@@ -296,6 +314,11 @@ impl Server for CudaServer {
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn graph_rehearsed(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).rehearsed()
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -899,6 +922,7 @@ impl CudaServer {
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
         let address_type = kernel_id.address_type;
         let grid_constants = self
@@ -975,6 +999,9 @@ impl CudaServer {
             resources.push(command.resource(binding.binding())?.binding);
         }
         resources.extend(info_const);
+        if launch_mode == LaunchMode::Rehearse {
+            return Ok(());
+        }
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
         command.hold_peers(peers);

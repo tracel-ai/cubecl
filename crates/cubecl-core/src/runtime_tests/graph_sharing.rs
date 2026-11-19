@@ -1,7 +1,8 @@
 //! Graphs recorded on one stream share the pages their captures pinned: a later capture's
 //! temporaries are carved from the room earlier graphs' temporaries left free, so the memory
 //! the recordings hold is the largest graph's rather than the sum of all of them, while every
-//! buffer a handle still holds keeps its own memory.
+//! buffer a handle still holds keeps its own memory, and every output a captured work leaves
+//! allocated sits on room of its own.
 //!
 //! Not part of `testgen_all`: a capture holds its stream for the whole window, so a runtime calls
 //! these from its graph tests, one capture at a time.
@@ -54,14 +55,24 @@ fn run_chain(client: &Client, input: &Handle, output: &Handle, temporaries: usiz
     drop(held);
 }
 
-/// Record [`run_chain`] as a graph: prepare, one warmup run, one recorded run.
+/// Record [`run_chain`] as a graph.
 fn record_chain(client: &Client, input: &Handle, output: &Handle, temporaries: usize) -> Graph {
-    client.graph_prepare().expect("graph_prepare");
-    run_chain(client, input, output, temporaries);
-    client.read_one(output.clone()).unwrap();
-    client.start_capture().expect("start_capture");
-    run_chain(client, input, output, temporaries);
-    client.stop_capture().expect("stop_capture")
+    let (graph, ()) = client
+        .capture(|| run_chain(client, input, output, temporaries))
+        .expect("capture");
+    graph
+}
+
+/// Record [`run_chain`] into an output the work itself allocates, as a model's step returns its
+/// logits: the graph, and the output its recorded run allocated.
+fn record_chain_into_new(client: &Client, input: &Handle, temporaries: usize) -> (Graph, Handle) {
+    client
+        .capture(|| {
+            let output = client.empty(BYTES);
+            run_chain(client, input, &output, temporaries);
+            output
+        })
+        .expect("capture")
 }
 
 /// The bytes the client's stream holds in device pages, every pool together: the host
@@ -161,24 +172,14 @@ pub fn graphs_sharing_pinned_pages_replay_in_any_order<R: Runtime>() {
     });
 }
 
-/// An output a capture allocated and a handle still holds keeps its own memory: a graph recorded
-/// after it on the same stream never carves it, so it survives that graph's capture and
-/// replays, and the host reads what its own graph wrote.
+/// An output the captured work allocated keeps its own memory: a graph recorded after it on the
+/// same stream never carves it, so it survives that graph's capture and replays, and the host
+/// reads what its own graph wrote.
 pub fn a_held_output_survives_another_graphs_replay<R: Runtime>() {
     let client = R::client(&Default::default());
     StreamId { value: 3_100_003 }.executes(|| {
         let input = filled(&client, 0.0);
-
-        // The first graph's output is allocated inside its capture window, by the run itself.
-        client.graph_prepare().expect("graph_prepare");
-        let warmup_out = client.empty(BYTES);
-        run_chain(&client, &input, &warmup_out, 2);
-        client.read_one(warmup_out.clone()).unwrap();
-        drop(warmup_out);
-        client.start_capture().expect("start_capture");
-        let first_out = client.empty(BYTES);
-        run_chain(&client, &input, &first_out, 2);
-        let first = client.stop_capture().expect("stop_capture");
+        let (first, first_out) = record_chain_into_new(&client, &input, 2);
 
         unsafe { first.replay() }.expect("replay enqueues");
         assert_eq!(read(&client, &first_out), vec![3.0; ELEMENTS]);
@@ -195,5 +196,57 @@ pub fn a_held_output_survives_another_graphs_replay<R: Runtime>() {
             "the second graph's capture and replay left the first graph's output alone"
         );
         assert_eq!(read(&client, &other_out), vec![105.0; ELEMENTS]);
+    });
+}
+
+/// An output a later capture's work allocated never sits on the room an earlier graph's
+/// temporaries use: replaying the earlier graph after the later one leaves the later graph's
+/// output as its replay wrote it, so the host may read it whenever it likes. Without the
+/// rehearsal placing it, the output is carved from the earlier graph's free room, and that
+/// graph's replay writes its temporaries over it.
+pub fn an_output_survives_an_earlier_graphs_replay<R: Runtime>() {
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_004 }.executes(|| {
+        let (wide_in, wide_out) = (filled(&client, 0.0), client.empty(BYTES));
+        let wide = record_chain(&client, &wide_in, &wide_out, 4);
+        let narrow_in = filled(&client, 10.0);
+        let (narrow, narrow_out) = record_chain_into_new(&client, &narrow_in, 1);
+
+        unsafe { narrow.replay() }.expect("replay enqueues");
+        unsafe { wide.replay() }.expect("replay enqueues");
+        assert_eq!(
+            read(&client, &narrow_out),
+            vec![12.0; ELEMENTS],
+            "the wide graph's replay left the narrow graph's output alone"
+        );
+        assert_eq!(read(&client, &wide_out), vec![5.0; ELEMENTS]);
+    });
+}
+
+/// A recorded run that keeps a buffer its rehearsal let go does not seal: that buffer was
+/// placed as a temporary, on room another graph's replay may write.
+pub fn a_recording_that_keeps_a_rehearsed_temporary_does_not_seal<R: Runtime>() {
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_005 }.executes(|| {
+        let input = filled(&client, 0.0);
+        let run = || {
+            let output = client.empty(BYTES);
+            run_chain(&client, &input, &output, 1);
+            output
+        };
+        let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+        // Each rehearsal run lets the buffer go before it ends: a temporary.
+        while !{
+            drop(run());
+            rehearsal.rehearsed().expect("rehearsed")
+        } {}
+        rehearsal.start_capture().expect("start_capture");
+        let kept = run();
+        assert!(
+            client.stop_capture().is_err(),
+            "the recording kept what its rehearsal found to be a temporary"
+        );
+        drop(kept);
+        assert!(!client.is_capturing(), "a refused capture is over");
     });
 }

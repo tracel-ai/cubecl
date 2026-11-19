@@ -1,3 +1,4 @@
+use crate::execution::{StreamMode, StreamModeOverride};
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     device::HardwareIdentity,
@@ -97,13 +98,10 @@ pub struct Client {
 /// captures pinned: a capture's temporaries reuse the room earlier graphs'
 /// temporaries left free, so the stream holds about the largest graph's
 /// working set — capture the largest graph first, and every smaller one fits
-/// in what it pinned. A buffer a handle holds is never shared, and a graph
-/// holds every buffer it writes for its whole life. But a buffer allocated
-/// *inside* a capture window may sit where an earlier graph's temporaries
-/// live, so its contents last only until another graph on the stream replays:
-/// allocate an output the host reads later before
-/// [`graph_prepare`](Client::graph_prepare), or read or copy it before
-/// replaying another graph.
+/// in what it pinned. What the captured work leaves allocated — its outputs —
+/// never sits on that room: [`Client::capture`] rehearses the work first, and
+/// the recorded run places each output it found on room of its own, so no
+/// other graph's replay writes over it.
 pub struct Graph {
     inner: Arc<GraphHandle>,
 }
@@ -177,6 +175,88 @@ impl Graph {
             .device
             .submit_blocking(move |server| server.replay(id, stream_id))
             .closed_as_error()
+    }
+}
+
+/// A capture being rehearsed on one client's stream (see [`Client::graph_rehearse`]): the
+/// client's launches are discarded while it lives, and each run of the work ends with
+/// [`rehearsed`](Self::rehearsed).
+///
+/// Dropped without [`start_capture`](Self::start_capture), the stream's launches run again
+/// but the capture stays prepared: [`Client::stop_capture`] ends it.
+pub struct Rehearsal {
+    client: Client,
+    /// The stream the capture is on, fixed when it was prepared: a client not pinned to a
+    /// stream follows the calling thread's, and the capture does not.
+    stream_id: StreamId,
+    discarding: StreamModeOverride,
+}
+
+impl core::fmt::Debug for Rehearsal {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Rehearsal")
+            .field("stream", &self.stream_id)
+            .finish()
+    }
+}
+
+impl Rehearsal {
+    /// End one run of the work, with what it returned still held, and answer whether it
+    /// allocated what the run before it did: the work has reached its steady state.
+    ///
+    /// # Errors
+    ///
+    /// When the capture is no longer prepared, ended by another logical stream sharing the
+    /// backend stream.
+    pub fn rehearsed(&self) -> Result<bool, ServerError> {
+        let stream_id = self.stream_id;
+        self.client
+            .device
+            .submit_blocking(move |server| server.graph_rehearsed(stream_id))
+            .closed_as_error()
+    }
+
+    /// Stop discarding the stream's launches, compile what the rehearsals queued, and open the
+    /// recording window (see [`Client::start_capture`]): the next run of the work is recorded,
+    /// and [`Client::stop_capture`] seals it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::start_capture`]; the capture is over when it fails.
+    pub fn start_capture(self) -> Result<(), ServerError> {
+        let Self {
+            client,
+            stream_id,
+            discarding,
+        } = self;
+        core::mem::drop(discarding);
+        client.compile_queued();
+        client
+            .device
+            .submit_blocking(move |server| server.begin_capture(stream_id))
+            .closed_as_error()
+            .map_err(|err| Self::end(&client, stream_id, err))
+    }
+
+    /// Give up the capture over `err`, which is handed back.
+    fn abandon(self, err: ServerError) -> ServerError {
+        let Self {
+            client,
+            stream_id,
+            discarding,
+        } = self;
+        core::mem::drop(discarding);
+        Self::end(&client, stream_id, err)
+    }
+
+    /// End the prepared capture on `stream_id` after `err`, so the stream is free to capture
+    /// again.
+    fn end(client: &Client, stream_id: StreamId, err: ServerError) -> ServerError {
+        let _ = client
+            .device
+            .submit_blocking(move |server| server.end_capture(stream_id))
+            .closed_as_error();
+        err
     }
 }
 
@@ -1542,7 +1622,10 @@ impl Client {
 
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
-        let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
+        let mut launch_mode = crate::execution::LaunchMode::new(self.service_stream());
+        if self.is_capturing() {
+            launch_mode = launch_mode.within_capture();
+        }
         // So is where its kernels count: the device runs it later, and an
         // override closing in between must not change that.
         let issued = crate::execution::IssuedRecorder::new();
@@ -1782,20 +1865,73 @@ impl Client {
         self.device.submit(move |server| server.compile_queued());
     }
 
-    /// Prepare this client's stream for a graph capture (see
-    /// [`Server::graph_prepare`]). Call this **before** the warmup run, then
-    /// [`start_capture`](Self::start_capture) around the run to record.
-    pub fn graph_prepare(&self) -> Result<(), ServerError> {
+    /// Record `work` into a graph on this client's stream, and hand back the graph and what
+    /// the recorded run of `work` returned.
+    ///
+    /// `work` runs several times. First as rehearsals, with its launches discarded: kernels
+    /// compile and tunes measure, and the pools grow to what it allocates, so the recorded run
+    /// needs no fresh memory. The rehearsals repeat until two runs in a row allocate alike, since
+    /// a first run can take another path than the steady state (a tune, a fused optimization
+    /// being built). Then once more, recorded. What the last rehearsal left allocated is the
+    /// work's output, and the recorded run places it on room no other graph of the stream
+    /// writes, so the output outlives every replay but its own graph's.
+    ///
+    /// `work` must therefore allocate the same buffers, and keep the same ones, on every run,
+    /// and must not read the device: a rehearsal's launches never ran.
+    ///
+    /// # Errors
+    ///
+    /// When the backend has no graph support, a capture is already under way on the stream,
+    /// the recorded run allocated otherwise than the last rehearsal, or anything the window
+    /// could not record (see [`start_capture`](Self::start_capture)). The capture is over
+    /// either way.
+    pub fn capture<T>(&self, mut work: impl FnMut() -> T) -> Result<(Graph, T), ServerError> {
+        /// Runs a capture rehearses before recording whatever it found: a cold fused path
+        /// settles by its second run, and a work that never settles is refused at seal.
+        const REHEARSALS_MAX: usize = 4;
+
+        let rehearsal = self.graph_rehearse()?;
+        for _ in 0..REHEARSALS_MAX {
+            let output = work();
+            let stable = rehearsal.rehearsed();
+            core::mem::drop(output);
+            match stable {
+                Ok(true) => break,
+                Ok(false) => continue,
+                Err(err) => return Err(rehearsal.abandon(err)),
+            }
+        }
+        rehearsal.start_capture()?;
+        let output = work();
+        let graph = self.stop_capture()?;
+        Ok((graph, output))
+    }
+
+    /// Prepare this client's stream for a graph capture and start rehearsing the work it will
+    /// record: until the [`Rehearsal`] starts the capture, this client's launches are
+    /// discarded. [`capture`](Self::capture) is the whole sequence; this is its steps, for a
+    /// caller that runs the work itself.
+    ///
+    /// # Errors
+    ///
+    /// When a capture is already under way on the stream.
+    pub fn graph_rehearse(&self) -> Result<Rehearsal, ServerError> {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_prepare(stream_id))
-            .closed_as_error()
+            .closed_as_error()?;
+        Ok(Rehearsal {
+            discarding: StreamModeOverride::new(StreamMode::Discard, self),
+            stream_id,
+            client: self.clone(),
+        })
     }
 
     /// Begin recording launches on this client's stream into a graph rather
     /// than executing them (see [`Server::begin_capture`]). Pin the
-    /// client to a dedicated stream with [`set_stream`](Self::set_stream), then
-    /// [`graph_prepare`](Self::graph_prepare) and warm up first.
+    /// client to a dedicated stream with [`set_stream`](Self::set_stream), and
+    /// rehearse the work first ([`graph_rehearse`](Self::graph_rehearse)),
+    /// which starts the capture through [`Rehearsal::start_capture`].
     ///
     /// Between this and [`stop_capture`](Self::stop_capture) the window records
     /// launches and nothing else: reading, syncing or profiling the stream is
@@ -1803,10 +1939,13 @@ impl Client {
     /// host copy, so feed fresh inputs by writing *between* replays instead. A
     /// refused write is reported late, by failing `stop_capture`, rather than
     /// handing back a graph that silently skips it. Nothing is allocated inside
-    /// the window: a request the pools cannot serve from what the warmup run
-    /// left fails the capture, which is what the warmup run exists to avoid.
+    /// the window: a request the pools cannot serve from what the rehearsal
+    /// left fails the capture, which is what rehearsing exists to avoid.
     ///
-    /// Returns an error on backends without graph support.
+    /// # Errors
+    ///
+    /// On backends without graph support, and when the work was not
+    /// rehearsed.
     pub fn start_capture(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
         self.device
@@ -1815,7 +1954,7 @@ impl Client {
     }
 
     /// Whether this client's stream is capturing a graph: from
-    /// [`graph_prepare`](Self::graph_prepare), through the warmup run and the recorded one, until
+    /// [`graph_rehearse`](Self::graph_rehearse), through the rehearsals and the recorded run, until
     /// the capture ends. It ends with [`stop_capture`](Self::stop_capture), whether the window
     /// opened or the capture was only prepared, and also when another logical stream sharing
     /// the same backend stream stops it, or when opening the window fails once
@@ -1824,7 +1963,7 @@ impl Client {
     /// backend without graph support.
     ///
     /// Answered without reaching the device thread, so code whose buffer decisions have to
-    /// match between the warmup and the recording can ask before every launch.
+    /// match between the rehearsals and the recording can ask before every launch.
     pub fn is_capturing(&self) -> bool {
         let captures = &self.utilities.captures;
         // The stream id costs more than the check, and no capture under way answers already.

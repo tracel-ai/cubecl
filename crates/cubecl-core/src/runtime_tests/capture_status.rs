@@ -1,5 +1,5 @@
 //! What a client reads about its stream's graph capture: [`Client::is_capturing`] is true from
-//! `graph_prepare` until the capture ends, for every client of the capturing stream and for no
+//! `graph_rehearse` until the capture ends, for every client of the capturing stream and for no
 //! other stream.
 //!
 //! Not part of `testgen_all`: a capture holds its stream for the whole window, so a runtime calls
@@ -17,10 +17,10 @@ fn add_one(input: &[f32], output: &mut [f32]) {
     }
 }
 
-/// A capture is visible to every client of the stream that prepared it, through the warmup run
-/// and the recorded one, and to no other stream.
+/// A capture is visible to every client of the stream that prepared it, through the rehearsals
+/// and the recorded run, and to no other stream.
 ///
-/// Code that has to decide the same way in the warmup and the recording reads it before every
+/// Code that has to decide the same way in the rehearsals and the recording reads it before every
 /// launch, possibly through a client other than the one that prepared, so each client of the
 /// stream has to see it; a neighbour that saw it would take the capture's path for nothing.
 pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
@@ -52,10 +52,10 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
     });
 
     assert!(!capturing(&client, owner), "no capture before prepare");
-    owner
-        .executes(|| client.graph_prepare())
-        .expect("graph_prepare");
-    assert!(capturing(&client, owner), "the warmup run is part of it");
+    let rehearsal = owner
+        .executes(|| client.graph_rehearse())
+        .expect("graph_rehearse");
+    assert!(capturing(&client, owner), "the rehearsal is part of it");
     assert!(
         capturing(&other_client, owner),
         "every client of the stream sees it"
@@ -67,9 +67,9 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
 
     owner.executes(|| {
         run();
-        client.read_one(output.clone()).unwrap();
-        client.start_capture().expect("start_capture");
+        rehearsal.rehearsed().expect("rehearsed");
     });
+    rehearsal.start_capture().expect("start_capture");
     assert!(
         capturing(&other_client, owner),
         "the recorded run is part of it"
@@ -89,17 +89,18 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
 }
 
 /// A capture prepared but never opened ends at `stop_capture`, which is the only call left to a
-/// caller whose warmup failed: the stream stops reporting it, and a whole capture then lands on
-/// it, sealed and replayed.
+/// caller whose rehearsal failed: the stream stops reporting it, and a whole capture then lands
+/// on it, sealed and replayed.
 pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     let client = R::client(&Default::default());
     let owner = StreamId { value: 3_000_003 };
     let capturing = || owner.executes(|| client.is_capturing());
 
-    owner
-        .executes(|| client.graph_prepare())
-        .expect("graph_prepare");
-    assert!(capturing(), "the warmup run is part of the capture");
+    let rehearsal = owner
+        .executes(|| client.graph_rehearse())
+        .expect("graph_rehearse");
+    assert!(capturing(), "the rehearsal is part of the capture");
+    drop(rehearsal);
     owner
         .executes(|| client.stop_capture())
         .expect_err("nothing recorded, so there is no graph to seal");
@@ -123,14 +124,9 @@ pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     };
 
     let out = owner.executes(|| {
-        client
-            .graph_prepare()
-            .expect("the stream can be prepared again");
-        run();
-        client.read_one(output.clone()).unwrap();
-        client.start_capture().expect("start_capture");
-        run();
-        let graph = client.stop_capture().expect("stop_capture");
+        let (graph, ()) = client
+            .capture(run)
+            .expect("the stream can be captured again");
         unsafe { graph.replay() }.expect("replay enqueues");
         client.read_one(output.clone()).unwrap()
     });

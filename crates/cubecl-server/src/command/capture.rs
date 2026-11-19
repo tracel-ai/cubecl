@@ -3,7 +3,7 @@
 //! The driver's rules are what shapes this. A stream in capture mode records
 //! every launch issued on it, so a window that opened has to be closed even
 //! when what it recorded is worthless. Nothing may allocate inside the window,
-//! so a warmup run leaves the pools holding what the recording asks for, and
+//! so a rehearsal leaves the pools holding what the recording asks for, and
 //! the pages the recording touched are guarded once it closes. And a host
 //! sync would abort the recording, so the fenced flushes the execution path
 //! would otherwise run are deferred across it.
@@ -14,8 +14,8 @@
 
 use super::{Command, DeviceStream, Driver};
 use crate::id::GraphId;
-use crate::memory_management::PageGuard;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationReason};
+use crate::memory_management::{PageGuard, PinnedPages};
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
@@ -224,7 +224,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         self.command.stream()
     }
 
-    /// Start the warmup run, before the window opens.
+    /// Start the rehearsal, before the window opens.
     ///
     /// The outdated pools of every stream are emptied first: the recording may
     /// touch memory any stream owns, every page it touches is guarded for the
@@ -239,6 +239,24 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         Ok(())
     }
 
+    /// End a rehearsal run of the work about to be recorded, and answer whether it allocated
+    /// what the run before it did (see [`Rehearsal`](crate::stream::Rehearsal)).
+    ///
+    /// The run's deferred frees are reclaimed first, so a temporary whose free waited on the
+    /// device is not taken for an output.
+    ///
+    /// # Errors
+    ///
+    /// When the stream has no prepared capture whose window is still closed.
+    pub fn rehearsed(&mut self) -> Result<bool, ServerError> {
+        let stream = self.stream();
+        if !stream.capturing().is_recording() {
+            let signal = stream.signal();
+            stream.drop_queue().drain(|| D::Stream::fence(signal));
+        }
+        stream.capturing().rehearsed()
+    }
+
     /// Open the window: from here the driver records every launch issued on
     /// this stream until the window closes.
     ///
@@ -248,11 +266,21 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     /// found — capture state back to none — so the whole prepare-then-open
     /// sequence can be retried.
     pub fn begin(&mut self) -> Result<(), ServerError> {
+        // The room the rehearsal's outputs need, set aside off the pages the
+        // stream's graphs share while pages may still be added: what the
+        // recorded run's outputs are placed on, so no other graph's replay
+        // writes over them.
+        let sizes: Vec<u64> = self.stream().capturing().output_sizes()?.collect();
+        let outputs = sizes
+            .into_iter()
+            .map(|size| self.command.reserve_sharing(size, PinnedPages::Avoid))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ServerError::from)?;
         // Rejected before the reclaim below runs: a drop-queue flush issued on
         // a stream that is already recording would abort its live capture.
-        // Opening releases the staging the warmup run primed.
-        self.stream().capturing().begin()?;
-        // Reclaim deferred frees before the window opens: warmup's pinned
+        // Opening releases the staging the rehearsal primed.
+        self.stream().capturing().begin(outputs)?;
+        // Reclaim deferred frees before the window opens: the rehearsal's pinned
         // staging buffers (and any other drop-queued slices) sit in the drop
         // queue until drained, so without this the recorded run finds no free
         // staging slice to reuse.
@@ -298,7 +326,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                 let written = stream.capturing().take_recorded();
                 // A capture prepared but never opened still holds the stream,
                 // and a `graph_prepare` retry is refused while it does.
-                // Closing is the only call the caller has left — a warmup that
+                // Closing is the only call the caller has left — a rehearsal that
                 // failed never reaches `begin` — so a close from `Prepare`
                 // unwinds it, as `begin` does when the driver refuses to open.
                 if stream.capturing().is_active() {
@@ -334,6 +362,14 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // flushes were deferred for as long as it was.
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
+        // A recording that allocated otherwise than its rehearsal may have
+        // put a buffer it keeps on room another graph's replay overwrites.
+        let diverged = stream.capturing().finish_recording().map(|divergence| {
+            ServerError::graph_state(format!(
+                "the recorded run did not allocate as its rehearsal did, so the graph cannot \
+                 seal: {divergence}"
+            ))
+        });
         // The memory the recorded launches write. A recording that becomes a
         // graph answers for it on a failed replay; one that does not is
         // answered for by the caller, since those launches never ran and now
@@ -342,9 +378,10 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // An abandoned window has no graph to hand back: whatever was
         // instantiated drops here, and the report carries along whatever had
         // already doomed the recording so the caller sees both reasons.
-        let exec = match outcome.is_abandoned() {
-            false => exec,
-            true => Err(outcome.abandoned_error(stream_id, doomed)),
+        let exec = match (outcome.is_abandoned(), diverged) {
+            (true, _) => Err(outcome.abandoned_error(stream_id, doomed)),
+            (false, Some(diverged)) => exec.and(Err(diverged)),
+            (false, None) => exec,
         };
         match exec {
             Ok(exec) => {

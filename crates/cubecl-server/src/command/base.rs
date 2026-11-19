@@ -17,7 +17,7 @@ use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
-    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
+    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate, PinnedPages,
     StreamMemoryReport,
 };
 use crate::server::{
@@ -25,7 +25,7 @@ use crate::server::{
 };
 use crate::storage::ManagedResource;
 use crate::stream::ResolvedStreams;
-use crate::stream::TouchedPage;
+use crate::stream::{Placement, TouchedPage};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -185,13 +185,27 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        let pinned = self.streams.current().capturing().pinned_pages();
+        self.reserve_sharing(size, pinned)
+    }
+
+    /// [`reserve`](Self::reserve), carving the room the stream's graphs pinned only when
+    /// `pinned` shares it.
+    ///
+    /// # Errors
+    ///
+    /// As [`reserve`](Self::reserve).
+    pub fn reserve_sharing(
+        &mut self,
+        size: u64,
+        pinned: PinnedPages,
+    ) -> Result<ManagedMemoryHandle, IoError> {
         let update = self.streams.current().capturing().page_update();
         if update == PageUpdate::Allow {
             self.relocate_when_wanted();
         }
 
         let (stream, failures) = self.streams.current_and_failures();
-        let pinned = stream.capturing().pinned_pages();
         match stream
             .device_memory()
             .reserve_sharing(size, update, pinned, failures)
@@ -245,15 +259,35 @@ impl<'a, D: Driver> Command<'a, D> {
         memory: ManagedMemoryHandle,
         size: u64,
     ) -> Result<(), IoError> {
-        let reserved = match self.reserve(size) {
-            Ok(reserved) => reserved,
+        match self.allocate(size, &memory) {
+            Ok(()) => Ok(()),
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
             // a recording that will not seal.
-            Err(IoError::PageUpdateForbidden { .. }) => return Ok(()),
-            Err(err) => return Err(err),
+            Err(IoError::PageUpdateForbidden { .. }) => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Give `memory` `size` bytes, where the capture under way places it: an output of a
+    /// recorded run on the room its rehearsal set aside, anything else where
+    /// [`reserve`](Self::reserve) puts it. Every device allocation of a command goes through
+    /// here, so a capture sees each one, in order.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the reservation or the bind reports.
+    pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
+        let reserved = match self.streams.current().capturing().place(size) {
+            Placement::Output(slot) => slot,
+            Placement::Pools => self.reserve(size)?,
         };
-        self.bind(reserved, memory)
+        self.bind(reserved, memory.clone())?;
+        self.streams
+            .current()
+            .capturing()
+            .allocated(size, &memory.clone().binding());
+        Ok(())
     }
 
     /// The current stream's cursor.
@@ -268,8 +302,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Whatever the allocation or the bind reports.
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = Handle::new(self.service, self.streams.current, size);
-        let reserved = self.reserve(size)?;
-        self.bind(reserved, handle.memory.clone())?;
+        self.allocate(size, &handle.memory)?;
 
         Ok(handle)
     }

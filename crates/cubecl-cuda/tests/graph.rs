@@ -52,18 +52,9 @@ fn cuda_graph_capture_replay() {
         );
     };
 
-    // Prepare starts the warmup run; it is mandatory before a capture.
-    client.graph_prepare().expect("graph_prepare");
-
-    // Warm up: compile the kernel and allocate every buffer, so capture stays
-    // on the warm path (no compile / alloc / sync mid-capture).
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-
-    // Record one launch into a graph instead of executing it.
-    client.start_capture().expect("start_capture");
-    launch(&client);
-    let graph = client.stop_capture().expect("stop_capture");
+    // Rehearse the launch (compiled, discarded), then record it into a graph
+    // instead of executing it.
+    let (graph, ()) = client.capture(|| launch(&client)).expect("capture");
 
     // Replay executes the recorded launch; the output is input + 1.
     unsafe { graph.replay() }.expect("replay enqueues");
@@ -79,7 +70,7 @@ fn cuda_graph_capture_replay() {
 /// A capture window that has to grow the memory pool must be REJECTED, not handed back.
 ///
 /// The server rejects storage growth while recording, so every replay uses buffers
-/// prepared during warmup. Force that guard by requesting an allocation larger than
+/// the rehearsal left. Force that guard by requesting an allocation larger than
 /// the pool has served before, then verify that capture is rejected.
 #[test]
 fn cuda_graph_capture_growing_the_pool_is_rejected() {
@@ -100,11 +91,10 @@ fn cuda_graph_capture_growing_the_pool_is_rejected() {
         );
     };
 
-    client.graph_prepare().expect("graph_prepare");
+    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
     launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-
-    client.start_capture().expect("start_capture");
+    rehearsal.rehearsed().expect("rehearsed");
+    rehearsal.start_capture().expect("start_capture");
     launch(&client);
     // Force the pool to grow mid-capture: this deliberately odd size has never been allocated on
     // this client, so no free slice fits it and the storage must reach the device allocator.
@@ -141,14 +131,7 @@ fn cuda_graph_input_rewrite() {
         );
     };
 
-    client.graph_prepare().expect("graph_prepare");
-
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-
-    client.start_capture().expect("start_capture");
-    launch(&client);
-    let graph = client.stop_capture().expect("stop_capture");
+    let (graph, ()) = client.capture(|| launch(&client)).expect("capture");
 
     unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
@@ -204,26 +187,16 @@ fn cuda_graph_intermediate_recycling() {
         );
     };
 
-    // Prepare: the warmup run below leaves the pools holding `tmp`.
-    client.graph_prepare().expect("graph_prepare");
-
-    // Warm up so `tmp` is compiled and allocated, then freed, so the capture
-    // run reuses its slice without a fresh allocation.
-    {
-        let tmp = client.empty(bytes);
-        run(&client, &tmp);
-        let _ = client.read_one(output.clone()).unwrap();
-    }
-
-    // Capture the two-kernel computation; `tmp` reuses the warm slice.
-    client.start_capture().expect("start_capture");
-    let tmp = client.empty(bytes);
-    run(&client, &tmp);
-    let graph = client.stop_capture().expect("stop_capture");
-
-    // Drop `tmp` — the graph still references its pointer, but the pool now
-    // thinks the slice is free — then reallocate over it with sentinel buffers.
-    drop(tmp);
+    // Capture the two-kernel computation. `tmp` is its temporary: allocated
+    // and dropped by every run, so the recorded run reuses the slice the
+    // rehearsal left. The graph still references its pointer, but the pool
+    // now thinks the slice is free — so reallocate over it with sentinels.
+    let (graph, ()) = client
+        .capture(|| {
+            let tmp = client.empty(bytes);
+            run(&client, &tmp);
+        })
+        .expect("capture");
     let sentinels: Vec<Handle> = (0..8)
         .map(|_| client.create_from_slice(f32::as_bytes(&[999.0; 4])))
         .collect();
@@ -272,7 +245,7 @@ fn cuda_graph_many_launches_dynamic_metadata() {
     const PASS_LAUNCHES: usize = 150; // > 2x the drop-queue flush threshold
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
-    // sequence is run once as warmup and once recorded.
+    // sequence is rehearsed (discarded) and then recorded.
     fn run_pass(client: &Client, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
@@ -313,29 +286,16 @@ fn cuda_graph_many_launches_dynamic_metadata() {
     let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
 
-    client.graph_prepare().expect("graph_prepare");
-    run_pass(&client, &a, &b);
+    // Rehearse and record the pass; neither the rehearsals nor the recorded
+    // run execute it.
+    let (graph, ()) = client
+        .capture(|| run_pass(&client, &a, &b))
+        .expect("capture");
 
-    // The warmup executed normally (reads are still legal while prepared).
-    let (exp_a, exp_b) = simulate(0.0, 1);
-    assert_eq!(
-        f32::from_bytes(&client.read_one(a.clone()).unwrap()),
-        &exp_a[..]
-    );
-    assert_eq!(
-        f32::from_bytes(&client.read_one(b.clone()).unwrap()),
-        &exp_b[..]
-    );
-
-    // Record the identical sequence; recorded launches must not execute.
-    client.start_capture().expect("start_capture");
-    run_pass(&client, &a, &b);
-    let graph = client.stop_capture().expect("stop_capture");
-
-    // Warmup + 2 replays = 3 executed passes (the recorded pass ran 0 times).
+    // 2 replays = 2 executed passes.
     unsafe { graph.replay() }.expect("replay enqueues");
     unsafe { graph.replay() }.expect("replay enqueues");
-    let (exp_a, exp_b) = simulate(0.0, 3);
+    let (exp_a, exp_b) = simulate(0.0, 2);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),
         &exp_a[..]
@@ -395,4 +355,18 @@ fn cuda_graph_graphs_sharing_pinned_pages_replay_in_any_order() {
 fn cuda_graph_held_output_survives_another_graphs_replay() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::a_held_output_survives_another_graphs_replay::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::an_output_survives_an_earlier_graphs_replay`].
+#[test]
+fn cuda_graph_output_survives_an_earlier_graphs_replay() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::an_output_survives_an_earlier_graphs_replay::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::a_recording_that_keeps_a_rehearsed_temporary_does_not_seal`].
+#[test]
+fn cuda_graph_recording_that_keeps_a_rehearsed_temporary_does_not_seal() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_recording_that_keeps_a_rehearsed_temporary_does_not_seal::<CudaRuntime>();
 }

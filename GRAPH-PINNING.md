@@ -40,26 +40,45 @@ smaller graph after it then fits in that room. The stream holds about the larges
 temporaries plus every graph's held I/O. A larger graph recorded later still works: its
 warmup adds pages (or grows the page size), and only the extra is new memory.
 
-## Invariants for callers
+## Outputs never sit on shared room: the rehearsal
 
-1. **Keep a graph's outputs held for its life.** Cubecl already ensures this for buffers
-   the graph writes, through `Graph::written`.
-2. **An output allocated inside a capture window is valid only until another graph on the
-   stream replays.** This covers the recorded run's own outputs and anything the warmup
-   allocates and keeps. A capture may carve such a buffer from the room an *earlier* graph's
-   temporaries use, and that graph's next replay writes over it. Two ways to stay safe:
-   - Allocate the buffer before `graph_prepare`. An eager allocation never lands on pinned
-     room.
-   - Read or copy it right after its own graph's replay, before replaying another graph on
-     the stream.
+A graph's replay writes its temporaries over the room the stream's other graphs share. A
+buffer the captured work leaves behind, an output the caller reads, must never sit there, or
+another graph's replay overwrites it. Whether an allocation is a temporary or an output is
+only known once the work is over, and by then a recording has baked its address. So the work
+runs before it is recorded:
 
-   The reverse direction is safe. An earlier graph's held output is live during every later
-   capture, so no later capture can take it.
+1. **Rehearse.** `Client::capture(work)` prepares the stream and runs `work` with the stream's
+   launches discarded (a `StreamModeOverride(Discard)` on that stream alone, so other streams
+   keep running). Kernels compile and tunes measure for real, since the tuner only stops
+   deciding under `CompileOnly`. Pages stay eager, so the pools grow to what the recording
+   will ask for. Every allocation goes through `Command::allocate`, which lists it with its
+   size. When the run returns, with its output still held, `graph_rehearsed` drains the
+   deferred frees and marks each listed allocation as outlived (held) or not.
+2. **Until stable.** The rehearsal repeats until two runs in a row list the same allocations,
+   at most four times. A first run can take another path than the steady state (a tune, a fused
+   optimization being built).
+3. **Set aside.** As the window opens, one slice per output of the last run is reserved off
+   the shared room (`PinnedPages::Avoid`) and held for it.
+4. **Record.** The recorded run allocates the same sequence. Allocation *i* takes its slot when
+   the plan has an output of that size at *i*, and carves the shared room otherwise.
+5. **Check.** At seal, a recorded run that allocated another size or another count, or kept a
+   buffer its rehearsal let go, does not seal. That buffer sits on shared room. An output the
+   recording let go is no divergence: its slot only went back to the pools.
+
+What this leaves to callers:
+
+1. **The work allocates alike on every run.** It allocates the same buffers in the same order,
+   and keeps the same ones. A recording that does not is refused, never silently wrong.
+2. **The work does not read the device.** A rehearsal's launches never ran.
 3. **Late-freed temporaries share less.** Burn fusion releases handles lazily. A temporary
-   still held when a later capture runs is not free, so that capture cannot take it. This is
-   safe and only costs memory, so flush fusion before `stop_capture`.
-4. **One stream, one order.** Graphs on different streams never share room, because each
-   stream reserves from its own memory.
+   still held when a run ends looks like an output, takes room of its own and is not shared.
+   This is safe and only costs memory, so drain fusion before each run ends.
+4. **One stream, one order.** Graphs on different streams never share room, because each stream
+   reserves from its own memory.
+
+The graph still holds strong bindings to every buffer it writes (`Graph::written`), so an
+output stays its graph's even if the caller drops it.
 
 ## Metabolic follow-up (separate change)
 
@@ -70,9 +89,6 @@ warmup adds pages (or grows the page size), and only the extra is new memory.
   each list by descending width.
 - Drop the record-within-room stopgap (#1530), which recorded narrowest-first and stopped
   once the room ran out.
-- I/O is already outside the window. `CapturedDecode` allocates `tokens`, `ngram_rows`,
-  sampler rows, the counter and the seed before recording, and its output is the
-  token buffer it writes in place. `CapturedPrefill`'s output (logits) *is* allocated inside
-  its window. Each `step` copies it (`narrow(..).add_scalar(0.0)`) on the capture stream
-  straight after the replay, so invariant 2 holds. A refactor that reads the logits later
-  must keep that copy.
+- Capture through `Client::capture` (or burn's `capture`, which calls it). The rehearsal
+  replaces the warmup. `CapturedPrefill`'s copy of its logits after each replay is no longer
+  needed for correctness.

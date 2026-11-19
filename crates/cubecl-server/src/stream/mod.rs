@@ -5,6 +5,7 @@ pub mod base;
 mod capture;
 mod execute_scope;
 mod failures;
+mod rehearsal;
 
 #[cfg(multi_threading)]
 mod event;
@@ -13,6 +14,7 @@ pub use base::*;
 pub use capture::*;
 pub use execute_scope::*;
 pub use failures::*;
+pub use rehearsal::*;
 
 #[cfg(multi_threading)]
 pub use event::*;
