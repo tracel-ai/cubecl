@@ -1,14 +1,16 @@
 use alloc::{boxed::Box, vec::Vec};
 
 use crate::frontend::into_kernel_binding;
-use crate::prelude::{BufferArg, PeerArg, TensorArg, TensorMapArg, TensorMapKind};
-use crate::{InfoBuilder, ScalarArgType};
+use crate::prelude::{BufferArg, InputScalar, PeerArg, TensorArg, TensorMapArg, TensorMapKind};
+use crate::{InfoBuilder, MetadataOverflow, ScalarArgType};
+use alloc::string::{String, ToString};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{
-    BufferBinding, CubeCount, KernelResource, PeerAccess, PeerBinding, TensorMapBinding,
+    ArgumentOverflow, BufferBinding, CubeCount, KernelResource, LaunchError, PeerAccess,
+    PeerBinding, TensorMapBinding,
 };
 use cubecl_runtime::{client::Client, kernel::CubeKernel, server::KernelArguments};
 
@@ -27,6 +29,12 @@ pub struct KernelLauncher {
     declared_io: Vec<BufferIOAttr>,
     /// The declaration the next registered resources fall under.
     declaring: BufferIOAttr,
+    /// The name of the argument being registered, for the errors registering
+    /// it can raise — see [`name_argument`](Self::name_argument).
+    argument: &'static str,
+    /// The first value registered that the kernel's address type cannot
+    /// hold. The launch carries it to the server, which refuses to run it.
+    overflow: Option<ArgumentOverflow>,
     address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
@@ -66,9 +74,70 @@ impl KernelLauncher {
         self.with_info(|info| info.scalars.push_raw(bytes, dtype));
     }
 
+    /// Register a `usize` or `isize` scalar, read by the kernel as `dtype`, the unsigned or
+    /// signed type of its address type.
+    ///
+    /// A value `dtype` cannot hold is not truncated: a zero stands in for it, so the arguments
+    /// keep the layout the kernel expects, and the launch is refused with an
+    /// [`ArgumentOverflow`] naming it.
+    pub fn register_address_scalar<E: num_traits::ToPrimitive + Copy>(
+        &mut self,
+        value: E,
+        dtype: ElemType,
+        registered_as: ElemType,
+    ) {
+        let scalar = InputScalar::try_new(value, dtype).unwrap_or_else(|| {
+            let value = value.to_i128().expect("a `usize` or `isize` is an `i128`");
+            self.record_overflow("value".to_string(), value, dtype.to_string());
+            InputScalar::new(0, dtype)
+        });
+        self.register_scalar_raw(scalar.as_bytes(), registered_as);
+    }
+
+    /// Name the argument registered from here on, until the next name, in the
+    /// errors registering it can raise.
+    ///
+    /// The generated launch functions call this before each argument with the
+    /// name the kernel's signature gives it.
+    pub fn name_argument(&mut self, argument: &'static str) {
+        self.argument = argument;
+    }
+
+    /// Keep the first value the kernel's address type cannot hold.
+    fn record_overflow(&mut self, quantity: String, value: i128, ty: String) {
+        if self.overflow.is_some() {
+            return;
+        }
+        let argument = match self.argument {
+            "" => alloc::format!("#{}", self.resources.len()),
+            name => name.to_string(),
+        };
+        self.overflow = Some(ArgumentOverflow {
+            kernel: String::new(),
+            argument,
+            quantity,
+            value,
+            ty,
+        });
+    }
+
+    /// Keep a metadata value the kernel's address type cannot hold.
+    fn record_metadata_overflow(&mut self, overflow: MetadataOverflow) {
+        let value = i128::try_from(overflow.value).unwrap_or(i128::MAX);
+        let ty = self.address_type.unsigned_type().to_string();
+        self.record_overflow(overflow.quantity.to_string(), value, ty);
+    }
+
     /// Launch the kernel.
+    ///
+    /// A value registered that the kernel's address type cannot hold does not
+    /// panic here: the launch is refused on the device, and its outputs fail
+    /// to read on an [`ArgumentOverflow`] naming the argument and the value.
     #[track_caller]
-    pub fn launch<K: CubeKernel>(self, cube_count: CubeCount, kernel: K, client: &Client) {
+    pub fn launch<K: CubeKernel>(mut self, cube_count: CubeCount, kernel: K, client: &Client) {
+        if let Some(overflow) = &mut self.overflow {
+            overflow.kernel = kernel.name().to_string();
+        }
         let bindings = self.into_bindings();
         let kernel = Box::new(kernel);
 
@@ -104,6 +173,7 @@ impl KernelLauncher {
         bindings.resources = self.resources;
         bindings.declared_io = self.declared_io;
         bindings.info = info;
+        bindings.argument_error = self.overflow.map(LaunchError::from);
 
         bindings
     }
@@ -204,7 +274,7 @@ impl KernelLauncher {
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
 
-        self.with_info(|info| {
+        let registered = self.with_info(|info| {
             info.metadata.register_tensor(
                 buffer_len,
                 tensor.shape.clone(),
@@ -212,6 +282,9 @@ impl KernelLauncher {
                 address_type,
             )
         });
+        if let Err(overflow) = registered {
+            self.record_metadata_overflow(overflow);
+        }
         Some(tensor.handle)
     }
 
@@ -244,7 +317,11 @@ impl KernelLauncher {
         };
 
         let address_type = self.address_type;
-        self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
+        let registered =
+            self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
+        if let Err(overflow) = registered {
+            self.record_metadata_overflow(overflow);
+        }
         Some(handle)
     }
 
@@ -295,6 +372,8 @@ impl KernelLauncher {
             resources: Vec::new(),
             declared_io: Vec::new(),
             declaring: BufferIOAttr::ReadWrite,
+            argument: "",
+            overflow: None,
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),
             #[cfg(not(feature = "std"))]
