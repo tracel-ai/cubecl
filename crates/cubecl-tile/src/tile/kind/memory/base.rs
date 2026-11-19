@@ -373,7 +373,8 @@ pub enum Storage {
     /// Untiled storage: every window lies inside the one storage tile.
     Strided,
     /// Storage-tiled, and the window may span several tiles.
-    /// The level is the one whose tile the storage tile is; `None` if no level's.
+    /// The level is the one whose tile the storage tile is; `None` if no level's, or if the operand
+    /// is checked, as a window inside a storage tile is read unmasked.
     Tiled(Option<usize>),
 }
 
