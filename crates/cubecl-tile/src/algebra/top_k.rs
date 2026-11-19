@@ -8,10 +8,12 @@ use crate::algebra::indexed::{nan_lanes, ordered_only, wins};
 use crate::space::UnitShare;
 use crate::{Carrier, Indexed, Monoid};
 
-/// The most steps a `K`-by-`K` walk of a [`TopK`] is unrolled to: past it, as for the `k = 300`
-/// of an object-detection head, the walks stay loops, since unrolled the kernel grows with `K²`
-/// and the backend compilers stop returning from it.
-pub const TOP_K_UNROLL_BUDGET: usize = 1024;
+/// The most steps a `K`-by-`K` walk of a [`TopK`] is unrolled to, up to `k = 64`: within it the
+/// list stays in registers. Past it, as for the `k = 300` of an object-detection head, the walks
+/// stay loops, since unrolled the kernel grows with `K²` and the backend compilers stop
+/// returning from it. A loop around a walk, over the values a list takes in from memory, stays a
+/// loop whatever `K`: unrolled, its code outgrows the instruction cache.
+pub const TOP_K_UNROLL_BUDGET: usize = 4096;
 
 /// The `K` best values seen, each with the index it was read at, best first, pointwise on
 /// vectors: `Monoid::Max` over it is the top-k, `Monoid::Min` the bottom-k.
