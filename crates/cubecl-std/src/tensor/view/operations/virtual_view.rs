@@ -142,11 +142,9 @@ macro_rules! impl_virtual_read {
                     .__expand_to_source_pos_checked_method(scope, pos);
                 // The view below masks its own edge with the same value, so a read past either
                 // edge returns `mask_value`, never the zero a checked read would.
-                let value = self.view.__expand_read_masked_method(
-                    scope,
-                    read_pos,
-                    mask_value.clone(),
-                );
+                let value =
+                    self.view
+                        .__expand_read_masked_method(scope, read_pos, mask_value.clone());
                 select::expand::<T>(scope, in_bounds, value, mask_value)
             }
 
