@@ -79,7 +79,7 @@ fn weights<E: Float>() -> Weights<E> {
 #[cube(launch)]
 fn separable_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     #[comptime] separable: bool,
     space: Partitioning,
     #[comptime] level: Level,
@@ -101,7 +101,7 @@ fn separable_kernel<E: Float>(
         .tile::<E>()
     };
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
@@ -115,7 +115,7 @@ fn separable_kernel<E: Float>(
 #[cube(launch)]
 fn separable_kernel_staged<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     #[comptime] width: Option<usize>,
     space: Partitioning,
     #[comptime] level: Level,
@@ -129,7 +129,7 @@ fn separable_kernel_staged<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages =
         Stages::smem_single_at(&walk, &input, StageStorage::Strided, width, 1usize, None);
@@ -371,7 +371,7 @@ fn resample_weights<E: Float>() -> Weights<E> {
 #[cube(launch)]
 fn resample_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     #[comptime] normalized: bool,
     space: Partitioning,
     #[comptime] level: Level,
@@ -389,7 +389,7 @@ fn resample_kernel<E: Float>(
     }
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
@@ -488,7 +488,7 @@ fn check_resampling(normalized: bool) {
 /// distinguish the checked-read zero from an in-bounds sample without relying on backing memory.
 #[cube(launch)]
 fn procedural_mask_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -498,7 +498,7 @@ fn procedural_mask_kernel<E: Float>(
         affine_along(TAP[0], E::new(1.0), E::new(1.0)),
     )
     .tile::<E>();
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.zero();
 
     for region in rhs.over(&level) {
@@ -568,7 +568,7 @@ fn masked_normalization_excludes_a_procedural_overhang() {
 #[cube(launch)]
 fn resample_kernel_masked<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -584,7 +584,7 @@ fn resample_kernel_masked<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
@@ -598,7 +598,7 @@ fn resample_kernel_masked<E: Float>(
 #[cube(launch)]
 fn resample_kernel_masked_staged<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -614,7 +614,7 @@ fn resample_kernel_masked_staged<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages = Stages::smem_single(&walk, &input, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
@@ -804,7 +804,7 @@ fn masked_normalization_dedarkens_a_boundary_zero_smem_input() {
 #[cube(launch)]
 fn column_spanning_resample_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -817,7 +817,7 @@ fn column_spanning_resample_kernel<E: Float>(
     .normalized(comptime!(TapSupport::Whole), comptime!(DivGuard::default()))
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
@@ -901,7 +901,7 @@ fn a_column_spanning_separable_lhs_normalizes_its_factor_run() {
 #[cube(launch)]
 fn column_spanning_resample_kernel_masked<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -917,7 +917,7 @@ fn column_spanning_resample_kernel_masked<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
@@ -1008,7 +1008,7 @@ fn a_column_spanning_separable_lhs_masks_and_dedarkens_boundary_zero_gmem_input(
 #[cube(launch)]
 fn zero_sum_fallback_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -1032,7 +1032,7 @@ fn zero_sum_fallback_kernel<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
@@ -1104,7 +1104,7 @@ fn a_zero_factor_sum_takes_fallback_without_poisoning_siblings() {
 fn separable_scaled_kernel<E: Float>(
     input: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -1118,7 +1118,7 @@ fn separable_scaled_kernel<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let decoded = input.mul(&scale);
     let mut stages = Stages::smem_single(&walk, &decoded, StageStorage::Strided, 1usize, None);

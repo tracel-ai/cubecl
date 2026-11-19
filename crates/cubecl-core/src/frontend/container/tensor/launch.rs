@@ -1,4 +1,5 @@
 use cubecl_ir::AddressType;
+use cubecl_ir::interfaces::TypedExt;
 use cubecl_runtime::server::CopyDescriptor;
 use cubecl_zspace::{MetadataError, Shape, Strides, Tiling};
 
@@ -114,6 +115,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
         let vector_size = launcher.with_scope(|scope| C::__expand_vector_size(scope));
+        let atomic = launcher.with_scope(|scope| C::__expand_as_type(scope).is_atomic(scope.ctx()));
         let len = arg.size() / vector_size;
         let meta_arg = TensorMetaLaunch::new(len, arg.shape().len());
         let buffer = match &arg {
@@ -122,7 +124,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
                 inplace: Some(*input_pos),
             },
         };
-        launcher.register_tensor(arg, elem_size);
+        launcher.registering_elem(atomic, |launcher| launcher.register_tensor(arg, elem_size));
         let meta = TensorMeta::register(meta_arg, launcher);
         TensorCompilationArg { meta, buffer }
     }

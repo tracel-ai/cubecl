@@ -35,13 +35,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn smem_split_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let mut c_cube = c.at(&cube);
         let sum = c_cube.smem_accumulation::<E>();
@@ -69,14 +69,14 @@ fn smem_split_matmul<E: Numeric>(
 fn smem_cyclic_split_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] planes: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let mut c_cube = c.at(&cube);
         let sum = c_cube.smem_cyclic_accumulation::<E>(planes);
@@ -102,7 +102,7 @@ fn smem_cyclic_split_matmul<E: Numeric>(
 fn smem_consumed_matmul<E: Numeric, O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -437,14 +437,14 @@ fn cyclic_rounds_sum_the_same_every_run() {
 fn fragment_matmul_into_a_short_window<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] copies: bool,
     #[define(E)] _output: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
@@ -592,14 +592,14 @@ fn short_window_matmul(copies: bool) {
 fn smem_split_fragment_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     touched: &mut Tensor<f32>,
     space: Partitioning,
     #[define(E)] _sum: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let mut c_cube = c.at(&cube);
         let sum = c_cube.smem_accumulation::<E>();

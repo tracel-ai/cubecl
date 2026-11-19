@@ -48,13 +48,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn split_partials(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    partials: &TileTensor<'_>,
+    partials: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let partials = partials.tile(&space);
+    let partials = partials.tile_mut(&space);
     for region in space.over(&level) {
         let mut partials_cube = partials
             .at(&region)
@@ -66,13 +66,13 @@ fn split_partials(
 /// The second pass: sum the split dimension away.
 #[cube(launch)]
 fn reduce_splits(
-    partials: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    partials: &mut TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
-    let partials = partials.tile(&space);
-    let out = out.tile(&space);
+    let partials = partials.tile_mut(&space);
+    let out = out.tile_mut(&space);
     for region in space.over(&level) {
         let mut out_cube = out.at(&region);
         out_cube.reduce_dimension(&partials.at(&region), Monoid::Sum);
@@ -318,14 +318,14 @@ const K: Dimension = Dimension(4);
 fn atomic_split_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     // The accumulator mirrors the output's grid at this level: opened above the walk, one
     // fragment per region, drained once through the sink after it.
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
@@ -345,7 +345,7 @@ fn atomic_split_matmul<E: Numeric>(
 fn atomic_split_matmul_by_unit<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] plane_units: Level,
@@ -353,7 +353,7 @@ fn atomic_split_matmul_by_unit<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     // Opened above both walks, so it holds what one unit of one cube sums: its own columns
     // against that cube's slice of the contraction.
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
@@ -674,14 +674,14 @@ fn an_atomic_drain_sums_across_planes() {
 fn atomic_split_matmul_in_place<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
@@ -780,13 +780,13 @@ fn a_summing_output_contracts_in_place() {
 fn atomic_split_cmma<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     for cube in space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
@@ -950,12 +950,12 @@ fn adds_atomically(client: &cubecl::client::Client) -> bool {
 #[cube(launch)]
 fn copy_into_summing<E: Numeric>(
     src: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let src = src.tile(&space);
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     out.copy_from(&src);
 }
 

@@ -37,13 +37,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn coarse_lhs_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c

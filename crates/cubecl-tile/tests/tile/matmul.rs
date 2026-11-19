@@ -122,7 +122,7 @@ fn assert_matmul_arange(client: &Client, handle: TensorHandle, m: usize, n: usiz
 fn matmul_in_place<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] runs: Option<Level>,
@@ -133,7 +133,7 @@ fn matmul_in_place<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for outer in space.over(&outer) {
         match runs.clone() {
             Some(runs) => {
@@ -178,7 +178,7 @@ fn contract_in_place<E: Numeric>(
 fn matmul_smem_ring(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] runs: Option<Level>,
@@ -187,7 +187,7 @@ fn matmul_smem_ring(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         match runs.clone() {
             Some(runs) => {
@@ -235,7 +235,7 @@ fn contract_staged(
 fn matmul_smem_ring_scheduled(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -246,7 +246,7 @@ fn matmul_smem_ring_scheduled(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let a = a.at(&cube);
         let b = b.at(&cube);
@@ -298,14 +298,14 @@ fn contract_on_the_last_unit(c: &Tile, a: &Tile, b: &Tile) {
 fn matmul_smem_ring_accumulate(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
     stages.pipelined(walk, |slot, region| {
@@ -323,14 +323,14 @@ fn matmul_smem_ring_accumulate(
 fn matmul_lhs_smem_ring(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     let walk = space.over(&level);
     let mut stages = Stages::smem_single(&walk, &a, StageStorage::Strided, depth, None);
@@ -351,14 +351,14 @@ fn matmul_lhs_smem_ring(
 fn matmul_padded_rhs_stage(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] width: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     // This instance's windows of `c`, each initialized once: the level projected
     // onto `c`'s own dimensions walks nothing it does not span.
     for region in c.over(&level) {
@@ -391,7 +391,7 @@ fn matmul_padded_rhs_stage(
 fn matmul_padded_lhs_stage_two_levels(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -399,7 +399,7 @@ fn matmul_padded_lhs_stage_two_levels(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     // This instance's windows of `c`, each initialized once: the level projected
     // onto `c`'s own dimensions walks nothing it does not span.
     for region in c.over(&outer) {
@@ -437,7 +437,7 @@ fn matmul_padded_lhs_stage_two_levels(
 fn matmul_two_levels_smem_then_in_place(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -446,7 +446,7 @@ fn matmul_two_levels_smem_then_in_place(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     let walk = space.over(&outer);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);
@@ -468,7 +468,7 @@ fn matmul_two_levels_smem_then_in_place(
 fn matmul_two_levels_smem_then_smem(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -478,7 +478,7 @@ fn matmul_two_levels_smem_then_smem(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     // This instance's windows of `c`, each initialized once: the level projected
     // onto `c`'s own dimensions walks nothing it does not span.
     for region in c.over(&outer) {
@@ -511,7 +511,7 @@ fn matmul_two_levels_smem_then_smem(
 fn promoted_matmul_in_place<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] config: SoftwareMatmul,
@@ -520,7 +520,7 @@ fn promoted_matmul_in_place<EA: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<EA>(&a, &b, config, semiring);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
@@ -535,14 +535,14 @@ fn promoted_matmul_in_place<EA: Numeric>(
 fn promoted_matmul_two_levels_in_place<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] config: SoftwareMatmul,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         for plane in cube {
             let c_p = c.at(&plane);
@@ -565,7 +565,7 @@ fn promoted_matmul_two_levels_in_place<EA: Numeric>(
 fn block_matmul_two_levels_smem_below<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -573,7 +573,7 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for outer in space.over(&outer) {
         let acc_o = acc.at(&outer);
@@ -600,7 +600,7 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
 fn cmma_matmul_k_walk<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] storage: StageStorage,
@@ -609,7 +609,7 @@ fn cmma_matmul_k_walk<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, storage, depth, None);
@@ -629,7 +629,7 @@ fn cmma_matmul_k_walk<E: Numeric>(
 fn cmma_matmul_two_levels_planes<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -638,7 +638,7 @@ fn cmma_matmul_two_levels_planes<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&outer);
     let mut stages = Stages::smem(
@@ -676,7 +676,7 @@ fn cmma_matmul_two_levels_planes<E: Numeric>(
 fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] stage: Level,
     #[comptime] plane: Level,
@@ -686,7 +686,7 @@ fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
@@ -728,7 +728,7 @@ fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
 fn cmma_matmul_partition_in_one_call<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] stage: Level,
     #[comptime] plane: Level,
@@ -738,7 +738,7 @@ fn cmma_matmul_partition_in_one_call<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
@@ -776,7 +776,7 @@ fn cmma_matmul_partition_in_one_call<E: Numeric>(
 fn cmma_matmul_five_levels<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] stage: Level,
     #[comptime] plane: Level,
@@ -788,7 +788,7 @@ fn cmma_matmul_five_levels<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&stage);
     let mut stages = Stages::smem(
@@ -2643,14 +2643,14 @@ fn a_plane_stages_its_own_walk() {
 fn plane_staged_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         for plane in cube {
             let c_p = c.at(&plane);
@@ -2684,14 +2684,14 @@ fn plane_staged_matmul<E: Numeric>(
 fn matmul_on_either_sum<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] registers: Option<SoftwareMatmul>,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         for plane in cube {
             let c_p = c.at(&plane);
@@ -3597,7 +3597,7 @@ fn check_cmma_matmul_k_walk_with(
 fn staged_matmul_on_either_sum<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] storage: StageStorage,
@@ -3607,7 +3607,7 @@ fn staged_matmul_on_either_sum<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = match registers {
         Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SUM_PROD),
         None => c.accumulator::<E>(&a, &b, Semiring::SUM_PROD),

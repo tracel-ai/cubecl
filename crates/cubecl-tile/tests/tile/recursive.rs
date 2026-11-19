@@ -59,12 +59,12 @@ fn recursive_two_level_tiled_view() {
 #[cube(launch)]
 fn copy_logical<E: Numeric>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     let r = input.view::<E, Const<1>>();
     let mut w = output.view_mut::<E, Const<1>>();
     let shape = r.shape();

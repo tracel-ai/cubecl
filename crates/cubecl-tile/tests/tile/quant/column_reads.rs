@@ -28,14 +28,14 @@ fn column_one_row_product<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let values = w.tile(&space);
     let w = values.mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let values = values.at(&cube);
@@ -62,12 +62,12 @@ fn column_one_row_product_in_memory(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &c {
         let mut c_w = c.at(&cube);
         c_w.zero();

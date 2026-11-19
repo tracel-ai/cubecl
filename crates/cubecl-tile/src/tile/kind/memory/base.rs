@@ -78,11 +78,22 @@ pub(crate) enum AddressSpace {
 pub(crate) enum Backing {
     /// Bytes this kernel addresses directly, grouped into lines at `vector_size`.
     Buffer(Raw<Slice>),
+    /// Bytes this kernel addresses directly and only reads: an operand served from a
+    /// [`TileTensor`] taken by `&` ([`TileTensor::tile`]), which its launch declares read-only.
+    ReadBuffer(Raw<Slice>),
     /// A write-only destination that is not memory (an erased tensor).
     WriteCall(RawCall<WriteOnly>),
     /// A read-only producer that is not memory.
     ReadCall(RawCall<ReadOnly>),
 }
+
+/// The refusal of a write into a tile served from a [`TileTensor`] taken by `&`.
+///
+/// The launch declares such an operand's buffers read-only, and a launch that fails before it
+/// runs fails the reads of only the buffers it declares written: a write through `&` would leave
+/// its output unclaimed, read back as whatever the allocation held.
+pub(crate) const READ_ONLY: &str = "a tile served from a `TileTensor` taken by `&` is read-only: \
+    take the operand by `&mut` and serve it with `TileTensor::tile_mut`";
 
 /// What a [`Memory`]'s values are: their backing, line width and packing.
 #[derive(CubeType, Clone)]
@@ -150,7 +161,7 @@ impl Store {
     /// store intrinsic needs; a write call has none.
     pub(crate) fn addressed(&self) -> comptime_type!(bool) {
         match &self.backing {
-            Backing::Buffer(_) | Backing::ReadCall(_) => comptime!(true),
+            Backing::Buffer(_) | Backing::ReadBuffer(_) | Backing::ReadCall(_) => comptime!(true),
             Backing::WriteCall(_) => comptime!(false),
         }
     }
@@ -160,7 +171,7 @@ impl Store {
     #[allow(clippy::borrowed_box)]
     pub(crate) fn buffer<T: Numeric>(&self) -> &Box<[T]> {
         match &self.backing {
-            Backing::Buffer(buffer) => buffer.at::<T>(),
+            Backing::Buffer(buffer) | Backing::ReadBuffer(buffer) => buffer.at::<T>(),
             Backing::WriteCall(_) => panic!(
                 "Store::buffer: this tile's backing is written through a call, which has no \
                  address, it can only be written through its layout"
@@ -178,7 +189,7 @@ impl Store {
     /// a call holds none.
     pub(crate) fn free(&self) {
         match &self.backing {
-            Backing::Buffer(buffer) => buffer.free(),
+            Backing::Buffer(buffer) | Backing::ReadBuffer(buffer) => buffer.free(),
             Backing::WriteCall(_) | Backing::ReadCall(_) => {}
         }
     }
@@ -186,7 +197,7 @@ impl Store {
     /// Whether the values have an address: a buffer, rather than a call.
     pub(crate) fn has_address(&self) -> comptime_type!(bool) {
         match &self.backing {
-            Backing::Buffer(_) => comptime!(true),
+            Backing::Buffer(_) | Backing::ReadBuffer(_) => comptime!(true),
             Backing::WriteCall(_) | Backing::ReadCall(_) => comptime!(false),
         }
     }
@@ -196,6 +207,7 @@ impl Store {
     pub(crate) fn buffer_mut<T: Numeric>(&mut self) -> &mut Box<[T]> {
         match &mut self.backing {
             Backing::Buffer(buffer) => buffer.at_mut::<T>(),
+            Backing::ReadBuffer(_) => panic!("{}", READ_ONLY),
             Backing::WriteCall(_) => panic!(
                 "Store::buffer_mut: this tile's backing is written through a call, which has no \
                  address, it can only be written through its layout"

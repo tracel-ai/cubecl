@@ -52,14 +52,14 @@ enum Stage {
 pub(crate) fn conv_kernel(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] config: SoftwareMatmul,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for region in space.over(&level) {
         let mut out_region = out.at(&region).accumulating(config, Semiring::SUM_PROD);
         out_region.mm(&input.at(&region), &weight.at(&region));
@@ -73,7 +73,7 @@ pub(crate) fn conv_kernel(
 fn conv_kernel_smem(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] config: SoftwareMatmul,
     #[comptime] depth: usize,
     space: Partitioning,
@@ -81,7 +81,7 @@ fn conv_kernel_smem(
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
     stages.pipelined(walk, |slot, region| {
@@ -98,7 +98,7 @@ fn conv_kernel_smem(
 fn conv_kernel_smem_padded(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] config: SoftwareMatmul,
     #[comptime] depth: usize,
     #[comptime] width: usize,
@@ -107,7 +107,7 @@ fn conv_kernel_smem_padded(
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages = Stages::smem_single_at(
         &walk,
@@ -132,7 +132,7 @@ fn conv_kernel_smem_padded(
 fn conv_kernel_two_levels(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] config: SoftwareMatmul,
     space: Partitioning,
     #[comptime] outer: Level,
@@ -140,7 +140,7 @@ fn conv_kernel_two_levels(
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for outer in space.over(&outer) {
         let out_outer = out.at(&outer);
         let input_outer = input.at(&outer);
@@ -160,7 +160,7 @@ fn conv_kernel_two_levels(
 fn conv_kernel_two_levels_smem(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] config: SoftwareMatmul,
     #[comptime] depth: usize,
     space: Partitioning,
@@ -169,7 +169,7 @@ fn conv_kernel_two_levels_smem(
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let walk = space.over(&outer);
     let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
     stages.pipelined(walk, |slot, region| {
@@ -2219,13 +2219,13 @@ fn resize1d_staged_vectorized() {
 fn conv_kernel_input_staged(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let mut stage = input.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&input.at(&region));

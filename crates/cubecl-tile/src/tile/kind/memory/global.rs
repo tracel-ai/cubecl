@@ -37,6 +37,7 @@ pub struct GlobalOperand {
 impl GlobalOperand {
     /// A launched tensor, `space` projected onto the `spec` dimensions; shape and strides in
     /// scalars.
+    /// Read-only: a write into a tile of it is refused as the kernel expands.
     pub fn tensor<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -49,12 +50,31 @@ impl GlobalOperand {
             Coords::<u32>::new(),
             Coords::<i32>::new(),
             ComptimeOption::new_None(),
+            false,
+        )
+    }
+
+    /// The writable twin of [`tensor`](GlobalOperand::tensor).
+    pub fn tensor_mut<T: Numeric, E: CubePrimitive<Scalar = T>>(
+        tensor: &mut Tensor<E>,
+        #[comptime] space: Space,
+        #[comptime] spec: TileSpec,
+    ) -> GlobalOperand {
+        GlobalOperand::of_tensor::<T, E>(
+            &*tensor,
+            space.clone(),
+            spec,
+            Coords::<u32>::new(),
+            Coords::<i32>::new(),
+            ComptimeOption::new_None(),
+            true,
         )
     }
 
     /// [`tensor`](GlobalOperand::tensor) over a pool of pages, read as the sequences `table` names
     /// ([`Paging`]): the spec states which dimensions the table resolves, the tensor is the pool as
-    /// it lies, and the operand's extent along the two dimensions is the table's.
+    /// it lies, and the operand's extent along the two dimensions is the table's. Read-only: a
+    /// pool is written where it lies.
     pub fn paged<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         table: &Tensor<u32>,
@@ -84,17 +104,20 @@ impl GlobalOperand {
             Coords::<u32>::new(),
             Coords::<i32>::new(),
             ComptimeOption::new_Some(table),
+            false,
         )
     }
 
     /// [`tensor`](GlobalOperand::tensor) for a gather with a runtime affine map.
     /// `coefficients` and `offsets` follow the field order; only their lengths are checked.
+    /// Written only where `writable`.
     pub(crate) fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: &Space,
         #[comptime] spec: TileSpec,
         coefficients: Coords<u32>,
         offsets: Coords<i32>,
+        #[comptime] writable: bool,
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
@@ -103,11 +126,14 @@ impl GlobalOperand {
             coefficients,
             offsets,
             ComptimeOption::new_None(),
+            writable,
         )
     }
 
     /// The shared body: `E` is the binding element, `T` the served scalar, `paging` the table a
-    /// pool of pages is read through, which sets the operand's extent along its two dimensions.
+    /// pool of pages is read through, which sets the operand's extent along its two dimensions,
+    /// and `writable` whether a tile of it may be written.
+    #[allow(clippy::too_many_arguments)]
     fn of_tensor<T: Numeric, E: CubePrimitive>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -115,24 +141,27 @@ impl GlobalOperand {
         coefficients: Coords<u32>,
         offsets: Coords<i32>,
         paging: ComptimeOption<PageTable>,
+        #[comptime] writable: bool,
     ) -> GlobalOperand {
         let rank = spec.projection.physical_rank();
         // Held at what the binding holds: `T`, or the `u32` words a packed one packs it in.
-        let backing = match spec.packing {
-            Packing::Plain | Packing::Words { .. } => {
-                Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
-                    tensor
-                        .as_slice()
-                        .downcast_unchecked::<T>()
-                        .as_boxed_unchecked()
-                }))
-            }
-            Packing::Packed { .. } => Backing::new_Buffer(Raw::<Slice>::of::<u32>(unsafe {
+        let raw = match spec.packing {
+            Packing::Plain | Packing::Words { .. } => Raw::<Slice>::of::<T>(unsafe {
+                tensor
+                    .as_slice()
+                    .downcast_unchecked::<T>()
+                    .as_boxed_unchecked()
+            }),
+            Packing::Packed { .. } => Raw::<Slice>::of::<u32>(unsafe {
                 tensor
                     .as_slice()
                     .downcast_unchecked::<u32>()
                     .as_boxed_unchecked()
-            })),
+            }),
+        };
+        let backing = match writable {
+            true => Backing::new_Buffer(raw),
+            false => Backing::new_ReadBuffer(raw),
         };
         let pool = RuntimeGeometry::of_tensor::<E>(tensor, rank);
         #[comptime]

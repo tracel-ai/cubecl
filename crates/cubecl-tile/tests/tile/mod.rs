@@ -54,6 +54,7 @@ mod top_k;
 mod top_values;
 mod vector_tile;
 mod wgmma;
+mod written_operands;
 
 use cubecl::prelude::*;
 use cubecl_tile::{Dimension, Launcher, Partitioning, Space, launch::Grid};

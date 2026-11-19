@@ -32,14 +32,14 @@ const FORMS: [Form<'static>; 4] = [
 fn contract<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = x.tile(&space);
     let b = w.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     let acc = c.register_accumulator::<E>(
         &a,
         &b,

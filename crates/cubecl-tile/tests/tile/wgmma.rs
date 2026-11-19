@@ -61,7 +61,7 @@ impl AsyncStage for GroupMma {
 fn wgmma_walk(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] storage: StageStorage,
@@ -69,7 +69,7 @@ fn wgmma_walk(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
         let walk = cube.walk();

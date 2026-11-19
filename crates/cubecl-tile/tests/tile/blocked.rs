@@ -45,13 +45,13 @@ const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 fn matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
@@ -65,7 +65,7 @@ fn scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -73,7 +73,7 @@ fn scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
@@ -563,13 +563,13 @@ fn scales_omit_the_dimension_inside_the_column_block() {
 fn wide_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
@@ -668,14 +668,14 @@ fn wide_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
@@ -795,14 +795,14 @@ fn scales_are_served_several_at_a_time() {
 fn promoted_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -905,7 +905,7 @@ fn wide_scaled_promoted<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -913,7 +913,7 @@ fn wide_scaled_promoted<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -1029,14 +1029,14 @@ fn wide_typed_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);

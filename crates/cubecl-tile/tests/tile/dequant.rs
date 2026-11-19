@@ -28,12 +28,12 @@ const CI: Dimension = Dimension(2);
 fn dequantize(
     weights: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let weights = weights.tile(&space);
     let scales = scales.tile(&space);
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     out.product(&weights, &scales);
 }
 

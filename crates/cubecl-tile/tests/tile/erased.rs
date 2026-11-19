@@ -48,11 +48,11 @@ impl<T: Float> Recipe<T> for Position {
 /// The store as it has always been: the operand's own buffer.
 #[cube(launch)]
 fn buffer_kernel<E: Float>(
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     let src =
         Procedural::new::<E, Position>(comptime!(space.space().clone()), Position {}).tile::<E>();
     dst.copy_from(&src);
@@ -64,7 +64,11 @@ fn buffer_kernel<E: Float>(
 /// what makes the two comparable: nothing about the destination differs except
 /// that this one is addressed through [`Tile::of_sink`] and lands in a call.
 #[cube(launch)]
-fn sink_kernel<E: Float>(out: &TileTensor<'_>, space: Partitioning, #[define(E)] _dtype: ElemType) {
+fn sink_kernel<E: Float>(
+    out: &mut TileTensor<'_>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
     // The geometry a sink cannot be asked for, taken off the tensor behind it.
     let geometry =
         RuntimeGeometry::of_tensor::<Vector<E, Const<1>>>(out.lines::<E, Const<1>>(), 2usize);
@@ -268,14 +272,14 @@ const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 fn buffer_matmul<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
@@ -294,7 +298,7 @@ fn buffer_matmul<EA: Numeric>(
 fn sink_matmul<E: Numeric, EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -333,7 +337,7 @@ fn sink_matmul<E: Numeric, EA: Numeric>(
 fn source_matmul<E: Numeric, EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -352,7 +356,7 @@ fn source_matmul<E: Numeric, EA: Numeric>(
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
@@ -533,9 +537,9 @@ fn masked_space(form: Form) -> Launcher {
 /// per *line*, so at a width of two both components of a line would carry one value and the test
 /// could not tell a masked store from a store one unit wide.
 #[cube(launch)]
-fn wide_buffer_kernel(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
+fn wide_buffer_kernel(input: &TileTensor<'_>, out: &mut TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     dst.copy_from(&src);
 }
 
@@ -543,7 +547,7 @@ fn wide_buffer_kernel(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Parti
 #[cube(launch)]
 fn wide_sink_kernel<E: Float>(
     input: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -568,7 +572,7 @@ fn wide_sink_kernel<E: Float>(
 #[cube(launch)]
 fn wide_source_kernel<E: Float>(
     input: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -583,7 +587,7 @@ fn wide_source_kernel<E: Float>(
         comptime!(input.spec.clone()),
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     dst.copy_from(&src);
 }
 

@@ -21,17 +21,21 @@ const MB: Dimension = Dimension(3);
 
 /// The values packed from `input`, under the block scales they carry, which the copy computes.
 #[cube(launch)]
-fn quantize_copy(input: &TileTensor<'_>, packed: &TileTensor<'_>, space: Partitioning) {
+fn quantize_copy(input: &TileTensor<'_>, packed: &mut TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let mut packed = packed.tile(&space);
+    let mut packed = packed.tile_mut(&space);
     packed.quantize_from(&input);
 }
 
 /// Each plane of the launch writing its box of the packed values from the float ones.
 #[cube(launch)]
-fn quantize_planes(input: &TileTensor<'_>, packed: &TileTensor<'_>, partitioning: Partitioning) {
+fn quantize_planes(
+    input: &TileTensor<'_>,
+    packed: &mut TileTensor<'_>,
+    partitioning: Partitioning,
+) {
     let input = input.tile(&partitioning);
-    let packed = packed.tile(&partitioning);
+    let packed = packed.tile_mut(&partitioning);
     for plane in &partitioning {
         let mut packed = packed.at(&plane);
         packed.quantize_from(&input.at(&plane));
