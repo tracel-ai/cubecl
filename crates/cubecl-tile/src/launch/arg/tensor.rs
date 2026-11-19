@@ -663,6 +663,22 @@ impl TileTensorLaunch {
     }
 }
 
+/// How many values of its buffer a view at `shape` and `strides` reaches: one past its farthest
+/// offset, none where a dim is empty. A dim at stride zero reaches its one row however long it is,
+/// so a view that repeats its buffer, as queries packed end to end viewed once per sequence do,
+/// counts what lies in the buffer rather than its logical shape's product, which can pass the
+/// address type a launch counts in. For a contiguous view the two agree.
+fn addressed_len(shape: &[usize], strides: &[usize]) -> usize {
+    if shape.contains(&0) {
+        return 0;
+    }
+    1 + shape
+        .iter()
+        .zip(strides)
+        .map(|(extent, stride)| (extent - 1) * stride)
+        .sum::<usize>()
+}
+
 /// What a [`TileTensor`] compiles to: its values', its spec, its element and its scales'.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TileTensorCompilationArg {
@@ -710,7 +726,10 @@ impl LaunchArg for TileTensor<'static> {
         let values = match values {
             ValuesLaunch::Tensor { tensor, width } => {
                 let line_size = element.size() * width;
-                let meta = TensorMetaLaunch::new(tensor.size() / width, tensor.shape().len());
+                let meta = TensorMetaLaunch::new(
+                    addressed_len(tensor.shape(), tensor.strides()) / width,
+                    tensor.shape().len(),
+                );
                 let buffer = match &tensor {
                     TensorArg::Handle { .. } => BufferCompilationArg { inplace: None },
                     TensorArg::Alias { input_pos, .. } => BufferCompilationArg {
@@ -874,6 +893,27 @@ mod tests {
     use cubecl::ir::FloatKind;
 
     use super::*;
+
+    /// A contiguous view reaches every value its shape counts.
+    #[test]
+    fn addressed_len_of_a_contiguous_view_is_its_shape_product() {
+        assert_eq!(addressed_len(&[3, 4, 5], &[20, 5, 1]), 60);
+        assert_eq!(addressed_len(&[3, 0, 5], &[0, 5, 1]), 0);
+    }
+
+    /// 64 sequences of 512 queries packed end to end, `[32768, 32, 128]`, viewed once per sequence
+    /// `[64, 32, 32768, 128]` with the batch at stride zero: a logical `2^33` values, past a `u32`,
+    /// of which the buffer holds `2^27`.
+    #[test]
+    fn addressed_len_of_a_stride_zero_view_counts_the_buffer() {
+        let (sequences, queries, heads, head) = (64, 64 * 512, 32, 128);
+        let shape = [sequences, heads, queries, head];
+        let strides = [0, head, heads * head, 1];
+        assert_eq!(shape.iter().product::<usize>(), 1 << 33);
+        let len = addressed_len(&shape, &strides);
+        assert_eq!(len, queries * heads * head);
+        assert!(u32::try_from(len).is_ok());
+    }
 
     /// A one-axis buffer of `f32`, expanded as a kernel argument outside any launch.
     fn expanded_f32_buffer(builder: &mut KernelBuilder) -> TileTensorExpand<'static> {
