@@ -215,9 +215,13 @@ impl<C: SliceElement> LaunchArg for [C] {
     type CompilationArg = BufferCompilationArg;
 
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
-        let (elem_size, vector_size) = launcher.with_scope(|scope| {
-            let vector_size = C::__expand_as_type(scope).vector_size(scope.ctx());
-            (C::__expand_size(scope), vector_size)
+        let (elem_size, vector_size, atomic) = launcher.with_scope(|scope| {
+            let ty = C::__expand_as_type(scope);
+            (
+                C::__expand_size(scope),
+                ty.vector_size(scope.ctx()),
+                ty.is_atomic(scope.ctx()),
+            )
         });
         if elem_size == 0 {
             panic!("Can't register zero-sized type");
@@ -226,7 +230,9 @@ impl<C: SliceElement> LaunchArg for [C] {
             BufferArg::Handle { .. } => None,
             BufferArg::Alias { input_pos, .. } => Some(*input_pos),
         };
-        launcher.register_buffer(arg, elem_size, vector_size);
+        launcher.registering_elem(atomic, |launcher| {
+            launcher.register_buffer(arg, elem_size, vector_size)
+        });
 
         BufferCompilationArg { inplace }
     }

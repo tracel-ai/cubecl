@@ -44,13 +44,13 @@ fn has_copy_engine(client: &Client) -> bool {
 fn ring_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     let walk = space.walk();
@@ -75,14 +75,14 @@ fn ring_matmul(
 fn ring_matmul_rounds(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     rounds: u32,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     for _ in 0..rounds {
@@ -109,12 +109,12 @@ fn ring_matmul_rounds(
 #[cube(launch)]
 fn staged_copy(
     src: &TileTensor<'_>,
-    dst: &TileTensor<'_>,
+    dst: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let src = src.tile(&space);
-    let dst = dst.tile(&space);
+    let dst = dst.tile_mut(&space);
     let mut stage = src.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
@@ -131,12 +131,12 @@ fn staged_copy(
 #[cube(launch)]
 fn staged_packed_copy(
     src: &TileTensor<'_>,
-    dst: &TileTensor<'_>,
+    dst: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let src = src.tile(&space);
-    let dst = dst.tile(&space);
+    let dst = dst.tile_mut(&space);
     let mut stage = src.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));

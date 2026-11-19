@@ -24,9 +24,9 @@ const BLOCK: usize = 16;
 const BOX: (usize, usize) = (16, 2);
 
 #[cube(launch)]
-fn load_by_tma(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
+fn load_by_tma(input: &TileTensor<'_>, out: &mut TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
-    let dst = out.tile(&space);
+    let dst = out.tile_mut(&space);
     for cube in &space {
         let mut dst_box = dst.at(&cube);
         let mut staged = dst_box.smem_box();

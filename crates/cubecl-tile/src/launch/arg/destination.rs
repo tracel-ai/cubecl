@@ -19,9 +19,11 @@ pub trait Destination: Send + Sync + 'static {
     type Served<E: Numeric>: ServedDestination;
 
     /// Build the destination for the kernel, once, under its one `partitioning`, storing in lines
-    /// of `V` where the argument does not state its own width.
+    /// of `V` where the argument does not state its own width. The argument is taken by `&mut`,
+    /// as the launch function's parameter must be: a launch declares what it writes from its
+    /// signature ([`TileTensor`]'s read and written operands).
     fn serve<E: Numeric, V: Size>(
-        arg: &Self::Arg<E>,
+        arg: &mut Self::Arg<E>,
         partitioning: &Partitioning,
     ) -> Self::Served<E>;
 }
@@ -138,8 +140,8 @@ impl Destination for Buffered {
     type Arg<E: Numeric> = Output<'static, E>;
     type Served<E: Numeric> = Tile;
 
-    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
-        arg.tile(partitioning)
+    fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+        arg.tile_mut(partitioning)
     }
 }
 
@@ -170,8 +172,8 @@ impl Destination for TmaStored {
     type Arg<E: Numeric> = TileTensor<'static>;
     type Served<E: Numeric> = Tile;
 
-    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
-        arg.tile(partitioning)
+    fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+        arg.tile_mut(partitioning)
     }
 }
 

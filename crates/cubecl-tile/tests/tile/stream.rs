@@ -45,13 +45,13 @@ const REGIONS: usize = (ROWS / TILE_ROWS) * (COLS / TILE_COLS);
 #[cube(launch)]
 fn copy_run(
     src: &TileTensor<'_>,
-    dst: &TileTensor<'_>,
+    dst: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] cubes: usize,
 ) {
     let src = src.tile(&space);
-    let dst = dst.tile(&space);
+    let dst = dst.tile_mut(&space);
     let walk = dst.over(&level);
     let total = walk.total();
     let pos = CUBE_POS_X as usize;
@@ -69,14 +69,14 @@ fn copy_run(
 #[cube(launch)]
 fn copy_one_run(
     src: &TileTensor<'_>,
-    dst: &TileTensor<'_>,
+    dst: &mut TileTensor<'_>,
     #[comptime] start: usize,
     #[comptime] steps: usize,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let src = src.tile(&space);
-    let dst = dst.tile(&space);
+    let dst = dst.tile_mut(&space);
     let walk = dst.over(&level);
 
     // Stated at launch but taken as runtime values: a window whose bounds evaluate to constants
@@ -270,7 +270,7 @@ fn contract(acc: &Tile, a: &Tile, b: &Tile, region: &Region) {
 fn stream_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -279,7 +279,7 @@ fn stream_matmul<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
@@ -314,7 +314,7 @@ fn stream_matmul<E: Numeric>(
 fn stream_matmul_staged_rhs<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -322,7 +322,7 @@ fn stream_matmul_staged_rhs<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
@@ -356,7 +356,7 @@ fn stream_matmul_staged_rhs<E: Numeric>(
 fn stream_matmul_prefix<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     prefix: usize,
     #[comptime] outer: Level,
@@ -365,7 +365,7 @@ fn stream_matmul_prefix<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     let portion = space.over(&outer).portion_of(prefix);
     for i in 0..portion.touched() {
         let region = portion.region(i);
@@ -804,15 +804,15 @@ fn cubes_take_shares_while_the_units_cut_k_between_them() {
 fn merged_stream_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    slots: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    slots: &mut TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     arrivals: &[Atomic<u32>],
     space: Partitioning,
     #[comptime] steps: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let portion = space.walk().portion(steps.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);

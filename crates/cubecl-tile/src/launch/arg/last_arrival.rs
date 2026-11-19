@@ -51,7 +51,7 @@ impl<'a> TileTensor<'a> {
     /// `partitioning`, whose cube level shares its steps ([`shared_by`](Levels::shared_by)). The
     /// operand is laid out as [`Partitioning::arrival_slots`] says for its axes.
     pub fn last_arrival<'t, V: Size>(
-        &self,
+        &mut self,
         partitioning: &Partitioning,
         portion: &Portion,
         i: usize,
@@ -65,7 +65,7 @@ impl<'a> TileTensor<'a> {
         let (first, holders) = portion.holders(i);
         let run = portion.run();
         let first_slot = 2 * first + select(portion.starts_in(i, first), 0usize, 1usize);
-        let slots = self.tile(&boxes);
+        let slots = self.tile_mut(&boxes);
         let define!(Served) = self.element;
         let walk = boxes.walk();
         let own_box = walk.region(2 * run + select(portion.starts_in(i, run), 0usize, 1usize));

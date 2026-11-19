@@ -121,7 +121,7 @@ fn unwritten_output(client: &Client) -> TensorHandle {
 fn routed_matmul_kernel(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     routes: &Tensor<u32>,
     space: Partitioning,
     #[comptime] token: Level,
@@ -129,7 +129,7 @@ fn routed_matmul_kernel(
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for tok in space.over(&token) {
         let e = routes[tok.coord(M)] as usize;
@@ -150,7 +150,7 @@ fn routed_matmul_kernel(
 fn routed_staged_matmul_kernel(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     routes: &Tensor<u32>,
     space: Partitioning,
     #[comptime] token: Level,
@@ -158,7 +158,7 @@ fn routed_staged_matmul_kernel(
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for tok in space.over(&token) {
         let e = routes[tok.coord(M)] as usize;
@@ -315,7 +315,7 @@ fn a_route_past_the_last_expert_clamps_to_it() {
 fn routed_block_matmul_kernel<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     routes: &Tensor<u32>,
     space: Partitioning,
     #[comptime] token: Level,
@@ -325,7 +325,7 @@ fn routed_block_matmul_kernel<E: Numeric>(
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for tok in space.over(&token) {
         let e = routes[tok.coord(M)] as usize;

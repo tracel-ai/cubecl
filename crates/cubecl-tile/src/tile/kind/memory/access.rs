@@ -180,6 +180,7 @@ impl Memory {
                 .as_vectorized_mut()
                 .with_vector_size_mut::<W>()
                 .view_mut(layout),
+            Backing::ReadBuffer(_) => panic!("{}", READ_ONLY),
             Backing::WriteCall(destination) => ViewMut::new::<
                 &mut ErasedTensor<T, WriteOnly>,
                 Coords1d,
@@ -197,7 +198,7 @@ impl Memory {
         layout: BufferLayout,
     ) -> View<'_, Vector<T, W>, CoordsDyn> {
         match &self.store.backing {
-            Backing::Buffer(buffer) => buffer
+            Backing::Buffer(buffer) | Backing::ReadBuffer(buffer) => buffer
                 .at::<T>()
                 .as_vectorized()
                 .with_vector_size::<W>()
