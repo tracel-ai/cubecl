@@ -1,9 +1,4 @@
-use crate::{
-    memory_management::optimal_align,
-    server::{
-        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-    },
-};
+use crate::server::{Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy};
 use alloc::vec::Vec;
 use cubecl_common::device::ServiceId;
 use cubecl_environment::stream::StreamId;
@@ -32,12 +27,11 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
             .iter()
             .map(|descriptor| {
                 let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-                let pitch_align = match descriptor.strategy {
-                    MemoryLayoutStrategy::Contiguous => 1,
-                    MemoryLayoutStrategy::Optimized => {
-                        optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
-                    }
-                };
+                let pitch_align = descriptor.strategy.row_align(
+                    last_dim,
+                    descriptor.elem_size,
+                    self.mem_alignment,
+                );
 
                 let rank = descriptor.shape.len();
                 let width = *descriptor.shape.last().unwrap_or(&1);
@@ -239,5 +233,60 @@ mod pitch_tests {
         assert_eq!(wide.width_bytes, narrow.width_bytes * 8);
         assert_eq!(wide.stride_bytes, narrow.stride_bytes * 8);
         assert_eq!(wide.height, narrow.height);
+    }
+}
+
+#[cfg(test)]
+mod row_align_tests {
+    use crate::server::MemoryLayoutStrategy;
+
+    /// CUDA's buffer alignment, which [`Optimized`](MemoryLayoutStrategy::Optimized) pads a long
+    /// row to.
+    const CUDA_BUFFER_ALIGN: usize = 512;
+
+    /// The bytes a row of `row_bytes` takes under `strategy` on CUDA.
+    fn pitch(strategy: MemoryLayoutStrategy, row_bytes: usize) -> usize {
+        row_bytes.next_multiple_of(strategy.row_align(row_bytes, 1, CUDA_BUFFER_ALIGN))
+    }
+
+    /// Qwen3.8-Flash-Next's expert stacks, packed NVFP4: `gate_up`'s rows of 1280 bytes of codes
+    /// and 160 of scales, `down`'s of 320 and 40. Optimized pads them to 1792 and 576 bytes a row;
+    /// load-aligned rows keep `gate_up` dense and pad `down`'s scales to 48.
+    #[test]
+    fn load_aligned_rows_pad_an_expert_stack_to_whole_vectors_only() {
+        use MemoryLayoutStrategy::{LoadAligned, Optimized};
+        let rows = |strategy| [1280, 160, 320, 40].map(|bytes| pitch(strategy, bytes));
+        assert_eq!(rows(Optimized), [1536, 256, 512, 64]);
+        assert_eq!(rows(LoadAligned), [1280, 160, 320, 48]);
+    }
+
+    /// Every load-aligned row starts on a whole vector load.
+    #[test]
+    fn a_load_aligned_row_starts_on_a_vector_load() {
+        for row_bytes in [2, 17, 40, 100, 1000, 4097] {
+            let pitch = pitch(MemoryLayoutStrategy::LoadAligned, row_bytes);
+            assert!(pitch >= row_bytes);
+            assert!(pitch - row_bytes < MemoryLayoutStrategy::LOAD_ALIGNMENT);
+            assert_eq!(
+                pitch % MemoryLayoutStrategy::LOAD_ALIGNMENT,
+                0,
+                "{row_bytes}"
+            );
+        }
+    }
+
+    /// A row of one element is never padded: no load reads more of it.
+    #[test]
+    fn a_row_of_one_element_is_not_padded() {
+        for strategy in [
+            MemoryLayoutStrategy::Optimized,
+            MemoryLayoutStrategy::LoadAligned,
+        ] {
+            assert_eq!(strategy.row_align(1, 4, CUDA_BUFFER_ALIGN), 4);
+        }
+        assert_eq!(
+            MemoryLayoutStrategy::Contiguous.row_align(100, 4, CUDA_BUFFER_ALIGN),
+            1
+        );
     }
 }
