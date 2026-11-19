@@ -14,11 +14,11 @@ pub enum Output<'a, E: Numeric> {
 
 #[cube]
 impl<'a, E: Numeric> Output<'a, E> {
-    /// Serve this operand as a [`Tile`] under the kernel's one `partitioning`.
-    pub fn tile(&self, partitioning: &Partitioning) -> Tile {
+    /// Serve this operand as a written [`Tile`] under the kernel's one `partitioning`.
+    pub fn tile_mut(&mut self, partitioning: &Partitioning) -> Tile {
         match self {
-            Output::Tensor(arg) => arg.tile(partitioning),
-            Output::Atomic(arg) => arg.tile(partitioning),
+            Output::Tensor(arg) => arg.tile_mut(partitioning),
+            Output::Atomic(arg) => arg.tile_mut(partitioning),
         }
     }
 }

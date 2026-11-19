@@ -24,7 +24,7 @@ const BOX: (usize, usize) = (16, 16);
 #[cube(launch)]
 fn store_by_tma<E: Float, O: Destination>(
     input: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {

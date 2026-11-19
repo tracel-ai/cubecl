@@ -55,7 +55,7 @@ fn scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -63,7 +63,7 @@ fn scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -83,7 +83,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -92,7 +92,7 @@ fn scaled_matmul_promoted<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
@@ -114,7 +114,7 @@ fn factored_matmul<E: Numeric>(
     b: &TileTensor<'_>,
     blocks: &TileTensor<'_>,
     global: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] registers: Option<SoftwareMatmul>,
@@ -125,7 +125,7 @@ fn factored_matmul<E: Numeric>(
         .mul(&blocks.tile(&space))
         .mul(&global.tile(&space));
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     let acc = match registers {
         Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SUM_PROD),
         None => c.accumulator::<E>(&a, &b, Semiring::SUM_PROD),
@@ -145,7 +145,7 @@ fn two_level_scaled_matmul(
     b: &TileTensor<'_>,
     blocks: &TileTensor<'_>,
     global: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -156,7 +156,7 @@ fn two_level_scaled_matmul(
     // tiles. Nothing states a scheme.
     let blocks = blocks.tile(&space);
     let global = global.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -187,7 +187,7 @@ fn scaled_matmul_cmma<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -196,7 +196,7 @@ fn scaled_matmul_cmma<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
@@ -355,12 +355,12 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
 fn per_tensor_factor(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     out: &mut Tensor<f32>,
     space: Partitioning,
     #[comptime] whole: bool,
 ) {
-    let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile(&space));
+    let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile_mut(&space));
     let (a, factor) = if whole {
         a.factor_whole()
     } else {
@@ -1522,7 +1522,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -1531,7 +1531,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
@@ -1668,7 +1668,7 @@ fn wide_lhs_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -1676,7 +1676,7 @@ fn wide_lhs_scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c.at(&region).accumulating(
@@ -1971,7 +1971,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -1979,7 +1979,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let mut stage = b.stage(level.clone(), StageStorage::Strided);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
     for region in space.over(&level) {
@@ -2127,7 +2127,7 @@ fn chunked_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] registers: Option<SoftwareMatmul>,
     #[comptime] chunks: Level,
@@ -2139,7 +2139,7 @@ fn chunked_scaled_matmul<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
@@ -2571,7 +2571,7 @@ fn partitioned_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
@@ -2581,7 +2581,7 @@ fn partitioned_scaled_matmul<E: Numeric>(
     // The weight is scaled at every step, which lands it on its own.
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
@@ -2682,14 +2682,14 @@ fn stepped_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let (a_cube, b_cube) = (a.at(&cube), b.at(&cube));
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
@@ -2768,13 +2768,13 @@ enum CopiedThrough {
 fn decoded_tile_order_copy(
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] through: CopiedThrough,
 ) {
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for cube in space {
         let decoded = b.at(&cube).mul(&scale.at(&cube));
         let mut out_cube = out.at(&cube);
@@ -2887,7 +2887,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] unpacked: Unpacked,
     #[comptime] storage: StageStorage,
@@ -2898,7 +2898,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let (a_cube, b_cube) = (a.at(&cube), b.at(&cube));
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
@@ -3194,14 +3194,14 @@ fn a_tile_ordered_weight_read_a_block_a_load_lands_a_step_at_a_time_under_byte_s
 fn scaled_copy<E: Numeric>(
     a: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] staged: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let scale = scale.tile(&space);
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     if staged {
         let mut stage = Tile::shared::<E>(comptime!(space.space().clone()), StageStorage::Strided);
         stage.dequantize_from(&a.mul(&scale));
@@ -3318,7 +3318,7 @@ fn staged_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
@@ -3326,7 +3326,7 @@ fn staged_scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     let walk = space.over(&level);
     let mut stages = Stages::smem(

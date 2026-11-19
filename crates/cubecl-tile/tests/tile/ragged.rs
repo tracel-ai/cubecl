@@ -25,7 +25,7 @@ const D: Axis = Axis(2);
 #[cube(launch)]
 fn ragged_sum_kernel<E: Numeric>(
     packed: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     ends: &Tensor<u32>,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -33,7 +33,7 @@ fn ragged_sum_kernel<E: Numeric>(
     #[define(E)] _dtype: ElemType,
 ) {
     let packed = packed.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for sequence in space.over(&seq) {
         let b = sequence.coord(B);
@@ -174,7 +174,7 @@ const BLOCK: usize = 4;
 #[cube(launch)]
 fn blocked_ragged_sum_kernel<E: Numeric>(
     packed: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     ends: &Tensor<u32>,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -182,7 +182,7 @@ fn blocked_ragged_sum_kernel<E: Numeric>(
     #[define(E)] _dtype: ElemType,
 ) {
     let packed = packed.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for sequence in space.over(&seq) {
         let b = sequence.coord(B);

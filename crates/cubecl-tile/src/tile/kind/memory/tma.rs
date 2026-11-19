@@ -38,12 +38,17 @@ pub(crate) struct TmaData {
     /// ([`TileTensorLaunch::tensor_map_with_coordinates_through`]).
     #[cube(comptime)]
     pub(crate) projection: Projection,
+    /// Whether a box may be stored into the map: one served from a `TileTensor` taken by `&` is
+    /// read-only ([`READ_ONLY`]).
+    #[cube(comptime)]
+    pub(crate) writable: bool,
 }
 
 #[cube]
 impl TmaData {
     /// Wrap a TMA tensor `map`, `layout` landing a position in it, as a `TmaGmem` tile payload,
     /// positioned at the origin.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_tensor_map<T: Numeric>(
         map: TensorMap<T, Tiled>,
         layout: VirtualLayout<CoordsDyn, Sequence<i32>>,
@@ -52,6 +57,7 @@ impl TmaData {
         #[comptime] packing: Packing,
         #[comptime] width: usize,
         #[comptime] projection: Projection,
+        #[comptime] writable: bool,
     ) -> TmaData {
         let bound = layout.shape();
         let mut pos = CoordsDyn::new();
@@ -68,6 +74,7 @@ impl TmaData {
             packing,
             width,
             projection,
+            writable,
         }
     }
 
@@ -104,6 +111,7 @@ impl TmaData {
     /// engine has read `src`, and the cube meets again, so no unit writes `src` before the engine
     /// is done with it. What lies past the tensor is not written: the descriptor clips the box.
     pub(crate) fn store_from<T: Numeric>(&self, src: &Memory) {
+        comptime!(assert!(self.writable, "TmaData::store_from: {READ_ONLY}"));
         comptime!(assert!(
             src.address == AddressSpace::Shared,
             "TmaData::store_from: a tensor map bulk-copies out of shared memory only"
@@ -161,6 +169,7 @@ impl TmaData {
             packing: self.packing,
             width: self.width,
             projection: comptime!(self.projection.clone()),
+            writable: self.writable,
         }
     }
 }

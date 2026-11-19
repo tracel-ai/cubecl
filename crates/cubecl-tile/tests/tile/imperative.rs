@@ -25,13 +25,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn ring_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     // The cube's walk: one block of K per region, both operands staged for it.
@@ -58,12 +58,12 @@ fn ring_matmul(
 fn role_split_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     let walk = space.walk();

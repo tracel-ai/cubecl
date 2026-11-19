@@ -26,12 +26,12 @@ const KI: Axis = Axis(2);
 fn tiled_scaled_copy(
     values: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let values = values.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&values.mul(&scales));
 }
 
@@ -41,13 +41,13 @@ fn tiled_scaled_copy(
 fn tiled_packed_stage(
     values: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let values = values.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     let mut stage = values.stage(level, StageStorage::Strided);
     stage.copy_from(&values);
     sync_cube();

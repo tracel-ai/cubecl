@@ -46,7 +46,7 @@ const TABLE: [u32; SEQS * PAGES_PER_SEQ] = [2, 0, 3, 2];
 #[cube(launch)]
 fn paged_sum_kernel<E: Numeric>(
     kv: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     table: &Tensor<u32>,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -55,7 +55,7 @@ fn paged_sum_kernel<E: Numeric>(
     #[define(E)] _dtype: ElemType,
 ) {
     let kv = kv.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for sequence in space.over(&seq) {
         let b = sequence.coord(B);
@@ -267,7 +267,7 @@ impl Handing {
 fn paged_read_sum_kernel<E: Numeric>(
     pool: &TileTensor<'_>,
     lens: &Tensor<u32>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] from: usize,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -277,7 +277,7 @@ fn paged_read_sum_kernel<E: Numeric>(
     #[define(E)] _dtype: ElemType,
 ) {
     let pool = pool.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for sequence in space.over(&seq) {
         let len = lens[sequence.coord(B)] as usize;
@@ -471,7 +471,7 @@ fn run_paged_read_table(
 fn paged_page_walk_sum_kernel<E: Numeric>(
     pool: &TileTensor<'_>,
     lens: &Tensor<u32>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     #[comptime] from: usize,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -480,7 +480,7 @@ fn paged_page_walk_sum_kernel<E: Numeric>(
     #[define(E)] _dtype: ElemType,
 ) {
     let pool = pool.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for sequence in space.over(&seq) {
         let len = lens[sequence.coord(B)] as usize;
@@ -1005,9 +1005,9 @@ fn a_paged_pool_binds_wherever_its_pages_lie() {
 /// `out = pool` over the sequences, every scale it carries applied, the pool and its scales read
 /// through the tables their bindings carry.
 #[cube(launch)]
-fn paged_dequantize_kernel(pool: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
+fn paged_dequantize_kernel(pool: &TileTensor<'_>, out: &mut TileTensor<'_>, space: Partitioning) {
     let pool = pool.tile(&space);
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     out.dequantize_from(&pool);
 }
 

@@ -126,6 +126,35 @@ impl KernelLauncher {
         self.declaring = io;
     }
 
+    /// Declare `io` for the buffers `register` registers, then restore the declaration in force.
+    ///
+    /// For an argument that knows more about one of its buffers than the signature it arrives
+    /// through: an atomic buffer is written through `&`, and the table a tile operand is read
+    /// through is never written through `&mut`.
+    pub fn declaring_io<T>(
+        &mut self,
+        io: BufferIOAttr,
+        register: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let in_force = core::mem::replace(&mut self.declaring, io);
+        let registered = register(self);
+        self.declaring = in_force;
+        registered
+    }
+
+    /// Register what `register` registers, declared written where `atomic`: an atomic buffer is
+    /// written through `&`, so the signature proves nothing about it, as with a tensor map.
+    pub(crate) fn registering_elem<T>(
+        &mut self,
+        atomic: bool,
+        register: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        match atomic {
+            true => self.declaring_io(BufferIOAttr::ReadWrite, register),
+            false => register(self),
+        }
+    }
+
     /// An aliasing argument writes the buffer it aliases in place, however
     /// that buffer's own argument was declared — the aliased buffer usually
     /// arrives through a `&Tensor`, and it is the one buffer an in-place
