@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Bound, Output, OutputArgs, Partitioning, Refusal, Region, Tile, TileExpand, TileTensor,
+    Bound, Decline, Output, OutputArgs, Partitioning, Region, Tile, TileExpand, TileTensor,
     TileTensorLaunch, kind::Write, launch::Unbound,
 };
 
@@ -129,7 +129,7 @@ pub trait SinkLaunchVisitor {
     type Output;
 
     /// Receive the launch the value named, or why it could not be prepared.
-    fn visit<L: SinkLaunch>(self, prepared: Result<L, Refusal>) -> Self::Output;
+    fn visit<L: SinkLaunch>(self, prepared: Result<L, Decline>) -> Self::Output;
 }
 
 /// The default [`Destination`]: an [`Output`] buffer.

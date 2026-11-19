@@ -87,7 +87,7 @@ pub(crate) enum Backing {
     ReadCall(RawCall<ReadOnly>),
 }
 
-/// The refusal of a write into a tile served from a [`TileTensor`] taken by `&`.
+/// The decline of a write into a tile served from a [`TileTensor`] taken by `&`.
 ///
 /// The launch declares such an operand's buffers read-only, and a launch that fails before it
 /// runs fails the reads of only the buffers it declares written: a write through `&` would leave

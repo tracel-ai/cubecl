@@ -2167,7 +2167,7 @@ fn matmul_a_level_that_cuts_nothing_is_kept() {
 // nothing combines them: a register accumulator drains by storing, so the last cube to arrive
 // erases the others, and one accumulating in place reads, adds and writes back: a lost update.
 //
-// Both are refused (`SplitShare::validate`), and the refusal is unit-tested where it can be
+// Both are refused (`SplitShare::validate`), and the decline is unit-tested where it can be
 // observed, `space::base`. Not here, for the reason `blocked.rs` gives: this one fires inside the
 // kernel, on a worker thread, where `#[should_panic]` never sees it and the launch returns zeros.
 
@@ -3692,7 +3692,7 @@ fn check_b_fragments_two_at_a_time(depth: usize) {
                 .dimensions(dimensions)
                 .vectorize(1)
                 .build()
-                .unwrap_or_else(|refusal| panic!("the operand binds: {refusal}"))
+                .unwrap_or_else(|decline| panic!("the operand binds: {decline}"))
                 .arg()
         };
     let expected: Vec<f32> = (0..m * n)

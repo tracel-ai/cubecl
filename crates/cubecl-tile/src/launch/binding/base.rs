@@ -10,8 +10,8 @@ use cubecl::prelude::*;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing, Projection,
-    Refusal, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
+    Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
+    Projection, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
 };
 
 /// Typestate marker: the operand's dimensions are not yet stated.
@@ -150,13 +150,13 @@ impl<'a> Arg<'a, Labelled> {
         self
     }
 
-    /// The operand, bound, or the [`Refusal`] saying why it cannot be.
-    pub fn build(self) -> Result<Bound, Refusal> {
+    /// The operand, bound, or the [`Decline`] saying why it cannot be.
+    pub fn build(self) -> Result<Bound, Decline> {
         self.realize().map(|(bound, _)| bound)
     }
 
     /// [`build`](Self::build) without the tensor argument, for an operand with no address.
-    pub fn build_spec(self) -> Result<Unbound, Refusal> {
+    pub fn build_spec(self) -> Result<Unbound, Decline> {
         let (bound, geometry) = self.realize()?;
         Ok(Unbound {
             spec: bound.spec,
@@ -167,7 +167,7 @@ impl<'a> Arg<'a, Labelled> {
 
     /// The derivation both builds share, looked up where an earlier launch already made it
     /// ([`Derivation`]): it reads nothing a launch changes but the tensor's address.
-    fn realize(self) -> Result<(Bound, Geometry), Refusal> {
+    fn realize(self) -> Result<(Bound, Geometry), Decline> {
         let packing = self.data.packing.read_on(self.data.launch.client());
         let stored = self
             .data
@@ -194,13 +194,13 @@ impl<'a> Arg<'a, Labelled> {
 
     /// The derivation itself, its packing read on the device as `packing` and its buffer stored as
     /// `stored`.
-    fn derive(&self, packing: Packing, stored: Tiling) -> Result<Derived, Refusal> {
+    fn derive(&self, packing: Packing, stored: Tiling) -> Result<Derived, Decline> {
         let data = &self.data;
         let launch = data.launch;
         let width = data.width;
         let stated = data.projection.is_some() || stored.is_tiled();
         let (geometry, dimensions) = match data.in_stride_order {
-            true if stated => return Err(Refusal::StrideOrderOfAStatedLayout),
+            true if stated => return Err(Decline::StrideOrderOfAStatedLayout),
             true => data.geometry.clone().in_stride_order(data.dimensions),
             false => (data.geometry.clone(), data.dimensions.to_vec()),
         };
@@ -232,7 +232,7 @@ impl<'a> Arg<'a, Labelled> {
             None if width == 1 => Ok(()),
             None => Err(LineMisfit::NoAxes),
         };
-        served.map_err(|why| Refusal::WidthNotServed { width, why })?;
+        served.map_err(|why| Decline::WidthNotServed { width, why })?;
         let may_overhang;
         let overhangs = match data.boundary {
             Some(BoundaryPolicy::AnyExtent(_)) => {
@@ -256,7 +256,7 @@ impl<'a> Arg<'a, Labelled> {
             && !boundaries.modes.is_empty()
             && self.reaches_past_storage_tiles(&dimensions, level)
         {
-            return Err(Refusal::CheckedInsideStorageTile { level });
+            return Err(Decline::CheckedInsideStorageTile { level });
         }
         let spec = TileSpec {
             projection,

@@ -5,7 +5,7 @@
 pub(crate) mod arg;
 pub(crate) mod base;
 pub(crate) mod binding;
-pub(crate) mod refusal;
+pub(crate) mod decline;
 pub(crate) mod spec;
 pub(crate) mod vectorization;
 
@@ -23,7 +23,7 @@ pub use arg::tile_operand::TileOperand;
 pub use arg::tma::{TmaBox, TmaCoordinates, TmaLanding, TmaTerm};
 pub use base::{Grid, spawnable};
 pub use binding::{Arg, Bound, Labelled, Unbound, Unlabelled};
-pub use refusal::Refusal;
+pub use decline::Decline;
 pub use spec::{BoundaryPolicy, Delivery};
 pub(crate) use spec::{Engine, Issuer, Landing, Route};
 pub use vectorization::{MaskedExtent, VectorRequirement, Vectorization};

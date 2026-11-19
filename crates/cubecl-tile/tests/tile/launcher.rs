@@ -2,7 +2,7 @@
 
 use super::{Form, implied};
 use cubecl::{prelude::*, zspace::Tiling};
-use cubecl_tile::launch::{BoundaryPolicy, Refusal};
+use cubecl_tile::launch::{BoundaryPolicy, Decline};
 use cubecl_tile::{
     Dimension, Geometry, Level, Partitioning, Projection, Space, TileSpec,
     kind::{Boundary, Storage},
@@ -399,7 +399,7 @@ fn arg_refuses_a_load_that_cuts_a_stored_tile() {
         .build()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::WidthNotServed { width: 4, .. })),
+        matches!(refused, Some(Decline::WidthNotServed { width: 4, .. })),
         "{refused:?}"
     );
 }
@@ -591,7 +591,7 @@ fn spec_refuses_an_axis_it_cannot_label() {
     assert!(
         matches!(
             refused,
-            Some(Refusal::UnlabelledBatchAxes { dimensions: 0, .. })
+            Some(Decline::UnlabelledBatchAxes { dimensions: 0, .. })
         ),
         "{refused:?}"
     );
@@ -651,7 +651,7 @@ fn spec_refuses_a_width_the_geometry_cannot_serve() {
         .build_spec()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::WidthNotServed { width: 2, .. })),
+        matches!(refused, Some(Decline::WidthNotServed { width: 2, .. })),
         "{refused:?}"
     );
 }
@@ -799,7 +799,7 @@ fn arg_gathered_rank_mismatch_is_refused() {
     assert!(
         matches!(
             refused,
-            Some(Refusal::GatherRankMismatch { mapped: 2, rank: 3 })
+            Some(Decline::GatherRankMismatch { mapped: 2, rank: 3 })
         ),
         "{refused:?}"
     );
@@ -832,7 +832,7 @@ fn arg_gathered_validates_the_innermost_axis() {
         .build()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::GatherInnermostNotInLines)),
+        matches!(refused, Some(Decline::GatherInnermostNotInLines)),
         "{refused:?}"
     );
 }
@@ -1117,7 +1117,7 @@ fn arg_vectorized_over_a_clamp_or_any_extent_is_refused() {
             .build()
             .err();
         assert!(
-            matches!(refused, Some(Refusal::UncheckableVectorEdge)),
+            matches!(refused, Some(Decline::UncheckableVectorEdge)),
             "{policy:?}: {refused:?}"
         );
     }
@@ -1270,7 +1270,7 @@ fn arg_more_batch_dims_than_dimensions_is_refused() {
         .build()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::UnlabelledBatchAxes { .. })),
+        matches!(refused, Some(Decline::UnlabelledBatchAxes { .. })),
         "{refused:?}"
     );
 }

@@ -3,7 +3,7 @@
 use cubecl::zspace::SmallVec;
 
 use crate::BoundaryPolicy;
-use crate::{Boundary, Dimension, Projection, Refusal, Space};
+use crate::{Boundary, Decline, Dimension, Projection, Space};
 
 /// Where the bounds-check lands: on the coordinate dimensions that can leave the buffer, only
 /// those.
@@ -47,10 +47,10 @@ impl Boundaries {
         concrete: &Space,
         overhangs: &[Dimension],
         width: usize,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         let coord_rank = projection.coordinate_rank();
         if coord_rank == 0 {
-            return Err(Refusal::NoCoordinate);
+            return Err(Decline::NoCoordinate);
         }
         // Most operands check nothing, and the untiled map below is the costly part.
         let Some(boundary) = Self::mode(policy, projection, addressed, concrete, overhangs) else {
@@ -96,7 +96,7 @@ impl Boundaries {
 
         let innermost = coord_rank - 1;
         if width > 1 && !settled(innermost) && !whole_lines(innermost) {
-            return Err(Refusal::UncheckableVectorEdge);
+            return Err(Decline::UncheckableVectorEdge);
         }
 
         let modes: SmallVec<[Option<Boundary>; Space::MAX_RANK]> = (0..coord_rank)

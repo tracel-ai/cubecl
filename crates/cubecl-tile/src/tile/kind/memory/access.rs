@@ -1020,7 +1020,7 @@ impl Memory {
         let at = comptime!(
             placed_axis(&proj, dimension)
                 .filter(|_| !self.layout.projection.is_tiled())
-                .unwrap_or_else(|| panic!("{}", Refusal::IndexOfAStatedLayout))
+                .unwrap_or_else(|| panic!("{}", Decline::IndexOfAStatedLayout))
         );
 
         let mut origin = Coords::<i32>::new();

@@ -2,7 +2,7 @@
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Dimension, Geometry, Launcher, PhysicalAxisMap, Projection, Refusal, Space};
+use crate::{Decline, Dimension, Geometry, Launcher, PhysicalAxisMap, Projection, Space};
 
 /// The labelled reading of a buffer, as a [`Projection`] and the settled geometry.
 pub(crate) struct Labels {
@@ -20,18 +20,18 @@ impl Labels {
         geometry: &Geometry,
         dimensions: &[Dimension],
         batches: &[Dimension],
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         let rank = geometry.rank();
         let block = geometry.labels(dimensions);
         if rank < block.len() {
-            return Err(Refusal::RankBelowLabels {
+            return Err(Decline::RankBelowLabels {
                 rank,
                 block: block.len(),
             });
         }
         let batch_axes = rank - block.len();
         if batch_axes > batches.len() {
-            return Err(Refusal::UnlabelledBatchAxes {
+            return Err(Decline::UnlabelledBatchAxes {
                 axes: batch_axes,
                 dimensions: batches.len(),
             });
@@ -82,15 +82,15 @@ impl Labels {
         dimensions: &[Dimension],
         batches: &[Dimension],
         stored: Tiling,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         if stored.is_tiled() {
-            return Err(Refusal::GatherOfATiledBinding(stored));
+            return Err(Decline::GatherOfATiledBinding(stored));
         }
         if !(dimensions.is_empty() && batches.is_empty()) {
-            return Err(Refusal::GatherWithLabels);
+            return Err(Decline::GatherWithLabels);
         }
         if projection.physical_rank() != geometry.rank() {
-            return Err(Refusal::GatherRankMismatch {
+            return Err(Decline::GatherRankMismatch {
                 mapped: projection.physical_rank(),
                 rank: geometry.rank(),
             });
@@ -101,7 +101,7 @@ impl Labels {
             .iter()
             .find(|&&dimension| !space.contains(dimension))
         {
-            return Err(Refusal::GatherOfAnUnknownDimension(dimension));
+            return Err(Decline::GatherOfAnUnknownDimension(dimension));
         }
         Ok(Labels {
             geometry: geometry.clone(),

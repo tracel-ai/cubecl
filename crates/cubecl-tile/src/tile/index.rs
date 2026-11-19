@@ -46,22 +46,22 @@ impl Indexing {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first rule the statement breaks.
+    /// The [`Decline`] naming the first rule the statement breaks.
     pub(crate) fn validate(
         &self,
         values: &TileSpec,
         width: usize,
         keys: &[Dimension],
-    ) -> Result<(), Refusal> {
+    ) -> Result<(), Decline> {
         let dimension = self.dimension();
         if !values.dimensions().contains(&dimension) {
-            return Err(Refusal::IndexOfADimensionNotSpanned(dimension));
+            return Err(Decline::IndexOfADimensionNotSpanned(dimension));
         }
         if keys.is_empty() || keys.contains(&dimension) {
-            return Err(Refusal::IndexKeyedByItsDimension(dimension));
+            return Err(Decline::IndexKeyedByItsDimension(dimension));
         }
         if matches!(self, Indexing::Run(_)) && keys.len() != 1 {
-            return Err(Refusal::RunKeyedByMany(keys.len()));
+            return Err(Decline::RunKeyedByMany(keys.len()));
         }
         self.places(values, width)
     }
@@ -74,21 +74,21 @@ impl Indexing {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first rule `spec` breaks.
-    pub(crate) fn places(&self, spec: &TileSpec, width: usize) -> Result<(), Refusal> {
+    /// The [`Decline`] naming the first rule `spec` breaks.
+    pub(crate) fn places(&self, spec: &TileSpec, width: usize) -> Result<(), Decline> {
         let projection = &spec.projection;
         let stated =
             projection.is_tiled() || !spec.stored_tiles.is_empty() || spec.paging.is_some();
         let gathered = matches!(self, Indexing::Run(_)) && !projection.is_direct();
         let axis = placed_axis(projection, self.dimension());
         match axis {
-            _ if stated || gathered => Err(Refusal::IndexOfAStatedLayout),
-            None => Err(Refusal::IndexOfAStatedLayout),
+            _ if stated || gathered => Err(Decline::IndexOfAStatedLayout),
+            None => Err(Decline::IndexOfAStatedLayout),
             Some(axis)
                 if axis + 1 == projection.physical_rank()
                     && (width > 1 || !spec.packing.as_stored()) =>
             {
-                Err(Refusal::IndexAlongALine(self.dimension()))
+                Err(Decline::IndexAlongALine(self.dimension()))
             }
             Some(_) => Ok(()),
         }
@@ -100,12 +100,12 @@ impl Indexing {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first rule the nest breaks.
+    /// The [`Decline`] naming the first rule the nest breaks.
     pub(crate) fn read_at(
         &self,
         keys: &[Dimension],
         levels: &[Level],
-    ) -> Result<Option<usize>, Refusal> {
+    ) -> Result<Option<usize>, Decline> {
         let cuts = |level: &Level, dimension: Dimension| level.count(dimension).is_some();
         let at = levels
             .iter()
@@ -113,7 +113,7 @@ impl Indexing {
         if let Some(at) = at
             && !keys.iter().all(|&key| cuts(&levels[at], key))
         {
-            return Err(Refusal::IndexKeysCutApart(keys.to_vec()));
+            return Err(Decline::IndexKeysCutApart(keys.to_vec()));
         }
         let dimension = self.dimension();
         let placed_by_a_level = match (self, at) {
@@ -124,7 +124,7 @@ impl Indexing {
             (Indexing::Run(_), None) => false,
         };
         match placed_by_a_level {
-            true => Err(Refusal::IndexedDimensionCut(dimension)),
+            true => Err(Decline::IndexedDimensionCut(dimension)),
             false => Ok(at),
         }
     }
@@ -275,7 +275,7 @@ impl TileExpand {
         assert!(
             table.keys.iter().all(cuts),
             "{}",
-            Refusal::IndexKeysCutApart(table.keys.clone())
+            Decline::IndexKeysCutApart(table.keys.clone())
         );
         let at = table.__expand_position_method(scope, step);
         self.read_index(scope, at)
@@ -325,7 +325,7 @@ impl TileExpand {
     ) -> TileExpand {
         match &mut self.kind {
             TileKindExpand::Memory(memory) => memory.index = ComptimeOptionExpand::Some(table),
-            _ => panic!("{}", Refusal::IndexOfAStatedLayout),
+            _ => panic!("{}", Decline::IndexOfAStatedLayout),
         }
         self
     }
@@ -655,14 +655,14 @@ mod tests {
     fn keys_cut_at_two_levels_are_refused() {
         let levels = [rows(1), Level::every(&[(N, 1)])];
         let read = Indexing::Coordinate(EXPERT).read_at(&[M, N], &levels);
-        assert_eq!(read, Err(Refusal::IndexKeysCutApart(vec![M, N])));
+        assert_eq!(read, Err(Decline::IndexKeysCutApart(vec![M, N])));
     }
 
     #[test]
     fn a_coordinate_a_level_cuts_is_refused() {
         let levels = [rows(1), Level::every(&[(EXPERT, 1)])];
         let read = Indexing::Coordinate(EXPERT).read_at(&[M], &levels);
-        assert_eq!(read, Err(Refusal::IndexedDimensionCut(EXPERT)));
+        assert_eq!(read, Err(Decline::IndexedDimensionCut(EXPERT)));
     }
 
     /// A run is placed whole: a level cutting its dimension at or above the key's would have cut a
@@ -675,7 +675,7 @@ mod tests {
         let run = Indexing::Run(M);
         assert_eq!(
             run.read_at(&[EXPERT], &above),
-            Err(Refusal::IndexedDimensionCut(M))
+            Err(Decline::IndexedDimensionCut(M))
         );
         assert_eq!(run.read_at(&[EXPERT], &below), Ok(Some(0)));
     }
@@ -684,9 +684,9 @@ mod tests {
     fn a_coordinate_keyed_by_itself_is_refused() {
         let spec = TileSpec::direct(&[EXPERT, K, N]);
         let refused = Indexing::Coordinate(EXPERT).validate(&spec, 1, &[EXPERT]);
-        assert_eq!(refused, Err(Refusal::IndexKeyedByItsDimension(EXPERT)));
+        assert_eq!(refused, Err(Decline::IndexKeyedByItsDimension(EXPERT)));
         let unkeyed = Indexing::Coordinate(EXPERT).validate(&spec, 1, &[]);
-        assert_eq!(unkeyed, Err(Refusal::IndexKeyedByItsDimension(EXPERT)));
+        assert_eq!(unkeyed, Err(Decline::IndexKeyedByItsDimension(EXPERT)));
     }
 
     #[test]
@@ -698,7 +698,7 @@ mod tests {
             page_size: 4,
         });
         let refused = Indexing::Coordinate(EXPERT).validate(&spec, 1, &[M]);
-        assert_eq!(refused, Err(Refusal::IndexOfAStatedLayout));
+        assert_eq!(refused, Err(Decline::IndexOfAStatedLayout));
     }
 
     /// The innermost axis may be placed where the operand reads it one value a line: a run along
@@ -711,13 +711,13 @@ mod tests {
         assert_eq!(run.validate(&spec, 1, &[M]), Ok(()));
         assert_eq!(
             run.validate(&spec, 4, &[M]),
-            Err(Refusal::IndexAlongALine(K))
+            Err(Decline::IndexAlongALine(K))
         );
         let packed =
             TileSpec::direct(&[N, K]).packed(Field::from(cubecl::quant::scheme::QuantValue::Q8S));
         assert_eq!(
             run.validate(&packed, 1, &[M]),
-            Err(Refusal::IndexAlongALine(K))
+            Err(Decline::IndexAlongALine(K))
         );
     }
 
@@ -740,7 +740,7 @@ mod tests {
         );
         assert_eq!(
             Indexing::Run(EXPERT).validate(&spec, 1, &[M]),
-            Err(Refusal::IndexOfAStatedLayout)
+            Err(Decline::IndexOfAStatedLayout)
         );
     }
 }

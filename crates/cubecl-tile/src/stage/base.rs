@@ -1,7 +1,7 @@
 //! Where a stage lives and how it lays its cells out ([`StageStorage`]).
 
 use crate::launch::Delivery;
-use crate::{ChunkSwizzle, Dimension, Instruction, LineBytes, Refusal, Space, StageForm};
+use crate::{ChunkSwizzle, Decline, Dimension, Instruction, LineBytes, Space, StageForm};
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
@@ -99,7 +99,7 @@ impl StageStorage {
         space: &Space,
         vector_size: usize,
         elem_bits: usize,
-    ) -> Result<TensorMapSwizzle, Refusal> {
+    ) -> Result<TensorMapSwizzle, Decline> {
         assert!(
             (vector_size * elem_bits).is_multiple_of(8),
             "StageStorage::tma_swizzle: a line of {vector_size} {elem_bits}-bit values is not whole \
@@ -114,7 +114,7 @@ impl StageStorage {
         let swizzle = form
             .rows
             .tma_swizzle()
-            .map_err(|why| Refusal::RowsNoDescriptorLands { why })?;
+            .map_err(|why| Decline::RowsNoDescriptorLands { why })?;
         let rank = space.rank();
         // A row spans the innermost dimension and those its swizzle merges beside it.
         let span = form.rows.swizzle().map_or(1, |swizzle| swizzle.span());
@@ -130,7 +130,7 @@ impl StageStorage {
             };
             let splits_row = (rank - span..rank).any(|p| block.extent_at(p) < space.extent_at(p));
             if splits_row || !rows.is_multiple_of(period) {
-                return Err(Refusal::BoxSplitsStageBlocks {
+                return Err(Decline::BoxSplitsStageBlocks {
                     dimension: row,
                     rows,
                     period,

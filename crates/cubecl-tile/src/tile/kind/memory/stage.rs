@@ -837,15 +837,15 @@ mod tests {
         );
         assert!(matches!(
             tiled(16, RowChunks::Swizzled).tma_swizzle(&stage(32), 1, f16_bits),
-            Err(Refusal::BoxSplitsStageBlocks { dimension: K, .. })
+            Err(Decline::BoxSplitsStageBlocks { dimension: K, .. })
         ));
         assert!(matches!(
             tiled(32, RowChunks::Padded).tma_swizzle(&stage(32), 1, f16_bits),
-            Err(Refusal::RowsNoDescriptorLands { .. })
+            Err(Decline::RowsNoDescriptorLands { .. })
         ));
         assert!(matches!(
             tiled(128, RowChunks::Swizzled).tma_swizzle(&stage(128), 1, f16_bits),
-            Err(Refusal::RowsNoDescriptorLands { .. })
+            Err(Decline::RowsNoDescriptorLands { .. })
         ));
     }
 
@@ -859,7 +859,7 @@ mod tests {
         };
         assert_eq!(
             storage.tma_swizzle(&Space::new(&[(M, 64), (K, 32)]), 1, 16),
-            Err(Refusal::BoxSplitsStageBlocks {
+            Err(Decline::BoxSplitsStageBlocks {
                 dimension: K,
                 rows: 4,
                 period: 8

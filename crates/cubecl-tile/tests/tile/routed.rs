@@ -294,14 +294,14 @@ fn a_routed_walk_contracts_each_token_against_the_expert_its_table_names() {
 
 /// Slot under a routed coordinate: the stage is filled from the expert the route named, not
 /// from the first one and then reused. A window displacement living on the operand would owe a
-/// refusal (a staged operand inherits it); here the coordinate is the walk's, the stage per region.
+/// decline (a staged operand inherits it); here the coordinate is the walk's, the stage per region.
 #[test]
 fn a_routed_operand_stages_the_expert_the_table_named() {
     assert_routed(&run_staged(&ROUTES), &ROUTES, FEATURES);
 }
 
 /// A routing table names a tile the dimension does not have. The coordinate came from data, so this
-/// is not a mistake the caller can be told about (a refusal inside a cube verb dies on a worker
+/// is not a mistake the caller can be told about (a decline inside a cube verb dies on a worker
 /// thread). The walk clamps instead, so the read stays inside the weights, on the last expert.
 #[test]
 fn a_route_past_the_last_expert_clamps_to_it() {
@@ -418,14 +418,14 @@ fn run_block(routes: &[u32]) -> HostData {
 /// contracted dimension it becomes the fastest one, not the dimension the operands line along, and
 /// the sum every `K`-stored weight needs is gone: a route could only run one scalar cell at a time.
 ///
-/// A refusal inside a cube verb dies on the expansion worker, so a regression here reads as the
+/// A decline inside a cube verb dies on the expansion worker, so a regression here reads as the
 /// output keeping its fill value rather than as a message.
 #[test]
 fn a_routed_walk_sums_its_contraction_into_a_software_matmul() {
     assert_routed(&run_block(&ROUTES), &ROUTES, DEPTH);
 }
 
-/// Counts the steps of a walk routed on `dimension`, which the refusal test hands a dimension the
+/// Counts the steps of a walk routed on `dimension`, which the decline test hands a dimension the
 /// space does not carry.
 #[cube(launch)]
 fn routed_dimension_kernel(
@@ -484,9 +484,9 @@ fn launch_routed_on(dimension: Dimension) -> f32 {
     HostData::from_tensor_handle(&client, out_handle, HostDataType::F32).get_f32(&[0])
 }
 
-/// A comptime refusal inside a `#[cube]` verb does NOT reach the caller: expansion runs on a
+/// A comptime decline inside a `#[cube]` verb does NOT reach the caller: expansion runs on a
 /// worker thread, so `Walk::routed`'s assert panics there and the launch returns as if nothing
-/// happened (see `CUBECL_DEBUG_LOG`; measured 2026-09-08). The routed refusal must be host-side.
+/// happened (see `CUBECL_DEBUG_LOG`; measured 2026-09-08). The routed decline must be host-side.
 #[test]
 fn routing_a_dimension_of_the_space_is_the_only_case_checked_here() {
     assert_eq!(launch_routed_on(EXPERT), 1.0);

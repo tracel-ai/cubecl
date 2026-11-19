@@ -5,7 +5,7 @@ use core::fmt::{self, Display, Formatter};
 use cubecl::zspace::{SmallVec, Tiling};
 
 use super::Stagger;
-use crate::{Dimension, Geometry, Refusal, Space};
+use crate::{Decline, Dimension, Geometry, Space};
 
 /// The most pieces a statement keeps on the stack: a few stated tiles and the rest of each
 /// dimension.
@@ -209,13 +209,13 @@ impl StoragePartitioning {
     /// The buffer storing a tensor of `extents`: its axes in [`labels`](Self::labels)' order and
     /// its [`Tiling`]. Each piece steps by the run of every piece finer than it, the coarsest piece
     /// of more than one by its [`stagger`](Self::stagger)'s pitch over that run where it has one.
-    pub fn physical(&self, extents: &[(Dimension, usize)]) -> Result<Geometry, Refusal> {
+    pub fn physical(&self, extents: &[(Dimension, usize)]) -> Result<Geometry, Decline> {
         let dimensions: SmallVec<[Dimension; Space::MAX_RANK]> =
             extents.iter().map(|&(dimension, _)| dimension).collect();
         let named =
             |dimension: &Dimension| self.order.iter().filter(|&a| a == dimension).count() == 1;
         if self.order.len() != dimensions.len() || !dimensions.iter().all(named) {
-            return Err(Refusal::StorageOrderUnmatched {
+            return Err(Decline::StorageOrderUnmatched {
                 order: self.order.to_vec(),
                 dimensions: dimensions.to_vec(),
             });
@@ -225,7 +225,7 @@ impl StoragePartitioning {
                 dimension,
                 extent,
                 tile,
-            } => Refusal::StoredTileUnwhole {
+            } => Decline::StoredTileUnwhole {
                 dimension,
                 extent,
                 tile,
@@ -233,7 +233,7 @@ impl StoragePartitioning {
             _ => unreachable!("only the rest of a dimension is computed against its extent"),
         })?;
         let tiling = Tiling::new(&self.fragments(&dimensions))
-            .map_err(Refusal::StoragePiecesUnrecordable)?;
+            .map_err(Decline::StoragePiecesUnrecordable)?;
         // A piece of one steps nowhere, so the stagger pads the coarsest piece that steps.
         let staggered = self
             .stagger
@@ -568,7 +568,7 @@ mod tests {
         let eight_rows = StorageLevels::new(&[(K, 8)]).grid(&[K, N]);
         assert_eq!(
             eight_rows.physical(&[(K, 12), (N, 4)]),
-            Err(Refusal::StoredTileUnwhole {
+            Err(Decline::StoredTileUnwhole {
                 dimension: K,
                 extent: 12,
                 tile: 8
@@ -577,7 +577,7 @@ mod tests {
         let one_dimension = StorageLevels::new(&[(K, 4)]).grid(&[K]);
         assert!(matches!(
             one_dimension.physical(&[(K, 12), (N, 4)]),
-            Err(Refusal::StorageOrderUnmatched { .. })
+            Err(Decline::StorageOrderUnmatched { .. })
         ));
     }
 

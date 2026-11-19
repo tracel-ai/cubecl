@@ -217,7 +217,7 @@ pub(crate) fn lane_run_steps<T: Numeric>(
 /// one level of scales whose product with a code is exact in 16 bits, NVFP4's `e4m3` or a power
 /// of two. A coarser level is the product's to apply to the accumulator.
 #[cube]
-pub(crate) fn lane_runs_refusal<T: Numeric>(
+pub(crate) fn lane_runs_decline<T: Numeric>(
     src: &Tile,
     #[comptime] ident: MatrixIdent,
     #[comptime] layout: MatrixLayout,
@@ -324,7 +324,7 @@ impl LaneRun {
 #[cube]
 impl LaneRun {
     /// The run of `src`, a window of an `m × n × k` fragment of `T` in role `ident` that
-    /// [`lane_runs_refusal()`] admits.
+    /// [`lane_runs_decline()`] admits.
     fn new<T: Numeric>(
         src: &Tile,
         #[comptime] ident: MatrixIdent,
@@ -338,7 +338,7 @@ impl LaneRun {
         let map = LaneMap::new(m, n, depth);
         let space = comptime!(&src.place.space);
         comptime!({
-            let map = map.expect("lane_runs_refusal admits a target with a lane map alone");
+            let map = map.expect("lane_runs_decline admits a target with a lane map alone");
             let cells = space
                 .dimensions()
                 .map(|dimension| space.extent(dimension))
@@ -403,8 +403,8 @@ pub(crate) fn load_lane_runs<T: Numeric, N: Size>(
     #[comptime] layout: MatrixLayout,
     #[comptime] shape: (usize, usize, usize),
 ) {
-    let refusal = lane_runs_refusal::<T>(src, ident, layout, shape);
-    comptime!(if let Some(why) = refusal {
+    let decline = lane_runs_decline::<T>(src, ident, layout, shape);
+    comptime!(if let Some(why) = decline {
         panic!("MmaData::load: a fragment deeper than its instruction loads in lane runs: {why}")
     });
     let run = LaneRun::new::<T>(src, ident, shape);
@@ -458,7 +458,7 @@ fn load_plain_run<T: Numeric, N: Size>(
 
 /// [`load_lane_runs()`] of `e2m1` codes under one level of block scales: the run read as the stored
 /// words it is, each word decoded to eight values and multiplied by its block's scale in `T`,
-/// exact under [`lane_runs_refusal()`]'s conditions.
+/// exact under [`lane_runs_decline()`]'s conditions.
 #[cube]
 fn load_e2m1_run<T: Numeric, N: Size>(
     src: &Tile,

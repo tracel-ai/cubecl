@@ -52,15 +52,15 @@ pub enum LhsVectorDimension {
 
 impl LhsVectorDimension {
     /// The placement of an lhs vectorized `lw` wide in a contraction of `lhs` and `rhs` into `acc`,
-    /// or the [`Refusal`] saying why the dimension it lies along cannot be served. A one-wide
+    /// or the [`Decline`] saying why the dimension it lies along cannot be served. A one-wide
     /// vector has no direction and reads as a contracted step.
-    pub fn of(lhs: &Space, rhs: &Space, acc: &Space, lw: usize) -> Result<Self, Refusal> {
+    pub fn of(lhs: &Space, rhs: &Space, acc: &Space, lw: usize) -> Result<Self, Decline> {
         if lw == 1 {
             return Ok(LhsVectorDimension::Contracted);
         }
         let vectorized = lhs.dimension_at(lhs.rank() - 1);
         let refuse = |why| {
-            Err(Refusal::LhsVectorNotServed {
+            Err(Decline::LhsVectorNotServed {
                 dimension: vectorized,
                 why,
             })
@@ -709,7 +709,7 @@ mod tests {
         lhs: &[(Dimension, usize)],
         rhs: &[(Dimension, usize)],
         lw: usize,
-    ) -> Result<LhsVectorDimension, Refusal> {
+    ) -> Result<LhsVectorDimension, Decline> {
         let acc = Space::new(&[(M, 4), (N, 8)]);
         LhsVectorDimension::of(&Space::new(lhs), &Space::new(rhs), &acc, lw)
     }
@@ -733,7 +733,7 @@ mod tests {
         // Rows are vectorized but the lhs also spans the columns.
         assert!(matches!(
             vector_dimension_of(&[(K0, 2), (N, 8), (M, 4)], &rhs, 2),
-            Err(Refusal::LhsVectorNotServed {
+            Err(Decline::LhsVectorNotServed {
                 dimension: M,
                 why: LhsVectorMisfit::SpansColumns
             })
@@ -741,7 +741,7 @@ mod tests {
         // The vector does not divide the rows.
         assert!(matches!(
             vector_dimension_of(&[(K0, 2), (M, 4)], &rhs, 3),
-            Err(Refusal::LhsVectorNotServed {
+            Err(Decline::LhsVectorNotServed {
                 dimension: M,
                 why: LhsVectorMisfit::RowsNotWholeVectors
             })
@@ -752,7 +752,7 @@ mod tests {
         let rhs = Space::new(&[(K0, 2), (K1, 3), (N, 8)]);
         assert!(matches!(
             LhsVectorDimension::of(&lhs, &rhs, &acc, 3),
-            Err(Refusal::LhsVectorNotServed {
+            Err(Decline::LhsVectorNotServed {
                 dimension: K1,
                 why: LhsVectorMisfit::DimensionNotServed
             })

@@ -345,9 +345,9 @@ impl<'a> TileTensorExpand<'a> {
         let keys = table.spec.dimensions().to_vec();
         let read_at = indexing
             .read_at(&keys, &partitioning.levels)
-            .unwrap_or_else(|refusal| panic!("{refusal}"));
+            .unwrap_or_else(|decline| panic!("{decline}"));
         let ValuesExpand::Tensor { tensor, meta, .. } = &table.values else {
-            panic!("{}", Refusal::IndexTableNotU32)
+            panic!("{}", Decline::IndexTableNotU32)
         };
         let entries = scope.create_kernel_ref(TensorExpand::<u32>::__expand_from_parts(
             *meta,
@@ -481,17 +481,17 @@ impl TileTensorLaunch {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] for values not stored as indices, or a table that is not a plain one-axis
+    /// The [`Decline`] for values not stored as indices, or a table that is not a plain one-axis
     /// buffer holding an entry for every index.
-    pub fn codebook(mut self, table: TileTensorLaunch) -> Result<Self, Refusal> {
+    pub fn codebook(mut self, table: TileTensorLaunch) -> Result<Self, Decline> {
         let Packing::Packed {
             field: Field::Index { bits },
         } = self.spec.packing
         else {
-            return Err(Refusal::CodebookOfValuesNotIndices);
+            return Err(Decline::CodebookOfValuesNotIndices);
         };
         let ValuesLaunch::Tensor { tensor, width } = &table.values else {
-            return Err(Refusal::CodebookTableNotPlain);
+            return Err(Decline::CodebookTableNotPlain);
         };
         let plain = *width == 1
             && tensor.shape().len() == 1
@@ -501,11 +501,11 @@ impl TileTensorLaunch {
             && table.index.is_none()
             && table.codebook.is_none();
         if !plain {
-            return Err(Refusal::CodebookTableNotPlain);
+            return Err(Decline::CodebookTableNotPlain);
         }
         let entries = tensor.shape()[0];
         if entries < 1 << bits {
-            return Err(Refusal::CodebookTableShort { entries, bits });
+            return Err(Decline::CodebookTableShort { entries, bits });
         }
         self.codebook = Some(Box::new(table));
         Ok(self)
@@ -586,9 +586,9 @@ impl TileTensorLaunch {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] for a table that is not plain `u32` entries over one axis per key, or for
+    /// The [`Decline`] for a table that is not plain `u32` entries over one axis per key, or for
     /// values, or a scale level spanning the placed dimension, whose windows an entry cannot place.
-    pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Refusal> {
+    pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Decline> {
         self.placed_by(table, indexing, false)
     }
 
@@ -605,7 +605,7 @@ impl TileTensorLaunch {
         self,
         table: TileTensorLaunch,
         indexing: Indexing,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         self.placed_by(table, indexing, true)
     }
 
@@ -615,9 +615,9 @@ impl TileTensorLaunch {
         table: TileTensorLaunch,
         indexing: Indexing,
         covering: bool,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         let ValuesLaunch::Tensor { tensor, width } = &table.values else {
-            return Err(Refusal::IndexTableNotU32);
+            return Err(Decline::IndexTableNotU32);
         };
         let plain_u32 = table.element == u32::elem_type_native()
             && *width == 1
@@ -625,12 +625,12 @@ impl TileTensorLaunch {
             && table.scale.is_none()
             && table.index.is_none();
         if !plain_u32 {
-            return Err(Refusal::IndexTableNotU32);
+            return Err(Decline::IndexTableNotU32);
         }
         let keys = table.spec.dimensions();
         let rank = tensor.shape().len();
         if rank != keys.len() {
-            return Err(Refusal::IndexTableRank {
+            return Err(Decline::IndexTableRank {
                 keys: keys.len(),
                 rank,
             });
@@ -643,7 +643,7 @@ impl TileTensorLaunch {
             while let Some(scale) = level {
                 let spans = |dimension| scale.spec.dimensions().contains(&dimension);
                 if (spans(first) || spans(position)) && scale.spec.paging.is_none() {
-                    return Err(Refusal::ScalesOfAPoolUnpaged);
+                    return Err(Decline::ScalesOfAPoolUnpaged);
                 }
                 level = scale.scale.as_deref();
             }
@@ -670,9 +670,9 @@ impl TileTensorLaunch {
         sequence: Dimension,
         position: Dimension,
         covering: bool,
-    ) -> Result<TileSpec, Refusal> {
+    ) -> Result<TileSpec, Decline> {
         let ValuesLaunch::Tensor { tensor, .. } = &self.values else {
-            return Err(Refusal::PagingMovedByRuns);
+            return Err(Decline::PagingMovedByRuns);
         };
         let mut spec = TileSpec::clone(&self.spec);
         let paging = Paging::of_pool(
@@ -701,10 +701,10 @@ impl TileTensorLaunch {
 
     /// The values a line of this buffer holds, where an entry may move its window: a tensor map
     /// lands boxes where they lie, and is never indexed.
-    fn indexed_width(&self) -> Result<usize, Refusal> {
+    fn indexed_width(&self) -> Result<usize, Decline> {
         match &self.values {
             ValuesLaunch::Tensor { width, .. } => Ok(*width),
-            ValuesLaunch::TensorMap { .. } => Err(Refusal::IndexOfAStatedLayout),
+            ValuesLaunch::TensorMap { .. } => Err(Decline::IndexOfAStatedLayout),
         }
     }
 }
