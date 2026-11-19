@@ -2,15 +2,18 @@
 
 use cubecl::zspace::SmallVec;
 
-use crate::{Axis, Boundary, BoundaryPolicy, Field, Packing, Paging, Projection, Space, Storage};
+use crate::{
+    Boundary, BoundaryPolicy, Dimension, Field, Packing, Paging, Projection, Space, Storage,
+};
 use crate::{Delivery, Issuer};
 
-/// The comptime half of an operand: its axis mapping, edge checks, packing, storage and delivery.
+/// The comptime half of an operand: its dimension mapping, edge checks, packing, storage and
+/// delivery.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TileSpec {
-    /// How this operand's logical axes address its buffer's physical ones.
+    /// How this operand's dimensions address its buffer's physical ones.
     pub projection: Projection,
-    /// Out-of-bounds handling per coordinate axis; `None` or an empty list is unchecked.
+    /// Out-of-bounds handling per coordinate dimension; `None` or an empty list is unchecked.
     pub boundaries: SmallVec<[Option<Boundary>; Space::MAX_RANK]>,
     /// The launch's units per cube, `0` when unknown.
     pub units: usize,
@@ -22,10 +25,10 @@ pub struct TileSpec {
     /// [`StoragePartitioning`](crate::StoragePartitioning) reads back. Empty for a plain buffer.
     /// What a load of it covers is the kernel's to pick
     /// ([`VectorTile::new`](crate::VectorTile::new)).
-    pub stored_tiles: Vec<(Axis, usize)>,
+    pub stored_tiles: Vec<(Dimension, usize)>,
     /// Who moves this operand into a stage ([`delivery`](Self::delivery)).
     pub delivery: Delivery,
-    /// The axes a page table resolves where the buffer is a pool of pages read as sequences
+    /// The dimensions a page table resolves where the buffer is a pool of pages read as sequences
     /// ([`TileTensorLaunch::indexed`](crate::TileTensorLaunch::indexed)); `None` for a buffer read
     /// where it lies.
     pub paging: Option<Paging>,
@@ -47,22 +50,22 @@ impl TileSpec {
     }
 
     /// [`new`](Self::new) over the [`direct`](Projection::direct) mapping.
-    pub fn direct(axes: &[Axis]) -> Self {
-        Self::new(Projection::direct(axes))
+    pub fn direct(dimensions: &[Dimension]) -> Self {
+        Self::new(Projection::direct(dimensions))
     }
 
-    /// The axes this operand spans, in its logical order.
-    pub fn axes(&self) -> &[Axis] {
-        self.projection.logical_axes()
+    /// The dimensions this operand spans, in its logical order.
+    pub fn dimensions(&self) -> &[Dimension] {
+        self.projection.dimensions()
     }
 
-    /// This spec with one boundary mode per coordinate axis; panics on any other count.
+    /// This spec with one boundary mode per coordinate dimension; panics on any other count.
     pub fn boundaries(mut self, boundaries: &[Option<Boundary>]) -> Self {
         let coord_rank = self.projection.coordinate_rank();
         assert!(
             boundaries.len() == coord_rank,
             "TileSpec::boundaries: {} modes stated but the operand has {coord_rank} coordinate \
-             axes",
+             dimensions",
             boundaries.len()
         );
         self.boundaries = match boundaries.iter().any(Option::is_some) {
@@ -77,7 +80,7 @@ impl TileSpec {
         let coord_rank = self.projection.coordinate_rank();
         match policy {
             BoundaryPolicy::Unchecked => self.boundaries(&vec![None; coord_rank]),
-            // A spec has no launch to say which axes some extent could overhang: every one.
+            // A spec has no launch to say which dimensions some extent could overhang: every one.
             BoundaryPolicy::Every(boundary) | BoundaryPolicy::AnyExtent(boundary) => {
                 self.boundaries(&vec![Some(boundary); coord_rank])
             }

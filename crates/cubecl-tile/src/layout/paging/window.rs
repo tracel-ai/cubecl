@@ -38,8 +38,8 @@ impl Spans {
     }
 }
 
-/// A window's extent along the paged axes, `None` where no level fixes it, and what its origin is
-/// aligned to along the positions.
+/// A window's extent along the paged dimensions, `None` where no level fixes it, and what its
+/// origin is aligned to along the positions.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct PagedWindow {
     pub(crate) sequences: Option<usize>,
@@ -87,7 +87,7 @@ pub(crate) enum Pin {
 pub(crate) enum WindowCut {
     /// The same origin and extent: handed to other units, or bounded short of its end.
     Unmoved,
-    /// A level's tile, its extent along each dim in loads where the level fixes it; `nested` where
+    /// A level's tile, its extent along each axis in loads where the level fixes it; `nested` where
     /// the window is paged and every tile lies inside the window it was cut from.
     Level {
         edges: Vec<Option<usize>>,

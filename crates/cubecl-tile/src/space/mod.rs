@@ -1,8 +1,8 @@
 //! The logical coordinate space a tile lives in, and how a level of it splits (`partition`).
 
-pub(crate) mod axis;
 pub(crate) mod base;
 pub(crate) mod coords;
+pub(crate) mod dimension;
 pub(crate) mod extent;
 pub(crate) mod matrix;
 pub(crate) mod partition;
@@ -12,8 +12,8 @@ pub(crate) mod share;
 pub(crate) mod step;
 pub(crate) mod walk;
 
-pub(crate) use axis::*;
 pub(crate) use base::*;
+pub(crate) use dimension::*;
 pub(crate) use extent::*;
 pub(crate) use matrix::*;
 pub(crate) use partition::*;

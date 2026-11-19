@@ -24,9 +24,9 @@ pub struct GlobalOperand {
     #[cube(comptime)]
     pub write: Write,
     /// One per [`Scale::Dynamic`](crate::Scale) term and one per
-    /// [`Divisor::Dynamic`](crate::Divisor) axis, by physical axis, divisor last.
+    /// [`Divisor::Dynamic`](crate::Divisor) dimension, by physical axis, divisor last.
     pub(crate) coefficients: Coords<u32>,
-    /// One signed value per [`Offset::Dynamic`](crate::Offset) axis.
+    /// One signed value per [`Offset::Dynamic`](crate::Offset) dimension.
     pub(crate) offsets: Coords<i32>,
     /// The table a pool of pages is read as sequences through, where the spec states
     /// [`paging`](TileSpec::paging).
@@ -35,7 +35,8 @@ pub struct GlobalOperand {
 
 #[cube]
 impl GlobalOperand {
-    /// A launched tensor, `space` projected onto the `spec` axes; shape and strides in scalars.
+    /// A launched tensor, `space` projected onto the `spec` dimensions; shape and strides in
+    /// scalars.
     pub fn tensor<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -52,8 +53,8 @@ impl GlobalOperand {
     }
 
     /// [`tensor`](GlobalOperand::tensor) over a pool of pages, read as the sequences `table` names
-    /// ([`Paging`]): the spec states which axes the table resolves, the tensor is the pool as it
-    /// lies, and the operand's extent along the two axes is the table's.
+    /// ([`Paging`]): the spec states which dimensions the table resolves, the tensor is the pool as
+    /// it lies, and the operand's extent along the two dimensions is the table's.
     pub fn paged<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         table: &Tensor<u32>,
@@ -64,14 +65,14 @@ impl GlobalOperand {
             "GlobalOperand::paged: the spec states no paging for the table to resolve"
         )));
         let projection = spec.projection.clone();
-        let (sequence_dim, _) = comptime!(
+        let (sequence_axis, _) = comptime!(
             paging
-                .dims(&projection)
+                .axes(&projection)
                 .unwrap_or_else(|refusal| panic!("GlobalOperand::paged: {refusal}"))
         );
         let table = PageTable::new(
             table,
-            tensor.shape(sequence_dim) as u32,
+            tensor.shape(sequence_axis) as u32,
             paging,
             &projection,
             tensor.vector_size(),
@@ -106,7 +107,7 @@ impl GlobalOperand {
     }
 
     /// The shared body: `E` is the binding element, `T` the served scalar, `paging` the table a
-    /// pool of pages is read through, which sets the operand's extent along its two axes.
+    /// pool of pages is read through, which sets the operand's extent along its two dimensions.
     fn of_tensor<T: Numeric, E: CubePrimitive>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -212,7 +213,7 @@ impl GlobalOperand {
     /// This operand as a [`Tile`] at the top of `levels`.
     pub fn tile<T: Numeric>(self, #[comptime] levels: Vec<Level>) -> Tile {
         let place = comptime!(Placement::root(
-            self.space.subspace(self.spec.axes()),
+            self.space.subspace(self.spec.dimensions()),
             levels
         ));
         Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place.clone())
@@ -222,7 +223,7 @@ impl GlobalOperand {
 #[cube]
 impl Memory {
     /// The memory tile a launched operand becomes, its top window boxed over the physical axes.
-    // The unrolled loop over the buffer's dims indexes a compile-time list by the dim.
+    // The unrolled loop over the buffer's axes indexes a compile-time list by the axis.
     #[allow(clippy::needless_range_loop)]
     pub(crate) fn global(operand: GlobalOperand) -> Memory {
         let backing = operand.backing;
@@ -235,17 +236,17 @@ impl Memory {
         let spec = comptime!(operand.spec.clone());
         let write = comptime!(operand.write);
         let split_share = comptime!(SplitShare::Whole);
-        let space = space.subspace(spec.axes());
+        let space = space.subspace(spec.dimensions());
         let projection = spec.projection.clone();
         let coords = projection.untiled();
         let packing = spec.packing;
         let vector_size = packing.served(bound_width);
-        let dims_given = geometry.shape.len();
+        let axes_given = geometry.shape.len();
         let coefficients_given = coefficients.len();
         let offsets_given = offsets.len();
         comptime!(assert!(
-            dims_given == projection.physical_rank(),
-            "GlobalOperand: the projection addresses {} physical dims but {dims_given} were given",
+            axes_given == projection.physical_rank(),
+            "GlobalOperand: the projection addresses {} physical axes but {axes_given} were given",
             projection.physical_rank()
         ));
         comptime!(assert!(
@@ -267,13 +268,13 @@ impl Memory {
         ));
         // Gathered buffers have fewer physical axes than logical; storage-tiled ones have more.
         let rank = projection.physical_rank();
-        // The buffer read in loads: each dim's extent over what one load covers of it, every
-        // stride counted in loads. A plain buffer's innermost dim counts lines one line apart and
+        // The buffer read in loads: each axis's extent over what one load covers of it, every
+        // stride counted in loads. A plain buffer's innermost axis counts lines one line apart and
         // the coarser strides divide by the width; a stored tile a load takes whole is one.
         let load = comptime!(
             VectorTile::new(
                 &spec.stored_tiles,
-                space.axis_at(space.rank() - 1),
+                space.dimension_at(space.rank() - 1),
                 vector_size
             )
             .unwrap_or_else(|why| panic!("GlobalOperand: {vector_size} values a load: {why}"))
@@ -366,7 +367,7 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     if let Err(refusal) = projection.validate(vector_size) {
         panic!("{refusal}");
     }
-    projection.validate_composition(|axis| space.extent(axis));
+    projection.validate_composition(|dimension| space.extent(dimension));
     if let Some(paging) = &spec.paging {
         let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery);
         if let Err(refusal) = checked {
@@ -381,12 +382,12 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     );
     assert!(
         vector_size == 1 || spec.boundaries.last().copied().flatten() != Some(Boundary::Clamp),
-        "GlobalOperand: Boundary::Clamp cannot clamp the vectorized innermost axis (served at \
+        "GlobalOperand: Boundary::Clamp cannot clamp the vectorized innermost dimension (served at \
          {vector_size})"
     );
 }
 
-/// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` axes read `bound`.
+/// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` dimensions read `bound`.
 #[cube]
 fn top_window(
     #[comptime] space: &Space,
@@ -406,9 +407,9 @@ fn top_window(
         let size = if projection.is_direct() {
             origin.push(0);
             residues.push(0u32);
-            let axis = space.axis_at(pa);
-            match space.extent_raw(axis) {
-                Extent::Static(e) => (comptime!(e / load.extent_along(axis)) as u32).runtime(),
+            let dimension = space.dimension_at(pa);
+            match space.extent_raw(dimension) {
+                Extent::Static(e) => (comptime!(e / load.extent_along(dimension)) as u32).runtime(),
                 Extent::Dynamic => bound.at(pa),
             }
         } else {

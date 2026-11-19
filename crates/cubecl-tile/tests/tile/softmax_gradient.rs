@@ -1,22 +1,22 @@
-//! The softmax's backward pass on tiles a unit holds in registers: its probabilities read back
-//! from a saved logsumexp ([`AxisSlices::probabilities`]), its gradient against the scores
-//! ([`AxisSlices::softmax_gradient`]), the dot product that gradient subtracts ([`Tile::dot`]),
-//! and the logsumexp an online softmax leaves behind
+//! The softmax's backward pass on tiles a unit holds in registers: its probabilities read back from
+//! a saved logsumexp ([`DimensionSlices::probabilities`]), its gradient against the scores
+//! ([`DimensionSlices::softmax_gradient`]), the dot product that gradient subtracts
+//! ([`Tile::dot`]), and the logsumexp an online softmax leaves behind
 //! ([`OnlineSoftmax::store_logsumexp`](cubecl_tile::ops::softmax::OnlineSoftmax::store_logsumexp)).
 //!
 //! The logsumexp and the dot product are tiles over the queries, which the scores broadcast
-//! along the axis they omit. A unit that owns queries holds its scores `[q, s]` and reads one
+//! along the dimension they omit. A unit that owns queries holds its scores `[q, s]` and reads one
 //! value a slice; a unit that owns keys holds them `[s, q]`, as attention's backward pass does to
 //! sum the keys' gradients, and reads one value a position along each slice.
 //!
-//! [`AxisSlices::probabilities`]: cubecl_tile::AxisSlices::probabilities
-//! [`AxisSlices::softmax_gradient`]: cubecl_tile::AxisSlices::softmax_gradient
+//! [`DimensionSlices::probabilities`]: cubecl_tile::DimensionSlices::probabilities
+//! [`DimensionSlices::softmax_gradient`]: cubecl_tile::DimensionSlices::softmax_gradient
 //! [`Tile::dot`]: cubecl_tile::Tile::dot
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
+    Dimension, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
     TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
@@ -24,10 +24,10 @@ use cubecl_tile::{
 
 use super::{Form, implied};
 
-const Q: Axis = Axis(0);
-const S: Axis = Axis(1);
-const D: Axis = Axis(2);
-const V: Axis = Axis(3);
+const Q: Dimension = Dimension(0);
+const S: Dimension = Dimension(1);
+const D: Dimension = Dimension(2);
+const V: Dimension = Dimension(3);
 
 /// The bias a score is summed with: zero at a key its query sees, the minimum value past its own
 /// position, aligned at the bottom right.
@@ -46,8 +46,8 @@ impl Recipe<f32> for Causal {
 }
 
 impl Reads for CausalExpand {
-    fn reads(&self, _scope: &cubecl::ir::Scope, axis: Axis) -> bool {
-        axis == S || axis == Q
+    fn reads(&self, _scope: &cubecl::ir::Scope, dimension: Dimension) -> bool {
+        dimension == S || dimension == Q
     }
 }
 
@@ -182,8 +182,8 @@ fn by_keys(
 }
 
 /// Every plane owning its rows of the scores, keys or queries, holding them in manual-mma
-/// fragments: a step of the other axis at a time, the probabilities and the gradient against the
-/// scores taken in the registers that hold them, then drained. Keys first, each cell reads its
+/// fragments: a step of the other dimension at a time, the probabilities and the gradient against
+/// the scores taken in the registers that hold them, then drained. Keys first, each cell reads its
 /// query's logsumexp and dot product along its column; queries first, along its row.
 #[cube(launch)]
 fn by_plane_fragments(
@@ -474,13 +474,13 @@ fn zeros(client: &Client, shape: Shape) -> cubecl::std::tensor::TensorHandle {
         .generate_without_host_data()
 }
 
-/// `handle` bound as a tile over `axes`.
-fn arg(handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]) -> TileTensorLaunch {
+/// `handle` bound as a tile over `dimensions`.
+fn arg(handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]) -> TileTensorLaunch {
     TileTensorLaunch::new(
         handle.clone().binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
-        TileSpec::direct(axes),
+        TileSpec::direct(dimensions),
     )
 }
 
@@ -731,7 +731,7 @@ fn plane_fragments_take_the_softmax_gradient(keys_first: bool) {
         false => (Q, S, queries, keys),
     };
     let score_gradient = zeros(&client, Shape::new([owned_extent, walked_extent]));
-    // A plane owns sixteen rows, one instruction's `m`, and walks the other axis two `n8`
+    // A plane owns sixteen rows, one instruction's `m`, and walks the other dimension two `n8`
     // fragments a step; a cube is one plane.
     let launcher = implied(
         &client,
@@ -752,12 +752,12 @@ fn plane_fragments_take_the_softmax_gradient(keys_first: bool) {
         Form::Static,
     );
     let f16_ty = half::f16::elem_type_native();
-    let input = |handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]| {
+    let input = |handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]| {
         TileTensorLaunch::new(
             handle.clone().binding().into_tensor_arg(),
             f16_ty,
             1,
-            TileSpec::direct(axes),
+            TileSpec::direct(dimensions),
         )
     };
     by_plane_fragments::launch(

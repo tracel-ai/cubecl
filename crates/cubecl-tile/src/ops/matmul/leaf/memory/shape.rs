@@ -7,12 +7,12 @@ pub(crate) struct ContractShape {
     /// The accumulator's space.
     pub space: Space,
     /// The accumulator's matrix edges.
-    pub acc_axes: MatrixAxes,
-    /// The contracted axes.
-    pub reduce: Vec<Axis>,
+    pub acc_dimensions: MatrixDimensions,
+    /// The contracted dimensions.
+    pub reduce: Vec<Dimension>,
     /// Their extents, off the operands' merged space.
     pub reduce_extents: Vec<usize>,
-    /// The contraction depth, every contracted axis multiplied out.
+    /// The contraction depth, every contracted dimension multiplied out.
     pub kc: usize,
     /// The block's rows.
     pub mr: usize,
@@ -44,13 +44,13 @@ impl ContractShape {
         aw: usize,
     ) -> Self {
         let merged = Space::merge(&[lhs, rhs]);
-        let acc_axes = MatrixAxes::accumulator(&space, lhs);
+        let acc_dimensions = MatrixDimensions::accumulator(&space, lhs);
         let reduce = Space::contracted(&[lhs, rhs], &space).to_vec();
         let reduce_extents = reduce
             .iter()
-            .map(|&axis| merged.extent(axis))
+            .map(|&dimension| merged.extent(dimension))
             .collect::<Vec<_>>();
-        let cols = acc_axes.cols(&space);
+        let cols = acc_dimensions.cols(&space);
         let spread = if contracted_per_step > 1 { 1 } else { vw / aw };
         // A spread column rounds up: its last cell may be short.
         let cell = column_cell_width(contracted_per_step, spread, vw);
@@ -60,7 +60,7 @@ impl ContractShape {
             cols / cell
         };
 
-        let mr = acc_axes.rows(&space);
+        let mr = acc_dimensions.rows(&space);
 
         Self {
             kc: reduce_extents.iter().product(),
@@ -68,7 +68,7 @@ impl ContractShape {
             nr,
             cols,
             space,
-            acc_axes,
+            acc_dimensions,
             reduce,
             reduce_extents,
             contracted_per_step,
@@ -79,26 +79,34 @@ impl ContractShape {
         }
     }
 
-    /// The axes a 2-D reading takes both operands over, if one describes them.
-    pub(crate) fn matrix_axes(&self, lhs: &Space, rhs: &Space) -> Option<(MatrixAxes, MatrixAxes)> {
-        let lhs_axes = MatrixAxes::new(lhs, self.mr, self.kc).ok()?;
-        let rhs_axes = match self.contracted_per_step > 1 {
-            true => MatrixAxes::new(rhs, self.cols, self.kc).ok()?,
-            false => MatrixAxes::new(rhs, self.kc, self.cols).ok()?,
+    /// The dimensions a 2-D reading takes both operands over, if one describes them.
+    pub(crate) fn matrix_dimensions(
+        &self,
+        lhs: &Space,
+        rhs: &Space,
+    ) -> Option<(MatrixDimensions, MatrixDimensions)> {
+        let lhs_dimensions = MatrixDimensions::new(lhs, self.mr, self.kc).ok()?;
+        let rhs_dimensions = match self.contracted_per_step > 1 {
+            true => MatrixDimensions::new(rhs, self.cols, self.kc).ok()?,
+            false => MatrixDimensions::new(rhs, self.kc, self.cols).ok()?,
         };
-        Some((lhs_axes, rhs_axes))
+        Some((lhs_dimensions, rhs_dimensions))
     }
 
-    /// The lhs's `mr x kc` matrix axes for the 2-D nest.
-    pub(crate) fn lhs_axes(&self, lhs: &Space) -> MatrixAxes {
-        MatrixAxes::new(lhs, self.mr, self.kc).unwrap_or_else(|e| panic!("{e}"))
+    /// The lhs's `mr x kc` matrix dimensions for the 2-D nest.
+    pub(crate) fn lhs_dimensions(&self, lhs: &Space) -> MatrixDimensions {
+        MatrixDimensions::new(lhs, self.mr, self.kc).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// The rhs's matrix axes: `(col, k)` at a summing step, `(k, col)` otherwise.
-    pub(crate) fn rhs_axes(&self, rhs: &Space) -> MatrixAxes {
+    /// The rhs's matrix dimensions: `(col, k)` at a summing step, `(k, col)` otherwise.
+    pub(crate) fn rhs_dimensions(&self, rhs: &Space) -> MatrixDimensions {
         match self.contracted_per_step > 1 {
-            true => MatrixAxes::new(rhs, self.cols, self.kc).unwrap_or_else(|e| panic!("{e}")),
-            false => MatrixAxes::new(rhs, self.kc, self.cols).unwrap_or_else(|e| panic!("{e}")),
+            true => {
+                MatrixDimensions::new(rhs, self.cols, self.kc).unwrap_or_else(|e| panic!("{e}"))
+            }
+            false => {
+                MatrixDimensions::new(rhs, self.kc, self.cols).unwrap_or_else(|e| panic!("{e}"))
+            }
         }
     }
 
@@ -112,8 +120,8 @@ impl ContractShape {
         line_extents(
             &self.space,
             1,
-            self.acc_axes.row_split,
-            self.acc_axes.col_split,
+            self.acc_dimensions.row_split,
+            self.acc_dimensions.col_split,
         )
     }
 
@@ -122,14 +130,14 @@ impl ContractShape {
         line_extents(
             &self.space,
             self.cell_width(),
-            self.acc_axes.col_split,
+            self.acc_dimensions.col_split,
             self.space.rank(),
         )
     }
 
     /// The accumulator's batch extents.
     pub(crate) fn batch_extents(&self) -> Vec<usize> {
-        (0..self.acc_axes.row_split)
+        (0..self.acc_dimensions.row_split)
             .map(|p| self.space.extent_at(p))
             .collect()
     }
@@ -144,12 +152,12 @@ impl ContractShape {
         self.mr * self.nr * self.contracted_per_step * self.aw * self.spread
     }
 
-    /// The fastest contracted axis, the one a walk steps innermost.
-    pub(crate) fn fastest_axis(&self) -> Axis {
+    /// The fastest contracted dimension, the one a walk steps innermost.
+    pub(crate) fn fastest_dimension(&self) -> Dimension {
         self.reduce[self.reduce.len() - 1]
     }
 
-    /// The fastest contracted axis's extent, in scalars.
+    /// The fastest contracted dimension's extent, in scalars.
     pub(crate) fn fastest_extent(&self) -> usize {
         self.reduce_extents[self.reduce_extents.len() - 1]
     }
@@ -175,23 +183,23 @@ fn column_cell_width(contracted_per_step: usize, spread: usize, vw: usize) -> us
 mod tests {
     use super::*;
 
-    const B: Axis = Axis(0);
-    const OH: Axis = Axis(1);
-    const OW: Axis = Axis(2);
-    const C: Axis = Axis(3);
-    const RH: Axis = Axis(4);
-    const RW: Axis = Axis(5);
+    const B: Dimension = Dimension(0);
+    const OH: Dimension = Dimension(1);
+    const OW: Dimension = Dimension(2);
+    const C: Dimension = Dimension(3);
+    const RH: Dimension = Dimension(4);
+    const RW: Dimension = Dimension(5);
 
-    /// A depthwise-shaped cell coordinate covers every accumulator axis.
+    /// A depthwise-shaped cell coordinate covers every accumulator dimension.
     #[test]
-    fn the_cell_coordinate_covers_every_accumulator_axis() {
+    fn the_cell_coordinate_covers_every_accumulator_dimension() {
         let acc = Space::new(&[(B, 1), (OH, 1), (OW, 4), (C, 4)]);
         let lhs = Space::new(&[(C, 4), (RH, 3), (RW, 3)]);
         let rhs = Space::new(&[(B, 1), (OH, 1), (OW, 4), (C, 4), (RH, 3), (RW, 3)]);
 
         let shape = ContractShape::new(&lhs, &rhs, acc.clone(), 1, 4, 4, 4);
 
-        assert_eq!(shape.acc_axes.col_split, 1);
+        assert_eq!(shape.acc_dimensions.col_split, 1);
         assert_eq!(
             shape.batch_extents().len()
                 + shape.row_extents().len()
@@ -205,9 +213,9 @@ mod tests {
         );
     }
 
-    /// One axis per edge gives identity unravels.
+    /// One dimension per edge gives identity unravels.
     #[test]
-    fn a_single_axis_per_edge_leaves_the_coordinate_unchanged() {
+    fn a_single_dimension_per_edge_leaves_the_coordinate_unchanged() {
         let acc = Space::new(&[(B, 2), (OH, 4), (C, 8)]);
         let lhs = Space::new(&[(B, 2), (OH, 4), (RH, 6)]);
         let rhs = Space::new(&[(B, 2), (RH, 6), (C, 8)]);

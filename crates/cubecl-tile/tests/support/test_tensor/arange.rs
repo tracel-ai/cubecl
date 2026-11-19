@@ -18,9 +18,9 @@ fn arange_launch<T: Numeric>(tensor: &mut Tensor<T>, #[define(T)] _types: ElemTy
     let mut offset = 0;
 
     for d in 0..tensor.rank() {
-        let dim = tensor.shape(tensor.rank() - 1 - d);
-        let idx = remaining % dim;
-        remaining /= dim;
+        let axis = tensor.shape(tensor.rank() - 1 - d);
+        let idx = remaining % axis;
+        remaining /= axis;
         offset += idx * tensor.stride(tensor.rank() - 1 - d);
     }
 

@@ -6,12 +6,12 @@ use crate::{
     ComputeScope, Coords, CubeAxis, CubeOrder, Integer, IntegerExpand, Level, Space, cube_positions,
 };
 
-/// This plane's or unit's tiles of `level`, a level spanning the launch, along each axis of
-/// `space`: `(positions, counts, scales)`: along each of the level's axes the first tile's index,
-/// how many it walks and how far apart they lie: one tile, an index past the last for an instance
-/// past the last tile; under a [capped](crate::space::PlaneOrder::capped) order, every tile a
-/// whole launch of planes apart until the last. Along each other axis `0`, every tile, `1`. `grid`
-/// is the tiles along each axis.
+/// This plane's or unit's tiles of `level`, a level spanning the launch, along each dimension of
+/// `space`: `(positions, counts, scales)`: along each of the level's dimensions the first tile's
+/// index, how many it walks and how far apart they lie: one tile, an index past the last for an
+/// instance past the last tile; under a [capped](crate::space::PlaneOrder::capped) order, every
+/// tile a whole launch of planes apart until the last. Along each other dimension `0`, every tile,
+/// `1`. `grid` is the tiles along each dimension.
 #[cube]
 pub(crate) fn launch_tiles(
     #[comptime] space: &Space,
@@ -27,13 +27,13 @@ pub(crate) fn launch_tiles(
         _ => UNIT_POS_Y as usize,
     };
     let rank = space.rank();
-    // The level's axes in the order it names them: the first rides fastest across the blocks, as
-    // a cube level's `X` does.
+    // The level's dimensions in the order it names them: the first rides fastest across the blocks,
+    // as a cube level's `X` does.
     let named = comptime!(
         level
-            .axes()
+            .dimensions()
             .into_iter()
-            .map(|axis| space.position(axis))
+            .map(|dimension| space.position(dimension))
             .collect::<Vec<_>>()
     );
     // The grid's `x` and `y`, as `Partitioning::cube_count` lays the cubes out:
@@ -48,11 +48,11 @@ pub(crate) fn launch_tiles(
         (flat.divided_by(planes), flat.remainder(planes))
     };
 
-    // Blocks along each named axis, the last one ragged.
+    // Blocks along each named dimension, the last one ragged.
     let mut blocks = Coords::<usize>::new();
     #[unroll]
     for p in named.clone() {
-        let along = order.block_along(space.axis_at(p));
+        let along = order.block_along(space.dimension_at(p));
         blocks.push(
             grid.at(p)
                 .plus((along - 1).runtime())
@@ -64,7 +64,7 @@ pub(crate) fn launch_tiles(
     let capped = order.cap().is_some();
     comptime!(assert!(
         !capped || (order.one_block_a_cube() && named.len() == 1),
-        "launch_tiles: a capped launch's cubes take a block each, along the level's one axis"
+        "launch_tiles: a capped launch's cubes take a block each, along the level's one dimension"
     ));
     let mut positions = Coords::<usize>::new();
     let mut counts = Coords::<usize>::new();
@@ -78,12 +78,12 @@ pub(crate) fn launch_tiles(
                 scales.push(1usize);
             }
             Some(i) => {
-                let along = order.block_along(space.axis_at(p));
-                // The last named axis rides fastest within a block, as a plane level's does.
+                let along = order.block_along(space.dimension_at(p));
+                // The last named dimension rides fastest within a block, as a plane level's does.
                 let inner = comptime!(
                     named[i + 1..]
                         .iter()
-                        .map(|&q| order.block_along(space.axis_at(q)))
+                        .map(|&q| order.block_along(space.dimension_at(q)))
                         .product::<usize>()
                 );
                 let within = local.divided_by(inner.runtime()).remainder(along.runtime());
@@ -111,8 +111,9 @@ pub(crate) fn launch_tiles(
     (positions, counts, scales)
 }
 
-/// Block `block`'s coordinates over `blocks`, `named` axes of them: the first two in `order`, the
-/// others outermost, first fastest, the last never wrapped, so a block past the grid lands off it.
+/// Block `block`'s coordinates over `blocks`, `named` dimensions of them: the first two in `order`,
+/// the others outermost, first fastest, the last never wrapped, so a block past the grid lands off
+/// it.
 #[cube]
 fn block_coords(
     block: usize,

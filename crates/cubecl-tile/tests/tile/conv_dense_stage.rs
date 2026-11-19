@@ -1,4 +1,4 @@
-//! A convolution's gathered input staged dense over its logical axes (im2col in shared memory)
+//! A convolution's gathered input staged dense over its dimensions (im2col in shared memory)
 //! and contracted by tensor-core instructions, which refuse a gathered operand read in place.
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -11,10 +11,10 @@ use half::f16;
 
 use super::{Form, implied};
 
-const OH: Axis = Axis(0);
-const CO: Axis = Axis(1);
-const RH: Axis = Axis(2);
-const CI: Axis = Axis(3);
+const OH: Dimension = Dimension(0);
+const CO: Dimension = Dimension(1);
+const RH: Dimension = Dimension(2);
+const CI: Dimension = Dimension(3);
 
 const CO_EXTENT: usize = 16;
 const RH_EXTENT: usize = 4;
@@ -288,7 +288,7 @@ fn conv_dense_stage_mma_tiled_stage() {
 }
 
 /// One plane over a 2 by 2 grid of fragments, whose lhs rows step by the stride of the output's
-/// row axis, `taps * channels`, not the channels of one tap.
+/// row dimension, `taps * channels`, not the channels of one tap.
 const GRID: Case = Case {
     planes: 1,
     grid: true,

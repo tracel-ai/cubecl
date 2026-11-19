@@ -21,7 +21,7 @@ impl CodebookRead for TileExpand {
     }
 }
 
-/// `table[index]`, the table read as the one-axis tile it is.
+/// `table[index]`, the table read as the one-dimension tile it is.
 ///
 /// Read untested: an index is a field as wide as the one the table was bound for, and a table
 /// holds an entry for every value such a field takes ([`TileTensorLaunch::codebook`] refuses a

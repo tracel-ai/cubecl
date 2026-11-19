@@ -20,12 +20,12 @@ pub(crate) struct Memory {
     pub(crate) layout: BufferLayout,
     /// The region of the physical buffer this tile covers; narrowed by [`at`](Tile::at).
     pub(crate) window: Window,
-    /// How the tile's logical axes address the buffer's physical ones; fixed at construction.
+    /// How the tile's dimensions address the buffer's physical ones; fixed at construction.
     #[cube(comptime)]
     pub(crate) projection: Projection,
     /// The runtime half of [`projection`](Self::projection): its coefficients and window phase.
     pub(crate) map: RuntimeMap,
-    /// The runtime constant terms of the projection, one signed value per dynamic-offset axis.
+    /// The runtime constant terms of the projection, one signed value per dynamic-offset dimension.
     pub(crate) offsets: Coords<i32>,
     /// The window origin's line offset, accumulated across [`at`](Tile::at)s.
     pub(crate) window_start: u32,
@@ -100,20 +100,20 @@ pub(crate) struct Store {
     /// ([`TileSpec::stored_tiles`]); empty for a plain buffer and every stage. What one load of it
     /// covers follows from these and the width ([`Tile::vector_tile`]).
     #[cube(comptime)]
-    pub(crate) stored_tiles: Vec<(Axis, usize)>,
+    pub(crate) stored_tiles: Vec<(Dimension, usize)>,
 }
 
 #[cube]
 impl Memory {
-    /// What one vector load of this memory covers over a window spanning `space`: the stored
-    /// tiles that hold [`vector_size`](Store::vector_size) values, a run along the innermost axis
+    /// What one vector load of this memory covers over a window spanning `space`: the stored tiles
+    /// that hold [`vector_size`](Store::vector_size) values, a run along the innermost dimension
     /// where none are stated ([`VectorTile::new`]).
     pub(crate) fn vector_tile(&self, #[comptime] space: &Space) -> comptime_type!(VectorTile) {
         let width = comptime!(self.store.vector_size);
         comptime!(
             VectorTile::new(
                 &self.store.stored_tiles,
-                space.axis_at(space.rank() - 1),
+                space.dimension_at(space.rank() - 1),
                 width
             )
             .unwrap_or_else(|why| panic!("Memory: {width} values a load: {why}"))
@@ -297,12 +297,12 @@ impl Write {
                     "{site}: this accumulator's cells are split across planes or cubes and its \
                  destination replaces rather than accumulates, so every partial but one would be \
                  lost. \
-                 A contracted axis distributed across planes or cubes gives each instance a \
+                 A contracted dimension distributed across planes or cubes gives each instance a \
                  slice of the contraction, and none of them holds a whole cell. \
                  Drain into an accumulating destination (bind it as an `AccumulateArg`), \
                  distribute the contraction across the plane's units instead \
                  (`distribute(units(n), ..)`, combined in the plane's registers), or give the \
-                 output an axis of its own for the split."
+                 output a dimension of its own for the split."
                 )
             }
         }
@@ -390,10 +390,10 @@ impl WindowStorage {
                 if depth < tiled_at {
                     return self;
                 }
-                for axis in space.axes() {
+                for dimension in space.dimensions() {
                     assert!(
-                        matches!(level.extent_in(space, axis), Extent::Static(_)),
-                        "Memory::at: level {tiled_at} hands {axis:?} down dynamic, so its tile is \
+                        matches!(level.extent_in(space, dimension), Extent::Static(_)),
+                        "Memory::at: level {tiled_at} hands {dimension:?} down dynamic, so its tile is \
                          no storage tile"
                     );
                 }

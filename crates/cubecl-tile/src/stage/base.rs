@@ -1,15 +1,16 @@
 //! Where a stage lives and how it lays its cells out ([`StageStorage`]).
 
-use crate::{Axis, ChunkSwizzle, LineBytes, Refusal, Space, StageForm};
+use crate::launch::Delivery;
+use crate::{ChunkSwizzle, Dimension, Instruction, LineBytes, Refusal, Space, StageForm};
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
 /// [`Stages::smem`](crate::Stages::smem).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StageStorage {
-    /// Shared memory grouped into `block`-sized tiles, one edge per axis of the operation.
+    /// Shared memory grouped into `block`-sized tiles, one edge per dimension of the operation.
     Tiled {
-        block: Vec<(Axis, usize)>,
+        block: Vec<(Dimension, usize)>,
         chunks: RowChunks,
     },
     Strided,
@@ -39,6 +40,22 @@ impl RowChunks {
     /// 16 bytes a unit (`cp.async`), and into a stage that starts mid-sector each copy is split,
     /// so every global sector it reads is fetched twice.
     pub const STAGE_ALIGNMENT_BYTES: usize = 128;
+
+    /// The arrangement a stage asked for as `self` takes where `instruction` reads it and
+    /// `delivery` writes it: the one asked for, made one both can use. A fragment API reading
+    /// rows off a pointer and a stride (cmma) reads no swizzled row, so a swizzle becomes the
+    /// other arrangement that keeps rows on distinct banks, padding; a TMA box lands rows dense,
+    /// so padding becomes rows in order.
+    pub(crate) fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
+        let read = match (self, instruction) {
+            (Self::Swizzled, Instruction::Cmma) => Self::Padded,
+            (chunks, _) => chunks,
+        };
+        match (read, delivery) {
+            (Self::Padded, Delivery::Tma) => Self::InOrder,
+            (chunks, _) => chunks,
+        }
+    }
 }
 
 /// How a value reaches the unit asking for it, out of the lines the plane holds.
@@ -52,6 +69,20 @@ pub enum UnitRead {
 }
 
 impl StageStorage {
+    /// This storage as a stage read by `instruction` and written by `delivery` lays its cells
+    /// out: a tiled stage's rows arranged as both can use ([`RowChunks::read_by`]); any other
+    /// storage as it is. What a host that names its instruction asks; one that names its Step
+    /// asks the Step ([`ProductStep::stage_storage`](crate::ProductStep::stage_storage)).
+    pub fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
+        match self {
+            Self::Tiled { block, chunks } => Self::Tiled {
+                block,
+                chunks: chunks.read_by(instruction, delivery),
+            },
+            other => other,
+        }
+    }
+
     /// The swizzle a TMA descriptor moving the whole of a stage over `space` in one box lands its
     /// rows with, so they lie as this storage keeps them: the stage's lines `vector_size` values of
     /// `elem_bits` bits, which a line holds whole bytes of (a packed operand's line is its words).
@@ -85,9 +116,9 @@ impl StageStorage {
             .tma_swizzle()
             .map_err(|why| Refusal::RowsNoDescriptorLands { why })?;
         let rank = space.rank();
-        // A row spans the innermost axis and those its swizzle merges beside it.
+        // A row spans the innermost dimension and those its swizzle merges beside it.
         let span = form.rows.swizzle().map_or(1, |swizzle| swizzle.span());
-        let row = space.axis_at(rank - 1);
+        let row = space.dimension_at(rank - 1);
         let period = match swizzle {
             TensorMapSwizzle::None => 1,
             _ => ChunkSwizzle::ROWS_PER_PERIOD,
@@ -100,7 +131,7 @@ impl StageStorage {
             let splits_row = (rank - span..rank).any(|p| block.extent_at(p) < space.extent_at(p));
             if splits_row || !rows.is_multiple_of(period) {
                 return Err(Refusal::BoxSplitsStageBlocks {
-                    axis: row,
+                    dimension: row,
                     rows,
                     period,
                 });
@@ -126,18 +157,18 @@ impl StageStorage {
             StageStorage::Tiled { block, .. } => {
                 let nested = Space::new(
                     &space
-                        .axes()
-                        .map(|axis| {
+                        .dimensions()
+                        .map(|dimension| {
                             let edge = block
                                 .iter()
-                                .find(|&&(a, _)| a == axis)
+                                .find(|&&(a, _)| a == dimension)
                                 .unwrap_or_else(|| {
                                     panic!(
-                                        "StageStorage::Tiled: the block states no edge for {axis:?}"
+                                        "StageStorage::Tiled: the block states no edge for {dimension:?}"
                                     )
                                 })
                                 .1;
-                            (axis, edge)
+                            (dimension, edge)
                         })
                         .collect::<Vec<_>>(),
                 );

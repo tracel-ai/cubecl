@@ -1,14 +1,14 @@
-//! An attention whose softmax runs through [`OnlineSoftmax`] where its holder keeps the score: each unit owning
-//! its rows in registers, or each plane owning its rows in its own window, from loading to
-//! writing.
+//! An attention whose softmax runs through [`OnlineSoftmax`] where its holder keeps the score: each
+//! unit owning its rows in registers, or each plane owning its rows in its own window, from loading
+//! to writing.
 //!
 //! A unit reads its query, keys and values where they lie, holds its score in a register block,
 //! and contracts the probabilities it just computed with the values without leaving registers.
 //!
 //! One partitioning spans both contractions: `score = q · kᵀ` contracts `D` and `out = p · v`
-//! contracts `S`, and each walks its own axes of the fragment level, the other's routed to one
-//! step. The plane stages its query once and its keys and values a block at a time, in stages of
-//! its own met on `sync_plane`; the score lands in the plane's own window, the softmax takes it
+//! contracts `S`, and each walks its own dimensions of the fragment level, the other's routed to
+//! one step. The plane stages its query once and its keys and values a block at a time, in stages
+//! of its own met on `sync_plane`; the score lands in the plane's own window, the softmax takes it
 //! in there, and the output's fragments are corrected through the plane's own scratch.
 //!
 //! The same kernel serves planes that split the keys of the same queries: the partitioning says
@@ -20,7 +20,7 @@ use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::{
-    Axis, FragmentSource, Instruction, Levels, Partitioning, Projection, Scratch, Semiring,
+    Dimension, FragmentSource, Instruction, Levels, Partitioning, Projection, Scratch, Semiring,
     SoftwareMatmul, Space, StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
@@ -28,10 +28,10 @@ use cubecl_tile::{
 
 use super::{Form, implied};
 
-pub(super) const Q: Axis = Axis(0);
-pub(super) const S: Axis = Axis(1);
-pub(super) const D: Axis = Axis(2);
-pub(super) const V: Axis = Axis(3);
+pub(super) const Q: Dimension = Dimension(0);
+pub(super) const S: Dimension = Dimension(1);
+pub(super) const D: Dimension = Dimension(2);
+pub(super) const V: Dimension = Dimension(3);
 
 /// The bias a query's scores are summed with: zero at a key it sees, the minimum value past the
 /// attended keys and, under `causal`, past its own position aligned at the bottom right.
@@ -56,8 +56,8 @@ impl Recipe<f32> for Attended {
 }
 
 impl Reads for AttendedExpand {
-    fn reads(&self, _scope: &cubecl::ir::Scope, axis: Axis) -> bool {
-        axis == S || (self.causal && axis == Q)
+    fn reads(&self, _scope: &cubecl::ir::Scope, dimension: Dimension) -> bool {
+        dimension == S || (self.causal && dimension == Q)
     }
 }
 
@@ -612,7 +612,7 @@ fn unit_attention_over_scaled_keys(
     }
 }
 
-/// Which axis a cube's planes split: the queries, each plane owning its own rows, or the keys,
+/// Which dimension a cube's planes split: the queries, each plane owning its own rows, or the keys,
 /// the planes merging what each computed of the same rows.
 #[derive(Clone, Copy)]
 enum PlanesAlong {
@@ -1345,7 +1345,8 @@ fn a_unit_attention_reads_its_keys_under_a_per_tensor_scale() {
             1,
             TileSpec::direct(&[Q, D]),
         ),
-        // The keys are stored transposed, under one scale that addresses neither of their axes.
+        // The keys are stored transposed, under one scale that addresses neither of their
+        // dimensions.
         TileTensorLaunch::new(
             k_handle.binding().into_tensor_arg(),
             f32_ty,

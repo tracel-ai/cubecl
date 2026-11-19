@@ -1,8 +1,9 @@
-//! One axis's size ([`Extent`]) and every axis's at once ([`Shape`]).
+//! One dimension's size ([`Extent`]) and every dimension's at once ([`Shape`]).
 
-use crate::{Axis, AxisMap};
+use crate::{Dimension, DimensionMap};
 
-/// One axis's size: `Static` is comptime, `Dynamic` is resolved in-kernel from the tensor shape.
+/// One dimension's size: `Static` is comptime, `Dynamic` is resolved in-kernel from the tensor
+/// shape.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Extent {
     Static(usize),
@@ -15,7 +16,7 @@ impl Extent {
         match self {
             Extent::Static(n) => n,
             Extent::Dynamic => {
-                panic!("Extent::get: this axis is Dynamic; its size is only known at runtime")
+                panic!("Extent::get: this dimension is Dynamic; its size is only known at runtime")
             }
         }
     }
@@ -24,7 +25,7 @@ impl Extent {
         matches!(self, Extent::Dynamic)
     }
 
-    /// The extent two spaces sharing an axis broadcast to when they are
+    /// The extent two spaces sharing a dimension broadcast to when they are
     /// [`merge`](crate::Space::merge)d.
     pub(crate) fn broadcast(self, other: Extent) -> Extent {
         match (self, other) {
@@ -32,21 +33,21 @@ impl Extent {
             (a, Extent::Static(1)) => a,
             (Extent::Dynamic, _) | (_, Extent::Dynamic) => Extent::Dynamic,
             (Extent::Static(a), Extent::Static(b)) if a == b => Extent::Static(a),
-            _ => panic!("Space::merge: axis appears with conflicting extents"),
+            _ => panic!("Space::merge: dimension appears with conflicting extents"),
         }
     }
 }
 
-/// Every axis with its comptime extent, in canonical order.
+/// Every dimension with its comptime extent, in canonical order.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Shape {
-    extents: AxisMap<Extent>,
+    extents: DimensionMap<Extent>,
 }
 
 impl Shape {
-    pub(crate) fn new(extents: &[(Axis, Extent)]) -> Self {
+    pub(crate) fn new(extents: &[(Dimension, Extent)]) -> Self {
         Shape {
-            extents: AxisMap::new(extents),
+            extents: DimensionMap::new(extents),
         }
     }
 
@@ -54,47 +55,51 @@ impl Shape {
         self.extents.len()
     }
 
-    pub fn axis_at(&self, i: usize) -> Axis {
-        self.extents.axis_at(i)
+    pub fn dimension_at(&self, i: usize) -> Dimension {
+        self.extents.dimension_at(i)
     }
 
-    pub fn position(&self, axis: Axis) -> usize {
-        self.extents.position(axis)
+    pub fn position(&self, dimension: Dimension) -> usize {
+        self.extents.position(dimension)
     }
 
-    pub fn contains(&self, axis: Axis) -> bool {
-        self.extents.contains(axis)
+    pub fn contains(&self, dimension: Dimension) -> bool {
+        self.extents.contains(dimension)
     }
 
-    pub fn axes(&self) -> impl Iterator<Item = Axis> + '_ {
-        self.extents.axes()
+    pub fn dimensions(&self) -> impl Iterator<Item = Dimension> + '_ {
+        self.extents.dimensions()
     }
 
-    pub(crate) fn extent_raw(&self, axis: Axis) -> Extent {
-        self.extents.get(axis)
+    pub(crate) fn extent_raw(&self, dimension: Dimension) -> Extent {
+        self.extents.get(dimension)
     }
 
-    /// The axis's comptime size; panics on a dynamic axis.
-    pub fn extent(&self, axis: Axis) -> usize {
-        self.extent_raw(axis).get()
+    /// The dimension's comptime size; panics on a dynamic dimension.
+    pub fn extent(&self, dimension: Dimension) -> usize {
+        self.extent_raw(dimension).get()
     }
 
     pub fn extent_at(&self, i: usize) -> usize {
-        self.extent(self.axis_at(i))
+        self.extent(self.dimension_at(i))
     }
 
-    pub fn is_dynamic(&self, axis: Axis) -> bool {
-        self.extent_raw(axis).is_dynamic()
+    pub fn is_dynamic(&self, dimension: Dimension) -> bool {
+        self.extent_raw(dimension).is_dynamic()
     }
 
-    /// Every axis is [`Static`](Extent::Static), so a walk over it is fully comptime.
+    /// Every dimension is [`Static`](Extent::Static), so a walk over it is fully comptime.
     pub(crate) fn is_static(&self) -> bool {
-        self.axes().all(|axis| !self.is_dynamic(axis))
+        self.dimensions()
+            .all(|dimension| !self.is_dynamic(dimension))
     }
 
-    /// The listed axes with their extents, in the order listed.
-    pub(crate) fn subspace(&self, axes: &[Axis]) -> Shape {
-        let entries: Vec<_> = axes.iter().map(|&a| (a, self.extent_raw(a))).collect();
+    /// The listed dimensions with their extents, in the order listed.
+    pub(crate) fn subspace(&self, dimensions: &[Dimension]) -> Shape {
+        let entries: Vec<_> = dimensions
+            .iter()
+            .map(|&a| (a, self.extent_raw(a)))
+            .collect();
         Shape::new(&entries)
     }
 }

@@ -13,10 +13,10 @@ use cubecl_tile::*;
 use super::quant::column_reads::offset;
 use super::{Form, implied};
 
-const N: Axis = Axis(0);
+const N: Dimension = Dimension(0);
 /// `K` as blocks of sixteen, and the position inside one.
-const KB: Axis = Axis(1);
-const KI: Axis = Axis(2);
+const KB: Dimension = Dimension(1);
+const KI: Dimension = Dimension(2);
 
 /// Values a block of `K` holds.
 const BLOCK: usize = 16;
@@ -54,7 +54,7 @@ fn copy_per_unit<E: Numeric>(
     }
 }
 
-/// Every cell of `input`'s window of `rank` axes into `output`'s, one at a time through their
+/// Every cell of `input`'s window of `rank` dimensions into `output`'s, one at a time through their
 /// views, in row-major order.
 #[cube]
 fn copy_cells<E: Numeric>(input: &Tile, output: &mut Tile, #[comptime] rank: usize) {
@@ -146,7 +146,7 @@ fn an_overhanging_launch_refuses_an_operand_read_inside_its_storage_tile() {
     let storage = StorageLevels::new(&[(KI, 8)])
         .tile(&[(KI, BLOCK / 8), (KB, 4), (N, TILE_COLUMNS)])
         .grid(&[KI, KB, N]);
-    let axes = [N, KB, KI];
+    let dimensions = [N, KB, KI];
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
         .unwrap();
@@ -161,7 +161,7 @@ fn an_overhanging_launch_refuses_an_operand_read_inside_its_storage_tile() {
     let mut binding = input.binding();
     binding.tiling = geometry.tiling();
 
-    let refused = launcher.arg(binding, dtype).axes(&axes).build();
+    let refused = launcher.arg(binding, dtype).dimensions(&dimensions).build();
 
     assert_eq!(
         refused.map(|_| ()),
@@ -169,10 +169,10 @@ fn an_overhanging_launch_refuses_an_operand_read_inside_its_storage_tile() {
     );
 }
 
-/// An operand over `axes` of two planes' columns and one step of blocks of `K`, stored as
+/// An operand over `dimensions` of two planes' columns and one step of blocks of `K`, stored as
 /// `storage` states, copied out unit by unit under [`launcher`]: every cell lands where its
 /// logical coordinate says.
-fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
+fn check_copy(storage: StoragePartitioning, dimensions: &[Dimension]) {
     let client = cubecl::test_device().client();
     // A grid read off the levels fills the plane, so the units the plane holds past its
     // `PLANE_COLUMNS` columns go down `K`.
@@ -188,9 +188,9 @@ fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
     let (cols, blocks) = (2 * PLANE_COLUMNS, 4 * units_down_k);
     let launcher = launcher(&client, cols, blocks, units_down_k);
 
-    let extents: Vec<(Axis, usize)> = axes
+    let extents: Vec<(Dimension, usize)> = dimensions
         .iter()
-        .map(|&axis| match axis {
+        .map(|&dimension| match dimension {
             N => (N, cols),
             KB => (KB, blocks),
             _ => (KI, BLOCK),
@@ -199,7 +199,7 @@ fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
     let shape: Vec<usize> = extents.iter().map(|&(_, extent)| extent).collect();
     let cells: usize = shape.iter().product();
     let geometry = storage.physical(&extents).unwrap();
-    let labels = geometry.labels(axes);
+    let labels = geometry.labels(dimensions);
 
     // Each value its own row-major logical index, laid down where the storage puts it.
     let coords = |index: usize| -> Vec<usize> {
@@ -213,7 +213,7 @@ fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
     };
     let mut stored = vec![0f32; cells];
     for index in 0..cells {
-        stored[offset(&geometry, &labels, axes, &coords(index))] = index as f32;
+        stored[offset(&geometry, &labels, dimensions, &coords(index))] = index as f32;
     }
     let dtype = f32::elem_type_native();
     let input = TensorHandle::new(
@@ -230,7 +230,11 @@ fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
 
     let mut binding = input.binding();
     binding.tiling = geometry.tiling();
-    let input_op = launcher.arg(binding, dtype).axes(axes).build().unwrap();
+    let input_op = launcher
+        .arg(binding, dtype)
+        .dimensions(dimensions)
+        .build()
+        .unwrap();
     assert_eq!(
         input_op.spec.storage,
         Storage::Tiled(Some(3)),
@@ -238,7 +242,7 @@ fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
     );
     let output_op = launcher
         .arg(output.clone().binding(), dtype)
-        .axes(axes)
+        .dimensions(dimensions)
         .build()
         .unwrap();
 
@@ -249,13 +253,17 @@ fn check_copy(storage: StoragePartitioning, axes: &[Axis]) {
         input_op.arg(),
         output_op.arg(),
         launcher.partitioning_arg(),
-        axes.len(),
+        dimensions.len(),
         dtype,
     );
 
     let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
     for index in 0..cells {
         let at = coords(index);
-        assert_eq!(got.get_f32(&at), index as f32, "at {at:?} of {axes:?}");
+        assert_eq!(
+            got.get_f32(&at),
+            index as f32,
+            "at {at:?} of {dimensions:?}"
+        );
     }
 }

@@ -1,6 +1,6 @@
-//! An axis spanning several dims of a plain buffer: `[a, k, c]` read as `B = a · c` rows of `k`,
-//! `B` spanning the dims `a` and `c` on either side of `k`, its coordinate split across them. The
-//! axes run in the order of their innermost dims, `[K, B]`, so lines run along `c`.
+//! A dimension spanning several axes of a plain buffer: `[a, k, c]` read as `B = a · c` rows of
+//! `k`, `B` spanning the axes `a` and `c` on either side of `k`, its coordinate split across them.
+//! The dimensions run in the order of their innermost axes, `[K, B]`, so lines run along `c`.
 
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{prelude::*, zspace::shape};
@@ -9,8 +9,8 @@ use super::{Form, implied};
 use cubecl_tile::launch::Refusal;
 use cubecl_tile::*;
 
-const B: Axis = Axis(0);
-const K: Axis = Axis(1);
+const B: Dimension = Dimension(0);
+const K: Dimension = Dimension(1);
 
 /// Every region of `input` copied into `out`, one value a line.
 #[cube(launch)]
@@ -56,7 +56,7 @@ fn copy_lines_kernel(
 
 /// `[a, k, c]` copied into a buffer of the same shape, both bound with `B` spanning `a` and `c`,
 /// in boxes of `rows` rows read `width` values a line, over the space with `b_last` deciding
-/// whether `B` is its last axis: the copy is exact.
+/// whether `B` is its last dimension: the copy is exact.
 fn folded_copy(a: usize, k: usize, c: usize, rows: usize, width: usize, b_last: bool) {
     let client = cubecl::test_device().client();
     let f32_ty = f32::elem_type_native();
@@ -86,10 +86,10 @@ fn folded_copy(a: usize, k: usize, c: usize, rows: usize, width: usize, b_last: 
     let bound = |binding: TensorBinding| {
         launcher
             .arg(binding, f32_ty)
-            .axes(&[B, K, B])
+            .dimensions(&[B, K, B])
             .vectorize(width)
             .build()
-            .expect("an axis spanning two dims is served along its innermost one")
+            .expect("a dimension spanning two axes is served along its innermost one")
     };
     let input = bound(input.binding());
     let output = bound(out.clone().binding());
@@ -130,12 +130,12 @@ fn a_row_at_a_time_reads_in_place() {
 }
 
 #[test]
-fn a_box_of_rows_inside_the_inner_dim_reads_in_place() {
+fn a_box_of_rows_inside_the_inner_axis_reads_in_place() {
     folded_copy(3, 5, 8, 4, 1, false);
 }
 
 #[test]
-fn lines_of_rows_inside_the_inner_dim_read_in_place() {
+fn lines_of_rows_inside_the_inner_axis_read_in_place() {
     folded_copy(3, 5, 8, 4, 4, false);
 }
 
@@ -144,10 +144,10 @@ fn lines_of_rows_read_in_place_whatever_the_space_order() {
     folded_copy(3, 5, 8, 4, 4, true);
 }
 
-/// An axis spanning several dims stated out of the order of its innermost dims is refused:
+/// A dimension spanning several axes stated out of the order of its innermost axes is refused:
 /// its coordinates and its line would disagree.
 #[test]
-fn axes_out_of_dim_order_are_refused() {
+fn dimensions_out_of_axis_order_are_refused() {
     let client = cubecl::test_device().client();
     let f32_ty = f32::elem_type_native();
     let input = TestInput::builder(client.clone(), shape![3, 5, 8])
@@ -169,7 +169,7 @@ fn axes_out_of_dim_order_are_refused() {
         .build()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::AxesOutOfDimOrder { .. })),
+        matches!(refused, Some(Refusal::DimensionsOutOfAxisOrder { .. })),
         "{refused:?}"
     );
 }
