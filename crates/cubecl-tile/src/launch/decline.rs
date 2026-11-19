@@ -16,8 +16,6 @@ pub enum Decline {
     GatherOfATiledBinding(Tiling),
     /// The mapping addresses `mapped` axes but the operand has `rank`.
     GatherRankMismatch { mapped: usize, rank: usize },
-    /// The mapping spans a dimension the launched space does not have.
-    GatherOfAnUnknownDimension(Dimension),
     /// The operand's rank is smaller than its labelled block of axes.
     RankBelowLabels { rank: usize, block: usize },
     /// More leading axes than batch dimensions to label them.
@@ -202,10 +200,6 @@ impl Display for Decline {
             Decline::GatherRankMismatch { mapped, rank } => write!(
                 f,
                 "Arg::gathered: the mapping addresses {mapped} axes but the operand has {rank}"
-            ),
-            Decline::GatherOfAnUnknownDimension(dimension) => write!(
-                f,
-                "Arg::gathered: the mapping spans {dimension:?}, which the launched space does not have"
             ),
             Decline::RankBelowLabels { rank, block } => write!(
                 f,

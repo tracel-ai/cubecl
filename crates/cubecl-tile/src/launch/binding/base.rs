@@ -158,7 +158,8 @@ impl<'a> Arg<'a, Labelled> {
     ///
     /// # Panics
     ///
-    /// Where a [`gathered`](Arg::gathered) operand also states [`batches`](Arg::batches).
+    /// Where a [`gathered`](Arg::gathered) operand also states [`batches`](Arg::batches), or its
+    /// mapping spans a dimension the launched space does not have.
     pub fn build(self) -> Result<Bound, Decline> {
         self.realize().map(|(bound, _)| bound)
     }

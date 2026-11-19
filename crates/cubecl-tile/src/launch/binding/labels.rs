@@ -107,13 +107,14 @@ impl Labels {
             });
         }
         let space = launch.partitioning().space();
-        if let Some(&dimension) = projection
+        let unknown = projection
             .dimensions()
             .iter()
-            .find(|&&dimension| !space.contains(dimension))
-        {
-            return Err(Decline::GatherOfAnUnknownDimension(dimension));
-        }
+            .find(|&&dimension| !space.contains(dimension));
+        assert!(
+            unknown.is_none(),
+            "Arg::gathered: the mapping spans {unknown:?}, which the launched space does not have"
+        );
         Ok(Labels {
             geometry: geometry.clone(),
             addressed: projection.dimensions().to_vec(),
