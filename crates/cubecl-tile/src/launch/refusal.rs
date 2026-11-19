@@ -139,8 +139,9 @@ pub enum Refusal {
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` axes keyed by `keys`
     /// dimensions: a table holds one axis per key.
     IndexTableRank { keys: usize, rank: usize },
-    /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map, or on a gathered,
-    /// storage-tiled or paged operand: an entry moves a window of a plain buffer's labelled axes.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map or a paged operand, placing a
+    /// coordinate along a dimension a stored tile spans or the storage tiling splits, or a run of a
+    /// gathered or storage-tiled operand: an entry moves a window along one axis of a buffer.
     IndexOfAStatedLayout,
     /// [`indexed`](crate::TileTensorLaunch::indexed) placing a dimension the operand does not span.
     IndexOfADimensionNotSpanned(Dimension),
@@ -419,8 +420,9 @@ impl Display for Refusal {
             ),
             Refusal::IndexOfAStatedLayout => write!(
                 f,
-                "TileTensorLaunch::indexed: an entry moves the window of a plain buffer over its \
-                 labelled axes, which a tensor map, a gathered, storage-tiled or paged operand is not"
+                "TileTensorLaunch::indexed: an entry moves the window along one axis of a buffer, \
+                 which a tensor map, a paged operand, a dimension its storage tiles split, or a run of \
+                 a gathered or storage-tiled operand is not"
             ),
             Refusal::IndexOfADimensionNotSpanned(dimension) => write!(
                 f,

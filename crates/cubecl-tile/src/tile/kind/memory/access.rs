@@ -988,14 +988,16 @@ impl Memory {
     }
 
     /// This window one wide at `coord` on `dimension`, which is not the innermost: what a level
-    /// cutting the dimension to one would hand out at that coordinate, read off data instead.
+    /// cutting the dimension to one would hand out at that coordinate, read off data instead. The
+    /// dimension is one axis of the buffer, which the storage tiling of the others leaves whole, so
+    /// the window moves by its stride.
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
     pub(crate) fn placed_at(&self, #[comptime] dimension: Dimension, coord: u32) -> Memory {
         let proj = comptime!(self.projection.clone());
         let rank = proj.physical_rank();
         let at = comptime!(
             placed_axis(&proj, dimension)
-                .filter(|_| !self.layout.projection.is_tiled())
+                .filter(|&at| self.layout.projection.carriers(Dimension(at as u8)).len() == 1)
                 .unwrap_or_else(|| panic!("{}", Refusal::IndexOfAStatedLayout))
         );
 
