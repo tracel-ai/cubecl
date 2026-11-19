@@ -2,7 +2,7 @@
 //!
 //! The wgpu graph is a software graph (recorded, fully-resolved dispatches
 //! re-encoded on replay), but the lifecycle contract is the CUDA/HIP one:
-//! `graph_rehearse`, run the workload (discarded) until it settles,
+//! `graph_prepare`, run the workload (discarded) until it settles,
 //! `start_capture`, run it again (recorded, not executed), `stop_capture`,
 //! then `replay` — the whole of which `Client::capture` does.
 
@@ -72,15 +72,15 @@ fn wgpu_graph_capture_replay() {
         );
     };
 
-    // Prepare starts the rehearsal; it is mandatory before a capture.
-    client.graph_rehearse().expect("graph_rehearse");
+    // Prepare starts the planning run; it is mandatory before a capture.
+    client.graph_prepare().expect("graph_prepare");
 
-    // Rehearse: compile the kernel and allocate every buffer, so the capture
+    // Plan: compile the kernel and allocate every buffer, so the capture
     // run stays on the warm path.
     launch(&client);
 
     // Record one launch into a graph instead of executing it.
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
@@ -97,7 +97,7 @@ fn wgpu_graph_capture_replay() {
 }
 
 /// A capture window that needs memory the pools do not hold is refused: the
-/// recording must reuse what the rehearsal left, as on every backend, so the
+/// recording must reuse what the planning run left, as on every backend, so the
 /// pages it touches stay the ones the graph guards.
 #[test]
 fn wgpu_graph_mid_capture_allocation_is_rejected() {
@@ -118,12 +118,12 @@ fn wgpu_graph_mid_capture_allocation_is_rejected() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     launch(&client);
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
-    // A size no rehearsal allocated, so serving it would need a page the pools
+    // A size no planning allocated, so serving it would need a page the pools
     // do not hold.
     const UNPOOLED_BYTES: usize = 3_145_733;
     let grown = client.empty(UNPOOLED_BYTES);
@@ -213,10 +213,10 @@ fn wgpu_graph_intermediate_recycling() {
         );
     };
 
-    // Prepare: the rehearsal below leaves the pools holding `tmp`.
-    client.graph_rehearse().expect("graph_rehearse");
+    // Prepare: the planning run below leaves the pools holding `tmp`.
+    client.graph_prepare().expect("graph_prepare");
 
-    // Rehearse so `tmp` is compiled and allocated, then freed, so the capture
+    // Plan so `tmp` is compiled and allocated, then freed, so the capture
     // run reuses its slice without a fresh allocation.
     {
         let tmp = client.empty(bytes);
@@ -224,7 +224,7 @@ fn wgpu_graph_intermediate_recycling() {
     }
 
     // Capture the two-kernel computation; `tmp` reuses the warm slice.
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     let tmp = client.empty(bytes);
     run(&client, &tmp);
@@ -283,7 +283,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     const PASS_LAUNCHES: usize = 150;
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
-    // sequence is rehearsed (discarded) and then recorded.
+    // sequence is planned (discarded) and then recorded.
     fn run_pass(client: &Client, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
@@ -324,7 +324,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
 
-    // Rehearse and record the pass; neither the rehearsals nor the recorded
+    // Plan and record the pass; neither the planning runs nor the recorded
     // run execute it.
     let (graph, ()) = client
         .capture(|| run_pass(&client, &a, &b))
@@ -369,7 +369,7 @@ fn wgpu_graph_lifecycle_state_errors() {
     // No capture prepared or recording.
     assert!(
         client.start_capture().is_err(),
-        "start_capture without graph_rehearse must be rejected"
+        "start_capture without graph_prepare must be rejected"
     );
     assert!(
         client.stop_capture().is_err(),
@@ -377,10 +377,10 @@ fn wgpu_graph_lifecycle_state_errors() {
     );
 
     // Double prepare.
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     assert!(
-        client.graph_rehearse().is_err(),
-        "a second graph_rehearse on a prepared stream must be rejected"
+        client.graph_prepare().is_err(),
+        "a second graph_prepare on a prepared stream must be rejected"
     );
 
     // The stream still works: a normal capture goes through end to end.
@@ -398,7 +398,7 @@ fn wgpu_graph_lifecycle_state_errors() {
     };
     launch(&client);
 
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
@@ -428,10 +428,10 @@ fn wgpu_graph_read_rejected_while_recording() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     launch(&client);
 
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
     assert!(
@@ -467,10 +467,10 @@ fn wgpu_graph_write_rejected_while_recording() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     launch(&client);
 
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
     client.write(
@@ -536,9 +536,9 @@ fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
     };
 
     capturing.executes(|| {
-        client.graph_rehearse().expect("graph_rehearse");
+        client.graph_prepare().expect("graph_prepare");
         launch(&client);
-        client.graph_rehearsed().expect("rehearsed");
+        client.graph_end_run().expect("graph_end_run");
         client.start_capture().expect("start_capture");
         launch(&client);
         // Unsupported inside the window: queued as an error, and `target` is
@@ -610,13 +610,13 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     {
         let tmp = client.empty(bytes);
         run(&client, &tmp);
     }
 
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     let tmp = client.empty(bytes);
     run(&client, &tmp);
@@ -683,9 +683,9 @@ fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
     };
 
     capturing.executes(|| {
-        client.graph_rehearse().expect("graph_rehearse");
+        client.graph_prepare().expect("graph_prepare");
         launch(&client);
-        client.graph_rehearsed().expect("rehearsed");
+        client.graph_end_run().expect("graph_end_run");
         client.start_capture().expect("start_capture");
         launch(&client);
         // Unsupported inside the window, so the capture cannot seal: the launch
@@ -704,7 +704,7 @@ fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
     assert!(
         reader.executes(|| client.read_one(output.clone())).is_err(),
         "the recorded launch never ran, so reading its output must fail rather \
-         than hand back what the rehearsal left there"
+         than hand back what the planning run left there"
     );
 
     // The owner recovers the ordinary way, and the record ends with the write
@@ -757,9 +757,9 @@ fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
     };
 
     owner.executes(|| {
-        client.graph_rehearse().expect("graph_rehearse");
+        client.graph_prepare().expect("graph_prepare");
         launch(&client);
-        client.graph_rehearsed().expect("rehearsed");
+        client.graph_end_run().expect("graph_end_run");
         client.start_capture().expect("start_capture");
         launch(&client);
     });
@@ -817,10 +817,10 @@ fn wgpu_graph_capture_is_isolated_from_another_stream() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     launch(&client);
 
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
 
@@ -889,8 +889,8 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
     };
     let _ = client.flush();
 
-    client.graph_rehearse().expect("graph_rehearse");
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_prepare().expect("graph_prepare");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     add_one::launch(
         &client,
@@ -926,8 +926,8 @@ fn wgpu_graph_a_launch_that_fails_in_the_window_dooms_the_capture() {
     let n = 4usize;
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    client.graph_rehearse().expect("graph_rehearse");
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_prepare().expect("graph_prepare");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     // The launch fails inside the window — the compiler refuses it — so the
     // recording is missing an operation.
@@ -980,9 +980,9 @@ fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     launch(&client);
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
@@ -990,8 +990,8 @@ fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
     // A replay into a recording window is refused, which is the one enqueue
     // failure every backend can produce on demand — the graph's write set is
     // left carrying it.
-    client.graph_rehearse().expect("graph_rehearse");
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_prepare().expect("graph_prepare");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     unsafe { graph.replay() }.expect_err("a replay cannot be recorded into a capture");
     let _ = client.stop_capture();

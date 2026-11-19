@@ -40,7 +40,7 @@ smaller graph after it then fits in that room. The stream holds about the larges
 temporaries plus every graph's held I/O. A larger graph recorded later still works: its
 warmup adds pages (or grows the page size), and only the extra is new memory.
 
-## Outputs never sit on shared room: the rehearsal
+## Outputs never sit on shared room: the planning runs
 
 A graph's replay writes its temporaries over the room the stream's other graphs share. A
 buffer the captured work leaves behind, an output the caller reads, must never sit there, or
@@ -48,36 +48,36 @@ another graph's replay overwrites it. Whether an allocation is a temporary or an
 only known once the work is over, and by then a recording has baked its address. So the work
 runs before it is recorded:
 
-1. **Rehearse.** `Client::capture(work)` prepares the stream and runs `work` while the stream
-   rehearses. The capture state decides this, so no guard has to live between the steps: a
+1. **Plan.** `Client::capture(work)` prepares the stream and runs `work` while the stream
+   plans. The capture state decides this, so no guard has to live between the steps: a
    launch on a stream whose capture is prepared and not yet open is
-   `LaunchMode::Rehearse`. It compiles, does the launch's host side (resolving its buffers,
+   `LaunchMode::Resolve`. It compiles, does the launch's host side (resolving its buffers,
    building its metadata buffer and the staging that uploads it) and stops before the
    dispatch. Other streams keep running. An override that runs the stream, which is what a
    tune's measurement opens, still wins, so tunes measure for real. Pages stay eager, so the
    pools grow to what the recording will ask for. Every allocation goes through `Command::allocate`, which lists it with its
-   size. When the run returns, with its output still held, `graph_rehearsed` drains the
+   size. When the run returns, with its output still held, `graph_end_run` drains the
    deferred frees and marks each listed allocation as outlived (held) or not.
 2. **Place by the run before.** From the second run on, the allocation at position *i* is
    placed by what the run before found there. An output reserves off the room other graphs
-   pinned (`PinnedPages::Avoid`), and a temporary carves it (`Share`). The rehearsal measures
+   pinned (`PinnedPages::Avoid`), and a temporary carves it (`Share`). The planning run measures
    the very placement the recording repeats. Setting outputs' room aside up front would take
-   room the rehearsal's temporaries reused: an output often lands where a freed temporary was.
-3. **Until stable.** The rehearsal repeats until two runs in a row list the same allocations,
+   room the planning run's temporaries reused: an output often lands where a freed temporary was.
+3. **Until stable.** The planning runs repeat until two runs in a row list the same allocations,
    at most four times. A first run can take another path (a cold metadata cache, a tune, a
    fused optimization being built).
 4. **Record.** The recorded run allocates the same sequence under the same plan. The allocator
-   is deterministic, so each allocation lands where the last rehearsal's did, in room that
-   rehearsal grew.
+   is deterministic, so each allocation lands where the last planning run's did, in room that
+   run grew.
 5. **Check.** At seal, a recorded run that allocated another size or another count, or kept a
-   buffer its rehearsal let go, does not seal. That buffer sits on shared room. An output the
+   buffer its planning run let go, does not seal. That buffer sits on shared room. An output the
    recording let go is no divergence: it only took room of its own it did not need.
 
 What this leaves to callers:
 
 1. **The work allocates alike on every run.** It allocates the same buffers in the same order,
    and keeps the same ones. A recording that does not is refused, never silently wrong.
-2. **The work does not read the device.** A rehearsal's launches never ran.
+2. **The work does not read the device.** A planning run's launches never ran.
 3. **Late-freed temporaries share less.** Burn fusion releases handles lazily. A temporary
    still held when a run ends looks like an output, takes room of its own and is not shared.
    This is safe and only costs memory, so drain fusion before each run ends.
@@ -96,6 +96,6 @@ output stays its graph's even if the caller drops it.
   each list by descending width.
 - Drop the record-within-room stopgap (#1530), which recorded narrowest-first and stopped
   once the room ran out.
-- Capture through `Client::capture` (or burn's `capture`, which calls it). The rehearsal
+- Capture through `Client::capture` (burn's `capture` drives the same steps). The planning run
   replaces the warmup. `CapturedPrefill`'s copy of its logits after each replay is no longer
   needed for correctness.

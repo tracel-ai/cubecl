@@ -52,7 +52,7 @@ fn hip_graph_capture_replay() {
         );
     };
 
-    // Rehearse the launch (compiled, discarded), then record it into a graph
+    // Plan the launch (compiled, discarded), then record it into a graph
     // instead of executing it.
     let (graph, ()) = client.capture(|| launch(&client)).expect("capture");
 
@@ -74,7 +74,7 @@ fn hip_graph_capture_replay() {
 /// every later one fails. Nothing else catches this — instantiation succeeds, and the graph
 /// upload does not inspect memory nodes — so a caller that trusted `stop_capture` would only
 /// discover it on its second replay, far from the cause. So nothing is allocated while recording:
-/// the rehearsal leaves the pools able to serve the recorded run, and this forces the case where
+/// the planning run leaves the pools able to serve the recorded run, and this forces the case where
 /// it does not by asking for a size the pools have never seen inside the window.
 #[test]
 fn hip_graph_capture_growing_the_pool_is_rejected() {
@@ -95,9 +95,9 @@ fn hip_graph_capture_growing_the_pool_is_rejected() {
         );
     };
 
-    client.graph_rehearse().expect("graph_rehearse");
+    client.graph_prepare().expect("graph_prepare");
     launch(&client);
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     launch(&client);
     // Force the pool to grow mid-capture: this deliberately odd size has never been allocated on
@@ -194,7 +194,7 @@ fn hip_graph_intermediate_recycling() {
 
     // Capture the two-kernel computation. `tmp` is its temporary: allocated
     // and dropped by every run, so the recorded run reuses the slice the
-    // rehearsal left. The graph still references its pointer, but the pool
+    // planning runs left. The graph still references its pointer, but the pool
     // now thinks the slice is free — so reallocate over it with sentinels.
     let (graph, ()) = client
         .capture(|| {
@@ -250,7 +250,7 @@ fn hip_graph_many_launches_dynamic_metadata() {
     const PASS_LAUNCHES: usize = 150; // > 2x the drop-queue flush threshold
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
-    // sequence is rehearsed (discarded) and then recorded.
+    // sequence is planned (discarded) and then recorded.
     fn run_pass(client: &Client, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
@@ -291,7 +291,7 @@ fn hip_graph_many_launches_dynamic_metadata() {
     let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
 
-    // Rehearse and record the pass; neither the rehearsals nor the recorded
+    // Plan and record the pass; neither the planning runs nor the recorded
     // run execute it.
     let (graph, ()) = client
         .capture(|| run_pass(&client, &a, &b))
@@ -369,11 +369,11 @@ fn hip_graph_output_survives_an_earlier_graphs_replay() {
     graph_sharing::an_output_survives_an_earlier_graphs_replay::<HipRuntime>();
 }
 
-/// See [`graph_sharing::a_recording_that_keeps_a_rehearsed_temporary_does_not_seal`].
+/// See [`graph_sharing::a_recording_that_keeps_a_planned_temporary_does_not_seal`].
 #[test]
-fn hip_graph_recording_that_keeps_a_rehearsed_temporary_does_not_seal() {
+fn hip_graph_recording_that_keeps_a_planned_temporary_does_not_seal() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    graph_sharing::a_recording_that_keeps_a_rehearsed_temporary_does_not_seal::<HipRuntime>();
+    graph_sharing::a_recording_that_keeps_a_planned_temporary_does_not_seal::<HipRuntime>();
 }
 
 /// See [`graph_sharing::outputs_pack_apart_from_the_shared_room`].

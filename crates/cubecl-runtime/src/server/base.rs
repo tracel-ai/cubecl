@@ -928,7 +928,7 @@ pub trait Server:
     fn compile_queued(&mut self) {}
 
     /// Prepare `stream_id` for an upcoming graph capture, before the work is
-    /// rehearsed: each rehearsal run grows the pools to what the recorded run
+    /// planned: each planning run grows the pools to what the recorded run
     /// asks for, since the capture window allocates nothing, and every page the
     /// recording touches is guarded for the graph's lifetime.
     ///
@@ -938,7 +938,7 @@ pub trait Server:
         Ok(())
     }
 
-    /// End a rehearsal run of the work a capture on `stream_id` is about to
+    /// End a planning run of the work a capture on `stream_id` is about to
     /// record, and answer whether it allocated what the run before it did.
     ///
     /// The last run is the recording's plan: what it left allocated is the
@@ -953,7 +953,7 @@ pub trait Server:
     /// # Errors
     ///
     /// When `stream_id` has no prepared capture whose window is still closed.
-    fn graph_rehearsed(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
         let _ = stream_id;
         Ok(true)
     }
@@ -961,12 +961,12 @@ pub trait Server:
     /// Begin recording the launches issued on `stream_id` into a graph instead
     /// of executing them, so the sequence can later be
     /// [replayed](Server::replay) without paying the launch path again.
-    /// Call [`graph_prepare`](Server::graph_prepare) and rehearse first.
+    /// Call [`graph_prepare`](Server::graph_prepare) and plan first.
     ///
     /// Between this call and [`end_capture`](Server::end_capture) the
     /// stream must not synchronize — a read, a sync or a profile either aborts
     /// the capture or is refused — and should not allocate fresh device memory,
-    /// which `graph_prepare` plus a rehearsal is what avoids. Whether an
+    /// which `graph_prepare` plus a planning run is what avoids. Whether an
     /// operation the window cannot record fails the call or fails
     /// `end_capture`, and whether a mid-window allocation is fatal, is the
     /// backend's to say; see `StreamCapture` in `cubecl-server`.
@@ -1705,10 +1705,10 @@ pub enum IoError {
     ///
     /// A stream recording a graph reserves this way: an allocation would
     /// become part of the recording, and a hardware graph holding one cannot
-    /// be relaunched. The rehearsal before a capture is what leaves the pools
+    /// be relaunched. The planning run before a capture is what leaves the pools
     /// holding what the recorded run asks for.
     #[error(
-        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: rehearse the same work first)\n{backtrace}"
+        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: plan the same work first)\n{backtrace}"
     )]
     PageUpdateForbidden {
         /// The size of the allocation in bytes.

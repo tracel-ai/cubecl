@@ -682,14 +682,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        // Materialize the rehearsal's work queued in the scheduler before the
+        // Materialize the planning run's work queued in the scheduler before the
         // recording window opens.
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
         stream.capturing.begin()?;
 
-        // Submit the rehearsal's work and surface its failure now, so a rehearsal
+        // Submit the planning run's work and surface its failure now, so a planning run
         // failure is reported here — where the diagnostic points at the cause
         // — instead of dooming `end_capture` later.
         let stream = self.scheduler.stream(&stream_id);
@@ -720,10 +720,10 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             Err(err) => {
                 // A capture prepared but never opened still holds the stream,
                 // and a `graph_prepare` retry is refused while it does.
-                // Closing is the only call the caller has left — a rehearsal that
+                // Closing is the only call the caller has left — a planning run that
                 // failed never reaches `start_capture` — so a close from
                 // `Prepare` unwinds it, as `begin_capture` does when the
-                // rehearsal flush fails, instead of leaving it held forever.
+                // planning flush fails, instead of leaving it held forever.
                 if stream.capturing.is_active() {
                     stream.info_cache.capture_discard();
                     stream.capturing.abort();

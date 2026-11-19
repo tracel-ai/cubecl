@@ -133,11 +133,11 @@ fn bench(client: &Client, config: &Config) {
     sync(client, &a);
 
     // Capture before timing anything: the recorded pass is the same sequence the
-    // normal path runs, and the capture needs a rehearsal of its own.
-    client.graph_rehearse().expect("graph_rehearse");
+    // normal path runs, and the capture needs a planning run of its own.
+    client.graph_prepare().expect("graph_prepare");
     run_pass(client, &a, &b, config);
     sync(client, &a);
-    client.graph_rehearsed().expect("rehearsed");
+    client.graph_end_run().expect("graph_end_run");
     client.start_capture().expect("start_capture");
     run_pass(client, &a, &b, config);
     let capture_start = Instant::now();

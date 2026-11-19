@@ -270,7 +270,7 @@ impl<'a, D: Driver> Command<'a, D> {
         }
     }
 
-    /// Give `memory` `size` bytes, where the capture under way places it: what the rehearsal
+    /// Give `memory` `size` bytes, where the capture under way places it: what the planning run
     /// found to be an output off the room the stream's graphs pinned, anything else where
     /// [`reserve`](Self::reserve) puts it. Every device allocation of a command goes through
     /// here, so a capture sees each one, in order.

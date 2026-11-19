@@ -202,7 +202,7 @@ pub fn a_held_output_survives_another_graphs_replay<R: Runtime>() {
 /// An output a later capture's work allocated never sits on the room an earlier graph's
 /// temporaries use: replaying the earlier graph after the later one leaves the later graph's
 /// output as its replay wrote it, so the host may read it whenever it likes. Without the
-/// rehearsal placing it, the output is carved from the earlier graph's free room, and that
+/// planning placing it, the output is carved from the earlier graph's free room, and that
 /// graph's replay writes its temporaries over it.
 pub fn an_output_survives_an_earlier_graphs_replay<R: Runtime>() {
     let client = R::client(&Default::default());
@@ -286,9 +286,9 @@ pub fn outputs_pack_apart_from_the_shared_room<R: Runtime>() {
     });
 }
 
-/// A recorded run that keeps a buffer its rehearsal let go does not seal: that buffer was
+/// A recorded run that keeps a buffer its planning run let go does not seal: that buffer was
 /// placed as a temporary, on room another graph's replay may write.
-pub fn a_recording_that_keeps_a_rehearsed_temporary_does_not_seal<R: Runtime>() {
+pub fn a_recording_that_keeps_a_planned_temporary_does_not_seal<R: Runtime>() {
     let client = R::client(&Default::default());
     StreamId { value: 3_100_005 }.executes(|| {
         let input = filled(&client, 0.0);
@@ -297,17 +297,17 @@ pub fn a_recording_that_keeps_a_rehearsed_temporary_does_not_seal<R: Runtime>() 
             run_chain(&client, &input, &output, 1);
             output
         };
-        client.graph_rehearse().expect("graph_rehearse");
-        // Each rehearsal run lets the buffer go before it ends: a temporary.
+        client.graph_prepare().expect("graph_prepare");
+        // Each planning run lets the buffer go before it ends: a temporary.
         while !{
             drop(run());
-            client.graph_rehearsed().expect("rehearsed")
+            client.graph_end_run().expect("graph_end_run")
         } {}
         client.start_capture().expect("start_capture");
         let kept = run();
         assert!(
             client.stop_capture().is_err(),
-            "the recording kept what its rehearsal found to be a temporary"
+            "the recording kept what its planning run found to be a temporary"
         );
         drop(kept);
         assert!(!client.is_capturing(), "a refused capture is over");
