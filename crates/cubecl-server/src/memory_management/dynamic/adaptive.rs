@@ -26,12 +26,15 @@ const TINY_POOL: u8 = 0;
 const SMALL_POOL: u8 = 1;
 /// The pool index of the arena's first slot.
 const ARENA_POOLS: u8 = 2;
+/// The pool index of the separate arena's first slot, past the arena's.
+const SEPARATE_POOLS: u8 = ARENA_POOLS + ARENA_SLOTS as u8;
 
-// The arena's pools are addressed from `ARENA_POOLS` on, and must stay clear
-// of the fixed indices the dedicated and persistent pools carry.
+// The arenas' pools are addressed from `ARENA_POOLS` on, one after the other,
+// and must stay clear of the fixed indices the dedicated and persistent pools
+// carry.
 const _: () = assert!(
-    ARENA_POOLS as usize + ARENA_SLOTS <= DEDICATED_POOL_POS as usize,
-    "the arena's pool indices would reach the fixed ones"
+    SEPARATE_POOLS as usize + ARENA_SLOTS <= DEDICATED_POOL_POS as usize,
+    "the arenas' pool indices would reach the fixed ones"
 );
 
 /// The small-allocation pool's page size.
@@ -60,6 +63,13 @@ pub struct AdaptiveMemory {
     small: SlicedPool,
     /// Everything else.
     arena: PoolArena,
+    /// What outlives a graph capture — its outputs, the metadata its graph
+    /// keeps — apart from the arena, whose pages the stream's graphs share
+    /// (see [`PinnedPages::Separate`]). Only such allocations carve it, each
+    /// held for as long as its graph lives, so they pack together whatever
+    /// pages graphs pinned. Never relocated: what it holds is pinned by the
+    /// graphs that write it.
+    separate: PoolArena,
     /// When emptying the arena's outdated pools is worth its copies.
     trigger: RelocationTrigger,
     logger: Arc<ServerLogger>,
@@ -74,7 +84,8 @@ impl AdaptiveMemory {
         name: String,
     ) -> Self {
         let alignment = properties.alignment;
-        let sizing = PageSizing::new(MIN_PAGE.min(properties.max_page_size), properties);
+        let min_page = MIN_PAGE.min(properties.max_page_size);
+        let sizing = PageSizing::new(min_page, properties);
         let memory = Self {
             tiny: ExclusiveMemoryPool::new(ExclusiveLayout {
                 max_alloc_size: 0,
@@ -92,6 +103,12 @@ impl AdaptiveMemory {
             // pages are sized to what they serve.
             .up_to_max_slice(),
             arena: PoolArena::new(sizing, ARENA_POOLS, logger.clone(), name.clone()),
+            separate: PoolArena::new(
+                PageSizing::new(min_page, properties),
+                SEPARATE_POOLS,
+                logger.clone(),
+                name.clone(),
+            ),
             trigger: RelocationTrigger::new(properties.max_memory()),
             logger,
             name,
@@ -105,7 +122,8 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => Some(&self.tiny),
             SMALL_POOL => Some(&self.small),
-            _ => Some(self.arena.pool(index)?),
+            ARENA_POOLS..SEPARATE_POOLS => Some(self.arena.pool(index)?),
+            _ => Some(self.separate.pool(index)?),
         }
     }
 
@@ -114,7 +132,8 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => Some(&mut self.tiny),
             SMALL_POOL => Some(&mut self.small),
-            _ => Some(self.arena.pool_mut(index)?),
+            ARENA_POOLS..SEPARATE_POOLS => Some(self.arena.pool_mut(index)?),
+            _ => Some(self.separate.pool_mut(index)?),
         }
     }
 
@@ -129,7 +148,11 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => self.tiny.materialize(storage, binding),
             SMALL_POOL => self.small.materialize(storage, binding),
-            _ => match self.arena.pool_mut(index) {
+            ARENA_POOLS..SEPARATE_POOLS => match self.arena.pool_mut(index) {
+                Some(pool) => pool.materialize(storage, binding),
+                None => Ok(()),
+            },
+            _ => match self.separate.pool_mut(index) {
                 Some(pool) => pool.materialize(storage, binding),
                 None => Ok(()),
             },
@@ -140,7 +163,8 @@ impl AdaptiveMemory {
     /// pages when `size` outgrows them.
     ///
     /// Only the arena shares the room on pinned pages: the small pool holds
-    /// the metadata a capture's info cache keeps for every graph, and a
+    /// the metadata a capture's info cache keeps for every graph, and what
+    /// [`PinnedPages::Separate`] asks for goes to the separate arena, since a
     /// buffer kept past its capture must never sit where another graph's
     /// replay writes.
     ///
@@ -163,7 +187,17 @@ impl AdaptiveMemory {
         if self.small.accept(size) {
             return self.small.reserve(storage, size, mapping, failures);
         }
-        self.arena.reserve(storage, size, mapping, pinned, failures)
+        match pinned {
+            // Only what outlives a capture carves the separate arena, so its
+            // pinned pages are its to share.
+            PinnedPages::Separate => {
+                self.separate
+                    .reserve(storage, size, mapping, PinnedPages::Share, failures)
+            }
+            PinnedPages::Avoid | PinnedPages::Share => {
+                self.arena.reserve(storage, size, mapping, pinned, failures)
+            }
+        }
     }
 
     /// Reserve `size` bytes in the room the pools already hold, without
@@ -180,7 +214,14 @@ impl AdaptiveMemory {
         if self.small.accept(size) {
             return self.small.try_reserve(size, failures);
         }
-        self.arena.try_reserve(size, pinned, failures)
+        match pinned {
+            PinnedPages::Separate => self
+                .separate
+                .try_reserve(size, PinnedPages::Share, failures),
+            PinnedPages::Avoid | PinnedPages::Share => {
+                self.arena.try_reserve(size, pinned, failures)
+            }
+        }
     }
 
     /// Whether a growth left pages behind for a relocation to empty.
@@ -247,6 +288,7 @@ impl AdaptiveMemory {
         self.tiny.cleanup(storage, alloc_nr, cleanup, failures);
         self.small.cleanup(storage, alloc_nr, cleanup, failures);
         self.arena.cleanup(storage, alloc_nr, cleanup, failures);
+        self.separate.cleanup(storage, alloc_nr, cleanup, failures);
     }
 
     /// A report per pool held, in the order allocations are routed through
@@ -256,6 +298,7 @@ impl AdaptiveMemory {
         [self.tiny.report(), self.small.report()]
             .into_iter()
             .chain(self.arena.report())
+            .chain(self.separate.report())
             .collect()
     }
 
@@ -269,7 +312,11 @@ impl AdaptiveMemory {
 
 impl core::fmt::Display for AdaptiveMemory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}{}{}", self.tiny, self.small, self.arena)
+        write!(
+            f,
+            "{}{}{}{}",
+            self.tiny, self.small, self.arena, self.separate
+        )
     }
 }
 

@@ -278,8 +278,37 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// Whatever the reservation or the bind reports.
     pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
-        let reserved = match self.streams.current().capturing().place(size) {
-            Placement::Output => self.reserve_sharing(size, PinnedPages::Avoid)?,
+        let placement = self.streams.current().capturing().place(size);
+        self.allocate_at(size, memory, placement)
+    }
+
+    /// [`allocate`](Self::allocate) for what a graph keeps while a capture is under way: it
+    /// takes room apart from what the stream's graphs share whatever the plan says, and still
+    /// counts in the run's sequence.
+    fn allocate_separate(
+        &mut self,
+        size: u64,
+        memory: &ManagedMemoryHandle,
+    ) -> Result<(), IoError> {
+        let capturing = self.streams.current().capturing();
+        let placement = match capturing.is_active() {
+            true => {
+                let _planned = capturing.place(size);
+                Placement::Output
+            }
+            false => Placement::Pools,
+        };
+        self.allocate_at(size, memory, placement)
+    }
+
+    fn allocate_at(
+        &mut self,
+        size: u64,
+        memory: &ManagedMemoryHandle,
+        placement: Placement,
+    ) -> Result<(), IoError> {
+        let reserved = match placement {
+            Placement::Output => self.reserve_sharing(size, PinnedPages::Separate)?,
             Placement::Pools => self.reserve(size)?,
         };
         self.bind(reserved, memory.clone())?;
@@ -551,6 +580,21 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// Whatever the allocation or the copy reports.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        self.create_on(data, Room::Planned)
+    }
+
+    /// [`create_with_data`](Self::create_with_data) for a launch's metadata: while a capture is
+    /// under way, the buffer may be kept for the graph's life (the info cache keeps everything a
+    /// capture builds), so it goes to room no graph's replay writes, however large it is.
+    ///
+    /// # Errors
+    ///
+    /// As [`create_with_data`](Self::create_with_data).
+    pub fn create_metadata(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        self.create_on(data, Room::Separate)
+    }
+
+    fn create_on(&mut self, data: &[u8], room: Room) -> Result<Handle, IoError> {
         let mut staging =
             self.reserve_pinned(data.len(), None)
                 .ok_or_else(|| IoError::Unknown {
@@ -560,7 +604,12 @@ impl<'a, D: Driver> Command<'a, D> {
 
         staging.copy_from_slice(data);
 
-        let handle = self.empty(staging.len() as u64)?;
+        let size = staging.len() as u64;
+        let handle = Handle::new(self.service, self.streams.current, size);
+        match room {
+            Room::Planned => self.allocate(size, &handle.memory)?,
+            Room::Separate => self.allocate_separate(size, &handle.memory)?,
+        }
 
         self.write_to_gpu(
             CopyDescriptor {
@@ -704,4 +753,13 @@ impl<D: Driver> Command<'_, D> {
             .device_memory()
             .relocate(&mut copier, reason, failures);
     }
+}
+
+/// Where a buffer [`Command::create_on`] creates is placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Room {
+    /// Where the capture's plan puts it, as [`Command::allocate`] does.
+    Planned,
+    /// Apart from the room the stream's graphs share, while a capture is under way.
+    Separate,
 }

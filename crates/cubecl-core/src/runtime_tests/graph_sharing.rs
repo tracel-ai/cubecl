@@ -223,6 +223,69 @@ pub fn an_output_survives_an_earlier_graphs_replay<R: Runtime>() {
     });
 }
 
+/// Elements of a small output: 1 MiB of `f32`, well under the pages the temporaries grow.
+const SMALL_ELEMENTS: usize = ELEMENTS / 8;
+const SMALL_BYTES: usize = SMALL_ELEMENTS * core::mem::size_of::<f32>();
+
+/// Record a work that goes through two 8 MiB temporaries and returns a 1 MiB output it allocates
+/// itself: the graph, and that output.
+fn record_small_output(client: &Client, input: &Handle) -> (Graph, Handle) {
+    let launch = |from: &Handle, into: &Handle, elements: usize| {
+        add_one::launch(
+            client,
+            CubeCount::Static(ELEMENTS as u32 / CUBE, 1, 1),
+            CubeDim::new_1d(CUBE),
+            unsafe { BufferArg::from_raw_parts(from.clone(), ELEMENTS) },
+            unsafe { BufferArg::from_raw_parts(into.clone(), elements) },
+        );
+    };
+    client
+        .capture(|| {
+            let (first, second) = (client.empty(BYTES), client.empty(BYTES));
+            launch(input, &first, ELEMENTS);
+            launch(&first, &second, ELEMENTS);
+            let output = client.empty(SMALL_BYTES);
+            launch(&second, &output, SMALL_ELEMENTS);
+            output
+        })
+        .expect("capture")
+}
+
+/// The outputs of a stream's graphs pack together, apart from the room their temporaries share:
+/// each graph adds about its output, not a page of its own. Placing an output merely off the
+/// pinned pages would take a fresh page per graph, since every page a recording touches is
+/// pinned, and the memory sharing saves would come back one page per graph.
+pub fn outputs_pack_apart_from_the_shared_room<R: Runtime>() {
+    const GRAPHS: usize = 6;
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_006 }.executes(|| {
+        let input = filled(&client, 1.0);
+        let first = record_small_output(&client, &input);
+        let after_first = reserved(&client);
+        let rest: Vec<(Graph, Handle)> = (1..GRAPHS)
+            .map(|_| record_small_output(&client, &input))
+            .collect();
+        let added = reserved(&client) - after_first;
+
+        println!(
+            "reserved after the first graph {after_first} B, added by {} more: {added} B",
+            GRAPHS - 1
+        );
+        assert!(
+            added <= 2 * ((GRAPHS - 1) * SMALL_BYTES) as u64,
+            "{added} B for {} outputs of {SMALL_BYTES} B each",
+            GRAPHS - 1
+        );
+
+        for (graph, _) in core::iter::once(&first).chain(&rest) {
+            unsafe { graph.replay() }.expect("replay enqueues");
+        }
+        for (_, output) in core::iter::once(&first).chain(&rest) {
+            assert_eq!(read(&client, output), vec![4.0; SMALL_ELEMENTS]);
+        }
+    });
+}
+
 /// A recorded run that keeps a buffer its rehearsal let go does not seal: that buffer was
 /// placed as a temporary, on room another graph's replay may write.
 pub fn a_recording_that_keeps_a_rehearsed_temporary_does_not_seal<R: Runtime>() {

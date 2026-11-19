@@ -375,3 +375,10 @@ fn hip_graph_recording_that_keeps_a_rehearsed_temporary_does_not_seal() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::a_recording_that_keeps_a_rehearsed_temporary_does_not_seal::<HipRuntime>();
 }
+
+/// See [`graph_sharing::outputs_pack_apart_from_the_shared_room`].
+#[test]
+fn hip_graph_outputs_pack_apart_from_the_shared_room() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::outputs_pack_apart_from_the_shared_room::<HipRuntime>();
+}

@@ -65,14 +65,14 @@ fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, Serve
     command.stream().info_cache.mode(cache_mode);
 
     if !command.stream().info_cache.should_cache(size) {
-        return Ok(command.create_with_data(bytemuck::cast_slice(words))?);
+        return Ok(command.create_metadata(bytemuck::cast_slice(words))?);
     }
     // Look up by the borrowed words — a hit clones nothing. On a miss we build
     // the buffer and clone the words into the cache as the key.
     if let Some(handle) = command.stream().info_cache.get(words) {
         return Ok(handle);
     }
-    let handle = command.create_with_data(bytemuck::cast_slice(words))?;
+    let handle = command.create_metadata(bytemuck::cast_slice(words))?;
     command
         .stream()
         .info_cache

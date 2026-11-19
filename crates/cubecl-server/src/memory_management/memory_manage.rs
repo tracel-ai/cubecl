@@ -75,6 +75,11 @@ pub enum PinnedPages {
     /// this memory, whose graph replays in stream order with every graph
     /// that pinned the page.
     Share,
+    /// Take room apart from every page the stream's graphs share: what
+    /// outlives a graph capture — the work's outputs, the metadata its graph
+    /// keeps. That room is carved only by other such allocations, each held
+    /// for as long as its graph lives, so no replay writes over it.
+    Separate,
 }
 
 /// Why a cleanup runs, which decides how much it gives back.
