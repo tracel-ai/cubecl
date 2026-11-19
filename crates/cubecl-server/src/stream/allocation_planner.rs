@@ -43,7 +43,7 @@ pub enum Placement {
 /// Built and cleared with the capture's lifecycle by
 /// [`StreamCapture`](super::StreamCapture), which is its only owner.
 #[derive(Debug, Default)]
-pub struct AllocationPlanner {
+pub(crate) struct AllocationPlanner {
     /// The current run's allocations: what each asked for and the memory it got, unheld so
     /// the record never keeps one alive. Arrival usage: pushed per allocation, drained in
     /// order when the run ends.
@@ -51,11 +51,14 @@ pub struct AllocationPlanner {
     /// The last finished run, in allocation order: the plan the next run follows. Position
     /// usage: a run reads the entry at its cursor.
     last: Vec<PlannedAllocation>,
+    /// The run that just ended, before it becomes `last`. Scratch usage: filled as a run ends,
+    /// compared with `last`, then swapped with it.
+    ended: Vec<PlannedAllocation>,
     /// Whether any run finished since the capture was prepared.
     planned: bool,
     /// How many allocations the current run made so far: its position in `last`.
     cursor: usize,
-    /// The first place the recorded run allocated otherwise than its planner.
+    /// The first place the recorded run allocated otherwise than the plan.
     diverged: Option<Divergence>,
 }
 
@@ -80,9 +83,9 @@ impl AllocationPlanner {
     /// allocated what the run before it did: the work has reached its steady state, and the
     /// recording can follow it.
     pub fn finish_run(&mut self) -> bool {
-        let finished = self.take_run();
-        let stable = self.planned && finished == self.last;
-        self.last = finished;
+        self.end_run_log();
+        let stable = self.planned && self.ended == self.last;
+        core::mem::swap(&mut self.last, &mut self.ended);
         self.planned = true;
         stable
     }
@@ -102,19 +105,17 @@ impl AllocationPlanner {
     /// plan has an output of that size at that position. Anything else goes to the pools, and an
     /// allocation the plan does not have at that position is the divergence
     /// [`finish_recording`](Self::finish_recording) reports.
-    pub fn place(&mut self, size_bytes: u64) -> Placement {
+    pub fn place_bytes(&mut self, size_bytes: u64) -> Placement {
         let position = self.cursor;
         self.cursor += 1;
         let planned = self.last.get(position).copied();
-        match planned {
-            Some(planned) if planned.size_bytes == size_bytes => match planned.outlived {
-                true => Placement::Output,
-                false => Placement::Pools,
-            },
-            _ => {
-                self.diverge(position, planned, Some(size_bytes));
-                Placement::Pools
-            }
+        let Some(planned) = planned.filter(|planned| planned.size_bytes == size_bytes) else {
+            self.diverge(position, planned, Some(size_bytes));
+            return Placement::Pools;
+        };
+        match planned.outlived {
+            true => Placement::Output,
+            false => Placement::Pools,
         }
     }
 
@@ -124,10 +125,11 @@ impl AllocationPlanner {
     /// let go is no divergence: it only took room of its own it did not need.
     pub fn finish_recording(&mut self) -> Option<Divergence> {
         let diverged = self.diverged;
-        let recorded = self.take_run();
+        self.end_run_log();
         if diverged.is_some() {
             return diverged;
         }
+        let recorded = &self.ended;
         // A kept temporary may sit on the shared room; a freed output only took room of its own.
         let position = recorded
             .iter()
@@ -147,23 +149,26 @@ impl AllocationPlanner {
     pub fn clear(&mut self) {
         self.run.clear();
         self.last.clear();
+        self.ended.clear();
         self.planned = false;
         self.cursor = 0;
         self.diverged = None;
     }
 
-    /// The current run's allocations as it ends, each with whether something still holds it, and
-    /// the next run starting at the plan's first allocation.
-    fn take_run(&mut self) -> Vec<PlannedAllocation> {
+    /// End the current run's log into `ended`, each allocation with whether something still
+    /// holds it, and start the next run at the plan's first allocation.
+    fn end_run_log(&mut self) {
         self.cursor = 0;
         self.diverged = None;
-        self.run
-            .drain(..)
-            .map(|(size_bytes, memory)| PlannedAllocation {
-                size_bytes,
-                outlived: memory.upgrade().is_some(),
-            })
-            .collect()
+        self.ended.clear();
+        self.ended.extend(
+            self.run
+                .drain(..)
+                .map(|(size_bytes, memory)| PlannedAllocation {
+                    size_bytes,
+                    outlived: memory.upgrade().is_some(),
+                }),
+        );
     }
 
     fn diverge(
@@ -219,11 +224,11 @@ mod tests {
         (pool, held)
     }
 
-    /// Run `planning` once over allocations of `sizes`, keeping those `kept` names, and answer
+    /// Run `planner` once over allocations of `sizes`, keeping those `kept` names, and answer
     /// whether it settled. The pool's references are handed back, since a slice outlives the run
     /// that freed it.
     fn run(
-        planning: &mut AllocationPlanner,
+        planner: &mut AllocationPlanner,
         sizes: &[u64],
         kept: &[bool],
     ) -> (bool, Vec<ManagedMemoryHandle>, Vec<ManagedMemoryBinding>) {
@@ -266,9 +271,9 @@ mod tests {
         let _planned = run(&mut planner, &[8, 16, 8], &[false, true, true]);
 
         planner.start_recording();
-        assert_eq!(planner.place(8), Placement::Pools);
-        assert_eq!(planner.place(16), Placement::Output);
-        assert_eq!(planner.place(8), Placement::Output);
+        assert_eq!(planner.place_bytes(8), Placement::Pools);
+        assert_eq!(planner.place_bytes(16), Placement::Output);
+        assert_eq!(planner.place_bytes(8), Placement::Output);
         let (_pools, _held) = record(&mut planner, &[8, 16, 8], &[false, true, true]);
         assert_eq!(planner.finish_recording(), None);
     }
@@ -277,13 +282,13 @@ mod tests {
     #[test]
     fn a_first_run_places_everything_in_the_pools() {
         let mut planner = AllocationPlanner::default();
-        assert_eq!(planner.place(8), Placement::Pools);
-        assert_eq!(planner.place(16), Placement::Pools);
+        assert_eq!(planner.place_bytes(8), Placement::Pools);
+        assert_eq!(planner.place_bytes(16), Placement::Pools);
     }
 
     /// Note a recorded run's allocations, as [`run`] does for a planning run's.
     fn record(
-        planning: &mut AllocationPlanner,
+        planner: &mut AllocationPlanner,
         sizes: &[u64],
         kept: &[bool],
     ) -> (Vec<ManagedMemoryHandle>, Vec<ManagedMemoryBinding>) {
@@ -320,8 +325,8 @@ mod tests {
         let _planned = run(&mut planner, &[8, 16], &[false, false]);
 
         planner.start_recording();
-        assert_eq!(planner.place(8), Placement::Pools);
-        assert_eq!(planner.place(32), Placement::Pools);
+        assert_eq!(planner.place_bytes(8), Placement::Pools);
+        assert_eq!(planner.place_bytes(32), Placement::Pools);
         let (_pools, _held) = record(&mut planner, &[8, 32], &[false, false]);
         let divergence = planner.finish_recording().expect("another size");
         assert_eq!(divergence.position, 1);

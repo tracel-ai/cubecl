@@ -1808,7 +1808,9 @@ impl Client {
     /// writes, so the output outlives every replay but its own graph's.
     ///
     /// `work` must therefore allocate the same buffers, and keep the same ones, on every run,
-    /// and must not read the device: a planning run's launches never ran.
+    /// and must not read the device: a planning run's launches never ran. For the same reason a
+    /// tune first met in a planning run measures its candidates on inputs nothing wrote, so a
+    /// kernel whose speed depends on its data is better tuned before the capture.
     ///
     /// # Errors
     ///
@@ -1911,8 +1913,6 @@ impl Client {
     /// planned. A capture that was prepared is over when it fails.
     pub fn start_capture(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
-        // What a planning run queued compiles now rather than inside the window.
-        self.compile_queued();
         self.device
             .submit_blocking(move |server| server.begin_capture(stream_id))
             .closed_as_error()

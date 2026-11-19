@@ -526,8 +526,7 @@ impl FakeServer {
     fn allocated(&mut self) -> Handle {
         let handle = self.unallocated();
         let mut command = self.command(STREAM, [].into_iter()).unwrap();
-        let memory = command.reserve(SIZE).unwrap();
-        command.bind(memory, handle.memory.clone()).unwrap();
+        command.allocate(SIZE, &handle.memory).unwrap();
         drop(command);
         handle
     }

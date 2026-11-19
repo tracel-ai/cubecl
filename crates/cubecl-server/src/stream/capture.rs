@@ -173,7 +173,7 @@ impl StreamCapture {
     /// [`allocated`](Self::allocated).
     pub fn place(&mut self, stream: StreamId, size_bytes: u64) -> Placement {
         match self.is_owned_by(stream) {
-            true => self.planner.place(size_bytes),
+            true => self.planner.place_bytes(size_bytes),
             false => Placement::Pools,
         }
     }
@@ -198,7 +198,8 @@ impl StreamCapture {
         Ok(self.planner.finish_run())
     }
 
-    /// Whether a planning run finished, so a recording has a plan to follow.
+    /// Whether the window may open: a recording with no plan could put an output on room
+    /// another graph's replay writes.
     pub fn has_plan(&self) -> bool {
         self.planner.has_plan()
     }

@@ -184,7 +184,7 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
-    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+    pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let current = self.streams.current;
         let pinned = self.streams.current().capturing().pinned_pages(current);
         self.reserve_sharing(size, pinned)
@@ -196,7 +196,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
-    pub fn reserve_sharing(
+    pub(crate) fn reserve_sharing(
         &mut self,
         size: u64,
         pinned: PinnedPages,
@@ -346,7 +346,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// [`IoError`] when the reservation has no initialized storage to give.
-    pub fn bind(
+    pub(crate) fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
         new: ManagedMemoryHandle,

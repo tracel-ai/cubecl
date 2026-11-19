@@ -250,10 +250,15 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     /// When the stream has no prepared capture whose window is still closed.
     pub fn end_run(&mut self) -> Result<bool, ServerError> {
         let stream = self.stream();
-        if !stream.capturing().is_recording() {
-            let signal = stream.signal();
-            stream.drop_queue().drain(|| D::Stream::fence(signal));
+        // Refused before the drain: its fence, on a stream that records, would
+        // abort the live capture.
+        if stream.capturing().is_recording() {
+            return Err(ServerError::graph_state(
+                "a planning run ends only before the window opens",
+            ));
         }
+        let signal = stream.signal();
+        stream.drop_queue().drain(|| D::Stream::fence(signal));
         stream.capturing().end_run()
     }
 
