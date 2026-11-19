@@ -10,6 +10,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
+        optimal_align,
     },
     poison::DevicePoison,
     server::{BufferBinding, KernelResource, PeerBinding},
@@ -1471,7 +1472,8 @@ pub struct ProfilingToken {
     pub id: u64,
 }
 
-/// Type of allocation, either contiguous or optimized (row-aligned when possible)
+/// Type of allocation: contiguous, or its rows padded so each starts aligned, on runtimes that
+/// pad rows.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MemoryLayoutStrategy {
     /// Contiguous layout, with no padding
@@ -1479,6 +1481,29 @@ pub enum MemoryLayoutStrategy {
     /// Optimized for access speed. In practice this means row-aligned with padding for runtimes
     /// that support it.
     Optimized,
+    /// Each row padded to the next [`LOAD_ALIGNMENT`](Self::LOAD_ALIGNMENT), on runtimes that pad
+    /// rows: the least padding under which every row is read in whole vector loads from its
+    /// first byte. For a buffer large enough that [`Optimized`](Self::Optimized)'s padding, up
+    /// to a power of two or the runtime's buffer alignment a row, costs memory a reader never
+    /// reads: a packed weight's rows of a few hundred bytes.
+    LoadAligned,
+}
+
+impl MemoryLayoutStrategy {
+    /// The widest load a kernel issues, a 128-bit vector, in bytes. The TMA engine asks the same
+    /// of a global stride.
+    pub const LOAD_ALIGNMENT: usize = 16;
+
+    /// The bytes a row of `width` elements of `elem_size` bytes starts a multiple of, in a
+    /// buffer whose rows a runtime pads up to `buffer_align` bytes: one for contiguous rows, and
+    /// an element for a row of one, which no padding speeds up.
+    pub fn row_align(self, width: usize, elem_size: usize, buffer_align: usize) -> usize {
+        match self {
+            Self::Contiguous => 1,
+            Self::Optimized => optimal_align(width, elem_size, buffer_align),
+            Self::LoadAligned => optimal_align(width, elem_size, Self::LOAD_ALIGNMENT),
+        }
+    }
 }
 
 /// Descriptor for a new tensor allocation
@@ -1501,6 +1526,12 @@ impl MemoryLayoutDescriptor {
     /// Create a contiguous allocation descriptor
     pub fn contiguous(shape: Shape, elem_size: usize) -> Self {
         MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, elem_size)
+    }
+
+    /// Create an allocation descriptor whose rows are padded to whole vector loads
+    /// ([`MemoryLayoutStrategy::LoadAligned`])
+    pub fn load_aligned(shape: Shape, elem_size: usize) -> Self {
+        MemoryLayoutDescriptor::new(MemoryLayoutStrategy::LoadAligned, shape, elem_size)
     }
 }
 
