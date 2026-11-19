@@ -335,7 +335,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
 /// Where `value`, read at `index` and no NaN, takes the slot holding `kept` read at
 /// `kept_index`: it is better, or as good at a lower index. A NaN `kept` compares false both
 /// ways, so it keeps its slot.
-#[cube]
+#[cube(harness)]
 fn takes_the_slot<E: Numeric, N: Size>(
     kept: Vector<E, N>,
     kept_index: Vector<u32, N>,
@@ -421,5 +421,55 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate cubecl as cubecl_runtime;
+    use cubecl_runtime::TestRuntime;
+
+    /// Against what each slot keeps: a larger value, a smaller one, an equal one read at a lower
+    /// index, and any value against a kept NaN. Under `Max` the larger and the earlier tie take
+    /// the slot.
+    #[test]
+    fn under_max_a_larger_value_or_an_earlier_tie_takes_the_slot() {
+        let takes = takes_the_slot::harness::<TestRuntime, f32, Const<4>>(
+            &[1.0, 2.0, 2.0, f32::NAN],
+            &[0, 0, 5, 0],
+            &[2.0, 1.0, 2.0, 3.0],
+            &[1, 1, 3, 1],
+            Monoid::Max,
+        );
+        assert_eq!(takes, [true, false, true, false]);
+    }
+
+    /// Against what each slot keeps: a smaller value, a larger one, an equal one read at a lower
+    /// index, and any value against a kept NaN. Under `Min` the smaller and the earlier tie take
+    /// the slot.
+    #[test]
+    fn under_min_a_smaller_value_or_an_earlier_tie_takes_the_slot() {
+        let takes = takes_the_slot::harness::<TestRuntime, f32, Const<4>>(
+            &[2.0, 1.0, 2.0, f32::NAN],
+            &[0, 0, 5, 0],
+            &[1.0, 2.0, 2.0, 0.0],
+            &[1, 1, 3, 1],
+            Monoid::Min,
+        );
+        assert_eq!(takes, [true, false, true, false]);
+    }
+
+    /// An equal value read at a higher index leaves the slot as it is.
+    #[test]
+    fn a_later_tie_keeps_the_slot() {
+        let takes = takes_the_slot::harness::<TestRuntime, f32, Const<1>>(
+            &[2.0],
+            &[3],
+            &[2.0],
+            &[5],
+            Monoid::Max,
+        );
+        assert_eq!(takes, [false]);
     }
 }
