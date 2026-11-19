@@ -37,6 +37,12 @@ pub enum Refusal {
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
     /// operand's last dimension at coefficient 1.
     GatherInnermostNotInLines,
+    /// A dimension spanning several axes, its dimensions not in the order of its coordinates, or
+    /// read in lines along an innermost axis that does not carry its last dimension.
+    DimensionsOutOfAxisOrder {
+        stated: Vec<Dimension>,
+        by_axis: Vec<Dimension>,
+    },
     /// A gathered mapping that reads `dimension` off several physical axes: the operand is
     /// storage-tiled, or reads one dimension from two places.
     GatherDimensionAddressedTwice(Dimension),
@@ -241,6 +247,13 @@ impl Display for Refusal {
                  where a window is read as one unmasked run, and the launch overhangs it, so a \
                  window past the tensor's end would read storage tiles it does not have; tile \
                  the launch so it divides the operand, or tile it coarser than the storage tile"
+            ),
+            Refusal::DimensionsOutOfAxisOrder { stated, by_axis } => write!(
+                f,
+                "Projection: a dimension spans several axes, so the dimensions run in the order of \
+                 their first axes, {by_axis:?} (not {stated:?}), and a line runs along the innermost \
+                 axis's, the last; bind its axes so each dimension's innermost axis follows the \
+                 others' (Arg::dimensions does)"
             ),
             Refusal::GatherInnermostNotInLines => write!(
                 f,
