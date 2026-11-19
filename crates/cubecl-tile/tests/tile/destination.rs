@@ -55,7 +55,7 @@ impl Destination for Doubled {
     type Arg<E: Numeric> = DoubledArg<'static, E>;
     type Served<E: Numeric> = Tile;
 
-    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+    fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         let mut geometry = RuntimeGeometry::new();
         #[unroll]
         for axis in 0..comptime!(arg.rank) {
@@ -178,7 +178,7 @@ const WIDTH: usize = 2;
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
     input: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -306,7 +306,7 @@ const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 fn contract<E: Numeric, EA: Numeric, O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -448,11 +448,11 @@ impl Destination for Totaled {
     type Served<E: Numeric> = TotaledServed<E>;
 
     fn serve<E: Numeric, V: Size>(
-        arg: &Self::Arg<E>,
+        arg: &mut Self::Arg<E>,
         partitioning: &Partitioning,
     ) -> TotaledServed<E> {
         TotaledServed::<E> {
-            tile: Doubled::serve::<E, V>(&arg.doubled, partitioning),
+            tile: Doubled::serve::<E, V>(&mut arg.doubled, partitioning),
             values: arg.doubled.values,
             arrivals: arg.arrivals,
             total: arg.total,

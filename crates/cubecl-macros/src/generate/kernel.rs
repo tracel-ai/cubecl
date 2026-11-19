@@ -198,7 +198,11 @@ impl Launch {
             // it alone; anything else may be, so it takes the failure. The
             // compiled kernel's visibility analysis overrides this once the
             // kernel compiles — this declaration is the answer that survives
-            // compilation failing.
+            // compilation failing. What is written through `&` declares
+            // itself written as it registers: an atomic buffer and a tensor
+            // map (`KernelLauncher`). An argument type offering a write
+            // through `&` would break this; cubecl-tile's `TileTensor` writes
+            // only through `tile_mut(&mut self)` for that reason.
             let declared = match &input.ty {
                 syn::Type::Reference(r) if r.mutability.is_none() => {
                     quote![#io_attr::ReadOnly]

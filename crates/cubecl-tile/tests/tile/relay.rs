@@ -34,7 +34,7 @@ const PITCH: usize = 32;
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
     input: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -47,9 +47,9 @@ fn store<E: Float, V: Size, O: Destination>(
 
 /// `out` written with `input` cast to the output's element.
 #[cube(launch)]
-fn store_cast(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
+fn store_cast(input: &TileTensor<'_>, out: &mut TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     dst.copy_cast_from(&src);
 }
 
@@ -203,8 +203,8 @@ fn a_memory_window_lands_in_a_narrower_output_through_a_cast() {
 fn relayed_split_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    carry: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    carry: &mut TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     turns: &[Atomic<u32>],
     space: Partitioning,
 ) {
@@ -215,7 +215,7 @@ fn relayed_split_matmul(
     }
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     let c = relay.tile();
     let acc = c.register_accumulator::<f32>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
     for cube in &space {

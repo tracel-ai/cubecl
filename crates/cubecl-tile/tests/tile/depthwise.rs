@@ -47,12 +47,12 @@ const RW: Axis = Axis(4);
 fn depthwise_kernel(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for cube in space {
         let out = out.at(&cube);
         let input = input.at(&cube);

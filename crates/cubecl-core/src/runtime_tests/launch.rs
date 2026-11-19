@@ -97,6 +97,14 @@ pub fn kernel_panicking_in_expansion(output: &mut [u32], #[comptime] refuse: boo
     output[0] = 1;
 }
 
+/// [`kernel_panicking_in_expansion`] with its output an atomic buffer taken by `&`, which is
+/// written through `&`.
+#[cube(launch)]
+pub fn atomic_kernel_panicking_in_expansion(output: &[Atomic<u32>], #[comptime] refuse: bool) {
+    comptime!(assert!(!refuse, "this kernel refuses to expand"));
+    output[0].fetch_add(1u32);
+}
+
 pub fn test_kernel_with_comptime_tag<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(f32::as_bytes(&[5.0]));
     let array_arg = unsafe { BufferArg::from_raw_parts(handle.clone(), 1) };
@@ -330,6 +338,30 @@ pub fn test_expansion_panic_fails_the_read<R: Runtime>(client: Client) {
     assert!(
         !err.is_refusal(),
         "a panic is a defect a test harness must report, not a refusal it may skip: {report}"
+    );
+}
+
+/// [`test_expansion_panic_fails_the_read`] for an atomic buffer taken by `&`: an atomic is written
+/// through `&`, so the launch declares it written whatever its signature says, and the read fails
+/// on the panic instead of handing back the bytes it held.
+pub fn test_expansion_panic_fails_the_read_of_a_shared_atomic<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[7]));
+
+    atomic_kernel_panicking_in_expansion::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        true,
+    );
+
+    let err = client.read_one(output).expect_err(
+        "a kernel that panicked while expanding never added into the atomic, so the read must fail",
+    );
+    let report = alloc::format!("{err:?}");
+    assert!(
+        report.contains("this kernel refuses to expand"),
+        "the read must fail on the expansion's panic, got: {report}"
     );
 }
 
@@ -846,6 +878,14 @@ macro_rules! testgen_launch_untyped {
         fn test_launch_values_past_u32_launch_at_a_64_bit_address_type() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_values_past_u32_launch_at_a_64_bit_address_type::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_expansion_panic_fails_the_read_of_a_shared_atomic() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_expansion_panic_fails_the_read_of_a_shared_atomic::<
                 TestRuntime,
             >(client);
         }

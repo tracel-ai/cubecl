@@ -43,9 +43,9 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 /// A packed operand copied into a plain one: the words unpack at the read, and nothing in the
 /// kernel, the spec or the launch mentions a scale.
 #[cube(launch)]
-fn packed_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
+fn packed_copy(input: &TileTensor<'_>, output: &mut TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.copy_from(&input);
 }
 
@@ -56,13 +56,13 @@ fn packed_matmul(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let w = w.tile(&space).mul(&scale.tile(&space));
     let x = x.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -79,7 +79,7 @@ fn nvfp4_shaped_matmul(
     x: &TileTensor<'_>,
     blocks: &TileTensor<'_>,
     global: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -89,7 +89,7 @@ fn nvfp4_shaped_matmul(
         .mul(&blocks.tile(&space))
         .mul(&global.tile(&space));
     let x = x.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -250,13 +250,13 @@ fn packed_matmul_rhs(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -274,14 +274,14 @@ fn native_matmul(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let w = w.tile(&space);
     let x = x.tile(&space);
     let w = w.mul(&scale.tile(&space));
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -299,14 +299,14 @@ fn packed_one_row_product<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let values = w.tile(&space);
     let w = values.mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let values = values.at(&cube);
@@ -334,13 +334,13 @@ fn packed_matmul_byte_scales(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let w = w.tile(&space).mul(&scale.tile(&space));
     let x = x.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
@@ -356,14 +356,14 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let values = w.tile(&space);
     let w = values.mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let values = values.at(&cube);
@@ -390,7 +390,7 @@ fn packed_cmma_rhs<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -399,7 +399,7 @@ fn packed_cmma_rhs<E: Numeric>(
     // unchecked.
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
     // The level cuts the columns into two fragments and walks `K`: unrolled, so each region
     // selects its fragment at comptime.
@@ -417,7 +417,7 @@ fn packed_cmma_rhs_dequantized<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] element: ElemType,
@@ -425,7 +425,7 @@ fn packed_cmma_rhs_dequantized<E: Numeric>(
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
     for region in space.over(&level).unrolled() {
         let mut acc_r = acc.at(&region);
@@ -2025,13 +2025,13 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
 fn packed_one_row_product_unscaled<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let w = w.at(&cube);
@@ -2949,12 +2949,12 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
 fn packed_scaled_copy(
     input: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let input = input.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&input.mul(&scales));
 }
 
@@ -3058,9 +3058,9 @@ const TBL: Axis = Axis(6);
 
 /// `output = table[input] ⊗ scales`, the input bound under its codebook and its scales.
 #[cube(launch)]
-fn looked_up_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
+fn looked_up_copy(input: &TileTensor<'_>, output: &mut TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&input);
 }
 
@@ -3373,12 +3373,12 @@ fn a_packed_operand_is_bound_at_its_words() {
 #[cube(launch)]
 fn field_staged_for_a_walk(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] decoded: Option<cubecl::ir::ElemType>,
 ) {
     let input = input.tile(&space);
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.walk();
     let first = walk.region(0);
     let source = input.at(&first);

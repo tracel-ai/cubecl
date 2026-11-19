@@ -34,13 +34,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn reduce_matmul_kernel(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_region = c
@@ -94,7 +94,7 @@ fn reduce_body<E: Numeric>(
 #[cube(launch)]
 fn reduce_kernel<E: Numeric>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] read: Read,
@@ -102,7 +102,7 @@ fn reduce_kernel<E: Numeric>(
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     reduce_body::<E>(&input, &mut output, &space, level.clone(), read, monoid);
 }
 
@@ -111,7 +111,7 @@ fn reduce_kernel<E: Numeric>(
 /// memory; either way the partial-tile mask must survive rather than reducing the padded overhang.
 #[cube(launch)]
 fn procedural_reduce_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] read: Read,
@@ -126,7 +126,7 @@ fn procedural_reduce_kernel<E: Float>(
         },
     )
     .tile::<E>();
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     reduce_body::<E>(
         &input,
         &mut output,
@@ -1321,14 +1321,14 @@ fn test_reduce_axis_min_spatial_unit_units() {
 #[cube(launch)]
 fn resident_reduce_kernel<E: Numeric>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] monoid: Monoid,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let out = output.tile(&space);
+    let out = output.tile_mut(&space);
     let mut acc = out.block_reducer::<E>(&input, SOFTWARE_MATMUL, monoid);
     acc.init::<E>(Monoid::identity::<E>(monoid));
     for region in space.over(&level) {

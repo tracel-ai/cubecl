@@ -53,7 +53,7 @@ enum Leaf {
 fn staged_k_walk<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -65,7 +65,7 @@ fn staged_k_walk<EA: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     let mut acc = c.accumulator::<EA>(&a, &b, Semiring::SUM_PROD);
     let walk = space.over(&outer);
     if comptime!(staging == Staging::Global) {
