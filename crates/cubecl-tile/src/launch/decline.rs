@@ -14,8 +14,6 @@ pub enum Decline {
     StrideOrderOfAStatedLayout,
     /// A gathered mapping over a storage-tiled binding.
     GatherOfATiledBinding(Tiling),
-    /// [`gathered`](super::Arg::gathered) combined with `dimensions` or `batches`.
-    GatherWithLabels,
     /// The mapping addresses `mapped` axes but the operand has `rank`.
     GatherRankMismatch { mapped: usize, rank: usize },
     /// The mapping spans a dimension the launched space does not have.
@@ -193,11 +191,6 @@ impl Display for Decline {
                 f,
                 "Arg::gathered: the mapping addresses the buffer's own axes, so a storage-tiled \
                  binding ({tiling:?}) has no reading here"
-            ),
-            Decline::GatherWithLabels => write!(
-                f,
-                "Arg::gathered: the mapping is stated outright, so `dimensions` and `batches` have \
-                 nothing left to describe"
             ),
             Decline::GatherRankMismatch { mapped, rank } => write!(
                 f,

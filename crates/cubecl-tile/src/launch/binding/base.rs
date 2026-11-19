@@ -151,11 +151,27 @@ impl<'a> Arg<'a, Labelled> {
     }
 
     /// The operand, bound, or the [`Decline`] saying why it cannot be.
+    ///
+    /// # Errors
+    ///
+    /// The [`Decline`] of a binding this launch cannot serve.
+    ///
+    /// # Panics
+    ///
+    /// Where a [`gathered`](Arg::gathered) operand also states [`batches`](Arg::batches).
     pub fn build(self) -> Result<Bound, Decline> {
         self.realize().map(|(bound, _)| bound)
     }
 
     /// [`build`](Self::build) without the tensor argument, for an operand with no address.
+    ///
+    /// # Errors
+    ///
+    /// As [`build`](Self::build).
+    ///
+    /// # Panics
+    ///
+    /// As [`build`](Self::build).
     pub fn build_spec(self) -> Result<Unbound, Decline> {
         let (bound, geometry) = self.realize()?;
         Ok(Unbound {

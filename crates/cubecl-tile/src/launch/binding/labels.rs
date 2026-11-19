@@ -86,9 +86,11 @@ impl Labels {
         if stored.is_tiled() {
             return Err(Decline::GatherOfATiledBinding(stored));
         }
-        if !(dimensions.is_empty() && batches.is_empty()) {
-            return Err(Decline::GatherWithLabels);
-        }
+        assert!(
+            dimensions.is_empty() && batches.is_empty(),
+            "Arg::gathered: the mapping is stated outright, so `dimensions` and `batches` have \
+             nothing left to describe"
+        );
         if projection.physical_rank() != geometry.rank() {
             return Err(Decline::GatherRankMismatch {
                 mapped: projection.physical_rank(),
