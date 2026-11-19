@@ -156,13 +156,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
+            // Both pools hold one device allocation per buffer, so neither is
+            // bounded by a page: each takes the largest single allocation.
             persistent: PersistentPool::new(
-                properties.max_page_size,
+                properties.max_allocation_size(),
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
             // A watermark of zero: every free slice goes back on the next tick.
-            dedicated: DirectPool::new(properties.alignment, DEDICATED_POOL_POS, Some(0)),
+            dedicated: DirectPool::new(
+                properties.max_allocation_size(),
+                properties.alignment,
+                DEDICATED_POOL_POS,
+                Some(0),
+            ),
             pools,
             storage,
             alloc_reserve_count: 0,

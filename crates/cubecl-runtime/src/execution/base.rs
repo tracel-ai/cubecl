@@ -6,7 +6,10 @@ use super::{ProcessMode, STREAM_MODES, ServiceStream, StreamMode};
 pub enum LaunchMode {
     /// Compile if needed, then run it. The normal case.
     Execute,
-    /// Compile if needed, cache the artifact, and discard the launch.
+    /// Compile if needed, cache the artifact, and discard the launch. A
+    /// kernel of the work that fails to compile has no output to carry the
+    /// failure, so the collector of the override open lists it
+    /// ([`StatisticsCollector::work_failures`](super::StatisticsCollector::work_failures)).
     ///
     /// A server honoring this must still do everything a first launch does
     /// short of dispatching — expand, compile, validate, populate its caches —
@@ -18,7 +21,9 @@ pub enum LaunchMode {
     /// for a launch, or when asked to (`Server::compile_queued`): flushing or
     /// syncing compiles nothing, so a pass that only queues gathers everything
     /// it reaches into one batch.
-    /// A kernel that fails to compile there reports it when it is launched.
+    /// A kernel that fails to compile there reports it when it is launched,
+    /// and, when the work queued it, to the collector of the override it
+    /// was queued under ([`StatisticsCollector::work_failures`](super::StatisticsCollector::work_failures)).
     Queue,
 }
 

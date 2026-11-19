@@ -320,7 +320,12 @@ where
 {
     let mut failures = Vec::new();
     for &index in order {
-        match operations.fastest(index).execute(inputs.clone()) {
+        // Run as the work, but before the tune decided: a candidate whose
+        // kernel fails to compile is the tune's to drop, not the work's failure.
+        let output = crate::execution::LaunchPurpose::provisionally(|| {
+            operations.fastest(index).execute(inputs.clone())
+        });
+        match output {
             Ok(output) => return Ok(output),
             Err(err) => failures.push(err),
         }

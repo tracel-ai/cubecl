@@ -67,22 +67,29 @@ impl Indexing {
     }
 
     /// What an operand bound `width` values a line owes where an entry moves its window, the
-    /// values' or a scale's spanning the placed dimension: a buffer neither storage-tiled nor
-    /// paged, one axis of which is the dimension alone, read one value a line where that axis is
-    /// the innermost, since an entry is an element and a line would straddle two; under a run, a
-    /// buffer over its labelled axes, as [`Tile::within`] places.
+    /// values' or a scale's spanning the placed dimension: a buffer that is not paged, one axis of
+    /// which is the dimension alone, read one value a line where that axis is the innermost, since
+    /// an entry is an element and a line would straddle two. A coordinate moves that one axis by its
+    /// stride, so the buffer may be storage-tiled along its other axes, as a stack of matrices
+    /// stored in tiles is, slab by slab; no stored tile may span the dimension. A run is placed over
+    /// a buffer's labelled axes alone, as [`Tile::within`] places, never a storage-tiled one.
     ///
     /// # Errors
     ///
     /// The [`Decline`] naming the first rule `spec` breaks.
     pub(crate) fn places(&self, spec: &TileSpec, width: usize) -> Result<(), Decline> {
         let projection = &spec.projection;
-        let stated =
-            projection.is_tiled() || !spec.stored_tiles.is_empty() || spec.paging.is_some();
-        let gathered = matches!(self, Indexing::Run(_)) && !projection.is_direct();
+        let tiled = projection.is_tiled() || !spec.stored_tiles.is_empty();
+        let stated = spec.paging.is_some()
+            || match self {
+                Indexing::Coordinate(dimension) => {
+                    spec.stored_tiles.iter().any(|&(d, _)| d == *dimension)
+                }
+                Indexing::Run(_) => tiled || !projection.is_direct(),
+            };
         let axis = placed_axis(projection, self.dimension());
         match axis {
-            _ if stated || gathered => Err(Decline::IndexOfAStatedLayout),
+            _ if stated => Err(Decline::IndexOfAStatedLayout),
             None => Err(Decline::IndexOfAStatedLayout),
             Some(axis)
                 if axis + 1 == projection.physical_rank()
@@ -347,15 +354,8 @@ impl Tile {
     fn clamped(&self, #[comptime] dimension: Dimension, coord: u32) -> u32 {
         let memory = self.mem("indexed_at");
         let p = comptime!(placed_axis(&memory.projection, dimension).unwrap());
-        let zero = comptime!(
-            memory
-                .window
-                .boundaries
-                .get(p)
-                .copied()
-                .flatten()
-                .is_some_and(Boundary::masks)
-        );
+        let zero =
+            comptime!(memory.window.boundaries.get(p).copied().flatten() == Some(Boundary::Zero));
         if zero {
             coord
         } else {
@@ -718,6 +718,35 @@ mod tests {
         assert_eq!(
             run.validate(&packed, 1, &[M]),
             Err(Decline::IndexAlongALine(K))
+        );
+    }
+
+    /// A stack of matrices stored in tiles, each slab one axis of its own the tiling leaves whole:
+    /// a coordinate moves that axis by its stride, so it places one slab. A tiling that splits the
+    /// placed axis, a stored tile spanning it, or a run over the tiled buffer is refused.
+    #[test]
+    fn a_coordinate_places_a_dim_the_storage_tiling_leaves_whole() {
+        let stack = |order: &[Dimension]| TileSpec::new(Projection::tiled(&[EXPERT, N, K], order));
+        let mut slabs = stack(&[EXPERT, N, K, N, K]);
+        slabs.stored_tiles = vec![(K, 8), (N, 8)];
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&slabs, 1, &[M]),
+            Ok(())
+        );
+        assert_eq!(
+            Indexing::Run(EXPERT).validate(&slabs, 1, &[M]),
+            Err(Decline::IndexOfAStatedLayout)
+        );
+        let split = stack(&[EXPERT, N, K, EXPERT, N, K]);
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&split, 1, &[M]),
+            Err(Decline::IndexOfAStatedLayout)
+        );
+        let mut spanned = stack(&[EXPERT, N, K, N, K]);
+        spanned.stored_tiles = vec![(EXPERT, 2)];
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&spanned, 1, &[M]),
+            Err(Decline::IndexOfAStatedLayout)
         );
     }
 

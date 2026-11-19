@@ -35,6 +35,12 @@ pub enum Decline {
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
     /// operand's last dimension at coefficient 1.
     GatherInnermostNotInLines,
+    /// A dimension spanning several axes, its dimensions not in the order of its coordinates, or
+    /// read in lines along an innermost axis that does not carry its last dimension.
+    DimensionsOutOfAxisOrder {
+        stated: Vec<Dimension>,
+        by_axis: Vec<Dimension>,
+    },
     /// A gathered mapping that reads `dimension` off several physical axes: the operand is
     /// storage-tiled, or reads one dimension from two places.
     GatherDimensionAddressedTwice(Dimension),
@@ -131,8 +137,9 @@ pub enum Decline {
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` axes keyed by `keys`
     /// dimensions: a table holds one axis per key.
     IndexTableRank { keys: usize, rank: usize },
-    /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map, or on a gathered,
-    /// storage-tiled or paged operand: an entry moves a window of a plain buffer's labelled axes.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map or a paged operand, placing a
+    /// coordinate along a dimension a stored tile spans or the storage tiling splits, or a run of a
+    /// gathered or storage-tiled operand: an entry moves a window along one axis of a buffer.
     IndexOfAStatedLayout,
     /// [`indexed`](crate::TileTensorLaunch::indexed) placing a dimension the operand does not span.
     IndexOfADimensionNotSpanned(Dimension),
@@ -234,6 +241,13 @@ impl Display for Decline {
                  where a window is read as one unmasked run, and the launch overhangs it, so a \
                  window past the tensor's end would read storage tiles it does not have; tile \
                  the launch so it divides the operand, or tile it coarser than the storage tile"
+            ),
+            Decline::DimensionsOutOfAxisOrder { stated, by_axis } => write!(
+                f,
+                "Projection: a dimension spans several axes, so the dimensions run in the order of \
+                 their first axes, {by_axis:?} (not {stated:?}), and a line runs along the innermost \
+                 axis's, the last; bind its axes so each dimension's innermost axis follows the \
+                 others' (Arg::dimensions does)"
             ),
             Decline::GatherInnermostNotInLines => write!(
                 f,
@@ -399,8 +413,9 @@ impl Display for Decline {
             ),
             Decline::IndexOfAStatedLayout => write!(
                 f,
-                "TileTensorLaunch::indexed: an entry moves the window of a plain buffer over its \
-                 labelled axes, which a tensor map, a gathered, storage-tiled or paged operand is not"
+                "TileTensorLaunch::indexed: an entry moves the window along one axis of a buffer, \
+                 which a tensor map, a paged operand, a dimension its storage tiles split, or a run of \
+                 a gathered or storage-tiled operand is not"
             ),
             Decline::IndexOfADimensionNotSpanned(dimension) => write!(
                 f,

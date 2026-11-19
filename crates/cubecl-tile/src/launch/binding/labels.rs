@@ -42,19 +42,28 @@ impl Labels {
             .copied()
             .collect();
 
-        let mut maps: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]> = SmallVec::new();
-        let mut logical: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
+        let mut kept: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
         let mut axes: SmallVec<[(usize, usize); Space::MAX_RANK]> = SmallVec::new();
         for (&dimension, (extent, stride)) in addressed.iter().zip(geometry.axes()) {
             // A labelled dimension never drops out: the tile is shaped over it.
             if batches.contains(&dimension) && extent == 1 && !dimensions.contains(&dimension) {
                 continue;
             }
-            maps.push(PhysicalAxisMap::of(dimension));
+            kept.push(dimension);
+            axes.push((extent, stride));
+        }
+        if !geometry.tiling().is_tiled() {
+            let order = innermost_axis_order(&kept);
+            kept = order.iter().map(|&axis| kept[axis]).collect();
+            axes = order.iter().map(|&axis| axes[axis]).collect();
+        }
+        let maps: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]> =
+            kept.iter().copied().map(PhysicalAxisMap::of).collect();
+        let mut logical: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
+        for &dimension in &kept {
             if !logical.contains(&dimension) {
                 logical.push(dimension);
             }
-            axes.push((extent, stride));
         }
         // The batch axes kept, one piece each, then each labelled dimension's pieces.
         let pieces = dimensions
@@ -111,4 +120,21 @@ impl Labels {
             projection,
         })
     }
+}
+
+/// The order a plain buffer's axes are bound in, `kept` naming the dimension each carries: every
+/// dimension's axes just before its innermost one, each axis placed by its dimension's innermost
+/// axis, in buffer order within a dimension. A dimension spanning several axes (`[a, k, c]`
+/// labelled `[B, K, B]`, bound `[k, a, c]` as `[K, B, B]`) then has its coordinate at its first
+/// axis in the order of the innermost axes, so the innermost axis carries the last dimension, the
+/// one a line runs along. Each axis keeps its stride, so the buffer is read as it lies.
+fn innermost_axis_order(kept: &[Dimension]) -> SmallVec<[usize; Space::MAX_RANK]> {
+    let innermost = |dimension: Dimension| {
+        kept.iter()
+            .rposition(|&other| other == dimension)
+            .expect("a kept axis's dimension is kept")
+    };
+    let mut order: SmallVec<[usize; Space::MAX_RANK]> = (0..kept.len()).collect();
+    order.sort_by_key(|&axis| (innermost(kept[axis]), axis));
+    order
 }
