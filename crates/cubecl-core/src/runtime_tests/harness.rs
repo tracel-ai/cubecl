@@ -233,6 +233,69 @@ fn swap_firsts(lhs: &mut [u32], rhs: &mut [u32]) {
     rhs[0] = first;
 }
 
+#[cube(harness(always))]
+fn lane_offsets<N: Size>(base: u32) -> Vector<u32, N> {
+    let mut offsets = Vector::<u32, N>::empty();
+    #[unroll]
+    for lane in 0..N::value() {
+        offsets.insert(lane, base + lane as u32);
+    }
+    offsets
+}
+
+#[cube(harness(always))]
+fn fma_lanes<F: Float, N: Size>(x: Vector<F, N>, y: Vector<F, N>, z: F) -> (Vector<F, N>, u32) {
+    (fma(x, y, Vector::new(z)), N::value() as u32)
+}
+
+#[cube(harness(always))]
+fn first_lane<N: Size>(x: Vector<i32, N>) -> i32 {
+    x.extract(0usize)
+}
+
+/// A comptime configuration, as a kernel takes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Rounding {
+    Down,
+    Up,
+}
+
+#[cube(harness(always))]
+fn rounded<F: Float>(x: F, #[comptime] rounding: Rounding) -> F {
+    match rounding {
+        Rounding::Down => F::floor(x),
+        Rounding::Up => F::ceil(x),
+    }
+}
+
+pub fn test_harness_comptime_enum<R: Runtime>() {
+    assert_eq!(rounded::harness::<R, f32>(2.5, Rounding::Down), 2.0);
+    assert_eq!(rounded::harness::<R, f32>(2.5, Rounding::Up), 3.0);
+}
+
+/// Two widths, defined at launch in the order the generics are declared.
+#[cube(harness(always))]
+fn widened<N: Size, M: Size>(x: Vector<u32, N>) -> Vector<u32, M> {
+    Vector::new(x.extract(0usize) + N::value() as u32)
+}
+
+pub fn test_harness_vector<R: Runtime>() {
+    assert_eq!(lane_offsets::harness::<R, Const<4>>(10), [10, 11, 12, 13]);
+    assert_eq!(lane_offsets::harness::<R, Const<1>>(10), [10]);
+    assert_eq!(
+        fma_lanes::harness::<R, f32, Const<2>>(&[1.0, 2.0], &[3.0, 4.0], 0.5),
+        (vec![3.5, 8.5], 2)
+    );
+    assert_eq!(
+        first_lane::harness::<R, Const<8>>(&[-3, 1, 2, 3, 4, 5, 6, 7]),
+        -3
+    );
+    assert_eq!(
+        widened::harness::<R, Const<2>, Const<4>>(&[5, 0]),
+        [7, 7, 7, 7]
+    );
+}
+
 pub fn test_harness_scalar<R: Runtime>() {
     assert_eq!(double::harness::<R>(1), 2);
     assert_eq!(multiply_add::harness::<R>(-3, 4, 5), -7);
@@ -415,6 +478,16 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_array_return() {
                 cubecl_core::runtime_tests::harness::test_harness_array_return::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_comptime_enum() {
+                cubecl_core::runtime_tests::harness::test_harness_comptime_enum::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_vector() {
+                cubecl_core::runtime_tests::harness::test_harness_vector::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]
