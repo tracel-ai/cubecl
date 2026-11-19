@@ -214,8 +214,11 @@ impl Launch {
             let ident = &input.name;
             let var = Ident::new(format!("comp_arg_{i}").as_str(), ident.span());
 
+            let name = ident.to_string();
+
             args.extend(quote! {#var,});
             defined.extend(quote! {
+                launcher.name_argument(#name);
                 launcher.declare_io(#declared);
                 let #var = <#ty as #launch_arg>::register(#ident, &mut launcher);
             });
