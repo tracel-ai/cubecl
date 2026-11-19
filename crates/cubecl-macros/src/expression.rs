@@ -1,5 +1,5 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{ToTokens, quote};
+use quote::{ToTokens, quote, quote_spanned};
 use syn::{
     AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
     PathSegment, QSelf, Token, Type,
@@ -8,7 +8,8 @@ use syn::{
 use crate::{
     operator::Operator,
     parse::asm::AsmExpression,
-    scope::{ClosureScope, Context, ManagedVar, Scope},
+    paths::frontend_type,
+    scope::{ClosureScope, ConstShape, Context, ManagedVar, Scope},
     statement::Statement,
 };
 
@@ -263,13 +264,37 @@ impl Expression {
         }
     }
 
-    pub fn as_const_primitive(&self, _context: &mut Context) -> Option<TokenStream> {
+    /// This expression as a runtime value, when it is a primitive literal or a tuple of them,
+    /// nested or not. `let mut` binds such a value at runtime, so `let mut dims = (2, 2)`
+    /// is a runtime tuple just as `let mut rows = 2` is a runtime scalar.
+    pub fn as_lifted_literal(&self) -> Option<TokenStream> {
         match self {
             Expression::Literal { value, .. } => match value {
-                Lit::Int(_) | Lit::Float(_) | Lit::Bool(_) => Some(quote![#value]),
+                Lit::Int(_) | Lit::Float(_) | Lit::Bool(_) => {
+                    let expand = frontend_type("NativeExpand");
+                    Some(quote_spanned![value.span()=> #expand::from_lit(scope, #value)])
+                }
                 _ => None,
             },
+            Expression::Tuple { elements, .. } if !elements.is_empty() => {
+                let elements = elements
+                    .iter()
+                    .map(|it| it.as_lifted_literal())
+                    .collect::<Option<Vec<_>>>()?;
+                Some(quote![(#(#elements,)*)])
+            }
             _ => None,
+        }
+    }
+
+    /// How the comptime value of this expression nests into tuples.
+    pub fn const_shape(&self) -> ConstShape {
+        match self {
+            Expression::Tuple { elements, .. } if !elements.is_empty() => {
+                ConstShape::Tuple(elements.iter().map(|it| it.const_shape()).collect())
+            }
+            Expression::Variable(var) if var.is_const => var.const_shape.clone(),
+            _ => ConstShape::Value,
         }
     }
 

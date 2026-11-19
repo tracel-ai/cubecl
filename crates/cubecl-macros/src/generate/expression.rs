@@ -9,7 +9,7 @@ use crate::{
     expression::{Block, Expression, MatchArm},
     operator::Operator,
     paths::{frontend_path, frontend_type, prelude_path, prelude_type},
-    scope::{ClosureScope, Context},
+    scope::{ClosureScope, ConstShape, Context, ManagedVar},
 };
 
 macro_rules! error {
@@ -1087,13 +1087,44 @@ fn map_args(args: &[Expression], context: &mut Context) -> Vec<TokenStream> {
 }
 
 fn map_arg(value: &Expression, context: &mut Context) -> TokenStream {
-    let tokens = value
-        .as_const(context)
-        .unwrap_or_else(|| value.to_tokens(context));
-    if is_closure(value) {
-        tokens
-    } else {
-        quote_spanned![tokens.span()=> (#tokens).into()]
+    match value {
+        // A comptime tuple converts one element at a time: it has no `From` into the tuple of its
+        // expand types, while each of its elements does. A runtime tuple converts as a whole, so
+        // it still fits a parameter whose type is a projection the compiler can't see is a tuple.
+        Expression::Tuple { elements, .. } if !elements.is_empty() && value.is_const() => {
+            let elements = elements.iter().map(|it| map_arg(it, context));
+            quote![(#(#elements,)*)]
+        }
+        Expression::Variable(ManagedVar {
+            name,
+            is_const: true,
+            const_shape: shape @ ConstShape::Tuple(_),
+            ..
+        }) => const_tuple_into(quote![#name], shape),
+        _ => {
+            let tokens = value
+                .as_const(context)
+                .unwrap_or_else(|| value.to_tokens(context));
+            if is_closure(value) {
+                tokens
+            } else {
+                quote_spanned![tokens.span()=> (#tokens).into()]
+            }
+        }
+    }
+}
+
+/// Converts the comptime `value` of shape `shape` one tuple element at a time.
+fn const_tuple_into(value: TokenStream, shape: &ConstShape) -> TokenStream {
+    match shape {
+        ConstShape::Value => quote_spanned![value.span()=> (#value).into()],
+        ConstShape::Tuple(elements) => {
+            let elements = elements.iter().enumerate().map(|(i, shape)| {
+                let i = syn::Index::from(i);
+                const_tuple_into(quote![#value.#i], shape)
+            });
+            quote![(#(#elements,)*)]
+        }
     }
 }
 
