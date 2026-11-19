@@ -475,7 +475,7 @@ impl VectorTile {
     }
 
     /// The first value of the `line`-th load of a window spanning `space`, one coordinate per
-    /// dimension, the loads counted in the order the buffer lays them ([`order`](VectorTile::order)):
+    /// dimension, the loads counted in the order the buffer lays them (`order`):
     /// neighbouring lines are neighbouring loads of one stored tile, then of the next.
     pub fn start(&self, line: u32, space: &Space) -> Coords<u32> {
         VectorTile::start_of(line, space, self)
