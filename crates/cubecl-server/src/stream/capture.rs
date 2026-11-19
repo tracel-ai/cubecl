@@ -3,7 +3,7 @@
 //! [`Server::graph_prepare`](crate::server::Server::graph_prepare)); the lifecycle itself is
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
-use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate};
+use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate, PinnedPages};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -126,6 +126,22 @@ impl StreamCapture {
             (true, _) => PageUpdate::Forbidden,
             (false, true) => PageUpdate::AddOnly,
             (false, false) => PageUpdate::Allow,
+        }
+    }
+
+    /// Whether this stream's reservations may carve the free room on the pages
+    /// its graphs pinned.
+    ///
+    /// A capture's may, from its warmup run on: the room is what earlier
+    /// graphs' temporaries used, every graph of the stream replays in stream
+    /// order, and a slice a handle still holds is never free — so what a
+    /// capture carves there is overwritten only while it is not in use. Work
+    /// outside a capture never may: it outlives the next replay, which would
+    /// write over it.
+    pub fn pinned_pages(&self) -> PinnedPages {
+        match self.is_active() {
+            true => PinnedPages::Share,
+            false => PinnedPages::Avoid,
         }
     }
 

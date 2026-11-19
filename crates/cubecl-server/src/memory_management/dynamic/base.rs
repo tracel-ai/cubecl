@@ -1,8 +1,8 @@
 //! How a stream's dynamic pools are managed.
 
 use super::{AdaptiveMemory, ExclusivePools};
-use crate::memory_management::Cleanup;
 use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
+use crate::memory_management::{Cleanup, PinnedPages};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -98,11 +98,16 @@ impl DynamicMemory {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
+            // An exclusive pool pins a page by holding its one allocation, so
+            // its pins are never shared.
             DynamicMemory::Exclusive(pools) => pools.reserve(storage, size, mapping, failures),
-            DynamicMemory::Adaptive(memory) => memory.reserve(storage, size, mapping, failures),
+            DynamicMemory::Adaptive(memory) => {
+                memory.reserve(storage, size, mapping, pinned, failures)
+            }
         }
     }
 
@@ -111,11 +116,12 @@ impl DynamicMemory {
     pub fn try_reserve(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicMemory::Exclusive(pools) => pools.try_reserve(size, failures),
-            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, failures),
+            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, pinned, failures),
         }
     }
 

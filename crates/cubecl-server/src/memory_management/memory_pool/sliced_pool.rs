@@ -1,4 +1,4 @@
-use crate::memory_management::Cleanup;
+use crate::memory_management::{Cleanup, PinnedPages};
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
@@ -133,17 +133,18 @@ impl SlicedPool {
         Ok(self.slice_at(location).storage.clone())
     }
 
-    /// Reserve `size` bytes on a page already held, coalescing as it goes.
-    /// A guarded page is left as it is.
-    fn reserve_free(
+    /// Reserve `size` bytes on a page already held, coalescing as it goes. A
+    /// guarded page is carved only when `pinned` shares it.
+    pub(crate) fn try_reserve_sharing(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         let handle = self
             .pages
             .iter_mut()
-            .filter(|(page, _)| !page.is_guarded())
+            .filter(|(page, _)| pinned == PinnedPages::Share || !page.is_guarded())
             .find_map(|(page, _)| {
                 page.coalesce(failures);
                 page.try_reserve(size)
@@ -152,6 +153,22 @@ impl SlicedPool {
             self.largest_alloc = self.largest_alloc.max(size);
         }
         handle
+    }
+
+    /// Reserve `size` bytes as [`try_reserve_sharing`](Self::try_reserve_sharing)
+    /// does, allocating a page when the room held has none.
+    pub(crate) fn reserve_sharing<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+        mapping: PageMapping,
+        pinned: PinnedPages,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        match self.try_reserve_sharing(size, pinned, failures) {
+            Some(handle) => Ok(handle),
+            None => self.alloc_page(storage, size, mapping),
+        }
     }
 
     /// Allocate a page and reserve `size` bytes on it.
@@ -279,7 +296,7 @@ impl MemoryPool for SlicedPool {
     }
 
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
-        self.reserve_free(size, failures)
+        self.try_reserve_sharing(size, PinnedPages::Avoid, failures)
     }
 
     #[cfg_attr(

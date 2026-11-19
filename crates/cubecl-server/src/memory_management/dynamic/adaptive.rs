@@ -1,7 +1,7 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
 use super::{ARENA_SLOTS, PageSizing, PoolArena};
-use crate::memory_management::Cleanup;
+use crate::memory_management::{Cleanup, PinnedPages};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -139,6 +139,11 @@ impl AdaptiveMemory {
     /// Reserve `size` bytes on the pool that serves them, growing the arena's
     /// pages when `size` outgrows them.
     ///
+    /// Only the arena shares the room on pinned pages: the small pool holds
+    /// the metadata a capture's info cache keeps for every graph, and a
+    /// buffer kept past its capture must never sit where another graph's
+    /// replay writes.
+    ///
     /// # Errors
     ///
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
@@ -149,6 +154,7 @@ impl AdaptiveMemory {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         if self.tiny.accept(size) {
@@ -157,7 +163,7 @@ impl AdaptiveMemory {
         if self.small.accept(size) {
             return self.small.reserve(storage, size, mapping, failures);
         }
-        self.arena.reserve(storage, size, mapping, failures)
+        self.arena.reserve(storage, size, mapping, pinned, failures)
     }
 
     /// Reserve `size` bytes in the room the pools already hold, without
@@ -165,6 +171,7 @@ impl AdaptiveMemory {
     pub fn try_reserve(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         if self.tiny.accept(size) {
@@ -173,7 +180,7 @@ impl AdaptiveMemory {
         if self.small.accept(size) {
             return self.small.try_reserve(size, failures);
         }
-        self.arena.try_reserve(size, failures)
+        self.arena.try_reserve(size, pinned, failures)
     }
 
     /// Whether a growth left pages behind for a relocation to empty.

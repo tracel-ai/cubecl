@@ -3,7 +3,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::runtime_tests::capture_status;
+use cubecl_core::runtime_tests::{capture_status, graph_sharing};
 use cubecl_core::server::Handle;
 use cubecl_cuda::CudaRuntime;
 use cubecl_server::runtime::Runtime;
@@ -374,4 +374,25 @@ fn cuda_graph_capture_is_seen_by_every_client_of_its_stream() {
 fn cuda_graph_prepared_capture_ends_at_stop_capture() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     capture_status::a_prepared_capture_ends_at_stop_capture::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::a_smaller_graph_fits_in_the_pages_a_larger_one_pinned`].
+#[test]
+fn cuda_graph_smaller_graph_fits_in_the_pages_a_larger_one_pinned() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_smaller_graph_fits_in_the_pages_a_larger_one_pinned::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::graphs_sharing_pinned_pages_replay_in_any_order`].
+#[test]
+fn cuda_graph_graphs_sharing_pinned_pages_replay_in_any_order() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::graphs_sharing_pinned_pages_replay_in_any_order::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::a_held_output_survives_another_graphs_replay`].
+#[test]
+fn cuda_graph_held_output_survives_another_graphs_replay() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_held_output_survives_another_graphs_replay::<CudaRuntime>();
 }

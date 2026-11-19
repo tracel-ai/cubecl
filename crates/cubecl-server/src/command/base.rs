@@ -191,7 +191,11 @@ impl<'a, D: Driver> Command<'a, D> {
         }
 
         let (stream, failures) = self.streams.current_and_failures();
-        match stream.device_memory().reserve(size, update, failures) {
+        let pinned = stream.capturing().pinned_pages();
+        match stream
+            .device_memory()
+            .reserve_sharing(size, update, pinned, failures)
+        {
             Ok(handle) => Ok(handle),
             // The recording now misses whatever this memory was for.
             Err(err @ IoError::PageUpdateForbidden { .. }) => {

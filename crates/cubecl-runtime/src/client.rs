@@ -92,6 +92,18 @@ pub struct Client {
 /// replays, and reads from the same unpinned client — for the whole decode loop.
 /// Refreshing inputs from a client on a different stream races the replay and
 /// silently feeds it stale data.
+///
+/// **Shared memory.** The graphs captured on one stream share the pages their
+/// captures pinned: a capture's temporaries reuse the room earlier graphs'
+/// temporaries left free, so the stream holds about the largest graph's
+/// working set — capture the largest graph first, and every smaller one fits
+/// in what it pinned. A buffer a handle holds is never shared, and a graph
+/// holds every buffer it writes for its whole life. But a buffer allocated
+/// *inside* a capture window may sit where an earlier graph's temporaries
+/// live, so its contents last only until another graph on the stream replays:
+/// allocate an output the host reads later before
+/// [`graph_prepare`](Client::graph_prepare), or read or copy it before
+/// replaying another graph.
 pub struct Graph {
     inner: Arc<GraphHandle>,
 }

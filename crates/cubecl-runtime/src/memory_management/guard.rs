@@ -1,14 +1,20 @@
 use super::ManagedMemoryBinding;
 use alloc::sync::Arc;
 
-/// Keeps a page as it is for as long as it lives: nothing new is carved from
-/// it, it is never released, and relocation leaves everything on it in place.
+/// Keeps a page as it is for as long as it lives: it is never released,
+/// relocation leaves everything on it in place, and its free room is carved
+/// only by the temporaries of graph captures on the stream whose memory holds
+/// it.
 ///
 /// What a graph holds on the memory it replays against. A graph keeps raw
-/// addresses but no bindings, so the bytes behind them must neither move nor
-/// be handed to another allocation. The allocations on the page keep their
-/// handles untouched, so one can still be updated in place while the page is
-/// guarded.
+/// addresses, so the bytes behind them must neither move nor be handed to
+/// work that outlives a replay. What the graph reads and writes past its
+/// capture is held by the graph's own bindings; the room its temporaries used
+/// is free on the page, and the guard keeps it from everything but another
+/// capture's temporaries. Those replay in stream order with this graph, so
+/// overwriting each other between replays costs nothing. The allocations on
+/// the page keep their handles untouched, so one can still be updated in
+/// place while the page is guarded.
 ///
 /// A resolved resource needs no guard: the binding it holds keeps its own
 /// allocation in place, and leaves the rest of the page to other allocations.
