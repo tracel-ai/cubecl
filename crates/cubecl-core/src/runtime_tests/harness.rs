@@ -273,6 +273,12 @@ pub fn test_harness_comptime_enum<R: Runtime>() {
     assert_eq!(rounded::harness::<R, f32>(2.5, Rounding::Up), 3.0);
 }
 
+/// Two widths, defined at launch in the order the generics are declared.
+#[cube(harness(always))]
+fn widened<N: Size, M: Size>(x: Vector<u32, N>) -> Vector<u32, M> {
+    Vector::new(x.extract(0usize) + N::value() as u32)
+}
+
 pub fn test_harness_vector<R: Runtime>() {
     assert_eq!(lane_offsets::harness::<R, Const<4>>(10), [10, 11, 12, 13]);
     assert_eq!(lane_offsets::harness::<R, Const<1>>(10), [10]);
@@ -283,6 +289,10 @@ pub fn test_harness_vector<R: Runtime>() {
     assert_eq!(
         first_lane::harness::<R, Const<8>>(&[-3, 1, 2, 3, 4, 5, 6, 7]),
         -3
+    );
+    assert_eq!(
+        widened::harness::<R, Const<2>, Const<4>>(&[5, 0]),
+        [7, 7, 7, 7]
     );
 }
 
