@@ -87,7 +87,7 @@ impl PersistentPool {
 
 impl MemoryPool for PersistentPool {
     fn accept(&self, size: u64) -> bool {
-        self.max_alloc_size >= size
+        size + calculate_padding(size, self.alignment) <= self.max_alloc_size
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -145,6 +145,16 @@ impl MemoryPool for PersistentPool {
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
+
+        // Refused before the storage sees it: some backends (wgpu) treat a
+        // buffer past the device's limit as a validation error that poisons
+        // the device rather than as a failed allocation.
+        if effective_size > self.max_alloc_size {
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
+        }
 
         // Every persistent slice owns its whole buffer, so laziness is
         // per-slice: a minted id under a process mode that discards launches (a scratch
@@ -284,6 +294,40 @@ mod tests {
     use crate::storage::BytesStorage;
 
     use super::*;
+
+    /// A size whose padded allocation passes the largest allocation is refused
+    /// as `BufferTooBig` before the storage is asked, and the pool still
+    /// serves the next one that fits.
+    #[test_log::test]
+    fn an_allocation_past_the_limit_is_refused_before_the_storage() {
+        use crate::storage::ComputeStorage;
+
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentPool::new(1024, 16, 0);
+
+        let refused = pool.alloc(
+            &mut storage,
+            1025,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        );
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { size: 1025, .. })),
+            "got {refused:?}"
+        );
+        assert_eq!(storage.bytes_allocated(), 0, "the storage was never asked");
+
+        let served = pool
+            .alloc(
+                &mut storage,
+                1024,
+                PageMapping::Eager,
+                &mut ErrorGraph::default(),
+            )
+            .expect("exactly the limit fits");
+        assert_eq!(storage.bytes_allocated(), 1024);
+        core::mem::drop(served);
+    }
 
     /// `alloc` and `try_reserve` must use the same `sizes` key (`size + padding`). See #1224.
     #[test_log::test]

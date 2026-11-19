@@ -117,8 +117,11 @@ impl DeviceService for HipServer {
             total
         };
         let mem_properties =
+            // Pages are a quarter of the device by policy; `hipMalloc` itself
+            // serves a single buffer up to the whole device.
             MemoryDeviceProperties::new(max_memory as u64 / 4, probe.alignment as u64)
-                .with_max_memory(max_memory as u64);
+                .with_max_memory(max_memory as u64)
+                .with_max_allocation_size(max_memory as u64);
 
         let supported_wmma_combinations =
             HipCmmaCompiler::RocWmma.supported_cmma_combinations(&arch);
