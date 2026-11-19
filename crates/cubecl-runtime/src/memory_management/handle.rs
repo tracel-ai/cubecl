@@ -1,4 +1,4 @@
-use crate::memory_management::MemoryHandle;
+use crate::memory_management::{AllocationOrigin, MemoryHandle};
 use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
@@ -59,6 +59,10 @@ pub struct ManagedMemoryDescriptor {
     #[doc(hidden)]
     pub id: ManagedMemoryId,
     location: AtomicU64,
+    /// Pointers to the code that asked for the memory, while
+    /// [memory tracing](crate::config::memory::MemoryTracing) is on: held here
+    /// so it lives exactly as long as the allocation.
+    origin: Option<Arc<AllocationOrigin>>,
 }
 
 impl core::fmt::Debug for ManagedMemoryDescriptor {
@@ -66,6 +70,7 @@ impl core::fmt::Debug for ManagedMemoryDescriptor {
         f.debug_struct("ManagedMemoryDescriptor")
             .field("id", &self.id)
             .field("location", &self.location())
+            .field("origin", &self.origin)
             .finish()
     }
 }
@@ -116,6 +121,13 @@ impl ManagedMemoryDescriptor {
     #[doc(hidden)]
     pub fn update_page(&self, page: u16) {
         self.modify(|location| MemoryLocation { page, ..location });
+    }
+
+    /// Pointers to the code that asked for the memory, when tracing was on as its handle
+    /// was created.
+    #[doc(hidden)]
+    pub fn origin(&self) -> Option<&AllocationOrigin> {
+        self.origin.as_deref()
     }
 
     /// Retrieves the current location.
@@ -196,7 +208,8 @@ impl MemoryLocation {
 }
 
 impl ManagedMemoryHandle {
-    /// Creates a new managed memory handle.
+    /// Creates a new managed memory handle, remembering who asked for it
+    /// while [memory tracing](crate::config::memory::MemoryTracing) is on.
     pub fn new() -> Self {
         let value = Self::gen_id();
 
@@ -204,6 +217,7 @@ impl ManagedMemoryHandle {
             descriptor: Arc::new(ManagedMemoryDescriptor {
                 id: ManagedMemoryId { value },
                 location: AtomicU64::new(MemoryLocation::uninit().to_bits()),
+                origin: AllocationOrigin::capture(),
             }),
             handle_count: Arc::new(()),
         }

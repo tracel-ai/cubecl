@@ -14,6 +14,32 @@ pub struct MemoryConfig {
     /// Configuration for persistent memory pools.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
+    /// The level of precision reporting where in the code an allocation was made,
+    /// listed by a memory report.
+    #[serde(default)]
+    pub tracing: MemoryTracing,
+}
+
+/// The level of precision reporting where in the code an allocation was made.
+///
+/// When enabled, every pool in a memory report lists its live allocations with its origin.
+/// The origin is stored with the allocation itself, so a report only ever lists memory that
+/// is still in use.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MemoryTracing {
+    /// Origin isn't reported.
+    #[default]
+    #[serde(rename = "disabled")]
+    Disabled,
+    /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
+    /// allocating thread had pushed, the thread's name and the allocation's index in
+    /// the order allocations were made.
+    #[serde(rename = "labels")]
+    Labels,
+    /// Same as [labels](`Self::Labels`) plus the call stack. Costs microseconds per
+    /// allocation: use for debugging.
+    #[serde(rename = "backtraces")]
+    Backtraces,
 }
 
 /// Configuration options for persistent memory pools in `CubeCL` runtimes.

@@ -184,12 +184,52 @@ such as model weights.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
 
+**Tracing** (`tracing`): reports the piece of code that caused a new memory allocation. When 
+enabled, every pool in a memory report (`Client::memory_report`) lists
+its live allocations (`MemoryPoolReport::allocations`): its id, size, padding and
+origin. An allocation’s origin is stored with the allocation itself, so a report only ever lists
+memory that is still in use.
+
+- `disabled` (default): the reports list no allocations.
+- `labels`: each allocation records the labels that were active (see `AllocationLabel::push`)
+when it was made, the name of the thread that made it, and a sequence number giving its order
+among all allocations.
+- `backtraces`: same as `labels`, plus the call stack that made the allocation. Capturing a stack 
+costs a few microseconds per allocation, so use this level for debugging, not in normal runs. In
+release builds, enable line tables (`debug = "line-tables-only"`) to get file and line numbers.
+
+To label allocations, create a label around the code that makes them:
+
+```rust
+use cubecl_common::allocation_label::AllocationLabel;
+
+let _label = AllocationLabel::push("weights");
+let handle = client.create(bytes); // reported under "weights"
+// the label stops applying when `_label` goes out of scope
+```
+
+With tracing on, the memory log at the `full` level also writes it: a line for each allocation as
+it is made, with its pool, size and origin, and after each explicit cleanup
+(`Client::memory_cleanup`) the list of every allocation still alive. No code has to read the report
+to see them:
+
+```toml
+[memory]
+logger = { level = "full", file = "memory.log" }
+tracing = "backtraces"
+```
+
+```text
+[Main GPU Memory] Allocated in the persistent pool 800.00 KB (id 41): fc1.weight · thread main · #17
+```
+
 **Example:**
 
 ```toml
 [memory]
 logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
+tracing = "labels"
 ```
 
 The memory pools have no entry in the config file.
@@ -254,6 +294,7 @@ CubeCL supports several environment variables to override configuration at runti
   - `"off"`/`"0"`
   - `"basic"`/`"1"`
   - `"full"`/`"2"`: also each compiled kernel's IR and source.
+- `CUBECL_MEMORY_TRACING`: Sets `memory.tracing` (`disabled`, `labels` or `backtraces`).
 - `CUBECL_DEVICE_TRANSPORT`: Sets `transport.device`.
   - `"auto"`, `"off"`
 

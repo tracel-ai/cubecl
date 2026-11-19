@@ -1,9 +1,13 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
+    memory_management::{
+        AllocationReport, Cleanup, ErrorGraph, MemoryLocation, MemoryTracing, MemoryUsage,
+        PageGuard, Taint, memory_tracing,
+    },
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
+use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
 /// Whether a fresh device page gets real backing at allocation time.
@@ -191,6 +195,24 @@ pub trait MemoryPool {
     /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
 
+    /// The slices holding a live allocation.
+    fn live_slices(&self) -> impl Iterator<Item = &Slice>
+    where
+        Self: Sized;
+
+    /// Every allocation alive in the pool, as its report lists them: none
+    /// while [memory tracing](MemoryTracing) is off, so a report stays as
+    /// cheap as its counts.
+    fn allocations(&self) -> Vec<AllocationReport>
+    where
+        Self: Sized,
+    {
+        if memory_tracing() == MemoryTracing::Disabled {
+            return Vec::new();
+        }
+        self.live_slices().map(Slice::allocation_report).collect()
+    }
+
     /// Keep the page `location` names as it is for as long as the guard lives
     /// (see [`PageGuard`]). `None` when the pool holds no such page.
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard>;
@@ -208,7 +230,7 @@ pub trait MemoryPool {
 
 #[derive(Debug)]
 /// Slice of data with its associated storage.
-pub(crate) struct Slice {
+pub struct Slice {
     pub storage: StorageHandle,
     pub handle: ManagedMemoryHandle,
     pub padding: u64,
@@ -274,6 +296,17 @@ impl Slice {
     /// If the slice is free to be reused.
     pub(crate) fn is_free(&self) -> bool {
         self.handle.is_free()
+    }
+
+    /// The allocation this slice holds, as a pool's report lists it.
+    pub(crate) fn allocation_report(&self) -> AllocationReport {
+        let descriptor = self.handle.descriptor();
+        AllocationReport {
+            id: descriptor.id.value as u64,
+            size: self.storage.size(),
+            padding: self.padding,
+            origin: descriptor.origin().map(|origin| origin.report()),
+        }
     }
 
     /// The total size of the slice including padding.

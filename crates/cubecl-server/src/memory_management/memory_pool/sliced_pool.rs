@@ -92,6 +92,7 @@ impl SlicedPool {
                 .filter(|(page, _)| !page.is_mapped())
                 .count() as u64,
             largest_alloc: self.largest_alloc,
+            allocations: self.allocations(),
         }
     }
 
@@ -320,6 +321,10 @@ impl MemoryPool for SlicedPool {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let (page, _) = self.pages.get(location.page as usize)?;
         Some(page.guard())
+    }
+
+    fn live_slices(&self) -> impl Iterator<Item = &Slice> {
+        self.pages.iter().flat_map(|(page, _)| page.live())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

@@ -115,6 +115,7 @@ impl ExclusiveMemoryPool {
             // This pool only allocates eagerly.
             pages_unmapped: 0,
             largest_alloc: self.largest_alloc,
+            allocations: self.allocations(),
         }
     }
 
@@ -231,6 +232,13 @@ impl MemoryPool for ExclusiveMemoryPool {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let page = self.pages.get(location.page as usize)?;
         Some(PageGuard::allocation(page.slice.handle.clone().binding()))
+    }
+
+    fn live_slices(&self) -> impl Iterator<Item = &Slice> {
+        self.pages
+            .iter()
+            .map(|page| &page.slice)
+            .filter(|slice| !slice.is_free())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

@@ -151,6 +151,73 @@ pub struct MemoryPoolReport {
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.
     pub largest_alloc: u64,
+    /// Every allocation alive in the pool, while
+    /// [memory tracing](crate::config::memory::MemoryTracing) is on; empty
+    /// while it is off.
+    #[serde(default)]
+    pub allocations: Vec<AllocationReport>,
+}
+
+/// One allocation alive in a pool, its size, and its origin.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AllocationReport {
+    /// The memory's id, stable for as long as the allocation lives and never
+    /// given to another.
+    pub id: u64,
+    /// The bytes the allocation's slice holds.
+    pub size: u64,
+    /// The padding bytes for the alignment.
+    pub padding: u64,
+    /// The piece of code that triggered an allocation; `None` for memory
+    /// allocated before tracing was on.
+    pub origin: Option<AllocationOriginReport>,
+}
+
+/// Pointers to the location where the allocation was made in the code.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AllocationOriginReport {
+    /// The [labels](cubecl_common::allocation_label::AllocationLabel) the
+    /// allocating thread had pushed, outermost first.
+    pub labels: Vec<String>,
+    /// The allocating thread's name, when it has one.
+    pub thread: Option<String>,
+    /// The allocation's index in the order allocations were made while
+    /// tracing was on.
+    pub sequence: u64,
+    /// The call stack that asked for the memory, from the caller of the
+    /// runtime down, as `function [crate/src/file.rs:line:column]`; empty
+    /// unless tracing captures backtraces.
+    pub frames: Vec<String>,
+}
+
+/// `1.02 KB (id 12): model.weights · thread main · #3`, then the call stack
+/// one frame a line, as the memory log writes an allocation.
+impl core::fmt::Display for AllocationReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} (id {}): ", BytesFormat::new(self.size), self.id)?;
+        match &self.origin {
+            Some(origin) => write!(f, "{origin}"),
+            None => f.write_str("(made before tracing was on)"),
+        }
+    }
+}
+
+/// `model.weights · thread main · #3`, then the call stack one frame a line.
+impl core::fmt::Display for AllocationOriginReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.labels.is_empty() {
+            true => f.write_str("(no label)")?,
+            false => f.write_str(&self.labels.join("."))?,
+        }
+        if let Some(thread) = &self.thread {
+            write!(f, " · thread {thread}")?;
+        }
+        write!(f, " · #{}", self.sequence)?;
+        for frame in &self.frames {
+            write!(f, "\n    at {frame}")?;
+        }
+        Ok(())
+    }
 }
 
 /// Which memory a [`MemoryReport`] covers.
@@ -286,6 +353,7 @@ mod tests {
             pages_peak: 1,
             pages_unmapped: 0,
             largest_alloc: bytes_in_use,
+            allocations: Vec::new(),
         }
     }
 
@@ -321,5 +389,24 @@ mod tests {
             pools: stream(0, 10).pools,
         });
         assert_eq!(report.usage().bytes_in_use, 33);
+    }
+
+    #[test]
+    fn an_allocation_reads_as_the_memory_log_writes_it() {
+        let allocation = AllocationReport {
+            id: 12,
+            size: 1024,
+            padding: 0,
+            origin: Some(AllocationOriginReport {
+                labels: vec!["model".into(), "weights".into()],
+                thread: Some("main".into()),
+                sequence: 3,
+                frames: vec!["load [burn-core/src/store/mod.rs:238:29]".into()],
+            }),
+        };
+        assert_eq!(
+            allocation.to_string(),
+            "1.02 KB (id 12): model.weights · thread main · #3\n    at load [burn-core/src/store/mod.rs:238:29]"
+        );
     }
 }
