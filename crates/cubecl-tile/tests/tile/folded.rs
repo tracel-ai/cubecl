@@ -16,12 +16,12 @@ const K: Dimension = Dimension(1);
 #[cube(launch)]
 fn copy_values_kernel(
     input: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let x = input.tile(&space);
-    let o = out.tile(&space);
+    let o = out.tile_mut(&space);
     for region in space.over(&level) {
         let window = x.at(&region);
         let lines = window.flat::<f32, Const<1>>();
@@ -37,12 +37,12 @@ fn copy_values_kernel(
 #[cube(launch)]
 fn copy_lines_kernel(
     input: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let x = input.tile(&space);
-    let o = out.tile(&space);
+    let o = out.tile_mut(&space);
     for region in space.over(&level) {
         let window = x.at(&region);
         let lines = window.flat::<f32, Const<4>>();
