@@ -1,13 +1,13 @@
 use cubecl_ir::{ConstantValue, ElemType, ExpandValue, dialect::general::ReadScalarOp};
 use num_traits::{NumCast, One, Zero};
 
+use crate::frontend::CubeType;
 use crate::unexpanded;
 use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder, frontend::*};
 use crate::{compute::KernelLauncher, frontend::AtomicNumeric};
-use crate::{frontend::CubeType, prelude::InputScalar};
 use crate::{ir::Scope, prelude::Scalar};
 
-use super::{LaunchArg, NativeAssign, NativeExpand};
+use super::{NativeAssign, NativeExpand};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -109,15 +109,15 @@ impl<E: ScalarArgType> ScalarArgSettings for E {
 
 impl ScalarArgSettings for usize {
     fn register(&self, launcher: &mut KernelLauncher) {
-        let value = InputScalar::new(*self, launcher.settings.address_type.unsigned_type());
-        launcher.register_scalar_raw(value.as_bytes(), ElemType::Index);
+        let dtype = launcher.settings.address_type.unsigned_type();
+        launcher.register_address_scalar(*self, dtype, ElemType::Index);
     }
 }
 
 impl ScalarArgSettings for isize {
     fn register(&self, launcher: &mut KernelLauncher) {
-        let value = InputScalar::new(*self, launcher.settings.address_type.signed_type());
-        InputScalar::register(value, launcher);
+        let dtype = launcher.settings.address_type.signed_type();
+        launcher.register_address_scalar(*self, dtype, dtype);
     }
 }
 
