@@ -67,17 +67,36 @@ impl InputScalar {
     ///
     /// # Panics
     ///
-    /// If the given numeric element can't be transformed into the passed [`ElemType`].
+    /// If the given numeric element can't be transformed into the passed [`ElemType`]: a value
+    /// out of the dtype's range above all. [`try_new`](Self::try_new) answers that case instead.
     pub fn new<E: num_traits::ToPrimitive>(val: E, dtype: impl Into<ElemType>) -> Self {
+        let dtype: ElemType = dtype.into();
+        let shown = Shown::of(&val);
+        Self::try_new(val, dtype).unwrap_or_else(|| {
+            panic!("InputScalar::new: {shown} does not fit the scalar type `{dtype}`")
+        })
+    }
+
+    /// Creates an [`InputScalar`] from the given element and dtype, or `None` when the dtype
+    /// cannot represent the element, a value out of its range above all.
+    ///
+    /// # Panics
+    ///
+    /// If the dtype is not a scalar storage type: `Index`, `Bool`, complex and fp6 types.
+    pub fn try_new<E: num_traits::ToPrimitive>(val: E, dtype: impl Into<ElemType>) -> Option<Self> {
         let dtype: ElemType = dtype.into();
         let mut out = InputScalar {
             data: Default::default(),
             dtype,
         };
-        fn write<E: ScalarArgType>(val: impl num_traits::ToPrimitive, out: &mut [u8]) {
-            let val = [E::from(val).unwrap()];
+        fn write<E: ScalarArgType>(
+            val: impl num_traits::ToPrimitive,
+            out: &mut [u8],
+        ) -> Option<()> {
+            let val = [E::from(val)?];
             let bytes = E::as_bytes(&val);
             out[..bytes.len()].copy_from_slice(bytes);
+            Some(())
         }
         match dtype {
             ElemType::Index => panic!(
@@ -113,8 +132,28 @@ impl InputScalar {
                 unimplemented!("Complex values aren't supported as scalar inputs")
             }
             ElemType::Bool => panic!("Bool isn't a scalar"),
-        };
-        out
+        }?;
+        Some(out)
+    }
+}
+
+/// A primitive value, kept as a number a message can print whichever primitive it was.
+struct Shown(Option<i128>, Option<u128>, Option<f64>);
+
+impl Shown {
+    fn of(val: &impl num_traits::ToPrimitive) -> Self {
+        Self(val.to_i128(), val.to_u128(), val.to_f64())
+    }
+}
+
+impl core::fmt::Display for Shown {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self(Some(int), _, _) => write!(f, "{int}"),
+            Self(None, Some(uint), _) => write!(f, "{uint}"),
+            Self(None, None, Some(float)) => write!(f, "{float}"),
+            Self(None, None, None) => f.write_str("a value"),
+        }
     }
 }
 
