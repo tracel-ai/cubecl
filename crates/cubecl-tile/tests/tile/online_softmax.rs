@@ -276,7 +276,6 @@ fn register_plane_attention<E: Float>(
 /// The tile picks the instruction, cuts the score into the cells it keeps in registers, walks the
 /// head dim, and reads runs of the score's cells as the value's `A`, walking the keys.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn cut_plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
