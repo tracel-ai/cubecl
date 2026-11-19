@@ -29,6 +29,9 @@
 //! path that isn't a scalar is taken for one, and the bound on it reports a
 //! type that isn't.
 //!
+//! A `#[comptime]` parameter is compiled into the kernel, so it may be of any
+//! type a kernel takes as comptime: a scalar, or a configuration like an enum.
+//!
 //! The harness is only compiled in tests unless another gate is given, with
 //! `harness(cfg(<predicate>))` or `harness(always)`. A function that isn't
 //! harnessable is reported whatever the gate.
@@ -161,7 +164,8 @@ impl Launch {
             None => syn::Error::new_spanned(
                 &self.func.sig.name,
                 "a harness can't be generated for this function. Every parameter must be one of:\n\
-                 - a scalar, or a `#[comptime]` scalar\n\
+                 - a scalar\n\
+                 - a `#[comptime]` value of any type a kernel takes as comptime\n\
                  - a generic scalar, with a single `Float`, `Int` or `Numeric` bound, inline or \
                  in a `where` clause\n\
                  - a slice `&[T]` or `&mut [T]` of scalars\n\
@@ -317,14 +321,9 @@ impl Launch {
                 return None;
             }
             let value = if param.is_const {
-                let ident = match &param.ty {
-                    Type::Path(path) if path.qself.is_none() => path.path.get_ident(),
-                    _ => None,
-                }?;
-                let name = ident.to_string();
-                if !RUNTIME_SCALARS.contains(&name.as_str())
-                    && !COMPTIME_SCALARS.contains(&name.as_str())
-                {
+                // A comptime value is compiled into the kernel, so any type the kernel takes as
+                // one crosses as it is: a scalar, or a configuration like an enum.
+                if !matches!(&param.ty, Type::Path(path) if path.qself.is_none()) {
                     return None;
                 }
                 HarnessValue::Comptime(param.ty.clone())
@@ -965,7 +964,7 @@ mod tests {
             parse_quote! { fn f<F: Float>(x: F) -> F where u32: Copy { x } },
             parse_quote! { fn f<F>(x: F) -> F where for<'a> F: Float { x } },
             parse_quote! { fn f<T: CubePrimitive>(x: T) -> T { x } },
-            parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
+            parse_quote! { fn f(#[comptime] c: &MyConfig) -> u32 { 0 } },
         ];
         for item in impure {
             let source = item.to_token_stream().to_string();

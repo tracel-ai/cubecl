@@ -253,6 +253,26 @@ fn first_lane<N: Size>(x: Vector<i32, N>) -> i32 {
     x.extract(0usize)
 }
 
+/// A comptime configuration, as a kernel takes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Rounding {
+    Down,
+    Up,
+}
+
+#[cube(harness(always))]
+fn rounded<F: Float>(x: F, #[comptime] rounding: Rounding) -> F {
+    match rounding {
+        Rounding::Down => F::floor(x),
+        Rounding::Up => F::ceil(x),
+    }
+}
+
+pub fn test_harness_comptime_enum<R: Runtime>() {
+    assert_eq!(rounded::harness::<R, f32>(2.5, Rounding::Down), 2.0);
+    assert_eq!(rounded::harness::<R, f32>(2.5, Rounding::Up), 3.0);
+}
+
 pub fn test_harness_vector<R: Runtime>() {
     assert_eq!(lane_offsets::harness::<R, Const<4>>(10), [10, 11, 12, 13]);
     assert_eq!(lane_offsets::harness::<R, Const<1>>(10), [10]);
@@ -448,6 +468,11 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_array_return() {
                 cubecl_core::runtime_tests::harness::test_harness_array_return::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_comptime_enum() {
+                cubecl_core::runtime_tests::harness::test_harness_comptime_enum::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]
