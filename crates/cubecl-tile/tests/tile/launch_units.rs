@@ -40,7 +40,7 @@ const BLOCK: [usize; 3] = [2, 2, 4];
 fn launch_unit_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &O::Arg<f32>,
+    out: &mut O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));

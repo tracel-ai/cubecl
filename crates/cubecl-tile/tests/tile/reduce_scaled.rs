@@ -27,12 +27,12 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn reduce_scaled_into_memory(
     weights: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let weights = weights.tile(&space).mul(&scales.tile(&space));
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     out.init::<f32>(0.0f32);
     for region in space.over(&level) {
         let mut out_region = out.at(&region);
@@ -45,12 +45,12 @@ fn reduce_scaled_into_memory(
 fn reduce_scaled_in_registers(
     weights: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let weights = weights.tile(&space).mul(&scales.tile(&space));
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let mut sum = out.block_reducer::<f32>(&weights, SOFTWARE_MATMUL, Monoid::Sum);
     sum.init::<f32>(0.0f32);
     for region in space.over(&level) {

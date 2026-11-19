@@ -66,7 +66,7 @@ fn plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
     v: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -81,7 +81,7 @@ fn plane_attention<E: Float>(
     // Past the attended keys a read is zero: a masked probability never meets a stale value.
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let bias = Procedural::new::<f32, Attended>(
         comptime!(space.space().subspace(&[Q, S])),
         Attended {
@@ -167,7 +167,7 @@ fn register_plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
     v: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     max: &mut Tensor<f32>,
     sum: &mut Tensor<f32>,
     keys: u32,
@@ -184,7 +184,7 @@ fn register_plane_attention<E: Float>(
     let q = q.tile(&space);
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let bias = Procedural::new::<f32, Attended>(
         comptime!(space.space().subspace(&[Q, S])),
         Attended {
@@ -276,12 +276,11 @@ fn register_plane_attention<E: Float>(
 /// The tile picks the instruction, cuts the score into the cells it keeps in registers, walks the
 /// head dim, and reads runs of the score's cells as the value's `A`, walking the keys.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn cut_plane_attention<E: Float>(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
     v: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -293,7 +292,7 @@ fn cut_plane_attention<E: Float>(
     let q = q.tile(&space);
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let bias = Procedural::new::<f32, Attended>(
         comptime!(space.space().subspace(&[Q, S])),
         Attended {
@@ -461,7 +460,7 @@ fn unit_attention(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
     v: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     max: &mut Tensor<f32>,
     sum: &mut Tensor<f32>,
     keys: u32,
@@ -476,7 +475,7 @@ fn unit_attention(
     let q = q.tile(&space);
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let bias = Procedural::new::<f32, Attended>(
         comptime!(space.space().subspace(&[Q, S])),
         Attended {
@@ -549,7 +548,7 @@ fn unit_attention_over_scaled_keys(
     q: &TileTensor<'_>,
     k: &TileTensor<'_>,
     v: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -560,7 +559,7 @@ fn unit_attention_over_scaled_keys(
     let q = q.tile(&space);
     let k = k.tile(&space).within(S, 0, keys as usize);
     let v = v.tile(&space).within(S, 0, keys as usize);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let bias = Procedural::new::<f32, Attended>(
         comptime!(space.space().subspace(&[Q, S])),
         Attended {

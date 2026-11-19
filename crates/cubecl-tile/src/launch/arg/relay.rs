@@ -44,7 +44,7 @@ impl<'a> TileTensor<'a> {
     /// its [`across`](Levels::across) dimension take their turns at, under `partitioning`, whose
     /// first level is the cube level. `turns` arrives holding zero and is left holding zero.
     pub fn relay<'t, V: Size>(
-        &self,
+        &mut self,
         partitioning: &Partitioning,
         turns: &'t [Atomic<u32>],
     ) -> Relay<'t> {

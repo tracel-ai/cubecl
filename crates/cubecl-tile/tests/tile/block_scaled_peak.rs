@@ -63,7 +63,7 @@ fn block_scaled_peak<E: Numeric>(
     a_scales: &TileTensor<'_>,
     b: &TileTensor<'_>,
     b_scales: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -72,7 +72,7 @@ fn block_scaled_peak<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
         // Opened on the operands as the instruction reads them, codes under their block scales, so
@@ -111,7 +111,7 @@ fn block_scaled_peak<E: Numeric>(
 fn float_peak(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -119,7 +119,7 @@ fn float_peak(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
         let acc = c.accumulator::<f32>(&a, &b, Semiring::SumProd);

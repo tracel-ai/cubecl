@@ -30,13 +30,13 @@ const PLANE_COLUMNS: usize = 2 * TILE_COLUMNS;
 #[cube(launch)]
 fn copy_per_unit<E: Numeric>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] rank: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for cube in space {
         let input = input.at(&cube);
         let output = output.at(&cube);

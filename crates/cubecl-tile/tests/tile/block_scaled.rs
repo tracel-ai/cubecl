@@ -43,14 +43,14 @@ fn block_scaled_matmul<E: Numeric>(
     a_scales: &TileTensor<'_>,
     b: &TileTensor<'_>,
     b_scales: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     let a_scales = a_scales.tile(&space);
     let b_scales = b_scales.tile(&space);
     // Opened on the operands as the instruction reads them, codes under their block scales, so
@@ -81,12 +81,12 @@ fn block_scaled_matmul<E: Numeric>(
 fn block_scaled_matmul_under_words<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     let (a, b) = (a.tile(&space), b.tile(&space));
     let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let (a, a_factor) = a.factor(&acc);

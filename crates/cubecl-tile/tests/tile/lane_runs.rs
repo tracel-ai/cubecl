@@ -85,7 +85,7 @@ enum First {
 fn lane_run_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] staged: Staged,
@@ -93,7 +93,7 @@ fn lane_run_matmul(
     #[comptime] first: First,
 ) {
     let a = a.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     let b = b.tile(&space);
     // `b` decodes as its fragments load, so the accumulator picks the manual mma, which decodes in
     // its registers.

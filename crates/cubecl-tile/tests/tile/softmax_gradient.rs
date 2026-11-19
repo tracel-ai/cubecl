@@ -61,8 +61,8 @@ fn by_queries(
     out: &TileTensor<'_>,
     out_gradient: &TileTensor<'_>,
     logsumexp: &TileTensor<'_>,
-    delta: &TileTensor<'_>,
-    score_gradient: &TileTensor<'_>,
+    delta: &mut TileTensor<'_>,
+    score_gradient: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -72,8 +72,8 @@ fn by_queries(
 ) {
     let (query, key, value) = (query.tile(&space), key.tile(&space), value.tile(&space));
     let (out, out_gradient) = (out.tile(&space), out_gradient.tile(&space));
-    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
-    let score_gradient = score_gradient.tile(&space);
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile_mut(&space));
+    let score_gradient = score_gradient.tile_mut(&space);
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[Q, S])),
         Causal { keys, queries },
@@ -122,8 +122,8 @@ fn by_keys(
     value: &TileTensor<'_>,
     out_gradient: &TileTensor<'_>,
     logsumexp: &TileTensor<'_>,
-    delta: &TileTensor<'_>,
-    score_gradient: &TileTensor<'_>,
+    delta: &mut TileTensor<'_>,
+    score_gradient: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -133,8 +133,8 @@ fn by_keys(
 ) {
     let (query, key, value) = (query.tile(&space), key.tile(&space), value.tile(&space));
     let out_gradient = out_gradient.tile(&space);
-    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
-    let score_gradient = score_gradient.tile(&space);
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile_mut(&space));
+    let score_gradient = score_gradient.tile_mut(&space);
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[S, Q])),
         Causal { keys, queries },
@@ -184,8 +184,8 @@ fn by_plane_fragments(
     value: &TileTensor<'_>,
     out_gradient: &TileTensor<'_>,
     logsumexp: &TileTensor<'_>,
-    delta: &TileTensor<'_>,
-    score_gradient: &TileTensor<'_>,
+    delta: &mut TileTensor<'_>,
+    score_gradient: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -200,8 +200,8 @@ fn by_plane_fragments(
     });
     let (query, key) = (query.tile(&space), key.tile(&space));
     let (value, out_gradient) = (value.tile(&space), out_gradient.tile(&space));
-    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
-    let score_gradient = score_gradient.tile(&space);
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile_mut(&space));
+    let score_gradient = score_gradient.tile_mut(&space);
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[owned, walked])),
         Causal { keys, queries },
@@ -290,7 +290,7 @@ fn by_plane_fragments(
 fn logsumexp_of(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
-    logsumexp: &TileTensor<'_>,
+    logsumexp: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -298,7 +298,11 @@ fn logsumexp_of(
     #[comptime] rows: usize,
     #[comptime] block: usize,
 ) {
-    let (query, key, logsumexp) = (query.tile(&space), key.tile(&space), logsumexp.tile(&space));
+    let (query, key, logsumexp) = (
+        query.tile(&space),
+        key.tile(&space),
+        logsumexp.tile_mut(&space),
+    );
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[Q, S])),
         Causal { keys, queries },

@@ -124,13 +124,13 @@ fn f32_arg(handle: TensorHandle, spec: TileSpec) -> TileTensorLaunch {
 fn indexed_matmul_kernel(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for tile in space.over(&rows) {
         let mut o = out
@@ -147,13 +147,13 @@ fn indexed_matmul_kernel(
 fn indexed_staged_matmul_kernel(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     let tiles = space.over(&rows);
     let mut stages = Stages::smem_single(&tiles, &w, StageStorage::Strided, 1usize, None);
@@ -174,14 +174,14 @@ fn indexed_staged_matmul_kernel(
 fn indexed_walking_matmul_kernel<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for tile in space.over(&rows) {
         let (o, x_t, w_t) = (out.at(&tile), x.at(&tile), w.at(&tile));
@@ -480,14 +480,14 @@ const BLOCK: usize = 4;
 #[cube(launch)]
 fn indexed_ragged_sum_kernel<E: Numeric>(
     packed: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] group: Level,
     #[comptime] block: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let packed = packed.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for g in space.over(&group) {
         let rows = packed.at(&g);
@@ -505,14 +505,14 @@ fn indexed_ragged_sum_kernel<E: Numeric>(
 #[cube(launch)]
 fn indexed_staged_ragged_sum_kernel<E: Numeric>(
     packed: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] group: Level,
     #[comptime] depth: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let packed = packed.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
 
     for g in space.over(&group) {
         let rows = packed.at(&g);
@@ -723,13 +723,13 @@ fn a_run_that_ends_before_it_starts_is_empty() {
 #[cube(launch)]
 fn indexed_whole_sum_kernel<E: Numeric>(
     packed: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] block: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let rows = packed.tile(&space);
-    let mut total = out.tile(&space);
+    let mut total = out.tile_mut(&space);
     total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
     for blk in rows.over(&block) {
         let mut cell = total.at(&blk);

@@ -47,7 +47,7 @@ const UNITS: usize = 2;
 fn launch_plane_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &O::Arg<f32>,
+    out: &mut O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));
@@ -63,7 +63,7 @@ fn launch_plane_matmul<O: Destination>(
 fn cube_plane_matmul<O: Destination>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &O::Arg<f32>,
+    out: &mut O::Arg<f32>,
     space: Partitioning,
 ) {
     let (a, b) = (a.tile(&space), b.tile(&space));

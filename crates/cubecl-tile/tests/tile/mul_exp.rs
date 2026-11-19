@@ -50,13 +50,17 @@ impl Reads for DecayExpand {
 fn by_units(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
-    weights: &TileTensor<'_>,
+    weights: &mut TileTensor<'_>,
     rate: f32,
     space: Partitioning,
     #[comptime] rows: usize,
     #[comptime] block: usize,
 ) {
-    let (query, key, weights) = (query.tile(&space), key.tile(&space), weights.tile(&space));
+    let (query, key, weights) = (
+        query.tile(&space),
+        key.tile(&space),
+        weights.tile_mut(&space),
+    );
     let bias =
         Procedural::new::<f32, Decay>(comptime!(space.space().subspace(&[Q, S])), Decay { rate })
             .tile_in::<f32>(&space);
@@ -85,12 +89,16 @@ fn by_units(
 fn by_plane_fragments(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
-    weights: &TileTensor<'_>,
+    weights: &mut TileTensor<'_>,
     rate: f32,
     space: Partitioning,
     #[comptime] windowed: bool,
 ) {
-    let (query, key, weights) = (query.tile(&space), key.tile(&space), weights.tile(&space));
+    let (query, key, weights) = (
+        query.tile(&space),
+        key.tile(&space),
+        weights.tile_mut(&space),
+    );
     let bias =
         Procedural::new::<f32, Decay>(comptime!(space.space().subspace(&[Q, S])), Decay { rate })
             .tile_in::<f32>(&space);

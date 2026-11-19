@@ -23,7 +23,7 @@ const RH_EXTENT: usize = 4;
 fn conv_dense_stage_kernel<E: Numeric>(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -33,7 +33,7 @@ fn conv_dense_stage_kernel<E: Numeric>(
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (input, weight, out) = (input.at(&cube), weight.at(&cube), out.at(&cube));
         let acc = out.accumulator::<E>(&input, &weight, Semiring::SumProd);

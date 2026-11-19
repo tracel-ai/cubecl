@@ -47,11 +47,11 @@ impl<T: Float> Recipe<T> for DimensionValue {
 #[cube]
 fn materialize(
     source: &Tile,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: &Partitioning,
     #[comptime] level: Level,
 ) {
-    let output = output.tile(space);
+    let output = output.tile_mut(space);
     for region in source.over(&level) {
         let mut output_region = output.at(&region);
         output_region.copy_from(&source.at(&region));
@@ -80,7 +80,7 @@ fn along_col<E: Float>(#[comptime] offset: ComptimeFloat<f32>) -> AffineCoordina
 /// window of the source straight into the output.
 #[cube(launch)]
 fn sum_kernel_in_place<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -100,7 +100,7 @@ fn sum_kernel_in_place<E: Float>(
 /// window cooperatively, and the output copies the stage. The grid must be the same either way.
 #[cube(launch)]
 fn sum_kernel_staged<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -113,7 +113,7 @@ fn sum_kernel_staged<E: Float>(
         ),
     )
     .tile::<E>();
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = source.over(&level);
     let mut stages = Stages::smem_single(&walk, &source, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
@@ -154,7 +154,7 @@ fn affine_plus_phase<E: Float>(
 /// grid must come out the same.
 #[cube(launch)]
 fn phase_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] launch_ratio: bool,
@@ -175,7 +175,7 @@ fn phase_kernel<E: Float>(
 
 #[cube(launch)]
 fn rebase_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -193,7 +193,7 @@ fn rebase_kernel<E: Float>(
 
 #[cube(launch)]
 fn constant_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -210,7 +210,7 @@ fn constant_kernel<E: Float>(
 
 #[cube(launch)]
 fn affine_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] offset: ComptimeFloat<f32>,
@@ -228,7 +228,7 @@ fn affine_kernel<E: Float>(
 /// nothing about a procedural source requires floats.
 #[cube(launch)]
 fn integer_kernel<E: Int>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -246,7 +246,7 @@ fn integer_kernel<E: Int>(
 /// A direct procedural read must use the masked view path on trailing partial tiles.
 #[cube(launch)]
 fn direct_copy_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -257,14 +257,14 @@ fn direct_copy_kernel<E: Float>(
         },
     )
     .tile::<E>();
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.copy_from(&source);
 }
 
 /// Descend once before a direct read: the procedural bound remains in the parent coordinates.
 #[cube(launch)]
 fn divided_direct_copy_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -284,7 +284,7 @@ fn divided_direct_copy_kernel<E: Float>(
         0usize,
     );
     let source = source.at(&region);
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let mut output = output.at(&region);
     output.copy_from(&source);
 }
@@ -294,13 +294,13 @@ fn divided_direct_copy_kernel<E: Float>(
 #[cube(launch)]
 fn memory_values_kernel<E: Float>(
     values: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let values = values.tile(&space);
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in output.over(&level) {
         let source = Procedural::new::<E, Sum<DimensionValue, MemoryValues>>(
             comptime!(space.space().clone()),
