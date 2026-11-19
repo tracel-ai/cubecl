@@ -177,6 +177,20 @@ impl Graph {
     }
 }
 
+/// Ends the capture a [`Client::capture`] prepared, should the call leave it under way: a panic
+/// in the work, or an early return. A capture its stream no longer holds is left alone.
+struct CaptureCloser<'a> {
+    client: &'a Client,
+}
+
+impl Drop for CaptureCloser<'_> {
+    fn drop(&mut self) {
+        if self.client.is_capturing() {
+            let _ = self.client.stop_capture();
+        }
+    }
+}
+
 impl Clone for Graph {
     fn clone(&self) -> Self {
         Self {
@@ -1800,28 +1814,29 @@ impl Client {
     ///
     /// When the backend has no graph support, a capture is already under way on the stream,
     /// the recorded run allocated otherwise than the last rehearsal, or anything the window
-    /// could not record (see [`start_capture`](Self::start_capture)). The capture is over
-    /// either way.
+    /// could not record (see [`start_capture`](Self::start_capture)). The capture this call
+    /// prepared is over either way, and so it is when `work` panics: left prepared, the stream
+    /// would discard every launch that follows.
     pub fn capture<T>(&self, mut work: impl FnMut() -> T) -> Result<(Graph, T), ServerError> {
         /// Runs a capture rehearses before recording whatever it found: a cold fused path
         /// settles by its second run, and a work that never settles is refused at seal.
         const REHEARSALS_MAX: usize = 4;
 
         self.graph_rehearse()?;
+        let closer = CaptureCloser { client: self };
         for _ in 0..REHEARSALS_MAX {
             let output = work();
             let stable = self.graph_rehearsed();
             core::mem::drop(output);
-            match stable {
-                Ok(true) => break,
-                Ok(false) => continue,
-                Err(err) => return Err(self.abandon_capture(err)),
+            if stable? {
+                break;
             }
         }
         self.start_capture()?;
         let output = work();
-        let graph = self.stop_capture()?;
-        Ok((graph, output))
+        let graph = self.stop_capture();
+        core::mem::drop(closer);
+        Ok((graph?, output))
     }
 
     /// Prepare this client's stream for a graph capture and start rehearsing the work it will
@@ -1848,12 +1863,14 @@ impl Client {
     /// # Errors
     ///
     /// When the stream is not rehearsing: no capture is prepared, its window is open, or another
-    /// logical stream sharing the backend stream ended it.
+    /// logical stream sharing the backend stream ended it. A capture this stream was rehearsing
+    /// is over when it fails, so the stream runs its launches again.
     pub fn graph_rehearsed(&self) -> Result<bool, ServerError> {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_rehearsed(stream_id))
             .closed_as_error()
+            .map_err(|err| self.abandon_capture(err))
     }
 
     /// End this stream's rehearsal after `err`, which is handed back, so the stream may capture

@@ -132,3 +132,51 @@ pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
     assert!(!capturing());
 }
+
+/// A work that panics inside [`Client::capture`] leaves no capture behind: left prepared, the
+/// stream would discard every launch after it. The stream runs its launches again, and captures
+/// again.
+pub fn a_work_that_panics_leaves_no_capture<R: Runtime>() {
+    let client = R::client(&Default::default());
+    let owner = StreamId { value: 3_000_004 };
+    let n = 4usize;
+    let (input, output) = owner.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
+    let run = || {
+        add_one::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    let panicked = owner.executes(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.capture(|| {
+                run();
+                panic!("the work fails");
+            })
+        }))
+    });
+    assert!(panicked.is_err(), "the work's panic reaches the caller");
+    assert!(
+        !owner.executes(|| client.is_capturing()),
+        "the capture ended with the panic"
+    );
+
+    let out = owner.executes(|| {
+        run();
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(
+        f32::from_bytes(&out),
+        &[2.0, 3.0, 4.0, 5.0],
+        "the stream runs its launches again"
+    );
+}

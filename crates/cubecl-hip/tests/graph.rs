@@ -382,3 +382,10 @@ fn hip_graph_outputs_pack_apart_from_the_shared_room() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::outputs_pack_apart_from_the_shared_room::<HipRuntime>();
 }
+
+/// See [`capture_status::a_work_that_panics_leaves_no_capture`].
+#[test]
+fn hip_graph_work_that_panics_leaves_no_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_work_that_panics_leaves_no_capture::<HipRuntime>();
+}

@@ -143,18 +143,23 @@ impl StreamCapture {
     /// capture carves there is overwritten only while it is not in use. Work
     /// outside a capture never may: it outlives the next replay, which would
     /// write over it.
-    pub fn pinned_pages(&self) -> PinnedPages {
-        match self.is_active() {
+    ///
+    /// Only the capture's own logical `stream` may: another logical stream
+    /// folded onto the same backend stream runs its work for real, and what
+    /// it keeps would sit where a graph's replay writes.
+    pub fn pinned_pages(&self, stream: StreamId) -> PinnedPages {
+        match self.is_owned_by(stream) {
             true => PinnedPages::Share,
             false => PinnedPages::Avoid,
         }
     }
 
-    /// Note an allocation of `size_bytes` bound to `memory`, while a capture is under way: the
-    /// rehearsal runs list theirs to learn which are outputs, and the recorded run lists its
-    /// own to check it allocated as rehearsed.
-    pub fn allocated(&mut self, size_bytes: u64, memory: &ManagedMemoryBinding) {
-        if self.is_active() {
+    /// Note an allocation of `size_bytes` bound to `memory` by the logical `stream`, while that
+    /// stream captures: the rehearsal runs list theirs to learn which are outputs, and the
+    /// recorded run lists its own to check it allocated as rehearsed. Another logical stream's
+    /// allocations on the same backend stream are not the work's, and are left out.
+    pub fn allocated(&mut self, stream: StreamId, size_bytes: u64, memory: &ManagedMemoryBinding) {
+        if self.is_owned_by(stream) {
             self.rehearsal.allocated(size_bytes, memory);
         }
     }
@@ -163,11 +168,19 @@ impl StreamCapture {
     /// last rehearsal run found to be an output at its position is placed off the shared room,
     /// in the rehearsal runs as in the recording, so the recording lands where the last
     /// rehearsal did.
-    pub fn place(&mut self, size_bytes: u64) -> Placement {
-        match self.is_active() {
+    ///
+    /// Only the capture's own logical `stream` follows the plan, as in
+    /// [`allocated`](Self::allocated).
+    pub fn place(&mut self, stream: StreamId, size_bytes: u64) -> Placement {
+        match self.is_owned_by(stream) {
             true => self.rehearsal.place(size_bytes),
             false => Placement::Pools,
         }
+    }
+
+    /// Whether the logical `stream` is the one that prepared the capture under way.
+    pub fn is_owned_by(&self, stream: StreamId) -> bool {
+        self.owner() == Some(stream)
     }
 
     /// End a rehearsal run, once its deferred frees are reclaimed, and answer whether it

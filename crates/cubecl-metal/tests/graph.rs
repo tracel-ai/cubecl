@@ -512,3 +512,10 @@ fn metal_graph_prepared_capture_ends_at_stop_capture() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     capture_status::a_prepared_capture_ends_at_stop_capture::<MetalRuntime>();
 }
+
+/// See [`capture_status::a_work_that_panics_leaves_no_capture`].
+#[test]
+fn metal_graph_work_that_panics_leaves_no_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_work_that_panics_leaves_no_capture::<MetalRuntime>();
+}

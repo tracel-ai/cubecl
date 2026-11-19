@@ -185,7 +185,8 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        let pinned = self.streams.current().capturing().pinned_pages();
+        let current = self.streams.current;
+        let pinned = self.streams.current().capturing().pinned_pages(current);
         self.reserve_sharing(size, pinned)
     }
 
@@ -278,7 +279,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// Whatever the reservation or the bind reports.
     pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
-        let placement = self.streams.current().capturing().place(size);
+        let current = self.streams.current;
+        let placement = self.streams.current().capturing().place(current, size);
         self.allocate_at(size, memory, placement)
     }
 
@@ -290,10 +292,11 @@ impl<'a, D: Driver> Command<'a, D> {
         size: u64,
         memory: &ManagedMemoryHandle,
     ) -> Result<(), IoError> {
+        let current = self.streams.current;
         let capturing = self.streams.current().capturing();
-        let placement = match capturing.is_active() {
+        let placement = match capturing.is_owned_by(current) {
             true => {
-                let _planned = capturing.place(size);
+                let _planned = capturing.place(current, size);
                 Placement::Output
             }
             false => Placement::Pools,
@@ -312,10 +315,11 @@ impl<'a, D: Driver> Command<'a, D> {
             Placement::Pools => self.reserve(size)?,
         };
         self.bind(reserved, memory.clone())?;
+        let current = self.streams.current;
         self.streams
             .current()
             .capturing()
-            .allocated(size, &memory.clone().binding());
+            .allocated(current, size, &memory.clone().binding());
         Ok(())
     }
 
