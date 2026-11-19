@@ -40,6 +40,16 @@ use crate::*;
 /// ([`TileTensorLaunch::runtime_map`]) ride the argument too, as does the table that places their
 /// windows ([`TileTensorLaunch::indexed`]), a routed product's experts or a pool's pages. A kernel
 /// serves every operand the same way, with [`tile`](TileTensor::tile).
+///
+/// # Read and written operands
+///
+/// A kernel writes an operand only through a tile served by [`tile_mut`](TileTensor::tile_mut),
+/// which takes the operand by `&mut`; a tile served by [`tile`](TileTensor::tile) is read-only,
+/// and a write into it is refused as the kernel expands. The launch declares a parameter taken
+/// by `&` read-only, and a launch that fails before it runs, a kernel refused as it expands above
+/// all, fails the reads of only the buffers it declares written: an output written through `&`
+/// would be read back as whatever its allocation held. The tables an operand is read through,
+/// its codebook and the table placing its windows, are read-only whichever way it is taken.
 pub struct TileTensor<'a> {
     pub spec: TileSpec,
     /// The element the buffer holds.
@@ -48,8 +58,14 @@ pub struct TileTensor<'a> {
 }
 
 impl TileTensor<'_> {
-    /// Serve the operand as a [`Tile`] over the kernel's one `partitioning`, under its scales.
+    /// Serve the operand as a read-only [`Tile`] over the kernel's one `partitioning`, under its
+    /// scales.
     pub fn tile(&self, _partitioning: &Partitioning) -> Tile {
+        unexpanded!()
+    }
+
+    /// [`tile`](TileTensor::tile), written: the operand's values and scales may be stored into.
+    pub fn tile_mut(&mut self, _partitioning: &Partitioning) -> Tile {
         unexpanded!()
     }
 
@@ -61,7 +77,8 @@ impl TileTensor<'_> {
     }
 }
 
-/// A buffer of values, served at `E`, its projection's runtime half `coefficients` and `offsets`.
+/// A buffer of values, served at `E`, its projection's runtime half `coefficients` and `offsets`,
+/// written only where `writable`.
 #[cube]
 fn buffer_tile<E: Numeric>(
     tensor: &Tensor<E>,
@@ -69,9 +86,10 @@ fn buffer_tile<E: Numeric>(
     coefficients: Coords<u32>,
     offsets: Coords<i32>,
     #[comptime] spec: TileSpec,
+    #[comptime] writable: bool,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::gathered(tensor, space.space(), spec, coefficients, offsets)
+    GlobalOperand::gathered(tensor, space.space(), spec, coefficients, offsets, writable)
         .tile::<E>(space.levels().to_vec())
 }
 
@@ -99,7 +117,7 @@ fn paged_tile<E: Numeric>(
         .tile::<E>(space.levels().to_vec())
 }
 
-/// A tensor map, served as a TMA-filled tile.
+/// A tensor map, served as a TMA-filled tile, stored into only where `writable`.
 #[cube]
 fn tensor_map_tile<E: Numeric>(
     map: TensorMap<E, Tiled>,
@@ -107,6 +125,7 @@ fn tensor_map_tile<E: Numeric>(
     partitioning: &Partitioning,
     #[comptime] spec: TileSpec,
     #[comptime] width: usize,
+    #[comptime] writable: bool,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
     let own = space.space().subspace(spec.axes());
@@ -118,6 +137,7 @@ fn tensor_map_tile<E: Numeric>(
         spec.packing,
         width,
         spec.projection.clone(),
+        writable,
     );
     Tile::new::<E>(
         TileKind::new_TmaGmem(data),
@@ -166,10 +186,28 @@ impl<'a> TileTensorExpand<'a> {
         scope: &Scope,
         partitioning: &PartitioningExpand,
     ) -> TileExpand {
-        let values = self.values_tile(scope, partitioning);
+        self.served(scope, partitioning, false)
+    }
+
+    pub fn __expand_tile_mut_method(
+        &mut self,
+        scope: &Scope,
+        partitioning: &PartitioningExpand,
+    ) -> TileExpand {
+        self.served(scope, partitioning, true)
+    }
+
+    /// The operand as a tile, its values and scales written only where `writable`.
+    fn served(
+        &self,
+        scope: &Scope,
+        partitioning: &PartitioningExpand,
+        writable: bool,
+    ) -> TileExpand {
+        let values = self.values_tile(scope, partitioning, writable);
         let values = self.looking_up(scope, values);
         let values = self.indexing(scope, values, partitioning);
-        self.scaling(scope, values, partitioning)
+        self.scaling(scope, values, partitioning, writable)
     }
 
     pub fn __expand_lines_method<E: Numeric, V: Size>(
@@ -207,8 +245,13 @@ impl<'a> TileTensorExpand<'a> {
     }
 
     /// The values alone, under none of their scales: read through their table where they are a
-    /// pool of pages, where they lie otherwise.
-    fn values_tile(&self, scope: &Scope, partitioning: &PartitioningExpand) -> TileExpand {
+    /// pool of pages, where they lie otherwise. A pool is read-only: it is written where it lies.
+    fn values_tile(
+        &self,
+        scope: &Scope,
+        partitioning: &PartitioningExpand,
+        writable: bool,
+    ) -> TileExpand {
         let _held = scope.define_type::<Held>(self.element);
         match &self.values {
             ValuesExpand::Tensor { tensor, meta, .. } => {
@@ -245,6 +288,7 @@ impl<'a> TileTensorExpand<'a> {
                     coefficients,
                     offsets,
                     self.spec.clone(),
+                    writable,
                 )
             }
             ValuesExpand::TensorMap { map, layout, width } => tensor_map_tile::expand::<Held>(
@@ -254,6 +298,7 @@ impl<'a> TileTensorExpand<'a> {
                 partitioning,
                 self.spec.clone(),
                 *width,
+                writable,
             ),
         }
     }
@@ -325,6 +370,7 @@ impl<'a> TileTensorExpand<'a> {
         scope: &Scope,
         values: TileExpand,
         partitioning: &PartitioningExpand,
+        writable: bool,
     ) -> TileExpand {
         let Some(level) = &self.scale else {
             return values;
@@ -337,7 +383,7 @@ impl<'a> TileTensorExpand<'a> {
             "TileTensor: a tensor map lands its values as they lie, so it rides only scales a \
              stage keeps beside them: words of block scales, or block scales packed in words"
         );
-        values.__expand_mul_method(scope, &level.__expand_tile_method(scope, partitioning))
+        values.__expand_mul_method(scope, &level.served(scope, partitioning, writable))
     }
 }
 
@@ -728,9 +774,19 @@ impl LaunchArg for TileTensor<'static> {
             }
         };
         let scale = scale.map(|level| Box::new(TileTensor::register(*level, launcher)));
-        let index = index
-            .map(|(table, indexing)| (Box::new(TileTensor::register(*table, launcher)), indexing));
-        let codebook = codebook.map(|table| Box::new(TileTensor::register(*table, launcher)));
+        // The tables the values are read through are never written, whichever way the operand
+        // is taken: a launch refused before it runs leaves them unclaimed.
+        let index = index.map(|(table, indexing)| {
+            let table = launcher.declaring_io(BufferIOAttr::ReadOnly, |launcher| {
+                TileTensor::register(*table, launcher)
+            });
+            (Box::new(table), indexing)
+        });
+        let codebook = codebook.map(|table| {
+            Box::new(launcher.declaring_io(BufferIOAttr::ReadOnly, |launcher| {
+                TileTensor::register(*table, launcher)
+            }))
+        });
         for coefficient in &coefficients {
             coefficient.register(launcher);
         }

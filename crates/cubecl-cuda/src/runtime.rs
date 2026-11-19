@@ -136,8 +136,11 @@ impl DeviceService for CudaServer {
                 .expect("the memory pools are sized against the device's capacity");
             bytes.assume_init() as u64
         };
+        // Pages are a quarter of the device by policy; `cuMemAlloc` itself
+        // serves a single buffer up to the whole device.
         let mem_properties = MemoryDeviceProperties::new(max_memory / 4, mem_alignment as u64)
-            .with_max_memory(max_memory);
+            .with_max_memory(max_memory)
+            .with_max_allocation_size(max_memory);
 
         let mut comp_opts = CompilationOptions {
             supports_features: CppSupportedFeatures {

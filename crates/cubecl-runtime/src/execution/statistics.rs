@@ -2,8 +2,12 @@
 //! kernels obtained and the autotune keys tuned, counted to it by the code
 //! doing the work.
 
+use alloc::vec::Vec;
 use core::marker::PhantomData;
-use cubecl_environment::sync::{Arc, AtomicUsize, Ordering};
+use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
+
+use crate::id::KernelId;
+use crate::server::LaunchError;
 
 /// A snapshot of what a collector's overrides triggered. Every count only
 /// grows, over every override and on every device.
@@ -82,6 +86,24 @@ impl AutotuneStatistics {
     }
 }
 
+/// A kernel the work needed that failed to compile or to load under a
+/// collector's overrides: one its launches will fail on whenever they run.
+///
+/// An autotune candidate that fails is dropped from its race and is no
+/// failure of the work: it is counted [`failed`](CompilationStatistics::failed)
+/// and listed nowhere — raced, or run
+/// [provisionally](super::LaunchPurpose::Provisional) before its tune decided. Only a kernel launched for the
+/// [work](super::LaunchPurpose::Work) — a plain launch, the pick of a tune —
+/// is listed, so a pass whose launches are discarded still hears that a
+/// kernel it reached can never run.
+#[derive(Debug, Clone)]
+pub struct WorkCompilationFailure {
+    /// The kernel that failed.
+    pub kernel: KernelId,
+    /// Why it failed.
+    pub error: LaunchError,
+}
+
 /// Collects what the [overrides](super::ProcessModeOverride) opened with it
 /// triggered.
 ///
@@ -126,6 +148,13 @@ impl StatisticsCollector {
         self.tallies.statistics()
     }
 
+    /// The kernels the work under its overrides needed and could not
+    /// obtain so far, each once, in the order they first failed. A pass that discards its
+    /// launches reports a kernel that can never run only here.
+    pub fn work_failures(&self) -> Vec<WorkCompilationFailure> {
+        self.tallies.work_failures()
+    }
+
     /// Where an override opened with it tallies.
     pub(crate) fn recorder(&self) -> StatisticsRecorder {
         StatisticsRecorder {
@@ -138,6 +167,12 @@ impl StatisticsReader {
     /// What the collector's overrides triggered so far.
     pub fn statistics(&self) -> ExecutionStatistics {
         self.tallies.statistics()
+    }
+
+    /// The kernels the work under the collector's overrides needed and could
+    /// not obtain so far: [`StatisticsCollector::work_failures`].
+    pub fn work_failures(&self) -> Vec<WorkCompilationFailure> {
+        self.tallies.work_failures()
     }
 }
 
@@ -289,15 +324,62 @@ impl<O: Outcome> Settled<O> {
     }
 }
 
+impl WorkCompilationFailure {
+    /// List `kernel` as one the work needed and could not obtain, to the
+    /// collector of the override open where the launch running now was
+    /// issued — or, outside a launch, of the one open now — if one is. Only
+    /// for a kernel a launch of the work asked for; an autotune candidate's
+    /// failure is its race's alone.
+    ///
+    /// Public for the kernel loader, which lives in `cubecl-server`.
+    #[doc(hidden)]
+    pub fn record(kernel: &KernelId, error: &LaunchError) {
+        let recorder = super::IssuedRecorder::running()
+            .unwrap_or_else(super::ProcessModeOverride::active_recorder);
+        if let Some(recorder) = recorder {
+            recorder.tallies.fail_work(kernel, error);
+        }
+    }
+}
+
+impl SettledKernel {
+    /// List the kernel as one the work needed and could not obtain, to the
+    /// collector it was registered with: it failed to compile, or the device
+    /// refused it. Only for a kernel a launch of the work asked for; an
+    /// autotune candidate's failure is its race's alone.
+    pub fn fail_work(&self, kernel: &KernelId, error: &LaunchError) {
+        self.recorder.tallies.fail_work(kernel, error);
+    }
+}
+
 /// A collector's tallies, shared by the collector, its readers and its
 /// recorders.
 #[derive(Debug, Default)]
 pub struct CollectorTallies {
     kernels: Tally,
     tunes: Tally,
+    /// The kernels the work needed and could not obtain.
+    work_failures: Mutex<Vec<WorkCompilationFailure>>,
 }
 
 impl CollectorTallies {
+    fn work_failures(&self) -> Vec<WorkCompilationFailure> {
+        self.work_failures.lock().clone()
+    }
+
+    /// List `kernel`, once: the work may meet the same failure again, at
+    /// its batch and at a later launch of it.
+    fn fail_work(&self, kernel: &KernelId, error: &LaunchError) {
+        let mut failures = self.work_failures.lock();
+        if failures.iter().any(|failure| &failure.kernel == kernel) {
+            return;
+        }
+        failures.push(WorkCompilationFailure {
+            kernel: kernel.clone(),
+            error: error.clone(),
+        });
+    }
+
     fn statistics(&self) -> ExecutionStatistics {
         let kernels = self.kernels.read();
         let tunes = self.tunes.read();

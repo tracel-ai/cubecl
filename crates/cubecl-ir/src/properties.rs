@@ -120,7 +120,9 @@ impl VectorRegisters {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct MemoryDeviceProperties {
-    /// The maximum nr. of bytes that can be allocated in one go.
+    /// The maximum nr. of bytes a pool page holds, and the largest allocation
+    /// the pools serve. An allocation outside the pools is bounded by
+    /// [`max_allocation_size`](Self::max_allocation_size) instead.
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
@@ -129,6 +131,11 @@ pub struct MemoryDeviceProperties {
     /// goes through the same rule.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_max_memory"))]
     max_memory: Option<u64>,
+    /// Private because [`max_allocation_size`](Self::max_allocation_size)
+    /// reads it against [`max_page_size`](Self::max_page_size), which a
+    /// runtime may still raise after stating this.
+    #[cfg_attr(feature = "serde", serde(default))]
+    max_allocation_size: Option<u64>,
 }
 
 /// A stated capacity as [`MemoryDeviceProperties::set_max_memory`] takes it: a zero is no figure.
@@ -148,7 +155,35 @@ impl MemoryDeviceProperties {
             max_page_size,
             alignment,
             max_memory: None,
+            max_allocation_size: None,
         }
+    }
+
+    /// The largest single device allocation the memory may ask for: never
+    /// less than [`max_page_size`](Self::max_page_size), and more only where
+    /// the runtime states a larger figure with
+    /// [`with_max_allocation_size`](Self::with_max_allocation_size).
+    ///
+    /// Pages are bounded by `max_page_size`; this bounds the allocations made
+    /// outside the pools, one per buffer (dedicated and persistent memory). On
+    /// a runtime whose `max_page_size` is the device's own limit (wgpu's
+    /// largest buffer, Metal's largest buffer) the two are the same. On one
+    /// whose page size is a policy below what the device allocates (CUDA and
+    /// HIP size pages at a quarter of the device), the runtime states the
+    /// larger figure, so a buffer outside the pools is not refused at a size
+    /// the device would serve.
+    pub const fn max_allocation_size(&self) -> u64 {
+        match self.max_allocation_size {
+            Some(size) if size > self.max_page_size => size,
+            _ => self.max_page_size,
+        }
+    }
+
+    /// States the largest single allocation the device serves, where it is
+    /// more than [`max_page_size`](Self::max_page_size).
+    pub const fn with_max_allocation_size(mut self, max_allocation_size: u64) -> Self {
+        self.max_allocation_size = Some(max_allocation_size);
+        self
     }
 
     /// How many bytes this memory may be asked to hold at once, or `None`,
@@ -820,6 +855,25 @@ mod tests {
         let mut props = MemoryDeviceProperties::new(1024, 32).with_max_memory(4096);
         props.set_max_memory(0);
         assert_eq!(props.max_memory(), None);
+    }
+
+    /// The largest allocation is the page size unless a larger one is stated,
+    /// and never falls below the page size, which a runtime may raise after.
+    #[test]
+    fn the_largest_allocation_is_never_below_a_page() {
+        let props = MemoryDeviceProperties::new(1024, 32);
+        assert_eq!(props.max_allocation_size(), 1024);
+        assert_eq!(
+            props
+                .clone()
+                .with_max_allocation_size(4096)
+                .max_allocation_size(),
+            4096
+        );
+
+        let mut raised = props.with_max_allocation_size(2048);
+        raised.max_page_size = 8192;
+        assert_eq!(raised.max_allocation_size(), 8192);
     }
 
     #[test]

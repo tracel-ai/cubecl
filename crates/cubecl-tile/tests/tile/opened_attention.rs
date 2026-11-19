@@ -25,7 +25,7 @@ use crate::support::{HostData, HostDataType, TestInput};
 fn unit_matmul<O: Destination>(
     lhs: &TileTensor<'_>,
     rhs: &TileTensor<'_>,
-    out: &O::Arg<f32>,
+    out: &mut O::Arg<f32>,
     space: Partitioning,
     #[comptime] config: SoftwareMatmul,
 ) {
@@ -83,7 +83,7 @@ impl Destination for Attending {
     type Arg<E: Numeric> = (TileTensor<'static>, TileTensor<'static>, AttendingArg);
     type Served<E: Numeric> = AttendingServed;
 
-    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, space: &Partitioning) -> AttendingServed {
+    fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, space: &Partitioning) -> AttendingServed {
         let bias = Procedural::new::<f32, Attended>(
             comptime!(space.space().subspace(&[Q, S])),
             Attended {
@@ -96,7 +96,7 @@ impl Destination for Attending {
         AttendingServed {
             bias,
             v: arg.0.tile(space),
-            out: arg.1.tile(space),
+            out: arg.1.tile_mut(space),
             scale: arg.2.scale,
             cells: comptime!(arg.2.cells),
         }

@@ -35,14 +35,14 @@ fn quantized_decode(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
 ) {
     let w = w.tile(&space);
     let x = x.tile(&space);
     let scale = scale.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     // This instance's windows of `out`, each initialized once: the level projected
     // onto `out`'s own axes walks nothing it does not span.
     for cube in &out {
@@ -83,7 +83,7 @@ fn quantized_decode_promoted<E: Numeric>(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
     #[define(E)] _dtype: ElemType,
@@ -91,7 +91,7 @@ fn quantized_decode_promoted<E: Numeric>(
     let w = w.tile(&space);
     let x = x.tile(&space);
     let scale = scale.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     let acc = out.register_accumulator::<E>(
         &w,
         &x,
