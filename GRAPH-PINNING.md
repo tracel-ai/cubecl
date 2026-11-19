@@ -48,11 +48,14 @@ another graph's replay overwrites it. Whether an allocation is a temporary or an
 only known once the work is over, and by then a recording has baked its address. So the work
 runs before it is recorded:
 
-1. **Rehearse.** `Client::capture(work)` prepares the stream and runs `work` with the stream's
-   launches discarded (a `StreamModeOverride(Discard)` on that stream alone, so other streams
-   keep running). Kernels compile and tunes measure for real, since the tuner only stops
-   deciding under `CompileOnly`. Pages stay eager, so the pools grow to what the recording
-   will ask for. Every allocation goes through `Command::allocate`, which lists it with its
+1. **Rehearse.** `Client::capture(work)` prepares the stream and runs `work` while the stream
+   rehearses. The capture state decides this, so no guard has to live between the steps: a
+   launch on a stream whose capture is prepared and not yet open is
+   `LaunchMode::Rehearse`. It compiles, does the launch's host side (resolving its buffers,
+   building its metadata buffer and the staging that uploads it) and stops before the
+   dispatch. Other streams keep running. An override that runs the stream, which is what a
+   tune's measurement opens, still wins, so tunes measure for real. Pages stay eager, so the
+   pools grow to what the recording will ask for. Every allocation goes through `Command::allocate`, which lists it with its
    size. When the run returns, with its output still held, `graph_rehearsed` drains the
    deferred frees and marks each listed allocation as outlived (held) or not.
 2. **Until stable.** The rehearsal repeats until two runs in a row list the same allocations,

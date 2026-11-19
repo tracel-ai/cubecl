@@ -95,10 +95,10 @@ fn hip_graph_capture_growing_the_pool_is_rejected() {
         );
     };
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch(&client);
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch(&client);
     // Force the pool to grow mid-capture: this deliberately odd size has never been allocated on
     // this client, so no free slice fits it and the storage must reach the device allocator.

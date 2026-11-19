@@ -48,14 +48,13 @@ impl LaunchMode {
         }
     }
 
-    /// The mode of this launch issued on a stream that is capturing a graph: a
-    /// launch discarded there belongs to the capture's rehearsal, and does the
-    /// launch's host side so the recorded run allocates nothing the rehearsal
-    /// did not.
-    pub(crate) fn within_capture(self) -> Self {
-        match self.discards_launch() {
-            true => Self::Rehearse,
-            false => self,
+    /// What a launch issued on `stream` does while the stream rehearses a graph capture's work:
+    /// it rehearses, unless an override runs it (a tune measuring), since the recorded run must
+    /// find everything the launch path allocates already in the pools.
+    pub(crate) fn rehearsing(stream: ServiceStream) -> Self {
+        match STREAM_MODES.mode(stream, StreamMode::Discard) {
+            StreamMode::Execute => Self::Execute,
+            StreamMode::Discard => Self::Rehearse,
         }
     }
 
@@ -121,13 +120,22 @@ mod tests {
         core::mem::drop(execute);
     }
 
-    /// A launch a capturing stream discards belongs to the capture's rehearsal, so it
-    /// rehearses; one it runs is recorded or measured, and stays as it is.
+    /// A launch of a rehearsing stream rehearses, unless an override runs it: what a tune
+    /// measuring inside the rehearsal opens.
     #[test]
-    fn a_discarded_launch_within_a_capture_rehearses() {
-        assert_eq!(LaunchMode::Queue.within_capture(), LaunchMode::Rehearse);
-        assert_eq!(LaunchMode::Compile.within_capture(), LaunchMode::Rehearse);
-        assert_eq!(LaunchMode::Execute.within_capture(), LaunchMode::Execute);
+    #[serial_test::serial]
+    fn a_rehearsing_stream_rehearses_unless_an_override_runs_it() {
+        let rehearsing = ServiceStream {
+            service: device(0),
+            stream: stream(9),
+        };
+        assert_eq!(LaunchMode::rehearsing(rehearsing), LaunchMode::Rehearse);
+        let measuring = STREAM_MODES.set(StreamMode::Execute, rehearsing);
+        assert_eq!(LaunchMode::rehearsing(rehearsing), LaunchMode::Execute);
+        core::mem::drop(measuring);
+        let gathering = STREAM_MODES.set(StreamMode::Discard, rehearsing);
+        assert_eq!(LaunchMode::rehearsing(rehearsing), LaunchMode::Rehearse);
+        core::mem::drop(gathering);
         assert!(LaunchMode::Rehearse.discards_launch());
     }
 

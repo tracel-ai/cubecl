@@ -234,13 +234,13 @@ pub fn a_recording_that_keeps_a_rehearsed_temporary_does_not_seal<R: Runtime>() 
             run_chain(&client, &input, &output, 1);
             output
         };
-        let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+        client.graph_rehearse().expect("graph_rehearse");
         // Each rehearsal run lets the buffer go before it ends: a temporary.
         while !{
             drop(run());
-            rehearsal.rehearsed().expect("rehearsed")
+            client.graph_rehearsed().expect("rehearsed")
         } {}
-        rehearsal.start_capture().expect("start_capture");
+        client.start_capture().expect("start_capture");
         let kept = run();
         assert!(
             client.stop_capture().is_err(),

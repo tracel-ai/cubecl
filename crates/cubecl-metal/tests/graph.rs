@@ -72,12 +72,12 @@ fn metal_graph_capture_replay() {
     let (input, output) = input_and_output(&client);
 
     // Prepare starts the rehearsal; it is mandatory before a capture.
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch_add_one(&client, &input, &output);
 
     // Record one launch into a graph instead of executing it.
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch_add_one(&client, &input, &output);
     let graph = client.stop_capture().expect("stop_capture");
 
@@ -99,11 +99,11 @@ fn metal_graph_capture_growing_the_pool_is_rejected() {
     let client = MetalRuntime::client(&Default::default());
     let (input, output) = input_and_output(&client);
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch_add_one(&client, &input, &output);
 
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch_add_one(&client, &input, &output);
     // This deliberately odd size has never been allocated on this client, so
     // no free slice fits it and the storage must reach the device allocator.
@@ -125,11 +125,11 @@ fn metal_graph_input_rewrite() {
     let client = MetalRuntime::client(&Default::default());
     let (input, output) = input_and_output(&client);
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch_add_one(&client, &input, &output);
 
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch_add_one(&client, &input, &output);
     let graph = client.stop_capture().expect("stop_capture");
 
@@ -244,10 +244,10 @@ fn metal_graph_many_launches_dynamic_metadata() {
     let a = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     run_pass(&client, &a, &b);
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     run_pass(&client, &a, &b);
     let graph = client.stop_capture().expect("stop_capture");
 
@@ -300,10 +300,10 @@ fn metal_graph_replays_on_two_streams_run_in_order() {
     let (a, b, graph) = owner.executes(|| {
         let a = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
         let b = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
-        let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+        client.graph_rehearse().expect("graph_rehearse");
         run_pass(&client, &a, &b);
-        rehearsal.rehearsed().expect("rehearsed");
-        rehearsal.start_capture().expect("start_capture");
+        client.graph_rehearsed().expect("rehearsed");
+        client.start_capture().expect("start_capture");
         run_pass(&client, &a, &b);
         (a, b, client.stop_capture().expect("stop_capture"))
     });
@@ -336,7 +336,7 @@ fn metal_graph_lifecycle_state_errors() {
         "stop_capture without a recording capture must be rejected"
     );
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     assert!(
         client.graph_rehearse().is_err(),
         "a second graph_rehearse on a prepared stream must be rejected"
@@ -345,8 +345,8 @@ fn metal_graph_lifecycle_state_errors() {
     let (input, output) = input_and_output(&client);
     launch_add_one(&client, &input, &output);
 
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch_add_one(&client, &input, &output);
     let graph = client.stop_capture().expect("stop_capture");
     unsafe { graph.replay() }.expect("replay enqueues");
@@ -363,11 +363,11 @@ fn metal_graph_read_rejected_while_recording() {
     let client = MetalRuntime::client(&Default::default());
     let (input, output) = input_and_output(&client);
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch_add_one(&client, &input, &output);
 
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch_add_one(&client, &input, &output);
     assert!(
         client.read_one(output.clone()).is_err(),
@@ -389,11 +389,11 @@ fn metal_graph_write_rejected_while_recording() {
     let client = MetalRuntime::client(&Default::default());
     let (input, output) = input_and_output(&client);
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch_add_one(&client, &input, &output);
 
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch_add_one(&client, &input, &output);
     client.write(
         &input,
@@ -435,13 +435,13 @@ fn metal_graph_dynamic_count_rejected_while_recording() {
         );
     };
 
-    let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+    client.graph_rehearse().expect("graph_rehearse");
     launch(&client);
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
-    rehearsal.rehearsed().expect("rehearsed");
-    rehearsal.start_capture().expect("start_capture");
+    client.graph_rehearsed().expect("rehearsed");
+    client.start_capture().expect("start_capture");
     launch(&client);
     assert!(
         client.stop_capture().is_err(),
@@ -469,10 +469,10 @@ fn metal_graph_a_capture_that_never_sealed_is_not_read_as_run() {
     });
 
     capturing.executes(|| {
-        let rehearsal = client.graph_rehearse().expect("graph_rehearse");
+        client.graph_rehearse().expect("graph_rehearse");
         launch_add_one(&client, &input, &output);
-        rehearsal.rehearsed().expect("rehearsed");
-        rehearsal.start_capture().expect("start_capture");
+        client.graph_rehearsed().expect("rehearsed");
+        client.start_capture().expect("start_capture");
         launch_add_one(&client, &input, &output);
         // Rejected inside the window, so the capture cannot seal.
         client.write(

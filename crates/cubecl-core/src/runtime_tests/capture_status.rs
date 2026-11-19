@@ -52,7 +52,7 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
     });
 
     assert!(!capturing(&client, owner), "no capture before prepare");
-    let rehearsal = owner
+    owner
         .executes(|| client.graph_rehearse())
         .expect("graph_rehearse");
     assert!(capturing(&client, owner), "the rehearsal is part of it");
@@ -67,9 +67,9 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
 
     owner.executes(|| {
         run();
-        rehearsal.rehearsed().expect("rehearsed");
+        client.graph_rehearsed().expect("rehearsed");
+        client.start_capture().expect("start_capture");
     });
-    rehearsal.start_capture().expect("start_capture");
     assert!(
         capturing(&other_client, owner),
         "the recorded run is part of it"
@@ -96,11 +96,10 @@ pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     let owner = StreamId { value: 3_000_003 };
     let capturing = || owner.executes(|| client.is_capturing());
 
-    let rehearsal = owner
+    owner
         .executes(|| client.graph_rehearse())
         .expect("graph_rehearse");
     assert!(capturing(), "the rehearsal is part of the capture");
-    drop(rehearsal);
     owner
         .executes(|| client.stop_capture())
         .expect_err("nothing recorded, so there is no graph to seal");

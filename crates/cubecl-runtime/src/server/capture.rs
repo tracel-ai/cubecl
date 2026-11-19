@@ -157,8 +157,8 @@ impl CaptureEnd {
 enum CapturePhase {
     /// No capture is prepared or recording.
     NoCapture,
-    /// `graph_prepare` has started the warmup run; `begin_capture` may now
-    /// open the window. The pinned staging the warmup run reserves stays held
+    /// `graph_prepare` has started the rehearsal; `begin_capture` may now
+    /// open the window. The pinned staging the rehearsal reserves stays held
     /// until the window opens.
     Prepare {
         /// The logical stream that prepared the capture.
@@ -236,6 +236,19 @@ impl CaptureStatus {
             .iter()
             .any(|(_, phase)| phase.owner() == Some(stream))
     }
+
+    /// Whether the logical `stream` is rehearsing the work of a graph capture: prepared, its
+    /// window not yet open. The stream's launches are then discarded, short of an override
+    /// that runs them (a tune measuring).
+    ///
+    /// It takes the record's lock: a hot path asks [`any_active`](Self::any_active) first.
+    pub fn is_rehearsing(&self, stream: StreamId) -> bool {
+        self.0
+            .streams
+            .lock()
+            .iter()
+            .any(|(_, phase)| matches!(phase, CapturePhase::Prepare { owner } if *owner == stream))
+    }
 }
 
 impl StreamCaptureState {
@@ -303,7 +316,7 @@ impl StreamCaptureState {
     /// # Errors
     ///
     /// Fails when [`prepare`](Self::prepare) has not run — the pools have to
-    /// be warmed by a warmup run first — or when a capture is already
+    /// be grown by a rehearsal first — or when a capture is already
     /// recording. The state is left untouched.
     pub fn begin(&mut self) -> Result<(), ServerError> {
         match self.phase {
