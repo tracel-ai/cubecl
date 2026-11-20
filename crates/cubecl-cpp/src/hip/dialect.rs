@@ -9,7 +9,7 @@ macro_rules! hip_op {
     };
 }
 use cubecl_core::ir::dialect::synchronization::{
-    FenceOp, MemoryOrder, SyncOp, SyncPlaneStorageOp, SyncScope,
+    FenceOp, MemoryOrder, ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope,
 };
 pub(super) use hip_op;
 
@@ -68,6 +68,9 @@ hip_op!(FenceOp, |op, ctx| {
     };
     format!("__builtin_amdgcn_fence({order}, \"{scope}\");\n")
 });
+
+// Mask 0: the backend's schedulers move no instruction across it.
+hip_op!(ScheduleBarrierOp, |_, _| "__builtin_amdgcn_sched_barrier(0);\n".into());
 
 // The plane barrier's wavefront fence orders every address space, global included.
 hip_op!(SyncPlaneStorageOp, |_, _| {

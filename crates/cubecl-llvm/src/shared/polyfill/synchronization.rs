@@ -2,8 +2,22 @@
 
 use crate::prelude::*;
 use cubecl_core::ir::dialect::synchronization::{
-    FenceOp, MemoryOrder, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+    FenceOp, MemoryOrder, ScheduleBarrierOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp,
+    SyncScope,
 };
+
+/// Only AMDGPU's scheduler takes a fence in the IR; elsewhere the barrier is nothing.
+#[op_interface_impl]
+impl LowerOp for ScheduleBarrierOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        match scope.ctx().target() {
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_schedule_barrier(scope),
+            _ => {}
+        }
+        vec![]
+    }
+}
 
 #[op_interface_impl]
 impl LowerOp for SyncOp {
