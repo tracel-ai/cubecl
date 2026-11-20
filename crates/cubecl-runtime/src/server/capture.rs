@@ -188,6 +188,9 @@ struct CaptureRecord {
     /// How many streams are recording: the [`Capture`](CapturePhase::Capture) entries of
     /// `streams`.
     recording: AtomicUsize,
+    /// How many streams are planning: the [`Prepare`](CapturePhase::Prepare) entries of
+    /// `streams`.
+    planning: AtomicUsize,
     /// One entry per stream with a capture under way: its [entry](StreamCaptureState::entry)
     /// id and its phase, never [`NoCapture`](CapturePhase::NoCapture).
     streams: Mutex<Vec<(usize, CapturePhase)>>,
@@ -225,6 +228,13 @@ impl CaptureStatus {
         self.0.recording.load(Ordering::Acquire) > 0
     }
 
+    /// Whether any stream of the device plans a capture's work: when not, no logical stream
+    /// is [planning](Self::is_planning), whichever it is.
+    #[inline]
+    pub fn any_planning(&self) -> bool {
+        self.0.planning.load(Ordering::Acquire) > 0
+    }
+
     /// Whether the logical `stream` is preparing or recording a graph capture, from
     /// `graph_prepare` until the capture ends however it ends.
     ///
@@ -241,7 +251,7 @@ impl CaptureStatus {
     /// window not yet open. The stream's launches are then discarded, short of an override
     /// that runs them (a tune measuring).
     ///
-    /// It takes the record's lock: a hot path asks [`any_active`](Self::any_active) first.
+    /// It takes the record's lock: a hot path asks [`any_planning`](Self::any_planning) first.
     pub fn is_planning(&self, stream: StreamId) -> bool {
         self.0
             .streams
@@ -414,6 +424,8 @@ impl CaptureRecord {
             .filter(|(_, phase)| matches!(phase, CapturePhase::Capture { .. }))
             .count();
         self.recording.store(recording, Ordering::Release);
+        self.planning
+            .store(streams.len() - recording, Ordering::Release);
         self.active.store(streams.len(), Ordering::Release);
     }
 }
@@ -615,5 +627,22 @@ mod tests {
         );
         assert!(!status.is_capturing(OWNER));
         assert!(!status.any_active());
+    }
+
+    /// The device's record counts the streams planning apart from those recording, so a launch
+    /// asks for the lock only while some stream plans, not for as long as one records.
+    #[test]
+    fn the_record_counts_the_planning_streams_apart() {
+        let device = DeviceCaptures::default();
+        let status = device.status();
+        let mut stream = device.stream();
+
+        stream.prepare(OWNER).unwrap();
+        assert!(status.any_planning() && status.is_planning(OWNER));
+        stream.begin().unwrap();
+        assert!(!status.any_planning(), "a recording stream plans nothing");
+        assert!(!status.is_planning(OWNER));
+        stream.abort();
+        assert!(!status.any_planning());
     }
 }

@@ -14,8 +14,8 @@
 
 use super::{Command, DeviceStream, Driver};
 use crate::id::GraphId;
-use crate::memory_management::PageGuard;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationReason};
+use crate::memory_management::{ManagedMemoryBinding, PageGuard};
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
@@ -98,6 +98,10 @@ pub struct Graph<D: GraphDriver> {
     /// its owner for the graph's lifetime: every replay dereferences the same
     /// addresses.
     _retained_peers: Vec<BufferBinding>,
+    /// The memory the recorded run placed as outputs, held for the graph's lifetime: every
+    /// replay writes it, so it is never handed to another allocation, even once the work let
+    /// it go.
+    _retained_outputs: Vec<ManagedMemoryBinding>,
     /// The buffers the recorded launches write, deduplicated. A replay that
     /// fails to enqueue runs none of those launches, so it leaves every one of
     /// these as it was — claiming them is what makes a later read of one fail,
@@ -240,15 +244,16 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     }
 
     /// End a planning run of the work about to be recorded, and answer whether it allocated
-    /// what the run before it did (see [`AllocationPlanner`](crate::stream::AllocationPlanner)).
+    /// what the run before it did (see [`StreamCapture::end_run`](crate::stream::StreamCapture::end_run)).
     ///
     /// The run's deferred frees are reclaimed first, so a temporary whose free waited on the
     /// device is not taken for an output.
     ///
     /// # Errors
     ///
-    /// When the stream has no prepared capture whose window is still closed.
-    pub fn end_run(&mut self) -> Result<bool, ServerError> {
+    /// When the stream has no prepared capture whose window is still closed, or `caller` is not
+    /// the logical stream that prepared it.
+    pub fn end_run(&mut self, caller: StreamId) -> Result<bool, ServerError> {
         let stream = self.stream();
         // Refused before the drain: its fence, on a stream that records, would
         // abort the live capture.
@@ -259,7 +264,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         }
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
-        stream.capturing().end_run()
+        stream.capturing().end_run(caller)
     }
 
     /// Open the window: from here the driver records every launch issued on
@@ -361,6 +366,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // no graph they drop here, since its copies never ran and never will.
         let retained_host = stream.capturing().take_retained_host();
         let retained_peers = stream.capturing().take_retained_peers();
+        let retained_outputs = stream.capturing().take_retained_outputs();
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
         let signal = stream.signal();
@@ -397,6 +403,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                     _guards: guards,
                     _retained_host: retained_host,
                     _retained_peers: retained_peers,
+                    _retained_outputs: retained_outputs,
                     written,
                 })
             }

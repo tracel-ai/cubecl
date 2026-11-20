@@ -43,7 +43,7 @@ pub enum Placement {
 /// Built and cleared with the capture's lifecycle by
 /// [`StreamCapture`](super::StreamCapture), which is its only owner.
 #[derive(Debug, Default)]
-pub(crate) struct AllocationPlanner {
+pub struct AllocationPlanner {
     /// The current run's allocations: what each asked for and the memory it got, unheld so
     /// the record never keeps one alive. Arrival usage: pushed per allocation, drained in
     /// order when the run ends.
@@ -122,7 +122,7 @@ impl AllocationPlanner {
     /// End the recorded run, once its deferred frees are reclaimed: the first place it
     /// allocated otherwise than the plan, if there is one — another size, another count, or a
     /// temporary it kept, which may sit on room another graph's replay writes. An output it
-    /// let go is no divergence: it only took room of its own it did not need.
+    /// let go is no divergence: its graph holds the room, which every replay still writes.
     pub fn finish_recording(&mut self) -> Option<Divergence> {
         let diverged = self.diverged;
         self.end_run_log();
@@ -130,7 +130,7 @@ impl AllocationPlanner {
             return diverged;
         }
         let recorded = &self.ended;
-        // A kept temporary may sit on the shared room; a freed output only took room of its own.
+        // A kept temporary may sit on the shared room; a freed output's room is its graph's.
         let position = recorded
             .iter()
             .zip(&self.last)
@@ -305,7 +305,7 @@ mod tests {
     }
 
     /// A recorded run that keeps a planned temporary diverges there: that buffer sits on the
-    /// shared room. One that lets a planned output go does not: it only took room of its own.
+    /// shared room. One that lets a planned output go does not: its graph holds that room.
     #[test]
     fn keeping_a_temporary_diverges_and_freeing_an_output_does_not() {
         let mut planner = AllocationPlanner::default();

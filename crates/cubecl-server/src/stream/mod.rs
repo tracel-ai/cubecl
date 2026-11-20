@@ -10,7 +10,7 @@ mod failures;
 #[cfg(multi_threading)]
 mod event;
 
-pub use allocation_planner::*;
+pub use allocation_planner::{Divergence, Placement, PlannedAllocation};
 pub use base::*;
 pub use capture::*;
 pub use execute_scope::*;

@@ -952,7 +952,8 @@ pub trait Server:
     ///
     /// # Errors
     ///
-    /// When `stream_id` has no prepared capture whose window is still closed.
+    /// When `stream_id` has no prepared capture whose window is still closed, or another
+    /// logical stream on the same backend stream prepared it.
     fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
         let _ = stream_id;
         Ok(true)

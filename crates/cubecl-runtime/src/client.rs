@@ -1810,7 +1810,9 @@ impl Client {
     /// `work` must therefore allocate the same buffers, and keep the same ones, on every run,
     /// and must not read the device: a planning run's launches never ran. For the same reason a
     /// tune first met in a planning run measures its candidates on inputs nothing wrote, so a
-    /// kernel whose speed depends on its data is better tuned before the capture.
+    /// kernel whose speed depends on its data is better tuned before the capture. A temporary
+    /// still held when a run returns, as a lazily released handle is, counts as an output: it
+    /// takes room of its own rather than the shared room, which is safe and only costs memory.
     ///
     /// # Errors
     ///
@@ -1864,9 +1866,10 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// When the stream is not planning: no capture is prepared, its window is open, or another
-    /// logical stream sharing the backend stream ended it. A capture this stream was planning
-    /// is over when it fails, so the stream runs its launches again.
+    /// When the stream is not planning: no capture is prepared, its window is open, another
+    /// logical stream sharing the backend stream ended it, or that other stream prepared it.
+    /// A capture this stream was planning is over when it fails, so the stream runs its
+    /// launches again.
     pub fn graph_end_run(&self) -> Result<bool, ServerError> {
         let stream_id = self.stream_id();
         self.device
@@ -1889,7 +1892,7 @@ impl Client {
     /// [`graph_prepare`](Self::graph_prepare)), answered without reaching the device thread.
     fn is_planning(&self) -> bool {
         let captures = &self.utilities.captures;
-        captures.any_active() && captures.is_planning(self.stream_id())
+        captures.any_planning() && captures.is_planning(self.stream_id())
     }
 
     /// Begin recording launches on this client's stream into a graph rather

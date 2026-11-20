@@ -184,7 +184,7 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
-    pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+    fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let current = self.streams.current;
         let pinned = self.streams.current().capturing().pinned_pages(current);
         self.reserve_sharing(size, pinned)
@@ -196,7 +196,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
-    pub(crate) fn reserve_sharing(
+    fn reserve_sharing(
         &mut self,
         size: u64,
         pinned: PinnedPages,
@@ -221,26 +221,33 @@ impl<'a, D: Driver> Command<'a, D> {
             // Reclaim and retry once; only a failure after that is reported.
             // Without the retry a transient peak becomes a never-initialized
             // handle whose every downstream use fails.
+            // Retried where it was asked for: a capture's output landing on
+            // the shared room, or a temporary taking a fresh page, would be
+            // placed otherwise than the plan the recording follows.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                self.make_room(&err);
+                self.make_room(&err, pinned);
                 let (stream, failures) = self.streams.current_and_failures();
                 stream
                     .device_memory()
-                    .reserve(size, PageUpdate::Allow, failures)
+                    .reserve_sharing(size, PageUpdate::Allow, pinned, failures)
             }
         }
     }
 
     /// Get back what the reservation that failed with `err` needs: a slot for
-    /// a new page size when the arena is full, memory otherwise.
-    fn make_room(&mut self, err: &IoError) {
-        match err {
+    /// a new page size when the arena it was `pinned` to is full, memory
+    /// otherwise.
+    fn make_room(&mut self, err: &IoError, pinned: PinnedPages) {
+        match (err, pinned) {
             // Only a relocation that may allocate empties the outdated pools
             // whatever room the current pages have.
-            IoError::PageSizesExhausted { .. } => {
+            (IoError::PageSizesExhausted { .. }, PinnedPages::Avoid | PinnedPages::Share) => {
                 RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
             }
+            // Memory, or a slot of the separate arena. That arena is never
+            // relocated, since its graphs pin what it holds, so a cleanup
+            // frees the slots of the outdated pools no graph holds any more.
             // No stream records (the caller checked), which is the only
             // refusal a cleanup has.
             _ => {
@@ -271,9 +278,9 @@ impl<'a, D: Driver> Command<'a, D> {
     }
 
     /// Give `memory` `size` bytes, where the capture under way places it: what the planning run
-    /// found to be an output off the room the stream's graphs pinned, anything else where
-    /// [`reserve`](Self::reserve) puts it. Every device allocation of a command goes through
-    /// here, so a capture sees each one, in order.
+    /// found to be an output off the room the stream's graphs pinned, anything else where the
+    /// pools put it. Every device allocation of a command goes through here, so a capture sees
+    /// each one, in order.
     ///
     /// # Errors
     ///
@@ -315,10 +322,12 @@ impl<'a, D: Driver> Command<'a, D> {
         };
         self.bind(reserved, memory.clone())?;
         let current = self.streams.current;
-        self.streams
-            .current()
-            .capturing()
-            .allocated(current, size, &memory.clone().binding());
+        let capturing = self.streams.current().capturing();
+        let binding = memory.clone().binding();
+        capturing.allocated(current, size, &binding);
+        if placement == Placement::Output {
+            capturing.retain_output(binding);
+        }
         Ok(())
     }
 
@@ -345,7 +354,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// [`IoError`] when the reservation has no initialized storage to give.
-    pub(crate) fn bind(
+    fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
         new: ManagedMemoryHandle,

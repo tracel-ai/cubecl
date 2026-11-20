@@ -61,6 +61,10 @@ pub struct StreamCapture {
     /// What planning the work found, and the plan the recorded run follows: which of its
     /// allocations are outputs, kept off the room the stream's graphs share.
     planner: AllocationPlanner,
+    /// The memory the recorded run placed as outputs, held while the window is open and handed
+    /// to the graph it seals into. Every replay writes it whether or not the work kept it, so a
+    /// slice the work let go must not go back to the room other graphs' outputs are carved from.
+    retained_outputs: Vec<ManagedMemoryBinding>,
     /// The failure that doomed the window, if one did — work inside it failed
     /// or was skipped, so the recording is missing an operation. Sealing it
     /// would hand back a graph silently missing that work, and the replay
@@ -81,6 +85,7 @@ impl StreamCapture {
             retained_host: Vec::new(),
             retained_peers: Vec::new(),
             planner: AllocationPlanner::default(),
+            retained_outputs: Vec::new(),
             failed: None,
         }
     }
@@ -184,15 +189,23 @@ impl StreamCapture {
     }
 
     /// End a planning run, once its deferred frees are reclaimed, and answer whether it
-    /// allocated what the run before it did (see [`AllocationPlanner::finish_run`]).
+    /// allocated what the run before it did, the same sizes in the same order with the same
+    /// ones still held: the work has reached its steady state, and the recording can follow it.
     ///
     /// # Errors
     ///
-    /// When the stream is not planning: no capture is prepared, or its window is open.
-    pub fn end_run(&mut self) -> Result<bool, ServerError> {
+    /// When the stream is not planning: no capture is prepared, or its window is open. And when
+    /// the logical `caller` is not the one that prepared it: another logical stream folded onto
+    /// the same backend stream would cut the owner's run log short.
+    pub fn end_run(&mut self, caller: StreamId) -> Result<bool, ServerError> {
         if !self.state.is_preparing() {
             return Err(ServerError::graph_state(
                 "a planning run ends only while a capture is prepared and its window not open",
+            ));
+        }
+        if !self.is_owned_by(caller) {
+            return Err(ServerError::graph_state(
+                "a planning run ends only on the logical stream that prepared the capture",
             ));
         }
         Ok(self.planner.finish_run())
@@ -292,6 +305,21 @@ impl StreamCapture {
         core::mem::take(&mut self.retained_peers)
     }
 
+    /// Hold `memory`, which the recorded run placed as an output, for as long as the graph the
+    /// window seals into lives. A no-op outside a window: a planning run's outputs are the
+    /// work's to keep or let go.
+    pub fn retain_output(&mut self, memory: ManagedMemoryBinding) {
+        if self.state.is_recording() {
+            self.retained_outputs.push(memory);
+        }
+    }
+
+    /// The memory the recorded run placed as outputs, taken as the window closes, as
+    /// [`take_retained_host`](Self::take_retained_host).
+    pub fn take_retained_outputs(&mut self) -> Vec<ManagedMemoryBinding> {
+        core::mem::take(&mut self.retained_outputs)
+    }
+
     /// The failure that doomed this window, taken as it closes. `Some` means
     /// the recording is missing at least one operation and must not seal.
     pub fn take_failure(&mut self) -> Option<ServerError> {
@@ -388,6 +416,7 @@ impl StreamCapture {
         self.retained_host.clear();
         self.retained_peers.clear();
         self.planner.clear();
+        self.retained_outputs.clear();
         self.failed = None;
     }
 }

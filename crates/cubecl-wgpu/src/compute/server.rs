@@ -681,6 +681,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         Ok(())
     }
 
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        // Refused as on every backend with graph support. wgpu's graphs share
+        // no room, so the plan never places anything, and no fence has to
+        // reclaim the run's frees first.
+        self.scheduler
+            .stream(&stream_id)
+            .capturing
+            .end_run(stream_id)
+    }
+
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         // Materialize the planning run's work queued in the scheduler before the
         // recording window opens.
