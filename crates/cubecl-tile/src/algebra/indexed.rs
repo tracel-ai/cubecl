@@ -102,7 +102,7 @@ pub(crate) fn ordered_only(#[comptime] monoid: Monoid) {
 }
 
 /// Where `lhs` wins over `rhs` by value alone: larger under `Max`, smaller under `Min`, or NaN.
-#[cube]
+#[cube(harness)]
 fn ahead<E: Numeric, N: Size>(
     lhs: Vector<E, N>,
     rhs: Vector<E, N>,
@@ -121,7 +121,7 @@ fn ahead<E: Numeric, N: Size>(
 }
 
 /// Where `lhs` and `rhs` tie by value: equal, or both NaN.
-#[cube]
+#[cube(harness)]
 pub(crate) fn same_value<E: Numeric, N: Size>(
     lhs: Vector<E, N>,
     rhs: Vector<E, N>,
@@ -144,4 +144,43 @@ pub(crate) fn nan_lanes<E: Numeric, N: Size>(value: Vector<E, N>) -> Vector<bool
         let op = IsNanOp::new(scope.ctx_mut(), value);
         scope.register_with_result(&op).into()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate cubecl as cubecl_runtime;
+    use cubecl_runtime::TestRuntime;
+
+    /// Larger, smaller, a NaN against a number, and equal: under `Max` the larger and the NaN win.
+    #[test]
+    fn ahead_under_max_is_larger_or_nan() {
+        let ahead = ahead::harness::<TestRuntime, f32, Const<4>>(
+            &[2.0, 1.0, f32::NAN, 3.0],
+            &[1.0, 2.0, 0.0, 3.0],
+            Monoid::Max,
+        );
+        assert_eq!(ahead, [true, false, true, false]);
+    }
+
+    /// Larger, smaller, a NaN against a number, and equal: under `Min` the smaller and the NaN win.
+    #[test]
+    fn ahead_under_min_is_smaller_or_nan() {
+        let ahead = ahead::harness::<TestRuntime, f32, Const<4>>(
+            &[2.0, 1.0, f32::NAN, 3.0],
+            &[1.0, 2.0, 0.0, 3.0],
+            Monoid::Min,
+        );
+        assert_eq!(ahead, [false, true, true, false]);
+    }
+
+    /// Equal numbers, two NaNs, a NaN against a number, and different numbers.
+    #[test]
+    fn same_value_is_equal_or_both_nan() {
+        let same = same_value::harness::<TestRuntime, f32, Const<4>>(
+            &[1.0, f32::NAN, f32::NAN, 2.0],
+            &[1.0, f32::NAN, 0.0, 3.0],
+        );
+        assert_eq!(same, [true, true, false, false]);
+    }
 }
