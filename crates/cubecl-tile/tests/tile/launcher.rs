@@ -209,9 +209,9 @@ fn arg_sizes_boundaries_by_coordinate_rank_under_storage_tiling() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // 2 coordinate axes (M, K), tiled into 4 physical buffer dims: 8*8 = 64 and 5*4 = 20, the
-    // buffer padded to whole blocks of the leaf's own (8, 4).
-    let mut tiled = binding(&client, &[8, 5, 8, 4]);
+    // 2 coordinate axes (M, K), tiled into 4 physical buffer dims: 4*16 = 64 and 5*4 = 20, in
+    // blocks of (16, 4) that no level cuts to, so the checked operand keeps no storage level.
+    let mut tiled = binding(&client, &[4, 5, 16, 4]);
     tiled.tiling = Tiling::new(&[2, 2]).unwrap();
     let tiled = launch
         .arg(tiled, f32::elem_type_native())
