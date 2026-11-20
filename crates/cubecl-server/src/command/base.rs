@@ -284,24 +284,23 @@ impl<'a, D: Driver> Command<'a, D> {
         self.allocate_at(size, memory, placement)
     }
 
-    /// [`allocate`](Self::allocate) for what a graph keeps while a capture is under way: it
-    /// takes room apart from what the stream's graphs share whatever the plan says, and still
-    /// counts in the run's sequence.
+    /// [`allocate`](Self::allocate) for what a graph keeps while a capture is under way: room
+    /// apart from what the stream's graphs share, whatever the plan says.
+    ///
+    /// Left out of the run's sequence: its placement never depends on the plan, and a launch's
+    /// metadata is built only where the cache misses, which the planning runs and the recording
+    /// need not agree on — a scalar that changes between runs misses once more.
     fn allocate_separate(
         &mut self,
         size: u64,
         memory: &ManagedMemoryHandle,
     ) -> Result<(), IoError> {
         let current = self.streams.current;
-        let capturing = self.streams.current().capturing();
-        let placement = match capturing.is_owned_by(current) {
-            true => {
-                let _planned = capturing.place(current, size);
-                Placement::Output
-            }
-            false => Placement::Pools,
+        let reserved = match self.streams.current().capturing().is_owned_by(current) {
+            true => self.reserve_sharing(size, PinnedPages::Separate)?,
+            false => self.reserve(size)?,
         };
-        self.allocate_at(size, memory, placement)
+        self.bind(reserved, memory.clone())
     }
 
     fn allocate_at(
