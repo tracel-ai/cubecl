@@ -28,6 +28,9 @@ pub struct FactorExpand {
     /// Whether a stage keeps these scales beside the values though they are not words of block
     /// scales ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)).
     kept_beside: bool,
+    /// The element a stage holds the values in once its fill decodes them under these scales,
+    /// where the reader stated it ([`Tile::decoded_into`](crate::Tile::decoded_into)).
+    decoded_into: Option<ElemType>,
 }
 
 impl Factor {
@@ -168,14 +171,16 @@ impl FactorExpand {
         FactorExpand {
             scale: Some(Arc::new(scale.clone())),
             kept_beside: false,
+            decoded_into: None,
         }
     }
 
-    /// This factor, its scales kept beside the values by a stage as `from`'s are: a factor
-    /// windowed, split or staged off another keeps its choice.
+    /// This factor, staged as `from`'s values are, its scales kept beside them or decoded into
+    /// the element it states: a factor windowed, split or staged off another keeps its choice.
     fn keeping(self, from: &FactorExpand) -> Self {
         FactorExpand {
             kept_beside: from.kept_beside,
+            decoded_into: from.decoded_into,
             ..self
         }
     }
@@ -185,6 +190,20 @@ impl FactorExpand {
     /// decodes them as it loads.
     pub(crate) fn is_kept_beside(&self) -> bool {
         self.kept_beside
+    }
+
+    /// The element a stage holds the values in once its fill decodes them, where the reader
+    /// stated it ([`Tile::decoded_into`](crate::Tile::decoded_into)).
+    pub(crate) fn decoded_element(&self) -> Option<ElemType> {
+        self.decoded_into
+    }
+
+    /// This factor, the values under it decoded by a stage's fill into `element`.
+    pub(crate) fn decoded_into(self, element: ElemType) -> Self {
+        FactorExpand {
+            decoded_into: Some(element),
+            ..self
+        }
     }
 
     /// This factor, its scales kept beside the values by a stage.
