@@ -60,6 +60,14 @@ impl Factor {
         unexpanded!()
     }
 
+    /// Values one innermost scale covers along the dims of `space` from position `from` in: the
+    /// extents of the innermost of them the scales do not vary along, up to the first they do. A
+    /// block-split `k` stated as its blocks and the position inside one gives the block, or the
+    /// part of one a window holds.
+    pub(crate) fn values_a_scale(&self, _space: Space, _from: usize) -> comptime_type!(usize) {
+        unexpanded!()
+    }
+
     /// The scale covering the value at `coords`: the product down the chain, each scale read
     /// under `guard`. [`Guard::Proved`] where the reader proved the value's read in bounds, which
     /// puts the scales covering it in bounds.
@@ -662,6 +670,19 @@ impl FactorReader {
 }
 
 impl FactorExpand {
+    pub(crate) fn __expand_values_a_scale_method(
+        &self,
+        scope: &Scope,
+        space: Space,
+        from: usize,
+    ) -> usize {
+        (from..space.rank())
+            .rev()
+            .take_while(|&p| !self.__expand_varies_along_method(scope, space.dimension_at(p)))
+            .map(|p| space.extent_at(p))
+            .product()
+    }
+
     pub(crate) fn __expand_varies_along_method(&self, scope: &Scope, dimension: Dimension) -> bool {
         self.scale.as_deref().is_some_and(|scale| {
             scale
