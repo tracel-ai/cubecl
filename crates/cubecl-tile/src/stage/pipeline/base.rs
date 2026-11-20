@@ -209,8 +209,24 @@ impl Stages<Tile> {
 define_size!(pub(crate) FL);
 define_size!(pub(crate) FR);
 
-/// Registers holding one unit's register-staged fill of both operands.
-pub(crate) type FetchBuffers<Lhs, Rhs> = (Array<Vector<Lhs, FL>>, Array<Vector<Rhs, FR>>);
+/// Registers holding one unit's register-staged fill of both operands: each operand's lines, and
+/// the scales of the lines a decoded operand lands (one unused scale for a straight one).
+pub(crate) type FetchBuffers<Lhs, Rhs> = (
+    Array<Vector<Lhs, FL>>,
+    Array<Vector<Rhs, FR>>,
+    Array<u32>,
+    Array<u32>,
+);
+
+/// How a register fetch holds one operand's fill between the fetch and the store.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FetchedFill {
+    /// The source's lines as they lie, stored as they were read.
+    Straight,
+    /// The packed source's loads as stored and the scale of every line they land, decoded at the
+    /// store ([`Tile::fetch_decoded_from`]).
+    Decoded,
+}
 
 /// Bind the fetched line widths `FL` and `FR` for the rest of the kernel's scope.
 #[cube]
@@ -219,6 +235,100 @@ fn register_fetched_widths(#[comptime] lhs: usize, #[comptime] rhs: usize) {
         scope.register_size::<FL>(lhs);
         scope.register_size::<FR>(rhs);
     });
+}
+
+#[cube]
+impl Tile {
+    /// How a register fetch holds this stage's fill from `src`, unless it cannot.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn register_fetch(&self, src: &Tile) -> comptime_type!(Option<FetchedFill>) {
+        let straight = self.fetches_straight_from(src);
+        let staged = self.packing();
+        let decodes = src.decodes_into(staged);
+        let turns = self.decoded_fetch_turns(src);
+        comptime!(match (straight, decodes && turns.is_some()) {
+            (true, _) => Some(FetchedFill::Straight),
+            (false, true) => Some(FetchedFill::Decoded),
+            (false, false) => None,
+        })
+    }
+
+    /// Scalars one unit holds between the fetch and the store of this stage's fill from `src`.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn register_fetched_scalars(&self, src: &Tile) -> comptime_type!(Option<usize>) {
+        let fill = self.register_fetch(src);
+        let straight = self.fetched_scalars();
+        let decoded = self.decoded_fetched_scalars(src);
+        comptime!(match fill {
+            Some(FetchedFill::Straight) => straight,
+            Some(FetchedFill::Decoded) => decoded,
+            None => None,
+        })
+    }
+
+    /// The element a register fetch holds this stage's fill from `src` at: the source's own, or
+    /// the words a decoded one is stored in.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::fetched_elements`.
+    pub(crate) fn register_fetched_element(&self, src: &Tile) -> comptime_type!(ElemType) {
+        let fill = self.register_fetch(src);
+        comptime!(match fill {
+            Some(FetchedFill::Decoded) => ElemType::UInt(cubecl::ir::UIntKind::U32),
+            Some(FetchedFill::Straight) | None => src.element,
+        })
+    }
+
+    /// The width of a register fetch's lines, and its count of lines and of scales, for this
+    /// stage's fill from `src`.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::fetch_buffers`.
+    fn register_fetched_shape(&self, src: &Tile) -> comptime_type!((usize, usize, usize)) {
+        let fill = self.register_fetch(src);
+        let straight = self.fetched_scalars();
+        let straight_width = self.vector_size();
+        let turns = self.decoded_fetch_turns(src);
+        let decoded_width = self.decoded_fetch_width(src);
+        let per_load = self.decoded_scales_per_load(src);
+        comptime!(match fill {
+            Some(FetchedFill::Straight) => {
+                let scalars = straight.expect("Stages: a register-staged fill has a known share");
+                (straight_width, scalars / straight_width, 1)
+            }
+            Some(FetchedFill::Decoded) => {
+                let turns = turns.expect("Stages: a register-staged fill has a known share");
+                (decoded_width, turns, turns * per_load)
+            }
+            None => panic!("Stages: a register-staged fill on a stage that cannot fetch"),
+        })
+    }
+
+    /// Read this unit's share of this stage's fill from `src` into `lines` and `scales`.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::fetch`.
+    fn register_fetch_from<T: Numeric, W: Size>(
+        &self,
+        src: &Tile,
+        lines: &mut Array<Vector<T, W>>,
+        scales: &mut Array<u32>,
+    ) {
+        let fill = self.register_fetch(src);
+        match comptime!(fill) {
+            Some(FetchedFill::Decoded) => self.fetch_decoded_from(src, lines, scales),
+            Some(FetchedFill::Straight) | None => self.fetch_from(src, lines),
+        }
+    }
+
+    /// Write what [`register_fetch_from`](Tile::register_fetch_from) read of `src` into this stage.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::store`.
+    fn register_store<T: Numeric, W: Size>(
+        &mut self,
+        src: &Tile,
+        lines: &Array<Vector<T, W>>,
+        scales: &Array<u32>,
+    ) {
+        let fill = self.register_fetch(src);
+        match comptime!(fill) {
+            Some(FetchedFill::Decoded) => self.store_decoded(src, lines, scales),
+            Some(FetchedFill::Straight) | None => self.store_fetched(lines),
+        }
+    }
 }
 
 #[cube]
@@ -232,10 +342,14 @@ impl Stages<OperandPair> {
         let rhs_beside = self.sources.rhs.scales_beside();
         let lhs_delivery = self.sources.lhs.delivery();
         let rhs_delivery = self.sources.rhs.delivery();
-        let lhs_straight = staged.data.lhs.fetches_straight_from(&self.sources.lhs);
-        let rhs_straight = staged.data.rhs.fetches_straight_from(&self.sources.rhs);
-        let lhs_scalars = staged.data.lhs.fetched_scalars();
-        let rhs_scalars = staged.data.rhs.fetched_scalars();
+        let lhs_scalars = staged
+            .data
+            .lhs
+            .register_fetched_scalars(&self.sources.lhs);
+        let rhs_scalars = staged
+            .data
+            .rhs
+            .register_fetched_scalars(&self.sources.rhs);
         comptime!(
             !fixed
                 && !lhs_beside
@@ -244,10 +358,23 @@ impl Stages<OperandPair> {
                 && self.depth <= 2
                 && lhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
-                && lhs_straight
-                && rhs_straight
                 && matches!((lhs_scalars, rhs_scalars), (Some(l), Some(r)) if Prefetch::fits(l + r))
         )
+    }
+
+    /// The elements the registers of a register-staged fill hold each operand at.
+    #[allow(dead_code)] // Reached through its expand, from `prefetched`.
+    pub(crate) fn fetched_elements(&self) -> comptime_type!((ElemType, ElemType)) {
+        let staged = self.slots.index(FIRST_SLOT);
+        let lhs = staged
+            .data
+            .lhs
+            .register_fetched_element(&self.sources.lhs);
+        let rhs = staged
+            .data
+            .rhs
+            .register_fetched_element(&self.sources.rhs);
+        comptime!((lhs, rhs))
     }
 
     /// Registers holding one unit's fill of both operands across a contraction; only where
@@ -255,22 +382,20 @@ impl Stages<OperandPair> {
     #[allow(dead_code)] // Reached through its expand, from `prefetched`.
     pub(crate) fn fetch_buffers<Lhs: Numeric, Rhs: Numeric>(&self) -> FetchBuffers<Lhs, Rhs> {
         let staged = self.slots.index(FIRST_SLOT);
-        let lhs = staged.data.lhs.fetched_scalars();
-        let rhs = staged.data.rhs.fetched_scalars();
-        let lhs = comptime!(lhs.expect("Stages: a register-staged fill has a known share"));
-        let rhs = comptime!(rhs.expect("Stages: a register-staged fill has a known share"));
-        let lhs_width = staged.data.lhs.vector_size();
-        let rhs_width = staged.data.rhs.vector_size();
-        register_fetched_widths(lhs_width, rhs_width);
+        let lhs_shape = staged.data.lhs.register_fetched_shape(&self.sources.lhs);
+        let rhs_shape = staged.data.rhs.register_fetched_shape(&self.sources.rhs);
+        register_fetched_widths(comptime!(lhs_shape.0), comptime!(rhs_shape.0));
         (
-            Array::<Vector<Lhs, FL>>::new(comptime!(lhs / lhs_width)),
-            Array::<Vector<Rhs, FR>>::new(comptime!(rhs / rhs_width)),
+            Array::<Vector<Lhs, FL>>::new(comptime!(lhs_shape.1)),
+            Array::<Vector<Rhs, FR>>::new(comptime!(rhs_shape.1)),
+            Array::<u32>::new(comptime!(lhs_shape.2)),
+            Array::<u32>::new(comptime!(rhs_shape.2)),
         )
     }
 
-    /// Read this unit's share of filling slot `slot` with `sources` at `region` into `lhs` and
-    /// `rhs`.
+    /// Read this unit's share of filling slot `slot` with `sources` at `region` into the buffers.
     #[allow(dead_code)] // Reached through its expand, from `prefetched`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn fetch<Lhs: Numeric, Rhs: Numeric>(
         &self,
         #[comptime] slot: usize,
@@ -278,23 +403,41 @@ impl Stages<OperandPair> {
         region: &Region,
         lhs: &mut Array<Vector<Lhs, FL>>,
         rhs: &mut Array<Vector<Rhs, FR>>,
+        lhs_scales: &mut Array<u32>,
+        rhs_scales: &mut Array<u32>,
     ) {
         let staged = self.slots.index(slot);
-        staged.data.lhs.fetch_from(&sources.lhs.at(region), lhs);
-        staged.data.rhs.fetch_from(&sources.rhs.at(region), rhs);
+        staged
+            .data
+            .lhs
+            .register_fetch_from(&sources.lhs.at(region), lhs, lhs_scales);
+        staged
+            .data
+            .rhs
+            .register_fetch_from(&sources.rhs.at(region), rhs, rhs_scales);
     }
 
-    /// Write what [`fetch`](Stages::fetch) read into slot `slot`; the caller owns the rendezvous.
+    /// Write what [`fetch`](Stages::fetch) read of `sources` at `region` into slot `slot`; the
+    /// caller owns the rendezvous.
     #[allow(dead_code)] // Reached through its expand, from `prefetched`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn store<Lhs: Numeric, Rhs: Numeric>(
         &mut self,
         #[comptime] slot: usize,
+        sources: &OperandPair,
+        region: &Region,
         lhs: &Array<Vector<Lhs, FL>>,
         rhs: &Array<Vector<Rhs, FR>>,
+        lhs_scales: &Array<u32>,
+        rhs_scales: &Array<u32>,
     ) {
         let slot = self.slot_mut(slot);
-        slot.data.lhs.store_fetched(lhs);
-        slot.data.rhs.store_fetched(rhs);
+        slot.data
+            .lhs
+            .register_store(&sources.lhs.at(region), lhs, lhs_scales);
+        slot.data
+            .rhs
+            .register_store(&sources.rhs.at(region), rhs, rhs_scales);
     }
 }
 

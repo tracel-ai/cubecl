@@ -116,6 +116,11 @@ impl Factor {
         unexpanded!()
     }
 
+    /// How the innermost scales sit in their buffer: `None` where these values carry no scale.
+    pub(crate) fn inner_stored(&self) -> comptime_type!(Option<Packing>) {
+        unexpanded!()
+    }
+
     /// The innermost scales' word at the value at `coords`, read as it is stored.
     pub(crate) fn word_at(&self, _coords: &Coords<u32>, _values: Space) -> u32 {
         unexpanded!()
@@ -377,6 +382,12 @@ impl FactorExpand {
 
     pub(crate) fn __expand_depth_method(&self, _scope: &Scope) -> usize {
         self.depth()
+    }
+
+    pub(crate) fn __expand_inner_stored_method(&self, scope: &Scope) -> Option<Packing> {
+        self.scale
+            .as_deref()
+            .map(|scale| scale.clone().__expand_packing_method(scope))
     }
 
     pub(crate) fn __expand_inner_fp8_method(&self, scope: &Scope) -> Option<Fp8Format> {
