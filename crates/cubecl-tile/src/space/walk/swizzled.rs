@@ -3,7 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::{
-    AxisDistribution, Coords, CubeAxis, Integer, IntegerExpand, Level, Space, cube_positions,
+    Coords, CubeAxis, DimensionDistribution, Integer, IntegerExpand, Level, Space, cube_positions,
 };
 
 /// The swizzled cube level's two in-plane positions; zeros where no order is stated.
@@ -15,7 +15,7 @@ pub(crate) fn swizzled_positions(
 ) -> Coords<usize> {
     let mut out = Coords::<usize>::new();
     if level.order().swizzles() {
-        let (x_at, y_at) = comptime!(in_plane_axes(space, level));
+        let (x_at, y_at) = comptime!(in_plane_dimensions(space, level));
         let (count_x, count_y) = (instances.at(x_at), instances.at(y_at));
         let flat =
             CubeAxis::position(CubeAxis::X).plus(CubeAxis::position(CubeAxis::Y).times(count_x));
@@ -29,26 +29,26 @@ pub(crate) fn swizzled_positions(
     out
 }
 
-/// Where this space holds the cube level's two in-plane axes, `(x, y)`. Panics unless each
-/// owns its whole grid dimension.
-pub(crate) fn in_plane_axes(space: &Space, level: &Level) -> (usize, usize) {
+/// Where this space holds the cube level's two in-plane dimensions, `(x, y)`. Panics unless each
+/// owns its whole grid axis.
+pub(crate) fn in_plane_dimensions(space: &Space, level: &Level) -> (usize, usize) {
     let at = |wanted: CubeAxis| {
         let found: Vec<usize> = (0..space.rank())
-            .filter(|&p| level.cube_axis(space.axis_at(p)) == Some(wanted))
+            .filter(|&p| level.cube_axis(space.dimension_at(p)) == Some(wanted))
             .collect();
         assert_eq!(
             found.len(),
             1,
-            "Walk: a {:?} cube level distributes the grid's {wanted:?} dimension to {} of its axes, \
-             and a swizzle can put back only an axis that owns a whole dimension",
+            "Walk: a {:?} cube level distributes the grid's {wanted:?} dimension to {} of its dimensions, \
+             and a swizzle can put back only a dimension that owns a whole dimension",
             level.order(),
             found.len()
         );
         let p = found[0];
         assert_eq!(
-            AxisDistribution::unspanned_weight(level, space, space.axis_at(p)),
+            DimensionDistribution::unspanned_weight(level, space, space.dimension_at(p)),
             1,
-            "Walk: a {:?} cube level shares the grid's {wanted:?} dimension with an axis this \
+            "Walk: a {:?} cube level shares the grid's {wanted:?} dimension with a dimension this \
              space does not span, whose coordinate a swizzle has no way to put back",
             level.order()
         );

@@ -13,7 +13,7 @@ use crate::*;
 impl Tile {
     /// [`quantize_from`](Tile::quantize_from) a float source in memory, written in this tile's
     /// own loads ([`vector_tile`](Tile::vector_tile)), each read as whole lines of the source.
-    /// The source may leave out an axis of the values only if it is one wide.
+    /// The source may leave out a dimension of the values only if it is one wide.
     ///
     /// The block scales are calibrated first ([`Factor::calibrate_from`]), and the window's
     /// holder meets before its units encode the values under them. Where one load is one block,
@@ -68,7 +68,7 @@ impl Tile {
         let size!(LW) = lw;
         let space = comptime!(self.place.space.clone());
         let from = comptime!(src.place.space.clone());
-        let along = from.axis_at(from.rank() - 1);
+        let along = from.dimension_at(from.rank() - 1);
         let varies = self.factor.varies_along(comptime!(along));
         comptime!(check_scaled_copy(
             "Tile::quantize_from",
@@ -140,10 +140,10 @@ impl Tile {
             let mut to = Coords::<u32>::new();
             #[unroll]
             for p in 0..rank {
-                let inner = comptime!(load.offset_along(offset, space.axis_at(p)) as u32);
+                let inner = comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
                 let coord = start.at(p) + inner;
                 at.push(coord);
-                if from.contains(space.axis_at(p)) {
+                if from.contains(space.dimension_at(p)) {
                     to.push(coord);
                 }
             }
@@ -214,8 +214,8 @@ impl Tile {
         let per = select(lanes, 1u32, comptime!(n as u32));
         let shares = blocks.runtime() / per;
         let (within, units, fillers) = fill.copied_units();
-        let unit = AxisDistribution::unit_within(within, fillers) as u32;
-        let width = AxisDistribution::units_within(within, units, fillers) as u32;
+        let unit = DimensionDistribution::unit_within(within, fillers) as u32;
+        let width = DimensionDistribution::units_within(within, units, fillers) as u32;
         for turn in 0..shares.div_ceil(width) {
             let at = turn * width + unit;
             let held = at < shares;
@@ -257,7 +257,7 @@ impl Tile {
 
     /// The scale of the `c`-th block of this tile's load of scales starting at `start`,
     /// calibrated: the block read out of `read`, a source spanning `from` in `line`s, every value
-    /// at its scale's coordinates along the axes the scales span and every position along the
+    /// at its scale's coordinates along the dimensions the scales span and every position along the
     /// ones they omit.
     #[allow(clippy::too_many_arguments)]
     fn calibrate_block<F: Float, LW: Size>(
@@ -275,7 +275,7 @@ impl Tile {
         let packing = self.packing();
         let dtype = comptime!(packing.scale_dtype(self.element));
         let space = comptime!(self.place.space.clone());
-        let (along, _) = comptime!(load.along_one_axis("Tile::quantize_from"));
+        let (along, _) = comptime!(load.along_one_dimension("Tile::quantize_from"));
         let block = from.subspace(&from.difference(&space));
         let lines = block.tiles(&line.space());
         let mut most = F::new(0.0);
@@ -284,16 +284,16 @@ impl Tile {
             let mut at = Coords::<u32>::new();
             #[unroll]
             for p in 0..from.rank() {
-                let axis = from.axis_at(p);
-                if space.contains(axis) {
-                    let coord = start.at(space.position(axis));
-                    if axis == along {
+                let dimension = from.dimension_at(p);
+                if space.contains(dimension) {
+                    let coord = start.at(space.position(dimension));
+                    if dimension == along {
                         at.push(coord + c);
                     } else {
                         at.push(coord);
                     }
                 } else {
-                    at.push(comptime!(line.offset_in(l, &block, axis) as u32).runtime());
+                    at.push(comptime!(line.offset_in(l, &block, dimension) as u32).runtime());
                 }
             }
             most = max(most, largest::<F, LW>(read.read(line.index(&at, from))));
@@ -379,8 +379,7 @@ fn one_block_a_load(
     let block = values.subspace(&values.difference(scales));
     scale_load.values() == 1
         && load.values() == block.cells()
-        && load
-            .extents()
-            .iter()
-            .all(|&(axis, extent)| block.contains(axis) && block.extent(axis) == extent)
+        && load.extents().iter().all(|&(dimension, extent)| {
+            block.contains(dimension) && block.extent(dimension) == extent
+        })
 }

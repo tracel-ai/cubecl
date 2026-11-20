@@ -1,5 +1,5 @@
-//! A separable procedural weight contracted over three axes: the rank the abstraction carries is
-//! the recipe's, not the microkernel's.
+//! A separable procedural weight contracted over three dimensions: the rank the abstraction carries
+//! is the recipe's, not the microkernel's.
 //!
 //! `out[row, col] = Σ_{k0, k1, k2} (∏_f factor_f(k_f, row)) · in[k0, k1, k2, col]`. The same
 //! recipe is run twice, once stating its factorization and once opaque, so the cell-major walk is
@@ -21,9 +21,9 @@ use cubecl_tile::procedural::sum_of;
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
-const TAP: [Axis; 3] = [Axis(2), Axis(3), Axis(4)];
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
+const TAP: [Dimension; 3] = [Dimension(2), Dimension(3), Dimension(4)];
 
 /// The software instruction every leaf here runs under: a 16-cell budget, no edge split, no unit
 /// fan-out.
@@ -35,14 +35,14 @@ const COLS: usize = 3;
 const TAPS: [usize; 3] = [2, 3, 2];
 
 /// `offset + coefficient * tap + row_coefficient * row`, per factor. Only the first factor reads
-/// the output row, which is the shape a resampling weight takes: a factor may read a free axis,
-/// it may only not read another factor's contracted axis.
+/// the output row, which is the shape a resampling weight takes: a factor may read a free
+/// dimension, it may only not read another factor's contracted dimension.
 const OFFSET: [f32; 3] = [1.0, 2.0, 3.0];
 const COEFFICIENT: [f32; 3] = [1.0, 3.0, 5.0];
 const ROW_COEFFICIENT: [f32; 3] = [2.0, 0.0, 0.0];
 
 /// Every factor is the same type, which is what a [`Factors`] holds: one filter family
-/// applied along each axis, at that axis's own coordinates.
+/// applied along each dimension, at that dimension's own coordinates.
 type Factor<E> = Sum<AffineCoordinate<E>, AffineCoordinate<E>>;
 type Weights<E> = Factors<Factor<E>>;
 
@@ -86,16 +86,16 @@ fn separable_kernel<E: Float>(
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
+    let weight_dimensions = comptime!([&[ROW], TAP.as_slice()].concat());
     let weights = if separable {
         Procedural::separable::<E, Weights<E>>(
-            comptime!(space.space().subspace(&weight_axes)),
+            comptime!(space.space().subspace(&weight_dimensions)),
             weights::<E>(),
         )
         .tile::<E>()
     } else {
         Procedural::new::<E, Weights<E>>(
-            comptime!(space.space().subspace(&weight_axes)),
+            comptime!(space.space().subspace(&weight_dimensions)),
             weights::<E>(),
         )
         .tile::<E>()
@@ -122,9 +122,9 @@ fn separable_kernel_staged<E: Float>(
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
+    let weight_dimensions = comptime!([&[ROW], TAP.as_slice()].concat());
     let weights = Procedural::separable::<E, Weights<E>>(
-        comptime!(space.space().subspace(&weight_axes)),
+        comptime!(space.space().subspace(&weight_dimensions)),
         weights::<E>(),
     )
     .tile::<E>();
@@ -252,7 +252,7 @@ fn check(separable: bool) {
     }
 }
 
-/// Three factors, walked one axis at a time: `2 + 3 + 2` evaluations per cell rather than
+/// Three factors, walked one dimension at a time: `2 + 3 + 2` evaluations per cell rather than
 /// `2 * 3 * 2`, and the same values.
 #[test]
 fn a_rank_three_separable_product_contracts_factor_by_factor() {
@@ -346,7 +346,8 @@ fn a_separable_lhs_contracts_a_padded_staged_rhs() {
 ///
 /// Both halves of the split the separable schedule runs on are load-bearing here. `row` stays
 /// inside the floor, so it has to be anchored; `tap` has a coefficient the divisor factors out, so
-/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map per tap.
+/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map
+/// per tap.
 const ROW_NUM: usize = 3;
 const RESAMPLE: usize = 2;
 const RTAPS: usize = 2;
@@ -357,9 +358,9 @@ fn resample_origin(row: usize) -> usize {
     (ROW_NUM * row) / RESAMPLE
 }
 
-/// One factor, over the single contracted axis: a stated factorization of rank one still takes the
-/// separable schedule, since the per-row weight walk it caches is worth `nr` evaluations whatever
-/// the rank.
+/// One factor, over the single contracted dimension: a stated factorization of rank one still takes
+/// the separable schedule, since the per-row weight walk it caches is worth `nr` evaluations
+/// whatever the rank.
 #[cube]
 fn resample_weights<E: Float>() -> Weights<E> {
     let mut factors = Sequence::new();
@@ -1110,9 +1111,9 @@ fn separable_scaled_kernel<E: Float>(
 ) {
     let input = input.tile(&space);
     let scale = scale.tile(&space);
-    let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
+    let weight_dimensions = comptime!([&[ROW], TAP.as_slice()].concat());
     let weights = Procedural::separable::<E, Weights<E>>(
-        comptime!(space.space().subspace(&weight_axes)),
+        comptime!(space.space().subspace(&weight_dimensions)),
         weights::<E>(),
     )
     .tile::<E>();
@@ -1176,8 +1177,8 @@ fn a_separable_lhs_contracts_a_packed_scaled_rhs() {
         ),
         Form::Static,
     );
-    let input_axes = [TAP[0], TAP[1], TAP[2], COL];
-    let input = TileInput::builder(&client, launcher.space().subspace(&input_axes))
+    let input_dimensions = [TAP[0], TAP[1], TAP[2], COL];
+    let input = TileInput::builder(&client, launcher.space().subspace(&input_dimensions))
         .untiled()
         .packed(&scheme)
         .arange();
@@ -1188,13 +1189,13 @@ fn a_separable_lhs_contracts_a_packed_scaled_rhs() {
         .zeros()
         .generate_without_host_data();
 
-    // One scale for the whole rhs: a scale tile over none of its axes.
-    let per_tensor = Projection::new(&input_axes, &[PhysicalAxisMap::broadcast()]);
+    // One scale for the whole rhs: a scale tile over none of its dimensions.
+    let per_tensor = Projection::new(&input_dimensions, &[PhysicalAxisMap::broadcast()]);
     separable_scaled_kernel::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        input.values_arg(1, TileSpec::direct(&input_axes)),
+        input.values_arg(1, TileSpec::direct(&input_dimensions)),
         input.scales_arg(1, TileSpec::new(per_tensor)),
         TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),

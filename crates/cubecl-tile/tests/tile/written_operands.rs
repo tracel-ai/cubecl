@@ -17,7 +17,7 @@ use crate::support::TileInput;
 
 use super::uncut;
 
-const ROW: Axis = Axis(0);
+const ROW: Dimension = Dimension(0);
 const EXTENT: usize = 4;
 const REFUSAL: &str = "this tile kernel refuses to expand";
 

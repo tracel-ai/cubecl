@@ -4,7 +4,7 @@ use cubecl::quant::scheme::{QuantValue, ScaleDtype};
 use cubecl::{bytes::Bytes, prelude::*, std::tensor::TensorHandle, zspace::shape};
 use cubecl_common::{e2m1, e4m3, ue8m0};
 use cubecl_tile::{
-    Axis, Launcher, Levels, Partitioning, Projection, Space, TileSpec, TileTensor,
+    Dimension, Launcher, Levels, Partitioning, Projection, Space, TileSpec, TileTensor,
     TileTensorLaunch,
     kind::Field,
     launch::Grid,
@@ -12,12 +12,12 @@ use cubecl_tile::{
     space::{CubeOrder, PlaneOrder},
 };
 
-const M: Axis = Axis(0);
-const KB: Axis = Axis(1);
-const KI: Axis = Axis(2);
-/// The blocks of the rows, one: the axis a packed matrix's rows split into beside [`M`], which a
-/// source restated over its block axes leaves out.
-const MB: Axis = Axis(3);
+const M: Dimension = Dimension(0);
+const KB: Dimension = Dimension(1);
+const KI: Dimension = Dimension(2);
+/// The blocks of the rows, one: the dimension a packed matrix's rows split into beside [`M`], which
+/// a source restated over its block dimensions leaves out.
+const MB: Dimension = Dimension(3);
 
 /// The values packed from `input`, under the block scales they carry, which the copy computes.
 #[cube(launch)]
@@ -42,12 +42,12 @@ fn quantize_planes(
     }
 }
 
-/// How the float values are bound: as the words are, both block axes one dim of the row, or a
-/// dim an axis, the rows' one block left out.
+/// How the float values are bound: as the words are, both block dimensions one axis of the row, or
+/// a axis a dimension, the rows' one block left out.
 #[derive(Clone, Copy)]
 enum Source {
     AsTheWords,
-    PerAxis,
+    PerDimension,
 }
 
 /// Which workers copy: one unit over the whole space, or a plane a row, its units taking the
@@ -251,7 +251,7 @@ fn check_quantize_as(
             width,
             TileSpec::new(projection),
         ),
-        Source::PerAxis => {
+        Source::PerDimension => {
             let mut binding = input_t.binding();
             binding.shape = vec![rows, blocks, block].into();
             binding.strides = vec![cols, block, 1].into();
@@ -363,15 +363,16 @@ fn q8_quantizes_under_bf16_scales() {
     check_quantize(QuantValue::Q8S, 32, Scales::Packed(ScaleDtype::BF16), None);
 }
 
-/// MXFP8 from a source bound a dim an axis, as a tensor restated over the block axes is.
+/// MXFP8 from a source bound an axis a dimension, as a tensor restated over the block dimensions
+/// is.
 #[test]
-fn mxfp8_quantizes_from_a_source_per_axis() {
+fn mxfp8_quantizes_from_a_source_per_dimension() {
     check_quantize_as(
         QuantValue::E4M3,
         32,
         Scales::Packed(ScaleDtype::UE8M0),
         None,
-        Source::PerAxis,
+        Source::PerDimension,
         Workers::OneUnit,
     );
 }
@@ -386,7 +387,7 @@ fn nvfp4_quantizes_a_plane_a_row() {
             16,
             Scales::Packed(ScaleDtype::UE4M3),
             Some(0.01),
-            Source::PerAxis,
+            Source::PerDimension,
             Workers::PlaneARow { planes, words },
         );
     }
@@ -400,7 +401,7 @@ fn mxfp8_quantizes_four_words_a_load() {
         32,
         Scales::Packed(ScaleDtype::UE8M0),
         None,
-        Source::PerAxis,
+        Source::PerDimension,
         Workers::PlaneARow {
             planes: 2,
             words: 4,

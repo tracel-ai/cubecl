@@ -12,12 +12,12 @@ use super::super::Window;
 
 /// A buffer addressed through `window`, which alone checks bounds.
 ///
-/// A checked read compares every axis against the buffer once ([`Window::holds`]), reads the
+/// A checked read compares every dimension against the buffer once ([`Window::holds`]), reads the
 /// buffer unchecked at the position clamped onto its edge, and zeroes what lies past it. Every
-/// axis, not only those the window names a boundary on: a window opened at a box larger than its
-/// buffer leaves it along an axis that names none. Read as a window layered over the buffer, each
-/// layer below would check again, the buffer's every axis and its length, and select the value
-/// once per layer.
+/// dimension, not only those the window names a boundary on: a window opened at a box larger than
+/// its buffer leaves it along a dimension that names none. Read as a window layered over the
+/// buffer, each layer below would check again, the buffer's every axis and its length, and select
+/// the value once per layer.
 #[expect(dead_code, reason = "read through the expand impls below")]
 #[derive(CubeType, Clone)]
 pub(crate) struct WindowedView<'a, T: CubePrimitive> {
@@ -88,7 +88,7 @@ impl<'a, T: CubePrimitive> WindowedViewMutExpand<'a, T> {
 }
 
 /// The position `pos` of `window` lands on in its buffer, and the position a checked read
-/// addresses instead: clamped onto the edge on every axis, so it never leaves the buffer,
+/// addresses instead: clamped onto the edge on every dimension, so it never leaves the buffer,
 /// whatever the read then keeps.
 fn addressed(
     scope: &Scope,

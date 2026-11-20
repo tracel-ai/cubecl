@@ -20,9 +20,9 @@ use cubecl_tile::*;
 use super::references;
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// The software instruction the ring's leaf runs.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
@@ -454,11 +454,11 @@ fn an_async_copy_stages_packed_words() {
     }
 }
 
-/// [`staged_packed_copy`] of words whose rows are stated as two axes, a block and the row inside
-/// it, in `axes`' order: the fill reads the source at the stage's coordinates through the
-/// source's projection, which puts both axes on its one physical axis of rows.
-fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
-    const ROW_BLOCKS: Axis = Axis(5);
+/// [`staged_packed_copy`] of words whose rows are stated as two dimensions, a block and the row
+/// inside it, in `dimensions`' order: the fill reads the source at the stage's coordinates through
+/// the source's projection, which puts both dimensions on its one physical axis of rows.
+fn staged_packed_copy_of_split_rows(dimensions: [Dimension; 3]) {
+    const ROW_BLOCKS: Dimension = Dimension(5);
     let (rows, cols, tile_rows) = (8, 16, 4);
     let field = QuantValue::Q8S;
     let values: Vec<i32> = (0..rows * cols).map(|i| (i % 128) as i32).collect();
@@ -481,7 +481,7 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
         .dtype(dtype)
         .zeros()
         .generate_without_host_data();
-    let extent = |axis: Axis, rows: usize| match axis {
+    let extent = |dimension: Dimension, rows: usize| match dimension {
         ROW_BLOCKS => 1,
         M => rows,
         _ => cols,
@@ -489,21 +489,24 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
     let launcher = implied(
         &client,
         Partitioning::new(
-            Space::new(&axes.map(|axis| (axis, extent(axis, rows)))),
-            Levels::leaf(&axes.map(|axis| (axis, extent(axis, tile_rows))))
-                .walk_every(&axes)
+            Space::new(&dimensions.map(|dimension| (dimension, extent(dimension, rows)))),
+            Levels::leaf(&dimensions.map(|dimension| (dimension, extent(dimension, tile_rows))))
+                .walk_every(&dimensions)
                 .build(),
         ),
         Form::Static,
     );
     let words_over = Projection::new(
-        &axes,
+        &dimensions,
         &[
             PhysicalAxisMap::disjoint(&[(ROW_BLOCKS, rows), (M, 1)]),
             PhysicalAxisMap::of(N),
         ],
     );
-    let values_over = Projection::new(&axes, &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(N)]);
+    let values_over = Projection::new(
+        &dimensions,
+        &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(N)],
+    );
     staged_packed_copy::launch(
         &client,
         CubeCount::new_single(),
@@ -528,15 +531,15 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
         .map(|i| got.get_f32(&[i / cols, i % cols]))
         .collect();
     let want: Vec<f32> = values.iter().map(|&v| v as f32).collect();
-    assert_eq!(got, want, "rows split as {axes:?}");
+    assert_eq!(got, want, "rows split as {dimensions:?}");
 }
 
-/// **A packed stage of rows stated as two axes holds each row where its source does.** The fill
-/// reads the source through its projection, so a block of rows stated before the row inside it
+/// **A packed stage of rows stated as two dimensions holds each row where its source does.** The
+/// fill reads the source through its projection, so a block of rows stated before the row inside it
 /// lands as one stated after.
 #[test]
-fn a_packed_stage_of_rows_stated_as_two_axes_holds_each_row() {
-    const ROW_BLOCKS: Axis = Axis(5);
+fn a_packed_stage_of_rows_stated_as_two_dimensions_holds_each_row() {
+    const ROW_BLOCKS: Dimension = Dimension(5);
     staged_packed_copy_of_split_rows([ROW_BLOCKS, M, N]);
     staged_packed_copy_of_split_rows([M, ROW_BLOCKS, N]);
 }

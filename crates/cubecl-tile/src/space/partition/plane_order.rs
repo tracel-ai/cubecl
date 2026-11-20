@@ -3,9 +3,9 @@
 //! ([`UnitCube`]).
 
 use super::{CubeOrder, Level};
-use crate::{Axis, Space};
+use crate::{Dimension, Space};
 
-/// The most cubes one grid dimension takes on every device a launch may run on.
+/// The most cubes one grid axis takes on every device a launch may run on.
 const CUBES_PER_GRID_DIMENSION: usize = 65_535;
 
 /// The order the planes of a launch take a level's tiles in, where a plane level spans the launch
@@ -25,8 +25,9 @@ const CUBES_PER_GRID_DIMENSION: usize = 65_535;
 /// planes of a cube all reach any barrier one of them meets.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PlaneOrder {
-    /// Tiles one block holds along each axis it names; along an axis it does not name, one.
-    block: Vec<(Axis, usize)>,
+    /// Tiles one block holds along each dimension it names; along a dimension it does not name,
+    /// one.
+    block: Vec<(Dimension, usize)>,
     block_order: CubeOrder,
     /// The launch's `y`.
     planes_per_cube: usize,
@@ -38,11 +39,11 @@ pub struct PlaneOrder {
 impl PlaneOrder {
     /// Blocks of `block` tiles, one tile a plane, taken in `block_order`, one block a cube: what a
     /// cube level holding a plane level of `block` hands out.
-    pub fn new(block: &[(Axis, usize)], block_order: CubeOrder) -> Self {
-        for &(axis, tiles) in block {
+    pub fn new(block: &[(Dimension, usize)], block_order: CubeOrder) -> Self {
+        for &(dimension, tiles) in block {
             assert!(
                 tiles > 0,
-                "PlaneOrder: a block holds no tile along {axis:?}"
+                "PlaneOrder: a block holds no tile along {dimension:?}"
             );
         }
         let block = block.to_vec();
@@ -58,7 +59,7 @@ impl PlaneOrder {
     /// This order launching at most `cubes` cubes: a plane then walks a tile, then the one a whole
     /// launch of planes further, until it runs past the last, as a persistent kernel's do. Fewer,
     /// longer-lived planes, where a launch of a plane a tile spends its time starting planes. The
-    /// blocks are one cube's each and span one axis.
+    /// blocks are one cube's each and span one dimension.
     pub fn capped(self, cubes: usize) -> Self {
         assert!(
             cubes > 0,
@@ -66,7 +67,7 @@ impl PlaneOrder {
         );
         assert!(
             self.block.len() == 1,
-            "PlaneOrder::capped: the planes walk the tiles of one axis grid-stride, not {}",
+            "PlaneOrder::capped: the planes walk the tiles of one dimension grid-stride, not {}",
             self.block.len()
         );
         Self {
@@ -97,11 +98,11 @@ impl PlaneOrder {
         self.planes_per_cube
     }
 
-    /// Tiles one block holds along `axis`.
-    pub fn block_along(&self, axis: Axis) -> usize {
+    /// Tiles one block holds along `dimension`.
+    pub fn block_along(&self, dimension: Dimension) -> usize {
         self.block
             .iter()
-            .find(|&&(a, _)| a == axis)
+            .find(|&&(a, _)| a == dimension)
             .map_or(1, |&(_, tiles)| tiles)
     }
 
@@ -109,8 +110,8 @@ impl PlaneOrder {
         self.block_order
     }
 
-    pub(crate) fn block_axes(&self) -> impl Iterator<Item = Axis> + '_ {
-        self.block.iter().map(|&(axis, _)| axis)
+    pub(crate) fn block_dimensions(&self) -> impl Iterator<Item = Dimension> + '_ {
+        self.block.iter().map(|&(dimension, _)| dimension)
     }
 
     /// Planes one block holds, a tile each.
@@ -146,14 +147,16 @@ impl PlaneOrder {
     }
 
     /// Whether some plane the launch spawns for `level` over `space` walks a tile past the last
-    /// along `axis`, so the binding masks it there: where the edge cuts a block short along
-    /// `axis`, or where the grid holds more planes than the blocks do and the blocks past the last
-    /// land past `axis` ([`block_coords`](crate::space::walk::launch_span::block_coords)). `axis` is static; where an extent the grid counts is
-    /// only the launch's, the planes may run past it, and it is masked.
-    pub(crate) fn overruns(&self, level: &Level, space: &Space, axis: Axis) -> bool {
+    /// along `dimension`, so the binding masks it there: where the edge cuts a block short along
+    /// `dimension`, or where the grid holds more planes than the blocks do and the blocks past the
+    /// last land past `dimension`
+    /// ([`block_coords`](crate::space::walk::launch_span::block_coords)). `dimension` is static;
+    /// where an extent the grid counts is only the launch's, the planes may run past it, and it is
+    /// masked.
+    pub(crate) fn overruns(&self, level: &Level, space: &Space, dimension: Dimension) -> bool {
         let ragged = !level
-            .tiles(space, axis)
-            .is_multiple_of(self.block_along(axis));
+            .tiles(space, dimension)
+            .is_multiple_of(self.block_along(dimension));
         if ragged {
             return true;
         }
@@ -161,10 +164,14 @@ impl PlaneOrder {
         if self.cubes.is_some() {
             return false;
         }
-        if Self::spare_blocks_land_past(level, self.block_order) != axis {
+        if Self::spare_blocks_land_past(level, self.block_order) != dimension {
             return false;
         }
-        if level.axes().into_iter().any(|axis| space.is_dynamic(axis)) {
+        if level
+            .dimensions()
+            .into_iter()
+            .any(|dimension| space.is_dynamic(dimension))
+        {
             return true;
         }
         let (x, y) = self.grid(level, space);
@@ -174,23 +181,28 @@ impl PlaneOrder {
     /// Blocks `level` holds over `space`, the edge's counted.
     fn blocks(&self, level: &Level, space: &Space) -> usize {
         level
-            .axes()
+            .dimensions()
             .into_iter()
-            .map(|axis| level.tiles(space, axis).div_ceil(self.block_along(axis)))
+            .map(|dimension| {
+                level
+                    .tiles(space, dimension)
+                    .div_ceil(self.block_along(dimension))
+            })
             .product()
     }
 
-    /// The axis a block index past the last lands past ([`block_coords`](crate::space::walk::launch_span::block_coords)): the one axis; of two,
-    /// the one `order` runs out along; of more, the outermost, which is never wrapped.
-    fn spare_blocks_land_past(level: &Level, order: CubeOrder) -> Axis {
-        let axes = level.axes();
-        match axes.len() {
-            1 => axes[0],
+    /// The dimension a block index past the last lands past
+    /// ([`block_coords`](crate::space::walk::launch_span::block_coords)): the one dimension; of
+    /// two, the one `order` runs out along; of more, the outermost, which is never wrapped.
+    fn spare_blocks_land_past(level: &Level, order: CubeOrder) -> Dimension {
+        let dimensions = level.dimensions();
+        match dimensions.len() {
+            1 => dimensions[0],
             2 => match order.canonicalize() {
-                CubeOrder::SwizzleRow(_) => axes[0],
-                CubeOrder::RowMajor | CubeOrder::SwizzleCol(_) => axes[1],
+                CubeOrder::SwizzleRow(_) => dimensions[0],
+                CubeOrder::RowMajor | CubeOrder::SwizzleCol(_) => dimensions[1],
             },
-            _ => axes[axes.len() - 1],
+            _ => dimensions[dimensions.len() - 1],
         }
     }
 }
@@ -224,7 +236,7 @@ mod tests {
 
     use crate::{Levels, Partitioning};
 
-    const N: Axis = Axis(0);
+    const N: Dimension = Dimension(0);
 
     /// The grid's `x`, `y` and `z`.
     fn counts(partitioning: &Partitioning) -> (u32, u32, u32) {

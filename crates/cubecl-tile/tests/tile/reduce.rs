@@ -1,8 +1,9 @@
-//! Multi-axis reduce: contractions over more than one abstract axis.
+//! Multi-dimension reduce: contractions over more than one abstract dimension.
 //!
 //! The first client is the simplest one that cannot be a matmul: a matmul whose `K` is declared as
-//! *two* axes. Only how many axes the operands contract changes, so the answer must be exactly the
-//! plain matmul's, isolating the multi-axis reduce nest from the projection machinery of conv.
+//! *two* dimensions. Only how many dimensions the operands contract changes, so the answer must be
+//! exactly the plain matmul's, isolating the multi-dimension reduce nest from the projection
+//! machinery of conv.
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput};
@@ -17,19 +18,20 @@ use cubecl_tile::procedural::Procedural;
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
-// `K` split in two: `K1` the major half, `K2` the minor (and the axis both operands line along).
-const K1: Axis = Axis(3);
-const K2: Axis = Axis(4);
-const B: Axis = Axis(5);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
+// `K` split in two: `K1` the major half, `K2` the minor (and the dimension both operands line
+// along).
+const K1: Dimension = Dimension(3);
+const K2: Dimension = Dimension(4);
+const B: Dimension = Dimension(5);
 
 /// The leaf's register block, held fixed across every kernel here.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c.zero(); c.mma(a, b)` region by region over whatever one-level space it is handed: the
-/// same body serves the one-axis and the two-axis contraction, which is the point.
+/// same body serves the one-dimension and the two-dimension contraction, which is the point.
 #[cube(launch)]
 fn reduce_matmul_kernel(
     a: &TileTensor<'_>,
@@ -58,9 +60,9 @@ enum Read {
     Smem { depth: usize },
 }
 
-/// Seeds `output` with the identity the reduction starts from, then reduces `input` into it region by
-/// region. One body serves every monoid, which is the point: the kernels below differed only in
-/// this seed and the `Monoid` passed to `reduce_axis`.
+/// Seeds `output` with the identity the reduction starts from, then reduces `input` into it region
+/// by region. One body serves every monoid, which is the point: the kernels below differed only in
+/// this seed and the `Monoid` passed to `reduce_dimension`.
 #[cube]
 fn reduce_body<E: Numeric>(
     input: &Tile,
@@ -76,7 +78,7 @@ fn reduce_body<E: Numeric>(
         Read::InPlace => {
             for region in walk {
                 let mut out_region = output.at(&region);
-                out_region.reduce_axis_accumulate(&input.at(&region), monoid);
+                out_region.reduce_dimension_accumulate(&input.at(&region), monoid);
             }
         }
         Read::Smem { depth } => {
@@ -84,7 +86,7 @@ fn reduce_body<E: Numeric>(
             stages.pipelined(walk, |slot, region| {
                 let mut out_region = output.at(region);
                 slot.consume(|input_s| {
-                    out_region.reduce_axis_accumulate(input_s, monoid);
+                    out_region.reduce_dimension_accumulate(input_s, monoid);
                 });
             });
         }
@@ -106,9 +108,10 @@ fn reduce_kernel<E: Numeric>(
     reduce_body::<E>(&input, &mut output, &space, level.clone(), read, monoid);
 }
 
-/// Reduce an axis-index recipe so a trailing partial tile must be masked without a backing window.
-/// `read` decides whether the recipe is evaluated at the leaf or first materialized into shared
-/// memory; either way the partial-tile mask must survive rather than reducing the padded overhang.
+/// Reduce a dimension-index recipe so a trailing partial tile must be masked without a backing
+/// window. `read` decides whether the recipe is evaluated at the leaf or first materialized into
+/// shared memory; either way the partial-tile mask must survive rather than reducing the padded
+/// overhang.
 #[cube(launch)]
 fn procedural_reduce_kernel<E: Float>(
     output: &mut TileTensor<'_>,
@@ -122,7 +125,7 @@ fn procedural_reduce_kernel<E: Float>(
         AffineCoordinate::<E> {
             offset: E::new(0.0),
             coefficient: E::new(1.0),
-            axis: K,
+            dimension: K,
         },
     )
     .tile::<E>();
@@ -143,16 +146,16 @@ fn ramp(n: usize, period: usize) -> Vec<f32> {
     (0..n).map(|i| (i % period) as f32).collect()
 }
 
-/// Run `space` with `a`/`b` declared over `a_axes`/`b_axes` and the given buffer shapes, and
-/// return the `m × n` output. The buffers are contiguous either way, so a rank-3 declaration of
-/// the same bytes is just a finer reading of the same layout.
+/// Run `space` with `a`/`b` declared over `a_dimensions`/`b_dimensions` and the given buffer
+/// shapes, and return the `m × n` output. The buffers are contiguous either way, so a rank-3
+/// declaration of the same bytes is just a finer reading of the same layout.
 fn run(
     a_shape: Shape,
     b_shape: Shape,
     c_shape: Shape,
-    a_axes: &[Axis],
-    b_axes: &[Axis],
-    c_axes: &[Axis],
+    a_dimensions: &[Dimension],
+    b_dimensions: &[Dimension],
+    c_dimensions: &[Dimension],
     launcher: Launcher,
 ) -> HostData {
     let client = cubecl::test_device().client();
@@ -181,19 +184,19 @@ fn run(
             a_handle.binding().into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(a_axes),
+            TileSpec::direct(a_dimensions),
         ),
         TileTensorLaunch::new(
             b_handle.binding().into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(b_axes),
+            TileSpec::direct(b_dimensions),
         ),
         TileTensorLaunch::new(
             c_handle.clone().binding().into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(c_axes),
+            TileSpec::direct(c_dimensions),
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
@@ -202,7 +205,7 @@ fn run(
     HostData::from_tensor_handle(&client, c_handle, HostDataType::F32)
 }
 
-/// The one-axis reference: an ordinary `{M, N, K}` matmul through the 2-D register leaf.
+/// The one-dimension reference: an ordinary `{M, N, K}` matmul through the 2-D register leaf.
 fn plain(m: usize, n: usize, k: usize, tm: usize, tn: usize) -> HostData {
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -225,7 +228,7 @@ fn plain(m: usize, n: usize, k: usize, tm: usize, tn: usize) -> HostData {
     )
 }
 
-/// [`plain`] with a leading batch axis both operands span.
+/// [`plain`] with a leading batch dimension both operands span.
 fn plain_batched(b: usize, m: usize, n: usize, k: usize, tm: usize, tn: usize) -> HostData {
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -248,14 +251,14 @@ fn plain_batched(b: usize, m: usize, n: usize, k: usize, tm: usize, tn: usize) -
     )
 }
 
-fn assert_same(got: &HostData, want: &HostData, dims: &[usize]) {
-    let total: usize = dims.iter().product();
+fn assert_same(got: &HostData, want: &HostData, axes: &[usize]) {
+    let total: usize = axes.iter().product();
     for flat in 0..total {
-        let mut idx = vec![0usize; dims.len()];
+        let mut idx = vec![0usize; axes.len()];
         let mut rest = flat;
-        for p in (0..dims.len()).rev() {
-            idx[p] = rest % dims[p];
-            rest /= dims[p];
+        for p in (0..axes.len()).rev() {
+            idx[p] = rest % axes[p];
+            rest /= axes[p];
         }
         assert_eq!(
             got.get_f32(&idx),
@@ -295,7 +298,7 @@ fn split_contraction_whole_reduce_at_leaf() {
 }
 
 /// The major half is walked instead: `k1` sequential `mma` calls, each reducing `k2`. The leaf
-/// still contracts two axes (`K1` is present at extent 1), so it still takes the N-D nest.
+/// still contracts two dimensions (`K1` is present at extent 1), so it still takes the N-D nest.
 #[test]
 fn split_contraction_major_half_walked() {
     let (m, n, k1, k2) = (8, 8, 3, 4);
@@ -324,10 +327,10 @@ fn split_contraction_major_half_walked() {
     assert_same(&got, &plain(m, n, k, tm, tn), &[m, n]);
 }
 
-/// A batch axis alongside the two contracted ones: the leaf's batch unravel and its reduce
+/// A batch dimension alongside the two contracted ones: the leaf's batch unravel and its reduce
 /// unravel are independent nests, so they must not be confused for one another.
 #[test]
-fn split_contraction_with_a_batch_axis() {
+fn split_contraction_with_a_batch_dimension() {
     let (b, m, n, k1, k2) = (3, 4, 8, 2, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -357,16 +360,16 @@ fn split_contraction_with_a_batch_axis() {
 fn run_reduce(
     in_shape: Shape,
     out_shape: Shape,
-    in_axes: &[Axis],
-    out_axes: &[Axis],
+    in_dimensions: &[Dimension],
+    out_dimensions: &[Dimension],
     launcher: Launcher,
     monoid: Monoid,
 ) -> HostData {
     run_reduce_with_vw(
         in_shape,
         out_shape,
-        in_axes,
-        out_axes,
+        in_dimensions,
+        out_dimensions,
         launcher.clone(),
         monoid,
         1,
@@ -379,8 +382,8 @@ fn run_reduce(
 fn run_reduce_staged(
     in_shape: Shape,
     out_shape: Shape,
-    in_axes: &[Axis],
-    out_axes: &[Axis],
+    in_dimensions: &[Dimension],
+    out_dimensions: &[Dimension],
     launcher: Launcher,
     monoid: Monoid,
     depth: usize,
@@ -388,8 +391,8 @@ fn run_reduce_staged(
     run_reduce_with_vw(
         in_shape,
         out_shape,
-        in_axes,
-        out_axes,
+        in_dimensions,
+        out_dimensions,
         launcher.clone(),
         monoid,
         1,
@@ -442,8 +445,8 @@ fn check_2d_reduce(depth: usize, m: usize, k: usize, tm: usize, tk: usize, monoi
 fn run_reduce_with_vw(
     in_shape: Shape,
     out_shape: Shape,
-    in_axes: &[Axis],
-    out_axes: &[Axis],
+    in_dimensions: &[Dimension],
+    out_dimensions: &[Dimension],
     launcher: Launcher,
     monoid: Monoid,
     in_vw: usize,
@@ -473,13 +476,13 @@ fn run_reduce_with_vw(
             in_binding.into_tensor_arg(),
             f32_ty,
             in_vw,
-            TileSpec::direct(in_axes),
+            TileSpec::direct(in_dimensions),
         ),
         TileTensorLaunch::new(
             out_binding.into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(out_axes),
+            TileSpec::direct(out_dimensions),
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
@@ -492,7 +495,7 @@ fn run_reduce_with_vw(
 }
 
 #[test]
-fn test_reduce_axis_sum_2d_to_1d() {
+fn test_reduce_dimension_sum_2d_to_1d() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -521,7 +524,7 @@ fn test_reduce_axis_sum_2d_to_1d() {
 }
 
 #[test]
-fn test_reduce_axis_sum_walked_levels() {
+fn test_reduce_dimension_sum_walked_levels() {
     let (m, k, tm, tk) = (8, 16, 4, 4);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -550,7 +553,7 @@ fn test_reduce_axis_sum_walked_levels() {
 }
 
 #[test]
-fn test_reduce_axis_max_2d_to_1d() {
+fn test_reduce_dimension_max_2d_to_1d() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -581,7 +584,7 @@ fn test_reduce_axis_max_2d_to_1d() {
 }
 
 #[test]
-fn test_reduce_axis_min_2d_to_1d() {
+fn test_reduce_dimension_min_2d_to_1d() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -612,7 +615,7 @@ fn test_reduce_axis_min_2d_to_1d() {
 }
 
 #[test]
-fn test_reduce_axis_multi_axis_3d_to_1d() {
+fn test_reduce_dimension_multi_dimension_3d_to_1d() {
     let (b, m, k) = (3, 4, 8);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -642,43 +645,48 @@ fn test_reduce_axis_multi_axis_3d_to_1d() {
                 want += (flat % 7) as f32;
             }
         }
-        assert_eq!(got.get_f32(&[bi]), want, "Multi-axis sum mismatch at {bi}");
+        assert_eq!(
+            got.get_f32(&[bi]),
+            want,
+            "Multi-dimension sum mismatch at {bi}"
+        );
     }
 }
 
 #[test]
-fn test_reduce_axis_sum_staged() {
+fn test_reduce_dimension_sum_staged() {
     check_2d_reduce(1, 8, 16, 4, 8, Monoid::Sum);
 }
 
 #[test]
-fn test_reduce_axis_sum_double_buffered() {
+fn test_reduce_dimension_sum_double_buffered() {
     check_2d_reduce(2, 8, 16, 4, 4, Monoid::Sum);
 }
 
 #[test]
-fn test_reduce_axis_max_staged() {
+fn test_reduce_dimension_max_staged() {
     check_2d_reduce(1, 8, 16, 4, 8, Monoid::Max);
 }
 
 #[test]
-fn test_reduce_axis_min_staged() {
+fn test_reduce_dimension_min_staged() {
     check_2d_reduce(1, 8, 16, 4, 8, Monoid::Min);
 }
 
 #[test]
-fn test_reduce_axis_max_double_buffered() {
+fn test_reduce_dimension_max_double_buffered() {
     check_2d_reduce(2, 8, 16, 4, 4, Monoid::Max);
 }
 
 #[test]
-fn test_reduce_axis_min_double_buffered() {
+fn test_reduce_dimension_min_double_buffered() {
     check_2d_reduce(2, 8, 16, 4, 4, Monoid::Min);
 }
 
-/// Reduction over an outer axis, keeping the innermost axis (which lines along the vector width).
+/// Reduction over an outer dimension, keeping the innermost dimension (which lines along the vector
+/// width).
 #[test]
-fn test_reduce_axis_sum_outer_axis_retained_innermost_v1() {
+fn test_reduce_dimension_sum_outer_dimension_retained_innermost_v1() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -708,10 +716,11 @@ fn test_reduce_axis_sum_outer_axis_retained_innermost_v1() {
     }
 }
 
-/// Reduction over an outer axis while retaining the innermost axis with `vector_size` = 4.
-/// Exercises line indexing and unit extraction when the innermost axis is in accumulator nest.
+/// Reduction over an outer dimension while retaining the innermost dimension with `vector_size` =
+/// 4. Exercises line indexing and unit extraction when the innermost dimension is in accumulator
+/// nest.
 #[test]
-fn test_reduce_axis_sum_outer_axis_retained_innermost_v4() {
+fn test_reduce_dimension_sum_outer_dimension_retained_innermost_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -745,10 +754,10 @@ fn test_reduce_axis_sum_outer_axis_retained_innermost_v4() {
     }
 }
 
-/// [`test_reduce_axis_sum_inner_axis_reduced_v4`] under `Max`, whose identity the memory system
-/// does not hand back out of bounds: the substitution has to happen a whole line at a time.
+/// [`test_reduce_dimension_sum_inner_dimension_reduced_v4`] under `Max`, whose identity the memory
+/// system does not hand back out of bounds: the substitution has to happen a whole line at a time.
 #[test]
-fn test_reduce_axis_max_inner_axis_reduced_v4() {
+fn test_reduce_dimension_max_inner_dimension_reduced_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -784,7 +793,7 @@ fn test_reduce_axis_max_inner_axis_reduced_v4() {
     }
 }
 
-/// [`run_reduce`], but the input is `checked(true)`: a non-divisible reduced axis leaves an
+/// [`run_reduce`], but the input is `checked(true)`: a non-divisible reduced dimension leaves an
 /// overhang past the operand's real data, and only a checked operand masks it instead of reading
 /// garbage.
 #[allow(clippy::too_many_arguments)]
@@ -792,8 +801,8 @@ fn run_reduce_checked(
     in_data: Vec<f32>,
     in_shape: Shape,
     out_shape: Shape,
-    in_axes: &[Axis],
-    out_axes: &[Axis],
+    in_dimensions: &[Dimension],
+    out_dimensions: &[Dimension],
     launcher: Launcher,
     monoid: Monoid,
     read: Read,
@@ -821,13 +830,13 @@ fn run_reduce_checked(
             in_binding.into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(in_axes).boundary(BoundaryPolicy::Every(Boundary::Zero)),
+            TileSpec::direct(in_dimensions).boundary(BoundaryPolicy::Every(Boundary::Zero)),
         ),
         TileTensorLaunch::new(
             out_binding.into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(out_axes),
+            TileSpec::direct(out_dimensions),
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
@@ -851,7 +860,7 @@ fn nondivisible_k_space(m: usize, k: usize, tk: usize) -> Launcher {
 }
 
 #[test]
-fn test_reduce_axis_sum_nondivisible_k() {
+fn test_reduce_dimension_sum_nondivisible_k() {
     let (m, k, tk) = (4, 6, 4);
     let data = ramp(m * k, 7);
 
@@ -873,7 +882,7 @@ fn test_reduce_axis_sum_nondivisible_k() {
 }
 
 #[test]
-fn test_reduce_axis_sum_nondivisible_k_staged() {
+fn test_reduce_dimension_sum_nondivisible_k_staged() {
     let (m, k, tk) = (4, 6, 4);
     let data = ramp(m * k, 7);
 
@@ -895,7 +904,7 @@ fn test_reduce_axis_sum_nondivisible_k_staged() {
 }
 
 #[test]
-fn test_reduce_axis_sum_nondivisible_k_double_buffered() {
+fn test_reduce_dimension_sum_nondivisible_k_double_buffered() {
     let (m, k, tk) = (4, 10, 4);
     let data = ramp(m * k, 7);
 
@@ -921,7 +930,7 @@ fn test_reduce_axis_sum_nondivisible_k_double_buffered() {
 }
 
 #[test]
-fn test_reduce_axis_max_nondivisible_k() {
+fn test_reduce_dimension_max_nondivisible_k() {
     let (m, k, tk) = (4, 6, 4);
     let data = ramp(m * k, 7);
 
@@ -945,7 +954,7 @@ fn test_reduce_axis_max_nondivisible_k() {
     }
 }
 
-/// Max over `k` of the axis-index recipe, with the source read as `read` says. The last real
+/// Max over `k` of the dimension-index recipe, with the source read as `read` says. The last real
 /// `k` is 5, so a mask that leaked the padded overhang would report the tile edge instead.
 fn check_procedural_reduce(read: Read) {
     let (m, k, tk) = (4, 6, 4);
@@ -993,7 +1002,7 @@ fn test_staged_procedural_max_masks_nondivisible_k() {
 /// would still leave `Max` accidentally correct: zero never beats the real maximum. Strictly
 /// negative data closes that gap, since a zero fallback would then beat every real value.
 #[test]
-fn test_reduce_axis_max_nondivisible_k_negative_data() {
+fn test_reduce_dimension_max_nondivisible_k_negative_data() {
     let (m, k, tk) = (4, 6, 4);
     let data: Vec<f32> = (0..m * k).map(|i| -1.0 - i as f32).collect();
 
@@ -1020,7 +1029,7 @@ fn test_reduce_axis_max_nondivisible_k_negative_data() {
 /// A zero overhang fallback would incorrectly win this Min reduction, whereas the correct
 /// device-side identity is the element type's maximum value.
 #[test]
-fn test_reduce_axis_min_nondivisible_k_positive_data() {
+fn test_reduce_dimension_min_nondivisible_k_positive_data() {
     let (m, k, tk) = (4, 6, 4);
     let data: Vec<f32> = (0..m * k).map(|i| 1.0 + i as f32).collect();
 
@@ -1045,7 +1054,7 @@ fn test_reduce_axis_min_nondivisible_k_positive_data() {
 }
 
 #[test]
-fn test_reduce_axis_max_outer_axis_retained_innermost_v4() {
+fn test_reduce_dimension_max_outer_dimension_retained_innermost_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -1082,7 +1091,7 @@ fn test_reduce_axis_max_outer_axis_retained_innermost_v4() {
 }
 
 #[test]
-fn test_reduce_axis_min_outer_axis_retained_innermost_v4() {
+fn test_reduce_dimension_min_outer_dimension_retained_innermost_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -1118,10 +1127,11 @@ fn test_reduce_axis_min_outer_axis_retained_innermost_v4() {
     }
 }
 
-/// Reduction over the innermost axis with `vector_size` = 4: the line runs along the axis being
-/// reduced, so a step reduces the whole line into one cell and the units collapse once at the end.
+/// Reduction over the innermost dimension with `vector_size` = 4: the line runs along the dimension
+/// being reduced, so a step reduces the whole line into one cell and the units collapse once at the
+/// end.
 #[test]
-fn test_reduce_axis_sum_inner_axis_reduced_v4() {
+fn test_reduce_dimension_sum_inner_dimension_reduced_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -1157,7 +1167,7 @@ fn test_reduce_axis_sum_inner_axis_reduced_v4() {
 
 /// 3D tensor where the middle axis is reduced and innermost is retained, with `vector_size` = 4.
 #[test]
-fn test_reduce_axis_multi_axis_3d_middle_axis_retained_innermost_v4() {
+fn test_reduce_dimension_multi_dimension_3d_middle_dimension_retained_innermost_v4() {
     let (b, m, k) = (3, 4, 16);
     let launcher = implied(
         &cubecl::test_device().client(),
@@ -1197,10 +1207,11 @@ fn test_reduce_axis_multi_axis_3d_middle_axis_retained_innermost_v4() {
     }
 }
 
-/// Reduction over an axis spread across plane units (`ComputeScope::Unit` / `UnitShare::Plane`).
-/// Tests that `UnitShare::Plane` seeds with 0 and reduces across units combining with accumulator.
+/// Reduction over a dimension spread across plane units (`ComputeScope::Unit` /
+/// `UnitShare::Plane`). Tests that `UnitShare::Plane` seeds with 0 and reduces across units
+/// combining with accumulator.
 #[test]
-fn test_reduce_axis_sum_spatial_unit_units() {
+fn test_reduce_dimension_sum_spatial_unit_units() {
     let client = cubecl::test_device().client();
     let plane_size = client.properties().hardware.plane_size_max as usize;
 
@@ -1235,7 +1246,7 @@ fn test_reduce_axis_sum_spatial_unit_units() {
 }
 
 #[test]
-fn test_reduce_axis_max_spatial_unit_units() {
+fn test_reduce_dimension_max_spatial_unit_units() {
     let client = cubecl::test_device().client();
     let plane_size = client.properties().hardware.plane_size_max as usize;
 
@@ -1272,7 +1283,7 @@ fn test_reduce_axis_max_spatial_unit_units() {
 }
 
 #[test]
-fn test_reduce_axis_min_spatial_unit_units() {
+fn test_reduce_dimension_min_spatial_unit_units() {
     let client = cubecl::test_device().client();
     let plane_size = client.properties().hardware.plane_size_max as usize;
 
@@ -1308,9 +1319,9 @@ fn test_reduce_axis_min_spatial_unit_units() {
     }
 }
 
-/// A `Max` reduce whose accumulator lives in registers while the reduced axis is split across the
-/// plane's units: each unit reduces its own `K` slice, so each holds a partial maximum, and the drain
-/// combines them under the same monoid the accumulator was built with.
+/// A `Max` reduce whose accumulator lives in registers while the reduced dimension is split across
+/// the plane's units: each unit reduces its own `K` slice, so each holds a partial maximum, and the
+/// drain combines them under the same monoid the accumulator was built with.
 ///
 /// Two things had to be true for this to work, and neither was. The drain combined units with a
 /// hardcoded sum, and a promoted block read its `UnitShare` from the tile, which is only stamped on
@@ -1333,7 +1344,7 @@ fn resident_reduce_kernel<E: Numeric>(
     acc.init::<E>(Monoid::identity::<E>(monoid));
     for region in space.over(&level) {
         let mut acc_region = acc.at(&region);
-        acc_region.reduce_axis_accumulate(&input.at(&region), monoid);
+        acc_region.reduce_dimension_accumulate(&input.at(&region), monoid);
     }
     acc.drained_into(&out);
 }
@@ -1360,9 +1371,9 @@ fn resident_max_over_unit_split_contraction() {
         .dtype(f32_ty)
         .custom(values.clone())
         .generate_with_f32_host_data();
-    // Poisoned with values above every input, so a reduction that let the sink take part would win the
-    // maximum and be caught. `reduce_axis` owns the init, and the unit-split contraction is
-    // exactly the case where it must seed rather than overwrite.
+    // Poisoned with values above every input, so a reduction that let the sink take part would win
+    // the maximum and be caught. `reduce_dimension` owns the init, and the unit-split contraction
+    // is exactly the case where it must seed rather than overwrite.
     let out_handle = TestInput::builder(client.clone(), shape![m, n])
         .dtype(f32_ty)
         .uniform(7, 1.0, 2.0)
@@ -1401,13 +1412,14 @@ fn resident_max_over_unit_split_contraction() {
     }
 }
 
-/// The twin of [`resident_max_over_unit_split_contraction`] at a **segmented** reduction: the plane splits into
-/// aligned groups, each holding one `(m, n)` cell's partials, rather than the whole plane holding
-/// one. `UnitShare::Group` where that test is `UnitShare::Plane`.
+/// The twin of [`resident_max_over_unit_split_contraction`] at a **segmented** reduction: the plane
+/// splits into aligned groups, each holding one `(m, n)` cell's partials, rather than the whole
+/// plane holding one. `UnitShare::Group` where that test is `UnitShare::Plane`.
 ///
-/// The drain is shared with the promoted matmul's, where reading the odometer off a projected
-/// nest (the accumulator spans `{M, N}`, so the contracted `K` is not in its axis list) gave every
-/// group the same output row. `reduce_axis` reaches the same code, so it gets the same coverage.
+/// The drain is shared with the promoted matmul's, where reading the odometer off a projected nest
+/// (the accumulator spans `{M, N}`, so the contracted `K` is not in its dimension list) gave every
+/// group the same output row. `reduce_dimension` reaches the same code, so it gets the same
+/// coverage.
 ///
 /// All the data is negative, so an identity leaking in from an unwritten cell wins the maximum
 /// and the assert catches it.

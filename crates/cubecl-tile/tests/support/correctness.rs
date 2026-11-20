@@ -82,9 +82,9 @@ fn compare(
     index: &mut Vec<usize>,
     mismatches: &mut Mismatches,
 ) {
-    let dim = index.len();
-    if dim < actual.shape.len() {
-        for i in 0..actual.shape[dim] {
+    let axis = index.len();
+    if axis < actual.shape.len() {
+        for i in 0..actual.shape[axis] {
             index.push(i);
             compare(actual, expected, epsilon, index, mismatches);
             index.pop();

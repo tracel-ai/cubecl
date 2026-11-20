@@ -12,9 +12,9 @@ use cubecl_tile::*;
 use super::references;
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// The software instruction the leaf runs: a 16-cell budget, no edge split, no unit fan-out.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
