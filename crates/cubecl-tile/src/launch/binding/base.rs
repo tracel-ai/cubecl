@@ -243,12 +243,13 @@ impl<'a> Arg<'a, Labelled> {
             overhangs,
             width,
         )?;
-        // Inside its storage tile a window is one unmasked run, which a checked operand cannot
-        // read: its windows are walked through the layout instead, masked as every other window is.
-        let storage = match storage {
-            Storage::Tiled(Some(_)) if !boundaries.modes.is_empty() => Storage::Tiled(None),
-            storage => storage,
-        };
+        // A checked operand masks every window from the root down, and inside its storage tile a
+        // window is read as one unmasked run, so such a launch cannot expand.
+        if let Storage::Tiled(Some(level)) = storage
+            && !boundaries.modes.is_empty()
+        {
+            return Err(Refusal::CheckedInsideStorageTile { level });
+        }
         let spec = TileSpec {
             projection,
             boundaries: boundaries.modes,

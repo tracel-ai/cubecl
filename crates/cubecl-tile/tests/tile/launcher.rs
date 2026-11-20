@@ -426,30 +426,52 @@ fn arg_reads_a_storage_tile_that_is_no_level_through_its_layout() {
 
 /// A batch dim ahead of the tiled block: the metadata describes every logical dim, the operand's
 /// subspace only the inner two, and the leading one carries through as a plain batch dim that
-/// the block is not matched on. The block is the walk's tile where `K`, 20, fills the stored tiles;
-/// at 18 the walk overhangs `K`, and a checked operand is read through its layout.
+/// the block is not matched on.
 #[test]
 fn arg_reads_a_tiling_stated_over_batch_dims_too() {
     let client = cubecl::test_device().client();
-    for (k, read) in [(20, Storage::Tiled(Some(2))), (18, Storage::Tiled(None))] {
-        let launch = {
-            let (space, levels) = batched_space(3, 1, 64, 64, k);
-            implied(&client, Partitioning::new(space, levels), Form::Dynamic)
-        };
+    let launch = {
+        let (space, levels) = batched_space(3, 1, 64, 64, 20);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
 
-        let mut tiled = binding(&client, &[3, 8, 5, 8, 4]);
-        tiled.tiling = Tiling::new(&[1, 2, 2]).unwrap();
-        let arg = launch
-            .arg(tiled, f32::elem_type_native())
-            .axes(&[M, K])
-            .batches(&[B0, B1])
-            .build()
-            .unwrap();
+    let mut tiled = binding(&client, &[3, 8, 5, 8, 4]);
+    tiled.tiling = Tiling::new(&[1, 2, 2]).unwrap();
+    let arg = launch
+        .arg(tiled, f32::elem_type_native())
+        .axes(&[M, K])
+        .batches(&[B0, B1])
+        .build()
+        .unwrap();
 
-        assert_eq!(arg.spec.projection.physical_rank(), 5);
-        assert_eq!(arg.spec.projection.coordinate_rank(), 3);
-        assert_eq!(arg.spec.storage, read, "k = {k}");
-    }
+    assert_eq!(arg.spec.projection.physical_rank(), 5);
+    assert_eq!(arg.spec.projection.coordinate_rank(), 3);
+    assert_eq!(arg.spec.storage, Storage::Tiled(Some(2)));
+}
+
+/// The same operand under a launch whose `K`, 18, ends inside the last stored tile: the walk
+/// overhangs `K` only into the tile's padding, and the operand is still checked, so it is refused
+/// at the level whose tile is its block.
+#[test]
+fn arg_refuses_a_checked_operand_whose_block_is_a_level_tile() {
+    let client = cubecl::test_device().client();
+    let launch = {
+        let (space, levels) = batched_space(3, 1, 64, 64, 18);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+
+    let mut tiled = binding(&client, &[3, 8, 5, 8, 4]);
+    tiled.tiling = Tiling::new(&[1, 2, 2]).unwrap();
+    let refused = launch
+        .arg(tiled, f32::elem_type_native())
+        .axes(&[M, K])
+        .batches(&[B0, B1])
+        .build();
+
+    assert_eq!(
+        refused.map(|_| ()),
+        Err(Refusal::CheckedInsideStorageTile { level: 2 })
+    );
 }
 
 #[test]

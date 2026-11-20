@@ -954,7 +954,8 @@ fn matmul_m_across_cubes_that_do_not_divide() {
 
 #[test]
 fn matmul_m_three_each_across_cubes_leaves_a_short_run() {
-    // A run stopping at the edge of a buffer stored in tiles.
+    // A run stopping at the edge of a buffer stored in tiles: a layout the launcher does not bind
+    // yet.
     check_matmul_bound(
         16,
         8,
@@ -964,7 +965,7 @@ fn matmul_m_three_each_across_cubes_leaves_a_short_run() {
             .walk(&[(M, 3)])
             .cubes(&[M]),
         1,
-        Binding::Launch,
+        Binding::Stated,
     );
 }
 
@@ -1022,9 +1023,10 @@ enum Binding {
     /// Through the launch, which derives the operand's spec.
     Launch,
     /// By the input's own statement: its stored tiles read through one projection, unchecked,
-    /// the launch's units stated on it. For the layout the launcher refuses although this reads
-    /// it in bounds: lines narrower than a stored tile. Bind it through the launch once the
-    /// launcher reads it.
+    /// the launch's units stated on it. For the two layouts the launcher refuses although this
+    /// reads them in bounds: a run of tiles that stops at the edge of the buffer (the launcher
+    /// masks the axis, and nothing is masked inside a storage tile), and lines narrower than a
+    /// stored tile. Bind those through the launch once the launcher reads them.
     Stated,
 }
 
