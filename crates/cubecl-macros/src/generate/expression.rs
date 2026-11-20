@@ -269,6 +269,8 @@ impl Expression {
                 span,
                 ..
             } => {
+                let span = span.resolved_at(Span::call_site());
+                let call = prelude_type("CallGuard");
                 let ty_path = if let Some(qself) = qself {
                     let ty = &qself.ty;
                     quote![<#ty as #ty_path>]
@@ -281,8 +283,8 @@ impl Expression {
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
                 let args =
-                    args_with_position(args, arg_tokens, operands.position(context, *span), false);
-                quote_spanned! {*span=>#ty_path::#name(#args)}
+                    args_with_position(args, arg_tokens, operands.position(context, span), true);
+                quote_spanned! {span=>{let _guard = #call::new(scope); #ty_path::#name(#args)}}
             }
             Expression::MethodCall {
                 receiver,
@@ -292,7 +294,8 @@ impl Expression {
                 span,
                 ..
             } => {
-                let call = prelude_type("__expand_method_call");
+                let span = span.resolved_at(Span::call_site());
+                let call = prelude_type("CallGuard");
                 let method = format_ident!("__expand_{method}_method");
                 let mut operands = Operands::new(context);
                 let arg_tokens = operands.track_args(context, args);
@@ -302,8 +305,8 @@ impl Expression {
                         .unwrap_or_else(|| receiver.to_tokens(context))
                 });
                 let args =
-                    args_with_position(args, arg_tokens, operands.position(context, *span), true);
-                quote_spanned! {*span=>#call(scope, |scope| #receiver.#method #generics(#args))}
+                    args_with_position(args, arg_tokens, operands.position(context, span), true);
+                quote_spanned! {span=>{let _guard = #call::new(scope); #receiver.#method #generics(#args)}}
             }
             Expression::Break {
                 closure_scope,

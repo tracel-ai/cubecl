@@ -104,10 +104,15 @@ impl<T: PlaceExpand> PlaceHelper<T> {
 ///
 /// The macro needs to generate `scope.start_call_args()` in a block with the scope arg, so it's
 /// evaluated right before the first actual arg.
-pub fn __expand_method_call<R>(scope: &Scope, call: impl FnOnce(&Scope) -> R) -> R {
-    let res = call(scope);
-    scope.end_call_args();
-    res
+#[derive(new)]
+pub struct CallGuard<'a> {
+    scope: &'a Scope,
+}
+
+impl Drop for CallGuard<'_> {
+    fn drop(&mut self) {
+        self.scope.end_call_args();
+    }
 }
 
 pub fn __expand_read_receiver<T: PlaceExpand>(scope: &Scope, value: T) -> T {

@@ -469,7 +469,7 @@ impl Expression {
                         add_variables_from_pat(arg, ctx);
                     }
                     ctx.in_closure_scope(ClosureScope::Closure, |ctx| {
-                        Expression::from_expr(*expr.body, ctx)
+                        Expression::from_expr_value(*expr.body, ctx)
                     })
                 })?;
                 let has_early_return = context.has_early_return;
