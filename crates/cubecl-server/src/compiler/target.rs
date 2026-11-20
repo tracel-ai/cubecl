@@ -79,6 +79,22 @@ pub trait ArtifactCompiler: Sync {
         id: &ArtifactId<Self::Variant>,
         lowered: Self::Lowered,
     ) -> Result<Self::Artifact, LaunchError>;
+
+    /// Whether [`prepare`](Self::prepare) does anything. The loader hands
+    /// stored artifacts to the compiling threads only for a compiler that
+    /// says so, so the others start no thread for them. `false`, the default.
+    const PREPARES: bool = false;
+
+    /// Does for an `artifact` the store gave what [`finalize`](Self::finalize)
+    /// does for one it finalizes: has the driver build what it builds from
+    /// the artifact, on a compiling thread, so stored kernels are built
+    /// alongside each other rather than one by one in
+    /// [`CompilationTarget::load`]. A build that fails here is left to `load`,
+    /// which reports it. Runs only where [`PREPARES`](Self::PREPARES) is
+    /// `true`; nothing, the default.
+    fn prepare(&self, id: &ArtifactId<Self::Variant>, artifact: &mut Self::Artifact) {
+        let _ = (id, artifact);
+    }
 }
 
 /// The variant an [`ArtifactCompiler`] keys its artifacts by.
