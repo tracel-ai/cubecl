@@ -229,18 +229,16 @@ pub(crate) fn lane_runs_decline<T: Numeric>(
     let bytes = T::size().comptime();
     let packing = src.packing();
     let levels = src.factor_levels();
-    let stored = src.innermost_factor().inner_stored();
+    let scales = src.innermost_factor().inner_fp8();
     let along_k = comptime!(match ident {
         MatrixIdent::A => layout == MatrixLayout::RowMajor,
         MatrixIdent::B => layout == MatrixLayout::ColMajor,
         MatrixIdent::Accumulator => false,
     });
     let e2m1 = comptime!(matches!(packing, Packing::Packed { field } if field.holds_e2m1()));
-    let exact_scales = comptime!(matches!(
-        stored,
-        Some(Packing::Packed { field })
-            if matches!(field.fp8(), Some(Fp8Format::E4M3 | Fp8Format::UE8M0))
-    ));
+    // Packed as fields or read one apiece alike: what makes the product exact is the scales'
+    // format.
+    let exact_scales = comptime!(matches!(scales, Some(Fp8Format::E4M3 | Fp8Format::UE8M0)));
     comptime!(if k <= depth {
         Some("the fragment is one instruction deep, which keeps the instruction's own order")
     } else if bytes != 2 || map.is_none() {
