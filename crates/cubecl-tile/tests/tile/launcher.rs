@@ -209,9 +209,9 @@ fn arg_sizes_boundaries_by_coordinate_rank_under_storage_tiling() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // 2 coordinate axes (M, K), tiled into 4 physical buffer dims: 8*8 = 64 and 5*4 = 20, the
-    // buffer padded to whole blocks of the leaf's own (8, 4).
-    let mut tiled = binding(&client, &[8, 5, 8, 4]);
+    // 2 coordinate axes (M, K), tiled into 4 physical buffer dims: 4*16 = 64 and 5*4 = 20, in
+    // blocks of (16, 4) that no level cuts to, so the checked operand keeps no storage level.
+    let mut tiled = binding(&client, &[4, 5, 16, 4]);
     tiled.tiling = Tiling::new(&[2, 2]).unwrap();
     let tiled = launch
         .arg(tiled, f32::elem_type_native())
@@ -431,7 +431,7 @@ fn arg_reads_a_storage_tile_that_is_no_level_through_its_layout() {
 fn arg_reads_a_tiling_stated_over_batch_dims_too() {
     let client = cubecl::test_device().client();
     let launch = {
-        let (space, levels) = batched_space(3, 1, 64, 64, 18);
+        let (space, levels) = batched_space(3, 1, 64, 64, 20);
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
@@ -447,6 +447,31 @@ fn arg_reads_a_tiling_stated_over_batch_dims_too() {
     assert_eq!(arg.spec.projection.physical_rank(), 5);
     assert_eq!(arg.spec.projection.coordinate_rank(), 3);
     assert_eq!(arg.spec.storage, Storage::Tiled(Some(2)));
+}
+
+/// The same operand under a launch whose `K`, 18, ends inside the last stored tile: the walk
+/// overhangs `K` only into the tile's padding, and the operand is still checked, so it is refused
+/// at the level whose tile is its block.
+#[test]
+fn arg_refuses_a_checked_operand_whose_block_is_a_level_tile() {
+    let client = cubecl::test_device().client();
+    let launch = {
+        let (space, levels) = batched_space(3, 1, 64, 64, 18);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+
+    let mut tiled = binding(&client, &[3, 8, 5, 8, 4]);
+    tiled.tiling = Tiling::new(&[1, 2, 2]).unwrap();
+    let refused = launch
+        .arg(tiled, f32::elem_type_native())
+        .axes(&[M, K])
+        .batches(&[B0, B1])
+        .build();
+
+    assert_eq!(
+        refused.map(|_| ()),
+        Err(Refusal::CheckedInsideStorageTile { level: 2 })
+    );
 }
 
 #[test]

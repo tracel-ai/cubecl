@@ -8,6 +8,7 @@ use cubecl::{bytes::Bytes, prelude::*, std::tensor::TensorHandle};
 use cubecl_tile::kind::Storage;
 use cubecl_tile::launch::Refusal;
 use cubecl_tile::layout::{StorageLevels, StoragePartitioning};
+use cubecl_tile::space::{CubeOrder, PlaneOrder};
 use cubecl_tile::*;
 
 use super::quant::column_reads::offset;
@@ -167,6 +168,63 @@ fn an_overhanging_launch_refuses_an_operand_read_inside_its_storage_tile() {
         refused.map(|_| ()),
         Err(Refusal::CheckedInsideStorageTile { level: 3 })
     );
+}
+
+/// The same operand two planes' columns wide, its planes those of the launch in blocks along `N`:
+/// blocks of two divide its two windows and keep the storage level, blocks of three overrun it
+/// although every level's tile divides it, so the operand is checked and refused.
+#[test]
+fn launch_plane_blocks_that_overrun_refuse_an_operand_read_inside_its_storage_tile() {
+    let client = cubecl::test_device().client();
+    let plane = client.properties().hardware.plane_size_max as usize;
+    if !plane.is_multiple_of(PLANE_COLUMNS) {
+        ValidationResult::Skipped(format!(
+            "a {plane}-unit plane does not split into {PLANE_COLUMNS}-unit rows of columns"
+        ))
+        .enforce();
+        return;
+    }
+    let units_down_k = plane / PLANE_COLUMNS;
+    let (cols, blocks) = (2 * PLANE_COLUMNS, 4 * units_down_k);
+    let storage = StorageLevels::new(&[(KI, 8)])
+        .tile(&[(KI, BLOCK / 8), (KB, 4), (N, TILE_COLUMNS)])
+        .grid(&[KI, KB, N]);
+    let geometry = storage
+        .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
+        .unwrap();
+    let dtype = f32::elem_type_native();
+    let input = TensorHandle::new(
+        client.create(Bytes::from_elems(vec![0f32; cols * blocks * BLOCK])),
+        geometry.shape().to_vec(),
+        geometry.strides().to_vec(),
+        dtype,
+    );
+
+    for (block, bound) in [
+        (2, Ok(Storage::Tiled(Some(2)))),
+        (3, Err(Refusal::CheckedInsideStorageTile { level: 2 })),
+    ] {
+        let order = PlaneOrder::new(&[(N, block)], CubeOrder::RowMajor);
+        let launcher = implied(
+            &client,
+            Partitioning::new(
+                Space::new(&[(N, cols), (KB, blocks), (KI, BLOCK)]),
+                Levels::leaf(&[(N, 1), (KB, 4), (KI, BLOCK)])
+                    .units(&[(N, PLANE_COLUMNS), (KB, units_down_k)])
+                    .interleaved(KB)
+                    .walk_every(&[KB])
+                    .launch_planes(&[N], order)
+                    .build(),
+            ),
+            Form::Static,
+        );
+        let mut binding = input.clone().binding();
+        binding.tiling = geometry.tiling();
+
+        let arg = launcher.arg(binding, dtype).axes(&[N, KB, KI]).build();
+
+        assert_eq!(arg.map(|arg| arg.spec.storage), bound, "blocks of {block}");
+    }
 }
 
 /// An operand over `axes` of two planes' columns and one step of blocks of `K`, stored as
