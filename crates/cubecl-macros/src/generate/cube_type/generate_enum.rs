@@ -463,6 +463,10 @@ impl CubeTypeEnum {
 
             impl #generics_impl core::hash::Hash for #name #generic_names #where_clause {
                 fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+                    // Variants whose fields hash nothing (unit variants, runtime-only
+                    // fields) would otherwise hash alike, and `KernelId::stable_hash`
+                    // would give their kernels one persistent cache key.
+                    core::hash::Hash::hash(&core::mem::discriminant(self), state);
                     #body_hash;
                 }
             }
