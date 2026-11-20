@@ -427,15 +427,13 @@ impl<'a, D: Driver> Command<'a, D> {
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors);
         let fence = D::Stream::fence(self.streams.current().signal());
+        let copies = match held.is_empty() {
+            true => InFlight::unguarded(fence, (held, result)),
+            false => InFlight::new(fence, (held, result)),
+        };
 
         async move {
-            if let Err(err) = fence.wait() {
-                // Both the device sources and host destinations may still be in use.
-                release_or_leak((held, result), &err);
-                return Err(err);
-            }
-            // The bindings kept the source allocations alive across the copies;
-            // the fence above is what says they are done being read.
+            let (held, result) = copies.wait()?;
             core::mem::drop(held);
 
             result.map_err(Into::into)
@@ -802,4 +800,120 @@ enum Room {
     Planned,
     /// Apart from the room the stream's graphs share, while a capture is under way.
     Separate,
+}
+
+/// Memory a stream's copies may still be using until `fence` is reached: their
+/// device sources and host destinations. Dropped before [`wait`](Self::wait),
+/// it waits for the fence itself, so a read abandoned unawaited never hands a
+/// buffer back to its pool mid-copy.
+struct InFlight<F: Fence, M> {
+    fence_and_memory: Option<(F, M)>,
+    waits_on_drop: bool,
+}
+
+impl<F: Fence, M> InFlight<F, M> {
+    fn new(fence: F, memory: M) -> Self {
+        Self {
+            fence_and_memory: Some((fence, memory)),
+            waits_on_drop: true,
+        }
+    }
+
+    /// For memory no copy is using, as when nothing was enqueued: dropped, it
+    /// does not wait.
+    fn unguarded(fence: F, memory: M) -> Self {
+        Self {
+            fence_and_memory: Some((fence, memory)),
+            waits_on_drop: false,
+        }
+    }
+
+    /// The memory, once the device is done with it.
+    ///
+    /// # Errors
+    ///
+    /// The fault the fence reports; the memory is then released or leaked.
+    fn wait(mut self) -> Result<M, ServerError> {
+        let (fence, memory) = self.fence_and_memory.take().expect("waited once");
+        match fence.wait() {
+            Ok(()) => Ok(memory),
+            Err(err) => {
+                release_or_leak(memory, &err);
+                Err(err)
+            }
+        }
+    }
+}
+
+impl<F: Fence, M> Drop for InFlight<F, M> {
+    fn drop(&mut self) {
+        if let Some((fence, memory)) = self.fence_and_memory.take()
+            && self.waits_on_drop
+            && let Err(err) = fence.wait()
+        {
+            release_or_leak(memory, &err);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingFence(Arc<AtomicUsize>);
+
+    impl Fence for CountingFence {
+        fn wait(self) -> Result<(), ServerError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Records, when dropped, how many times the fence had been waited on.
+    struct Buffer {
+        waits: Arc<AtomicUsize>,
+        waits_at_release: Arc<AtomicUsize>,
+    }
+
+    impl Drop for Buffer {
+        fn drop(&mut self) {
+            let waits = self.waits.load(Ordering::SeqCst);
+            self.waits_at_release.store(waits, Ordering::SeqCst);
+        }
+    }
+
+    fn copies(guarded: bool) -> (InFlight<CountingFence, Buffer>, Arc<AtomicUsize>) {
+        let waits = Arc::new(AtomicUsize::new(0));
+        let waits_at_release = Arc::new(AtomicUsize::new(usize::MAX));
+        let buffer = Buffer {
+            waits: waits.clone(),
+            waits_at_release: waits_at_release.clone(),
+        };
+        let fence = CountingFence(waits);
+        let copies = match guarded {
+            true => InFlight::new(fence, buffer),
+            false => InFlight::unguarded(fence, buffer),
+        };
+        (copies, waits_at_release)
+    }
+
+    #[test]
+    fn copies_dropped_unawaited_release_their_memory_after_the_fence() {
+        let (copies, waits_at_release) = copies(true);
+
+        drop(copies);
+
+        assert_eq!(waits_at_release.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn memory_no_copy_uses_is_released_without_waiting() {
+        let (copies, waits_at_release) = copies(false);
+
+        drop(copies);
+
+        assert_eq!(waits_at_release.load(Ordering::SeqCst), 0);
+    }
 }
