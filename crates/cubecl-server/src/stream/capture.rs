@@ -4,7 +4,9 @@
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
 use super::allocation_planner::{AllocationPlanner, Divergence, Placement};
-use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate, PinnedPages};
+use crate::memory_management::{
+    ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, PageUpdate, PinnedPages,
+};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -161,13 +163,30 @@ impl StreamCapture {
         }
     }
 
-    /// Note an allocation of `size_bytes` bound to `memory` by the logical `stream`, while that
-    /// stream captures: the planning runs list theirs to learn which are outputs, and the
-    /// recorded run lists its own to check it allocated as planned. Another logical stream's
-    /// allocations on the same backend stream are not the work's, and are left out.
-    pub fn allocated(&mut self, stream: StreamId, size_bytes: u64, memory: &ManagedMemoryBinding) {
-        if self.is_owned_by(stream) {
-            self.planner.allocated(size_bytes, memory);
+    /// Note an allocation of `size_bytes` given to `memory` by the logical `stream`, placed as
+    /// `placement` says, while that stream captures: the planning runs list theirs to learn
+    /// which are outputs, and the recorded run lists its own to check it allocated as planned.
+    /// What the recorded run placed as an output is held for the graph it seals into: every
+    /// replay writes it whether or not the work kept it, so a slice the work let go must not go
+    /// back to the room other graphs' outputs are carved from.
+    ///
+    /// Another logical stream's allocations on the same backend stream are not the work's, and
+    /// are left out, as is every allocation outside a capture: neither costs more than the
+    /// check.
+    pub fn allocated(
+        &mut self,
+        stream: StreamId,
+        size_bytes: u64,
+        memory: &ManagedMemoryHandle,
+        placement: Placement,
+    ) {
+        if !self.is_owned_by(stream) {
+            return;
+        }
+        let binding = memory.clone().binding();
+        self.planner.allocated(size_bytes, &binding);
+        if placement == Placement::Output && self.state.is_recording() {
+            self.retained_outputs.push(binding);
         }
     }
 
@@ -317,15 +336,6 @@ impl StreamCapture {
     /// window closes, as [`take_retained_host`](Self::take_retained_host).
     pub fn take_retained_peers(&mut self) -> Vec<BufferBinding> {
         core::mem::take(&mut self.retained_peers)
-    }
-
-    /// Hold `memory`, which the recorded run placed as an output, for as long as the graph the
-    /// window seals into lives. A no-op outside a window: a planning run's outputs are the
-    /// work's to keep or let go.
-    pub fn retain_output(&mut self, memory: ManagedMemoryBinding) {
-        if self.state.is_recording() {
-            self.retained_outputs.push(memory);
-        }
     }
 
     /// The memory the recorded run placed as outputs, drained as the window closes, onto the

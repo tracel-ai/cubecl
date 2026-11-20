@@ -13,7 +13,7 @@ use cubecl_server::{
     server::{Handle, IoError, ServerError},
     stream::MultiStream,
 };
-use fake::{Fake, FakeBackend, refusals_left, refuse_next_page};
+use fake::{Fake, FakeBackend, REFUSALS};
 use std::sync::Arc;
 
 const MIB: u64 = 1024 * 1024;
@@ -66,7 +66,12 @@ impl FakeServer {
 
     /// The work every capture here records: one buffer of `MIB` bytes, which is its output.
     fn work(&mut self, stream: StreamId) -> Result<Handle, IoError> {
-        self.command(stream).empty(MIB)
+        self.work_of(stream, MIB)
+    }
+
+    /// [`work`](Self::work) with an output of `size_bytes`.
+    fn work_of(&mut self, stream: StreamId, size_bytes: u64) -> Result<Handle, IoError> {
+        self.command(stream).empty(size_bytes)
     }
 
     /// Plan [`work`](Self::work) until two runs in a row allocate alike, each run's output held
@@ -133,10 +138,10 @@ fn an_output_placed_after_a_reclaim_is_where_the_recording_finds_it() {
     assert!(!server.end_run(OWNER).unwrap(), "a first run");
     drop(first);
 
-    refuse_next_page();
+    REFUSALS.set(1);
     let second = server.work(OWNER).expect("placed after a reclaim");
     assert_eq!(
-        refusals_left(),
+        REFUSALS.get(),
         0,
         "the output took a page of its own, which the device refused"
     );
@@ -154,6 +159,45 @@ fn an_output_placed_after_a_reclaim_is_where_the_recording_finds_it() {
         "the recorded output lands where the last planning run's did"
     );
     graph.expect("the recording seals");
+}
+
+/// An output with no page size left in the room apart from the shared one fails, rather than
+/// being placed on the shared room another graph's replay writes. Nothing frees a page size
+/// there: each outdated pool holds the output of a graph still alive.
+#[test]
+fn an_output_with_no_page_size_left_fails_rather_than_shares() {
+    /// Captures enough to grow through every page size the room holds.
+    const CAPTURES_MAX: u64 = 100;
+    let mut server = FakeServer::new();
+    let mut graphs = Vec::new();
+    for step in 0..CAPTURES_MAX {
+        // Each output outgrows the pages the last one grew to, so it takes a page size of its own.
+        let size_bytes = (3 + 2 * step) * MIB;
+        server.prepare(OWNER);
+        let first = server.work_of(OWNER, size_bytes).unwrap();
+        assert!(!server.end_run(OWNER).unwrap(), "a first run");
+        drop(first);
+
+        let second = match server.work_of(OWNER, size_bytes) {
+            Ok(second) => second,
+            Err(err) => {
+                assert!(
+                    matches!(err, IoError::PageSizesExhausted { .. }),
+                    "the output failed for another reason: {err}"
+                );
+                assert!(graphs.len() > 1, "the room ran out before it grew");
+                return;
+            }
+        };
+        assert!(server.end_run(OWNER).unwrap(), "two runs allocated alike");
+        drop(second);
+        server.begin(OWNER);
+        let output = server
+            .work_of(OWNER, size_bytes)
+            .expect("the recorded output finds the room its planning run grew");
+        graphs.push((server.seal(OWNER).unwrap(), output));
+    }
+    panic!("{CAPTURES_MAX} outputs never ran out of page sizes");
 }
 
 /// Another logical stream folded onto the same backend stream cannot end the owner's planning

@@ -245,9 +245,12 @@ impl<'a, D: Driver> Command<'a, D> {
             (IoError::PageSizesExhausted { .. }, PinnedPages::Avoid | PinnedPages::Share) => {
                 RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
             }
-            // Memory, or a slot of the separate arena. That arena is never
-            // relocated, since its graphs pin what it holds, so a cleanup
-            // frees the slots of the outdated pools no graph holds any more.
+            // Nothing frees a slot of the separate arena: it is never
+            // relocated, since its graphs pin what it holds, and every
+            // reservation already drained its outdated pools that emptied. The
+            // retry reports the exhaustion, rather than placing the output on
+            // the shared room.
+            (IoError::PageSizesExhausted { .. }, PinnedPages::Separate) => {}
             // No stream records (the caller checked), which is the only
             // refusal a cleanup has.
             _ => {
@@ -322,12 +325,10 @@ impl<'a, D: Driver> Command<'a, D> {
         };
         self.bind(reserved, memory.clone())?;
         let current = self.streams.current;
-        let capturing = self.streams.current().capturing();
-        let binding = memory.clone().binding();
-        capturing.allocated(current, size, &binding);
-        if placement == Placement::Output {
-            capturing.retain_output(binding);
-        }
+        self.streams
+            .current()
+            .capturing()
+            .allocated(current, size, memory, placement);
         Ok(())
     }
 

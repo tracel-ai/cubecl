@@ -27,25 +27,12 @@ use std::sync::Arc;
 const MIB: u64 = 1024 * 1024;
 
 std::thread_local! {
-    /// How many of this thread's next device allocations the storage refuses, as a full device
-    /// would.
-    static REFUSALS: Cell<usize> = const { Cell::new(0) };
+    /// How many of this thread's next device allocations [`FlakyStorage`] refuses, as a full
+    /// device would: set it to have the device refuse, and read it to see the refusals spent.
+    pub static REFUSALS: Cell<usize> = const { Cell::new(0) };
 }
 
-/// Have the device refuse this thread's next allocation of a page.
-#[allow(dead_code, reason = "only the tests that run out of memory refuse")]
-pub fn refuse_next_page() {
-    REFUSALS.with(|refusals| refusals.set(1));
-}
-
-/// How many of the refusals [`refuse_next_page`] asked for the device has yet to make: none once
-/// an allocation took the refusal.
-#[allow(dead_code, reason = "only the tests that run out of memory refuse")]
-pub fn refusals_left() -> usize {
-    REFUSALS.with(Cell::get)
-}
-
-/// Host bytes standing in for device memory, out of memory whenever [`refuse_next_page`] says.
+/// Host bytes standing in for device memory, out of memory whenever [`REFUSALS`] says.
 #[derive(Default)]
 pub struct FlakyStorage {
     bytes: BytesStorage,
@@ -166,7 +153,7 @@ impl DeviceStream for FakeStream {
 fn memory<S: ComputeStorage + Default>(name: &'static str) -> MemoryManagement<S> {
     MemoryManagement::from_configuration(
         S::default(),
-        &MemoryDeviceProperties::new(128 * MIB, 32),
+        &MemoryDeviceProperties::new(512 * MIB, 32),
         MemoryConfiguration::Adaptive,
         Arc::new(ServerLogger::default()),
         MemoryManagementOptions::new(name),

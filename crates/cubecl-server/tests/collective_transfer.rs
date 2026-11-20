@@ -38,7 +38,7 @@ struct Posted {
     recvs: usize,
 }
 
-pub struct Wire {
+struct Wire {
     posted: Mutex<Posted>,
     recv_posted: Condvar,
     refused_rank: AtomicUsize,
@@ -56,6 +56,11 @@ impl Wire {
                 refused_rank: AtomicUsize::new(usize::MAX),
             }))
         })
+    }
+
+    /// The wire a communicator of [`CommunicationId`] `id` posts on.
+    fn of(id: u64) -> &'static Self {
+        Self::named(&CommunicationId { id })
     }
 
     fn between(a: DeviceId, b: DeviceId) -> &'static Self {
@@ -88,8 +93,9 @@ impl Wire {
 }
 
 impl CollectiveDriver for Fake {
-    type Communicator = &'static Wire;
-    type UniqueId = &'static Wire;
+    /// The wire's [`CommunicationId`], which [`Wire::of`] looks up.
+    type Communicator = u64;
+    type UniqueId = u64;
     type DataType = ();
 
     const LIBRARY: &'static str = "the fake";
@@ -100,7 +106,7 @@ impl CollectiveDriver for Fake {
     }
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
-        Ok(Wire::named(id))
+        Ok(id.id)
     }
 
     fn join(
@@ -108,7 +114,7 @@ impl CollectiveDriver for Fake {
         _ranks: usize,
         rank: usize,
     ) -> Result<Self::Communicator, ServerError> {
-        if id.refused_rank.load(Ordering::Relaxed) == rank {
+        if Wire::of(id).refused_rank.load(Ordering::Relaxed) == rank {
             return Err(error("the source could not join"));
         }
         Ok(id)
@@ -179,7 +185,7 @@ impl CollectiveDriver for Fake {
         _peer: usize,
         _stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        comm.post_send();
+        Wire::of(*comm).post_send();
         Ok(())
     }
 
@@ -190,7 +196,7 @@ impl CollectiveDriver for Fake {
         _peer: usize,
         _stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        comm.post_recv();
+        Wire::of(*comm).post_recv();
         Ok(())
     }
 }
