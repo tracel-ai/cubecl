@@ -256,12 +256,8 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     pub fn end_run(&mut self, caller: StreamId) -> Result<bool, ServerError> {
         let stream = self.stream();
         // Refused before the drain: its fence, on a stream that records, would
-        // abort the live capture.
-        if stream.capturing().is_recording() {
-            return Err(ServerError::graph_state(
-                "a planning run ends only before the window opens",
-            ));
-        }
+        // abort the live capture, and a refused call has no run to reclaim.
+        stream.capturing().ensure_planned_by(caller)?;
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
         stream.capturing().end_run(caller)
@@ -366,7 +362,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // no graph they drop here, since its copies never ran and never will.
         let retained_host = stream.capturing().take_retained_host();
         let retained_peers = stream.capturing().take_retained_peers();
-        let retained_outputs = stream.capturing().take_retained_outputs();
+        let retained_outputs: Vec<_> = stream.capturing().drain_retained_outputs().collect();
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
         let signal = stream.signal();

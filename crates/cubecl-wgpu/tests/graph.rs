@@ -174,6 +174,32 @@ fn wgpu_graph_input_rewrite() {
     assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
 }
 
+/// wgpu's graphs share no room, so their work needs no plan: one planning run
+/// settles it, and the work runs once more, recorded.
+#[test]
+fn wgpu_graph_one_planning_run_settles() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = <WgpuRuntime>::client(&Default::default());
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let mut runs = 0;
+    let (_graph, ()) = client
+        .capture(|| {
+            runs += 1;
+            add_one::launch(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new(&client, n),
+                unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+                unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+            );
+        })
+        .expect("capture");
+    assert_eq!(runs, 2, "one planning run, then the recorded one");
+}
+
 /// The lifecycle risk: a captured graph references pool slices the memory
 /// pool cannot see. Its **intermediate** buffer (`tmp`) is allocated during
 /// capture; when its handle drops, does the pool reclaim that memory and hand

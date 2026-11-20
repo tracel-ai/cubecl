@@ -64,6 +64,8 @@ pub struct StreamCapture {
     /// The memory the recorded run placed as outputs, held while the window is open and handed
     /// to the graph it seals into. Every replay writes it whether or not the work kept it, so a
     /// slice the work let go must not go back to the room other graphs' outputs are carved from.
+    /// Arrival usage: pushed per output as the recording allocates it, drained whole as the
+    /// window closes.
     retained_outputs: Vec<ManagedMemoryBinding>,
     /// The failure that doomed the window, if one did — work inside it failed
     /// or was skipped, so the recording is missing an operation. Sealing it
@@ -198,6 +200,18 @@ impl StreamCapture {
     /// the logical `caller` is not the one that prepared it: another logical stream folded onto
     /// the same backend stream would cut the owner's run log short.
     pub fn end_run(&mut self, caller: StreamId) -> Result<bool, ServerError> {
+        self.ensure_planned_by(caller)?;
+        Ok(self.planner.finish_run())
+    }
+
+    /// Check that the logical `caller` may end a planning run, before anything is done to end
+    /// it: a backend reclaims the run's deferred frees first, and the fence that takes would
+    /// abort a recording.
+    ///
+    /// # Errors
+    ///
+    /// As [`end_run`](Self::end_run).
+    pub fn ensure_planned_by(&self, caller: StreamId) -> Result<(), ServerError> {
         if !self.state.is_preparing() {
             return Err(ServerError::graph_state(
                 "a planning run ends only while a capture is prepared and its window not open",
@@ -208,7 +222,7 @@ impl StreamCapture {
                 "a planning run ends only on the logical stream that prepared the capture",
             ));
         }
-        Ok(self.planner.finish_run())
+        Ok(())
     }
 
     /// Whether the window may open: a recording with no plan could put an output on room
@@ -314,10 +328,11 @@ impl StreamCapture {
         }
     }
 
-    /// The memory the recorded run placed as outputs, taken as the window closes, as
+    /// The memory the recorded run placed as outputs, drained as the window closes, onto the
+    /// graph when it seals, or dropped when it does not, as
     /// [`take_retained_host`](Self::take_retained_host).
-    pub fn take_retained_outputs(&mut self) -> Vec<ManagedMemoryBinding> {
-        core::mem::take(&mut self.retained_outputs)
+    pub fn drain_retained_outputs(&mut self) -> impl Iterator<Item = ManagedMemoryBinding> + '_ {
+        self.retained_outputs.drain(..)
     }
 
     /// The failure that doomed this window, taken as it closes. `Some` means
