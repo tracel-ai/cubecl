@@ -80,7 +80,7 @@ fn deref_reads_mutable_fields() {
         AddressType::U32,
     ));
     let original = ValueExpand::<f32> {
-        value: 2.0f32.into_expand(&scope).into_mut(&scope),
+        value: 2.0f32.into_expand(&scope).create_mut_place(&scope),
     };
     let copy = original.__expand_copy_method(&scope);
 
@@ -99,8 +99,8 @@ fn deref_nested_structs_and_comptime_fields() {
     ));
     let original = WrapperExpand::<MixedFields> {
         value: MixedFieldsExpand {
-            first: 3.0f32.into_expand(&scope).into_mut(&scope),
-            second: 4.0f32.into_expand(&scope).into_mut(&scope),
+            first: 3.0f32.into_expand(&scope).create_mut_place(&scope),
+            second: 4.0f32.into_expand(&scope).create_mut_place(&scope),
             label: String::from("test"),
         },
     };
@@ -119,9 +119,9 @@ fn deref_aliased_fields() {
         AddressType::U32,
     ));
     let original = AliasedFieldsExpand {
-        first: 1.0f32.into_expand(&scope).into_mut(&scope),
-        second: 2.0f32.into_expand(&scope).into_mut(&scope),
-        third: 3.0f32.into_expand(&scope).into_mut(&scope),
+        first: 1.0f32.into_expand(&scope).create_mut_place(&scope),
+        second: 2.0f32.into_expand(&scope).create_mut_place(&scope),
+        third: 3.0f32.into_expand(&scope).create_mut_place(&scope),
     };
     let copy = original.__expand_copy_method(&scope);
 
@@ -145,7 +145,7 @@ fn deref_borrowed_comptime_field() {
     ));
     let label = String::from("borrowed");
     let original = BorrowedFieldsExpand {
-        value: 1.0f32.into_expand(&scope).into_mut(&scope),
+        value: 1.0f32.into_expand(&scope).create_mut_place(&scope),
         label: &label,
     };
     let copy = original.__expand_deref_method(&scope);

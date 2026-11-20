@@ -54,10 +54,10 @@ pub trait IteratorExpand: Iterable {
     /// See [`Iterator::fold`](core::iter::Iterator::fold).
     fn __expand_fold_method<B, F>(self, scope: &Scope, init: IterArg<B>, mut f: F) -> B::Expand
     where
-        B: IntoExpand<Expand: Assign + IntoMut + Clone>,
+        B: IntoExpand<Expand: Assign + PlaceExpand + Clone>,
         F: FnMut(&Scope, B::Expand, Self::Item) -> B::Expand,
     {
-        let mut accum = init.0.into_expand(scope).into_mut(scope);
+        let mut accum = init.0.into_expand(scope).create_mut_place(scope);
         self.expand(scope, &mut |scope, item| {
             let next = f(scope, accum.clone(), item);
             accum.__expand_assign_method(scope, next);
@@ -74,7 +74,7 @@ pub trait IteratorExpand: Iterable {
         S: Numeric,
         Self::Item: IntoNumericExpand<S>,
     {
-        let mut accum = S::__expand_from_int(scope, 0i64.into()).into_mut(scope);
+        let mut accum = S::__expand_from_int(scope, 0i64.into()).create_mut_place(scope);
         self.expand(scope, &mut |scope, item| {
             let value = item.into_numeric_expand(scope);
             accum.__expand_add_assign_method(scope, value);
@@ -90,7 +90,7 @@ pub trait IteratorExpand: Iterable {
         P: Numeric,
         Self::Item: IntoNumericExpand<P>,
     {
-        let mut accum = P::__expand_from_int(scope, 1i64.into()).into_mut(scope);
+        let mut accum = P::__expand_from_int(scope, 1i64.into()).create_mut_place(scope);
         self.expand(scope, &mut |scope, item| {
             let value = item.into_numeric_expand(scope);
             accum.__expand_mul_assign_method(scope, value);
@@ -100,7 +100,7 @@ pub trait IteratorExpand: Iterable {
 
     /// See [`Iterator::count`](core::iter::Iterator::count).
     fn __expand_count_method(self, scope: &Scope) -> NativeExpand<usize> {
-        let mut count = NativeExpand::<usize>::from_lit(scope, 0).into_mut(scope);
+        let mut count = NativeExpand::<usize>::from_lit(scope, 0).create_mut_place(scope);
         self.expand(scope, &mut |scope, _| {
             let one = NativeExpand::<usize>::from_lit(scope, 1);
             count.__expand_add_assign_method(scope, one);
@@ -113,7 +113,7 @@ pub trait IteratorExpand: Iterable {
     where
         F: FnMut(&Scope, Self::Item) -> NativeExpand<bool>,
     {
-        let mut found = false.__expand_runtime_method(scope).into_mut(scope);
+        let mut found = false.__expand_runtime_method(scope).create_mut_place(scope);
         self.expand(scope, &mut |scope, item| {
             let matched = f(scope, item);
             if_expand(scope, matched, |scope| {

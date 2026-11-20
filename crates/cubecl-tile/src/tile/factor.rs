@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ExpandValue, Scope};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::QuantValue;
@@ -678,8 +680,11 @@ impl ExpandTypeClone for FactorExpand {
         self.clone()
     }
 }
-impl IntoMut for FactorExpand {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for FactorExpand {
+    fn create_mut_place(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }

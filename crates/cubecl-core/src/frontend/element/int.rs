@@ -8,7 +8,7 @@ use crate::frontend::{CubeType, Numeric};
 use crate::ir::{IntKind, Scope};
 use crate::prelude::*;
 
-use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
+use super::{__expand_new, CubePrimitive, IntoRuntime, NativeAssign, NativeExpand, PlaceExpand};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
@@ -103,8 +103,11 @@ macro_rules! impl_int {
             }
         }
 
-        impl IntoMut for $type {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl PlaceExpand for $type {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
+                self
+            }
+            fn read_place(self, _scope: &Scope) -> Self {
                 self
             }
         }

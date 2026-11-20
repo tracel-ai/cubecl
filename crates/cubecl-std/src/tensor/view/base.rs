@@ -61,8 +61,11 @@ macro_rules! impl_cube_type {
             }
         }
 
-        impl<'a, E: CubePrimitive, C: Coordinates> IntoMut for $expand<'a, E, C> {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl<'a, E: CubePrimitive, C: Coordinates> PlaceExpand for $expand<'a, E, C> {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
+                self
+            }
+            fn read_place(self, _scope: &Scope) -> Self {
                 self
             }
         }
