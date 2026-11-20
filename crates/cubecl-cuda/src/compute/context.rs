@@ -80,8 +80,16 @@ impl CudaContext {
         &self.compilation_options
     }
 
-    /// Switches the current CUDA context to this context.
+    /// Makes this context the calling thread's current CUDA context.
+    ///
+    /// The server calls it before every command, so a thread already on it
+    /// skips the switch. The driver is asked rather than a flag kept here:
+    /// code outside the runtime can change the thread's context between two
+    /// commands.
     pub fn unsafe_set_current(&self) -> Result<(), DriverError> {
+        if cudarc::driver::result::ctx::get_current()? == Some(self.context) {
+            return Ok(());
+        }
         // SAFETY: `self.context` is a valid CUDA context obtained from `primary_ctx::retain`
         // during server initialization and remains valid for the server's lifetime.
         unsafe { cudarc::driver::result::ctx::set_current(self.context) }
