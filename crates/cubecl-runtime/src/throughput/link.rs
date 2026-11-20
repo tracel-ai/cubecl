@@ -17,6 +17,13 @@ pub enum LinkRoute {
     /// all-reduce, the whole gathered output for an all-gather, the whole reduced input for a
     /// reduce-scatter.
     Collective(Collective),
+    /// Every member storing into the next member's memory at once, the last into the first's, each
+    /// kernel ending behind a system-scope fence as [`PeerStore`](Self::PeerStore) does. Sized per
+    /// member: the bytes each one stores.
+    RingPeerStore,
+    /// Every member loading from the previous member's memory at once, the first from the last's.
+    /// Sized per member: the bytes each one loads.
+    RingPeerLoad,
 }
 
 /// What a link probe measures, between the members its cache is named for.
