@@ -362,9 +362,10 @@ impl<'a> TileTensorExpand<'a> {
     }
 
     /// `values` under these scales, a tile carrying its own scales in turn. A tensor map's values
-    /// land in a stage as they lie, so the scales on them are words of block scales, which a stage
-    /// keeps beside them; a scale above the words leaves the operand for the sum (`Tile::factor`)
-    /// before the stage is filled, and staging checks what is left.
+    /// land in a stage as they lie, so a stage keeps the scales on them beside them, whatever the
+    /// scales are: words of block scales, block scales packed in words, or each scale alone
+    /// ([`Tile::scales_kept_beside`]). A scale above them leaves the operand for the sum
+    /// (`Tile::factor`) before the stage is filled, and staging checks what is left.
     fn scaling(
         &self,
         scope: &Scope,
@@ -375,15 +376,12 @@ impl<'a> TileTensorExpand<'a> {
         let Some(level) = &self.scale else {
             return values;
         };
-        // Words of block scales, or block scales packed in words a field a scale, which a reader
-        // that decodes as it loads asks a stage to keep beside the values.
-        let words = level.element == u32::elem_type_native();
-        assert!(
-            words || !matches!(self.values, ValuesExpand::TensorMap { .. }),
-            "TileTensor: a tensor map lands its values as they lie, so it rides only scales a \
-             stage keeps beside them: words of block scales, or block scales packed in words"
-        );
-        values.__expand_mul_method(scope, &level.served(scope, partitioning, writable))
+        let scaled =
+            values.__expand_mul_method(scope, &level.served(scope, partitioning, writable));
+        match self.values {
+            ValuesExpand::TensorMap { .. } => scaled.__expand_scales_kept_beside_method(scope),
+            _ => scaled,
+        }
     }
 }
 
