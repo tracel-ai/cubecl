@@ -33,10 +33,6 @@ use crate::*;
 /// `e2m1` values one stored word holds.
 pub(crate) const E2M1_PER_WORD: usize = 8;
 
-/// Values of `k` a run reads one scale for: sixteen, the narrowest block a format scales, so
-/// a run under any block of a multiple of it reads each value's scale.
-pub(crate) const SCALE_READ: usize = 16;
-
 /// How a target's 16-bit manual-mma instruction lays `k` out across a plane's units: unit `u`
 /// holds part `u % units_per_row` of the instruction's `k` along row
 /// `(u / units_per_row) % rows_spanned` of an `A`, and `rows_spanned` further on where it holds a
@@ -485,17 +481,21 @@ fn load_e2m1_run<T: Numeric, N: Size>(
          spans {:?}",
         load.space()
     ));
+    let factor = src.innermost_factor();
+    // Values of `k` a run reads one scale for: the window's own scale block, or the whole run where
+    // one scale covers it.
+    let scale_read = factor.values_a_scale(space.clone(), dimensions.col_split);
+    let scale_read = comptime!(scale_read.min(run.len));
     comptime!(assert!(
         values.is_multiple_of(E2M1_PER_WORD)
             && run.len.is_multiple_of(values)
-            && run.len.is_multiple_of(SCALE_READ),
+            && run.len.is_multiple_of(scale_read),
         "MmaData::load: a unit's {}-value run of `k` reads whole loads and whole scale blocks, \
          and this window is read {values} values a load",
         run.len,
     ));
     let size!(WP) = comptime!(values / E2M1_PER_WORD);
     let words = src.nd_words::<WP>(comptime!(Guard::Checked));
-    let factor = src.innermost_factor();
     // The codes as the device reads them ([`Field::read_on`]): cast as `e2m1x2` only where the
     // device converts them, decoded from the word's bits everywhere else. Each value is whole,
     // since its block's scale is all this run multiplies it by.
@@ -515,10 +515,10 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     #[unroll]
     for held_row in 0..run.rows_per_unit() {
         let at = LaneRun::window_row(run, held_row);
-        let mut scales = Array::<T>::new(comptime!(run.len / SCALE_READ));
+        let mut scales = Array::<T>::new(comptime!(run.len / scale_read));
         #[unroll]
-        for b in 0..comptime!(run.len / SCALE_READ) {
-            let col = first + comptime!((b * SCALE_READ) as u32);
+        for b in 0..comptime!(run.len / scale_read) {
+            let col = first + comptime!((b * scale_read) as u32);
             let coords = TileMatrix::value_coords(at, col, 0usize, &space, dimensions, 1usize);
             scales[b] =
                 T::cast_from(factor.at_coords(&coords, space.clone(), comptime!(Guard::Checked)));
@@ -536,7 +536,7 @@ fn load_e2m1_run<T: Numeric, N: Size>(
                     comptime!(field),
                 );
                 let decoded =
-                    codes * Vector::<T, Const<8>>::new(scales[comptime!(word / SCALE_READ)]);
+                    codes * Vector::<T, Const<8>>::new(scales[comptime!(word / scale_read)]);
                 #[unroll]
                 for p in 0..comptime!(E2M1_PER_WORD / run.cells_per_register) {
                     let mut vector = Vector::<T, N>::empty();
