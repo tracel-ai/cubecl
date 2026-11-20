@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
+use core::cell::Cell;
 use cubecl::prelude::*;
 use cubecl_common::profile::{Duration, Instant};
 use cubecl_core as cubecl;
@@ -34,6 +35,14 @@ pub(crate) enum PeerCopyKind {
 }
 
 impl PeerCopyKind {
+    /// The side whose kernel runs.
+    fn launcher<'a>(self, source: &'a Client, destination: &'a Client) -> &'a Client {
+        match self {
+            Self::Load => destination,
+            Self::Store => source,
+        }
+    }
+
     /// Whether the side this kind launches on can bind the other side's memory.
     pub(crate) fn reaches(self, source: &Client, destination: &Client) -> bool {
         match self {
@@ -49,6 +58,9 @@ pub(crate) struct PeerCopier {
     copies: Vec<PeerCopy>,
     kind: PeerCopyKind,
     bytes: u64,
+    /// Set once a launch read its timing. Warmup doubles its count on each zero sample, so a later
+    /// sample would run up to a thousand passes.
+    interrupted: Cell<bool>,
 }
 
 /// The buffers of one peer kernel: `launcher` runs it, reading `read` and writing `written`, which
@@ -62,7 +74,8 @@ struct PeerCopy {
 
 impl PeerCopier {
     /// One copy of `bytes` from `source` to `destination`, refused where the side `kind` launches
-    /// on cannot bind the other's memory or `bytes` is more than a kernel can address.
+    /// on cannot bind the other's memory, launches there read their timing, or `bytes` is more than
+    /// a kernel can address.
     pub(crate) fn pair(
         source: &Client,
         destination: &Client,
@@ -93,8 +106,10 @@ impl PeerCopier {
     /// Runs one pass, confirms every copy's output was written, then hands the copies over to be
     /// timed.
     pub(crate) fn into_config(self) -> Result<KernelConfig, ThroughputError> {
-        // `verify`'s check, on every copy's output.
-        self.time_iterations(1);
+        // `verify`'s check, on every copy's output, which a pass stopped early never wrote.
+        if self.time_iterations(1).is_zero() {
+            return Err(ThroughputError::Unsupported);
+        }
         for copy in &self.copies {
             cubecl_core::future::block_on(copy.owner.sync_buffers([&copy.written]))
                 .map_err(|_| ThroughputError::Launch)?;
@@ -123,6 +138,7 @@ impl PeerCopier {
             copies,
             kind,
             bytes,
+            interrupted: Cell::new(false),
         })
     }
 
@@ -146,6 +162,10 @@ impl PeerCopier {
         bytes: u64,
     ) -> Result<PeerCopy, ThroughputError> {
         if !kind.reaches(source, destination) {
+            return Err(ThroughputError::Unsupported);
+        }
+        // A launch that reads its timing ends before the next is issued, so none would overlap.
+        if kind.launcher(source, destination).launches_read_timing() {
             return Err(ThroughputError::Unsupported);
         }
         let initialized = Self::initialized(source, bytes)?;
@@ -185,15 +205,25 @@ impl PeerCopier {
     }
 
     fn time_iterations(&self, iterations: usize) -> Duration {
-        let start = Instant::now();
-        for _ in 0..iterations {
-            self.copies.iter().for_each(|copy| self.launch(copy));
+        if self.interrupted.get() {
+            return Duration::ZERO;
         }
+        let start = Instant::now();
+        // Stops at a launch that read its timing: the sample is lost, and more would only cost.
+        let waited = (0..iterations).flat_map(|_| &self.copies).any(|copy| {
+            self.launch(copy);
+            copy.launcher.launches_read_timing()
+        });
         // A failure is not this sync's to report: every output was asked before timing.
         for copy in &self.copies {
             let _ = cubecl_core::future::block_on(copy.launcher.sync());
         }
-        start.elapsed()
+        self.interrupted.set(waited);
+        // An observation that began after `copy` checked; a zero reads as no timing.
+        match waited {
+            true => Duration::ZERO,
+            false => start.elapsed(),
+        }
     }
 
     fn launch(&self, copy: &PeerCopy) {

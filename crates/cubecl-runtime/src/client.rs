@@ -5,7 +5,7 @@ use crate::{
     kernel::CubeKernel,
     logging::{
         CollectivePath, Communication, ExecutionId, ExecutionKind, ExecutionPlace, ExecutionScope,
-        ProfileLevel, StreamRole, TransferRoute, WaitTarget,
+        ProfileLevel, StreamRole, TimingRequest, TransferRoute, WaitTarget,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
@@ -1132,6 +1132,21 @@ impl Client {
     /// its collectives queue nothing.
     pub fn skips_communication(&self) -> bool {
         self.utilities.communication_skips.any()
+    }
+
+    /// Whether launches on this device read their kernel's duration before returning, which waits
+    /// for the kernel to end: an observer asks for each one read, or the profiling logger reads
+    /// those it keeps. A discarded launch, or one whose profile the device refuses, reads none.
+    /// Metal waits for every timed launch, read or not.
+    pub fn launches_read_timing(&self) -> bool {
+        match crate::logging::timing_requested() {
+            TimingRequest::None => false,
+            TimingRequest::Resolved => true,
+            TimingRequest::Deferred(_) => !matches!(
+                self.utilities.logger.profile_level(),
+                None | Some(ProfileLevel::ExecutionOnly)
+            ),
+        }
     }
 
     pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
