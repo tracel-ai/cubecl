@@ -87,7 +87,7 @@ pub(crate) enum Backing {
     ReadCall(RawCall<ReadOnly>),
 }
 
-/// The refusal of a write into a tile served from a [`TileTensor`] taken by `&`.
+/// The decline of a write into a tile served from a [`TileTensor`] taken by `&`.
 ///
 /// The launch declares such an operand's buffers read-only, and a launch that fails before it
 /// runs fails the reads of only the buffers it declares written: a write through `&` would leave
@@ -340,8 +340,19 @@ pub(crate) enum Overhang {
 pub enum Boundary {
     /// Out-of-bounds reads return zero; writes are skipped.
     Zero,
+    /// Out-of-bounds reads return the identity of the monoid that combines the operand, so a read
+    /// past the problem's edge leaves the combined value unchanged; writes are skipped.
+    Identity(Monoid),
     /// Out-of-bounds reads/writes clamp to the edge cell.
     Clamp,
+}
+
+impl Boundary {
+    /// Whether a position past the edge is masked (read as a fill, written nowhere), as `Zero` and
+    /// `Identity` mask it, rather than clamped onto the edge cell.
+    pub const fn masks(self) -> bool {
+        !matches!(self, Boundary::Clamp)
+    }
 }
 
 impl Overhang {

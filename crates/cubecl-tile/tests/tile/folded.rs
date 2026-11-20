@@ -6,7 +6,7 @@ use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{prelude::*, zspace::shape};
 
 use super::{Form, implied};
-use cubecl_tile::launch::Refusal;
+use cubecl_tile::launch::Decline;
 use cubecl_tile::*;
 
 const B: Dimension = Dimension(0);
@@ -169,7 +169,7 @@ fn dimensions_out_of_axis_order_are_refused() {
         .build()
         .err();
     assert!(
-        matches!(refused, Some(Refusal::DimensionsOutOfAxisOrder { .. })),
+        matches!(refused, Some(Decline::DimensionsOutOfAxisOrder { .. })),
         "{refused:?}"
     );
 }

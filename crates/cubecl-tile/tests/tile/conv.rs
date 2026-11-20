@@ -61,7 +61,7 @@ pub(crate) fn conv_kernel(
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
     for region in space.over(&level) {
-        let mut out_region = out.at(&region).accumulating(config, Semiring::SUM_PROD);
+        let mut out_region = out.at(&region).accumulating(config, Semiring::SumProd);
         out_region.mm(&input.at(&region), &weight.at(&region));
     }
 }
@@ -85,7 +85,7 @@ fn conv_kernel_smem(
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
     stages.pipelined(walk, |slot, region| {
-        let mut out_region = out.at(region).accumulating(config, Semiring::SUM_PROD);
+        let mut out_region = out.at(region).accumulating(config, Semiring::SumProd);
         slot.consume(|input, weight| {
             out_region.mm(input, weight);
         });
@@ -118,7 +118,7 @@ fn conv_kernel_smem_padded(
         None,
     );
     stages.pipelined(walk, |slot, region| {
-        let mut out_region = out.at(region).accumulating(config, Semiring::SUM_PROD);
+        let mut out_region = out.at(region).accumulating(config, Semiring::SumProd);
         let weight = weight.at(region);
         slot.consume(|input| {
             out_region.mm(input, &weight);
@@ -146,9 +146,7 @@ fn conv_kernel_two_levels(
         let input_outer = input.at(&outer);
         let weight_outer = weight.at(&outer);
         for inner in outer.over(&inner) {
-            let mut out_inner = out_outer
-                .at(&inner)
-                .accumulating(config, Semiring::SUM_PROD);
+            let mut out_inner = out_outer.at(&inner).accumulating(config, Semiring::SumProd);
             out_inner.mm(&input_outer.at(&inner), &weight_outer.at(&inner));
         }
     }
@@ -176,9 +174,7 @@ fn conv_kernel_two_levels_smem(
         let out_outer = out.at(region);
         slot.consume(|input, weight| {
             for inner in region.over(&inner) {
-                let mut out_inner = out_outer
-                    .at(&inner)
-                    .accumulating(config, Semiring::SUM_PROD);
+                let mut out_inner = out_outer.at(&inner).accumulating(config, Semiring::SumProd);
                 out_inner.mm(&input.at(&inner), &weight.at(&inner));
             }
         });
@@ -2232,7 +2228,7 @@ fn conv_kernel_input_staged(
         sync_cube();
         let mut out_region = out
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out_region.mm(&stage, &weight.at(&region));
         sync_cube();
     }

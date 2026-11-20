@@ -6,7 +6,7 @@ use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::std::tensor::layout::CoordsDyn;
 use cubecl::{bytes::Bytes, prelude::*, std::tensor::TensorHandle};
 use cubecl_tile::kind::Storage;
-use cubecl_tile::launch::Refusal;
+use cubecl_tile::launch::Decline;
 use cubecl_tile::layout::{StorageLevels, StoragePartitioning};
 use cubecl_tile::space::{CubeOrder, PlaneOrder};
 use cubecl_tile::*;
@@ -166,7 +166,7 @@ fn an_overhanging_launch_refuses_an_operand_read_inside_its_storage_tile() {
 
     assert_eq!(
         refused.map(|_| ()),
-        Err(Refusal::CheckedInsideStorageTile { level: 3 })
+        Err(Decline::CheckedInsideStorageTile { level: 3 })
     );
 }
 
@@ -221,7 +221,7 @@ fn a_launch_order_past_the_operand_refuses_an_operand_read_inside_its_storage_ti
     let refused = launcher.arg(binding, dtype).dimensions(&dimensions).build();
 
     assert!(
-        matches!(refused, Err(Refusal::CheckedInsideStorageTile { .. })),
+        matches!(refused, Err(Decline::CheckedInsideStorageTile { .. })),
         "{:?}",
         refused.map(|_| ())
     );

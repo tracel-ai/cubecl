@@ -106,9 +106,9 @@ impl Compaction {
         }
 
         let projection = Projection::new(projection.dimensions(), &physical);
-        // Compacted at expansion as well as on the host, where no caller takes a refusal.
-        if let Err(refusal) = projection.validate(vector_size) {
-            panic!("{refusal}");
+        // Compacted at expansion as well as on the host, where no caller takes a decline.
+        if let Err(decline) = projection.validate(vector_size) {
+            panic!("{decline}");
         }
 
         Compaction {

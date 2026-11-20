@@ -5,7 +5,7 @@
 
 use crate::support::{HostData, HostDataType, TestInput, TileInput, assert_equals_approx};
 use cubecl::{ir::OpaqueType, prelude::*, zspace::shape};
-use cubecl_tile::launch::{Grid, Refusal};
+use cubecl_tile::launch::{Decline, Grid};
 use cubecl_tile::stage::Role;
 use cubecl_tile::*;
 
@@ -44,7 +44,7 @@ fn ring_matmul(
             for cell in region {
                 let mut c_cell = c_block
                     .at(&cell)
-                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -84,7 +84,7 @@ fn role_split_matmul(
                     for cell in &region {
                         let mut c_cell = c_block
                             .at(&cell)
-                            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                         c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
                     }
                 });
@@ -163,7 +163,7 @@ fn a_device_without_barriers_refuses_a_walk_filled_by_planes_of_its_own() {
         true => assert!(launched.is_ok()),
         false => assert!(matches!(
             launched.err(),
-            Some(Refusal::FillersWithoutBarriers { fillers: 1 })
+            Some(Decline::FillersWithoutBarriers { fillers: 1 })
         )),
     }
 }

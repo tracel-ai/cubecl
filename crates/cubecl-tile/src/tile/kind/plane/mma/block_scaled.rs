@@ -119,7 +119,7 @@ fn refuse_unless_block_scaled<T: Numeric>(
         };
         let scale_field = Field::of_float(form.scales);
         let step_scales = k / form.block;
-        let refusal = if !offered {
+        let decline = if !offered {
             Some(format!(
                 "the device offers no block-scaled instruction of {m}x{n}x{k} over {form:?}"
             ))
@@ -168,8 +168,8 @@ fn refuse_unless_block_scaled<T: Numeric>(
         } else {
             None
         };
-        if let Some(refusal) = refusal {
-            panic!("MmaOperands::BlockScaled: {refusal}");
+        if let Some(decline) = decline {
+            panic!("MmaOperands::BlockScaled: {decline}");
         }
     });
 }

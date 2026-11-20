@@ -69,7 +69,7 @@ fn packed_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -96,7 +96,7 @@ fn nvfp4_shaped_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -264,7 +264,7 @@ fn packed_matmul_rhs(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&x.at(&region), &w.at(&region));
     }
 }
@@ -289,7 +289,7 @@ fn native_matmul(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -316,12 +316,8 @@ fn packed_one_row_product<E: Numeric>(
         let w = w.at(&cube);
         let c = c.at(&cube);
         // The accumulator lives in registers across the whole walk and drains once.
-        let acc = c.register_accumulator::<E>(
-            &x,
-            &values,
-            comptime!(SOFTWARE_MATMUL),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &values, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -348,7 +344,7 @@ fn packed_matmul_byte_scales(
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -372,12 +368,8 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.register_accumulator::<E>(
-            &x,
-            &values,
-            comptime!(SOFTWARE_MATMUL),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &values, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -403,7 +395,7 @@ fn packed_cmma_rhs<E: Numeric>(
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
     let c = c.tile_mut(&space);
-    let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SumProd);
     // The level cuts the columns into two fragments and walks `K`: unrolled, so each region
     // selects its fragment at comptime.
     for region in space.over(&level).unrolled() {
@@ -429,7 +421,7 @@ fn packed_cmma_rhs_dequantized<E: Numeric>(
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
     let c = c.tile_mut(&space);
-    let acc = c.accumulator::<E>(&x, &w, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SumProd);
     for region in space.over(&level).unrolled() {
         let mut acc_r = acc.at(&region);
         let w_r = acc_r.dequantized(&w.at(&region), element);
@@ -2040,7 +2032,7 @@ fn packed_one_row_product_unscaled<E: Numeric>(
         let w = w.at(&cube);
         let c = c.at(&cube);
         let acc =
-            c.register_accumulator::<E>(&x, &w, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
+            c.register_accumulator::<E>(&x, &w, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));

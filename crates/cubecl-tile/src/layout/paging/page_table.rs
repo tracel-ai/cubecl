@@ -82,7 +82,7 @@ impl PageTable {
         let (sequence_axis, position_axis) = comptime!(
             paging
                 .axes(projection)
-                .unwrap_or_else(|refusal| panic!("PageTable: {refusal}"))
+                .unwrap_or_else(|decline| panic!("PageTable: {decline}"))
         );
         let unit = comptime!(match position_axis == projection.physical_rank() - 1 {
             true => width,

@@ -11,6 +11,7 @@ mod dequant;
 mod destination;
 mod distributed;
 mod dynamic_contraction;
+mod edge_identity;
 mod erased;
 mod folded;
 mod gather;

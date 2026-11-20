@@ -81,7 +81,9 @@ impl TileSpec {
         match policy {
             BoundaryPolicy::Unchecked => self.boundaries(&vec![None; coord_rank]),
             // A spec has no launch to say which dimensions some extent could overhang: every one.
-            BoundaryPolicy::Every(boundary) | BoundaryPolicy::AnyExtent(boundary) => {
+            BoundaryPolicy::Every(boundary)
+            | BoundaryPolicy::AnyExtent(boundary)
+            | BoundaryPolicy::Overhanging(boundary) => {
                 self.boundaries(&vec![Some(boundary); coord_rank])
             }
         }

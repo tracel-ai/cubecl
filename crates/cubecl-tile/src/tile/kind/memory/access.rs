@@ -431,10 +431,34 @@ impl Memory {
                  (Tile::matrix_packed)"
             )
         }
-        Masked::new(
+        self.edged::<T, W, C>(
             self.window_view::<T, W>(guard).view(layout),
             comptime!(guard.checks() && self.access.overhang.masks()),
         )
+    }
+
+    /// `view` masked as `check` says, reading past the edge the identity of the monoid this
+    /// operand's window names ([`Boundary::Identity`]), or zero where it names none.
+    fn edged<'b, T: Numeric, W: Size, C: Coordinates + 'b>(
+        &self,
+        view: View<'b, Vector<T, W>, C>,
+        #[comptime] check: bool,
+    ) -> Masked<'b, Vector<T, W>, C> {
+        let identity =
+            comptime!(self.window.boundaries.iter().flatten().find_map(
+                |boundary| match boundary {
+                    Boundary::Identity(monoid) => Some(*monoid),
+                    _ => None,
+                }
+            ));
+        match identity {
+            Some(monoid) => Masked::filled(
+                view,
+                check,
+                Vector::<T, W>::new(Monoid::identity::<T>(monoid)),
+            ),
+            None => Masked::new(view, check),
+        }
     }
 
     /// The mask flag for a write view; refuses a [`Boundary::Clamp`] operand, whose writes alias.
@@ -467,7 +491,7 @@ impl Memory {
     /// Re-view this buffer as a flat 1-D [`FlatView`] over its [`Window`] extent.
     pub(crate) fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
         comptime!(self.projection.refuse_backward("Memory::flat"));
-        FlatView::new(
+        self.edged::<T, W, Coords1d>(
             self.window_view::<T, W>(comptime!(Guard::Checked))
                 .view(FlatLayout::new(self.window.extent.clone())),
             comptime!(self.access.overhang.masks()),
@@ -505,7 +529,7 @@ impl Memory {
                     .window_view_storage::<u32, WP>(comptime!(Guard::Checked))
                     .view(layout);
                 let values = PackedView::<WP, T, W, C>::new(words, comptime!(field));
-                Masked::new(
+                self.edged::<T, W, C>(
                     values.view(),
                     comptime!(guard.checks() && self.access.overhang.masks()),
                 )
@@ -998,7 +1022,7 @@ impl Memory {
         let at = comptime!(
             placed_axis(&proj, dimension)
                 .filter(|&at| self.layout.projection.carriers(Dimension(at as u8)).len() == 1)
-                .unwrap_or_else(|| panic!("{}", Refusal::IndexOfAStatedLayout))
+                .unwrap_or_else(|| panic!("{}", Decline::IndexOfAStatedLayout))
         );
 
         let mut origin = Coords::<i32>::new();

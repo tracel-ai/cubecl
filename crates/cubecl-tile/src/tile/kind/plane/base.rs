@@ -35,7 +35,7 @@ impl PlaneTile {
     pub(crate) fn semiring(&self) -> comptime_type!(Semiring) {
         match self {
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => {
-                comptime!(Semiring::SUM_PROD)
+                comptime!(Semiring::SumProd)
             }
             PlaneTile::Registers(d) => comptime!(d.accumulation.semiring("PlaneTile::mma")),
         }

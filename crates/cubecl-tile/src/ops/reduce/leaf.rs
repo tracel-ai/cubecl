@@ -287,7 +287,7 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             let scale = Vector::<Acc, V>::cast_from(scale);
             acc_vec = if comptime!(monoid == Monoid::Sum) {
                 // One fused multiply-add a value.
-                Semiring::SUM_PROD.step::<Vector<Acc, V>>(in_vec, scale, acc_vec)
+                Semiring::SumProd.step::<Vector<Acc, V>>(in_vec, scale, acc_vec)
             } else {
                 monoid.combine::<Vector<Acc, V>>(acc_vec, in_vec * scale)
             };

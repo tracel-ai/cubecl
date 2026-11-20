@@ -88,7 +88,7 @@ impl GlobalOperand {
         let (sequence_axis, _) = comptime!(
             paging
                 .axes(&projection)
-                .unwrap_or_else(|refusal| panic!("GlobalOperand::paged: {refusal}"))
+                .unwrap_or_else(|decline| panic!("GlobalOperand::paged: {decline}"))
         );
         let table = PageTable::new(
             table,
@@ -391,16 +391,16 @@ impl Memory {
 /// The contract an operand's statement owes, checked on the host.
 fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     let projection = &spec.projection;
-    // At expansion no caller takes a refusal; a spec stated by hand, not bound, arrives here
+    // At expansion no caller takes a decline; a spec stated by hand, not bound, arrives here
     // unchecked.
-    if let Err(refusal) = projection.validate(vector_size) {
-        panic!("{refusal}");
+    if let Err(decline) = projection.validate(vector_size) {
+        panic!("{decline}");
     }
     projection.validate_composition(|dimension| space.extent(dimension));
     if let Some(paging) = &spec.paging {
         let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery);
-        if let Err(refusal) = checked {
-            panic!("GlobalOperand: {refusal}");
+        if let Err(decline) = checked {
+            panic!("GlobalOperand: {decline}");
         }
     }
     let coord_rank = projection.coordinate_rank();

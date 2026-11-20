@@ -18,7 +18,7 @@ pub struct MmaIo {
 }
 
 /// The order a `B` fragment reads its `k` rows in. A run of 8-bit accumulators reread as the `A`
-/// operand ([`accumulators_as_a`](crate::tile::kind::plane::mma::accumulators_as_a)) holds its
+/// operand (`accumulators_as_a`) holds its
 /// columns where its rows lie, not where the instruction puts each `k`: the `B` reads, for each
 /// `k`, the row of the column the `A` holds there, and the sum over `k` is the same.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

@@ -9,7 +9,7 @@ use hashbrown::{Equivalent, HashMap};
 
 use super::base::{ArgData, Derived};
 use crate::{
-    BoundaryPolicy, Delivery, Dimension, Geometry, Packing, Partitioning, Projection, Refusal,
+    BoundaryPolicy, Decline, Delivery, Dimension, Geometry, Packing, Partitioning, Projection,
     Space,
 };
 
@@ -64,7 +64,7 @@ const KEPT: usize = 4096;
 
 /// The derivations made so far, across every client: a derivation reads the device only through
 /// the packing, which its key holds as read.
-static KEPT_DERIVATIONS: LazyLock<Mutex<HashMap<Derivation, Result<Derived, Refusal>>>> =
+static KEPT_DERIVATIONS: LazyLock<Mutex<HashMap<Derivation, Result<Derived, Decline>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 impl Derivation {
@@ -97,8 +97,8 @@ impl DerivationView<'_> {
     /// What this derivation derived, made by `derive` the first time it is asked for.
     pub(crate) fn derived(
         self,
-        derive: impl FnOnce() -> Result<Derived, Refusal>,
-    ) -> Result<Derived, Refusal> {
+        derive: impl FnOnce() -> Result<Derived, Decline>,
+    ) -> Result<Derived, Decline> {
         if let Some(kept) = KEPT_DERIVATIONS.lock().unwrap().get(&self) {
             return kept.clone();
         }

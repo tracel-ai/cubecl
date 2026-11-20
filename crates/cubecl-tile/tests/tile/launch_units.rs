@@ -52,7 +52,7 @@ fn launch_unit_matmul<O: Destination>(
             &a_unit,
             &b_unit,
             comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in &unit {
             let mut sum_step = sum.at(&step);

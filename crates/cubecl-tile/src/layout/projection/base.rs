@@ -4,7 +4,7 @@ use crate::Addressed;
 use cubecl::zspace::{SmallVec, Tiling};
 
 use crate::{
-    AxesBuilder, Composition, Dimension, Divisor, Geometry, Offset, PhysicalAxisMap, Refusal, Space,
+    AxesBuilder, Composition, Decline, Dimension, Divisor, Geometry, Offset, PhysicalAxisMap, Space,
 };
 
 /// An operand's dimensions mapped onto its buffer's physical axes.
@@ -405,7 +405,7 @@ impl Projection {
     /// coordinates, each dimension's at its first axis, and a line wider than one value runs
     /// along the last of them, so the innermost axis must carry the last dimension. (A storage
     /// tiling states its own order; its loads are its tiles.)
-    pub(crate) fn dimensions_in_axis_order(&self, vector_size: usize) -> Result<(), Refusal> {
+    pub(crate) fn dimensions_in_axis_order(&self, vector_size: usize) -> Result<(), Decline> {
         if !self.is_tiled() {
             return Ok(());
         }
@@ -427,17 +427,17 @@ impl Projection {
         let lined = vector_size == 1 || innermost == stated.last().copied().map(Addressed::By);
         match stated == by_axis && lined {
             true => Ok(()),
-            false => Err(Refusal::DimensionsOutOfAxisOrder { stated, by_axis }),
+            false => Err(Decline::DimensionsOutOfAxisOrder { stated, by_axis }),
         }
     }
 
     /// Why a gathered projection cannot be served at `vector_size`, if it cannot.
-    pub(crate) fn validate(&self, vector_size: usize) -> Result<(), Refusal> {
+    pub(crate) fn validate(&self, vector_size: usize) -> Result<(), Decline> {
         if self.is_invertible() {
             return Ok(());
         }
         if self.physical.is_empty() || self.dimensions.is_empty() {
-            return Err(Refusal::NoCoordinate);
+            return Err(Decline::NoCoordinate);
         }
         // The innermost physical axis is addressed in lines, so it must step by one element.
         if vector_size > 1 {
@@ -450,7 +450,7 @@ impl Projection {
                 Composition::Overlapping | Composition::Translated => last.is_identity(innermost),
             };
             if !steps_by_lines {
-                return Err(Refusal::GatherInnermostNotInLines);
+                return Err(Decline::GatherInnermostNotInLines);
             }
         }
         for &dimension in self.dimensions.iter() {
@@ -462,7 +462,7 @@ impl Projection {
                 .filter(|m| m.addresses(dimension))
                 .count();
             if count > 1 {
-                return Err(Refusal::GatherDimensionAddressedTwice(dimension));
+                return Err(Decline::GatherDimensionAddressedTwice(dimension));
             }
         }
         Ok(())
@@ -656,7 +656,7 @@ mod tests {
             ],
         )
         .validate(4);
-        assert_eq!(refused, Err(Refusal::GatherDimensionAddressedTwice(B)));
+        assert_eq!(refused, Err(Decline::GatherDimensionAddressedTwice(B)));
     }
 
     #[test]
@@ -666,7 +666,7 @@ mod tests {
             &[PhysicalAxisMap::of(A), PhysicalAxisMap::affine(&[(R, 2)])],
         )
         .validate(4);
-        assert_eq!(refused, Err(Refusal::GatherInnermostNotInLines));
+        assert_eq!(refused, Err(Decline::GatherInnermostNotInLines));
     }
 
     #[test]
@@ -690,7 +690,7 @@ mod tests {
             ],
         )
         .validate(1);
-        assert_eq!(refused, Err(Refusal::GatherDimensionAddressedTwice(B)));
+        assert_eq!(refused, Err(Decline::GatherDimensionAddressedTwice(B)));
     }
 
     #[test]
@@ -704,7 +704,7 @@ mod tests {
             ],
         )
         .validate(4);
-        assert_eq!(refused, Err(Refusal::GatherDimensionAddressedTwice(B)));
+        assert_eq!(refused, Err(Decline::GatherDimensionAddressedTwice(B)));
     }
 
     #[test]
