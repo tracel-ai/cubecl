@@ -48,13 +48,20 @@ impl LaunchMode {
         }
     }
 
-    /// What a launch issued on `stream` does while the stream plans a graph capture's work:
-    /// it plans, unless an override runs it (a tune measuring), since the recorded run must
-    /// find everything the launch path allocates already in the pools.
+    /// What a launch issued on `stream` does while the stream plans a graph capture's work: it
+    /// resolves, unless an override runs it (a tune measuring), since the recorded run must find
+    /// everything the launch path allocates already in the pools.
+    ///
+    /// Under a process mode that discards every launch, it follows that mode instead: such a
+    /// pass compiles in batches and maps pages lazily, and a resolving launch would compile on
+    /// its own and give its buffers device backing. Its recording runs nothing either.
     pub(crate) fn planning(stream: ServiceStream) -> Self {
-        match STREAM_MODES.mode(stream, StreamMode::Discard) {
-            StreamMode::Execute => Self::Execute,
-            StreamMode::Discard => Self::Resolve,
+        let process = ProcessMode::current();
+        match (STREAM_MODES.mode(stream, StreamMode::Discard), process) {
+            (StreamMode::Execute, _) => Self::Execute,
+            (StreamMode::Discard, ProcessMode::Execute) => Self::Resolve,
+            (StreamMode::Discard, ProcessMode::CompileOnly) => Self::Queue,
+            (StreamMode::Discard, ProcessMode::CompileAndAutotune) => Self::Compile,
         }
     }
 
@@ -137,6 +144,24 @@ mod tests {
         assert_eq!(LaunchMode::planning(planning), LaunchMode::Resolve);
         core::mem::drop(gathering);
         assert!(LaunchMode::Resolve.discards_launch());
+    }
+
+    /// Under a process mode that discards every launch, a planning stream's launches follow that
+    /// mode: they compile in its batches and leave lazy pages unmapped.
+    #[test]
+    #[serial_test::serial]
+    fn a_planning_stream_follows_a_discarding_process_mode() {
+        let collector = StatisticsCollector::new();
+        let planning = ServiceStream {
+            service: device(0),
+            stream: stream(10),
+        };
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        assert_eq!(LaunchMode::planning(planning), LaunchMode::Queue);
+        core::mem::drop(compile);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        assert_eq!(LaunchMode::planning(planning), LaunchMode::Compile);
+        core::mem::drop(tune);
     }
 
     /// A stream's mode overrides the process mode's default for that stream of
