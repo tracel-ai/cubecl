@@ -313,6 +313,82 @@ fn kernel_copy_receiver_at_branch_start(input: &[u32], output: &mut [u32]) {
     output[1] = cursor.slot;
 }
 
+#[cube]
+impl Cursor {
+    fn plus(self, k: u32) -> u32 {
+        self.slot + k
+    }
+
+    fn outer(self, k: u32) -> u32 {
+        let mut c = Cursor {
+            slot: self.slot + 1u32,
+        };
+        c.slot += k;
+
+        // Path-call receiver created inside an outer method-syntax call.
+        Cursor::plus(c, 10u32)
+    }
+}
+
+#[cube(launch_unchecked)]
+fn kernel_nested_path_receiver(input: &[u32], output: &mut [u32]) {
+    let mut cursor = Cursor {
+        slot: 5u32.runtime(),
+    };
+    cursor.slot += 1u32;
+    output[0] = cursor.outer(input[0]);
+    output[1] = cursor.slot;
+}
+
+pub fn test_nested_path_receiver<R: Runtime>(client: Client) {
+    let input = client.create_from_slice(u32::as_bytes(&[2]));
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_nested_path_receiver::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(input, 1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [19, 6]);
+}
+
+#[cube(launch_unchecked)]
+fn kernel_closure_index_snapshot(input: &[u32], output: &mut [u32]) {
+    let mut arr = Array::<u32>::new(2usize);
+    arr[0] = input[0];
+
+    let opt = ComptimeOption::<usize>::Some(0usize.runtime());
+    let snapshot = opt.map_or::<u32, _>(0u32.runtime(), |i| arr[i]);
+
+    arr[0] = 9u32;
+    output[0] = snapshot;
+    output[1] = arr[0];
+}
+
+pub fn test_closure_index_snapshot<R: Runtime>(client: Client) {
+    let input = client.create_from_slice(u32::as_bytes(&[5]));
+    let output = client.create_from_slice(u32::as_bytes(&[0, 0]));
+
+    unsafe {
+        kernel_closure_index_snapshot::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(input, 1),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        );
+    }
+
+    let actual = client.read_one(output).unwrap();
+    assert_eq!(u32::from_bytes(&actual), [5, 9]);
+}
+
 pub fn test_copy_receiver_at_branch_start<R: Runtime>(client: Client) {
     for (flag, expected) in [(1u32, [5u32, 11]), (0u32, [5u32, 14])] {
         let input = client.create_from_slice(u32::as_bytes(&[flag]));
@@ -597,6 +673,18 @@ macro_rules! testgen_assign {
             fn test_copy_receiver_at_branch_start() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::assign::test_copy_receiver_at_branch_start::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_nested_path_receiver() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_nested_path_receiver::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_closure_index_snapshot() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::assign::test_closure_index_snapshot::<TestRuntime>(client);
             }
         }
     };
