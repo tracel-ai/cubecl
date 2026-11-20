@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
-use cubecl::ir::{ExpandValue, Scope};
+use cubecl::ir::{ExpandValue, Scope, types::Fp8Format};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::QuantValue;
 use cubecl::unexpanded;
@@ -109,8 +109,10 @@ impl Factor {
         unexpanded!()
     }
 
-    /// How the innermost scales sit in their buffer: `None` where these values carry no scale.
-    pub(crate) fn inner_stored(&self) -> comptime_type!(Option<Packing>) {
+    /// The 8-bit float format of the innermost scales, packed as fields in words or read alone as
+    /// their element alike: `None` where they are no 8-bit float, or held as whole words a
+    /// block-scaled instruction reads.
+    pub(crate) fn inner_fp8(&self) -> comptime_type!(Option<Fp8Format>) {
         unexpanded!()
     }
 
@@ -377,10 +379,16 @@ impl FactorExpand {
         self.depth()
     }
 
-    pub(crate) fn __expand_inner_stored_method(&self, scope: &Scope) -> Option<Packing> {
-        self.scale
-            .as_deref()
-            .map(|scale| scale.clone().__expand_packing_method(scope))
+    pub(crate) fn __expand_inner_fp8_method(&self, scope: &Scope) -> Option<Fp8Format> {
+        let scale = self.scale.as_deref()?;
+        match scale.clone().__expand_packing_method(scope) {
+            Packing::Packed { field } => field.fp8(),
+            Packing::Plain => match scale.element {
+                ElemType::Float(kind) => Field::of_float(kind).fp8(),
+                _ => None,
+            },
+            Packing::Words { .. } => None,
+        }
     }
 
     pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
