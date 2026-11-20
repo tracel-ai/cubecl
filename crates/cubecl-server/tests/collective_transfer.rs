@@ -1,37 +1,29 @@
+mod fake;
+
 use cubecl_common::{
-    bytes::Bytes,
     device::{DeviceId, ServiceId},
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
-use cubecl_ir::{ElemType, FloatKind, MemoryDeviceProperties};
+use cubecl_ir::{ElemType, FloatKind};
 use cubecl_server::{
     command::{
-        CollectiveDriver, CollectiveServer, Collectives, Command, CopyLayout, DeviceResource,
-        DeviceStream, Driver, Elements, HostResource, StreamSignal,
+        CollectiveDriver, CollectiveServer, Collectives, Command, DeviceResource, Elements,
+        StreamSignal,
     },
     device_events::{EventApi, EventProfiler},
     driver::DriverError,
-    id::KernelId,
     logging::ServerLogger,
-    memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryConfiguration, MemoryManagement,
-        MemoryManagementOptions,
-        drop_queue::{Fence, PendingDropQueue},
-    },
-    metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     server::{
-        BufferBinding, CommunicationId, CommunicationTiming, ComputeWait, CopyDescriptor,
-        DeviceCaptures, Handle, IoError, LaunchError, ReduceOperation, Reduction, SendOutcome,
-        ServerError,
+        BufferBinding, CommunicationId, CommunicationTiming, ComputeWait, CopyDescriptor, Handle,
+        ReduceOperation, Reduction, SendOutcome, ServerError,
     },
-    storage::BytesStorage,
-    stream::{EventStreamBackend, FailureStore, MultiStream, StreamCapture, StreamMemory},
+    stream::{FailureStore, MultiStream},
 };
+use fake::{Fake, FakeBackend};
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::Duration;
@@ -66,6 +58,11 @@ impl Wire {
         })
     }
 
+    /// The wire a communicator of [`CommunicationId`] `id` posts on.
+    fn of(id: u64) -> &'static Self {
+        Self::named(&CommunicationId { id })
+    }
+
     fn between(a: DeviceId, b: DeviceId) -> &'static Self {
         Self::named(&CommunicationId::transfers_between(a, b))
     }
@@ -95,178 +92,10 @@ impl Wire {
     }
 }
 
-#[derive(Debug)]
-struct Fake;
-
-#[derive(Debug)]
-struct FakeBackend;
-
-struct FakeFence;
-
-impl Fence for FakeFence {
-    fn wait(self) -> Result<(), ServerError> {
-        Ok(())
-    }
-}
-
-struct FakeStream {
-    device_memory: MemoryManagement<BytesStorage>,
-    host_memory: MemoryManagement<BytesStorage>,
-    drop_queue: PendingDropQueue<FakeFence>,
-    capturing: StreamCapture,
-    info_cache: MetadataInfoCache<Handle>,
-}
-
-impl fmt::Debug for FakeStream {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("FakeStream")
-    }
-}
-
-impl StreamMemory for FakeStream {
-    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
-        self.device_memory.failure(&binding.memory, binding.range())
-    }
-
-    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
-        self.device_memory
-            .taint(&binding.memory, binding.range(), failure, failures)
-    }
-
-    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
-        self.device_memory
-            .written(&binding.memory, binding.range(), failures)
-    }
-}
-
-impl DeviceStream for FakeStream {
-    type Fence = FakeFence;
-    type DeviceStorage = BytesStorage;
-    type HostStorage = BytesStorage;
-    type Signal = ();
-
-    fn device_memory(&mut self) -> &mut MemoryManagement<Self::DeviceStorage> {
-        &mut self.device_memory
-    }
-
-    fn host_memory(&mut self) -> &mut MemoryManagement<Self::HostStorage> {
-        &mut self.host_memory
-    }
-
-    fn drop_queue(&mut self) -> &mut PendingDropQueue<Self::Fence> {
-        &mut self.drop_queue
-    }
-
-    fn capturing(&mut self) -> &mut StreamCapture {
-        &mut self.capturing
-    }
-
-    fn info_cache(&mut self) -> &mut MetadataInfoCache<Handle> {
-        &mut self.info_cache
-    }
-
-    fn signal(&self) -> Self::Signal {}
-
-    fn fence(_signal: Self::Signal) -> Self::Fence {
-        FakeFence
-    }
-}
-
-fn memory(name: &'static str) -> MemoryManagement<BytesStorage> {
-    MemoryManagement::from_configuration(
-        BytesStorage::default(),
-        &MemoryDeviceProperties::new(1024 * 1024, 32),
-        MemoryConfiguration::default(),
-        Arc::new(ServerLogger::default()),
-        MemoryManagementOptions::new(name),
-    )
-}
-
-impl EventStreamBackend for FakeBackend {
-    type Stream = FakeStream;
-    type Event = ();
-
-    fn create_stream(&self) -> Result<Self::Stream, ServerError> {
-        Ok(FakeStream {
-            device_memory: memory("device"),
-            host_memory: memory("host"),
-            drop_queue: Default::default(),
-            capturing: StreamCapture::new(&DeviceCaptures::default()),
-            info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
-        })
-    }
-
-    fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
-        0
-    }
-
-    fn flush(_stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {}
-
-    fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) -> Result<(), ServerError> {
-        Ok(())
-    }
-
-    fn wait_event_sync(_event: Self::Event) -> Result<(), ServerError> {
-        Ok(())
-    }
-}
-
-impl Driver for Fake {
-    type Backend = FakeBackend;
-    type Stream = FakeStream;
-    type Context = ();
-    type LaunchArgs = ();
-    type Loaded = ();
-
-    unsafe fn pinned_bytes(
-        _binding: ManagedMemoryBinding,
-        _resource: HostResource<Self>,
-        _size: usize,
-    ) -> Bytes {
-        unreachable!("a transfer stages nothing")
-    }
-
-    unsafe fn copy_to_host(
-        _resource: &DeviceResource<Self>,
-        _layout: &CopyLayout<'_>,
-        _bytes: &mut Bytes,
-        _stream: &Self::Stream,
-    ) -> Result<(), IoError> {
-        unreachable!("a transfer stages nothing")
-    }
-
-    unsafe fn copy_to_device(
-        _resource: &DeviceResource<Self>,
-        _layout: &CopyLayout<'_>,
-        _data: &[u8],
-        _stream: &Self::Stream,
-    ) -> Result<(), IoError> {
-        unreachable!("a transfer stages nothing")
-    }
-
-    unsafe fn copy_on_device(
-        _source: &DeviceResource<Self>,
-        _target: &DeviceResource<Self>,
-        _queue: (),
-    ) -> Result<(), IoError> {
-        unreachable!("a transfer relocates nothing")
-    }
-
-    fn launch(
-        _ctx: &mut Self::Context,
-        _stream: &mut Self::Stream,
-        _id: &KernelId,
-        _kernel: &Self::Loaded,
-        _count: (u32, u32, u32),
-        _args: &mut Self::LaunchArgs,
-    ) -> Result<(), LaunchError> {
-        unreachable!("a transfer launches nothing")
-    }
-}
-
 impl CollectiveDriver for Fake {
-    type Communicator = &'static Wire;
-    type UniqueId = &'static Wire;
+    /// The wire's [`CommunicationId`], which [`Wire::of`] looks up.
+    type Communicator = u64;
+    type UniqueId = u64;
     type DataType = ();
 
     const LIBRARY: &'static str = "the fake";
@@ -277,7 +106,7 @@ impl CollectiveDriver for Fake {
     }
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
-        Ok(Wire::named(id))
+        Ok(id.id)
     }
 
     fn join(
@@ -285,7 +114,7 @@ impl CollectiveDriver for Fake {
         _ranks: usize,
         rank: usize,
     ) -> Result<Self::Communicator, ServerError> {
-        if id.refused_rank.load(Ordering::Relaxed) == rank {
+        if Wire::of(id).refused_rank.load(Ordering::Relaxed) == rank {
             return Err(error("the source could not join"));
         }
         Ok(id)
@@ -356,7 +185,7 @@ impl CollectiveDriver for Fake {
         _peer: usize,
         _stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        comm.post_send();
+        Wire::of(*comm).post_send();
         Ok(())
     }
 
@@ -367,7 +196,7 @@ impl CollectiveDriver for Fake {
         _peer: usize,
         _stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        comm.post_recv();
+        Wire::of(*comm).post_recv();
         Ok(())
     }
 }
@@ -526,8 +355,7 @@ impl FakeServer {
     fn allocated(&mut self) -> Handle {
         let handle = self.unallocated();
         let mut command = self.command(STREAM, [].into_iter()).unwrap();
-        let memory = command.reserve(SIZE).unwrap();
-        command.bind(memory, handle.memory.clone()).unwrap();
+        command.allocate(SIZE, &handle.memory).unwrap();
         drop(command);
         handle
     }
