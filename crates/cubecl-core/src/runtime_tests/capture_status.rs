@@ -17,10 +17,10 @@ fn add_one(input: &[f32], output: &mut [f32]) {
     }
 }
 
-/// A capture is visible to every client of the stream that prepared it, through the warmup run
-/// and the recorded one, and to no other stream.
+/// A capture is visible to every client of the stream that prepared it, through the planning runs
+/// and the recorded run, and to no other stream.
 ///
-/// Code that has to decide the same way in the warmup and the recording reads it before every
+/// Code that has to decide the same way in the planning runs and the recording reads it before every
 /// launch, possibly through a client other than the one that prepared, so each client of the
 /// stream has to see it; a neighbour that saw it would take the capture's path for nothing.
 pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
@@ -55,7 +55,7 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
     owner
         .executes(|| client.graph_prepare())
         .expect("graph_prepare");
-    assert!(capturing(&client, owner), "the warmup run is part of it");
+    assert!(capturing(&client, owner), "the planning run is part of it");
     assert!(
         capturing(&other_client, owner),
         "every client of the stream sees it"
@@ -67,7 +67,7 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
 
     owner.executes(|| {
         run();
-        client.read_one(output.clone()).unwrap();
+        client.graph_end_run().expect("graph_end_run");
         client.start_capture().expect("start_capture");
     });
     assert!(
@@ -89,8 +89,8 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
 }
 
 /// A capture prepared but never opened ends at `stop_capture`, which is the only call left to a
-/// caller whose warmup failed: the stream stops reporting it, and a whole capture then lands on
-/// it, sealed and replayed.
+/// caller whose planning failed: the stream stops reporting it, and a whole capture then lands
+/// on it, sealed and replayed.
 pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     let client = R::client(&Default::default());
     let owner = StreamId { value: 3_000_003 };
@@ -99,7 +99,7 @@ pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     owner
         .executes(|| client.graph_prepare())
         .expect("graph_prepare");
-    assert!(capturing(), "the warmup run is part of the capture");
+    assert!(capturing(), "the planning run is part of the capture");
     owner
         .executes(|| client.stop_capture())
         .expect_err("nothing recorded, so there is no graph to seal");
@@ -123,17 +123,60 @@ pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     };
 
     let out = owner.executes(|| {
-        client
-            .graph_prepare()
-            .expect("the stream can be prepared again");
-        run();
-        client.read_one(output.clone()).unwrap();
-        client.start_capture().expect("start_capture");
-        run();
-        let graph = client.stop_capture().expect("stop_capture");
+        let (graph, ()) = client
+            .capture(run)
+            .expect("the stream can be captured again");
         unsafe { graph.replay() }.expect("replay enqueues");
         client.read_one(output.clone()).unwrap()
     });
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
     assert!(!capturing());
+}
+
+/// A work that panics inside [`Client::capture`] leaves no capture behind: left prepared, the
+/// stream would discard every launch after it. The stream runs its launches again, and captures
+/// again.
+pub fn a_work_that_panics_leaves_no_capture<R: Runtime>() {
+    let client = R::client(&Default::default());
+    let owner = StreamId { value: 3_000_004 };
+    let n = 4usize;
+    let (input, output) = owner.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
+    let run = || {
+        add_one::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    let panicked = owner.executes(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.capture(|| {
+                run();
+                panic!("the work fails");
+            })
+        }))
+    });
+    assert!(panicked.is_err(), "the work's panic reaches the caller");
+    assert!(
+        !owner.executes(|| client.is_capturing()),
+        "the capture ended with the panic"
+    );
+
+    let out = owner.executes(|| {
+        run();
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(
+        f32::from_bytes(&out),
+        &[2.0, 3.0, 4.0, 5.0],
+        "the stream runs its launches again"
+    );
 }
