@@ -326,21 +326,36 @@ impl<'a> Arg<'a, Labelled> {
 
     /// Whether a window of `level`, the storage tile's, lies wholly past the operand along one of
     /// `axes`: the launch's outermost tile reaches past the extent padded to whole storage tiles,
-    /// where no storage tile is allocated. A window that only overhangs the extent reads padding.
+    /// where no storage tile is allocated, or a level down to it is launched in an order that
+    /// starts planes past the last of its tiles ([`PlaneOrder::overruns`]), however evenly its
+    /// tile divides the extent. A window that only overhangs the extent reads padding.
+    ///
+    /// [`PlaneOrder::overruns`]: crate::space::PlaneOrder
     fn reaches_past_storage_tiles(&self, axes: &[Axis], level: usize) -> bool {
         let launch = self.data.launch;
         let levels = launch.partitioning().levels();
-        axes.iter().any(|&axis| {
-            // The outermost level cutting the axis tiles the grid; the last one down to `level`
-            // is the storage tile's extent along it. No cut leaves one window, the whole extent.
-            let mut cuts = levels[..=level].iter().filter_map(|level| level.tile(axis));
-            let Some(outer) = cuts.next() else {
-                return false;
-            };
-            let stored = cuts.next_back().unwrap_or(outer);
-            let extent = launch.space().extent(axis);
-            extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
-        })
+        let mut space = launch.space().clone();
+        let overruns = levels[..=level].iter().any(|level| {
+            let overruns = level.launch_order().is_some_and(|order| {
+                axes.iter()
+                    .any(|&axis| level.tile(axis).is_some() && order.overruns(level, &space, axis))
+            });
+            space = level.child(&space);
+            overruns
+        });
+        overruns
+            || axes.iter().any(|&axis| {
+                // The outermost level cutting the axis tiles the grid; the last one down to
+                // `level` is the storage tile's extent along it. No cut leaves one window, the
+                // whole extent.
+                let mut cuts = levels[..=level].iter().filter_map(|level| level.tile(axis));
+                let Some(outer) = cuts.next() else {
+                    return false;
+                };
+                let stored = cuts.next_back().unwrap_or(outer);
+                let extent = launch.space().extent(axis);
+                extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
+            })
     }
 }
 
