@@ -3,7 +3,7 @@ use crate::AutoRepresentationRef;
 use cubecl_core::WgpuCompilationOptions;
 use cubecl_ir::{DeviceProperties, PhysicalDevice};
 use cubecl_server::compiler::CompilationError;
-use wgpu::{Adapter, Device, Queue};
+use wgpu::{Adapter, Device, Features, Queue};
 
 #[cfg(feature = "spirv")]
 use super::vulkan;
@@ -74,6 +74,18 @@ impl<'a> ModuleSource<'a> {
             backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         })
     }
+}
+
+/// The adapter's features that a compute device requests: all of them except mappable primary
+/// buffers and ray tracing. Compute traces no rays, and requesting ray tracing makes device
+/// creation fail on NVIDIA's 595 driver.
+pub(crate) fn compute_features(adapter: &Adapter) -> Features {
+    adapter.features().difference(
+        Features::MAPPABLE_PRIMARY_BUFFERS
+            | Features::EXPERIMENTAL_RAY_QUERY
+            | Features::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN
+            | Features::EXPERIMENTAL_RAY_TRACING_PIPELINES,
+    )
 }
 
 /// Request a device, returning device creation failures.
