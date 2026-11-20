@@ -100,7 +100,7 @@ fn plane_product<D: ServedDestination>(plane: &Region, a: &Tile, b: &Tile, dest:
             &a_unit,
             &b_unit,
             comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in &unit {
             let mut sum_step = sum.at(&step);

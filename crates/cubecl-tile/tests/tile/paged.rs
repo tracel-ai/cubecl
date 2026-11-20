@@ -16,7 +16,7 @@ use super::{Form, implied, uncut};
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::std::tensor::TensorHandle;
 use cubecl::{prelude::*, zspace::Shape};
-use cubecl_tile::launch::{Bound, Refusal};
+use cubecl_tile::launch::{Bound, Decline};
 use cubecl_tile::layout::{PageEntry, PhysicalAxisMap};
 use cubecl_tile::*;
 
@@ -371,7 +371,7 @@ fn run_paged_read_blocks(
 
 /// How a read places its pool by its table: [`TileTensorLaunch::indexed`] or
 /// [`TileTensorLaunch::indexed_covering`].
-type Bind = fn(TileTensorLaunch, TileTensorLaunch, Indexing) -> Result<TileTensorLaunch, Refusal>;
+type Bind = fn(TileTensorLaunch, TileTensorLaunch, Indexing) -> Result<TileTensorLaunch, Decline>;
 
 /// [`run_paged_read_blocks`] through a table of `entries` laid out as `shape`, any rank, the pool
 /// bound by `bind`.
@@ -897,7 +897,7 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
         .dtype(u32::elem_type_native())
         .zeros()
         .generate_without_host_data();
-    let placed = |bound: Result<Bound, Refusal>, (sequence, position)| {
+    let placed = |bound: Result<Bound, Decline>, (sequence, position)| {
         bound
             .and_then(|pool| {
                 pool.arg().indexed(
@@ -907,7 +907,7 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
             })
             .err()
     };
-    let refusal = |binding, dimensions: &[Dimension], keys, width| {
+    let decline = |binding, dimensions: &[Dimension], keys, width| {
         let pool = launcher
             .arg(binding, f32::elem_type_native())
             .dimensions(dimensions)
@@ -931,22 +931,22 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
         .err();
     assert_eq!(
         flat_table,
-        Some(Refusal::IndexTableRank { keys: 2, rank: 1 })
+        Some(Decline::IndexTableRank { keys: 2, rank: 1 })
     );
     let a = pool([POOL, 3, 4]);
     assert_eq!(
-        refusal(a.binding(), &[B, S, F], (S, S), 1),
-        Some(Refusal::PagingOfOneAxis(S))
+        decline(a.binding(), &[B, S, F], (S, S), 1),
+        Some(Decline::PagingOfOneAxis(S))
     );
     let b = pool([POOL, 3, 4]);
     assert_eq!(
-        refusal(b.binding(), &[S, F, B], (B, S), 1),
-        Some(Refusal::PagesAlongALine(B))
+        decline(b.binding(), &[S, F, B], (B, S), 1),
+        Some(Decline::PagesAlongALine(B))
     );
     let e = pool([0, 3, 4]);
     assert_eq!(
-        refusal(e.binding(), &[B, S, F], (B, S), 1),
-        Some(Refusal::PagingOfAnEmptyPool)
+        decline(e.binding(), &[B, S, F], (B, S), 1),
+        Some(Decline::PagingOfAnEmptyPool)
     );
 }
 

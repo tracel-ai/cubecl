@@ -26,7 +26,7 @@ const SCALES_PER_WORD: usize = 4;
 
 /// Values of `k` one `e4m3` scale of a word covers: the words this decodes are NVFP4's, four
 /// blocks of sixteen. Words of another field, or of another block, are refused
-/// ([`steps_refusal()`]): a word read whole does not say its block.
+/// ([`steps_decline()`]): a word read whole does not say its block.
 const E2M1_SCALE_BLOCK: usize = 16;
 
 /// Why `src`, a shared-memory window of an `m × n × k` fragment of `T` in role `ident`, cannot load
@@ -37,7 +37,7 @@ const E2M1_SCALE_BLOCK: usize = 16;
 /// `k` under one level of words of block scales, a whole number of words deep so every window
 /// starts on a word.
 #[cube]
-pub(crate) fn steps_refusal<T: Numeric>(
+pub(crate) fn steps_decline<T: Numeric>(
     src: &Tile,
     #[comptime] ident: MatrixIdent,
     #[comptime] layout: MatrixLayout,
@@ -84,8 +84,8 @@ pub(crate) fn load_in_steps<T: Numeric, N: Size>(
     #[comptime] io: MmaIo,
     #[comptime] shape: (usize, usize, usize),
 ) {
-    let refusal = steps_refusal::<T>(src, ident, layout, shape);
-    comptime!(if let Some(why) = refusal {
+    let decline = steps_decline::<T>(src, ident, layout, shape);
+    comptime!(if let Some(why) = decline {
         panic!(
             "MmaData::load: a fragment deeper than its instruction loads a step at a time: {why}"
         )

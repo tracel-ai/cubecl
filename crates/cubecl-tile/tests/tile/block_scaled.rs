@@ -58,7 +58,7 @@ fn block_scaled_matmul<E: Numeric>(
     let acc = c.accumulator::<E>(
         &a.mul(&a_scales).scales_kept_beside(),
         &b.mul(&b_scales).scales_kept_beside(),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
     );
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
@@ -88,7 +88,7 @@ fn block_scaled_matmul_under_words<E: Numeric>(
 ) {
     let mut c = c.tile_mut(&space);
     let (a, b) = (a.tile(&space), b.tile(&space));
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SUM_PROD);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     let (a, a_factor) = a.factor(&acc);
     let (b, b_factor) = b.factor(&acc);
     let walk = space.over(&level);

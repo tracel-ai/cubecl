@@ -29,7 +29,7 @@ fn written_operand_refused(_out: &mut TileTensor<'_>, #[comptime] refuse: bool) 
 }
 
 /// Zeroes `out` through the tile [`TileTensor::tile`] serves, which is read-only. `witness` is a
-/// written operand, so the launch's refusal fails its read.
+/// written operand, so the launch's decline fails its read.
 #[cube(launch)]
 fn zeroed_through_shared(out: &TileTensor<'_>, witness: &mut TileTensor<'_>, space: Partitioning) {
     let _witness = witness.tile_mut(&space);

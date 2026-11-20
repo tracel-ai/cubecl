@@ -19,10 +19,22 @@
 //! only known once the kernel is expanded, so a harness returning one expands
 //! its kernel first to learn the length, and only then allocates its buffer.
 //!
+//! A `Vector<T, N>` of scalars is uploaded from a host slice of its width and
+//! comes back as a `Vec`, its width `N` a `Size` generic the caller names,
+//! like `Const<4>`. A returned vector's width is learnt by expanding the
+//! kernel first, as an array's length is.
+//!
 //! A function may also take and return cube types, which must derive
 //! `CubeHarness`. A macro can't tell a cube type from any other path, so any
 //! path that isn't a scalar is taken for one, and the bound on it reports a
 //! type that isn't.
+//!
+//! A function may return a `bool` or a `Vector<bool, N>`, which comes back as
+//! a `bool` or a `Vec<bool>`. A kernel has no buffer of truths, so each is
+//! stored as a `u32`; for the same reason, neither can be a parameter.
+//!
+//! A `#[comptime]` parameter is compiled into the kernel, so it may be of any
+//! type a kernel takes as comptime: a scalar, or a configuration like an enum.
 //!
 //! The harness is only compiled in tests unless another gate is given, with
 //! `harness(cfg(<predicate>))` or `harness(always)`. A function that isn't
@@ -62,7 +74,10 @@ const COMPTIME_SCALARS: &[&str] = &["bool", "usize", "isize"];
 const INPUT_SCALARS: &[&str] = &["usize", "isize"];
 
 /// The generic bounds a harness can be instantiated over.
-const GENERIC_BOUNDS: &[&str] = &["Float", "Int", "Numeric"];
+const GENERIC_BOUNDS: &[&str] = &["Float", "Int", "Numeric", SIZE_BOUND];
+
+/// The bound of a vector's width, named by the caller as a `Const`.
+const SIZE_BOUND: &str = "Size";
 
 /// How a value crosses from the host to the harness kernel.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +97,9 @@ pub enum HarnessValue {
     /// An array of scalars, uploaded from a host slice to its own buffer, and
     /// copied into an array of the slice's length in the kernel.
     Array(Type),
+    /// A vector of scalars, uploaded from a host slice of its width to its
+    /// own buffer, and copied into a vector in the kernel.
+    Vector { elem: Type, size: Ident },
 }
 
 pub struct HarnessPlan {
@@ -92,12 +110,35 @@ pub struct HarnessPlan {
     pub returns: Type,
 }
 
-/// Whether a return type holds an `Array`, whose length the harness only
-/// learns by expanding its kernel.
+/// Whether a return type holds an `Array` or a `Vector`, whose length the
+/// harness only learns by expanding its kernel.
 fn returns_array(ty: &Type) -> bool {
     match ty {
         Type::Tuple(tuple) => tuple.elems.iter().any(returns_array),
-        ty => array_elem(ty).is_some(),
+        ty => array_elem(ty).is_some() || vector_args(ty).is_some(),
+    }
+}
+
+/// Whether a type is `bool`.
+fn is_bool(ty: &Type) -> bool {
+    matches!(ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("bool"))
+}
+
+/// The element and the width of a `Vector<T, N>`.
+fn vector_args(ty: &Type) -> Option<(&Type, &Type)> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    let last = path.path.segments.last()?;
+    if path.qself.is_some() || last.ident != "Vector" {
+        return None;
+    }
+    let PathArguments::AngleBracketed(args) = &last.arguments else {
+        return None;
+    };
+    match args.args.iter().collect::<Vec<_>>()[..] {
+        [GenericArgument::Type(elem), GenericArgument::Type(size)] => Some((elem, size)),
+        _ => None,
     }
 }
 
@@ -132,14 +173,16 @@ impl Launch {
             None => syn::Error::new_spanned(
                 &self.func.sig.name,
                 "a harness can't be generated for this function. Every parameter must be one of:\n\
-                 - a scalar, or a `#[comptime]` scalar\n\
+                 - a scalar\n\
+                 - a `#[comptime]` value of any type a kernel takes as comptime\n\
                  - a generic scalar, with a single `Float`, `Int` or `Numeric` bound, inline or \
                  in a `where` clause\n\
                  - a slice `&[T]` or `&mut [T]` of scalars\n\
                  - an `Array<T>` of scalars\n\
+                 - a `Vector<T, N>` of scalars, `N` a generic with a single `Size` bound\n\
                  - a cube type deriving `CubeHarness`\n\
-                 and the function must return them, a tuple of them, or nothing when it writes \
-                 into a mutable slice",
+                 and the function must return them, a `bool` or a `Vector<bool, N>`, a tuple of \
+                 them, or nothing when it writes into a mutable slice",
             )
             .into_compile_error(),
         }
@@ -213,7 +256,12 @@ impl Launch {
             generics.push((param.ident.clone(), bound.clone()));
         }
 
-        let classify = |ty: &Type| -> Option<HarnessValue> {
+        let is_size = |ident: &Ident| {
+            generics
+                .iter()
+                .any(|(generic, bound)| generic == ident && bound == SIZE_BOUND)
+        };
+        let classify_scalar = |ty: &Type| -> Option<HarnessValue> {
             let Type::Path(path) = ty else {
                 return None;
             };
@@ -223,19 +271,53 @@ impl Launch {
             if let Some(ident) = path.path.get_ident()
                 && generics.iter().any(|(generic, _)| generic == ident)
             {
-                return Some(HarnessValue::Generic(ident.clone()));
+                // A width is no value of its own: it only crosses inside a
+                // vector.
+                return match is_size(ident) {
+                    true => None,
+                    false => Some(HarnessValue::Generic(ident.clone())),
+                };
+            }
+            let last = path.path.segments.last()?;
+            let name = last.ident.to_string();
+            match last.arguments.is_none() && RUNTIME_SCALARS.contains(&name.as_str()) {
+                true => Some(HarnessValue::Scalar(ty.clone())),
+                false => None,
+            }
+        };
+        let classify = |ty: &Type| -> Option<HarnessValue> {
+            let Type::Path(path) = ty else {
+                return None;
+            };
+            if path.qself.is_some() {
+                return None;
+            }
+            if let Some((elem, size)) = vector_args(ty) {
+                let Type::Path(size) = size else {
+                    return None;
+                };
+                let size = size.path.get_ident().filter(|size| is_size(size))?;
+                classify_scalar(elem)?;
+                return Some(HarnessValue::Vector {
+                    elem: elem.clone(),
+                    size: size.clone(),
+                });
             }
             // An array is a container, not a cube type, and is classified by
             // its element where it can cross.
             if array_elem(ty).is_some() {
                 return None;
             }
-            let last = path.path.segments.last()?;
-            let name = last.ident.to_string();
-            if last.arguments.is_none() && RUNTIME_SCALARS.contains(&name.as_str()) {
-                return Some(HarnessValue::Scalar(ty.clone()));
+            if let Some(ident) = path.path.get_ident()
+                && generics.iter().any(|(generic, _)| generic == ident)
+            {
+                return classify_scalar(ty);
+            }
+            if let Some(scalar) = classify_scalar(ty) {
+                return Some(scalar);
             }
             // Caught here rather than as a cube type, for a clearer error.
+            let name = path.path.segments.last()?.ident.to_string();
             if COMPTIME_SCALARS.contains(&name.as_str()) {
                 return None;
             }
@@ -248,14 +330,9 @@ impl Launch {
                 return None;
             }
             let value = if param.is_const {
-                let ident = match &param.ty {
-                    Type::Path(path) if path.qself.is_none() => path.path.get_ident(),
-                    _ => None,
-                }?;
-                let name = ident.to_string();
-                if !RUNTIME_SCALARS.contains(&name.as_str())
-                    && !COMPTIME_SCALARS.contains(&name.as_str())
-                {
+                // A comptime value is compiled into the kernel, so any type the kernel takes as
+                // one crosses as it is: a scalar, or a configuration like an enum.
+                if !matches!(&param.ty, Type::Path(path) if path.qself.is_none()) {
                     return None;
                 }
                 HarnessValue::Comptime(param.ty.clone())
@@ -291,17 +368,34 @@ impl Launch {
             params.push((param.name.clone(), value));
         }
 
-        fn returnable(ty: &Type, classify: &dyn Fn(&Type) -> Option<HarnessValue>) -> bool {
+        // A truth only crosses back, stored as a `u32`: alone, or as a vector at a named width.
+        let returns_truth = |ty: &Type| match vector_args(ty) {
+            Some((elem, Type::Path(size))) => {
+                is_bool(elem) && size.path.get_ident().is_some_and(&is_size)
+            }
+            Some(_) => false,
+            None => is_bool(ty),
+        };
+
+        fn returnable(
+            ty: &Type,
+            classify: &dyn Fn(&Type) -> Option<HarnessValue>,
+            returns_truth: &dyn Fn(&Type) -> bool,
+        ) -> bool {
             match ty {
                 Type::Tuple(tuple) => {
-                    !tuple.elems.is_empty() && tuple.elems.iter().all(|ty| returnable(ty, classify))
+                    !tuple.elems.is_empty()
+                        && tuple
+                            .elems
+                            .iter()
+                            .all(|ty| returnable(ty, classify, returns_truth))
                 }
                 ty => match array_elem(ty) {
                     Some(elem) => matches!(
                         classify(elem),
                         Some(HarnessValue::Scalar(_) | HarnessValue::Generic(_))
                     ),
-                    None => classify(ty).is_some(),
+                    None => classify(ty).is_some() || returns_truth(ty),
                 },
             }
         }
@@ -315,7 +409,7 @@ impl Launch {
             .iter()
             .any(|(_, value)| matches!(value, HarnessValue::Slice { mutable: true, .. }));
         let returns_unit = matches!(returns, Type::Tuple(tuple) if tuple.elems.is_empty());
-        if !(returns_unit && writes_back || returnable(returns, &classify)) {
+        if !(returns_unit && writes_back || returnable(returns, &classify, &returns_truth)) {
             return None;
         }
 
@@ -338,23 +432,43 @@ impl Launch {
         let cube_kernel = prelude_type("CubeKernel");
         let cube_count = prelude_type("CubeCount");
         let cube_dim = prelude_type("CubeDim");
+        let size_bound = prelude_type("Size");
+        let vector_type = prelude_type("Vector");
         let runtime = core_type("__private");
         let runtime = quote![#runtime::Runtime];
         let core = core_path();
 
         let name = &self.func.sig.name;
         let kernel_name = format_ident!("{name}_harness");
-        let generic_names = plan.generics.iter().map(|(ident, _)| ident);
-        let turbofish = match plan.generics.is_empty() {
+        let turbofish = |generics: Vec<&Ident>| match generics.is_empty() {
             true => quote![],
-            false => quote![::<#(#generic_names),*>],
+            false => quote![::<#(#generics),*>],
         };
-        // A generic must be a `CubeElement` to be read back, and a
-        // `LaunchArg` for a cube type over it to be launched.
+        let (sizes, scalars): (Vec<_>, Vec<_>) = plan
+            .generics
+            .iter()
+            .partition(|(_, bound)| bound == SIZE_BOUND);
+        // The function is called with every generic, but a width is the
+        // kernel's to define at launch, from the `Const` the caller names.
+        let call_turbofish = turbofish(plan.generics.iter().map(|(ident, _)| ident).collect());
+        let launch_turbofish = turbofish(scalars.iter().map(|(ident, _)| ident).collect());
+        let widths = sizes
+            .iter()
+            .map(|(ident, _)| {
+                let message = format!("`{ident}` of a harness is a `Const` width");
+                quote![<#ident as #size_bound>::try_value_const().expect(#message)]
+            })
+            .collect::<Vec<_>>();
+        // A scalar generic must be a `CubeElement` to be read back, and a
+        // `LaunchArg` for a cube type over it to be launched. A width keeps
+        // its single bound, which makes it the kernel's to define.
         let generics = plan
             .generics
             .iter()
-            .map(|(ident, bound)| quote![#ident: #bound + #cube_element + #launch_arg])
+            .map(|(ident, bound)| match bound == SIZE_BOUND {
+                true => quote![#ident: #bound],
+                false => quote![#ident: #bound + #cube_element + #launch_arg],
+            })
             .collect::<Vec<_>>();
         let ret = &plan.returns;
 
@@ -389,6 +503,18 @@ impl Launch {
                     });
                     call_args.push(quote![#array]);
                 }
+                HarnessValue::Vector { elem, size } => {
+                    let vector = format_ident!("__harness_{param}_vector");
+                    kernel_params.push(quote![#param: &[#elem]]);
+                    kernel_stmts.push(quote! {
+                        let mut #vector = #vector_type::<#elem, #size>::empty();
+                        #[unroll]
+                        for __i in 0..#size::value() {
+                            #vector.insert(__i, #param[__i]);
+                        }
+                    });
+                    call_args.push(quote![#vector]);
+                }
                 HarnessValue::Generic(ident) => {
                     kernel_params.push(quote![#param: #input_scalar]);
                     call_args.push(quote![#param.get::<#ident>()]);
@@ -405,7 +531,7 @@ impl Launch {
                 mut __harness_out: <#ret as #harness_output>::Out,
             ) {
                 #(#kernel_stmts)*
-                let __harness_ret = __harness_call #turbofish(#(#call_args),*);
+                let __harness_ret = __harness_call #call_turbofish(#(#call_args),*);
                 intrinsic!(|scope| #store_output::<#ret>(
                     scope,
                     &mut __harness_out,
@@ -432,7 +558,9 @@ impl Launch {
                 quote![#param: #ty]
             }
             HarnessValue::Generic(ident) => quote![#param: #ident],
-            HarnessValue::Array(elem) => quote![#param: &[#elem]],
+            HarnessValue::Array(elem) | HarnessValue::Vector { elem, .. } => {
+                quote![#param: &[#elem]]
+            }
             HarnessValue::Slice { elem, mutable } => {
                 let mutability = mutable.then(|| quote![mut]);
                 quote![#param: &#mutability [#elem]]
@@ -444,10 +572,26 @@ impl Launch {
             .iter()
             .filter_map(|(param, value)| match value {
                 HarnessValue::Slice { elem, mutable } => Some((param, elem, *mutable)),
-                HarnessValue::Array(elem) => Some((param, elem, false)),
+                HarnessValue::Array(elem) | HarnessValue::Vector { elem, .. } => {
+                    Some((param, elem, false))
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
+        // A vector's slice holds exactly its width.
+        let width_checks = plan.params.iter().filter_map(|(param, value)| match value {
+            HarnessValue::Vector { size, .. } => {
+                let message = format!("`{param}` holds one value per lane of `{size}`");
+                Some(quote! {
+                    assert_eq!(
+                        Some(#param.len()),
+                        <#size as #size_bound>::try_value_const(),
+                        #message,
+                    );
+                })
+            }
+            _ => None,
+        });
         let uploads = slices.iter().map(|(param, elem, _)| {
             let handle = slice_handle(param);
             quote! {
@@ -482,7 +626,7 @@ impl Launch {
                     HarnessValue::Cube(ty) => quote! {
                         ::core::convert::Into::<<#ty as #launch_arg>::RuntimeArg>::into(#param #clone)
                     },
-                    HarnessValue::Slice { .. } => {
+                    HarnessValue::Slice { .. } | HarnessValue::Vector { .. } => {
                         let handle = slice_handle(param);
                         // SAFETY: the buffer was created from the slice, so it
                         // holds exactly its length.
@@ -522,11 +666,12 @@ impl Launch {
                             &mut ::core::iter::repeat(1),
                             &mut #core::__private::vec::Vec::new(),
                         );
-                        let __kernel = #kernel_name::create_dummy_kernel #turbofish(
+                        let __kernel = #kernel_name::create_dummy_kernel #launch_turbofish(
                             __client.properties_shared(),
                             __client.target_properties_shared(),
                             #cube_count::new_single(),
                             #cube_dim::new_single(),
+                            #(#widths,)*
                             #(#probe_args,)*
                             __out,
                         );
@@ -566,6 +711,7 @@ impl Launch {
             where
                 #(#cube_bounds,)*
             {
+                #(#width_checks)*
                 let __client = <__R as #runtime>::client(&::core::default::Default::default());
                 #(#uploads)*
                 #lens
@@ -576,10 +722,11 @@ impl Launch {
                     &mut __handles,
                 );
                 #(__handles.push(#write_back_handles.clone());)*
-                #kernel_name::launch #turbofish(
+                #kernel_name::launch #launch_turbofish(
                     &__client,
                     #cube_count::new_single(),
                     #cube_dim::new_single(),
+                    #(#widths,)*
                     #(#launch_args,)*
                     __out,
                 );
@@ -605,6 +752,50 @@ mod tests {
         Launch::from_item_fn(item, KernelArgs::default())
             .unwrap()
             .harness_plan()
+    }
+
+    #[test]
+    fn truths_cross_back() {
+        let plan = plan(parse_quote! {
+            fn f<N: Size>(x: Vector<f32, N>) -> (bool, Vector<bool, N>) { (true, x) }
+        })
+        .unwrap();
+
+        assert_eq!(plan.returns, parse_quote!((bool, Vector<bool, N>)));
+        assert!(returns_array(&plan.returns));
+    }
+
+    #[test]
+    fn vectors_cross_at_a_named_width() {
+        let plan = plan(parse_quote! {
+            fn f<F: Float, N: Size>(x: Vector<F, N>, y: Vector<u32, N>) -> (Vector<F, N>, u32) { x }
+        })
+        .unwrap();
+
+        assert_eq!(
+            plan.generics,
+            vec![
+                (parse_quote!(F), parse_quote!(Float)),
+                (parse_quote!(N), parse_quote!(Size)),
+            ]
+        );
+        assert_eq!(
+            plan.params
+                .iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                HarnessValue::Vector {
+                    elem: parse_quote!(F),
+                    size: parse_quote!(N),
+                },
+                HarnessValue::Vector {
+                    elem: parse_quote!(u32),
+                    size: parse_quote!(N),
+                },
+            ]
+        );
+        assert!(returns_array(&plan.returns));
     }
 
     #[test]
@@ -774,8 +965,7 @@ mod tests {
         let impure: Vec<ItemFn> = vec![
             parse_quote! { fn f(x: u32) {} },
             parse_quote! { fn f(x: bool) -> u32 { 0 } },
-            parse_quote! { fn f(x: u32) -> bool { true } },
-            parse_quote! { fn f(x: u32) -> (u32, bool) { (x, true) } },
+            parse_quote! { fn f(x: u32) -> Vector<bool, Const<4>> { 0 } },
             parse_quote! { fn f(x: u32) -> (u32, ()) { (x, ()) } },
             parse_quote! { fn f(x: u32) -> usize { 0 } },
             parse_quote! { fn f(x: u32) -> (u32, isize) { (x, 0) } },
@@ -797,7 +987,11 @@ mod tests {
             parse_quote! { fn f(x: u32) -> Array<Point> { 0 } },
             parse_quote! { fn f(x: u32) -> (u32, Array<usize>) { 0 } },
             parse_quote! { fn f(p: Point) {} },
-            parse_quote! { fn f<N: Size>(x: u32) -> u32 { 0 } },
+            parse_quote! { fn f<N: Size>(x: N) -> u32 { 0 } },
+            parse_quote! { fn f<N: Size>(x: &[Vector<f32, N>]) -> u32 { 0 } },
+            parse_quote! { fn f<N: Size>(x: Vector<bool, N>) -> u32 { 0 } },
+            parse_quote! { fn f<M: Size>(x: Vector<f32, Const<4>>) -> u32 { 0 } },
+            parse_quote! { fn f<N: Size>(x: u32) -> Array<Vector<f32, N>> { 0 } },
             parse_quote! { fn f<F: Float + CubeElement>(x: F) -> F { x } },
             parse_quote! { fn f<F: Float>(x: F) -> F where F: Copy { x } },
             parse_quote! { fn f<F>(x: F) -> F where F: Float + CubeElement { x } },
@@ -806,7 +1000,7 @@ mod tests {
             parse_quote! { fn f<F: Float>(x: F) -> F where u32: Copy { x } },
             parse_quote! { fn f<F>(x: F) -> F where for<'a> F: Float { x } },
             parse_quote! { fn f<T: CubePrimitive>(x: T) -> T { x } },
-            parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
+            parse_quote! { fn f(#[comptime] c: &MyConfig) -> u32 { 0 } },
         ];
         for item in impure {
             let source = item.to_token_stream().to_string();

@@ -91,12 +91,8 @@ fn by_queries(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&query_s, &key_s, config, Semiring::SumProd);
                 score.mma(&query_s, &key_s);
                 score
                     .along(S)
@@ -105,7 +101,7 @@ fn by_queries(
                     &out_gradient_s,
                     &value_s,
                     config,
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 );
                 gradient.mma(&out_gradient_s, &value_s);
                 gradient
@@ -155,12 +151,8 @@ fn by_keys(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &key_s,
-                    &query_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&key_s, &query_s, config, Semiring::SumProd);
                 score.mma(&key_s, &query_s);
                 score
                     .along(Q)
@@ -169,7 +161,7 @@ fn by_keys(
                     &value_s,
                     &out_gradient_s,
                     config,
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 );
                 gradient.mma(&value_s, &out_gradient_s);
                 gradient
@@ -324,12 +316,8 @@ fn logsumexp_of(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&query_s, &key_s, config, Semiring::SumProd);
                 score.mma(&query_s, &key_s);
                 softmax.step(&score, &bias_s, scale);
             }

@@ -101,7 +101,7 @@ impl TileInput {
         self.bind(launcher)
             .vectorize(width)
             .build()
-            .unwrap_or_else(|refusal| panic!("TileInput::arg: {refusal}"))
+            .unwrap_or_else(|decline| panic!("TileInput::arg: {decline}"))
             .arg()
     }
 

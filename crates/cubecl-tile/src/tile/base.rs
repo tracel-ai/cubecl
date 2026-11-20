@@ -210,9 +210,11 @@ impl Tile {
         }
     }
 
-    /// What one vector load of this tile covers: a run along the innermost dimension, or the stored
-    /// tiles that hold [`vector_size`](Tile::vector_size) values ([`VectorTile::new`]).
-    pub(crate) fn vector_tile(&self) -> comptime_type!(VectorTile) {
+    /// What one vector load of this tile covers, as it lies over the tile's dimensions: a run along
+    /// the innermost dimension, or the stored tiles that hold [`vector_size`](Tile::vector_size)
+    /// values ([`VectorTile::new`]). A kernel reads off it how far a line reaches along a dimension
+    /// ([`VectorTile::extent_along`]) rather than working it out from the operand's strides.
+    pub fn vector_tile(&self) -> comptime_type!(VectorTile) {
         let space = comptime!(self.place.space.clone());
         match &self.kind {
             TileKind::Memory(d) => d.vector_tile(&space),

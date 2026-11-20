@@ -44,7 +44,7 @@ fn contract<E: Numeric>(
         &a,
         &b,
         comptime!(SoftwareMatmul::new(budget)),
-        Semiring::SUM_PROD,
+        Semiring::SumProd,
     );
     for cube in space {
         for plane in cube {

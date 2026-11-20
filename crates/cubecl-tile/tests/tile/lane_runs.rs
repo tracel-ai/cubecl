@@ -98,8 +98,8 @@ fn lane_run_matmul(
     // `b` decodes as its fragments load, so the accumulator picks the manual mma, which decodes in
     // its registers.
     let acc = match first {
-        First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD),
-        First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SUM_PROD),
+        First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SumProd),
+        First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SumProd),
     };
     let (b, b_factor) = b.factor(&acc);
     match staged {
@@ -180,7 +180,7 @@ fn lane_run_instruction(client: &cubecl::client::Client) -> Option<(usize, usize
 }
 
 /// Whether the device's instruction is NVIDIA's `16 × 8 × 16`, the one layout an `e2m1` weight
-/// decodes into a step at a time (`steps_refusal`).
+/// decodes into a step at a time (`steps_decline`).
 fn decodes_steps(client: &cubecl::client::Client) -> bool {
     lane_run_instruction(client) == Some((16, 8))
 }

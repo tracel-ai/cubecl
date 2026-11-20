@@ -72,12 +72,8 @@ fn by_units(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&query_s, &key_s, config, Semiring::SumProd);
                 score.mma(&query_s, &key_s);
                 score.along(S).mul_exp::<f32>(&bias_s);
                 score.drained_into(&weights_u.at(&step));

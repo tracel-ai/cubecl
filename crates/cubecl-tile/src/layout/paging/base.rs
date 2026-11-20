@@ -27,7 +27,7 @@ impl Paging {
         projection: &Projection,
         stored_tiles: &[(Dimension, usize)],
         delivery: Delivery,
-    ) -> Result<Paging, Refusal> {
+    ) -> Result<Paging, Decline> {
         let unsized_paging = Paging {
             sequence,
             position,
@@ -44,7 +44,7 @@ impl Paging {
         paging.validate(projection, stored_tiles, delivery)?;
         let (sequence, _) = paging.axes(projection)?;
         match shape[sequence] {
-            0 => Err(Refusal::PagingOfAnEmptyPool),
+            0 => Err(Decline::PagingOfAnEmptyPool),
             _ => Ok(paging),
         }
     }
@@ -55,15 +55,15 @@ impl Paging {
     ///
     /// Either dimension not one axis's identity, or both on one axis: a page is resolved coordinate
     /// by coordinate.
-    pub(crate) fn axes(&self, projection: &Projection) -> Result<(usize, usize), Refusal> {
+    pub(crate) fn axes(&self, projection: &Projection) -> Result<(usize, usize), Decline> {
         let axis = |dimension: Dimension| {
             (0..projection.physical_rank())
                 .find(|&pa| projection.physical_axis(pa).is_identity(dimension))
-                .ok_or(Refusal::PagingOfAnUnlabelledDimension(dimension))
+                .ok_or(Decline::PagingOfAnUnlabelledDimension(dimension))
         };
         let (sequence, position) = (axis(self.sequence)?, axis(self.position)?);
         match sequence == position {
-            true => Err(Refusal::PagingOfOneAxis(self.sequence)),
+            true => Err(Decline::PagingOfOneAxis(self.sequence)),
             false => Ok((sequence, position)),
         }
     }
@@ -76,25 +76,25 @@ impl Paging {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first thing the table cannot resolve.
+    /// The [`Decline`] naming the first thing the table cannot resolve.
     pub(crate) fn validate(
         &self,
         projection: &Projection,
         stored_tiles: &[(Dimension, usize)],
         delivery: Delivery,
-    ) -> Result<(), Refusal> {
+    ) -> Result<(), Decline> {
         if !projection.is_direct() || projection.is_tiled() || !stored_tiles.is_empty() {
-            return Err(Refusal::PagingOfAStatedLayout);
+            return Err(Decline::PagingOfAStatedLayout);
         }
         if delivery.issuer() != Issuer::Unit {
-            return Err(Refusal::PagingMovedByRuns);
+            return Err(Decline::PagingMovedByRuns);
         }
         let (sequence, _) = self.axes(projection)?;
         if sequence == projection.physical_rank() - 1 {
-            return Err(Refusal::PagesAlongALine(self.sequence));
+            return Err(Decline::PagesAlongALine(self.sequence));
         }
         match self.page_size {
-            0 => Err(Refusal::PagingOfAnEmptyPool),
+            0 => Err(Decline::PagingOfAnEmptyPool),
             _ => Ok(()),
         }
     }

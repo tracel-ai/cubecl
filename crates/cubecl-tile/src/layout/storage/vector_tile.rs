@@ -187,7 +187,7 @@ impl VectorTile {
 
     /// How far one load reaches along `dimension`: its extent there, `1` off the dimensions it
     /// spans.
-    pub(crate) fn extent_along(&self, dimension: Dimension) -> usize {
+    pub fn extent_along(&self, dimension: Dimension) -> usize {
         self.extents
             .iter()
             .find(|&&(a, _)| a == dimension)
@@ -519,6 +519,23 @@ mod tests {
 
     const K: Dimension = Dimension(0);
     const N: Dimension = Dimension(1);
+
+    /// A run reaches its width along its dimension and one along every other.
+    #[test]
+    fn a_run_reaches_its_width_along_its_dimension_alone() {
+        const WIDTH: usize = 4;
+        let load = VectorTile::run(N, WIDTH);
+        assert_eq!(load.extent_along(N), WIDTH);
+        assert_eq!(load.extent_along(K), 1);
+    }
+
+    /// A load over stored tiles reaches along each dimension what its fused tiles hold there.
+    #[test]
+    fn a_tiled_load_reaches_its_fused_extents() {
+        let load = VectorTile::new(&[(K, 8), (K, 2), (N, 2)], N, 32).unwrap();
+        assert_eq!(load.extent_along(K), 16);
+        assert_eq!(load.extent_along(N), 2);
+    }
 
     /// A buffer stored in no tiles counts its loads with the last dimension fastest, as it always has:
     /// a row-major operand reads exactly as before.
