@@ -693,6 +693,13 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             .map(|_| true)
     }
 
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        self.scheduler
+            .stream(&stream_id)
+            .capturing
+            .start_run(stream_id)
+    }
+
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         // Materialize the planning run's work queued in the scheduler before the
         // recording window opens.

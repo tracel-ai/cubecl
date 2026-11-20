@@ -263,6 +263,16 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         stream.capturing().end_run(caller)
     }
 
+    /// Start the next planning run of the work about to be recorded, on the logical stream
+    /// `caller`, once the last one ended (see [`StreamCapture::start_run`](crate::stream::StreamCapture::start_run)).
+    ///
+    /// # Errors
+    ///
+    /// As [`StreamCapture::start_run`](crate::stream::StreamCapture::start_run).
+    pub fn start_run(&mut self, caller: StreamId) -> Result<(), ServerError> {
+        self.stream().capturing().start_run(caller)
+    }
+
     /// Open the window: from here the driver records every launch issued on
     /// this stream until the window closes.
     ///

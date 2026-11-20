@@ -157,7 +157,7 @@ impl StreamCapture {
     /// folded onto the same backend stream runs its work for real, and what
     /// it keeps would sit where a graph's replay writes.
     pub fn pinned_pages(&self, stream: StreamId) -> PinnedPages {
-        match self.is_owned_by(stream) {
+        match self.runs_work_of(stream) {
             true => PinnedPages::Share,
             false => PinnedPages::Avoid,
         }
@@ -180,7 +180,7 @@ impl StreamCapture {
         memory: &ManagedMemoryHandle,
         placement: Placement,
     ) {
-        if !self.is_owned_by(stream) {
+        if !self.runs_work_of(stream) {
             return;
         }
         let binding = memory.clone().binding();
@@ -198,7 +198,7 @@ impl StreamCapture {
     /// Only the capture's own logical `stream` follows the plan, as in
     /// [`allocated`](Self::allocated).
     pub fn place(&mut self, stream: StreamId, size_bytes: u64) -> Placement {
-        match self.is_owned_by(stream) {
+        match self.runs_work_of(stream) {
             true => self.planner.place_bytes(size_bytes),
             false => Placement::Pools,
         }
@@ -207,6 +207,36 @@ impl StreamCapture {
     /// Whether the logical `stream` is the one that prepared the capture under way.
     pub fn is_owned_by(&self, stream: StreamId) -> bool {
         self.owner() == Some(stream)
+    }
+
+    /// Whether what the logical `stream` allocates now is the captured work's: it owns the
+    /// capture, and a run of the work is under way. Between two planning runs, what the owner
+    /// allocates, a fresh input say, is not the work's, and outlives every replay.
+    fn runs_work_of(&self, stream: StreamId) -> bool {
+        self.is_owned_by(stream) && self.planner.is_running()
+    }
+
+    /// Start the next planning run, after the last one ended: what the work allocates is
+    /// logged again, and placed by the plan. The first run starts as the capture is prepared.
+    ///
+    /// # Errors
+    ///
+    /// When the stream is not planning, a run is already under way, or the logical `caller` is
+    /// not the one that prepared the capture.
+    pub fn start_run(&mut self, caller: StreamId) -> Result<(), ServerError> {
+        if !self.state.is_preparing() || !self.is_owned_by(caller) {
+            return Err(ServerError::graph_state(
+                "a planning run starts only on the logical stream that prepared the capture, \
+                 before its window opens",
+            ));
+        }
+        if self.planner.is_running() {
+            return Err(ServerError::graph_state(
+                "a planning run starts only once the last one ended with `graph_end_run`",
+            ));
+        }
+        self.planner.start_run();
+        Ok(())
     }
 
     /// End a planning run, once its deferred frees are reclaimed, and answer whether it
@@ -403,6 +433,7 @@ impl StreamCapture {
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
         self.clear();
+        self.planner.start_run();
         Ok(())
     }
 

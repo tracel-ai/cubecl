@@ -289,6 +289,11 @@ impl Server for HipServer {
         Window::on(&mut command).end_run(stream_id)
     }
 
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).start_run(stream_id)
+    }
+
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).begin()

@@ -299,10 +299,11 @@ pub fn a_recording_that_keeps_a_planned_temporary_does_not_seal<R: Runtime>() {
         };
         client.graph_prepare().expect("graph_prepare");
         // Each planning run lets the buffer go before it ends: a temporary.
-        while !{
+        drop(run());
+        while !client.graph_end_run().expect("graph_end_run") {
+            client.graph_start_run().expect("graph_start_run");
             drop(run());
-            client.graph_end_run().expect("graph_end_run")
-        } {}
+        }
         client.start_capture().expect("start_capture");
         let kept = run();
         assert!(
@@ -311,5 +312,41 @@ pub fn a_recording_that_keeps_a_planned_temporary_does_not_seal<R: Runtime>() {
         );
         drop(kept);
         assert!(!client.is_capturing(), "a refused capture is over");
+    });
+}
+
+/// What a capture's owner writes between two planning runs, a fresh input say, is not the
+/// work's: it survives another graph's replay, where the room the stream's temporaries share
+/// would have it overwritten.
+pub fn an_input_written_between_runs_survives_another_graphs_replay<R: Runtime>() {
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_007 }.executes(|| {
+        let (wide_in, wide_out) = (filled(&client, 0.0), client.empty(BYTES));
+        let wide = record_chain(&client, &wide_in, &wide_out, 4);
+
+        let (placeholder, narrow_out) = (filled(&client, 0.0), client.empty(BYTES));
+        client.graph_prepare().expect("graph_prepare");
+        run_chain(&client, &placeholder, &narrow_out, 1);
+        client.graph_end_run().expect("graph_end_run");
+        // Written between runs, the size of the wide graph's temporaries.
+        let input = filled(&client, 10.0);
+        while !{
+            client.graph_start_run().expect("graph_start_run");
+            run_chain(&client, &input, &narrow_out, 1);
+            client.graph_end_run().expect("graph_end_run")
+        } {}
+        client.start_capture().expect("start_capture");
+        run_chain(&client, &input, &narrow_out, 1);
+        let narrow = client.stop_capture().expect("stop_capture");
+
+        unsafe { wide.replay() }.expect("replay enqueues");
+        let input = read(&client, &input);
+        assert!(
+            input.iter().all(|&value| value == 10.0),
+            "the wide graph's replay wrote over the input: it holds {} first",
+            input[0]
+        );
+        unsafe { narrow.replay() }.expect("replay enqueues");
+        assert_eq!(read(&client, &narrow_out), vec![12.0; ELEMENTS]);
     });
 }

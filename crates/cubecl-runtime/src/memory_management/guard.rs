@@ -8,8 +8,9 @@ use alloc::sync::Arc;
 ///
 /// What a graph holds on the memory it replays against. A graph keeps raw
 /// addresses, so the bytes behind them must neither move nor be handed to
-/// work that outlives a replay. What the graph reads and writes past its
-/// capture is held by the graph's own bindings; the room its temporaries used
+/// work that outlives a replay. What the graph writes past its capture is held
+/// by the graph's own bindings, and what it reads by the caller, who keeps a
+/// graph's inputs alive for as long as it replays; the room its temporaries used
 /// is free on the page, and the guard keeps it from everything but another
 /// capture's temporaries. Those replay in stream order with this graph, so
 /// overwriting each other between replays costs nothing. The allocations on

@@ -58,6 +58,10 @@ pub struct AllocationPlanner {
     /// of since, and whatever the work kept, a cache's buffer say, which no later run allocates
     /// again. Arrival usage: pushed as each planning run ends, drained as the window opens.
     kept: Vec<WeakMemoryBinding>,
+    /// Whether a run of the work is under way: a planning run, from the capture's prepare or
+    /// [`start_run`](Self::start_run) to [`finish_run`](Self::finish_run), or the recorded run.
+    /// What the capture's owner allocates otherwise is not the work's.
+    running: bool,
     /// Whether any run finished since the capture was prepared.
     planned: bool,
     /// How many allocations the current run made so far: its position in `last`.
@@ -94,6 +98,7 @@ impl AllocationPlanner {
                 .map(|(_, memory)| memory.clone()),
         );
         self.end_run_log();
+        self.running = false;
         let stable = self.planned && self.ended == self.last;
         core::mem::swap(&mut self.last, &mut self.ended);
         self.planned = true;
@@ -105,6 +110,17 @@ impl AllocationPlanner {
         self.planned
     }
 
+    /// Start a planning run: what the work allocates from here is logged, and placed by the
+    /// plan, until [`finish_run`](Self::finish_run).
+    pub fn start_run(&mut self) {
+        self.running = true;
+    }
+
+    /// Whether a run of the work is under way, see [`start_run`](Self::start_run).
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
+
     /// What the planning runs left alive that still is, taken as the window opens.
     pub fn drain_kept(&mut self) -> impl Iterator<Item = ManagedMemoryBinding> + '_ {
         self.kept.drain(..).filter_map(|memory| memory.upgrade())
@@ -113,6 +129,7 @@ impl AllocationPlanner {
     /// Start the recorded run at the plan's first allocation, its log empty: what was allocated
     /// since the last planning run ended is not the work's.
     pub fn start_recording(&mut self) {
+        self.running = true;
         self.run.clear();
         self.cursor = 0;
         self.diverged = None;
@@ -141,6 +158,7 @@ impl AllocationPlanner {
     /// temporary it kept, which may sit on room another graph's replay writes. An output it
     /// let go is no divergence: its graph holds the room, which every replay still writes.
     pub fn finish_recording(&mut self) -> Option<Divergence> {
+        self.running = false;
         let diverged = self.diverged;
         self.end_run_log();
         if diverged.is_some() {
@@ -168,6 +186,7 @@ impl AllocationPlanner {
         self.last.clear();
         self.ended.clear();
         self.kept.clear();
+        self.running = false;
         self.planned = false;
         self.cursor = 0;
         self.diverged = None;

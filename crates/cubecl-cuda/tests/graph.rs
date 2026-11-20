@@ -384,3 +384,10 @@ fn cuda_graph_work_that_panics_leaves_no_capture() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     capture_status::a_work_that_panics_leaves_no_capture::<CudaRuntime>();
 }
+
+/// See [`graph_sharing::an_input_written_between_runs_survives_another_graphs_replay`].
+#[test]
+fn cuda_graph_input_written_between_runs_survives_another_graphs_replay() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::an_input_written_between_runs_survives_another_graphs_replay::<CudaRuntime>();
+}

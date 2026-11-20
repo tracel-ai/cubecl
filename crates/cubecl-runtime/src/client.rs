@@ -1823,12 +1823,16 @@ impl Client {
     /// would discard every launch that follows.
     pub fn capture<T>(&self, mut work: impl FnMut() -> T) -> Result<(Graph, T), ServerError> {
         /// Runs a capture plans before recording whatever it found: a cold fused path
-        /// settles by its second run, and a work that never settles is refused at seal.
+        /// settles by its second run. The recording is checked against the last run, so a work
+        /// that never settles seals only when its recording allocates as that run did.
         const PLANNING_RUNS_MAX: usize = 4;
 
         self.graph_prepare()?;
         let closer = CaptureCloser { client: self };
-        for _ in 0..PLANNING_RUNS_MAX {
+        for run in 0..PLANNING_RUNS_MAX {
+            if run > 0 {
+                self.graph_start_run()?;
+            }
             let output = work();
             let stable = self.graph_end_run();
             core::mem::drop(output);
@@ -1845,10 +1849,11 @@ impl Client {
 
     /// Prepare this client's stream for a graph capture and start planning the work it will
     /// record: until [`start_capture`](Self::start_capture), the stream's launches do their host
-    /// side and are discarded (see [`LaunchMode::Resolve`](crate::execution::LaunchMode)), and
-    /// each run of the work ends with [`graph_end_run`](Self::graph_end_run).
-    /// [`capture`](Self::capture) is the whole sequence; these are its steps, for a caller that
-    /// runs the work itself.
+    /// side and are discarded (see [`LaunchMode::Resolve`](crate::execution::LaunchMode)). The
+    /// first run of the work starts here, each run ends with
+    /// [`graph_end_run`](Self::graph_end_run), and the next starts with
+    /// [`graph_start_run`](Self::graph_start_run). [`capture`](Self::capture) is the whole
+    /// sequence; these are its steps, for a caller that runs the work itself.
     ///
     /// # Errors
     ///
@@ -1874,6 +1879,24 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_end_run(stream_id))
+            .closed_as_error()
+            .map_err(|err| self.abandon_capture(err))
+    }
+
+    /// Start the next planning run of the work, once the last one ended with
+    /// [`graph_end_run`](Self::graph_end_run): the first starts with
+    /// [`graph_prepare`](Self::graph_prepare). Between two runs, what the stream allocates, a
+    /// fresh input say, is not the work's: it is left out of the plan, and kept off the room
+    /// other graphs' replays write (see [`Server::graph_start_run`]).
+    ///
+    /// # Errors
+    ///
+    /// When the stream is not planning, or a run is already under way. A capture this stream
+    /// was planning is over when it fails.
+    pub fn graph_start_run(&self) -> Result<(), ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.graph_start_run(stream_id))
             .closed_as_error()
             .map_err(|err| self.abandon_capture(err))
     }

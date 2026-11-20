@@ -959,6 +959,25 @@ pub trait Server:
         Ok(true)
     }
 
+    /// Start the next planning run of the work a capture on `stream_id` is
+    /// about to record, once the last one ended with
+    /// [`graph_end_run`](Server::graph_end_run). The first run starts with
+    /// [`graph_prepare`](Server::graph_prepare). Between two runs, what the
+    /// stream allocates is not the work's: it is left out of the plan, and
+    /// kept off the room other graphs' replays write.
+    ///
+    /// A no-op by default, for a backend whose graphs share no room.
+    ///
+    /// # Errors
+    ///
+    /// When `stream_id` has no prepared capture whose window is still closed,
+    /// another logical stream on the same backend stream prepared it, or a
+    /// run is already under way.
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let _ = stream_id;
+        Ok(())
+    }
+
     /// Begin recording the launches issued on `stream_id` into a graph instead
     /// of executing them, so the sequence can later be
     /// [replayed](Server::replay) without paying the launch path again.

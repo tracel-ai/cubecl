@@ -77,12 +77,19 @@ impl FakeServer {
     /// Plan [`work`](Self::work) until two runs in a row allocate alike, each run's output held
     /// until the run ends.
     fn plan(&mut self, stream: StreamId) {
-        while !{
+        let output = self.work(stream).unwrap();
+        let mut stable = self.end_run(stream).unwrap();
+        drop(output);
+        while !stable {
+            self.start_run(stream).unwrap();
             let output = self.work(stream).unwrap();
-            let stable = self.end_run(stream).unwrap();
+            stable = self.end_run(stream).unwrap();
             drop(output);
-            stable
-        } {}
+        }
+    }
+
+    fn start_run(&mut self, stream: StreamId) -> Result<(), ServerError> {
+        Window::on(&mut self.command(stream)).start_run(stream)
     }
 }
 
@@ -160,6 +167,7 @@ fn an_output_placed_after_a_reclaim_is_where_the_recording_finds_it() {
     assert!(!server.end_run(OWNER).unwrap(), "a first run");
     drop(first);
 
+    server.start_run(OWNER).unwrap();
     REFUSALS.set(1);
     let second = server.work(OWNER).expect("placed after a reclaim");
     assert_eq!(
@@ -200,6 +208,7 @@ fn an_output_with_no_page_size_left_fails_rather_than_shares() {
         assert!(!server.end_run(OWNER).unwrap(), "a first run");
         drop(first);
 
+        server.start_run(OWNER).unwrap();
         let second = match server.work_of(OWNER, size_bytes) {
             Ok(second) => second,
             Err(err) => {
@@ -222,6 +231,76 @@ fn an_output_with_no_page_size_left_fails_rather_than_shares() {
     panic!("{CAPTURES_MAX} outputs never ran out of page sizes");
 }
 
+/// Seal a graph on `stream` whose replays write a temporary of [`MIB`] bytes: the graph, and
+/// where that temporary sits, which its page's guard keeps it on.
+fn record_temporary(server: &mut FakeServer, stream: StreamId) -> (Graph<Fake>, MemoryLocation) {
+    let temporary = |server: &mut FakeServer| {
+        let temporary = server.work(stream).unwrap();
+        server.touch(stream, &temporary);
+        location(&temporary)
+    };
+    server.prepare(stream);
+    temporary(server);
+    while !server.end_run(stream).unwrap() {
+        server.start_run(stream).unwrap();
+        temporary(server);
+    }
+    server.begin(stream);
+    let replayed = temporary(server);
+    (server.seal(stream).unwrap(), replayed)
+}
+
+/// What a capture's owner allocates between two planning runs, a fresh input say, is not the
+/// work's: it is left out of the plan, and kept off the room other graphs' replays write, which
+/// it would outlive.
+#[test]
+fn an_allocation_between_runs_is_not_the_works() {
+    let mut server = FakeServer::new();
+    let (_first, replayed) = record_temporary(&mut server, OWNER);
+
+    server.prepare(OWNER);
+    let output = server.work(OWNER).unwrap();
+    assert!(!server.end_run(OWNER).unwrap(), "a first run");
+    drop(output);
+    // Of another size than the work's output, so no plan places it by chance.
+    let input = server.work_of(OWNER, MIB / 2).unwrap();
+    assert_ne!(
+        location(&input),
+        replayed,
+        "an allocation between runs sits where the first graph's replays write"
+    );
+
+    server.start_run(OWNER).unwrap();
+    let output = server.work(OWNER).unwrap();
+    assert!(
+        server.end_run(OWNER).unwrap(),
+        "the allocation between runs was taken for the work's"
+    );
+    drop(output);
+    let between = server.work_of(OWNER, MIB / 2).unwrap();
+    assert_ne!(location(&between), replayed);
+    server.begin(OWNER);
+    let _output = server.work(OWNER).unwrap();
+    server
+        .seal(OWNER)
+        .expect("the recording allocated as planned");
+    drop((input, between));
+}
+
+/// A run starts only once the one before it ended, on the stream that prepared the capture.
+#[test]
+fn a_run_starts_only_after_the_last_one_ended() {
+    let mut server = FakeServer::new();
+    server.prepare(OWNER);
+    assert!(
+        server.start_run(OWNER).is_err(),
+        "the first run is under way"
+    );
+    server.end_run(OWNER).unwrap();
+    assert!(server.start_run(NEIGHBOUR).is_err(), "a neighbour's");
+    server.start_run(OWNER).unwrap();
+}
+
 /// A buffer a planning run kept, as a cache keeps what it builds, leaves the room another
 /// graph's replays write once the planning is over, its bytes with it. A planning run carves
 /// that room like the recording does, so the buffer can land there, and no later run allocates
@@ -229,20 +308,7 @@ fn an_output_with_no_page_size_left_fails_rather_than_shares() {
 #[test]
 fn a_buffer_a_planning_run_kept_leaves_the_room_another_graph_replays_over() {
     let mut server = FakeServer::new();
-    // Graph A: a temporary its replays write, freed when its run is over.
-    let temporary = |server: &mut FakeServer| {
-        let temporary = server.work(OWNER).unwrap();
-        server.touch(OWNER, &temporary);
-        location(&temporary)
-    };
-    server.prepare(OWNER);
-    while !{
-        temporary(&mut server);
-        server.end_run(OWNER).unwrap()
-    } {}
-    server.begin(OWNER);
-    let replayed = temporary(&mut server);
-    let _first = server.seal(OWNER).unwrap();
+    let (_first, replayed) = record_temporary(&mut server, OWNER);
 
     // Graph B: its first planning run keeps a buffer the later runs find already built.
     server.prepare(OWNER);
@@ -254,7 +320,9 @@ fn a_buffer_a_planning_run_kept_leaves_the_room_another_graph_replays_over() {
     );
     server.bytes(OWNER, &kept).fill(0xAB);
     assert!(!server.end_run(OWNER).unwrap(), "a first run");
+    server.start_run(OWNER).unwrap();
     assert!(!server.end_run(OWNER).unwrap(), "it allocated otherwise");
+    server.start_run(OWNER).unwrap();
     assert!(server.end_run(OWNER).unwrap(), "two runs allocated alike");
     server.begin(OWNER);
 
