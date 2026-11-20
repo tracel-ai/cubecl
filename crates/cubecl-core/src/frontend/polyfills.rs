@@ -208,13 +208,26 @@ pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     (input + Vector::one()).ln()
 }
 
+/// `exp(x) - 1` without losing precision for small `|x|`.
+///
+/// For `|x| < 0.5` this uses the Taylor series `x + x^2/2! + ... + x^9/9!` in Horner form, whose
+/// truncation error there is below `0.5^9 / 10!` (about `5e-10`) relative to the result. Outside
+/// that range `exp(x)` is far enough from one that `exp(x) - 1` keeps full precision. The series
+/// doesn't rely on the rounding of `exp(x) - 1`, so compilers that fold `(a + 1) - 1` can't change
+/// the result. `0`, `-0`, `inf` (`inf`), `-inf` (`-1`) and `NaN` (`NaN`) are kept.
 #[cube]
 pub fn expm1<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
-    let sq = x * x;
-    let a = sq * Vector::new(T::new(0.5));
-    let b = sq * x * Vector::new(T::new(1.0 / 6.0));
-    let taylor = x + a + b;
-    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5)));
+    let mut p = Vector::new(T::new(1.0 / 362_880.0));
+    p = p * x + Vector::new(T::new(1.0 / 40_320.0));
+    p = p * x + Vector::new(T::new(1.0 / 5_040.0));
+    p = p * x + Vector::new(T::new(1.0 / 720.0));
+    p = p * x + Vector::new(T::new(1.0 / 120.0));
+    p = p * x + Vector::new(T::new(1.0 / 24.0));
+    p = p * x + Vector::new(T::new(1.0 / 6.0));
+    p = p * x + Vector::new(T::new(0.5));
+    p = p * x + Vector::one();
+    let taylor = x * p;
+    let is_small = x.abs().less_than(&Vector::new(T::new(0.5)));
     select_many(is_small, taylor, x.exp() - Vector::one())
 }
 
