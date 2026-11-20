@@ -280,6 +280,11 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                  after `graph_prepare`, each run ended by `graph_end_run`",
             ));
         }
+        // Planning carves the room other graphs' replays write as the recording
+        // does, so a buffer the work kept from a planning run (a cache's, say)
+        // may sit there. Nothing recorded its address yet: move it apart.
+        let kept: Vec<_> = self.stream().capturing().drain_planned_kept().collect();
+        self.command.move_apart(&kept)?;
         // Rejected before the reclaim below runs: a drop-queue flush issued on
         // a stream that is already recording would abort its live capture.
         // Opening releases the staging the planning run primed.

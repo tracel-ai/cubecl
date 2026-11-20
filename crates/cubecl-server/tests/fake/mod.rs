@@ -223,11 +223,20 @@ impl Driver for Fake {
     }
 
     unsafe fn copy_on_device(
-        _source: &DeviceResource<Self>,
-        _target: &DeviceResource<Self>,
+        source: &DeviceResource<Self>,
+        target: &DeviceResource<Self>,
         _queue: (),
     ) -> Result<(), IoError> {
-        unreachable!("nothing is relocated")
+        let (from, len) = source.get_write_ptr_and_length();
+        let (into, room) = target.get_write_ptr_and_length();
+        assert_eq!(
+            len, room,
+            "a relocation copies between storages of one size"
+        );
+        // SAFETY: both resources are live slices of host bytes, `len` long, and a relocation
+        // never copies a slice onto itself.
+        unsafe { core::ptr::copy_nonoverlapping(from, into, len) };
+        Ok(())
     }
 
     fn launch(

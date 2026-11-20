@@ -244,6 +244,13 @@ impl StreamCapture {
         Ok(())
     }
 
+    /// What the planning runs left alive that still is, taken as the window opens: a buffer
+    /// the work kept from a planning run may sit on room another graph's replay writes, since
+    /// planning carves that room as the recording does.
+    pub fn drain_planned_kept(&mut self) -> impl Iterator<Item = ManagedMemoryBinding> + '_ {
+        self.planner.drain_kept()
+    }
+
     /// Whether the window may open: a recording with no plan could put an output on room
     /// another graph's replay writes.
     pub fn has_plan(&self) -> bool {

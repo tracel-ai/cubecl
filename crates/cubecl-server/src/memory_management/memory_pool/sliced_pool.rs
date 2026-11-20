@@ -112,6 +112,11 @@ impl SlicedPool {
             .slice_mut(location.slice as usize)
     }
 
+    /// Whether a graph guards the page the slice `location` names is on.
+    pub(crate) fn is_guarded_at(&self, location: MemoryLocation) -> bool {
+        self.pages[location.page as usize].0.is_guarded()
+    }
+
     /// The storage behind the slice `location` names, while its page has
     /// real device backing: `None` for one carved lazily and never resolved,
     /// which has nothing behind it to read.

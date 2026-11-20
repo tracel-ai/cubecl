@@ -6,7 +6,7 @@ mod fake;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
-    command::{Command, Graph, Window},
+    command::{Command, DeviceStream, Graph, Window},
     id::GraphId,
     logging::ServerLogger,
     memory_management::MemoryLocation,
@@ -83,6 +83,28 @@ impl FakeServer {
             drop(output);
             stable
         } {}
+    }
+}
+
+impl FakeServer {
+    /// Note that a launch on `stream` was given the memory `handle` names, as a recorded launch
+    /// does: its page is guarded once the graph seals.
+    fn touch(&mut self, stream: StreamId, handle: &Handle) {
+        let location = location(handle);
+        self.command(stream)
+            .stream()
+            .capturing()
+            .touch(stream, location);
+    }
+
+    /// The bytes behind `handle`, as the device holds them.
+    fn bytes(&mut self, stream: StreamId, handle: &Handle) -> &'static mut [u8] {
+        self.command(stream)
+            .stream()
+            .device_memory()
+            .get_resource(handle.memory.clone().binding(), None, None)
+            .unwrap()
+            .write()
     }
 }
 
@@ -198,6 +220,54 @@ fn an_output_with_no_page_size_left_fails_rather_than_shares() {
         graphs.push((server.seal(OWNER).unwrap(), output));
     }
     panic!("{CAPTURES_MAX} outputs never ran out of page sizes");
+}
+
+/// A buffer a planning run kept, as a cache keeps what it builds, leaves the room another
+/// graph's replays write once the planning is over, its bytes with it. A planning run carves
+/// that room like the recording does, so the buffer can land there, and no later run allocates
+/// it again for the plan to place it.
+#[test]
+fn a_buffer_a_planning_run_kept_leaves_the_room_another_graph_replays_over() {
+    let mut server = FakeServer::new();
+    // Graph A: a temporary its replays write, freed when its run is over.
+    let temporary = |server: &mut FakeServer| {
+        let temporary = server.work(OWNER).unwrap();
+        server.touch(OWNER, &temporary);
+        location(&temporary)
+    };
+    server.prepare(OWNER);
+    while !{
+        temporary(&mut server);
+        server.end_run(OWNER).unwrap()
+    } {}
+    server.begin(OWNER);
+    let replayed = temporary(&mut server);
+    let _first = server.seal(OWNER).unwrap();
+
+    // Graph B: its first planning run keeps a buffer the later runs find already built.
+    server.prepare(OWNER);
+    let kept = server.work(OWNER).unwrap();
+    assert_eq!(
+        location(&kept),
+        replayed,
+        "the first planning run carves the room the first graph's replays write"
+    );
+    server.bytes(OWNER, &kept).fill(0xAB);
+    assert!(!server.end_run(OWNER).unwrap(), "a first run");
+    assert!(!server.end_run(OWNER).unwrap(), "it allocated otherwise");
+    assert!(server.end_run(OWNER).unwrap(), "two runs allocated alike");
+    server.begin(OWNER);
+
+    assert_ne!(
+        location(&kept),
+        replayed,
+        "the kept buffer still sits where the first graph's replays write"
+    );
+    assert!(
+        server.bytes(OWNER, &kept).iter().all(|&byte| byte == 0xAB),
+        "the kept buffer moved without its bytes"
+    );
+    let _second = server.seal(OWNER).unwrap();
 }
 
 /// Another logical stream folded onto the same backend stream cannot end the owner's planning

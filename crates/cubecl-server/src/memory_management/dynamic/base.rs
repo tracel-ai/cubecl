@@ -11,7 +11,7 @@ use crate::{
         MemoryPoolReport,
         memory_pool::{MemoryPool, PageMapping},
     },
-    server::IoError,
+    server::{IoError, ServerError},
     storage::ComputeStorage,
 };
 use alloc::{boxed::Box, format, string::String, vec::Vec};
@@ -156,6 +156,25 @@ impl DynamicMemory {
         match self {
             DynamicMemory::Exclusive(_) => {}
             DynamicMemory::Adaptive(memory) => memory.relocate(storage, copier, reason, failures),
+        }
+    }
+
+    /// Move every allocation of `kept` off the pages graphs guard, onto room no replay writes
+    /// (see [`AdaptiveMemory::move_apart`]). Nothing to move where pages are never shared.
+    ///
+    /// # Errors
+    ///
+    /// As [`AdaptiveMemory::move_apart`].
+    pub fn move_apart<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        kept: &[ManagedMemoryBinding],
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
+        match self {
+            DynamicMemory::Exclusive(_) => Ok(()),
+            DynamicMemory::Adaptive(memory) => memory.move_apart(storage, kept, copier, failures),
         }
     }
 

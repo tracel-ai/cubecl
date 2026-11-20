@@ -11,9 +11,12 @@ use crate::{
         memory_pool::{
             ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedLayout, SlicedPool,
         },
-        relocation::{CopyQueue, RelocationNeed, RelocationReason, RelocationTrigger},
+        relocation::{
+            CopyQueue, Move, Relocation, RelocationNeed, RelocationReason, RelocationTrigger,
+            StorageCopy,
+        },
     },
-    server::IoError,
+    server::{IoError, ServerError},
     storage::ComputeStorage,
 };
 use alloc::{format, string::String, vec::Vec};
@@ -274,6 +277,96 @@ impl AdaptiveMemory {
                 log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
             }
         }
+    }
+
+    /// Move every allocation of `kept` that sits on a page a graph guards to the separate
+    /// arena, with its bytes. Nothing recorded its address, so it may leave a page whose other
+    /// slices keep theirs; on the separate arena no replay writes the room around it.
+    ///
+    /// # Errors
+    ///
+    /// When the separate arena has no room for one, or a copy fails: nothing moved then.
+    pub fn move_apart<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        kept: &[ManagedMemoryBinding],
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
+        let mut moves = Vec::new();
+        for memory in kept {
+            if let Some(relocated) = self.plan_move_apart(storage, memory, failures)? {
+                moves.push(relocated);
+            }
+        }
+        if moves.is_empty() {
+            return Ok(());
+        }
+        let landed = Relocation::new(moves).copy(storage, copier)?;
+        for Move {
+            allocation, target, ..
+        } in landed.into_moves()
+        {
+            let source = allocation.descriptor().location();
+            let destination = target.descriptor().location();
+            // Only the slices hold the handles once these go.
+            drop(target);
+            drop(allocation);
+            let (Some(from), Some(into)) = (
+                self.arena.pool_mut(source.pool),
+                self.separate.pool_mut(destination.pool),
+            ) else {
+                continue;
+            };
+            from.slice_at(source)
+                .hand_over(into.slice_at(destination), failures);
+        }
+        Ok(())
+    }
+
+    /// The move of `memory` to the separate arena, when it sits on a page of the arena a graph
+    /// guards: `None` anywhere else, where no replay writes the room around it.
+    fn plan_move_apart<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        memory: &ManagedMemoryBinding,
+        failures: &mut ErrorGraph,
+    ) -> Result<Option<Move>, IoError> {
+        let source = memory.descriptor().location();
+        let Some(pool) = self.arena.pool_mut(source.pool) else {
+            return Ok(None);
+        };
+        if !pool.is_guarded_at(source) {
+            return Ok(None);
+        }
+        let slice = pool.slice_at(source);
+        let (size, allocation) = (slice.storage.size(), slice.handle.clone());
+        let source_storage = pool.storage_at(source);
+        let target = self.separate.reserve(
+            storage,
+            size,
+            PageMapping::Eager,
+            PinnedPages::Share,
+            failures,
+        )?;
+        let copy = match source_storage {
+            Some(source) => {
+                let location = target.descriptor().location();
+                let Some(pool) = self.separate.pool_mut(location.pool) else {
+                    return Ok(None);
+                };
+                Some(StorageCopy {
+                    source,
+                    target: pool.mapped_storage_at(storage, location)?,
+                })
+            }
+            None => None,
+        };
+        Ok(Some(Move {
+            allocation,
+            target,
+            copy,
+        }))
     }
 
     /// Release what the pools no longer need, and drop every outdated pool

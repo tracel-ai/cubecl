@@ -17,8 +17,8 @@ use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
-    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate, PinnedPages,
-    StreamMemoryReport,
+    ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard,
+    PageUpdate, PinnedPages, StreamMemoryReport,
 };
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
@@ -753,6 +753,28 @@ impl<D: Driver> RelocatingStreams for Command<'_, D> {
 }
 
 impl<D: Driver> Command<'_, D> {
+    /// Move every allocation of `kept` that sits on a page a graph guards, in the current
+    /// stream's memory, onto room no graph's replay writes, with the copies queued on that
+    /// stream (see [`MemoryManagement::move_apart`](crate::memory_management::MemoryManagement::move_apart)).
+    ///
+    /// # Errors
+    ///
+    /// Refused while any stream records, since the copies wait on the whole device, and when
+    /// one does not move.
+    pub fn move_apart(&mut self, kept: &[ManagedMemoryBinding]) -> Result<(), ServerError> {
+        if kept.is_empty() {
+            return Ok(());
+        }
+        self.refuse_while_recording()?;
+        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
+        let queue = self.streams.current().signal();
+        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        let (stream, failures) = self.streams.current_and_failures();
+        stream
+            .device_memory()
+            .move_apart(kept, &mut copier, failures)
+    }
+
     /// Move what `stream_id`'s memory holds on outdated pages, with the copies
     /// queued on that stream.
     fn relocate_stream(&mut self, stream_id: StreamId, reason: RelocationReason) {

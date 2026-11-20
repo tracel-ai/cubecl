@@ -11,7 +11,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
-    server::IoError,
+    server::{IoError, ServerError},
     storage::{ComputeStorage, ManagedResource, StorageHandle},
 };
 
@@ -363,6 +363,23 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ) {
         self.pools
             .relocate(&mut self.storage, copier, reason, failures);
+    }
+
+    /// Move every allocation of `kept` that sits on a page a graph guards onto room no graph's
+    /// replay writes, with its bytes: what a graph capture's planning runs left alive, whose
+    /// addresses nothing recorded. The copies are queued on `copier`.
+    ///
+    /// # Errors
+    ///
+    /// When no room apart takes one, or a copy fails: nothing moved then.
+    pub fn move_apart(
+        &mut self,
+        kept: &[ManagedMemoryBinding],
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
+        self.pools
+            .move_apart(&mut self.storage, kept, copier, failures)
     }
 
     /// Keep the page `location` names as it is for as long as the guard lives

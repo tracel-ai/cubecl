@@ -54,6 +54,10 @@ pub struct AllocationPlanner {
     /// The run that just ended, before it becomes `last`. Scratch usage: filled as a run ends,
     /// compared with `last`, then swapped with it.
     ended: Vec<PlannedAllocation>,
+    /// What the planning runs left alive when they ended, unheld: the outputs the caller let go
+    /// of since, and whatever the work kept, a cache's buffer say, which no later run allocates
+    /// again. Arrival usage: pushed as each planning run ends, drained as the window opens.
+    kept: Vec<WeakMemoryBinding>,
     /// Whether any run finished since the capture was prepared.
     planned: bool,
     /// How many allocations the current run made so far: its position in `last`.
@@ -83,6 +87,12 @@ impl AllocationPlanner {
     /// allocated what the run before it did: the work has reached its steady state, and the
     /// recording can follow it.
     pub fn finish_run(&mut self) -> bool {
+        self.kept.extend(
+            self.run
+                .iter()
+                .filter(|(_, memory)| memory.upgrade().is_some())
+                .map(|(_, memory)| memory.clone()),
+        );
         self.end_run_log();
         let stable = self.planned && self.ended == self.last;
         core::mem::swap(&mut self.last, &mut self.ended);
@@ -95,8 +105,15 @@ impl AllocationPlanner {
         self.planned
     }
 
-    /// Start the recorded run at the plan's first allocation.
+    /// What the planning runs left alive that still is, taken as the window opens.
+    pub fn drain_kept(&mut self) -> impl Iterator<Item = ManagedMemoryBinding> + '_ {
+        self.kept.drain(..).filter_map(|memory| memory.upgrade())
+    }
+
+    /// Start the recorded run at the plan's first allocation, its log empty: what was allocated
+    /// since the last planning run ended is not the work's.
     pub fn start_recording(&mut self) {
+        self.run.clear();
         self.cursor = 0;
         self.diverged = None;
     }
@@ -150,6 +167,7 @@ impl AllocationPlanner {
         self.run.clear();
         self.last.clear();
         self.ended.clear();
+        self.kept.clear();
         self.planned = false;
         self.cursor = 0;
         self.diverged = None;
