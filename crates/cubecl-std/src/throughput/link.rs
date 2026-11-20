@@ -142,6 +142,8 @@ impl<'a> LinkProber<'a> {
             LinkRoute::Transfer(_) => link_transfer::build_kernel(source, destination, bytes),
             LinkRoute::PeerLoad => link_peer::build_load(source, destination, bytes),
             LinkRoute::PeerStore => link_peer::build_store(source, destination, bytes),
+            LinkRoute::RingPeerStore => link_peer::build_ring_store(self.members, bytes),
+            LinkRoute::RingPeerLoad => link_peer::build_ring_load(self.members, bytes),
             LinkRoute::Collective(kind) => self
                 .group()
                 .ok_or(ThroughputError::Unsupported)
@@ -164,6 +166,8 @@ impl<'a> LinkProber<'a> {
             (LinkRoute::PeerStore, [source, destination]) => {
                 source.peer_access(destination) >= PeerAccess::Memory
             }
+            (LinkRoute::RingPeerStore, _) => link_peer::ring_stores(self.members),
+            (LinkRoute::RingPeerLoad, _) => link_peer::ring_loads(self.members),
             (LinkRoute::Collective(_), [_, _, ..]) => self.group().is_some(),
             _ => false,
         }
@@ -181,7 +185,7 @@ impl<'a> LinkProber<'a> {
     /// member cannot allocate the buffers it holds at that size.
     fn size_cap(&self, route: LinkRoute) -> u64 {
         let buffers = match route {
-            LinkRoute::Collective(_) => 2,
+            LinkRoute::Collective(_) | LinkRoute::RingPeerStore | LinkRoute::RingPeerLoad => 2,
             LinkRoute::Transfer(_) | LinkRoute::PeerLoad | LinkRoute::PeerStore => 1,
         };
         self.members
