@@ -1,7 +1,7 @@
 //! The pools a workload's allocations are carved from, one per page size it
 //! grew through.
 
-use crate::memory_management::Cleanup;
+use crate::memory_management::{Cleanup, PinnedPages};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -241,10 +241,13 @@ impl PoolArena {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self.sizing.fit(size, self.current().page_size()) {
-            Fit::Fits => self.current_mut().reserve(storage, size, mapping, failures),
+            Fit::Fits => self
+                .current_mut()
+                .reserve_sharing(storage, size, mapping, pinned, failures),
             Fit::Grow { page_size } => self.grow(storage, size, page_size, mapping, failures),
             Fit::TooLarge => Err(IoError::BufferTooBig {
                 size,
@@ -255,13 +258,20 @@ impl PoolArena {
 
     /// Reserve `size` bytes in the room the current pool holds. `None` when
     /// it has none for it, or when it would need larger pages.
+    ///
+    /// Only the current pool carves, so the room on a pinned page an outdated
+    /// pool holds serves no capture after the growth: why the largest graph
+    /// is recorded first.
     pub fn try_reserve(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self.sizing.fit(size, self.current().page_size()) {
-            Fit::Fits => self.current_mut().try_reserve(size, failures),
+            Fit::Fits => self
+                .current_mut()
+                .try_reserve_sharing(size, pinned, failures),
             Fit::Grow { .. } | Fit::TooLarge => None,
         }
     }
@@ -544,6 +554,7 @@ mod tests {
             storage,
             size,
             PageMapping::Eager,
+            PinnedPages::Avoid,
             &mut ErrorGraph::default(),
         )
     }

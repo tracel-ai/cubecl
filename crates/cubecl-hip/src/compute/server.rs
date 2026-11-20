@@ -177,6 +177,22 @@ impl Server for HipServer {
         // that touches a buffer: resolving resources, uploading metadata or
         // reading a dynamic cube count would materialize memory the run
         // exists to leave unmapped.
+        // A planning run's launch builds what the launch path allocates — its
+        // metadata buffer, the staging that uploads it — and stops before the
+        // dispatch, so the recorded run allocates none of it.
+        if launch_mode == LaunchMode::Resolve {
+            // A failure here is the recorded run's to report: it repeats this
+            // launch and needs what failed to build.
+            let _ = self.launch_checked(
+                id.kernel,
+                &loaded,
+                (1, 1, 1),
+                bindings,
+                stream_id,
+                launch_mode,
+            );
+            return;
+        }
         if launch_mode.discards_launch() {
             return;
         }
@@ -232,7 +248,9 @@ impl Server for HipServer {
             bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+        .execute(|server| {
+            server.launch_checked(kernel_id, &loaded, count, bindings, stream_id, launch_mode)
+        });
         match outcome {
             ScopedOutcome::Executed(()) => peers.enqueued(),
             ScopedOutcome::Failed(error) | ScopedOutcome::Skipped(error) => peers.failed(&error),
@@ -264,6 +282,16 @@ impl Server for HipServer {
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).end_run(stream_id)
+    }
+
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).start_run(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -812,6 +840,7 @@ impl HipServer {
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
         // Arguments refused while they were registered never run: the scope
         // leaves the outputs carrying why.
@@ -856,6 +885,9 @@ impl HipServer {
             .collect::<Result<Vec<_>, _>>()?;
 
         resources.push(command.resource(info_handle.binding())?);
+        if launch_mode == LaunchMode::Resolve {
+            return Ok(());
+        }
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
         command.hold_peers(peers);
@@ -884,7 +916,7 @@ fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, Ser
     match stream.info_cache.lookup(mode, &words) {
         Lookup::Hit(handle) => Ok(handle),
         Lookup::Build { store } => {
-            let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
+            let handle = command.create_metadata(bytemuck::cast_slice(&words))?;
             if store {
                 command.stream().info_cache.store(words, handle.clone());
             }

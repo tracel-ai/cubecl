@@ -631,8 +631,7 @@ fn receive<S: CollectiveServer>(
     // A command on the destination server reserves the memory the incoming
     // data lands in.
     let mut command = server.command(stream_id, [].into_iter())?;
-    let memory = command.reserve(handle.size())?;
-    command.bind(memory, handle.memory.clone())?;
+    command.allocate(handle.size(), &handle.memory)?;
     let resource = command.resource(handle.binding())?;
     let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
