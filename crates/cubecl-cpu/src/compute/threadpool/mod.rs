@@ -81,8 +81,9 @@ impl Threadpool {
             .collect();
         let base_data = PlironData::new(buffer_ptrs, info.data, cube_count, keepalive);
 
-        // A cube barrier only completes if every unit of the cube is running, so such a kernel
-        // needs as many workers as the cube has units.
+        // Every unit must be able to reach the barrier, so it needs its own worker even
+        // when the cube exceeds the core count. Waiting units park in the host barrier;
+        // capping the pool here would strand queued units behind their waiting peers.
         if requirements.needs_parallelism {
             self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
         }
