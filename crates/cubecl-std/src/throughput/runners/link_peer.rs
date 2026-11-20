@@ -1,6 +1,6 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use cubecl::prelude::*;
-use cubecl_common::profile::Instant;
+use cubecl_common::profile::{Duration, Instant};
 use cubecl_core as cubecl;
 use cubecl_core::ir::{ElemType, UIntKind};
 use cubecl_runtime::{
@@ -8,7 +8,7 @@ use cubecl_runtime::{
     throughput::{KernelConfig, ThroughputError},
 };
 
-use crate::throughput::{LaunchConfig, memory_probe, verify::verify};
+use crate::throughput::{LaunchConfig, memory_probe};
 
 /// `u32`s per vector a peer kernel moves: 16 bytes, the widest load every runtime issues.
 const VECTOR_WIDTH: usize = 4;
@@ -24,106 +24,188 @@ const MAX_CUBES: u32 = 1024;
 /// bits, and every route is held to the same bound so their curves compare.
 pub const MAX_BYTES: u64 = u32::MAX as u64 * 4;
 
-/// Builds [`peer_load`] on `destination`, moving `bytes` of `source`'s memory per pass, every load
-/// crossing the link. `ops_count` is the bytes moved.
-///
-/// # Errors
-///
-/// [`ThroughputError::Unsupported`] where `destination`'s kernels cannot bind `source`'s memory or
-/// `bytes` is more than a kernel can address, [`ThroughputError::Allocation`] where either device
-/// has no room for its buffer, and [`ThroughputError::Launch`] where the kernel did not run.
-pub fn build_load(
-    source: &Client,
-    destination: &Client,
-    bytes: u64,
-) -> Result<KernelConfig, ThroughputError> {
-    let bytes = movable(destination, source, bytes)?;
-    let peer = initialized(source, bytes)?;
-    let peer = source
-        .share_with_peers(&peer)
-        .map_err(|_| ThroughputError::Unsupported)?;
-    let [local] = memory_probe::reserve(destination, [bytes as usize])?;
-
-    let launcher = destination.clone();
-    let written = local.clone();
-    let sample = Box::new(move |iterations: usize| {
-        let start = Instant::now();
-        for _ in 0..iterations {
-            launch_peer_load(&launcher, &peer, &local, bytes);
-        }
-        // A failure is not this sync's to report: `verify` asked the output.
-        let _ = cubecl_core::future::block_on(launcher.sync());
-        start.elapsed()
-    });
-    verify(destination, &sample, &written)?;
-
-    Ok(KernelConfig {
-        sample,
-        ops_count: bytes as usize,
-        min_iterations: 1,
-    })
+/// Which side of a link a peer copy's kernel runs on.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PeerCopyKind {
+    /// [`peer_load`] on the destination, every load crossing the link.
+    Load,
+    /// [`peer_store`] on the source, every store crossing the link.
+    Store,
 }
 
-/// Builds [`peer_store`] on `source`, moving `bytes` into `destination`'s memory per pass, every
-/// store crossing the link. `ops_count` is the bytes moved.
-///
-/// # Errors
-///
-/// As [`build_load`].
-pub fn build_store(
-    source: &Client,
-    destination: &Client,
-    bytes: u64,
-) -> Result<KernelConfig, ThroughputError> {
-    let bytes = movable(source, destination, bytes)?;
-    let local = initialized(source, bytes)?;
-    let [peer] = memory_probe::reserve(destination, [bytes as usize])?;
-    let peer = destination
-        .share_with_peers(&peer)
-        .map_err(|_| ThroughputError::Unsupported)?;
-
-    let launcher = source.clone();
-    let written = peer.clone();
-    let sample = Box::new(move |iterations: usize| {
-        let start = Instant::now();
-        for _ in 0..iterations {
-            launch_peer_store(&launcher, &local, &peer, bytes);
+impl PeerCopyKind {
+    /// Whether the side this kind launches on can bind the other side's memory.
+    pub(crate) fn reaches(self, source: &Client, destination: &Client) -> bool {
+        match self {
+            Self::Load => destination.peer_access(source) >= PeerAccess::Memory,
+            Self::Store => source.peer_access(destination) >= PeerAccess::Memory,
         }
-        let _ = cubecl_core::future::block_on(launcher.sync());
-        start.elapsed()
-    });
-    verify(destination, &sample, &written)?;
-
-    Ok(KernelConfig {
-        sample,
-        ops_count: bytes as usize,
-        min_iterations: 1,
-    })
-}
-
-/// `bytes` in whole vectors, where `kernel`'s kernels can bind `owner`'s memory and address them.
-fn movable(kernel: &Client, owner: &Client, bytes: u64) -> Result<u64, ThroughputError> {
-    if kernel.peer_access(owner) < PeerAccess::Memory || bytes > MAX_BYTES {
-        return Err(ThroughputError::Unsupported);
     }
-    Ok(whole_vectors(bytes))
 }
 
-/// A buffer on `owner` holding at least `bytes`, every line of it written, since a kernel's input
-/// must be.
-fn initialized(owner: &Client, bytes: u64) -> Result<Handle, ThroughputError> {
-    let dtype = ElemType::UInt(UIntKind::U32);
-    let config = LaunchConfig::for_device(owner, dtype);
-    let line_bytes = (config.vector_size * dtype.size()) as u64;
-    let lines = bytes.div_ceil(line_bytes);
-    let [buffer] = memory_probe::reserve(owner, [(lines * line_bytes) as usize])?;
-    memory_probe::prime(owner, &buffer, lines as usize, config, dtype);
-    Ok(buffer)
+/// Times peer copies launched together: one between a pair, or one from each member of a ring to
+/// the next. `ops_count` is the bytes one copy moves.
+pub(crate) struct PeerCopier {
+    copies: Vec<PeerCopy>,
+    kind: PeerCopyKind,
+    bytes: u64,
 }
 
-/// `bytes` rounded down to whole vectors, at least one.
-pub(crate) fn whole_vectors(bytes: u64) -> u64 {
-    (bytes / VECTOR_BYTES).max(1) * VECTOR_BYTES
+/// The buffers of one peer kernel: `launcher` runs it, reading `read` and writing `written`, which
+/// `owner` holds.
+struct PeerCopy {
+    pub launcher: Client,
+    pub owner: Client,
+    pub read: Handle,
+    pub written: Handle,
+}
+
+impl PeerCopier {
+    /// One copy of `bytes` from `source` to `destination`, refused where the side `kind` launches
+    /// on cannot bind the other's memory or `bytes` is more than a kernel can address.
+    pub(crate) fn pair(
+        source: &Client,
+        destination: &Client,
+        kind: PeerCopyKind,
+        bytes: u64,
+    ) -> Result<Self, ThroughputError> {
+        Self::new([(source, destination)].into_iter(), kind, bytes)
+    }
+
+    /// One copy of `bytes` from every member to the next, the last to the first, refused as
+    /// [`pair`](Self::pair) for any of them, and for fewer than two members or a device named twice.
+    pub(crate) fn ring(
+        members: &[Client],
+        kind: PeerCopyKind,
+        bytes: u64,
+    ) -> Result<Self, ThroughputError> {
+        let hops = Self::hops(members).ok_or(ThroughputError::Unsupported)?;
+        Self::new(hops, kind, bytes)
+    }
+
+    /// Whether [`ring`](Self::ring) accepts `members`, without allocating.
+    pub(crate) fn supports_ring(members: &[Client], kind: PeerCopyKind) -> bool {
+        Self::hops(members).is_some_and(|mut hops| {
+            hops.all(|(source, destination)| kind.reaches(source, destination))
+        })
+    }
+
+    /// Runs one pass, confirms every copy's output was written, then hands the copies over to be
+    /// timed.
+    pub(crate) fn into_config(self) -> Result<KernelConfig, ThroughputError> {
+        // `verify`'s check, on every copy's output.
+        self.time_iterations(1);
+        for copy in &self.copies {
+            cubecl_core::future::block_on(copy.owner.sync_buffers([&copy.written]))
+                .map_err(|_| ThroughputError::Launch)?;
+        }
+        let ops_count = self.bytes as usize;
+        Ok(KernelConfig {
+            sample: Box::new(move |iterations| self.time_iterations(iterations)),
+            ops_count,
+            min_iterations: 1,
+        })
+    }
+
+    fn new<'a>(
+        hops: impl Iterator<Item = (&'a Client, &'a Client)>,
+        kind: PeerCopyKind,
+        bytes: u64,
+    ) -> Result<Self, ThroughputError> {
+        if bytes > MAX_BYTES {
+            return Err(ThroughputError::Unsupported);
+        }
+        let bytes = (bytes / VECTOR_BYTES).max(1) * VECTOR_BYTES;
+        let copies = hops
+            .map(|(source, destination)| Self::copy(source, destination, kind, bytes))
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            copies,
+            kind,
+            bytes,
+        })
+    }
+
+    /// Each member paired with the next and the last with the first, or `None` where the members
+    /// are fewer than two or name one device twice.
+    pub(crate) fn hops(members: &[Client]) -> Option<impl Iterator<Item = (&Client, &Client)>> {
+        let distinct = members.iter().enumerate().all(|(index, member)| {
+            members[..index]
+                .iter()
+                .all(|other| other.service_id() != member.service_id())
+        });
+        (members.len() >= 2 && distinct).then(|| members.iter().zip(members.iter().cycle().skip(1)))
+    }
+
+    /// The buffers of one copy of `bytes`, whole vectors, from `source`'s memory to
+    /// `destination`'s.
+    fn copy(
+        source: &Client,
+        destination: &Client,
+        kind: PeerCopyKind,
+        bytes: u64,
+    ) -> Result<PeerCopy, ThroughputError> {
+        if !kind.reaches(source, destination) {
+            return Err(ThroughputError::Unsupported);
+        }
+        let initialized = Self::initialized(source, bytes)?;
+        let [empty] = memory_probe::reserve(destination, [bytes as usize])?;
+        match kind {
+            PeerCopyKind::Load => Ok(PeerCopy {
+                launcher: destination.clone(),
+                owner: destination.clone(),
+                read: Self::shared(source, &initialized)?,
+                written: empty,
+            }),
+            PeerCopyKind::Store => Ok(PeerCopy {
+                launcher: source.clone(),
+                owner: destination.clone(),
+                read: initialized,
+                written: Self::shared(destination, &empty)?,
+            }),
+        }
+    }
+
+    /// A buffer on `owner` holding at least `bytes`, every line of it written, since a kernel's
+    /// input must be.
+    fn initialized(owner: &Client, bytes: u64) -> Result<Handle, ThroughputError> {
+        let dtype = ElemType::UInt(UIntKind::U32);
+        let config = LaunchConfig::for_device(owner, dtype);
+        let line_bytes = (config.vector_size * dtype.size()) as u64;
+        let lines = bytes.div_ceil(line_bytes);
+        let [buffer] = memory_probe::reserve(owner, [(lines * line_bytes) as usize])?;
+        memory_probe::prime(owner, &buffer, lines as usize, config, dtype);
+        Ok(buffer)
+    }
+
+    fn shared(owner: &Client, buffer: &Handle) -> Result<Handle, ThroughputError> {
+        owner
+            .share_with_peers(buffer)
+            .map_err(|_| ThroughputError::Unsupported)
+    }
+
+    fn time_iterations(&self, iterations: usize) -> Duration {
+        let start = Instant::now();
+        for _ in 0..iterations {
+            self.copies.iter().for_each(|copy| self.launch(copy));
+        }
+        // A failure is not this sync's to report: every output was asked before timing.
+        for copy in &self.copies {
+            let _ = cubecl_core::future::block_on(copy.launcher.sync());
+        }
+        start.elapsed()
+    }
+
+    fn launch(&self, copy: &PeerCopy) {
+        match self.kind {
+            PeerCopyKind::Load => {
+                launch_peer_load(&copy.launcher, &copy.read, &copy.written, self.bytes)
+            }
+            PeerCopyKind::Store => {
+                launch_peer_store(&copy.launcher, &copy.read, &copy.written, self.bytes)
+            }
+        }
+    }
 }
 
 /// Queues [`peer_load`] on `destination`, copying the first `bytes` of `peer`, another device's
