@@ -128,7 +128,7 @@ impl PeerCopier {
 
     /// Each member paired with the next and the last with the first, or `None` where the members
     /// are fewer than two or name one device twice.
-    fn hops(members: &[Client]) -> Option<impl Iterator<Item = (&Client, &Client)>> {
+    pub(crate) fn hops(members: &[Client]) -> Option<impl Iterator<Item = (&Client, &Client)>> {
         let distinct = members.iter().enumerate().all(|(index, member)| {
             members[..index]
                 .iter()
