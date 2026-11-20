@@ -1455,7 +1455,14 @@ impl Client {
             stream_id_dst,
             src_descriptor.handle.size_in_used(),
         );
-        let handle_cloned = handle.clone();
+        // The recv's own handle, outside `handle`'s holders: it lives until
+        // the destination's device thread gets to it.
+        let handle_cloned = Handle::from_memory(
+            handle.memory.clone(),
+            handle.service,
+            handle.stream,
+            handle.size,
+        );
         let (report, outcome) = SendOutcome::channel();
         let _transfer = ExecutionScope::communication(|| Communication::Transfer {
             from: self.service_id(),
