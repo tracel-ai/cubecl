@@ -145,6 +145,7 @@ impl StagesExpand<OperandPair> {
     /// The laps whose every region has a next one to fetch, run with no branch around the fetch,
     /// so what it computes that no lap changes (each unit's place in the stage) leaves the loop.
     /// How many ran.
+    #[allow(clippy::too_many_arguments)]
     fn steady_prefetching_laps<Lhs: Numeric, Rhs: Numeric, F>(
         &mut self,
         scope: &Scope,
