@@ -269,6 +269,9 @@ impl<'a> Arg<'a, Labelled> {
             overhangs,
             width,
         )?;
+        for &boundary in boundaries.modes.iter().flatten() {
+            data.delivery.reads_edge(boundary)?;
+        }
         // Inside its storage tile a window is one unmasked run: a checked operand whose launch
         // reaches past its padding would read storage tiles it does not have, which the kernel
         // can only find out as it expands.

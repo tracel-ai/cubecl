@@ -86,6 +86,10 @@ pub enum Decline {
     /// A ring holding its next stage in the units' registers, filled by a delivery the units do
     /// not load and store themselves ([`Delivery::holds`](crate::launch::Delivery::holds)).
     PrefetchPastDelivery(Delivery),
+    /// An operand whose edge reads a monoid's identity ([`Boundary::Identity`](crate::Boundary)),
+    /// moved by a delivery whose engine fills past the edge with zero
+    /// ([`Delivery::reads_edge`](crate::launch::Delivery::reads_edge)).
+    IdentityEdgePastDelivery(Delivery),
     /// Lines `bits` long, which the copy engine does not move whole
     /// ([`Delivery::moves_lines`](crate::launch::Delivery::moves_lines)).
     LineNotCopied { bits: usize },
@@ -315,6 +319,11 @@ impl Display for Decline {
                 f,
                 "Delivery: a stage held in the units' registers is one they load and store \
                  themselves, and {delivery:?} moves it without them"
+            ),
+            Decline::IdentityEdgePastDelivery(delivery) => write!(
+                f,
+                "Delivery: this operand reads a monoid's identity past its edge, and {delivery:?} \
+                 moves memory to memory, filling past the edge with zero"
             ),
             Decline::LineNotCopied { bits } => write!(
                 f,

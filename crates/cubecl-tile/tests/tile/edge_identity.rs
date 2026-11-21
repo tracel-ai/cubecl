@@ -1,5 +1,6 @@
 //! A read past the problem's edge of an operand bound with [`Boundary::Identity`] returns the
-//! identity of its monoid, where [`Boundary::Zero`] returns zero.
+//! identity of its monoid, where [`Boundary::Zero`] returns zero, read directly or through a stage
+//! filled from it.
 
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{prelude::*, zspace::shape};
@@ -33,9 +34,40 @@ fn copy_past_edge_kernel(
     }
 }
 
+/// [`copy_past_edge_kernel`] through a stage: each region is staged first, then copied out of
+/// the stage, so the edge is what the stage's fill wrote.
+#[cube(launch)]
+fn staged_copy_past_edge_kernel(
+    input: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
+    space: Partitioning,
+    #[comptime] level: Level,
+) {
+    let x = input.tile(&space);
+    let o = out.tile_mut(&space);
+    let mut stage = x.stage(level.clone(), StageStorage::Strided);
+    for region in space.over(&level) {
+        stage.copy_from(&x.at(&region));
+        sync_cube();
+        let mut written = o.at(&region);
+        written.copy_from(&stage);
+        // The stage is refilled next region, once every unit has read it.
+        sync_cube();
+    }
+}
+
+/// How each region reaches the output.
+#[derive(Clone, Copy)]
+enum Route {
+    /// Read from the operand.
+    Direct,
+    /// Read from a stage filled from the operand.
+    Staged,
+}
+
 /// `m` rows of `k` negative values read in boxes of `tk` along the row, `k` no multiple of `tk`,
-/// bound with `boundary`: the output, `tk`-padded rows.
-fn copied(m: usize, k: usize, tk: usize, boundary: Boundary) -> (Vec<f32>, HostData) {
+/// bound with `boundary` and reaching the output by `route`: the output, `tk`-padded rows.
+fn copied(m: usize, k: usize, tk: usize, boundary: Boundary, route: Route) -> (Vec<f32>, HostData) {
     let client = cubecl::test_device().client();
     let f32_ty = f32::elem_type_native();
     let padded = k.div_ceil(tk) * tk;
@@ -56,7 +88,11 @@ fn copied(m: usize, k: usize, tk: usize, boundary: Boundary) -> (Vec<f32>, HostD
         ),
         Form::Static,
     );
-    copy_past_edge_kernel::launch(
+    let launch = match route {
+        Route::Direct => copy_past_edge_kernel::launch,
+        Route::Staged => staged_copy_past_edge_kernel::launch,
+    };
+    launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -97,20 +133,34 @@ fn expect(got: &HostData, data: &[f32], m: usize, k: usize, padded: usize, fill:
 #[test]
 fn a_read_past_the_edge_returns_the_max_identity() {
     let (m, k, tk) = (2, 6, 4);
-    let (data, got) = copied(m, k, tk, Boundary::Identity(Monoid::Max));
+    let (data, got) = copied(m, k, tk, Boundary::Identity(Monoid::Max), Route::Direct);
     expect(&got, &data, m, k, 8, f32::NEG_INFINITY);
 }
 
 #[test]
 fn a_read_past_the_edge_returns_the_min_identity() {
     let (m, k, tk) = (2, 6, 4);
-    let (data, got) = copied(m, k, tk, Boundary::Identity(Monoid::Min));
+    let (data, got) = copied(m, k, tk, Boundary::Identity(Monoid::Min), Route::Direct);
     expect(&got, &data, m, k, 8, f32::INFINITY);
 }
 
 #[test]
 fn a_read_past_the_edge_returns_zero_under_zero() {
     let (m, k, tk) = (2, 6, 4);
-    let (data, got) = copied(m, k, tk, Boundary::Zero);
+    let (data, got) = copied(m, k, tk, Boundary::Zero, Route::Direct);
+    expect(&got, &data, m, k, 8, 0.0);
+}
+
+#[test]
+fn a_staged_read_past_the_edge_returns_the_max_identity() {
+    let (m, k, tk) = (2, 6, 4);
+    let (data, got) = copied(m, k, tk, Boundary::Identity(Monoid::Max), Route::Staged);
+    expect(&got, &data, m, k, 8, f32::NEG_INFINITY);
+}
+
+#[test]
+fn a_staged_read_past_the_edge_returns_zero_under_zero() {
+    let (m, k, tk) = (2, 6, 4);
+    let (data, got) = copied(m, k, tk, Boundary::Zero, Route::Staged);
     expect(&got, &data, m, k, 8, 0.0);
 }

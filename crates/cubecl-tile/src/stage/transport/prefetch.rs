@@ -85,7 +85,7 @@ impl Memory {
         let layout = self.layout.clone();
         let turns = self.turns();
         let lines = Walk::copy(&comptime!(self.access.copy.clone()), self.stage_lines());
-        let s = Masked::new(
+        let s = src.edged_storage(
             src.window_view_storage::<T, W>(comptime!(Guard::Checked)),
             check,
         );
