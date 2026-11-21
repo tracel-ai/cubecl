@@ -1,11 +1,12 @@
 //! Unit tests for [`Launcher`]: geometry read off the concrete space, kernel space dynamic.
 
 use super::{Form, implied};
+use cubecl::quant::scheme::QuantValue;
 use cubecl::{prelude::*, zspace::Tiling};
-use cubecl_tile::launch::{BoundaryPolicy, Decline};
+use cubecl_tile::launch::{BoundaryPolicy, Decline, Delivery};
 use cubecl_tile::{
-    Dimension, Geometry, Level, Partitioning, Projection, Space, TileSpec,
-    kind::{Boundary, Storage},
+    Dimension, Geometry, Level, Monoid, Partitioning, Projection, Space, TileSpec,
+    kind::{Boundary, Field, Storage},
     layout::{Divisor, Offset, PhysicalAxisMap, Scale, StorageLevels, VectorTile},
 };
 
@@ -195,6 +196,51 @@ fn any_extent_checks_what_some_extent_could_overhang() {
     assert_eq!(bound(16, any_extent), [None, Some(Boundary::Zero)]);
     assert!(bound(16, None).is_empty());
     assert_eq!(bound(18, None), [None, Some(Boundary::Zero)]);
+}
+
+/// An operand whose edge reads a monoid's identity binds only where every value past the edge can
+/// be that identity: not through an engine that copies memory to memory, which writes zero there,
+/// and not over packed words, which no one value's identity fills.
+#[test]
+fn an_identity_edge_binds_only_where_it_can_be_filled() {
+    let client = cubecl::test_device().client();
+    // m = 18 overhangs the cube's 16 rows, so M is checked.
+    let launch = {
+        let (space, levels) = batched_space(1, 1, 18, 64, 64);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+    let identity = BoundaryPolicy::Every(Boundary::Identity(Monoid::Max));
+
+    let registers = launch
+        .arg(binding(&client, &[18, 64]), f32::elem_type_native())
+        .dimensions(&[M, K])
+        .boundary(identity)
+        .build()
+        .unwrap();
+    assert_eq!(
+        registers.spec.boundaries.as_slice(),
+        &[Some(Boundary::Identity(Monoid::Max)), None]
+    );
+
+    for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
+        let refused = launch
+            .arg(binding(&client, &[18, 64]), f32::elem_type_native())
+            .dimensions(&[M, K])
+            .boundary(identity)
+            .delivery(delivery)
+            .build()
+            .err();
+        assert_eq!(refused, Some(Decline::IdentityEdgePastDelivery(delivery)));
+    }
+
+    let refused = launch
+        .arg(binding(&client, &[18, 8]), u32::elem_type_native())
+        .dimensions(&[M, K])
+        .boundary(identity)
+        .packed(Field::from(QuantValue::E2M1))
+        .build()
+        .err();
+    assert_eq!(refused, Some(Decline::IdentityEdgeOfPackedValues));
 }
 
 /// A storage-tiled operand is addressed by fewer coordinates than its buffer has axes, and the

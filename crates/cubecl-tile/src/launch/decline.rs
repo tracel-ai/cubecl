@@ -90,6 +90,10 @@ pub enum Decline {
     /// moved by a delivery whose engine fills past the edge with zero
     /// ([`Delivery::reads_edge`](crate::launch::Delivery::reads_edge)).
     IdentityEdgePastDelivery(Delivery),
+    /// An operand of packed values whose edge reads a monoid's identity
+    /// ([`Boundary::Identity`](crate::Boundary)): a stored word is not one value, so no value's
+    /// identity fills it.
+    IdentityEdgeOfPackedValues,
     /// Lines `bits` long, which the copy engine does not move whole
     /// ([`Delivery::moves_lines`](crate::launch::Delivery::moves_lines)).
     LineNotCopied { bits: usize },
@@ -324,6 +328,11 @@ impl Display for Decline {
                 f,
                 "Delivery: this operand reads a monoid's identity past its edge, and {delivery:?} \
                  moves memory to memory, filling past the edge with zero"
+            ),
+            Decline::IdentityEdgeOfPackedValues => write!(
+                f,
+                "Boundary: this operand reads a monoid's identity past its edge, and its values \
+                 are packed in words, which no one value's identity fills"
             ),
             Decline::LineNotCopied { bits } => write!(
                 f,

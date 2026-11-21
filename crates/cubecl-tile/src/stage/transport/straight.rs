@@ -85,33 +85,24 @@ impl Memory {
                     && (src_rank != plen || src.projection.composition() != Composition::Disjoint)
             );
             let s = if steps.is_empty() && !through_projection {
-                src.edged_storage(
+                src.edged(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked)),
                     check,
                 )
             } else if through_projection {
                 // Read at the stage's logical coordinates through the source's own projection.
-                src.edged_storage(
+                src.edged(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
                         .view(src.dimension_projection(space)),
                     check,
                 )
             } else {
-                src.edged_storage(
+                src.edged(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
                         .view(CompactionStep::new(shape.clone(), comptime!(steps))),
                     check,
                 )
             };
-            // An engine moving memory to memory fills past the edge with zero, never with the
-            // identity the operand names ([`Decline::IdentityEdgePastDelivery`] refuses the binding).
-            let identity = comptime!(Boundary::edge_identity(&src.window.boundaries));
-            comptime!(assert!(
-                identity.is_none() || !check || src.access.delivery.route() == Route::Registers,
-                "Memory::fill_straight: {:?} fills past the edge with zero, and this operand's \
-                 edge reads a monoid's identity",
-                src.access.delivery
-            ));
             // Only an equal-width fill moves each line whole, which is what an engine moving memory
             // to memory does ([`TransportKind::new`] refuses it any other).
             Memory::move_lines::<I2, WP2>(
@@ -124,12 +115,12 @@ impl Memory {
             );
         } else {
             let s = if steps.is_empty() {
-                src.edged_storage(
+                src.edged(
                     src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked)),
                     check,
                 )
             } else {
-                src.edged_storage(
+                src.edged(
                     src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked))
                         .view(CompactionStep::new(
                             widened_shape(&shape, comptime!(plen), comptime!(w)),

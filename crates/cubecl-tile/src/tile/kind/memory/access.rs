@@ -438,8 +438,10 @@ impl Memory {
     }
 
     /// `view` masked as `check` says, reading past the edge the identity of the monoid this
-    /// operand's window names ([`Boundary::Identity`]), or zero where it names none.
-    fn edged<'b, T: Numeric, W: Size, C: Coordinates + 'b>(
+    /// operand's window names ([`Boundary::Identity`]), or zero where it names none. A stage
+    /// filled through the registers reads its source this way too, so it holds what a read of
+    /// the operand would.
+    pub(crate) fn edged<'b, T: Numeric, W: Size, C: Coordinates + 'b>(
         &self,
         view: View<'b, Vector<T, W>, C>,
         #[comptime] check: bool,
@@ -452,28 +454,6 @@ impl Memory {
                 Vector::<T, W>::new(Monoid::identity::<T>(monoid)),
             ),
             None => Masked::new(view, check),
-        }
-    }
-
-    /// `view` over this buffer's storage, masked as `check` says: [`edged`](Memory::edged) where
-    /// each stored element is one value, so a stage filled from it reads the identity past the
-    /// edge as a read of the operand would. Packed words hold several values, which no one
-    /// element's identity stands for, so a packed operand naming one is refused.
-    pub(crate) fn edged_storage<'b, I: Numeric, W: Size, C: Coordinates + 'b>(
-        &self,
-        view: View<'b, Vector<I, W>, C>,
-        #[comptime] check: bool,
-    ) -> Masked<'b, Vector<I, W>, C> {
-        if comptime!(matches!(self.store.packing, Packing::Plain)) {
-            self.edged::<I, W, C>(view, check)
-        } else {
-            let identity = comptime!(Boundary::edge_identity(&self.window.boundaries));
-            comptime!(assert!(
-                identity.is_none(),
-                "Memory: a packed operand's words hold several values, so a stage filled from \
-                 them cannot read a monoid's identity past the edge"
-            ));
-            Masked::new(view, check)
         }
     }
 
