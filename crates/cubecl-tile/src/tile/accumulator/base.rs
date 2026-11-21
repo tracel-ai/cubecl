@@ -725,7 +725,7 @@ fn accumulator_in<EA: Numeric>(
 ) -> Tile {
     comptime!(assert!(
         matches!(form, Instruction::Registers { .. })
-            || accumulation == Accumulation::Contraction(Semiring::SUM_PROD),
+            || accumulation == Accumulation::Contraction(Semiring::SumProd),
         "Tile::accumulator: a hardware instruction accumulates under the sum of products alone, \
          not {accumulation:?}; contract in a register block to sum under another"
     ));
@@ -782,7 +782,7 @@ impl Tile {
         let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
         let grid = comptime!(GridShape::new(&place, &lhs.place.space));
         let instruction = comptime!(call.instruction);
-        let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
+        let accumulation = comptime!(Accumulation::Contraction(Semiring::SumProd));
         let mut acc = PlanePartition::mirror::<EA>(
             &place.space,
             comptime!(MatrixDimensions::accumulator(

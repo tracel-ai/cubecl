@@ -7,43 +7,38 @@ use crate::{Carrier, Monoid};
 
 /// A product monoid and the accumulation monoid its products sum into.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct Semiring {
-    add: Monoid,
-    mul: Monoid,
+pub enum Semiring {
+    /// `(+, *)`: the ordinary matmul.
+    SumProd,
+    /// `(min, +)`: shortest paths, DTW.
+    MinSum,
+    /// `(max, +)`: Viterbi in log space.
+    MaxSum,
 }
 
 impl Semiring {
-    /// `(+, *)`: the ordinary matmul.
-    pub const SUM_PROD: Self = Self {
-        add: Monoid::Sum,
-        mul: Monoid::Prod,
-    };
-    /// `(min, +)`: shortest paths, DTW.
-    pub const MIN_SUM: Self = Self {
-        add: Monoid::Min,
-        mul: Monoid::Sum,
-    };
-    /// `(max, +)`: Viterbi in log space.
-    pub const MAX_SUM: Self = Self {
-        add: Monoid::Max,
-        mul: Monoid::Sum,
-    };
-
     /// The monoid products accumulate into, and every drain sums partials under.
     pub const fn add(self) -> Monoid {
-        self.add
+        match self {
+            Semiring::SumProd => Monoid::Sum,
+            Semiring::MinSum => Monoid::Min,
+            Semiring::MaxSum => Monoid::Max,
+        }
     }
 
     /// The product a pair of operands forms before it is summed in.
     pub const fn mul(self) -> Monoid {
-        self.mul
+        match self {
+            Semiring::SumProd => Monoid::Prod,
+            Semiring::MinSum | Semiring::MaxSum => Monoid::Sum,
+        }
     }
 }
 
 #[cube]
 impl Semiring {
     /// One accumulation step, `acc + (lhs * rhs)`, in `fma`'s argument order.
-    /// [`SUM_PROD`](Semiring::SUM_PROD) over floats must stay a single `fma`. An `fma` is a float
+    /// [`SumProd`](Semiring::SumProd) over floats must stay a single `fma`. An `fma` is a float
     /// instruction, so integers take the product and the sum apart, which is exact.
     fn step_of<T: Carrier + CubePrimitive>(
         lhs: T,
@@ -52,7 +47,7 @@ impl Semiring {
         #[comptime] semiring: Semiring,
     ) -> T {
         let element = elem_type_of::<T>();
-        if comptime!(semiring == Semiring::SUM_PROD && element.is_float()) {
+        if comptime!(semiring == Semiring::SumProd && element.is_float()) {
             fma(lhs, rhs, acc)
         } else {
             let product = semiring.mul().combine::<T>(lhs, rhs);

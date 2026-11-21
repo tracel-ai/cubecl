@@ -1,26 +1,50 @@
 use cubecl::prelude::*;
 use cubecl_std::tensor::{View, ViewMut, layout::Coordinates};
 
-/// A [`View`] plus a comptime `check` flag: reads past the overhang zero, writes skip.
+/// A [`View`] plus a comptime `check` flag: reads past the overhang return its fill, zero unless
+/// one is given ([`Boundary::Identity`](crate::Boundary::Identity)), writes skip.
 #[derive(CubeType)]
 pub struct Masked<'a, T: CubePrimitive, C: Coordinates + 'a> {
     view: View<'a, T, C>,
     #[cube(comptime)]
     pub(crate) check: bool,
+    fill: ComptimeOption<T>,
 }
 
 #[cube]
 impl<'a, T: CubePrimitive, C: Coordinates + 'a> Masked<'a, T, C> {
     pub fn new(view: View<'a, T, C>, #[comptime] check: bool) -> Self {
-        Masked::<'a, T, C> { view, check }
+        Masked::<'a, T, C> {
+            view,
+            check,
+            fill: ComptimeOption::new_None(),
+        }
+    }
+
+    /// [`new`](Self::new), reads past the overhang returning `fill` instead of zero.
+    pub fn filled(view: View<'a, T, C>, #[comptime] check: bool, fill: T) -> Self {
+        Masked::<'a, T, C> {
+            view,
+            check,
+            fill: ComptimeOption::new_Some(fill),
+        }
     }
 
     pub fn read(&self, pos: C) -> T {
         if comptime!(self.check) {
-            self.view.read_checked(pos)
+            self.read_masked(pos)
         } else {
             // `check == false`: the launch proved this access in-bounds.
             self.view.read_unchecked(pos)
+        }
+    }
+
+    /// The value at `pos`, or past the overhang the fill: the one given, or zero.
+    fn read_masked(&self, pos: C) -> T {
+        if comptime!(self.fill.is_some()) {
+            self.view.read_masked(pos, self.fill.unwrap())
+        } else {
+            self.view.read_checked(pos)
         }
     }
 

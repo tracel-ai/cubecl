@@ -15,7 +15,7 @@ use cubecl::{
     zspace::Shape,
 };
 use cubecl_tile::kind::Boundary;
-use cubecl_tile::launch::Refusal;
+use cubecl_tile::launch::Decline;
 use cubecl_tile::layout::StorageLevels;
 use cubecl_tile::*;
 
@@ -137,7 +137,7 @@ fn indexed_matmul_kernel(
     for tile in space.over(&rows) {
         let mut o = out
             .at(&tile)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         o.mm(&x.at(&tile), &w.at(&tile));
     }
 }
@@ -162,7 +162,7 @@ fn indexed_staged_matmul_kernel(
     stages.pipelined(tiles, |slot, tile| {
         let mut o = out
             .at(tile)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         slot.consume(|w_s| {
             o.mm(&x.at(tile), w_s);
         });
@@ -188,7 +188,7 @@ fn indexed_walking_matmul_kernel<E: Numeric>(
     for tile in space.over(&rows) {
         let (o, x_t, w_t) = (out.at(&tile), x.at(&tile), w.at(&tile));
         let mut sum =
-            o.register_accumulator::<E>(&x_t, &w_t, comptime!(SOFTWARE_MATMUL), Semiring::SUM_PROD);
+            o.register_accumulator::<E>(&x_t, &w_t, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         sum.zero();
         for k_step in tile.walk_within(&w_t) {
             sum.mma(&x_t.at(&k_step), &w_t.at(&k_step));
@@ -1034,11 +1034,11 @@ mod refused {
         )
     }
 
-    fn refusal(table: TileTensorLaunch, indexing: Indexing) -> Refusal {
+    fn decline(table: TileTensorLaunch, indexing: Indexing) -> Decline {
         let client = cubecl::test_device().client();
         match weights(&client).indexed(table, indexing) {
             Ok(_) => panic!("the statement was taken"),
-            Err(refusal) => refusal,
+            Err(decline) => decline,
         }
     }
 
@@ -1051,8 +1051,8 @@ mod refused {
             .generate_without_host_data();
         let floats = f32_arg(handle, TileSpec::direct(&[M]));
         assert_eq!(
-            refusal(floats, Indexing::Coordinate(EXPERT)),
-            Refusal::IndexTableNotU32
+            decline(floats, Indexing::Coordinate(EXPERT)),
+            Decline::IndexTableNotU32
         );
     }
 
@@ -1061,8 +1061,8 @@ mod refused {
         let client = cubecl::test_device().client();
         let two_axes = table(&client, &[0; ROWS], Shape::new([2, 2]), &[M]);
         assert_eq!(
-            refusal(two_axes, Indexing::Coordinate(EXPERT)),
-            Refusal::IndexTableRank { keys: 1, rank: 2 }
+            decline(two_axes, Indexing::Coordinate(EXPERT)),
+            Decline::IndexTableRank { keys: 1, rank: 2 }
         );
     }
 
@@ -1072,8 +1072,8 @@ mod refused {
         let client = cubecl::test_device().client();
         let routes = table(&client, &ROUTES, Shape::new([ROWS]), &[M]);
         assert_eq!(
-            refusal(routes, Indexing::Coordinate(N)),
-            Refusal::IndexAlongALine(N)
+            decline(routes, Indexing::Coordinate(N)),
+            Decline::IndexAlongALine(N)
         );
     }
 
@@ -1082,8 +1082,8 @@ mod refused {
         let client = cubecl::test_device().client();
         let routes = table(&client, &ROUTES, Shape::new([ROWS]), &[M]);
         assert_eq!(
-            refusal(routes, Indexing::Coordinate(M)),
-            Refusal::IndexOfADimensionNotSpanned(M)
+            decline(routes, Indexing::Coordinate(M)),
+            Decline::IndexOfADimensionNotSpanned(M)
         );
     }
 
@@ -1092,8 +1092,8 @@ mod refused {
         let client = cubecl::test_device().client();
         let ends = table(&client, &[0; 4], Shape::new([2, 2]), &[M, N]);
         assert_eq!(
-            refusal(ends, Indexing::Run(EXPERT)),
-            Refusal::RunKeyedByMany(2)
+            decline(ends, Indexing::Run(EXPERT)),
+            Decline::RunKeyedByMany(2)
         );
     }
 }

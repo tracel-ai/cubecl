@@ -6,7 +6,7 @@ use cubecl::ir::{ElemType, HardwareProperties, OpaqueType};
 use cubecl::prelude::*;
 
 use crate::{
-    Arg, Dimension, Geometry, Partitioning, PartitioningLaunch, Refusal, Space, SpaceLaunch,
+    Arg, Decline, Dimension, Geometry, Partitioning, PartitioningLaunch, Space, SpaceLaunch,
     Unlabelled,
 };
 
@@ -21,7 +21,7 @@ pub enum Grid {
 }
 
 /// Whether a device of `hardware` spawns `cube_count` cubes of `cube_dim` units, or the
-/// [`Refusal`] saying why not.
+/// [`Decline`] saying why not.
 ///
 /// Three caps, and a launch clears all of them: the cube's unit product, the cube's per-dimension
 /// shape, and the grid's per-dimension extent. Checking only the product passes a cube legal in
@@ -35,31 +35,31 @@ pub fn spawnable(
     hardware: &HardwareProperties,
     cube_dim: CubeDim,
     cube_count: &CubeCount,
-) -> Result<(), Refusal> {
+) -> Result<(), Decline> {
     let units = cube_dim.num_elems();
     if units > hardware.max_units_per_cube {
-        return Err(Refusal::CubePastDevice {
+        return Err(Decline::CubePastDevice {
             units,
             most: hardware.max_units_per_cube,
         });
     }
     if units == 0 {
-        return Err(Refusal::NoUnits);
+        return Err(Decline::NoUnits);
     }
     let (most_x, most_y, most_z) = hardware.max_cube_dim;
     if cube_dim.x > most_x || cube_dim.y > most_y || cube_dim.z > most_z {
-        return Err(Refusal::CubeShapePastDevice {
+        return Err(Decline::CubeShapePastDevice {
             shape: (cube_dim.x, cube_dim.y, cube_dim.z),
             most: hardware.max_cube_dim,
         });
     }
     if let CubeCount::Static(x, y, z) = *cube_count {
         if x == 0 || y == 0 || z == 0 {
-            return Err(Refusal::NoCubes);
+            return Err(Decline::NoCubes);
         }
         let (most_x, most_y, most_z) = hardware.max_cube_count;
         if x > most_x || y > most_y || z > most_z {
-            return Err(Refusal::GridPastDevice {
+            return Err(Decline::GridPastDevice {
                 count: (x, y, z),
                 most: hardware.max_cube_count,
             });
@@ -85,14 +85,14 @@ pub struct Launcher {
 }
 
 impl Launcher {
-    /// `partitioning` over `concrete`'s real extents, on `grid`, or the [`Refusal`] saying why the
+    /// `partitioning` over `concrete`'s real extents, on `grid`, or the [`Decline`] saying why the
     /// device cannot run it.
     pub fn new(
         client: &Client,
         partitioning: Partitioning,
         concrete: &Space,
         grid: Grid,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         // The kernel-form space may state no extents.
         let over_concrete = Partitioning::new(concrete.clone(), partitioning.levels().to_vec());
         let (cube_count, cube_dim) = match grid {
@@ -104,7 +104,7 @@ impl Launcher {
                 let plane_size = client.properties().hardware.plane_size_max;
                 let plane_units = partitioning.units();
                 if plane_units != 1 && plane_units != plane_size {
-                    return Err(Refusal::GridNotReadOffLevels {
+                    return Err(Decline::GridNotReadOffLevels {
                         units: plane_units,
                         plane: plane_size,
                     });
@@ -125,7 +125,7 @@ impl Launcher {
             .opaque
             .contains(&OpaqueType::Barrier);
         if fillers > 0 && !barriers {
-            return Err(Refusal::FillersWithoutBarriers { fillers });
+            return Err(Decline::FillersWithoutBarriers { fillers });
         }
         Ok(Launcher {
             client: client.clone(),
@@ -138,16 +138,16 @@ impl Launcher {
         })
     }
 
-    /// This launch, each cube holding `bytes` of shared memory, or the [`Refusal`] saying the
+    /// This launch, each cube holding `bytes` of shared memory, or the [`Decline`] saying the
     /// device gives one less: what the device gives a cube, less what it reserves for cube-scoped
     /// matrices.
-    pub fn holding(self, bytes: usize) -> Result<Self, Refusal> {
+    pub fn holding(self, bytes: usize) -> Result<Self, Decline> {
         let hardware = &self.client.properties().hardware;
         let most = hardware
             .max_shared_memory_size
             .saturating_sub(hardware.cube_mma_reserved_shared_memory);
         match bytes > most {
-            true => Err(Refusal::SharedMemoryPastDevice { bytes, most }),
+            true => Err(Decline::SharedMemoryPastDevice { bytes, most }),
             false => Ok(self),
         }
     }
@@ -315,7 +315,7 @@ mod tests {
         ] {
             assert_eq!(
                 spawnable(&hardware, cube_dim, &count),
-                Err(Refusal::NoCubes),
+                Err(Decline::NoCubes),
                 "{count:?}"
             );
         }

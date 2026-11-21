@@ -116,7 +116,7 @@ fn plane_attention<E: Float>(
             // The value's sum is opened against what it contracts: the probabilities.
             let acc = out
                 .at(&plane)
-                .accumulator::<f32>(&p, &v_p, Semiring::SUM_PROD)
+                .accumulator::<f32>(&p, &v_p, Semiring::SumProd)
                 .with_scratch(Scratch::OneTile);
             let mut softmax = OnlineSoftmax::<f32>::along(&score, S);
             // The query spans no key: staged once, before the walk, where the keys are staged.
@@ -127,7 +127,7 @@ fn plane_attention<E: Float>(
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|k_s, v_s| {
-                    let logits = score.accumulator::<f32>(&q_s, k_s, Semiring::SUM_PROD);
+                    let logits = score.accumulator::<f32>(&q_s, k_s, Semiring::SumProd);
                     for fragment in stage.walk().routed(V, 0).unrolled() {
                         let mut cell = logits.at(&fragment);
                         cell.mma(&q_s.at(&fragment), &k_s.at(&fragment));
@@ -216,7 +216,7 @@ fn register_plane_attention<E: Float>(
             // whose instruction it keeps.
             let acc = out
                 .at(&plane)
-                .accumulator::<f32>(&logits, &v_p, Semiring::SUM_PROD);
+                .accumulator::<f32>(&logits, &v_p, Semiring::SumProd);
             let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
             let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
@@ -318,7 +318,7 @@ fn cut_plane_attention<E: Float>(
             let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
             let acc =
                 out.at(&plane)
-                    .accumulator::<f32>(&logits.cast::<E>(), &v_p, Semiring::SUM_PROD);
+                    .accumulator::<f32>(&logits.cast::<E>(), &v_p, Semiring::SumProd);
             let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
             let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
@@ -499,7 +499,7 @@ fn unit_attention(
                 &bias_u,
                 &v_u,
                 comptime!(SoftwareMatmul::new(rows * value)),
-                Semiring::SUM_PROD,
+                Semiring::SumProd,
             );
             let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
             for step in unit.walk().range(0, (keys as usize).div_ceil(block_keys)) {
@@ -513,7 +513,7 @@ fn unit_attention(
                     &q_s,
                     &k_s,
                     comptime!(SoftwareMatmul::new(rows * block_keys)),
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 );
                 score.mma(&q_s, &k_s);
                 let correction = softmax.step(&score, &bias_s, scale);
@@ -583,7 +583,7 @@ fn unit_attention_over_scaled_keys(
                 &bias_u,
                 &v_u,
                 comptime!(SoftwareMatmul::new(rows * value)),
-                Semiring::SUM_PROD,
+                Semiring::SumProd,
             );
             let mut softmax = OnlineSoftmax::<f32>::along(&bias_u, S);
             for step in unit.walk().range(0, (keys as usize).div_ceil(block_keys)) {
@@ -597,7 +597,7 @@ fn unit_attention_over_scaled_keys(
                     &q_s,
                     &k_s,
                     comptime!(SoftwareMatmul::new(rows * block_keys)),
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 );
                 let (k_s, k_scale) = k_s.factor(&score);
                 score.mma(&q_s, &k_s);

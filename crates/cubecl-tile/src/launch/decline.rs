@@ -1,4 +1,4 @@
-//! [`Refusal`]: why a launch cannot run as described, or an operand cannot be bound to it.
+//! [`Decline`]: why a launch cannot run as described, or an operand cannot be bound to it.
 
 use core::fmt::{self, Display, Formatter};
 
@@ -9,17 +9,13 @@ use crate::{Delivery, Dimension, LineMisfit};
 
 /// Why a launch cannot run as described, or an operand cannot be bound to it.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Refusal {
+pub enum Decline {
     /// [`in_stride_order`](super::Arg::in_stride_order) on a gathered or storage-tiled operand.
     StrideOrderOfAStatedLayout,
     /// A gathered mapping over a storage-tiled binding.
     GatherOfATiledBinding(Tiling),
-    /// [`gathered`](super::Arg::gathered) combined with `dimensions` or `batches`.
-    GatherWithLabels,
     /// The mapping addresses `mapped` axes but the operand has `rank`.
     GatherRankMismatch { mapped: usize, rank: usize },
-    /// The mapping spans a dimension the launched space does not have.
-    GatherOfAnUnknownDimension(Dimension),
     /// The operand's rank is smaller than its labelled block of axes.
     RankBelowLabels { rank: usize, block: usize },
     /// More leading axes than batch dimensions to label them.
@@ -60,8 +56,8 @@ pub enum Refusal {
         dimension: Dimension,
         why: LhsVectorMisfit,
     },
-    /// A routine declines a problem it does not serve, for the reason `why`.
-    Declined { why: &'static str },
+    /// A routine does not serve the problem, for the reason `why`.
+    Unserved { why: &'static str },
     /// A cube shaped `shape` along x, y and z, past the `most` the device spawns along one of them:
     /// a cube legal in units can still be too long on a dimension.
     CubeShapePastDevice {
@@ -188,52 +184,43 @@ pub enum Refusal {
     StoragePiecesUnrecordable(MetadataError),
 }
 
-impl Display for Refusal {
+impl Display for Decline {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Refusal::StrideOrderOfAStatedLayout => write!(
+            Decline::StrideOrderOfAStatedLayout => write!(
                 f,
                 "Arg::in_stride_order: the order a buffer steps is read off strides, which a \
                  gathered mapping states for itself and a storage-tiled binding stores in tiles"
             ),
-            Refusal::GatherOfATiledBinding(tiling) => write!(
+            Decline::GatherOfATiledBinding(tiling) => write!(
                 f,
                 "Arg::gathered: the mapping addresses the buffer's own axes, so a storage-tiled \
                  binding ({tiling:?}) has no reading here"
             ),
-            Refusal::GatherWithLabels => write!(
-                f,
-                "Arg::gathered: the mapping is stated outright, so `dimensions` and `batches` have \
-                 nothing left to describe"
-            ),
-            Refusal::GatherRankMismatch { mapped, rank } => write!(
+            Decline::GatherRankMismatch { mapped, rank } => write!(
                 f,
                 "Arg::gathered: the mapping addresses {mapped} axes but the operand has {rank}"
             ),
-            Refusal::GatherOfAnUnknownDimension(dimension) => write!(
-                f,
-                "Arg::gathered: the mapping spans {dimension:?}, which the launched space does not have"
-            ),
-            Refusal::RankBelowLabels { rank, block } => write!(
+            Decline::RankBelowLabels { rank, block } => write!(
                 f,
                 "Arg: operand rank {rank} is smaller than its labelled block of {block} axes"
             ),
-            Refusal::UnlabelledBatchAxes { axes, dimensions } => {
+            Decline::UnlabelledBatchAxes { axes, dimensions } => {
                 write!(
                     f,
                     "Arg: {axes} batch axes but only {dimensions} batch dimensions given"
                 )
             }
-            Refusal::NoCoordinate => {
+            Decline::NoCoordinate => {
                 write!(f, "Arg: an operand must address at least one coordinate")
             }
-            Refusal::WidthNotServed { width, why } => {
+            Decline::WidthNotServed { width, why } => {
                 write!(
                     f,
                     "Arg::vectorize: this operand cannot be served {width} wide: {why}"
                 )
             }
-            Refusal::UncheckableVectorEdge => write!(
+            Decline::UncheckableVectorEdge => write!(
                 f,
                 "Arg: the innermost dimension is served in vector lines but is not provably in bounds \
                  (it overhangs its tiling at an extent the width does not divide, under a clamp or \
@@ -242,99 +229,99 @@ impl Display for Refusal {
                  state BoundaryPolicy::Unchecked if the launch proves its vector lines are in \
                  bounds"
             ),
-            Refusal::CheckedInsideStorageTile { level } => write!(
+            Decline::CheckedInsideStorageTile { level } => write!(
                 f,
                 "Arg: this storage-tiled operand's storage tile is the tile of level {level}, \
                  where a window is read as one unmasked run, and the launch overhangs it, so a \
                  window past the tensor's end would read storage tiles it does not have; tile \
                  the launch so it divides the operand, or tile it coarser than the storage tile"
             ),
-            Refusal::DimensionsOutOfAxisOrder { stated, by_axis } => write!(
+            Decline::DimensionsOutOfAxisOrder { stated, by_axis } => write!(
                 f,
                 "Projection: a dimension spans several axes, so the dimensions run in the order of \
                  their first axes, {by_axis:?} (not {stated:?}), and a line runs along the innermost \
                  axis's, the last; bind its axes so each dimension's innermost axis follows the \
                  others' (Arg::dimensions does)"
             ),
-            Refusal::GatherInnermostNotInLines => write!(
+            Decline::GatherInnermostNotInLines => write!(
                 f,
                 "Arg::gathered: the innermost physical axis must step by the operand's last \
                  dimension at coefficient 1 (it is addressed in vector lines)"
             ),
-            Refusal::GatherDimensionAddressedTwice(dimension) => write!(
+            Decline::GatherDimensionAddressedTwice(dimension) => write!(
                 f,
                 "Arg::gathered: dimension {dimension:?} addresses several physical axes, so it is \
                  either storage-tiled (a gathered operand must be untiled gmem) or read off two \
                  places at once"
             ),
-            Refusal::GridNotReadOffLevels { units, plane } => write!(
+            Decline::GridNotReadOffLevels { units, plane } => write!(
                 f,
                 "Launcher: a grid read off the levels needs a units level of one unit or the \
                  whole plane ({plane}), got {units}"
             ),
-            Refusal::CubePastDevice { units, most } => write!(
+            Decline::CubePastDevice { units, most } => write!(
                 f,
                 "Launcher: a cube of {units} units, but the device holds at most {most}"
             ),
-            Refusal::PlanesUnavailable => {
+            Decline::PlanesUnavailable => {
                 write!(
                     f,
                     "the kernel works in planes, and the device runs no plane operations"
                 )
             }
-            Refusal::ImprecisePlaneDim { min, max } => write!(
+            Decline::ImprecisePlaneDim { min, max } => write!(
                 f,
                 "the kernel needs one plane width, and the device's varies from {min} to {max}"
             ),
-            Refusal::LhsVectorNotServed { dimension, why } => {
+            Decline::LhsVectorNotServed { dimension, why } => {
                 write!(
                     f,
                     "contract gather: lhs vectorized along {dimension:?}: {why}"
                 )
             }
-            Refusal::Declined { why } => f.write_str(why),
-            Refusal::CubeShapePastDevice { shape, most } => write!(
+            Decline::Unserved { why } => f.write_str(why),
+            Decline::CubeShapePastDevice { shape, most } => write!(
                 f,
                 "Launcher: a cube shaped {shape:?}, but the device spawns at most {most:?}"
             ),
-            Refusal::NoUnits => write!(
+            Decline::NoUnits => write!(
                 f,
                 "Launcher: the cube has a zero dimension and spawns no units"
             ),
-            Refusal::NoCubes => write!(
+            Decline::NoCubes => write!(
                 f,
                 "Launcher: the grid has a zero dimension and spawns no cubes"
             ),
-            Refusal::GridPastDevice { count, most } => write!(
+            Decline::GridPastDevice { count, most } => write!(
                 f,
                 "Launcher: a grid of {count:?} cubes, but the device launches at most {most:?}"
             ),
-            Refusal::SharedMemoryPastDevice { bytes, most } => write!(
+            Decline::SharedMemoryPastDevice { bytes, most } => write!(
                 f,
                 "Launcher: a cube holding {bytes} bytes of shared memory, but the device gives \
                  one at most {most}"
             ),
-            Refusal::FillersWithoutBarriers { fillers } => write!(
+            Decline::FillersWithoutBarriers { fillers } => write!(
                 f,
                 "Launcher: {fillers} plane(s) are set aside to fill a walk's stages, and this \
                  device carries no barrier type for the two roles to meet on"
             ),
-            Refusal::DeliveryNotOnDevice(delivery) => write!(
+            Decline::DeliveryNotOnDevice(delivery) => write!(
                 f,
                 "Delivery: this device has no engine for {delivery:?}, or no barrier for what it \
                  moves to land on"
             ),
-            Refusal::PrefetchPastDelivery(delivery) => write!(
+            Decline::PrefetchPastDelivery(delivery) => write!(
                 f,
                 "Delivery: a stage held in the units' registers is one they load and store \
                  themselves, and {delivery:?} moves it without them"
             ),
-            Refusal::LineNotCopied { bits } => write!(
+            Decline::LineNotCopied { bits } => write!(
                 f,
                 "Delivery: the copy engine moves lines of 4, 8 or 16 bytes, and these are {bits} \
                  bits"
             ),
-            Refusal::BoxPastDescriptor {
+            Decline::BoxPastDescriptor {
                 dimension,
                 edge,
                 most,
@@ -342,7 +329,7 @@ impl Display for Refusal {
                 f,
                 "TMA: {edge} along {dimension:?} exceeds the {most}-per-dimension box limit"
             ),
-            Refusal::BoxSplitsStageBlocks {
+            Decline::BoxSplitsStageBlocks {
                 dimension,
                 rows,
                 period,
@@ -351,110 +338,110 @@ impl Display for Refusal {
                 "TMA: a box lands its rows whole and in order, and the stage's blocks split \
                  {dimension:?} or stack {rows} rows apiece where the swizzle repeats every {period}"
             ),
-            Refusal::RowsNoDescriptorLands { why } => write!(
+            Decline::RowsNoDescriptorLands { why } => write!(
                 f,
                 "TMA: a box lands its rows dense, at most swizzled within a span, and the stage \
                  holds {why}"
             ),
-            Refusal::PagingOfAStatedLayout => write!(
+            Decline::PagingOfAStatedLayout => write!(
                 f,
                 "TileTensorLaunch::indexed: a page is resolved coordinate by coordinate over a \
                  plain buffer's labelled axes, so a gathered mapping or a storage-tiled binding \
                  has no reading here"
             ),
-            Refusal::PagingOfAnUnlabelledDimension(dimension) => write!(
+            Decline::PagingOfAnUnlabelledDimension(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: {dimension:?} labels no axis of this operand, so no axis \
                  holds its pages"
             ),
-            Refusal::PagingOfOneAxis(dimension) => write!(
+            Decline::PagingOfOneAxis(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: {dimension:?} names the pages and their positions both, on \
                  one axis"
             ),
-            Refusal::PagesAlongALine(dimension) => write!(
+            Decline::PagesAlongALine(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: the pages along {dimension:?} lie on the innermost axis, \
                  which a line runs along, so a line would span pages"
             ),
-            Refusal::PagingOfAnEmptyPool => write!(
+            Decline::PagingOfAnEmptyPool => write!(
                 f,
                 "TileTensorLaunch::indexed: the pool holds no page, or its pages no position, for \
                  a table entry to read"
             ),
-            Refusal::ScalesOfAPoolUnpaged => write!(
+            Decline::ScalesOfAPoolUnpaged => write!(
                 f,
                 "TileTensorLaunch::indexed: the scales of a pool of pages span its pages or \
                  positions, so they are a pool of their own, placed by the same table before they \
                  are stated"
             ),
-            Refusal::PagingMovedByRuns => write!(
+            Decline::PagingMovedByRuns => write!(
                 f,
                 "TileTensorLaunch::indexed: a page table is resolved a line at a time, so a \
                  delivery that moves runs has no reading through it"
             ),
-            Refusal::CodebookOfValuesNotIndices => write!(
+            Decline::CodebookOfValuesNotIndices => write!(
                 f,
                 "TileTensorLaunch::codebook: a codebook is read through values stored as indices \
                  (`Field::Index`)"
             ),
-            Refusal::CodebookTableNotPlain => write!(
+            Decline::CodebookTableNotPlain => write!(
                 f,
                 "TileTensorLaunch::codebook: the table is a plain one-axis buffer, one value a line"
             ),
-            Refusal::CodebookTableShort { entries, bits } => write!(
+            Decline::CodebookTableShort { entries, bits } => write!(
                 f,
                 "TileTensorLaunch::codebook: {bits}-bit indices name {} entries; the table holds \
                  {entries}",
                 1usize << bits
             ),
-            Refusal::IndexTableNotU32 => write!(
+            Decline::IndexTableNotU32 => write!(
                 f,
                 "TileTensorLaunch::indexed: a table holds plain u32 entries, one a line, each a \
                  coordinate"
             ),
-            Refusal::IndexTableRank { keys, rank } => write!(
+            Decline::IndexTableRank { keys, rank } => write!(
                 f,
                 "TileTensorLaunch::indexed: the table has {rank} axes and {keys} keys; it holds \
                  one axis per key"
             ),
-            Refusal::IndexOfAStatedLayout => write!(
+            Decline::IndexOfAStatedLayout => write!(
                 f,
                 "TileTensorLaunch::indexed: an entry moves the window along one axis of a buffer, \
                  which a tensor map, a paged operand, a dimension its storage tiles split, or a run of \
                  a gathered or storage-tiled operand is not"
             ),
-            Refusal::IndexOfADimensionNotSpanned(dimension) => write!(
+            Decline::IndexOfADimensionNotSpanned(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: the entry places {dimension:?}, which the operand does not \
                  span"
             ),
-            Refusal::IndexAlongALine(dimension) => write!(
+            Decline::IndexAlongALine(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: the entry places {dimension:?}, the innermost dimension, which \
                  the operand reads more than one value a line along; bind it one value a line"
             ),
-            Refusal::IndexKeyedByItsDimension(dimension) => write!(
+            Decline::IndexKeyedByItsDimension(dimension) => write!(
                 f,
                 "TileTensorLaunch::indexed: the table is keyed by no dimension, or by {dimension:?}, the \
                  dimension its entry places"
             ),
-            Refusal::RunKeyedByMany(keys) => write!(
+            Decline::RunKeyedByMany(keys) => write!(
                 f,
                 "Indexing::Run: a run ends at the next entry along its one key, and this table has \
                  {keys} keys"
             ),
-            Refusal::IndexKeysCutApart(keys) => write!(
+            Decline::IndexKeysCutApart(keys) => write!(
                 f,
                 "Indexing: the first level cutting one of {keys:?} does not cut them all; the \
                  table is read at one step"
             ),
-            Refusal::IndexedDimensionCut(dimension) => write!(
+            Decline::IndexedDimensionCut(dimension) => write!(
                 f,
                 "Indexing: a level cuts {dimension:?}, the dimension the entry places; a coordinate is the \
                  table's to state, and a run is placed whole before any level cuts it"
             ),
-            Refusal::StoredTileUnwhole {
+            Decline::StoredTileUnwhole {
                 dimension,
                 extent,
                 tile,
@@ -463,12 +450,12 @@ impl Display for Refusal {
                 "StoragePartitioning::physical: dimension {dimension:?} runs {extent}, which is not a whole \
                  number of {tile}-wide tiles"
             ),
-            Refusal::StorageOrderUnmatched { order, dimensions } => write!(
+            Decline::StorageOrderUnmatched { order, dimensions } => write!(
                 f,
                 "StoragePartitioning::physical: the tiles follow {order:?}, but the tensor's axes \
                  are {dimensions:?}: the order names each once"
             ),
-            Refusal::StoragePiecesUnrecordable(why) => write!(
+            Decline::StoragePiecesUnrecordable(why) => write!(
                 f,
                 "StoragePartitioning::physical: the buffer's metadata cannot record its pieces: \
                  {why:?}"
@@ -477,4 +464,4 @@ impl Display for Refusal {
     }
 }
 
-impl std::error::Error for Refusal {}
+impl std::error::Error for Decline {}
