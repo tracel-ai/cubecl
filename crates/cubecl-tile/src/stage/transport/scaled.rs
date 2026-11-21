@@ -211,7 +211,7 @@ impl Tile {
     ) {
         let (load, lands) = (src.vector_tile(), self.vector_tile());
         let (sw, vw) = comptime!((load.values(), lands.values()));
-        let per_load = comptime!(sw / vw);
+        let per_load = sw / vw;
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
         let along = dst.dimension_at(dst.rank() - 1);
@@ -294,7 +294,7 @@ impl Tile {
     ) {
         let (load, lands) = (src.vector_tile(), self.vector_tile());
         let (sw, vw) = comptime!((load.values(), lands.values()));
-        let per_load = comptime!(sw / vw);
+        let per_load = sw / vw;
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
         let rank = space.rank();
