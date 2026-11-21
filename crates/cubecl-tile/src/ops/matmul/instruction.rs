@@ -465,7 +465,10 @@ struct Offered {
 /// laying a fragment's `A` otherwise than its accumulator, or for values wider than 16 bits,
 /// whose `A` lays its cells otherwise (`accumulators_as_a`); and for 8-bit values other than
 /// `e4m3`. The held cells are cast to the values' element, and `e5m2`'s two bits of mantissa are
-/// too coarse for an attention's probabilities.
+/// too coarse for an attention's probabilities. An 8-bit `A` is placed as `mma.sync` lays it,
+/// held calls 8 wide, and its `B` reads its rows in that order
+/// ([`KeyOrder::AccumulatorRun`](super::KeyOrder::AccumulatorRun)): wider held calls (RDNA4's 16)
+/// are none.
 fn held_run(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -479,7 +482,8 @@ fn held_run(
         return None;
     };
     let element = rhs.element(rhs)?;
-    let read_as_a = element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
+    let read_as_a = element.size_bits() == 16
+        || (element == ElemType::Float(FloatKind::E4M3) && held_width == MMA_SYNC_8_BIT_WIDTH);
     if !accumulator_is_a(target) || !read_as_a {
         return None;
     }
@@ -511,6 +515,9 @@ fn held_run(
         shape: [held_rows, width, depth],
     })
 }
+
+/// The width of the held `mma.sync` call whose 8-bit `A` placement `accumulators_as_a` knows.
+const MMA_SYNC_8_BIT_WIDTH: usize = 8;
 
 /// Whether `target` lays a manual-mma fragment's `A` as it lays its accumulator, so a sum held in
 /// registers is the `A` of the next product as it lies.
@@ -748,7 +755,7 @@ pub(crate) mod tests {
         target
     }
 
-    /// A target whose `A` lies otherwise than its accumulator, as on RDNA.
+    /// A target whose `A` lies otherwise than its accumulator, as on RDNA3.
     pub(crate) fn sum_is_not_next_a() -> TargetProperties {
         let mut target = sum_is_next_a();
         target.mma.register_layout_a = match target.mma.register_layout_acc {
@@ -1070,6 +1077,34 @@ pub(crate) mod tests {
         };
         assert_eq!(pick(FloatKind::E4M3), Some((mma(), [16, 8], 32)));
         assert_eq!(pick(FloatKind::E5M2), None);
+    }
+
+    /// Held cells 16 wide, as RDNA4's, are not reread as an `e4m3` `A`: its placement is the one
+    /// of `mma.sync`'s 8 wide calls.
+    #[test]
+    fn held_cells_16_wide_meet_no_e4m3_values() {
+        let mut device = rdna();
+        device.features.matmul.mma.insert(MmaConfig {
+            a_type: ElemType::Float(FloatKind::E4M3),
+            b_type: ElemType::Float(FloatKind::E4M3),
+            ..shape(16, 16, 16)
+        });
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [16, 16],
+        };
+
+        let pick = Instruction::for_accumulator(
+            &device,
+            &sum_is_next_a(),
+            ComputeScope::Plane,
+            held,
+            FragmentSource::Values(ElemType::Float(FloatKind::E4M3)),
+            F32,
+            [16, 32, 64],
+        );
+
+        assert!(pick.is_none());
     }
 
     /// Plane groups of four issue the plane group MMA.

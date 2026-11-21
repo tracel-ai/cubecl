@@ -682,9 +682,14 @@ impl MmaData {
         held
     }
 
-    /// `slots[first + r]` combined under `monoid` with this unit's cells on its row `r`: the
-    /// unit's own part of each row, which [`reduce_across_units`](Self::reduce_across_units)
-    /// completes.
+    /// `slots[first + i]` combined under `monoid` with this unit's cells on the row of its vector
+    /// `i`: the unit's own part of each row, which
+    /// [`reduce_across_units`](Self::reduce_across_units) completes. A unit may hold one row in
+    /// several vectors (RDNA4 holds a row a cell a vector), so each vector's slot takes every
+    /// vector on its row.
+    ///
+    /// Whether two vectors share a row is read at lane 0, where both positions are constants the
+    /// compiler evaluates, as in `reduce_across_units`.
     pub(crate) fn reduce_own_cells<E: Numeric>(
         &self,
         slots: &mut Array<E>,
@@ -696,11 +701,20 @@ impl MmaData {
         let acc = self.acc_registers::<E>();
         #[unroll]
         for i in 0..acc.len() {
-            let vector = acc[i];
+            let nth = comptime!((i * vector_size) as u32);
+            let (row, _) = def.position_of_nth(0u32, nth, MatrixIdent::Accumulator);
             let mut slot = slots[first + i];
             #[unroll]
-            for e in 0..vector_size {
-                slot = monoid.combine::<E>(slot, vector.extract(e));
+            for j in 0..acc.len() {
+                let other = comptime!((j * vector_size) as u32);
+                let (other_row, _) = def.position_of_nth(0u32, other, MatrixIdent::Accumulator);
+                if other_row == row {
+                    let vector = acc[j];
+                    #[unroll]
+                    for e in 0..vector_size {
+                        slot = monoid.combine::<E>(slot, vector.extract(e));
+                    }
+                }
             }
             slots[first + i] = slot;
         }
