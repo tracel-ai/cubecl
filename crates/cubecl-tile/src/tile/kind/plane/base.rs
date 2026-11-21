@@ -7,7 +7,7 @@ use cubecl::{
 };
 
 use crate::tile::kind::plane::load_matrix::PairAxis;
-use crate::tile::slices::AxisSlicesKind;
+use crate::tile::slices::DimensionSlicesKind;
 use crate::*;
 
 /// One plane-level tile, by encoding ([`Instruction`]). A plane group MMA's is a plane group's
@@ -35,7 +35,7 @@ impl PlaneTile {
     pub(crate) fn semiring(&self) -> comptime_type!(Semiring) {
         match self {
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => {
-                comptime!(Semiring::SUM_PROD)
+                comptime!(Semiring::SumProd)
             }
             PlaneTile::Registers(d) => comptime!(d.accumulation.semiring("PlaneTile::mma")),
         }
@@ -58,6 +58,21 @@ impl PlaneTile {
         }
     }
 
+    /// Whether this tile is a manual-mma accumulator, which a contraction may reread as its `A`
+    /// ([`accumulators_as_a`]).
+    pub(crate) fn is_mma_accumulator(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Mma(data) => match &data.fragment {
+                MmaFragment::Acc(_) => comptime!(true),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Rhs(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile contracts through the block-scaled instruction, which reads its factors'
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
@@ -73,7 +88,7 @@ impl PlaneTile {
         #[comptime] form: Instruction,
         #[comptime] m: usize,
         #[comptime] n: usize,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         #[comptime] k: usize,
         #[comptime] vector_size: usize,
         #[comptime] contracted_per_step: usize,
@@ -99,14 +114,14 @@ impl PlaneTile {
                 PlaneTile::new_Registers(RegisterData::alloc::<T>(
                     m,
                     n,
-                    axes,
+                    dimensions,
                     vector_size,
                     contracted_per_step,
                     config,
                     accumulation,
                 ))
             }
-            Instruction::Wgmma => PlaneTile::new_Wgmma(WgmmaData::new::<T>(m, n, axes)),
+            Instruction::Wgmma => PlaneTile::new_Wgmma(WgmmaData::new::<T>(m, n, dimensions)),
         }
     }
 
@@ -274,8 +289,8 @@ impl PlaneTile {
 
     /// Fill this fragment from a memory `src`, a manual-mma one deeper than its instruction as
     /// `load` says. A cmma fragment steps its rows along `row`, a position in `src`'s space read
-    /// off the window of its whole grid: under a contraction of several axes, the fragment's own
-    /// window does not tell its rows from its columns.
+    /// off the window of its whole grid: under a contraction of several dimensions, the fragment's
+    /// own window does not tell its rows from its columns.
     pub(crate) fn load_window<T: Numeric>(
         &mut self,
         src: &Tile,
@@ -303,11 +318,15 @@ impl PlaneTile {
         }
     }
 
-    /// Whether this tile loads out of `src`, its window, beside a neighbour of its grid in one
-    /// instruction ([`MmaData::pairs_from`]).
-    pub(crate) fn pairs_from<T: Numeric>(&self, src: &Tile) -> comptime_type!(bool) {
+    /// Whether this tile loads out of `src`, its window, beside its neighbour along `along` in
+    /// one instruction ([`MmaData::pairs_from`]).
+    pub(crate) fn pairs_from<T: Numeric>(
+        &self,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) -> comptime_type!(bool) {
         match self {
-            PlaneTile::Mma(data) => data.pairs_from::<T>(src),
+            PlaneTile::Mma(data) => data.pairs_from::<T>(src, along),
             PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         }
     }
@@ -339,9 +358,10 @@ impl PlaneTile {
         match self {
             PlaneTile::Cmma(d) => {
                 match comptime!(FragmentDrain::of(&mem.access, addressed, true)) {
-                    FragmentDrain::Intrinsic => {
-                        d.store_window::<T>(mem, comptime!(MatrixAxes::edges(space).row_split))
-                    }
+                    FragmentDrain::Intrinsic => d.store_window::<T>(
+                        mem,
+                        comptime!(MatrixDimensions::edges(space).row_split),
+                    ),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, T>(mem, space),
                 }
             }
@@ -377,7 +397,7 @@ impl PlaneTile {
                 match comptime!(FragmentDrain::of(&mem.access, addressed, in_place)) {
                     FragmentDrain::Intrinsic => d.store_cast_window::<T, Out>(
                         mem,
-                        comptime!(MatrixAxes::edges(space).row_split),
+                        comptime!(MatrixDimensions::edges(space).row_split),
                     ),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, Out>(mem, space),
                 }
@@ -400,7 +420,7 @@ pub(crate) struct PlanePartition {
     pub m_tiles: usize,
     #[cube(comptime)]
     pub n_tiles: usize,
-    /// One tile's edges along the window's trailing two axes.
+    /// One tile's edges along the window's trailing two dimensions.
     #[cube(comptime)]
     pub rows: usize,
     #[cube(comptime)]
@@ -478,19 +498,20 @@ impl PlanePartition {
     /// The `sub_m × sub_n` block of fragments `step` selects, or one fragment if `1 × 1`.
     /// A level that cuts the partition must be walked with comptime coordinates.
     pub(crate) fn at_step(&self, step: &Step, #[comptime] space: &Space) -> TileKind {
-        // A grid of instruction fragments may span a contraction over several axes; a register
-        // block's edges are its own, and it reads the window's trailing pair.
+        // A grid of instruction fragments may span a contraction over several dimensions; a
+        // register block's edges are its own, and it reads the window's trailing pair.
         let fragments = match self.frags.index(0usize) {
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => comptime!(true),
             PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         };
         let edges = comptime!(match fragments {
-            true => grid_axes(space, (self.rows, self.cols), (self.m_tiles, self.n_tiles)),
-            false => MatrixAxes::edges(space),
+            true => grid_dimensions(space, (self.rows, self.cols), (self.m_tiles, self.n_tiles)),
+            false => MatrixDimensions::edges(space),
         });
-        let a0 = space.axis_at(edges.row_split);
-        let a1 = space.axis_at(edges.col_split);
-        // A single-tile axis is the constant `0`; a `Dynamic` axis stays runtime (`None`).
+        let a0 = space.dimension_at(edges.row_split);
+        let a1 = space.dimension_at(edges.col_split);
+        // A single-tile dimension is the constant `0`; a `Dynamic` dimension stays runtime
+        // (`None`).
         let mi = if comptime!(step.level.tiles_const(space, a0) == Some(1)) {
             comptime!(Some(0u64))
         } else {
@@ -633,7 +654,7 @@ impl PlanePartition {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mirror<T: Numeric>(
         #[comptime] space: &Space,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         #[comptime] form: Instruction,
         #[comptime] grid: GridShape,
         #[comptime] vector_size: usize,
@@ -654,7 +675,7 @@ impl PlanePartition {
                     form,
                     m,
                     n,
-                    axes,
+                    dimensions,
                     k,
                     vector_size,
                     contracted_per_step,
@@ -692,38 +713,38 @@ impl PlanePartition {
         #[comptime] depth: usize,
         #[comptime] levels: Vec<Level>,
     ) -> Tile {
-        let edges = comptime!(MatrixAxes::operand(window, out));
-        let a0 = window.axis_at(edges.row_split);
-        let a1 = window.axis_at(edges.col_split);
+        let edges = comptime!(MatrixDimensions::operand(window, out));
+        let a0 = window.dimension_at(edges.row_split);
+        let a1 = window.dimension_at(edges.col_split);
 
-        // The contracted axis is the one `out` lacks; `A` shares its rows, `B` its columns.
+        // The contracted dimension is the one `out` lacks; `A` shares its rows, `B` its columns.
         let (contracted, free) = comptime!(match (out.contains(a0), out.contains(a1)) {
             (false, true) => (a0, a1),
             (true, false) => (a1, a0),
             _ => panic!(
-                "PlanePartition::store: one of the window's matrix axes is contracted and the \
+                "PlanePartition::store: one of the window's matrix dimensions is contracted and the \
                  other is the accumulator's"
             ),
         });
-        let out_edges = comptime!(MatrixAxes::edges(out));
-        let out_rows = out.axis_at(out_edges.row_split);
+        let out_edges = comptime!(MatrixDimensions::edges(out));
+        let out_rows = out.dimension_at(out_edges.row_split);
         let (ident, tiles) = comptime!(if free == out_rows {
             (MatrixIdent::A, grid.0)
         } else {
             assert!(
-                free == out.axis_at(out_edges.col_split),
-                "PlanePartition::store: the operand's free axis must be one of the output's \
+                free == out.dimension_at(out_edges.col_split),
+                "PlanePartition::store: the operand's free dimension must be one of the output's \
                  trailing two"
             );
             (MatrixIdent::B, grid.1)
         });
         let (t0, t1) = comptime!(if free == a0 { (tiles, 1) } else { (1, tiles) });
-        // A fragment's edge along the free axis as the window holds it: the instruction's, or
+        // A fragment's edge along the free dimension as the window holds it: the instruction's, or
         // fewer where the product's rows end inside one fragment and the rest read as zeros.
         let rows_along_free = comptime!(
             (if ident == MatrixIdent::A { m } else { n }).min(window.extent(free) / tiles)
         );
-        // Every axis of the contraction: the edge of the group `contracted` leads.
+        // Every dimension of the contraction: the edge of the group `contracted` leads.
         let k = comptime!(if contracted == a0 {
             edges.rows(window)
         } else {
@@ -734,7 +755,7 @@ impl PlanePartition {
         } else {
             (k, rows_along_free)
         });
-        // A window listing the role's axes reversed (a weight `{n, k}`) loads col-major.
+        // A window listing the role's dimensions reversed (a weight `{n, k}`) loads col-major.
         let layout = comptime!(if (ident == MatrixIdent::A) == (contracted == a1) {
             MatrixLayout::RowMajor
         } else {
@@ -805,13 +826,13 @@ impl PlanePartition {
         let scaled = src.quantized();
         let packing = src.packing();
         let shared = src.is_shared();
-        // The operand's own depth: the extent of the axes the accumulator lacks.
+        // The operand's own depth: the extent of the dimensions the accumulator lacks.
         let k = comptime!(
             src.place
                 .space
-                .axes()
-                .filter(|&axis| !acc.place.space.contains(axis))
-                .map(|axis| src.place.space.extent(axis))
+                .dimensions()
+                .filter(|&dimension| !acc.place.space.contains(dimension))
+                .map(|dimension| src.place.space.extent(dimension))
                 .product::<usize>()
         );
         let scaled_form = comptime!(match form {
@@ -880,7 +901,7 @@ impl PlanePartition {
             (self.rows, self.cols),
             (self.m_tiles, self.n_tiles)
         ));
-        let edges = comptime!(grid_axes(
+        let edges = comptime!(grid_dimensions(
             &src.place.space,
             (self.rows, self.cols),
             (self.m_tiles, self.n_tiles)
@@ -898,7 +919,10 @@ impl PlanePartition {
             0usize,
             0usize,
         ));
-        let pairs = self.at(0usize, 0usize).pairs_from::<T>(&first);
+        let pairs = match along {
+            Some(dimension) => self.at(0usize, 0usize).pairs_from::<T>(&first, dimension),
+            None => comptime!(false),
+        };
         match comptime!(along.filter(|_| pairs)) {
             Some(along) => self.fill_pairs_from::<T>(src, along, edges),
             None =>
@@ -919,7 +943,7 @@ impl PlanePartition {
                         frag.load_window::<T>(
                             &window,
                             load,
-                            comptime!(edges.row_axis(&src.place.space)),
+                            comptime!(edges.row_dimension(&src.place.space)),
                         );
                     }
                 }
@@ -934,7 +958,7 @@ impl PlanePartition {
         &self,
         src: &Tile,
         #[comptime] along: PairAxis,
-        #[comptime] edges: MatrixAxes,
+        #[comptime] edges: MatrixDimensions,
     ) {
         let (pair, pairs) = comptime!(match along {
             PairAxis::Rows => ((2 * self.rows, self.cols), (self.m_tiles / 2, self.n_tiles)),
@@ -996,7 +1020,7 @@ impl PlanePartition {
 impl PlanePartition {
     /// This grid's slices along its columns: a unit's register block where the grid is one, the
     /// fragments otherwise.
-    pub(crate) fn slices(&self) -> AxisSlicesKind {
+    pub(crate) fn slices(&self) -> DimensionSlicesKind {
         match self.at(0usize, 0usize) {
             PlaneTile::Registers(block) => {
                 comptime!(assert!(
@@ -1008,9 +1032,11 @@ impl PlanePartition {
                     block.vector_size,
                     "Tile::along"
                 ));
-                AxisSlicesKind::new_Registers(block)
+                DimensionSlicesKind::new_Registers(block)
             }
-            PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragments(self.clone()),
+            PlaneTile::Cmma(_) | PlaneTile::Mma(_) => {
+                DimensionSlicesKind::new_Fragments(self.clone())
+            }
             PlaneTile::Wgmma(_) => panic!(
                 "Tile::along: a plane group accumulator's slices are not read in place; drain it \
                  first"
@@ -1033,6 +1059,22 @@ impl PlanePartition {
                 let mut fragment = self.at(mi, ni).manual_fragment();
                 fragment.scale_add_along::<E>(
                     scale,
+                    bias,
+                    space,
+                    comptime!((mi * self.rows, ni * self.cols)),
+                );
+            }
+        }
+    }
+
+    /// [`MmaData::mul_exp_along`] over every fragment, each at its place in the grid.
+    pub(crate) fn mul_exp_along<E: Float>(&self, bias: &Procedural, #[comptime] space: &Space) {
+        #[unroll]
+        for mi in 0..self.m_tiles {
+            #[unroll]
+            for ni in 0..self.n_tiles {
+                let mut fragment = self.at(mi, ni).manual_fragment();
+                fragment.mul_exp_along::<E>(
                     bias,
                     space,
                     comptime!((mi * self.rows, ni * self.cols)),
@@ -1169,7 +1211,7 @@ impl PlanePartition {
 #[cube]
 impl PlaneTile {
     /// This tile's slices along its columns: a register block's, or one fragment's.
-    pub(crate) fn slices(&self) -> AxisSlicesKind {
+    pub(crate) fn slices(&self) -> DimensionSlicesKind {
         match self {
             PlaneTile::Registers(block) => {
                 comptime!(assert_whole_cells(
@@ -1177,9 +1219,11 @@ impl PlaneTile {
                     block.vector_size,
                     "Tile::along"
                 ));
-                AxisSlicesKind::new_Registers(block.clone())
+                DimensionSlicesKind::new_Registers(block.clone())
             }
-            PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragment(self.clone()),
+            PlaneTile::Cmma(_) | PlaneTile::Mma(_) => {
+                DimensionSlicesKind::new_Fragment(self.clone())
+            }
             PlaneTile::Wgmma(_) => panic!(
                 "Tile::along: a plane group accumulator's slices are not read in place; drain it \
                  first"
@@ -1201,31 +1245,36 @@ impl PlaneTile {
     }
 }
 
-/// The matrix a grid of `tiles` fragments of `frag` each spans in `window`: the window's
-/// trailing pair where its edges are the grid's, else its axes grouped to the grid's two edges,
-/// so an edge spelled by several axes (a contraction over several axes) is one edge.
-fn grid_axes(window: &Space, frag: (usize, usize), tiles: (usize, usize)) -> MatrixAxes {
+/// The matrix a grid of `tiles` fragments of `frag` each spans in `window`: the window's trailing
+/// pair where its edges are the grid's, else its dimensions grouped to the grid's two edges, so an
+/// edge spelled by several dimensions (a contraction over several dimensions) is one edge.
+fn grid_dimensions(
+    window: &Space,
+    frag: (usize, usize),
+    tiles: (usize, usize),
+) -> MatrixDimensions {
     let (rows, cols) = (frag.0 * tiles.0, frag.1 * tiles.1);
-    let trailing = MatrixAxes::edges(window);
+    let trailing = MatrixDimensions::edges(window);
     if (trailing.rows(window), trailing.cols(window)) == (rows, cols) {
         return trailing;
     }
-    let mut grouped = MatrixAxes::new(window, rows, cols).unwrap_or(trailing);
-    // Axes of one leading the row group are batch: the group starts at the axis a grid cuts.
+    let mut grouped = MatrixDimensions::new(window, rows, cols).unwrap_or(trailing);
+    // Dimensions of one leading the row group are batch: the group starts at the dimension a grid
+    // cuts.
     while grouped.row_split + 1 < grouped.col_split && window.extent_at(grouped.row_split) == 1 {
         grouped.row_split += 1;
     }
     grouped
 }
 
-/// The never-walked level cutting an operand's window into the partition's fragments: the
-/// window's matrix grouped to `frag` times `tiles` along each edge, an edge spelled by several
-/// axes (a contraction over several axes) held whole by every fragment, an edge of one axis cut.
+/// The never-walked level cutting an operand's window into the partition's fragments: the window's
+/// matrix grouped to `frag` times `tiles` along each edge, an edge spelled by several dimensions (a
+/// contraction over several dimensions) held whole by every fragment, an edge of one dimension cut.
 fn fragment_level(window: &Space, frag: (usize, usize), tiles: (usize, usize)) -> Level {
-    let edges = grid_axes(window, frag, tiles);
+    let edges = grid_dimensions(window, frag, tiles);
     let (p0, p1, rank) = (edges.row_split, edges.col_split, window.rank());
-    // The one axis longer than one an edge's group spans, where it spans one: the axis a grid
-    // of fragments cuts along that edge.
+    // The one dimension longer than one an edge's group spans, where it spans one: the dimension a
+    // grid of fragments cuts along that edge.
     let only = |group: core::ops::Range<usize>| {
         let mut long = group.filter(|&p| window.extent_at(p) > 1);
         match (long.next(), long.next()) {
@@ -1233,34 +1282,39 @@ fn fragment_level(window: &Space, frag: (usize, usize), tiles: (usize, usize)) -
             _ => None,
         }
     };
-    let (rows_axis, cols_axis) = (only(p0..p1), only(p1..rank));
-    // The fragment edge and count at position `p`, where it is the one axis of its edge.
+    let (rows_dimension, cols_dimension) = (only(p0..p1), only(p1..rank));
+    // The fragment edge and count at position `p`, where it is the one dimension of its edge.
     let cut = |p: usize| match Some(p) {
-        q if q == rows_axis => Some((frag.0, tiles.0)),
-        q if q == cols_axis => Some((frag.1, tiles.1)),
+        q if q == rows_dimension => Some((frag.0, tiles.0)),
+        q if q == cols_dimension => Some((frag.1, tiles.1)),
         _ => None,
     };
-    let axes: Vec<Axis> = window.axes().collect();
-    let leaf: Vec<(Axis, usize)> = axes
+    let dimensions: Vec<Dimension> = window.dimensions().collect();
+    let leaf: Vec<(Dimension, usize)> = dimensions
         .iter()
         .enumerate()
-        .map(|(p, &axis)| (axis, cut(p).map_or(window.extent(axis), |(edge, _)| edge)))
+        .map(|(p, &dimension)| {
+            (
+                dimension,
+                cut(p).map_or(window.extent(dimension), |(edge, _)| edge),
+            )
+        })
         .collect();
-    let counts: Vec<(Axis, usize)> = axes
+    let counts: Vec<(Dimension, usize)> = dimensions
         .iter()
         .enumerate()
-        .map(|(p, &axis)| (axis, cut(p).map_or(1, |(_, count)| count)))
+        .map(|(p, &dimension)| (dimension, cut(p).map_or(1, |(_, count)| count)))
         .collect();
-    for (&(axis, edge), &(_, count)) in leaf.iter().zip(&counts) {
+    for (&(dimension, edge), &(_, count)) in leaf.iter().zip(&counts) {
         assert!(
-            edge * count == window.extent(axis),
-            "PlanePartition::fill_from: {count} fragments of {edge} do not cover the {} of {axis:?}",
-            window.extent(axis)
+            edge * count == window.extent(dimension),
+            "PlanePartition::fill_from: {count} fragments of {edge} do not cover the {} of {dimension:?}",
+            window.extent(dimension)
         );
     }
     assert!(
-        (rows_axis.is_some() || tiles.0 == 1) && (cols_axis.is_some() || tiles.1 == 1),
-        "PlanePartition::fill_from: an edge spelled by several axes is a contraction every \
+        (rows_dimension.is_some() || tiles.0 == 1) && (cols_dimension.is_some() || tiles.1 == 1),
+        "PlanePartition::fill_from: an edge spelled by several dimensions is a contraction every \
          fragment holds whole, and {tiles:?} fragments of {frag:?} cut one of {window:?}"
     );
     Levels::leaf(&leaf).walk(&counts).build().remove(0)

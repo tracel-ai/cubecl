@@ -11,7 +11,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
-    server::IoError,
+    server::{IoError, ServerError},
     storage::{ComputeStorage, ManagedResource, StorageHandle},
 };
 
@@ -62,6 +62,24 @@ pub enum PageUpdate {
     AddOnly,
     /// Nothing: only room the pages already hold.
     Forbidden,
+}
+
+/// Whether a reservation may carve the free room on pages graphs pinned (see
+/// [`PageGuard`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinnedPages {
+    /// Leave it alone: what lands there would be overwritten by the next
+    /// replay of the graph that used that room.
+    Avoid,
+    /// Carve it too: a temporary of a graph capture on the stream that owns
+    /// this memory, whose graph replays in stream order with every graph
+    /// that pinned the page.
+    Share,
+    /// Take room apart from every page the stream's graphs share: what
+    /// outlives a graph capture — the work's outputs, the metadata its graph
+    /// keeps. That room is carved only by other such allocations, each held
+    /// for as long as its graph lives, so no replay writes over it.
+    Separate,
 }
 
 /// Why a cleanup runs, which decides how much it gives back.
@@ -156,13 +174,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
+            // Both pools hold one device allocation per buffer, so neither is
+            // bounded by a page: each takes the largest single allocation.
             persistent: PersistentPool::new(
-                properties.max_page_size,
+                properties.max_allocation_size(),
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
             // A watermark of zero: every free slice goes back on the next tick.
-            dedicated: DirectPool::new(properties.alignment, DEDICATED_POOL_POS, Some(0)),
+            dedicated: DirectPool::new(
+                properties.max_allocation_size(),
+                properties.alignment,
+                DEDICATED_POOL_POS,
+                Some(0),
+            ),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -340,6 +365,23 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .relocate(&mut self.storage, copier, reason, failures);
     }
 
+    /// Move every allocation of `kept` that sits on a page a graph guards onto room no graph's
+    /// replay writes, with its bytes: what a graph capture's planning runs left alive, whose
+    /// addresses nothing recorded. The copies are queued on `copier`.
+    ///
+    /// # Errors
+    ///
+    /// When no room apart takes one, or a copy fails: nothing moved then.
+    pub fn move_apart(
+        &mut self,
+        kept: &[ManagedMemoryBinding],
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
+        self.pools
+            .move_apart(&mut self.storage, kept, copier, failures)
+    }
+
     /// Keep the page `location` names as it is for as long as the guard lives
     /// (see [`PageGuard`]). `None` when no pool holds such a page.
     pub fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
@@ -403,11 +445,27 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// [`IoError::PageUpdateForbidden`] when `update` forbids a new page and
     /// the room held cannot serve it, and whatever the pools or the device
     /// refused otherwise.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn reserve(
         &mut self,
         size: u64,
         update: PageUpdate,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.reserve_sharing(size, update, PinnedPages::Avoid, failures)
+    }
+
+    /// [`reserve`](Self::reserve), carving the free room on pinned pages too
+    /// when `pinned` shares it.
+    ///
+    /// # Errors
+    ///
+    /// As [`reserve`](Self::reserve).
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
+    pub fn reserve_sharing(
+        &mut self,
+        size: u64,
+        update: PageUpdate,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match update {
@@ -419,16 +477,15 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // an explicit cleanup, which on long-running processes lets
                 // every stream's pools grow monotonically.
                 self.cleanup(Cleanup::Periodic, failures);
-                self.reserve_adding(size, failures)
+                self.reserve_adding(size, pinned, failures)
             }
-            PageUpdate::AddOnly => self.reserve_adding(size, failures),
-            PageUpdate::Forbidden => {
-                self.reserve_held(size, failures)
-                    .ok_or_else(|| IoError::PageUpdateForbidden {
-                        size,
-                        backtrace: BackTrace::capture(),
-                    })
-            }
+            PageUpdate::AddOnly => self.reserve_adding(size, pinned, failures),
+            PageUpdate::Forbidden => self.reserve_held(size, pinned, failures).ok_or_else(|| {
+                IoError::PageUpdateForbidden {
+                    size,
+                    backtrace: BackTrace::capture(),
+                }
+            }),
         }
     }
 
@@ -437,6 +494,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn reserve_adding(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
@@ -505,7 +563,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let reserved = self
             .pools
-            .reserve(&mut self.storage, size, mapping, failures)?;
+            .reserve(&mut self.storage, size, mapping, pinned, failures)?;
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
@@ -526,6 +584,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn reserve_held(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self.mode {
@@ -537,7 +596,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 {
                     return Some(handle);
                 }
-                self.pools.try_reserve(size, failures)
+                self.pools.try_reserve(size, pinned, failures)
             }
         }
     }
@@ -1324,6 +1383,51 @@ mod tests {
         drop(other);
         memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
         assert_eq!(memory_management.memory_report().usage().bytes_reserved, 0);
+    }
+
+    /// The room a graph's temporaries left free on a page it pinned serves
+    /// another capture, and only a capture: work outside one outlives the next
+    /// replay, which would write over it. A slice a handle holds is never
+    /// handed out, pinned or not.
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
+    fn a_pinned_page_is_carved_only_by_a_capture() {
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+        let share = |memory: &mut MemoryManagement<BytesStorage>, update| {
+            memory.reserve_sharing(MIB, update, PinnedPages::Share, &mut ErrorGraph::default())
+        };
+        let temporary = share(&mut memory, PageUpdate::Allow).unwrap();
+        let _pin = memory
+            .guard(temporary.descriptor().location())
+            .expect("the pool holds the page");
+        drop(temporary);
+        let pinned = memory.memory_report().usage().bytes_reserved;
+
+        let later = share(&mut memory, PageUpdate::Forbidden)
+            .expect("a capture carves the room the pin keeps");
+        assert_eq!(memory.memory_report().usage().bytes_reserved, pinned);
+
+        let _eager = memory
+            .reserve(MIB, PageUpdate::Allow, &mut ErrorGraph::default())
+            .unwrap();
+        assert!(
+            memory.memory_report().usage().bytes_reserved > pinned,
+            "work outside a capture took a page of its own"
+        );
+
+        let held = share(&mut memory, PageUpdate::Forbidden)
+            .expect("the pinned page has room past the held slice");
+        assert_ne!(
+            held.descriptor().location(),
+            later.descriptor().location(),
+            "a slice a handle holds is never handed out again"
+        );
     }
 
     #[test_log::test]

@@ -5,16 +5,16 @@
 
 use crate::support::{HostData, HostDataType, TestInput, TileInput, assert_equals_approx};
 use cubecl::{ir::OpaqueType, prelude::*, zspace::shape};
-use cubecl_tile::launch::{Grid, Refusal};
+use cubecl_tile::launch::{Decline, Grid};
 use cubecl_tile::stage::Role;
 use cubecl_tile::*;
 
 use super::references;
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// The software instruction the leaf runs: a 16-cell budget, no edge split, no unit fan-out.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
@@ -25,13 +25,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn ring_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     // The cube's walk: one block of K per region, both operands staged for it.
@@ -44,7 +44,7 @@ fn ring_matmul(
             for cell in region {
                 let mut c_cell = c_block
                     .at(&cell)
-                    .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
@@ -58,12 +58,12 @@ fn ring_matmul(
 fn role_split_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     let walk = space.walk();
@@ -84,7 +84,7 @@ fn role_split_matmul(
                     for cell in &region {
                         let mut c_cell = c_block
                             .at(&cell)
-                            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+                            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                         c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
                     }
                 });
@@ -163,7 +163,7 @@ fn a_device_without_barriers_refuses_a_walk_filled_by_planes_of_its_own() {
         true => assert!(launched.is_ok()),
         false => assert!(matches!(
             launched.err(),
-            Some(Refusal::FillersWithoutBarriers { fillers: 1 })
+            Some(Decline::FillersWithoutBarriers { fillers: 1 })
         )),
     }
 }

@@ -13,8 +13,8 @@ use cubecl_tile::launch::{
 };
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 /// Rows and columns of the tensor: not whole boxes along either axis.
 const ROWS: usize = 40;
 const COLS: usize = 24;
@@ -24,7 +24,7 @@ const BOX: (usize, usize) = (16, 16);
 #[cube(launch)]
 fn store_by_tma<E: Float, O: Destination>(
     input: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -72,7 +72,7 @@ fn a_box_stored_by_tma_lands_whole_and_clipped() {
     // Bound through the launcher, which masks the reads of a box the edge cuts short.
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(1)
         .build()
         .unwrap();

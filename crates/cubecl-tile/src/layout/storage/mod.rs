@@ -13,4 +13,4 @@ pub use elem_alignment::ElemAlignment;
 pub use geometry::{Geometry, LineMisfit, RuntimeGeometry};
 pub use partitioning::{StorageLevels, StoragePartitioning, TileMisfit};
 pub use stagger::Stagger;
-pub use vector_tile::VectorTile;
+pub use vector_tile::{Run, VectorTile};

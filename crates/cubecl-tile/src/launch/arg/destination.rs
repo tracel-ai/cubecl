@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Bound, Output, OutputArgs, Partitioning, Refusal, Region, Tile, TileExpand, TileTensor,
+    Bound, Decline, Output, OutputArgs, Partitioning, Region, Tile, TileExpand, TileTensor,
     TileTensorLaunch, kind::Write, launch::Unbound,
 };
 
@@ -19,9 +19,11 @@ pub trait Destination: Send + Sync + 'static {
     type Served<E: Numeric>: ServedDestination;
 
     /// Build the destination for the kernel, once, under its one `partitioning`, storing in lines
-    /// of `V` where the argument does not state its own width.
+    /// of `V` where the argument does not state its own width. The argument is taken by `&mut`,
+    /// as the launch function's parameter must be: a launch declares what it writes from its
+    /// signature ([`TileTensor`]'s read and written operands).
     fn serve<E: Numeric, V: Size>(
-        arg: &Self::Arg<E>,
+        arg: &mut Self::Arg<E>,
         partitioning: &Partitioning,
     ) -> Self::Served<E>;
 }
@@ -56,8 +58,16 @@ pub trait ServedDestination: CubeType {
 pub trait OpenedDestination: CubeType {
     /// Consume the output tile at `at`, once per finished tile, in the order the owner computes
     /// them, possibly in divergent control flow, so it may not use plane operations or
-    /// synchronize unless the routine says otherwise. `sum` may carry scales
-    /// ([`Tile::scaled`]) that a draining reader applies and any other reader must.
+    /// synchronize unless the routine says otherwise.
+    ///
+    /// `sum` is a register sum, which may carry scales ([`Tile::scaled`]) that a draining reader
+    /// applies and any other reader must, or a memory tile holding a finished total that
+    /// partials were merged into. A total:
+    /// - is consumed by every unit of the owner in uniform control flow, its units copying its
+    ///   lines together, so the call may synchronize the owner (a bulk store does);
+    /// - is not read back in the call, another unit may have written those lines: a destination
+    ///   that sends waits for [`close`](Self::close) or [`finish`](ServedDestination::finish);
+    /// - is valid only during the call, its memory being reused.
     fn consume(&mut self, at: &Region, sum: &Tile);
 
     /// Close once per [`open`](ServedDestination::open), after the last
@@ -119,7 +129,7 @@ pub trait SinkLaunchVisitor {
     type Output;
 
     /// Receive the launch the value named, or why it could not be prepared.
-    fn visit<L: SinkLaunch>(self, prepared: Result<L, Refusal>) -> Self::Output;
+    fn visit<L: SinkLaunch>(self, prepared: Result<L, Decline>) -> Self::Output;
 }
 
 /// The default [`Destination`]: an [`Output`] buffer.
@@ -130,8 +140,8 @@ impl Destination for Buffered {
     type Arg<E: Numeric> = Output<'static, E>;
     type Served<E: Numeric> = Tile;
 
-    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
-        arg.tile(partitioning)
+    fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+        arg.tile_mut(partitioning)
     }
 }
 
@@ -162,8 +172,8 @@ impl Destination for TmaStored {
     type Arg<E: Numeric> = TileTensor<'static>;
     type Served<E: Numeric> = Tile;
 
-    fn serve<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
-        arg.tile(partitioning)
+    fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, partitioning: &Partitioning) -> Tile {
+        arg.tile_mut(partitioning)
     }
 }
 

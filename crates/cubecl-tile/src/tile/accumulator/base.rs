@@ -23,12 +23,12 @@ impl GridShape {
         let tiles = partition_shape(&place.space, levels);
         let leaf = place.space.leaf(levels);
         let lhs_leaf = lhs.leaf(levels);
-        let axes = MatrixAxes::accumulator(&leaf, &lhs_leaf);
+        let dimensions = MatrixDimensions::accumulator(&leaf, &lhs_leaf);
         // Use the accumulator's own edges: a split column group is one edge.
         GridShape {
             tiles,
-            m: axes.rows(&leaf),
-            n: axes.cols(&leaf),
+            m: dimensions.rows(&leaf),
+            n: dimensions.cols(&leaf),
             k: lhs_leaf.contracted_extent(&place.space),
         }
     }
@@ -104,11 +104,11 @@ pub(crate) fn plane_windows(space: &Space, levels: &[Level]) -> usize {
             planes *= cube.planes;
         } else if let Some(per_instance) = level.coverage().scope().and_then(ComputeScope::planes) {
             let mut instances = 1;
-            for axis in level.axes() {
-                if level.distributes(axis) {
-                    instances *= level.instances_along(&handed, axis).unwrap_or_else(|| {
+            for dimension in level.dimensions() {
+                if level.distributes(dimension) {
+                    instances *= level.instances_along(&handed, dimension).unwrap_or_else(|| {
                         panic!(
-                            "Tile::with_scratch: {axis:?} is distributed across the cube's planes \
+                            "Tile::with_scratch: {dimension:?} is distributed across the cube's planes \
                              at a count only the launch knows, so the plane's windows cannot be \
                              sized"
                         )
@@ -151,6 +151,7 @@ impl Tile {
     ) -> Tile {
         let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
         let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
         let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
         let instruction = comptime!(call.instruction);
         if comptime!(instruction == Instruction::Wgmma) {
@@ -287,6 +288,11 @@ impl Tile {
         // to directly, through a scratch: where none was opened, the drain opens the smallest.
         let levels = self.factor_levels();
         let scaled = comptime!(levels > 0);
+        let total = self.is_memory();
+        comptime!(assert!(
+            !(total && scaled),
+            "Tile::drained_into: a memory tile is a merged total, which carries no scales"
+        ));
         let unopened = self.scratch_unopened();
         let in_place = self.casts_in_place_to::<Served, Out>();
         let bounces = dest.fragments_bounce(in_place);
@@ -337,7 +343,7 @@ impl Tile {
     /// stores whole or bounces.
     fn casts_in_place_to<A: Numeric, Out: Numeric>(&self) -> comptime_type!(bool) {
         // Only a cmma fragment has a cast the device may lack. Reading the grid of anything else
-        // would ask the extent of an axis that may be dynamic.
+        // would ask the extent of a dimension that may be dynamic.
         match &self.kind {
             // The fragment's own edges: the placement's space spans every plane's grid.
             TileKind::PlanePartition(p) => {
@@ -543,12 +549,13 @@ impl Tile {
             },
             // No grid: the accumulator is one tile and the drain is one store.
             TileKind::PlaneTile(_) => drain_leaf::<A, Out>(self, dest, comptime!(DrainPass::Copy)),
-            TileKind::Memory(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => {
-                panic!("Tile::drained_into: a plane-resident accumulator drains; nothing else does")
-            }
+            // A finished total merged in memory: the holder's units copy its lines, whoever
+            // filled the buffer the destination windows.
+            TileKind::Memory(_) => dest.clone().copy_cast_from(self),
+            TileKind::TmaGmem(_) | TileKind::Procedural(_) | TileKind::Lines(_) => panic!(
+                "Tile::drained_into: an accumulator or a total merged in memory drains; nothing \
+                 else does"
+            ),
         }
     }
 }
@@ -565,18 +572,18 @@ fn holder(place: &Placement) -> ComputeScope {
         .unwrap_or_else(|| place.holder())
 }
 
-/// Panics where a plane group level splits an axis the output at `place` lacks: each group would
-/// hold a partial of the same cells, and nothing merges plane groups' partials yet.
+/// Panics where a plane group level splits a dimension the output at `place` lacks: each group
+/// would hold a partial of the same cells, and nothing merges plane groups' partials yet.
 fn assert_groups_own_their_box(place: &Placement) {
     for level in &place.levels {
         let Coverage::Distribute(ComputeScope::PlaneGroup { .. }) = level.coverage() else {
             continue;
         };
-        for axis in level.axes() {
-            let split = !matches!(level.count(axis), Some(Count::Stated(1)));
+        for dimension in level.dimensions() {
+            let split = !matches!(level.count(dimension), Some(Count::Stated(1)));
             assert!(
-                !(level.distributes(axis) && split && !place.space.contains(axis)),
-                "Tile::accumulator: plane groups split {axis:?}, which the output lacks, so each \
+                !(level.distributes(dimension) && split && !place.space.contains(dimension)),
+                "Tile::accumulator: plane groups split {dimension:?}, which the output lacks, so each \
                  would hold a partial of the same cells, and nothing merges plane groups' \
                  partials yet; deal each group a box of its own"
             );
@@ -633,39 +640,70 @@ fn register_accumulator<EA: Numeric>(
 }
 
 /// `place`, the output's, as an accumulator of `rows · cols` lays it: its rows along the free
-/// axes of the factor handed over first. The output's own order where its innermost axes are
-/// `cols`'s; else its two trailing groups exchanged, every axis above them where it was, so the
-/// first factor fills the instruction's `A` whichever of the product's operands it is.
+/// dimensions of the factor handed over first. The output's own order where its innermost
+/// dimensions are `cols`'s; else its two trailing groups exchanged, every dimension above them
+/// where it was, so the first factor fills the instruction's `A` whichever of the product's
+/// operands it is.
 fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
     let space = &place.space;
     if Side::of(rows, space) == Side::Lhs {
         return place.clone();
     }
-    let axes = MatrixAxes::accumulator(space, cols);
-    let order: Vec<Axis> = (0..axes.row_split)
-        .chain(axes.col_split..space.rank())
-        .chain(axes.row_split..axes.col_split)
-        .map(|p| space.axis_at(p))
+    let dimensions = MatrixDimensions::accumulator(space, cols);
+    let order: Vec<Dimension> = (0..dimensions.row_split)
+        .chain(dimensions.col_split..space.rank())
+        .chain(dimensions.row_split..dimensions.col_split)
+        .map(|p| space.dimension_at(p))
         .collect();
     Placement::new(space.subspace(&order), place.depth, place.levels.clone())
 }
 
+/// `place`, the output's, with a level below its leaf walking the contraction in steps `depth`
+/// deep, where one call of its instruction takes less of it than the leaf holds: the tile's own
+/// walk, which the kernel never states. The leaf contracts one dimension there.
+fn walk_contraction(place: &Placement, lhs: &Space, depth: usize) -> Placement {
+    let lhs_leaf = lhs.leaf(place.below());
+    if lhs_leaf.contracted_extent(&place.space) == depth {
+        return place.clone();
+    }
+    // A dimension the leaf holds one of, as a batch the operand carries and the output does not, is
+    // contracted in one step: only the dimension the walk steps through is named.
+    let contracted: Vec<Dimension> = lhs_leaf
+        .difference(&place.space)
+        .into_iter()
+        .filter(|&dimension| lhs_leaf.extent(dimension) > 1)
+        .collect();
+    let [dimension] = contracted.as_slice() else {
+        panic!(
+            "Tile::accumulator: the leaf {lhs_leaf:?} is walked in steps {depth} deep only where \
+             it contracts one dimension; state the steps as a level below it"
+        )
+    };
+    let mut levels = place.levels.clone();
+    levels.push(
+        Levels::leaf(&[(*dimension, depth)])
+            .walk_every(&[*dimension])
+            .level(),
+    );
+    Placement::new(place.space.clone(), place.depth, levels)
+}
+
 /// `place`, the output's, with a level below its leaf cutting it into `cell`s, where one call of
 /// its instruction fills less than the leaf: the tile's own cut, which the kernel never states.
-/// The leaf's rows and columns are each one axis there.
+/// The leaf's rows and columns are each one dimension there.
 fn cut_into_cells(place: &Placement, lhs: &Space, cell: [usize; 2]) -> Placement {
     let leaf = place.space.leaf(place.below());
-    let axes = MatrixAxes::accumulator(&leaf, &lhs.leaf(place.below()));
-    if [axes.rows(&leaf), axes.cols(&leaf)] == cell {
+    let dimensions = MatrixDimensions::accumulator(&leaf, &lhs.leaf(place.below()));
+    if [dimensions.rows(&leaf), dimensions.cols(&leaf)] == cell {
         return place.clone();
     }
     assert!(
-        axes.col_split == axes.row_split + 1 && axes.col_split + 1 == leaf.rank(),
+        dimensions.col_split == dimensions.row_split + 1 && dimensions.col_split + 1 == leaf.rank(),
         "Tile::accumulator: the leaf {leaf:?} is cut into {cell:?} cells only where its rows and \
-         its columns are each one axis; state the cells as a level below it"
+         its columns are each one dimension; state the cells as a level below it"
     );
-    let rows = leaf.axis_at(axes.row_split);
-    let cols = leaf.axis_at(axes.col_split);
+    let rows = leaf.dimension_at(dimensions.row_split);
+    let cols = leaf.dimension_at(dimensions.col_split);
     let mut levels = place.levels.clone();
     levels.push(
         Levels::leaf(&[(rows, cell[0]), (cols, cell[1])])
@@ -687,13 +725,13 @@ fn accumulator_in<EA: Numeric>(
 ) -> Tile {
     comptime!(assert!(
         matches!(form, Instruction::Registers { .. })
-            || accumulation == Accumulation::Contraction(Semiring::SUM_PROD),
+            || accumulation == Accumulation::Contraction(Semiring::SumProd),
         "Tile::accumulator: a hardware instruction accumulates under the sum of products alone, \
          not {accumulation:?}; contract in a register block to sum under another"
     ));
     let mut acc = PlanePartition::mirror::<EA>(
         &out.space,
-        comptime!(MatrixAxes::accumulator(&out.space, &lhs.place.space)),
+        comptime!(MatrixDimensions::accumulator(&out.space, &lhs.place.space)),
         comptime!(form),
         comptime!(GridShape::new(out, &lhs.place.space)),
         vector_size,
@@ -708,19 +746,19 @@ fn accumulator_in<EA: Numeric>(
 
 #[cube]
 impl Tile {
-    /// A plane-resident accumulator over one region of `walk` along `axes`, summing `lhs` times a
-    /// factor of its element, opened at zero: the accumulator [`Tile::scratch`] would open,
+    /// A plane-resident accumulator over one region of `walk` along `dimensions`, summing `lhs`
+    /// times a factor of its element, opened at zero: the accumulator [`Tile::scratch`] would open,
     /// without the memory, for a product contracted again before anything drains it, as an
     /// attention's score. Its instruction is the one that keeps the sum where the next product's
     /// `A` lies, where the device has one
     /// ([`Instruction::for_stage_accumulator`](crate::Instruction::for_stage_accumulator)).
     pub fn stage_accumulator<EA: Numeric>(
         walk: &Walk,
-        #[comptime] axes: Vec<Axis>,
+        #[comptime] dimensions: Vec<Dimension>,
         lhs: &Tile,
     ) -> Tile {
         Tile::placed_accumulator::<EA>(
-            comptime!(walk.level.child(&walk.space).subspace(&axes)),
+            comptime!(walk.level.child(&walk.space).subspace(&dimensions)),
             comptime!(walk.depth()),
             comptime!(walk.parent.path.root_levels()),
             lhs,
@@ -740,19 +778,17 @@ impl Tile {
     ) -> Tile {
         let place = comptime!(Placement::new(space, depth, levels));
         let call = plane_call::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
+        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
         let grid = comptime!(GridShape::new(&place, &lhs.place.space));
-        // The tile does not cut a sum contracted again: its cells must line up with the next
-        // product's operand ([`Instruction::for_stage_accumulator`]).
-        comptime!(assert!(
-            call.cell() == [grid.m, grid.n],
-            "Tile::placed_accumulator: no instruction fills its {:?} leaf in one call",
-            [grid.m, grid.n]
-        ));
         let instruction = comptime!(call.instruction);
-        let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
+        let accumulation = comptime!(Accumulation::Contraction(Semiring::SumProd));
         let mut acc = PlanePartition::mirror::<EA>(
             &place.space,
-            comptime!(MatrixAxes::accumulator(&place.space, &lhs.place.space)),
+            comptime!(MatrixDimensions::accumulator(
+                &place.space,
+                &lhs.place.space
+            )),
             instruction,
             grid,
             1usize,
@@ -862,15 +898,15 @@ fn drain_chunk_below<A: Numeric, O: Numeric>(
         drain_chunk_leaf::<A, O>(acc, dest, pass, place % chunks == turn);
     } else {
         let level = comptime!(levels[i].clone());
-        let axes = comptime!(dest.place.space.axes().collect::<Vec<_>>());
+        let dimensions = comptime!(dest.place.space.dimensions().collect::<Vec<_>>());
         // Only the fragment grid, a walked level, places a fragment: every plane holding the same
         // tile reaches its fragments at the same places, the planes' own level adding nothing.
         if comptime!(level.coverage() == Coverage::Walk) {
             for region in dest.over(&level).unrolled() {
                 let mut here = place;
                 #[unroll]
-                for a in 0..axes.len() {
-                    here += region.coord(comptime!(axes[a]));
+                for a in 0..dimensions.len() {
+                    here += region.coord(comptime!(dimensions[a]));
                 }
                 drain_chunk_below::<A, O>(
                     &acc.at(&region),
@@ -971,9 +1007,9 @@ mod tests {
     use super::*;
     use crate::space::{CubeOrder, PlaneOrder};
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
     /// A plane's `16 × 16` tile, walked through `K`.
     fn plane() -> Levels {

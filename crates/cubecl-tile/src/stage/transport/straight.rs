@@ -75,9 +75,9 @@ impl Memory {
         ));
         let d = self.lines_storage_mut::<I2, WP2>();
         if sw == w {
-            // A partition no compaction stands in for, several of whose axes share one of its
+            // A partition no compaction stands in for, several of whose dimensions share one of its
             // physical axes, is a source of fewer physical axes than the stage's logical ones:
-            // the stage's coordinates name its axes, not the source's physical ones.
+            // the stage's coordinates name its dimensions, not the source's physical ones.
             let through_projection = comptime!(
                 compaction.is_none()
                     && !src.projection.is_direct()
@@ -93,7 +93,7 @@ impl Memory {
                 // Read at the stage's logical coordinates through the source's own projection.
                 Masked::new(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
-                        .view(src.axis_projection(space)),
+                        .view(src.dimension_projection(space)),
                     check,
                 )
             } else {
@@ -138,7 +138,7 @@ impl Memory {
 /// The innermost extent of `space` in cells, checked against both widths; `None` when `Dynamic`.
 /// The extent must be a whole number of `sw`-wide source lines.
 pub(crate) fn fill_extent(space: &Space, sw: usize, w: usize, check: bool) -> Option<usize> {
-    match space.extent_raw(space.axis_at(space.rank() - 1)) {
+    match space.extent_raw(space.dimension_at(space.rank() - 1)) {
         Extent::Static(e) => {
             assert!(
                 e.is_multiple_of(sw),

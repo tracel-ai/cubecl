@@ -1,4 +1,4 @@
-//! N-D contraction dispatch for multiple contracted axes, projected operands and procedural
+//! N-D contraction dispatch for multiple contracted dimensions, projected operands and procedural
 //! filters.
 
 use core::fmt::{self, Display, Formatter};
@@ -11,12 +11,12 @@ use super::super::shape::ContractShape;
 use crate::ops::matmul::leaf::Side;
 use crate::*;
 
-/// Why the gather leaf cannot serve an lhs vectorized along an axis.
+/// Why the gather leaf cannot serve an lhs vectorized along a dimension.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LhsVectorMisfit {
-    /// The axis is neither the fastest contracted one, the accumulator's innermost row axis nor
-    /// its columns.
-    AxisNotServed,
+    /// The dimension is neither the fastest contracted one, the accumulator's innermost row
+    /// dimension nor its columns.
+    DimensionNotServed,
     /// An lhs vectorized along the rows also spans the columns.
     SpansColumns,
     /// The vector width does not divide the accumulator's row extent.
@@ -26,9 +26,9 @@ pub enum LhsVectorMisfit {
 impl Display for LhsVectorMisfit {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::AxisNotServed => {
-                "the lhs must be vectorized along the fastest contracted axis, the accumulator's \
-                 innermost row axis, or its columns"
+            Self::DimensionNotServed => {
+                "the lhs must be vectorized along the fastest contracted dimension, the accumulator's \
+                 innermost row dimension, or its columns"
             }
             Self::SpansColumns => "an lhs vectorized along the rows must not span the columns",
             Self::RowsNotWholeVectors => {
@@ -40,45 +40,45 @@ impl Display for LhsVectorMisfit {
 
 /// Where the gathered lhs's vectors run, which decides what one read serves.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum LhsVectorAxis {
-    /// Along the fastest contracted axis: one read serves several contracted steps of one row.
+pub enum LhsVectorDimension {
+    /// Along the fastest contracted dimension: one read serves several contracted steps of one row.
     Contracted,
-    /// Along the accumulator's innermost row axis: one read serves one contracted step of several
-    /// rows, each component its own row, so nothing is summed across components.
+    /// Along the accumulator's innermost row dimension: one read serves one contracted step of
+    /// several rows, each component its own row, so nothing is summed across components.
     Rows,
     /// Along the accumulator's columns: the vector read is the cell.
     Columns,
 }
 
-impl LhsVectorAxis {
+impl LhsVectorDimension {
     /// The placement of an lhs vectorized `lw` wide in a contraction of `lhs` and `rhs` into `acc`,
-    /// or the [`Refusal`] saying why the axis it lies along cannot be served. A one-wide vector
-    /// has no direction and reads as a contracted step.
-    pub fn of(lhs: &Space, rhs: &Space, acc: &Space, lw: usize) -> Result<Self, Refusal> {
+    /// or the [`Decline`] saying why the dimension it lies along cannot be served. A one-wide
+    /// vector has no direction and reads as a contracted step.
+    pub fn of(lhs: &Space, rhs: &Space, acc: &Space, lw: usize) -> Result<Self, Decline> {
         if lw == 1 {
-            return Ok(LhsVectorAxis::Contracted);
+            return Ok(LhsVectorDimension::Contracted);
         }
-        let vectorized = lhs.axis_at(lhs.rank() - 1);
+        let vectorized = lhs.dimension_at(lhs.rank() - 1);
         let refuse = |why| {
-            Err(Refusal::LhsVectorNotServed {
-                axis: vectorized,
+            Err(Decline::LhsVectorNotServed {
+                dimension: vectorized,
                 why,
             })
         };
         let reduce = Space::contracted(&[lhs, rhs], acc);
-        let col = acc.axis_at(acc.rank() - 1);
+        let col = acc.dimension_at(acc.rank() - 1);
         if reduce.last() == Some(&vectorized) {
-            return Ok(LhsVectorAxis::Contracted);
+            return Ok(LhsVectorDimension::Contracted);
         }
         if vectorized == col {
-            return Ok(LhsVectorAxis::Columns);
+            return Ok(LhsVectorDimension::Columns);
         }
-        let row = MatrixAxes::accumulator(acc, lhs)
+        let row = MatrixDimensions::accumulator(acc, lhs)
             .col_split
             .checked_sub(1)
-            .map(|position| acc.axis_at(position));
+            .map(|position| acc.dimension_at(position));
         if row != Some(vectorized) {
-            return refuse(LhsVectorMisfit::AxisNotServed);
+            return refuse(LhsVectorMisfit::DimensionNotServed);
         }
         if lhs.contains(col) {
             return refuse(LhsVectorMisfit::SpansColumns);
@@ -86,11 +86,11 @@ impl LhsVectorAxis {
         if !acc.extent(vectorized).is_multiple_of(lw) {
             return refuse(LhsVectorMisfit::RowsNotWholeVectors);
         }
-        Ok(LhsVectorAxis::Rows)
+        Ok(LhsVectorDimension::Rows)
     }
 }
 
-/// Whether the lhs varies over the accumulator's innermost axis.
+/// Whether the lhs varies over the accumulator's innermost dimension.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum LhsRole {
     /// Free of the column: one read serves every cell of a row.
@@ -124,7 +124,7 @@ pub(crate) enum FactorReuse {
 }
 
 impl FactorReuse {
-    /// The scope a factor varying over these two axes can be cached at.
+    /// The scope a factor varying over these two dimensions can be cached at.
     pub(crate) fn of(varies_row: bool, varies_col: bool) -> Self {
         match (varies_row, varies_col) {
             (false, false) => FactorReuse::Block,
@@ -141,7 +141,7 @@ pub(crate) struct GatherProblem {
     pub block: ContractShape,
     pub lhs_space: Space,
     pub rhs_space: Space,
-    /// The lhs's factor count, one per contracted axis; `None` takes the general schedule.
+    /// The lhs's factor count, one per contracted dimension; `None` takes the general schedule.
     pub factors: Option<usize>,
     /// Factor-local normalization requested by the procedural lhs.
     pub normalization: Option<Normalization>,
@@ -151,20 +151,20 @@ pub(crate) struct GatherProblem {
     pub offsets: Vec<usize>,
     /// Maximal reuse of each factor's tap walk within one accumulator block.
     pub factor_reuse: Vec<FactorReuse>,
-    /// How each operand varies over the accumulator's own axes.
+    /// How each operand varies over the accumulator's own dimensions.
     pub lhs: LhsRole,
     pub rhs: RhsRole,
     /// Where the lhs's vectors run.
-    pub lhs_vector_axis: LhsVectorAxis,
+    pub lhs_vector_dimension: LhsVectorDimension,
 }
 
 impl GatherProblem {
     /// How many accumulator rows one lhs vector serves: its components when vectorized along the
     /// rows.
     pub(crate) fn rows_per_vector(&self) -> usize {
-        match self.lhs_vector_axis {
-            LhsVectorAxis::Rows => self.block.lw,
-            LhsVectorAxis::Contracted | LhsVectorAxis::Columns => 1,
+        match self.lhs_vector_dimension {
+            LhsVectorDimension::Rows => self.block.lw,
+            LhsVectorDimension::Contracted | LhsVectorDimension::Columns => 1,
         }
     }
 
@@ -201,23 +201,23 @@ impl GatherProblem {
         rhs_boundaries: &[Option<Boundary>],
     ) -> Self {
         let rank = block.space.rank();
-        let col = block.space.axis_at(rank - 1);
+        let col = block.space.dimension_at(rank - 1);
         let lhs_role = match lhs.contains(col) {
             false => LhsRole::FreeOfColumn,
             true => LhsRole::PerCell,
         };
-        let rhs_role = match rhs.contains(block.space.axis_at(rank - 2)) {
+        let rhs_role = match rhs.contains(block.space.dimension_at(rank - 2)) {
             false => RhsRole::FreeOfRow,
             true if rhs.contains(col) => RhsRole::PerCell,
             true => RhsRole::PerRow,
         };
-        let lhs_vector_axis =
-            LhsVectorAxis::of(lhs, rhs, &block.space, block.lw).unwrap_or_else(|r| panic!("{r}"));
+        let lhs_vector_dimension = LhsVectorDimension::of(lhs, rhs, &block.space, block.lw)
+            .unwrap_or_else(|r| panic!("{r}"));
         if let Some(factors) = factors {
             assert_eq!(
                 factors,
                 block.reduce.len(),
-                "contract gather: a separable lhs needs one factor per contracted axis"
+                "contract gather: a separable lhs needs one factor per contracted dimension"
             );
             assert_separable_shapes(rhs_projection, &block.space, rhs.contains(col));
         }
@@ -228,11 +228,11 @@ impl GatherProblem {
             );
         }
         if let Some(normalization) = &normalization {
-            for &axis in &block.reduce {
+            for &dimension in &block.reduce {
                 assert!(
-                    normalization.over.contains(axis)
-                        && normalization.over.extent_raw(axis) == lhs.extent_raw(axis),
-                    "contract gather: a normalized factor axis cannot be partitioned between \
+                    normalization.over.contains(dimension)
+                        && normalization.over.extent_raw(dimension) == lhs.extent_raw(dimension),
+                    "contract gather: a normalized factor dimension cannot be partitioned between \
                      .normalized() and the gather leaf; calling .normalized() below a split \
                      normalizes each chunk independently"
                 );
@@ -241,7 +241,7 @@ impl GatherProblem {
         if matches!(&normalization, Some(n) if n.taps == TapSupport::InBounds) {
             assert_factorized_mask(rhs_projection, &block.reduce);
         }
-        let row = block.space.axis_at(rank - 2);
+        let row = block.space.dimension_at(rank - 2);
         let factor_reuse = match (factors, factor_dependencies) {
             (Some(factors), Some(dependencies)) => {
                 assert_eq!(dependencies.len(), factors);
@@ -284,51 +284,53 @@ impl GatherProblem {
             normalization,
             lhs: lhs_role,
             rhs: rhs_role,
-            lhs_vector_axis,
+            lhs_vector_dimension,
         };
         problem.assert_operand_shapes();
         problem
     }
 
-    /// Assert each operand is vectorized along an axis the leaf serves.
+    /// Assert each operand is vectorized along a dimension the leaf serves.
     fn assert_operand_shapes(&self) {
         let (lhs, rhs, acc) = (&self.lhs_space, &self.rhs_space, &self.block.space);
         let reduce = &self.block.reduce;
         let (lhs_vec_len, rhs_vec_len) = (self.block.lw, self.block.vw);
         assert!(
             !reduce.is_empty(),
-            "contract gather: the operands contract no axis against the accumulator"
+            "contract gather: the operands contract no dimension against the accumulator"
         );
-        // An rhs-only contracted axis would take the `fastest` slot; name that constraint instead.
-        for &axis in reduce {
+        // An rhs-only contracted dimension would take the `fastest` slot; name that constraint
+        // instead.
+        for &dimension in reduce {
             assert!(
-                lhs.contains(axis),
-                "contract gather: the lhs must span every contracted axis, but {axis:?} is \
+                lhs.contains(dimension),
+                "contract gather: the lhs must span every contracted dimension, but {dimension:?} is \
                  contracted by the rhs alone"
             );
         }
-        let fastest = self.block.fastest_axis();
-        // A scalar rhs need not span either axis, so a weight shared by every column can omit it.
-        let rhs_vectorized = rhs.axis_at(rhs.rank() - 1);
+        let fastest = self.block.fastest_dimension();
+        // A scalar rhs need not span either dimension, so a weight shared by every column can omit
+        // it.
+        let rhs_vectorized = rhs.dimension_at(rhs.rank() - 1);
         assert!(
             rhs_vec_len == 1
-                || rhs_vectorized == acc.axis_at(acc.rank() - 1)
+                || rhs_vectorized == acc.dimension_at(acc.rank() - 1)
                 || rhs_vectorized == fastest,
             "contract gather: a vectorized rhs must be vectorized along the accumulator's \
-             innermost axis or the fastest contracted axis {fastest:?}"
+             innermost dimension or the fastest contracted dimension {fastest:?}"
         );
         // A per-cell lhs read covers `rhs_vec_len` columns only when vectorized along the column
-        // axis.
+        // dimension.
         assert!(
             self.lhs == LhsRole::FreeOfColumn
-                || self.lhs_vector_axis == LhsVectorAxis::Columns
+                || self.lhs_vector_dimension == LhsVectorDimension::Columns
                 || rhs_vec_len == 1,
-            "contract gather: an lhs spanning the accumulator's innermost axis needs a value per \
-             column, so that axis must be the one it is vectorized along (the accumulator is \
+            "contract gather: an lhs spanning the accumulator's innermost dimension needs a value per \
+             column, so that dimension must be the one it is vectorized along (the accumulator is \
              {rhs_vec_len} wide, the lhs is {lhs_vec_len} wide)"
         );
         assert!(
-            self.lhs_vector_axis != LhsVectorAxis::Columns || lhs_vec_len == rhs_vec_len,
+            self.lhs_vector_dimension != LhsVectorDimension::Columns || lhs_vec_len == rhs_vec_len,
             "contract gather: a column-vectorized lhs is read as the cell itself, so its vector \
              width ({lhs_vec_len}) must be the accumulator's ({rhs_vec_len})"
         );
@@ -336,47 +338,51 @@ impl GatherProblem {
 }
 
 /// Whether a rectangular source mask factorizes: no physical input axis is moved by two
-/// contracted axes.
-fn assert_factorized_mask(rhs: &Projection, reduce: &[Axis]) {
-    for (f, &axis) in reduce.iter().enumerate() {
-        if !rhs.logical_axes().contains(&axis) {
+/// contracted dimensions.
+fn assert_factorized_mask(rhs: &Projection, reduce: &[Dimension]) {
+    for (f, &dimension) in reduce.iter().enumerate() {
+        if !rhs.dimensions().contains(&dimension) {
             continue;
         }
-        for pa in rhs.carriers(axis) {
+        for pa in rhs.carriers(dimension) {
             for &other in &reduce[(f + 1)..] {
                 assert!(
                     !rhs.physical_axis(pa)
                         .terms()
                         .iter()
-                        .any(|term| term.axis == other),
-                    "contract gather: TapSupport::InBounds needs each contracted axis to move distinct \
-                     input axes; {axis:?} and {other:?} both move physical axis {pa}"
+                        .any(|term| term.dimension == other),
+                    "contract gather: TapSupport::InBounds needs each contracted dimension to move distinct \
+                     input dimensions; {dimension:?} and {other:?} both move physical axis {pa}"
                 );
             }
         }
     }
 }
 
-/// Whether the physical bound tested for `tap` also moves with accumulator `axis`.
+/// Whether the physical bound tested for `tap` also moves with accumulator `dimension`.
 fn masked_bound_depends_on(
     rhs: &Projection,
     boundaries: &[Option<Boundary>],
-    tap: Axis,
-    axis: Axis,
+    tap: Dimension,
+    dimension: Dimension,
 ) -> bool {
-    rhs.logical_axes().contains(&tap)
+    rhs.dimensions().contains(&tap)
         && rhs.carriers(tap).iter().any(|&pa| {
-            boundaries.get(pa).copied().flatten() == Some(Boundary::Zero)
+            boundaries
+                .get(pa)
+                .copied()
+                .flatten()
+                .is_some_and(Boundary::masks)
                 && rhs
                     .physical_axis(pa)
                     .terms()
                     .iter()
-                    .any(|term| term.axis == axis)
+                    .any(|term| term.dimension == dimension)
         })
 }
 
-/// N-D variant of [`direct::contract`](super::direct::contract) for multiple contracted axes or
-/// projected operands; a separable lhs takes its own schedule.
+/// N-D variant of [`direct::contract`](super::direct::contract) for multiple contracted dimensions
+/// or projected operands; a separable lhs takes its own schedule.
 #[cube]
 pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
@@ -401,8 +407,11 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let rhs_projection = rhs.projection();
     let rhs_boundaries = rhs.separable_boundaries();
     let rank = space.rank();
-    let factor_dependencies =
-        lhs.factor_dependencies(factors, space.axis_at(rank - 2), space.axis_at(rank - 1));
+    let factor_dependencies = lhs.factor_dependencies(
+        factors,
+        space.dimension_at(rank - 2),
+        space.dimension_at(rank - 1),
+    );
 
     let problem = comptime!(GatherProblem::new(
         &lhs.place.space,
@@ -446,7 +455,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
 
 /// Assert the extra operand shapes the separable schedule assumes; fails at comptime.
 fn assert_separable_shapes(rhs: &Projection, acc: &Space, rhs_spans_col: bool) {
-    let col = acc.axis_at(acc.rank() - 1);
+    let col = acc.dimension_at(acc.rank() - 1);
     assert!(
         rhs_spans_col,
         "contract gather: the separable schedule walks the accumulator's columns by stepping the \
@@ -456,7 +465,7 @@ fn assert_separable_shapes(rhs: &Projection, acc: &Space, rhs_spans_col: bool) {
     assert!(
         innermost.is_identity(col),
         "contract gather: the separable schedule steps the rhs's innermost physical axis once per \
-         accumulator column, so that axis must be {col:?} at coefficient 1"
+         accumulator column, so that dimension must be {col:?} at coefficient 1"
     );
 }
 
@@ -464,10 +473,10 @@ fn assert_separable_shapes(rhs: &Projection, acc: &Space, rhs_spans_col: bool) {
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K0: Axis = Axis(2);
-    const K1: Axis = Axis(3);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K0: Dimension = Dimension(2);
+    const K1: Dimension = Dimension(3);
 
     fn spaces() -> (Space, Space, Space) {
         (
@@ -509,20 +518,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "one factor per contracted axis")]
+    #[should_panic(expected = "one factor per contracted dimension")]
     fn problem_rejects_a_factor_count_that_does_not_match_the_reduction() {
         problem(Some(3), 1);
     }
 
-    /// A rank-one factorization of a two-axis reduction is rejected.
+    /// A rank-one factorization of a two-dimension reduction is rejected.
     #[test]
-    #[should_panic(expected = "one factor per contracted axis")]
-    fn problem_rejects_a_rank_one_factorization_of_a_two_axis_reduction() {
+    #[should_panic(expected = "one factor per contracted dimension")]
+    fn problem_rejects_a_rank_one_factorization_of_a_two_dimension_reduction() {
         problem(Some(1), 1);
     }
 
     #[test]
-    #[should_panic(expected = "normalized factor axis cannot be partitioned")]
+    #[should_panic(expected = "normalized factor dimension cannot be partitioned")]
     fn problem_rejects_chunk_local_factor_normalization() {
         let (lhs, rhs, acc) = spaces();
         let original = Space::new(&[(M, 4), (K0, 4), (K1, 3)]);
@@ -545,8 +554,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "needs each contracted axis to move distinct input axes")]
-    fn problem_rejects_masked_normalization_when_contracted_axes_share_input_axis() {
+    #[should_panic(expected = "needs each contracted dimension to move distinct input dimensions")]
+    fn problem_rejects_masked_normalization_when_contracted_dimensions_share_input_dimension() {
         let (lhs, rhs, acc) = spaces();
         let map = vec![
             PhysicalAxisMap::affine(&[(K0, 1), (K1, 1)]),
@@ -649,8 +658,8 @@ mod tests {
         assert_eq!(problem(None, 4).factors, None);
     }
 
-    /// A batched problem whose lhs spans one axis with every operand, in the given order.
-    fn batched(lhs: &[(Axis, usize)], factors: Option<usize>, width: usize) -> GatherProblem {
+    /// A batched problem whose lhs spans one dimension with every operand, in the given order.
+    fn batched(lhs: &[(Dimension, usize)], factors: Option<usize>, width: usize) -> GatherProblem {
         let lhs = Space::new(lhs);
         let rhs = Space::new(&[(M, 4), (K0, 2), (K1, 3), (N, 8)]);
         let acc = Space::new(&[(M, 4), (N, 8)]);
@@ -674,7 +683,7 @@ mod tests {
         let problem = batched(&[(K0, 2), (K1, 3), (N, 8)], None, 4);
 
         assert_eq!(problem.lhs, LhsRole::PerCell);
-        assert_eq!(problem.lhs_vector_axis, LhsVectorAxis::Columns);
+        assert_eq!(problem.lhs_vector_dimension, LhsVectorDimension::Columns);
         assert_eq!(problem.rhs, RhsRole::PerCell);
     }
 
@@ -684,7 +693,7 @@ mod tests {
         let problem = batched(&[(K0, 2), (N, 8), (K1, 3)], None, 1);
 
         assert_eq!(problem.lhs, LhsRole::PerCell);
-        assert_eq!(problem.lhs_vector_axis, LhsVectorAxis::Contracted);
+        assert_eq!(problem.lhs_vector_dimension, LhsVectorDimension::Contracted);
     }
 
     /// A separable lhs spanning the column is read per cell, vectorized along the contraction.
@@ -693,59 +702,59 @@ mod tests {
         let problem = batched(&[(K0, 2), (N, 8), (K1, 3)], Some(2), 1);
 
         assert_eq!(problem.lhs, LhsRole::PerCell);
-        assert_eq!(problem.lhs_vector_axis, LhsVectorAxis::Contracted);
+        assert_eq!(problem.lhs_vector_dimension, LhsVectorDimension::Contracted);
     }
 
-    fn vector_axis_of(
-        lhs: &[(Axis, usize)],
-        rhs: &[(Axis, usize)],
+    fn vector_dimension_of(
+        lhs: &[(Dimension, usize)],
+        rhs: &[(Dimension, usize)],
         lw: usize,
-    ) -> Result<LhsVectorAxis, Refusal> {
+    ) -> Result<LhsVectorDimension, Decline> {
         let acc = Space::new(&[(M, 4), (N, 8)]);
-        LhsVectorAxis::of(&Space::new(lhs), &Space::new(rhs), &acc, lw)
+        LhsVectorDimension::of(&Space::new(lhs), &Space::new(rhs), &acc, lw)
     }
 
     #[test]
-    fn gather_lhs_vector_axis_is_named_by_the_axis_it_vectorizes() {
+    fn gather_lhs_vector_dimension_is_named_by_the_dimension_it_vectorizes() {
         let rhs = [(K0, 2), (N, 8)];
         assert_eq!(
-            vector_axis_of(&[(M, 4), (K0, 2)], &rhs, 2),
-            Ok(LhsVectorAxis::Contracted)
+            vector_dimension_of(&[(M, 4), (K0, 2)], &rhs, 2),
+            Ok(LhsVectorDimension::Contracted)
         );
         assert_eq!(
-            vector_axis_of(&[(K0, 2), (M, 4)], &rhs, 2),
-            Ok(LhsVectorAxis::Rows)
+            vector_dimension_of(&[(K0, 2), (M, 4)], &rhs, 2),
+            Ok(LhsVectorDimension::Rows)
         );
     }
 
     #[test]
-    fn gather_lhs_vector_axis_refuses_what_the_leaf_cannot_serve() {
+    fn gather_lhs_vector_dimension_refuses_what_the_leaf_cannot_serve() {
         let rhs = [(K0, 2), (N, 8)];
         // Rows are vectorized but the lhs also spans the columns.
         assert!(matches!(
-            vector_axis_of(&[(K0, 2), (N, 8), (M, 4)], &rhs, 2),
-            Err(Refusal::LhsVectorNotServed {
-                axis: M,
+            vector_dimension_of(&[(K0, 2), (N, 8), (M, 4)], &rhs, 2),
+            Err(Decline::LhsVectorNotServed {
+                dimension: M,
                 why: LhsVectorMisfit::SpansColumns
             })
         ));
         // The vector does not divide the rows.
         assert!(matches!(
-            vector_axis_of(&[(K0, 2), (M, 4)], &rhs, 3),
-            Err(Refusal::LhsVectorNotServed {
-                axis: M,
+            vector_dimension_of(&[(K0, 2), (M, 4)], &rhs, 3),
+            Err(Decline::LhsVectorNotServed {
+                dimension: M,
                 why: LhsVectorMisfit::RowsNotWholeVectors
             })
         ));
-        // A batch axis of the accumulator carries the vector.
+        // A batch dimension of the accumulator carries the vector.
         let acc = Space::new(&[(K1, 3), (M, 4), (N, 8)]);
         let lhs = Space::new(&[(K0, 2), (M, 4), (K1, 3)]);
         let rhs = Space::new(&[(K0, 2), (K1, 3), (N, 8)]);
         assert!(matches!(
-            LhsVectorAxis::of(&lhs, &rhs, &acc, 3),
-            Err(Refusal::LhsVectorNotServed {
-                axis: K1,
-                why: LhsVectorMisfit::AxisNotServed
+            LhsVectorDimension::of(&lhs, &rhs, &acc, 3),
+            Err(Decline::LhsVectorNotServed {
+                dimension: K1,
+                why: LhsVectorMisfit::DimensionNotServed
             })
         ));
     }

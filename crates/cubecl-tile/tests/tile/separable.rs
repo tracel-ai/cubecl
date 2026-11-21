@@ -1,5 +1,5 @@
-//! A separable procedural weight contracted over three axes: the rank the abstraction carries is
-//! the recipe's, not the microkernel's.
+//! A separable procedural weight contracted over three dimensions: the rank the abstraction carries
+//! is the recipe's, not the microkernel's.
 //!
 //! `out[row, col] = Σ_{k0, k1, k2} (∏_f factor_f(k_f, row)) · in[k0, k1, k2, col]`. The same
 //! recipe is run twice, once stating its factorization and once opaque, so the cell-major walk is
@@ -21,9 +21,9 @@ use cubecl_tile::procedural::sum_of;
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
-const TAP: [Axis; 3] = [Axis(2), Axis(3), Axis(4)];
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
+const TAP: [Dimension; 3] = [Dimension(2), Dimension(3), Dimension(4)];
 
 /// The software instruction every leaf here runs under: a 16-cell budget, no edge split, no unit
 /// fan-out.
@@ -35,14 +35,14 @@ const COLS: usize = 3;
 const TAPS: [usize; 3] = [2, 3, 2];
 
 /// `offset + coefficient * tap + row_coefficient * row`, per factor. Only the first factor reads
-/// the output row, which is the shape a resampling weight takes: a factor may read a free axis,
-/// it may only not read another factor's contracted axis.
+/// the output row, which is the shape a resampling weight takes: a factor may read a free
+/// dimension, it may only not read another factor's contracted dimension.
 const OFFSET: [f32; 3] = [1.0, 2.0, 3.0];
 const COEFFICIENT: [f32; 3] = [1.0, 3.0, 5.0];
 const ROW_COEFFICIENT: [f32; 3] = [2.0, 0.0, 0.0];
 
 /// Every factor is the same type, which is what a [`Factors`] holds: one filter family
-/// applied along each axis, at that axis's own coordinates.
+/// applied along each dimension, at that dimension's own coordinates.
 type Factor<E> = Sum<AffineCoordinate<E>, AffineCoordinate<E>>;
 type Weights<E> = Factors<Factor<E>>;
 
@@ -79,33 +79,33 @@ fn weights<E: Float>() -> Weights<E> {
 #[cube(launch)]
 fn separable_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     #[comptime] separable: bool,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
+    let weight_dimensions = comptime!([&[ROW], TAP.as_slice()].concat());
     let weights = if separable {
         Procedural::separable::<E, Weights<E>>(
-            comptime!(space.space().subspace(&weight_axes)),
+            comptime!(space.space().subspace(&weight_dimensions)),
             weights::<E>(),
         )
         .tile::<E>()
     } else {
         Procedural::new::<E, Weights<E>>(
-            comptime!(space.space().subspace(&weight_axes)),
+            comptime!(space.space().subspace(&weight_dimensions)),
             weights::<E>(),
         )
         .tile::<E>()
     };
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -115,28 +115,28 @@ fn separable_kernel<E: Float>(
 #[cube(launch)]
 fn separable_kernel_staged<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     #[comptime] width: Option<usize>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
-    let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
+    let weight_dimensions = comptime!([&[ROW], TAP.as_slice()].concat());
     let weights = Procedural::separable::<E, Weights<E>>(
-        comptime!(space.space().subspace(&weight_axes)),
+        comptime!(space.space().subspace(&weight_dimensions)),
         weights::<E>(),
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages =
         Stages::smem_single_at(&walk, &input, StageStorage::Strided, width, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         let weights = weights.at(region);
         slot.consume(|input| {
             out.mm(&weights, input);
@@ -252,7 +252,7 @@ fn check(separable: bool) {
     }
 }
 
-/// Three factors, walked one axis at a time: `2 + 3 + 2` evaluations per cell rather than
+/// Three factors, walked one dimension at a time: `2 + 3 + 2` evaluations per cell rather than
 /// `2 * 3 * 2`, and the same values.
 #[test]
 fn a_rank_three_separable_product_contracts_factor_by_factor() {
@@ -346,7 +346,8 @@ fn a_separable_lhs_contracts_a_padded_staged_rhs() {
 ///
 /// Both halves of the split the separable schedule runs on are load-bearing here. `row` stays
 /// inside the floor, so it has to be anchored; `tap` has a coefficient the divisor factors out, so
-/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map per tap.
+/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map
+/// per tap.
 const ROW_NUM: usize = 3;
 const RESAMPLE: usize = 2;
 const RTAPS: usize = 2;
@@ -357,9 +358,9 @@ fn resample_origin(row: usize) -> usize {
     (ROW_NUM * row) / RESAMPLE
 }
 
-/// One factor, over the single contracted axis: a stated factorization of rank one still takes the
-/// separable schedule, since the per-row weight walk it caches is worth `nr` evaluations whatever
-/// the rank.
+/// One factor, over the single contracted dimension: a stated factorization of rank one still takes
+/// the separable schedule, since the per-row weight walk it caches is worth `nr` evaluations
+/// whatever the rank.
 #[cube]
 fn resample_weights<E: Float>() -> Weights<E> {
     let mut factors = Sequence::new();
@@ -370,7 +371,7 @@ fn resample_weights<E: Float>() -> Weights<E> {
 #[cube(launch)]
 fn resample_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     #[comptime] normalized: bool,
     space: Partitioning,
     #[comptime] level: Level,
@@ -388,11 +389,11 @@ fn resample_kernel<E: Float>(
     }
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -487,7 +488,7 @@ fn check_resampling(normalized: bool) {
 /// distinguish the checked-read zero from an in-bounds sample without relying on backing memory.
 #[cube(launch)]
 fn procedural_mask_kernel<E: Float>(
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -497,7 +498,7 @@ fn procedural_mask_kernel<E: Float>(
         affine_along(TAP[0], E::new(1.0), E::new(1.0)),
     )
     .tile::<E>();
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.zero();
 
     for region in rhs.over(&level) {
@@ -516,7 +517,7 @@ fn procedural_mask_kernel<E: Float>(
         .tile::<E>();
         output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD)
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd)
             .mma(&weights, &rhs);
     }
 }
@@ -567,7 +568,7 @@ fn masked_normalization_excludes_a_procedural_overhang() {
 #[cube(launch)]
 fn resample_kernel_masked<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -583,11 +584,11 @@ fn resample_kernel_masked<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -597,7 +598,7 @@ fn resample_kernel_masked<E: Float>(
 #[cube(launch)]
 fn resample_kernel_masked_staged<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -613,13 +614,13 @@ fn resample_kernel_masked_staged<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages = Stages::smem_single(&walk, &input, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         let weights = weights.at(region);
         slot.consume(|input| {
             out.mm(&weights, input);
@@ -803,7 +804,7 @@ fn masked_normalization_dedarkens_a_boundary_zero_smem_input() {
 #[cube(launch)]
 fn column_spanning_resample_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -816,11 +817,11 @@ fn column_spanning_resample_kernel<E: Float>(
     .normalized(comptime!(TapSupport::Whole), comptime!(DivGuard::default()))
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -900,7 +901,7 @@ fn a_column_spanning_separable_lhs_normalizes_its_factor_run() {
 #[cube(launch)]
 fn column_spanning_resample_kernel_masked<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -916,11 +917,11 @@ fn column_spanning_resample_kernel_masked<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -1007,7 +1008,7 @@ fn a_column_spanning_separable_lhs_masks_and_dedarkens_boundary_zero_gmem_input(
 #[cube(launch)]
 fn zero_sum_fallback_kernel<E: Float>(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -1031,11 +1032,11 @@ fn zero_sum_fallback_kernel<E: Float>(
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for region in space.over(&level) {
         let mut out = output
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out.mm(&weights.at(&region), &input.at(&region));
     }
 }
@@ -1103,28 +1104,28 @@ fn a_zero_factor_sum_takes_fallback_without_poisoning_siblings() {
 fn separable_scaled_kernel<E: Float>(
     input: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let input = input.tile(&space);
     let scale = scale.tile(&space);
-    let weight_axes = comptime!([&[ROW], TAP.as_slice()].concat());
+    let weight_dimensions = comptime!([&[ROW], TAP.as_slice()].concat());
     let weights = Procedural::separable::<E, Weights<E>>(
-        comptime!(space.space().subspace(&weight_axes)),
+        comptime!(space.space().subspace(&weight_dimensions)),
         weights::<E>(),
     )
     .tile::<E>();
 
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let decoded = input.mul(&scale);
     let mut stages = Stages::smem_single(&walk, &decoded, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         let weights = weights.at(region);
         slot.consume(|input| {
             out.mm(&weights, input);
@@ -1176,8 +1177,8 @@ fn a_separable_lhs_contracts_a_packed_scaled_rhs() {
         ),
         Form::Static,
     );
-    let input_axes = [TAP[0], TAP[1], TAP[2], COL];
-    let input = TileInput::builder(&client, launcher.space().subspace(&input_axes))
+    let input_dimensions = [TAP[0], TAP[1], TAP[2], COL];
+    let input = TileInput::builder(&client, launcher.space().subspace(&input_dimensions))
         .untiled()
         .packed(&scheme)
         .arange();
@@ -1188,13 +1189,13 @@ fn a_separable_lhs_contracts_a_packed_scaled_rhs() {
         .zeros()
         .generate_without_host_data();
 
-    // One scale for the whole rhs: a scale tile over none of its axes.
-    let per_tensor = Projection::new(&input_axes, &[PhysicalAxisMap::broadcast()]);
+    // One scale for the whole rhs: a scale tile over none of its dimensions.
+    let per_tensor = Projection::new(&input_dimensions, &[PhysicalAxisMap::broadcast()]);
     separable_scaled_kernel::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        input.values_arg(1, TileSpec::direct(&input_axes)),
+        input.values_arg(1, TileSpec::direct(&input_dimensions)),
         input.scales_arg(1, TileSpec::new(per_tensor)),
         TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),

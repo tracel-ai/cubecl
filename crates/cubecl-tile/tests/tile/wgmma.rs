@@ -19,9 +19,9 @@ use cubecl_tile::*;
 
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// One plane group's tile and one instruction step of `K`.
 const GROUP: (usize, usize) = (64, 128);
@@ -61,7 +61,7 @@ impl AsyncStage for GroupMma {
 fn wgmma_walk(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] storage: StageStorage,
@@ -69,7 +69,7 @@ fn wgmma_walk(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
         let walk = cube.walk();
@@ -89,7 +89,7 @@ fn wgmma_walk(
                 }
             }
             Role::Compute => {
-                let mut sum = c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD);
+                let mut sum = c.accumulator::<f32>(&a, &b, Semiring::SumProd);
                 sum.zero();
                 let mma = GroupMma { sum: sum.clone() };
                 stages.consume_async::<GroupMma>(&walk, &mma);
@@ -163,7 +163,7 @@ fn tma_matrix(
     values: &[half::f16],
     (rows, cols): (usize, usize),
     (stage_rows, stage_cols): (usize, usize),
-    axes: [Axis; 2],
+    dimensions: [Dimension; 2],
     swizzle: TensorMapSwizzle,
 ) -> TileTensorLaunch {
     let handle = client.create_from_slice(half::f16::as_bytes(values));
@@ -184,7 +184,7 @@ fn tma_matrix(
     .with_swizzle(swizzle);
     TileTensorLaunch::tensor_map(
         map,
-        &axes,
+        &dimensions,
         TmaBox {
             rows: rows as u32,
             cols: cols as u32,
@@ -211,11 +211,11 @@ fn check_wgmma_walk(m: usize, n: usize, k: usize, depth: usize) {
 
     let launcher = implied(&client, partitioning(m, n, k), Form::Static);
     let storage = storage();
-    let stage = |rows: Axis| {
+    let stage = |rows: Dimension| {
         let space = launcher.partitioning().box_of(ComputeScope::Cube);
         Space::new(&[(rows, space.extent(rows)), (K, STEP * STEPS)])
     };
-    let swizzle = |rows: Axis| {
+    let swizzle = |rows: Dimension| {
         storage
             .tma_swizzle(&stage(rows), 1, 16)
             .expect("a box lands the stage")

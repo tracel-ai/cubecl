@@ -25,15 +25,15 @@ use cubecl::{
 };
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
-    Axis, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages, TileSpec,
-    TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
+    Dimension, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages,
+    TileSpec, TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// Values one scale covers along `k`: NVFP4's block.
 const BLOCK: usize = 16;
@@ -63,7 +63,7 @@ fn block_scaled_peak<E: Numeric>(
     a_scales: &TileTensor<'_>,
     b: &TileTensor<'_>,
     b_scales: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -72,7 +72,7 @@ fn block_scaled_peak<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
         // Opened on the operands as the instruction reads them, codes under their block scales, so
@@ -80,7 +80,7 @@ fn block_scaled_peak<E: Numeric>(
         let acc = c.accumulator::<E>(
             &a.mul(&a_scales.tile(&space).at(&cube)).scales_kept_beside(),
             &b.mul(&b_scales.tile(&space).at(&cube)).scales_kept_beside(),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
@@ -111,7 +111,7 @@ fn block_scaled_peak<E: Numeric>(
 fn float_peak(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -119,10 +119,10 @@ fn float_peak(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (a, b, c) = (a.at(&cube), b.at(&cube), c.at(&cube));
-        let acc = c.accumulator::<f32>(&a, &b, Semiring::SUM_PROD);
+        let acc = c.accumulator::<f32>(&a, &b, Semiring::SumProd);
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
         stages.pipelined(walk, |slot, region| {
@@ -256,7 +256,7 @@ fn launch_nvfp4(
     let c = TestInput::builder(client.clone(), Shape::from(vec![m, n]))
         .zeros()
         .generate_without_host_data();
-    let values = |rows: Axis| {
+    let values = |rows: Dimension| {
         TileSpec::new(Projection::direct(&[rows, K])).packed(Field::Quant(QuantValue::E2M1))
     };
     let per = match form {
@@ -264,7 +264,7 @@ fn launch_nvfp4(
         ScaleForm::Words => STEP,
     };
     // Floats are bound as the words they are stored in, and served as `f32`; words as they are.
-    let scales = |rows: Axis| {
+    let scales = |rows: Dimension| {
         let spec = TileSpec::new(Projection::new(
             &[rows, K],
             &[PhysicalAxisMap::of(rows), PhysicalAxisMap::of(K).over(per)],
@@ -335,7 +335,7 @@ fn launch_f16(
     let c = TestInput::builder(client.clone(), Shape::from(vec![m, n]))
         .zeros()
         .generate_without_host_data();
-    let rows = |axis: Axis| TileSpec::new(Projection::direct(&[axis, K]));
+    let rows = |dimension: Dimension| TileSpec::new(Projection::direct(&[dimension, K]));
     let element = half::f16::elem_type_native();
     float_peak::launch(
         client,

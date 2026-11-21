@@ -20,12 +20,12 @@ pub(crate) struct Memory {
     pub(crate) layout: BufferLayout,
     /// The region of the physical buffer this tile covers; narrowed by [`at`](Tile::at).
     pub(crate) window: Window,
-    /// How the tile's logical axes address the buffer's physical ones; fixed at construction.
+    /// How the tile's dimensions address the buffer's physical ones; fixed at construction.
     #[cube(comptime)]
     pub(crate) projection: Projection,
     /// The runtime half of [`projection`](Self::projection): its coefficients and window phase.
     pub(crate) map: RuntimeMap,
-    /// The runtime constant terms of the projection, one signed value per dynamic-offset axis.
+    /// The runtime constant terms of the projection, one signed value per dynamic-offset dimension.
     pub(crate) offsets: Coords<i32>,
     /// The window origin's line offset, accumulated across [`at`](Tile::at)s.
     pub(crate) window_start: u32,
@@ -78,11 +78,22 @@ pub(crate) enum AddressSpace {
 pub(crate) enum Backing {
     /// Bytes this kernel addresses directly, grouped into lines at `vector_size`.
     Buffer(Raw<Slice>),
+    /// Bytes this kernel addresses directly and only reads: an operand served from a
+    /// [`TileTensor`] taken by `&` ([`TileTensor::tile`]), which its launch declares read-only.
+    ReadBuffer(Raw<Slice>),
     /// A write-only destination that is not memory (an erased tensor).
     WriteCall(RawCall<WriteOnly>),
     /// A read-only producer that is not memory.
     ReadCall(RawCall<ReadOnly>),
 }
+
+/// The decline of a write into a tile served from a [`TileTensor`] taken by `&`.
+///
+/// The launch declares such an operand's buffers read-only, and a launch that fails before it
+/// runs fails the reads of only the buffers it declares written: a write through `&` would leave
+/// its output unclaimed, read back as whatever the allocation held.
+pub(crate) const READ_ONLY: &str = "a tile served from a `TileTensor` taken by `&` is read-only: \
+    take the operand by `&mut` and serve it with `TileTensor::tile_mut`";
 
 /// What a [`Memory`]'s values are: their backing, line width and packing.
 #[derive(CubeType, Clone)]
@@ -100,20 +111,20 @@ pub(crate) struct Store {
     /// ([`TileSpec::stored_tiles`]); empty for a plain buffer and every stage. What one load of it
     /// covers follows from these and the width ([`Tile::vector_tile`]).
     #[cube(comptime)]
-    pub(crate) stored_tiles: Vec<(Axis, usize)>,
+    pub(crate) stored_tiles: Vec<(Dimension, usize)>,
 }
 
 #[cube]
 impl Memory {
-    /// What one vector load of this memory covers over a window spanning `space`: the stored
-    /// tiles that hold [`vector_size`](Store::vector_size) values, a run along the innermost axis
+    /// What one vector load of this memory covers over a window spanning `space`: the stored tiles
+    /// that hold [`vector_size`](Store::vector_size) values, a run along the innermost dimension
     /// where none are stated ([`VectorTile::new`]).
     pub(crate) fn vector_tile(&self, #[comptime] space: &Space) -> comptime_type!(VectorTile) {
         let width = comptime!(self.store.vector_size);
         comptime!(
             VectorTile::new(
                 &self.store.stored_tiles,
-                space.axis_at(space.rank() - 1),
+                space.dimension_at(space.rank() - 1),
                 width
             )
             .unwrap_or_else(|why| panic!("Memory: {width} values a load: {why}"))
@@ -150,7 +161,7 @@ impl Store {
     /// store intrinsic needs; a write call has none.
     pub(crate) fn addressed(&self) -> comptime_type!(bool) {
         match &self.backing {
-            Backing::Buffer(_) | Backing::ReadCall(_) => comptime!(true),
+            Backing::Buffer(_) | Backing::ReadBuffer(_) | Backing::ReadCall(_) => comptime!(true),
             Backing::WriteCall(_) => comptime!(false),
         }
     }
@@ -160,7 +171,7 @@ impl Store {
     #[allow(clippy::borrowed_box)]
     pub(crate) fn buffer<T: Numeric>(&self) -> &Box<[T]> {
         match &self.backing {
-            Backing::Buffer(buffer) => buffer.at::<T>(),
+            Backing::Buffer(buffer) | Backing::ReadBuffer(buffer) => buffer.at::<T>(),
             Backing::WriteCall(_) => panic!(
                 "Store::buffer: this tile's backing is written through a call, which has no \
                  address, it can only be written through its layout"
@@ -178,7 +189,7 @@ impl Store {
     /// a call holds none.
     pub(crate) fn free(&self) {
         match &self.backing {
-            Backing::Buffer(buffer) => buffer.free(),
+            Backing::Buffer(buffer) | Backing::ReadBuffer(buffer) => buffer.free(),
             Backing::WriteCall(_) | Backing::ReadCall(_) => {}
         }
     }
@@ -186,7 +197,7 @@ impl Store {
     /// Whether the values have an address: a buffer, rather than a call.
     pub(crate) fn has_address(&self) -> comptime_type!(bool) {
         match &self.backing {
-            Backing::Buffer(_) => comptime!(true),
+            Backing::Buffer(_) | Backing::ReadBuffer(_) => comptime!(true),
             Backing::WriteCall(_) | Backing::ReadCall(_) => comptime!(false),
         }
     }
@@ -196,6 +207,7 @@ impl Store {
     pub(crate) fn buffer_mut<T: Numeric>(&mut self) -> &mut Box<[T]> {
         match &mut self.backing {
             Backing::Buffer(buffer) => buffer.at_mut::<T>(),
+            Backing::ReadBuffer(_) => panic!("{}", READ_ONLY),
             Backing::WriteCall(_) => panic!(
                 "Store::buffer_mut: this tile's backing is written through a call, which has no \
                  address, it can only be written through its layout"
@@ -297,12 +309,12 @@ impl Write {
                     "{site}: this accumulator's cells are split across planes or cubes and its \
                  destination replaces rather than accumulates, so every partial but one would be \
                  lost. \
-                 A contracted axis distributed across planes or cubes gives each instance a \
+                 A contracted dimension distributed across planes or cubes gives each instance a \
                  slice of the contraction, and none of them holds a whole cell. \
                  Drain into an accumulating destination (bind it as an `AccumulateArg`), \
                  distribute the contraction across the plane's units instead \
                  (`distribute(units(n), ..)`, combined in the plane's registers), or give the \
-                 output an axis of its own for the split."
+                 output a dimension of its own for the split."
                 )
             }
         }
@@ -328,8 +340,19 @@ pub(crate) enum Overhang {
 pub enum Boundary {
     /// Out-of-bounds reads return zero; writes are skipped.
     Zero,
+    /// Out-of-bounds reads return the identity of the monoid that combines the operand, so a read
+    /// past the problem's edge leaves the combined value unchanged; writes are skipped.
+    Identity(Monoid),
     /// Out-of-bounds reads/writes clamp to the edge cell.
     Clamp,
+}
+
+impl Boundary {
+    /// Whether a position past the edge is masked (read as a fill, written nowhere), as `Zero` and
+    /// `Identity` mask it, rather than clamped onto the edge cell.
+    pub const fn masks(self) -> bool {
+        !matches!(self, Boundary::Clamp)
+    }
 }
 
 impl Overhang {
@@ -390,10 +413,10 @@ impl WindowStorage {
                 if depth < tiled_at {
                     return self;
                 }
-                for axis in space.axes() {
+                for dimension in space.dimensions() {
                     assert!(
-                        matches!(level.extent_in(space, axis), Extent::Static(_)),
-                        "Memory::at: level {tiled_at} hands {axis:?} down dynamic, so its tile is \
+                        matches!(level.extent_in(space, dimension), Extent::Static(_)),
+                        "Memory::at: level {tiled_at} hands {dimension:?} down dynamic, so its tile is \
                          no storage tile"
                     );
                 }

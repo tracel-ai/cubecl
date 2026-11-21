@@ -5,7 +5,9 @@ use alloc::string::{String, ToString};
 
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
-use cubecl_runtime::server::{Handle, LaunchError, ResourceLimitError, ServerError};
+use cubecl_runtime::server::{
+    ArgumentOverflow, Handle, LaunchError, ResourceLimitError, ServerError,
+};
 
 #[derive(CubeLaunch, CubeType)]
 pub struct ComptimeTag {
@@ -93,6 +95,14 @@ pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize
 pub fn kernel_panicking_in_expansion(output: &mut [u32], #[comptime] refuse: bool) {
     comptime!(assert!(!refuse, "this kernel refuses to expand"));
     output[0] = 1;
+}
+
+/// [`kernel_panicking_in_expansion`] with its output an atomic buffer taken by `&`, which is
+/// written through `&`.
+#[cube(launch)]
+pub fn atomic_kernel_panicking_in_expansion(output: &[Atomic<u32>], #[comptime] refuse: bool) {
+    comptime!(assert!(!refuse, "this kernel refuses to expand"));
+    output[0].fetch_add(1u32);
 }
 
 pub fn test_kernel_with_comptime_tag<R: Runtime>(client: Client) {
@@ -328,6 +338,30 @@ pub fn test_expansion_panic_fails_the_read<R: Runtime>(client: Client) {
     assert!(
         !err.is_refusal(),
         "a panic is a defect a test harness must report, not a refusal it may skip: {report}"
+    );
+}
+
+/// [`test_expansion_panic_fails_the_read`] for an atomic buffer taken by `&`: an atomic is written
+/// through `&`, so the launch declares it written whatever its signature says, and the read fails
+/// on the panic instead of handing back the bytes it held.
+pub fn test_expansion_panic_fails_the_read_of_a_shared_atomic<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[7]));
+
+    atomic_kernel_panicking_in_expansion::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        true,
+    );
+
+    let err = client.read_one(output).expect_err(
+        "a kernel that panicked while expanding never added into the atomic, so the read must fail",
+    );
+    let report = alloc::format!("{err:?}");
+    assert!(
+        report.contains("this kernel refuses to expand"),
+        "the read must fail on the expansion's panic, got: {report}"
     );
 }
 
@@ -584,6 +618,131 @@ pub fn test_buffer_len_beyond_the_handle_panics<R: Runtime>(client: Client) {
     }
 }
 
+/// Writes what the kernel reads of its arguments' address-typed values, divided by `1 << 16` so a
+/// value past `u32` still fits the `u32` output.
+#[cube(launch, address_type = "dynamic")]
+pub fn kernel_address_values(input: &Tensor<f32>, extent: usize, output: &mut [u32]) {
+    if UNIT_POS == 0 {
+        output[0] = (input.stride(0) / 65536) as u32;
+        output[1] = (input.shape(1) / 65536) as u32;
+        output[2] = (extent / 65536) as u32;
+    }
+}
+
+/// One past the largest `u32`: the smallest value a 32-bit address type cannot hold.
+const PAST_U32: usize = 1 << 32;
+
+/// Launches [`kernel_address_values`] on a two-element buffer viewed with `strides` and `shape`,
+/// which may reach far past it: the kernel reads only the values, never the elements.
+fn launch_address_values(
+    client: &Client,
+    address_type: AddressType,
+    strides: [usize; 2],
+    shape: [usize; 2],
+    extent: usize,
+) -> Handle {
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0]));
+    let output = client.create_from_slice(u32::as_bytes(&[7, 7, 7]));
+
+    kernel_address_values::launch(
+        client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        address_type,
+        unsafe { TensorArg::from_raw_parts(input, strides.into(), shape.into()) },
+        extent,
+        unsafe { BufferArg::from_raw_parts(output.clone(), 3) },
+    );
+    output
+}
+
+/// The overflow a launch was refused with, taken from the buffer it was going to write.
+///
+/// The refusal reaches no one at the launch: it lives on the outputs, so the read is the
+/// assertion. It must fail, on the overflow rather than anything else, and as a defect: the
+/// launch was handed a value it would have truncated, which a harness must not skip.
+fn argument_overflow(client: &Client, output: Handle) -> ArgumentOverflow {
+    let err = client
+        .read_one(output)
+        .expect_err("a refused launch never wrote the buffer, so the read must fail");
+    assert!(
+        !err.is_refusal(),
+        "a value the address type cannot hold is a defect, not a refusal: {err}"
+    );
+    let ServerError::Several { mut errors, .. } = err else {
+        panic!("a read of an unwritten buffer reports its failures, got: {err}");
+    };
+    match errors.remove(0) {
+        ServerError::Unwritten { root, .. } => match *root {
+            ServerError::Launch(LaunchError::ArgumentOverflow(overflow)) => *overflow,
+            other => panic!("should be an argument overflow, is {other:?}"),
+        },
+        other => panic!("should be an unwritten-bytes report, is {other:?}"),
+    }
+}
+
+/// A stride past `u32` is refused at a 32-bit address type instead of reaching the kernel
+/// truncated, and the refusal names the argument, the stride and its value.
+pub fn test_stride_past_the_address_type_is_refused<R: Runtime>(client: Client) {
+    let output = launch_address_values(&client, AddressType::U32, [PAST_U32, 1], [1, 2], 1);
+
+    let overflow = argument_overflow(&client, output);
+    assert_eq!(overflow.argument, "input");
+    assert_eq!(overflow.quantity, "stride 0");
+    assert_eq!(overflow.value, PAST_U32 as i128);
+    assert_eq!(overflow.ty, "u32");
+    assert!(
+        overflow.kernel.contains("kernel_address_values")
+            || overflow.kernel.contains("KernelAddressValues"),
+        "the refusal names the kernel, got `{}`",
+        overflow.kernel
+    );
+}
+
+/// An extent past `u32` — a broadcast view, stride 0, needs no memory behind it — is refused at a
+/// 32-bit address type.
+pub fn test_shape_past_the_address_type_is_refused<R: Runtime>(client: Client) {
+    let output = launch_address_values(&client, AddressType::U32, [1, 0], [1, PAST_U32], 1);
+
+    let overflow = argument_overflow(&client, output);
+    assert_eq!(overflow.argument, "input");
+    assert_eq!(overflow.quantity, "shape 1");
+    assert_eq!(overflow.value, PAST_U32 as i128);
+}
+
+/// A `usize` scalar past `u32` is refused at a 32-bit address type, where it used to panic on an
+/// unwrap that named nothing.
+pub fn test_usize_past_the_address_type_is_refused<R: Runtime>(client: Client) {
+    let output = launch_address_values(&client, AddressType::U32, [2, 1], [1, 2], PAST_U32);
+
+    let overflow = argument_overflow(&client, output);
+    assert_eq!(overflow.argument, "extent");
+    assert_eq!(overflow.quantity, "value");
+    assert_eq!(overflow.value, PAST_U32 as i128);
+    assert_eq!(overflow.ty, "u32");
+}
+
+/// The same values launch at a 64-bit address type, and the kernel reads them whole.
+pub fn test_values_past_u32_launch_at_a_64_bit_address_type<R: Runtime>(client: Client) {
+    if !client.properties().supports_address(AddressType::U64) {
+        println!("Skipping 64-bit address values, no type support");
+        return;
+    }
+    let output = launch_address_values(
+        &client,
+        AddressType::U64,
+        [PAST_U32, 0],
+        [1, PAST_U32],
+        PAST_U32,
+    );
+
+    let actual = client
+        .read_one(output)
+        .expect("every value fits a 64-bit address type");
+    let expected = (PAST_U32 / 65536) as u32;
+    assert_eq!(u32::from_bytes(&actual), &[expected; 3]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_launch {
@@ -689,6 +848,46 @@ macro_rules! testgen_launch_untyped {
             cubecl_core::runtime_tests::launch::test_expansion_panic_fails_the_read::<TestRuntime>(
                 client,
             );
+        }
+
+        #[test]
+        fn test_launch_stride_past_the_address_type_is_refused() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_stride_past_the_address_type_is_refused::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_shape_past_the_address_type_is_refused() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_shape_past_the_address_type_is_refused::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_usize_past_the_address_type_is_refused() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_usize_past_the_address_type_is_refused::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_values_past_u32_launch_at_a_64_bit_address_type() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_values_past_u32_launch_at_a_64_bit_address_type::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[test]
+        fn test_launch_expansion_panic_fails_the_read_of_a_shared_atomic() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_expansion_panic_fails_the_read_of_a_shared_atomic::<
+                TestRuntime,
+            >(client);
         }
 
         #[test]

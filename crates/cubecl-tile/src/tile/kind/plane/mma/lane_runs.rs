@@ -60,8 +60,9 @@ pub struct LaneMap {
 }
 
 impl LaneMap {
-    /// Units of the plane a lane map lays out.
-    const PLANE_UNITS: usize = 32;
+    /// Units of the plane a lane map lays out: the plane a kernel reading lane runs is launched
+    /// at, which a host sizing one reads rather than stating its own.
+    pub const PLANE_UNITS: usize = 32;
 
     /// NVIDIA's `m16n8k16`: unit `u` holds quad `u % 4` of `k`, an `A`'s rows `u / 4` and
     /// `u / 4 + 8`, a `B`'s column `u / 4`.
@@ -216,7 +217,7 @@ pub(crate) fn lane_run_steps<T: Numeric>(
 /// one level of scales whose product with a code is exact in 16 bits, NVFP4's `e4m3` or a power
 /// of two. A coarser level is the product's to apply to the accumulator.
 #[cube]
-pub(crate) fn lane_runs_refusal<T: Numeric>(
+pub(crate) fn lane_runs_decline<T: Numeric>(
     src: &Tile,
     #[comptime] ident: MatrixIdent,
     #[comptime] layout: MatrixLayout,
@@ -228,18 +229,16 @@ pub(crate) fn lane_runs_refusal<T: Numeric>(
     let bytes = T::size().comptime();
     let packing = src.packing();
     let levels = src.factor_levels();
-    let stored = src.innermost_factor().inner_stored();
+    let scales = src.innermost_factor().inner_fp8();
     let along_k = comptime!(match ident {
         MatrixIdent::A => layout == MatrixLayout::RowMajor,
         MatrixIdent::B => layout == MatrixLayout::ColMajor,
         MatrixIdent::Accumulator => false,
     });
     let e2m1 = comptime!(matches!(packing, Packing::Packed { field } if field.holds_e2m1()));
-    let exact_scales = comptime!(matches!(
-        stored,
-        Some(Packing::Packed { field })
-            if matches!(field.fp8(), Some(Fp8Format::E4M3 | Fp8Format::UE8M0))
-    ));
+    // Packed as fields or read one apiece alike: what makes the product exact is the scales'
+    // format.
+    let exact_scales = comptime!(matches!(scales, Some(Fp8Format::E4M3 | Fp8Format::UE8M0)));
     comptime!(if k <= depth {
         Some("the fragment is one instruction deep, which keeps the instruction's own order")
     } else if bytes != 2 || map.is_none() {
@@ -284,7 +283,7 @@ struct LaneRun {
     /// ([`LaneRun::window_row`]). What they read lands in accumulator cells past the product's
     /// edge, which hold no value of it.
     rows: usize,
-    /// The window's `k`, however many axes spell it.
+    /// The window's `k`, however many dimensions spell it.
     k: usize,
 }
 
@@ -323,7 +322,7 @@ impl LaneRun {
 #[cube]
 impl LaneRun {
     /// The run of `src`, a window of an `m × n × k` fragment of `T` in role `ident` that
-    /// [`lane_runs_refusal()`] admits.
+    /// [`lane_runs_decline()`] admits.
     fn new<T: Numeric>(
         src: &Tile,
         #[comptime] ident: MatrixIdent,
@@ -337,10 +336,10 @@ impl LaneRun {
         let map = LaneMap::new(m, n, depth);
         let space = comptime!(&src.place.space);
         comptime!({
-            let map = map.expect("lane_runs_refusal admits a target with a lane map alone");
+            let map = map.expect("lane_runs_decline admits a target with a lane map alone");
             let cells = space
-                .axes()
-                .map(|axis| space.extent(axis))
+                .dimensions()
+                .map(|dimension| space.extent(dimension))
                 .product::<usize>();
             assert!(
                 cells >= k,
@@ -402,8 +401,8 @@ pub(crate) fn load_lane_runs<T: Numeric, N: Size>(
     #[comptime] layout: MatrixLayout,
     #[comptime] shape: (usize, usize, usize),
 ) {
-    let refusal = lane_runs_refusal::<T>(src, ident, layout, shape);
-    comptime!(if let Some(why) = refusal {
+    let decline = lane_runs_decline::<T>(src, ident, layout, shape);
+    comptime!(if let Some(why) = decline {
         panic!("MmaData::load: a fragment deeper than its instruction loads in lane runs: {why}")
     });
     let run = LaneRun::new::<T>(src, ident, shape);
@@ -457,7 +456,7 @@ fn load_plain_run<T: Numeric, N: Size>(
 
 /// [`load_lane_runs()`] of `e2m1` codes under one level of block scales: the run read as the stored
 /// words it is, each word decoded to eight values and multiplied by its block's scale in `T`,
-/// exact under [`lane_runs_refusal()`]'s conditions.
+/// exact under [`lane_runs_decline()`]'s conditions.
 #[cube]
 fn load_e2m1_run<T: Numeric, N: Size>(
     src: &Tile,
@@ -465,8 +464,8 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     #[comptime] run: LaneRun,
 ) {
     let space = comptime!(src.place.space.clone());
-    let axes = comptime!(
-        MatrixAxes::new(&space, run.rows, run.k).unwrap_or_else(|no| {
+    let dimensions = comptime!(
+        MatrixDimensions::new(&space, run.rows, run.k).unwrap_or_else(|no| {
             panic!(
                 "MmaData::load: a lane-run window is a {} x {} matrix: {no:?}",
                 run.rows, run.k
@@ -477,11 +476,9 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     let values = comptime!(load.values());
     // A load lies along `k` alone: one that also spans rows would place another row's codes in
     // this unit's run.
-    let along_k = comptime!(
-        load.space()
-            .axes()
-            .all(|axis| (axes.col_split..space.rank()).any(|p| space.axis_at(p) == axis))
-    );
+    let along_k = comptime!(load.space().dimensions().all(|dimension| {
+        (dimensions.col_split..space.rank()).any(|p| space.dimension_at(p) == dimension)
+    }));
     comptime!(assert!(
         along_k,
         "MmaData::load: a unit's run of `k` reads loads along `k` alone, and this window's load \
@@ -522,14 +519,14 @@ fn load_e2m1_run<T: Numeric, N: Size>(
         #[unroll]
         for b in 0..comptime!(run.len / SCALE_READ) {
             let col = first + comptime!((b * SCALE_READ) as u32);
-            let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
+            let coords = TileMatrix::value_coords(at, col, 0usize, &space, dimensions, 1usize);
             scales[b] =
                 T::cast_from(factor.at_coords(&coords, space.clone(), comptime!(Guard::Checked)));
         }
         #[unroll]
         for l in 0..(run.len / values) {
             let col = first + comptime!((l * values) as u32);
-            let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
+            let coords = TileMatrix::value_coords(at, col, 0usize, &space, dimensions, 1usize);
             let line = words.read(load.index(&coords, &space));
             #[unroll]
             for w in 0..comptime!(values / E2M1_PER_WORD) {

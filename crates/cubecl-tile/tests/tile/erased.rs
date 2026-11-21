@@ -28,8 +28,8 @@ use cubecl_tile::procedural::RecipeCoords;
 use cubecl_tile::procedural::RecipeExpand;
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 const ROWS: usize = 4;
 const COLS: usize = 6;
 
@@ -48,11 +48,11 @@ impl<T: Float> Recipe<T> for Position {
 /// The store as it has always been: the operand's own buffer.
 #[cube(launch)]
 fn buffer_kernel<E: Float>(
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     let src =
         Procedural::new::<E, Position>(comptime!(space.space().clone()), Position {}).tile::<E>();
     dst.copy_from(&src);
@@ -64,7 +64,11 @@ fn buffer_kernel<E: Float>(
 /// what makes the two comparable: nothing about the destination differs except
 /// that this one is addressed through [`Tile::of_sink`] and lands in a call.
 #[cube(launch)]
-fn sink_kernel<E: Float>(out: &TileTensor<'_>, space: Partitioning, #[define(E)] _dtype: ElemType) {
+fn sink_kernel<E: Float>(
+    out: &mut TileTensor<'_>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
     // The geometry a sink cannot be asked for, taken off the tensor behind it.
     let geometry =
         RuntimeGeometry::of_tensor::<Vector<E, Const<1>>>(out.lines::<E, Const<1>>(), 2usize);
@@ -219,7 +223,7 @@ fn a_launcher_derived_spec_addresses_the_sink() {
     // What the destination would have been, had it been a tensor to bind.
     let derived = launcher
         .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(1)
         .build_spec()
         .unwrap();
@@ -256,9 +260,9 @@ fn a_launcher_derived_spec_addresses_the_sink() {
 // A contraction into a sink
 // ===========================================================================
 
-const M: Axis = Axis(2);
-const N: Axis = Axis(3);
-const K: Axis = Axis(4);
+const M: Dimension = Dimension(2);
+const N: Dimension = Dimension(3);
+const K: Dimension = Dimension(4);
 /// The register block the promoted accumulator contracts through.
 const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
@@ -268,15 +272,15 @@ const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 fn buffer_matmul<EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(EA)] _acc_dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let c = c.tile_mut(&space);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -294,7 +298,7 @@ fn buffer_matmul<EA: Numeric>(
 fn sink_matmul<E: Numeric, EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -315,7 +319,7 @@ fn sink_matmul<E: Numeric, EA: Numeric>(
         Write::Replace,
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -333,7 +337,7 @@ fn sink_matmul<E: Numeric, EA: Numeric>(
 fn source_matmul<E: Numeric, EA: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -352,8 +356,8 @@ fn source_matmul<E: Numeric, EA: Numeric>(
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
     let b = b.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let c = c.tile_mut(&space);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -406,12 +410,12 @@ fn run_matmul(backed: Backed) -> HostData {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match backed {
         Backed::Sink => sink_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -423,7 +427,7 @@ fn run_matmul(backed: Backed) -> HostData {
         Backed::Source => source_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -435,7 +439,7 @@ fn run_matmul(backed: Backed) -> HostData {
         Backed::Buffer => buffer_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -512,7 +516,7 @@ const MASKED_ROWS: usize = 5;
 /// the walk and the write, and a served width of two makes the tile count its innermost extent in
 /// lines and re-express every coarser stride as `stride / 2`, on numbers nobody read off a tensor.
 ///
-/// The columns stay exact and in bounds, since a vectorized innermost axis that can leave the
+/// The columns stay exact and in bounds, since a vectorized innermost dimension that can leave the
 /// buffer is refused outright.
 fn masked_space(form: Form) -> Launcher {
     implied(
@@ -533,9 +537,9 @@ fn masked_space(form: Form) -> Launcher {
 /// per *line*, so at a width of two both components of a line would carry one value and the test
 /// could not tell a masked store from a store one unit wide.
 #[cube(launch)]
-fn wide_buffer_kernel(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
+fn wide_buffer_kernel(input: &TileTensor<'_>, out: &mut TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     dst.copy_from(&src);
 }
 
@@ -543,7 +547,7 @@ fn wide_buffer_kernel(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Parti
 #[cube(launch)]
 fn wide_sink_kernel<E: Float>(
     input: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -568,7 +572,7 @@ fn wide_sink_kernel<E: Float>(
 #[cube(launch)]
 fn wide_source_kernel<E: Float>(
     input: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -583,7 +587,7 @@ fn wide_source_kernel<E: Float>(
         comptime!(input.spec.clone()),
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
-    let mut dst = out.tile(&space);
+    let mut dst = out.tile_mut(&space);
     dst.copy_from(&src);
 }
 
@@ -614,22 +618,22 @@ fn run_masked(erased: Erased) -> HostData {
     // walks the tile the buffer kernel walks rather than one this test talked it into.
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(2)
         .build()
         .unwrap();
     let out = launcher
         .arg(output.clone().binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(2)
         .build()
         .unwrap();
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match erased {
         Erased::Sink => wide_sink_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),
@@ -638,7 +642,7 @@ fn run_masked(erased: Erased) -> HostData {
         Erased::Source => wide_source_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),
@@ -647,7 +651,7 @@ fn run_masked(erased: Erased) -> HostData {
         Erased::Neither => wide_buffer_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),

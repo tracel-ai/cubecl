@@ -1,10 +1,10 @@
 //! A contraction cut across a cube's planes, summed back together in shared memory.
 //!
-//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
-//! `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube synchronizes, and
-//! the sum leaves through a plain store. Nothing reaches global memory but the finished box, so
-//! the output is not zeroed first and binds as an ordinary tile. The planes meet atomically
-//! ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
+//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own
+//! slice of `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube
+//! synchronizes, and the sum leaves through a plain store. Nothing reaches global memory but the
+//! finished box, so the output is not zeroed first and binds as an ordinary tile. The planes meet
+//! atomically ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -16,12 +16,16 @@ use cubecl::{
 };
 
 use super::{Form, implied};
+use cubecl_tile::kind::Write;
+use cubecl_tile::launch::{
+    Buffered, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand,
+};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
@@ -31,13 +35,13 @@ const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 fn smem_split_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let mut c_cube = c.at(&cube);
         let sum = c_cube.smem_accumulation::<E>();
@@ -49,7 +53,7 @@ fn smem_split_matmul<E: Numeric>(
                 &a_plane,
                 &b_plane,
                 comptime!(SOFTWARE_MATMUL),
-                Semiring::SUM_PROD,
+                Semiring::SumProd,
             );
             partial.mma(&a_plane, &b_plane);
             partial.drained_into(&sink_plane);
@@ -65,14 +69,14 @@ fn smem_split_matmul<E: Numeric>(
 fn smem_cyclic_split_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] planes: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let mut c_cube = c.at(&cube);
         let sum = c_cube.smem_cyclic_accumulation::<E>(planes);
@@ -83,13 +87,49 @@ fn smem_cyclic_split_matmul<E: Numeric>(
                 &a_plane,
                 &b_plane,
                 comptime!(SOFTWARE_MATMUL),
-                Semiring::SUM_PROD,
+                Semiring::SumProd,
             );
             partial.mma(&a_plane, &b_plane);
             sum.drain_at(&partial, &plane, plane.coord(K));
         }
         c_cube.copy_from(&sum.source);
     }
+}
+
+/// The same product, the finished total handed to the output's destination rather than copied by
+/// the kernel.
+#[cube(launch)]
+fn smem_consumed_matmul<E: Numeric, O: Destination>(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    out: &mut O::Arg<E>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let c = dest.tile();
+    for cube in &space {
+        let c_cube = c.at(&cube);
+        let sum = c_cube.smem_accumulation::<E>();
+        for plane in &cube {
+            let a_plane = a.at(&plane);
+            let b_plane = b.at(&plane);
+            let sink_plane = sum.sink.at(&plane);
+            let mut partial = sink_plane.register_accumulator::<E>(
+                &a_plane,
+                &b_plane,
+                comptime!(SOFTWARE_MATMUL),
+                Semiring::SumProd,
+            );
+            partial.mma(&a_plane, &b_plane);
+            partial.drained_into(&sink_plane);
+        }
+        sync_cube();
+        sum.source.consumed_by::<O::Served<E>>(&dest, &cube);
+    }
+    dest.finish();
 }
 
 fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
@@ -179,10 +219,10 @@ fn run(
             dtype,
         ),
         Meet::Cyclic { out_width } => {
-            let wide = |handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]| {
+            let wide = |handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]| {
                 launcher
                     .arg(handle.clone().binding(), handle.dtype)
-                    .axes(axes)
+                    .dimensions(dimensions)
                     .vectorize(out_width)
                     .build()
                     .unwrap()
@@ -253,6 +293,69 @@ fn planes_sum_their_slices_in_shared_memory() {
     }
     let (m, n, k) = (4, 4, 32);
     assert_matches(&run(m, n, k, (4, 4), 4, Meet::Atomic), m, n, k);
+}
+
+/// Four planes' partials merged in shared memory, the total handed to a storing destination.
+#[test]
+fn a_merged_total_is_consumed_by_a_destination() {
+    let client = cubecl::test_device().client();
+    if !adds_atomically_in_shared_memory(&client) {
+        return;
+    }
+    let (m, n, k, planes) = (4, 4, 32, 4);
+    let dtype = f32::elem_type_native();
+    let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..k * n).map(|i| (i % 5) as f32 - 2.0).collect();
+    let (a_handle, _) = TestInput::builder(client.clone(), shape![m, k])
+        .dtype(dtype)
+        .custom(a)
+        .generate_with_f32_host_data();
+    let (b_handle, _) = TestInput::builder(client.clone(), shape![k, n])
+        .dtype(dtype)
+        .custom(b)
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![m, n])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, 4), (N, 4), (K, k / planes)])
+                .planes(&[(K, planes)])
+                .cubes(&[M, N])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let bound = launcher
+        .arg(out.clone().binding(), dtype)
+        .dimensions(&[M, N])
+        .build()
+        .unwrap();
+    smem_consumed_matmul::launch::<Buffered>(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            a_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, K]),
+        ),
+        TileTensorLaunch::new(
+            b_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[K, N]),
+        ),
+        Buffered::arg((bound, Write::Replace)),
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    assert_matches(&got, m, n, k);
 }
 
 /// Several cubes, each with its own accumulator: a box's sum never sees another box's planes.
@@ -334,19 +437,19 @@ fn cyclic_rounds_sum_the_same_every_run() {
 fn fragment_matmul_into_a_short_window<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] copies: bool,
     #[define(E)] _output: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
         let mut c_cube = c.at(&cube);
-        let opened = c_cube.accumulator::<E>(&a_cube, &b_cube, Semiring::SUM_PROD);
+        let opened = c_cube.accumulator::<E>(&a_cube, &b_cube, Semiring::SumProd);
         // The drain opens the scratch the window needs; a copy is handed one.
         let mut acc = if copies {
             opened.with_scratch(Scratch::OneTile)
@@ -450,8 +553,12 @@ fn short_window_matmul(copies: bool) {
     );
     // Bound through the launcher, which reads the overhang off the partitioning and masks the
     // output's writes past its edge.
-    let bind = |binding, element, axes: &'static [Axis]| {
-        launcher.arg(binding, element).axes(axes).build().unwrap()
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
     };
     fragment_matmul_into_a_short_window::launch(
         &client,
@@ -485,14 +592,14 @@ fn short_window_matmul(copies: bool) {
 fn smem_split_fragment_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     touched: &mut Tensor<f32>,
     space: Partitioning,
     #[define(E)] _sum: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         let mut c_cube = c.at(&cube);
         let sum = c_cube.smem_accumulation::<E>();
@@ -507,7 +614,7 @@ fn smem_split_fragment_matmul<E: Numeric>(
             let a_plane = a.at(&plane);
             let b_plane = b.at(&plane);
             let sink_plane = sum.sink.at(&plane);
-            let mut partial = sink_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SUM_PROD);
+            let mut partial = sink_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd);
             partial.zero();
             partial.mma(&a_plane, &b_plane);
             partial.drained_into(&sink_plane);
@@ -596,8 +703,12 @@ fn a_fragment_taller_than_its_box_adds_only_the_rows_of_its_box() {
         ),
         Form::Static,
     );
-    let bind = |binding, element, axes: &'static [Axis]| {
-        launcher.arg(binding, element).axes(axes).build().unwrap()
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
     };
     smem_split_fragment_matmul::launch(
         &client,

@@ -75,6 +75,20 @@ fn e4m3_decodes_on_the_part_where_it_converts() {
     assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
 }
 
+/// From `sm_89` an `e4m3` encode from `f32` is the part's own conversion too, a pair an
+/// instruction, its pairs joined into the word; before it, the software codec.
+#[test]
+fn e4m3_encodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_encode_kernel(), 89);
+    assert_eq!(
+        ptx.matches("cvt.rn.satfinite.e4m3x2.f32").count(),
+        2,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_encode_kernel(), 80);
+    assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
+}
+
 /// The fields of a buffer struct load at constant offsets from one struct address, not from an
 /// address of their own each.
 #[test]

@@ -1,37 +1,29 @@
+mod fake;
+
 use cubecl_common::{
-    bytes::Bytes,
     device::{DeviceId, ServiceId},
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
-use cubecl_ir::{ElemType, FloatKind, MemoryDeviceProperties};
+use cubecl_ir::{ElemType, FloatKind};
 use cubecl_server::{
     command::{
-        CollectiveDriver, CollectiveServer, Collectives, Command, CopyLayout, DeviceResource,
-        DeviceStream, Driver, Elements, HostResource, StreamSignal,
+        CollectiveDriver, CollectiveServer, Collectives, Command, DeviceResource, Elements,
+        StreamSignal,
     },
     device_events::{EventApi, EventProfiler},
     driver::DriverError,
-    id::KernelId,
     logging::ServerLogger,
-    memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryConfiguration, MemoryManagement,
-        MemoryManagementOptions,
-        drop_queue::{Fence, PendingDropQueue},
-    },
-    metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     server::{
-        BufferBinding, CommunicationId, CommunicationTiming, ComputeWait, CopyDescriptor,
-        DeviceCaptures, Handle, IoError, LaunchError, ReduceOperation, Reduction, SendOutcome,
-        ServerError,
+        BufferBinding, CommunicationId, CommunicationTiming, ComputeWait, CopyDescriptor, Handle,
+        ReduceOperation, Reduction, SendOutcome, ServerError,
     },
-    storage::BytesStorage,
-    stream::{EventStreamBackend, FailureStore, MultiStream, StreamCapture, StreamMemory},
+    stream::{FailureStore, MultiStream},
 };
+use fake::{Fake, FakeBackend};
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::Duration;
@@ -66,6 +58,11 @@ impl Wire {
         })
     }
 
+    /// The wire a communicator of [`CommunicationId`] `id` posts on.
+    fn of(id: u64) -> &'static Self {
+        Self::named(&CommunicationId { id })
+    }
+
     fn between(a: DeviceId, b: DeviceId) -> &'static Self {
         Self::named(&CommunicationId::transfers_between(a, b))
     }
@@ -95,188 +92,21 @@ impl Wire {
     }
 }
 
-#[derive(Debug)]
-struct Fake;
-
-#[derive(Debug)]
-struct FakeBackend;
-
-struct FakeFence;
-
-impl Fence for FakeFence {
-    fn wait(self) -> Result<(), ServerError> {
-        Ok(())
-    }
-}
-
-struct FakeStream {
-    device_memory: MemoryManagement<BytesStorage>,
-    host_memory: MemoryManagement<BytesStorage>,
-    drop_queue: PendingDropQueue<FakeFence>,
-    capturing: StreamCapture,
-    info_cache: MetadataInfoCache<Handle>,
-}
-
-impl fmt::Debug for FakeStream {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("FakeStream")
-    }
-}
-
-impl StreamMemory for FakeStream {
-    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
-        self.device_memory.failure(&binding.memory, binding.range())
-    }
-
-    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
-        self.device_memory
-            .taint(&binding.memory, binding.range(), failure, failures)
-    }
-
-    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
-        self.device_memory
-            .written(&binding.memory, binding.range(), failures)
-    }
-}
-
-impl DeviceStream for FakeStream {
-    type Fence = FakeFence;
-    type DeviceStorage = BytesStorage;
-    type HostStorage = BytesStorage;
-    type Signal = ();
-
-    fn device_memory(&mut self) -> &mut MemoryManagement<Self::DeviceStorage> {
-        &mut self.device_memory
-    }
-
-    fn host_memory(&mut self) -> &mut MemoryManagement<Self::HostStorage> {
-        &mut self.host_memory
-    }
-
-    fn drop_queue(&mut self) -> &mut PendingDropQueue<Self::Fence> {
-        &mut self.drop_queue
-    }
-
-    fn capturing(&mut self) -> &mut StreamCapture {
-        &mut self.capturing
-    }
-
-    fn info_cache(&mut self) -> &mut MetadataInfoCache<Handle> {
-        &mut self.info_cache
-    }
-
-    fn signal(&self) -> Self::Signal {}
-
-    fn fence(_signal: Self::Signal) -> Self::Fence {
-        FakeFence
-    }
-}
-
-fn memory(name: &'static str) -> MemoryManagement<BytesStorage> {
-    MemoryManagement::from_configuration(
-        BytesStorage::default(),
-        &MemoryDeviceProperties::new(1024 * 1024, 32),
-        MemoryConfiguration::default(),
-        Arc::new(ServerLogger::default()),
-        MemoryManagementOptions::new(name),
-    )
-}
-
-impl EventStreamBackend for FakeBackend {
-    type Stream = FakeStream;
-    type Event = ();
-
-    fn create_stream(&self) -> Result<Self::Stream, ServerError> {
-        Ok(FakeStream {
-            device_memory: memory("device"),
-            host_memory: memory("host"),
-            drop_queue: Default::default(),
-            capturing: StreamCapture::new(&DeviceCaptures::default()),
-            info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
-        })
-    }
-
-    fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
-        0
-    }
-
-    fn flush(_stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {}
-
-    fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) -> Result<(), ServerError> {
-        Ok(())
-    }
-
-    fn wait_event_sync(_event: Self::Event) -> Result<(), ServerError> {
-        Ok(())
-    }
-}
-
-impl Driver for Fake {
-    type Backend = FakeBackend;
-    type Stream = FakeStream;
-    type Context = ();
-    type LaunchArgs = ();
-    type Loaded = ();
-
-    unsafe fn pinned_bytes(
-        _binding: ManagedMemoryBinding,
-        _resource: HostResource<Self>,
-        _size: usize,
-    ) -> Bytes {
-        unreachable!("a transfer stages nothing")
-    }
-
-    unsafe fn copy_to_host(
-        _resource: &DeviceResource<Self>,
-        _layout: &CopyLayout<'_>,
-        _bytes: &mut Bytes,
-        _stream: &Self::Stream,
-    ) -> Result<(), IoError> {
-        unreachable!("a transfer stages nothing")
-    }
-
-    unsafe fn copy_to_device(
-        _resource: &DeviceResource<Self>,
-        _layout: &CopyLayout<'_>,
-        _data: &[u8],
-        _stream: &Self::Stream,
-    ) -> Result<(), IoError> {
-        unreachable!("a transfer stages nothing")
-    }
-
-    unsafe fn copy_on_device(
-        _source: &DeviceResource<Self>,
-        _target: &DeviceResource<Self>,
-        _queue: (),
-    ) -> Result<(), IoError> {
-        unreachable!("a transfer relocates nothing")
-    }
-
-    fn launch(
-        _ctx: &mut Self::Context,
-        _stream: &mut Self::Stream,
-        _id: &KernelId,
-        _kernel: &Self::Loaded,
-        _count: (u32, u32, u32),
-        _args: &mut Self::LaunchArgs,
-    ) -> Result<(), LaunchError> {
-        unreachable!("a transfer launches nothing")
-    }
-}
-
 impl CollectiveDriver for Fake {
-    type Communicator = &'static Wire;
-    type UniqueId = &'static Wire;
+    /// The wire's [`CommunicationId`], which [`Wire::of`] looks up.
+    type Communicator = u64;
+    type UniqueId = u64;
     type DataType = ();
 
     const LIBRARY: &'static str = "the fake";
 
     fn wait_for(_stream: (), _queued_on: ()) -> Result<(), ServerError> {
+        count_wait();
         Ok(())
     }
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
-        Ok(Wire::named(id))
+        Ok(id.id)
     }
 
     fn join(
@@ -284,7 +114,7 @@ impl CollectiveDriver for Fake {
         _ranks: usize,
         rank: usize,
     ) -> Result<Self::Communicator, ServerError> {
-        if id.refused_rank.load(Ordering::Relaxed) == rank {
+        if Wire::of(id).refused_rank.load(Ordering::Relaxed) == rank {
             return Err(error("the source could not join"));
         }
         Ok(id)
@@ -355,7 +185,7 @@ impl CollectiveDriver for Fake {
         _peer: usize,
         _stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        comm.post_send();
+        Wire::of(*comm).post_send();
         Ok(())
     }
 
@@ -366,7 +196,7 @@ impl CollectiveDriver for Fake {
         _peer: usize,
         _stream: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        comm.post_recv();
+        Wire::of(*comm).post_recv();
         Ok(())
     }
 }
@@ -376,6 +206,19 @@ std::thread_local! {
     static EVENTS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     /// The device clock this thread's fake streams share, a tick per event recorded.
     static CLOCK: Cell<u64> = const { Cell::new(0) };
+    /// The waits this thread has ordered one stream after another with.
+    static WAITS: Cell<usize> = const { Cell::new(0) };
+}
+
+fn count_wait() {
+    WAITS.with(|waits| waits.set(waits.get() + 1));
+}
+
+/// The waits across streams `queue` orders.
+fn waits_across_streams(queue: impl FnOnce()) -> usize {
+    let before = WAITS.with(Cell::get);
+    queue();
+    WAITS.with(Cell::get) - before
 }
 
 /// Sets this thread's device clock to `micros`.
@@ -428,6 +271,7 @@ impl EventApi for FakeEvents {
     }
 
     fn stream_wait_event(_stream: (), _event: &Self::Event) -> Result<(), DriverError> {
+        count_wait();
         Ok(())
     }
 
@@ -511,8 +355,7 @@ impl FakeServer {
     fn allocated(&mut self) -> Handle {
         let handle = self.unallocated();
         let mut command = self.command(STREAM, [].into_iter()).unwrap();
-        let memory = command.reserve(SIZE).unwrap();
-        command.bind(memory, handle.memory.clone()).unwrap();
+        command.allocate(SIZE, &handle.memory).unwrap();
         drop(command);
         handle
     }
@@ -727,6 +570,16 @@ fn a_timing_its_refused_send_never_used_is_dropped_rather_than_given_to_the_next
 }
 
 fn all_reduce(server: &mut FakeServer, device: DeviceId, timing: Option<CommunicationTiming>) {
+    all_reduce_on(server, device, timing, STREAM, ComputeWait::AtSync);
+}
+
+fn all_reduce_on(
+    server: &mut FakeServer,
+    device: DeviceId,
+    timing: Option<CommunicationTiming>,
+    stream: StreamId,
+    wait: ComputeWait,
+) {
     let (src, dst) = (server.allocated(), server.allocated());
     if let Some(timing) = timing {
         server.time_next_communication(timing);
@@ -740,9 +593,9 @@ fn all_reduce(server: &mut FakeServer, device: DeviceId, timing: Option<Communic
             src.binding(),
             dst.binding(),
             reduction,
-            STREAM,
+            stream,
             vec![device],
-            ComputeWait::AtSync,
+            wait,
         )
         .unwrap();
 }
@@ -786,6 +639,127 @@ fn a_sync_after_an_untimed_collective_reads_back_empty() {
     let wait = timed_sync(&mut server, STREAM);
 
     assert!(cubecl_environment::future::block_on(wait.resolve()).is_none());
+}
+
+#[test_log::test]
+fn a_collective_waited_for_at_once_runs_on_its_compute_stream() {
+    let (mut server, device) = joined_alone(73);
+
+    let waits = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    });
+
+    assert_eq!(waits, 0);
+}
+
+#[test_log::test]
+fn a_collective_left_for_the_sync_runs_on_the_collective_stream() {
+    let (mut server, device) = joined_alone(74);
+
+    let waits = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::AtSync);
+    });
+
+    assert_eq!(
+        waits, 1,
+        "the collective stream waits for the compute stream"
+    );
+}
+
+#[test_log::test]
+fn a_collective_after_one_left_for_the_sync_follows_it_on_the_collective_stream() {
+    let (mut server, device) = joined_alone(75);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::AtSync);
+
+    let follows = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    });
+    let then = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    });
+
+    assert_eq!(follows, 2, "both streams wait for each other");
+    assert_eq!(
+        then, 0,
+        "the compute stream already follows every collective"
+    );
+}
+
+#[test_log::test]
+fn a_collective_from_another_compute_stream_waits_for_the_last_one() {
+    let (mut server, device) = joined_alone(76);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+    let other = StreamId { value: 2 };
+
+    let waits = waits_across_streams(|| {
+        all_reduce_on(&mut server, device, None, other, ComputeWait::Now);
+    });
+
+    // The collective stream waits for the other compute stream, then for this one, and this one
+    // waits for it.
+    assert_eq!(waits, 3);
+}
+
+#[test_log::test]
+fn a_sync_from_another_compute_stream_waits_for_the_last_collective() {
+    let (mut server, device) = joined_alone(79);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+
+    let waits = waits_across_streams(|| {
+        server.sync_collective(StreamId { value: 2 }).unwrap();
+    });
+
+    // Only the compute stream that ran the collective: nothing ran on the collective stream.
+    assert_eq!(waits, 1);
+}
+
+#[test_log::test]
+fn a_sync_on_the_stream_that_ran_the_collectives_waits_on_no_other() {
+    let (mut server, device) = joined_alone(80);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::Now);
+
+    let waits = waits_across_streams(|| server.sync_collective(STREAM).unwrap());
+
+    assert_eq!(waits, 0);
+}
+
+#[test_log::test]
+fn a_sync_after_a_collective_left_for_it_waits_for_the_collective_stream() {
+    let (mut server, device) = joined_alone(81);
+    all_reduce_on(&mut server, device, None, STREAM, ComputeWait::AtSync);
+
+    let waits = waits_across_streams(|| server.sync_collective(STREAM).unwrap());
+
+    assert_eq!(waits, 1);
+}
+
+#[test_log::test]
+fn a_collective_on_its_compute_stream_is_exposed_for_its_whole_part() {
+    let (mut server, device) = joined_alone(77);
+    let mut timing = CommunicationTiming::default();
+    let (part, wait) = (timing.part_window(), timing.wait_window());
+
+    all_reduce_on(&mut server, device, Some(timing), STREAM, ComputeWait::Now);
+
+    let (part, wait) = (read(part), read(wait));
+    assert!(part > cubecl_common::profile::Duration::ZERO);
+    assert_eq!(wait, part);
+}
+
+#[test_log::test]
+fn a_sync_after_a_collective_on_its_compute_stream_waits_for_nothing() {
+    let (mut server, device) = joined_alone(78);
+    all_reduce_on(
+        &mut server,
+        device,
+        Some(CommunicationTiming::default()),
+        STREAM,
+        ComputeWait::Now,
+    );
+
+    let wait = timed_sync(&mut server, STREAM);
+
+    assert_eq!(read(wait), cubecl_common::profile::Duration::ZERO);
 }
 
 #[test]

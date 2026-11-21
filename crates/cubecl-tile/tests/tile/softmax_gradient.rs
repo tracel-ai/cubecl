@@ -1,22 +1,22 @@
-//! The softmax's backward pass on tiles a unit holds in registers: its probabilities read back
-//! from a saved logsumexp ([`AxisSlices::probabilities`]), its gradient against the scores
-//! ([`AxisSlices::softmax_gradient`]), the dot product that gradient subtracts ([`Tile::dot`]),
-//! and the logsumexp an online softmax leaves behind
+//! The softmax's backward pass on tiles a unit holds in registers: its probabilities read back from
+//! a saved logsumexp ([`DimensionSlices::probabilities`]), its gradient against the scores
+//! ([`DimensionSlices::softmax_gradient`]), the dot product that gradient subtracts
+//! ([`Tile::dot`]), and the logsumexp an online softmax leaves behind
 //! ([`OnlineSoftmax::store_logsumexp`](cubecl_tile::ops::softmax::OnlineSoftmax::store_logsumexp)).
 //!
 //! The logsumexp and the dot product are tiles over the queries, which the scores broadcast
-//! along the axis they omit. A unit that owns queries holds its scores `[q, s]` and reads one
+//! along the dimension they omit. A unit that owns queries holds its scores `[q, s]` and reads one
 //! value a slice; a unit that owns keys holds them `[s, q]`, as attention's backward pass does to
 //! sum the keys' gradients, and reads one value a position along each slice.
 //!
-//! [`AxisSlices::probabilities`]: cubecl_tile::AxisSlices::probabilities
-//! [`AxisSlices::softmax_gradient`]: cubecl_tile::AxisSlices::softmax_gradient
+//! [`DimensionSlices::probabilities`]: cubecl_tile::DimensionSlices::probabilities
+//! [`DimensionSlices::softmax_gradient`]: cubecl_tile::DimensionSlices::softmax_gradient
 //! [`Tile::dot`]: cubecl_tile::Tile::dot
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
+    Dimension, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
     TileSpec, TileTensor, TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
@@ -24,10 +24,10 @@ use cubecl_tile::{
 
 use super::{Form, implied};
 
-const Q: Axis = Axis(0);
-const S: Axis = Axis(1);
-const D: Axis = Axis(2);
-const V: Axis = Axis(3);
+const Q: Dimension = Dimension(0);
+const S: Dimension = Dimension(1);
+const D: Dimension = Dimension(2);
+const V: Dimension = Dimension(3);
 
 /// The bias a score is summed with: zero at a key its query sees, the minimum value past its own
 /// position, aligned at the bottom right.
@@ -46,8 +46,8 @@ impl Recipe<f32> for Causal {
 }
 
 impl Reads for CausalExpand {
-    fn reads(&self, _scope: &cubecl::ir::Scope, axis: Axis) -> bool {
-        axis == S || axis == Q
+    fn reads(&self, _scope: &cubecl::ir::Scope, dimension: Dimension) -> bool {
+        dimension == S || dimension == Q
     }
 }
 
@@ -61,8 +61,8 @@ fn by_queries(
     out: &TileTensor<'_>,
     out_gradient: &TileTensor<'_>,
     logsumexp: &TileTensor<'_>,
-    delta: &TileTensor<'_>,
-    score_gradient: &TileTensor<'_>,
+    delta: &mut TileTensor<'_>,
+    score_gradient: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -72,8 +72,8 @@ fn by_queries(
 ) {
     let (query, key, value) = (query.tile(&space), key.tile(&space), value.tile(&space));
     let (out, out_gradient) = (out.tile(&space), out_gradient.tile(&space));
-    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
-    let score_gradient = score_gradient.tile(&space);
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile_mut(&space));
+    let score_gradient = score_gradient.tile_mut(&space);
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[Q, S])),
         Causal { keys, queries },
@@ -91,12 +91,8 @@ fn by_queries(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&query_s, &key_s, config, Semiring::SumProd);
                 score.mma(&query_s, &key_s);
                 score
                     .along(S)
@@ -105,7 +101,7 @@ fn by_queries(
                     &out_gradient_s,
                     &value_s,
                     config,
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 );
                 gradient.mma(&out_gradient_s, &value_s);
                 gradient
@@ -126,8 +122,8 @@ fn by_keys(
     value: &TileTensor<'_>,
     out_gradient: &TileTensor<'_>,
     logsumexp: &TileTensor<'_>,
-    delta: &TileTensor<'_>,
-    score_gradient: &TileTensor<'_>,
+    delta: &mut TileTensor<'_>,
+    score_gradient: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -137,8 +133,8 @@ fn by_keys(
 ) {
     let (query, key, value) = (query.tile(&space), key.tile(&space), value.tile(&space));
     let out_gradient = out_gradient.tile(&space);
-    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
-    let score_gradient = score_gradient.tile(&space);
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile_mut(&space));
+    let score_gradient = score_gradient.tile_mut(&space);
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[S, Q])),
         Causal { keys, queries },
@@ -155,12 +151,8 @@ fn by_keys(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &key_s,
-                    &query_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&key_s, &query_s, config, Semiring::SumProd);
                 score.mma(&key_s, &query_s);
                 score
                     .along(Q)
@@ -169,7 +161,7 @@ fn by_keys(
                     &value_s,
                     &out_gradient_s,
                     config,
-                    Semiring::SUM_PROD,
+                    Semiring::SumProd,
                 );
                 gradient.mma(&value_s, &out_gradient_s);
                 gradient
@@ -182,8 +174,8 @@ fn by_keys(
 }
 
 /// Every plane owning its rows of the scores, keys or queries, holding them in manual-mma
-/// fragments: a step of the other axis at a time, the probabilities and the gradient against the
-/// scores taken in the registers that hold them, then drained. Keys first, each cell reads its
+/// fragments: a step of the other dimension at a time, the probabilities and the gradient against
+/// the scores taken in the registers that hold them, then drained. Keys first, each cell reads its
 /// query's logsumexp and dot product along its column; queries first, along its row.
 #[cube(launch)]
 fn by_plane_fragments(
@@ -192,8 +184,8 @@ fn by_plane_fragments(
     value: &TileTensor<'_>,
     out_gradient: &TileTensor<'_>,
     logsumexp: &TileTensor<'_>,
-    delta: &TileTensor<'_>,
-    score_gradient: &TileTensor<'_>,
+    delta: &mut TileTensor<'_>,
+    score_gradient: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -208,8 +200,8 @@ fn by_plane_fragments(
     });
     let (query, key) = (query.tile(&space), key.tile(&space));
     let (value, out_gradient) = (value.tile(&space), out_gradient.tile(&space));
-    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
-    let score_gradient = score_gradient.tile(&space);
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile_mut(&space));
+    let score_gradient = score_gradient.tile_mut(&space);
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[owned, walked])),
         Causal { keys, queries },
@@ -298,7 +290,7 @@ fn by_plane_fragments(
 fn logsumexp_of(
     query: &TileTensor<'_>,
     key: &TileTensor<'_>,
-    logsumexp: &TileTensor<'_>,
+    logsumexp: &mut TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -306,7 +298,11 @@ fn logsumexp_of(
     #[comptime] rows: usize,
     #[comptime] block: usize,
 ) {
-    let (query, key, logsumexp) = (query.tile(&space), key.tile(&space), logsumexp.tile(&space));
+    let (query, key, logsumexp) = (
+        query.tile(&space),
+        key.tile(&space),
+        logsumexp.tile_mut(&space),
+    );
     let bias = Procedural::new::<f32, Causal>(
         comptime!(space.space().subspace(&[Q, S])),
         Causal { keys, queries },
@@ -320,12 +316,8 @@ fn logsumexp_of(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&query_s, &key_s, config, Semiring::SumProd);
                 score.mma(&query_s, &key_s);
                 softmax.step(&score, &bias_s, scale);
             }
@@ -474,13 +466,13 @@ fn zeros(client: &Client, shape: Shape) -> cubecl::std::tensor::TensorHandle {
         .generate_without_host_data()
 }
 
-/// `handle` bound as a tile over `axes`.
-fn arg(handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]) -> TileTensorLaunch {
+/// `handle` bound as a tile over `dimensions`.
+fn arg(handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]) -> TileTensorLaunch {
     TileTensorLaunch::new(
         handle.clone().binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
-        TileSpec::direct(axes),
+        TileSpec::direct(dimensions),
     )
 }
 
@@ -731,7 +723,7 @@ fn plane_fragments_take_the_softmax_gradient(keys_first: bool) {
         false => (Q, S, queries, keys),
     };
     let score_gradient = zeros(&client, Shape::new([owned_extent, walked_extent]));
-    // A plane owns sixteen rows, one instruction's `m`, and walks the other axis two `n8`
+    // A plane owns sixteen rows, one instruction's `m`, and walks the other dimension two `n8`
     // fragments a step; a cube is one plane.
     let launcher = implied(
         &client,
@@ -752,12 +744,12 @@ fn plane_fragments_take_the_softmax_gradient(keys_first: bool) {
         Form::Static,
     );
     let f16_ty = half::f16::elem_type_native();
-    let input = |handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]| {
+    let input = |handle: &cubecl::std::tensor::TensorHandle, dimensions: &[Dimension]| {
         TileTensorLaunch::new(
             handle.clone().binding().into_tensor_arg(),
             f16_ty,
             1,
-            TileSpec::direct(axes),
+            TileSpec::direct(dimensions),
         )
     };
     by_plane_fragments::launch(

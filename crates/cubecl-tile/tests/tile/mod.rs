@@ -11,7 +11,9 @@ mod dequant;
 mod destination;
 mod distributed;
 mod dynamic_contraction;
+mod edge_identity;
 mod erased;
+mod folded;
 mod gather;
 mod imperative;
 mod indexed;
@@ -23,6 +25,7 @@ mod leaf;
 mod leaves;
 mod matmul;
 mod monoid;
+mod mul_exp;
 mod online_softmax;
 mod opened_attention;
 mod packed;
@@ -53,9 +56,10 @@ mod top_k;
 mod top_values;
 mod vector_tile;
 mod wgmma;
+mod written_operands;
 
 use cubecl::prelude::*;
-use cubecl_tile::{Axis, Launcher, Partitioning, Space, launch::Grid};
+use cubecl_tile::{Dimension, Launcher, Partitioning, Space, launch::Grid};
 
 /// Which extents a test's kernel reads at runtime: the test's statement of what a family decides
 /// once by building its partitioning over `Space::with_dynamic`.
@@ -63,7 +67,7 @@ use cubecl_tile::{Axis, Launcher, Partitioning, Space, launch::Grid};
 pub(crate) enum Form<'a> {
     Static,
     Dynamic,
-    DynamicAlong(&'a [Axis]),
+    DynamicAlong(&'a [Dimension]),
 }
 
 pub(crate) fn kernel_form(partitioning: &Partitioning, form: Form<'_>) -> Partitioning {
@@ -71,7 +75,7 @@ pub(crate) fn kernel_form(partitioning: &Partitioning, form: Form<'_>) -> Partit
     let kernel = match form {
         Form::Static => space,
         Form::Dynamic => space.all_dynamic(),
-        Form::DynamicAlong(axes) => space.with_dynamic(axes),
+        Form::DynamicAlong(dimensions) => space.with_dynamic(dimensions),
     };
     Partitioning::new(kernel, partitioning.levels().to_vec())
 }
@@ -88,8 +92,8 @@ pub(crate) fn implied(client: &Client, partitioning: Partitioning, form: Form<'_
     .unwrap()
 }
 
-/// A launch of one cube of one unit over `kernel`, cut by no level, its dynamic axes sized off
-/// `concrete`: what a kernel that reads the space and nothing else is handed.
+/// A launch of one cube of one unit over `kernel`, cut by no level, its dynamic dimensions sized
+/// off `concrete`: what a kernel that reads the space and nothing else is handed.
 pub(crate) fn uncut(client: &Client, kernel: &Space, concrete: &Space) -> Launcher {
     Launcher::new(
         client,

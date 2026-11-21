@@ -40,6 +40,16 @@ fn fold(input: &[f32], values: &mut [f32], indices: &mut [u32], #[comptime] mono
     write(0, acc, values, indices);
 }
 
+/// One unit folds every item from the identity in index order, through `combine_later`.
+#[cube(launch)]
+fn fold_later(input: &[f32], values: &mut [f32], indices: &mut [u32], #[comptime] monoid: Monoid) {
+    let mut acc = Pair::identity(monoid);
+    for i in 0..input.len() / 2 {
+        acc = Pair::combine_later(acc, item(input, i), monoid);
+    }
+    write(0, acc, values, indices);
+}
+
 /// Each unit offers its item, and the units reduce them as `share` says; every unit writes.
 #[cube(launch)]
 fn across(
@@ -149,6 +159,35 @@ fn a_unit_fold_keeps_the_lowest_index_and_the_first_nan() {
             let b: Vec<f32> = a.iter().rev().copied().collect();
             let (values, indices) = launch(&client, &lanes(&a, &b), 1, |i, v, x| {
                 fold::launch(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(1),
+                    i,
+                    v,
+                    x,
+                    monoid,
+                )
+            });
+            for (lane, items) in [&a, &b].into_iter().enumerate() {
+                check(
+                    (values[lane], indices[lane]),
+                    expected(items, monoid),
+                    &format!("{monoid:?} {name} lane {lane}"),
+                );
+            }
+        }
+    }
+}
+
+/// Folding in index order through `combine_later` gives what the full order gives.
+#[test]
+fn a_unit_fold_in_index_order_keeps_the_lowest_index_and_the_first_nan() {
+    let client = cubecl::test_device().client();
+    for monoid in [Monoid::Max, Monoid::Min] {
+        for (name, a) in cases(9) {
+            let b: Vec<f32> = a.iter().rev().copied().collect();
+            let (values, indices) = launch(&client, &lanes(&a, &b), 1, |i, v, x| {
+                fold_later::launch(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(1),

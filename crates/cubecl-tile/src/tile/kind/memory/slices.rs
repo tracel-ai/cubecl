@@ -1,6 +1,6 @@
-//! A plane's window of shared memory, cut into slices along its innermost axis: the verbs
-//! [`AxisSlices`] runs on it, the plane's units taking each slice's cells in turns and meeting on
-//! the slice's partials.
+//! A plane's window of shared memory, cut into slices along its innermost dimension: the verbs
+//! [`DimensionSlices`] runs on it, the plane's units taking each slice's cells in turns and meeting
+//! on the slice's partials.
 
 use cubecl::prelude::*;
 
@@ -8,16 +8,16 @@ use crate::*;
 
 #[cube]
 impl Memory {
-    /// `self[i, s] = self[i, s] · scale + bias[i, s]` over this window over `space`, `axis` its
-    /// innermost.
+    /// `self[i, s] = self[i, s] · scale + bias[i, s]` over this window over `space`, `dimension`
+    /// its innermost.
     pub(crate) fn scale_add_along<E: Float>(
         &mut self,
         scale: E,
         bias: &Procedural,
         #[comptime] space: &Space,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) {
-        let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
+        let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
@@ -35,15 +35,44 @@ impl Memory {
         }
     }
 
-    /// Each slice's max over this window over `space`, `axis` its innermost, starting from
+    /// `self[i, s] = self[i, s] · exp(bias[i, s])` over this window over `space`, `dimension`
+    /// its innermost ([`DimensionSlices::mul_exp`]).
+    pub(crate) fn mul_exp_along<E: Float>(
+        &mut self,
+        bias: &Procedural,
+        #[comptime] space: &Space,
+        #[comptime] dimension: Dimension,
+    ) {
+        let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
+        let size!(W) = 1usize;
+        let mut view = self.flat_mut::<E, W>();
+        #[unroll]
+        for i in 0..slices {
+            let mut s = UNIT_POS_PLANE as usize;
+            while s < length {
+                let at = i * length + s;
+                let cell = bias.value_at::<E>(i as u32, s as u32, space);
+                view.write(
+                    at,
+                    Vector::cast_from(DimensionSlices::mul_exp_cell::<E>(
+                        view.read(at).extract(0usize),
+                        cell,
+                    )),
+                );
+                s += PLANE_DIM as usize;
+            }
+        }
+    }
+
+    /// Each slice's max over this window over `space`, `dimension` its innermost, starting from
     /// `seed`'s.
     pub(crate) fn maxima_along<E: Float>(
         &self,
         seed: &Array<E>,
         #[comptime] space: &Space,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) -> Array<E> {
-        let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
+        let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
         let size!(W) = 1usize;
         let view = self.flat::<E, W>();
         let mut maxima = Array::<E>::new(slices);
@@ -60,16 +89,16 @@ impl Memory {
         maxima
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` over this window over `space`, `axis`
-    /// its innermost ([`AxisSlices::exp2_scaled_minus_cell`]).
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` over this window over `space`,
+    /// `dimension` its innermost ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(
         &mut self,
         scale: E,
         offsets: &Array<E>,
         #[comptime] space: &Space,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) {
-        let (count, length) = comptime!((space.slices_along(axis), space.extent(axis)));
+        let (count, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
@@ -77,7 +106,7 @@ impl Memory {
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;
-                let cell = AxisSlices::exp2_scaled_minus_cell::<E>(
+                let cell = DimensionSlices::exp2_scaled_minus_cell::<E>(
                     view.read(at).extract(0usize),
                     scale,
                     offsets[i],
@@ -88,13 +117,13 @@ impl Memory {
         }
     }
 
-    /// Each slice's sum over this window over `space`, `axis` its innermost.
+    /// Each slice's sum over this window over `space`, `dimension` its innermost.
     pub(crate) fn sums_along<E: Float>(
         &self,
         #[comptime] space: &Space,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) -> Array<E> {
-        let (slices, length) = comptime!((space.slices_along(axis), space.extent(axis)));
+        let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
         let size!(W) = 1usize;
         let view = self.flat::<E, W>();
         let mut sums = Array::<E>::new(slices);
@@ -111,14 +140,14 @@ impl Memory {
         sums
     }
 
-    /// `self[i, s] *= factors[i]` over this window over `space`, `axis` its innermost.
+    /// `self[i, s] *= factors[i]` over this window over `space`, `dimension` its innermost.
     pub(crate) fn mul_along<E: Float>(
         &mut self,
         factors: &Array<E>,
         #[comptime] space: &Space,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) {
-        let (length, cells) = comptime!((space.extent(axis), space.cells()));
+        let (length, cells) = comptime!((space.extent(dimension), space.cells()));
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
         let mut at = UNIT_POS_PLANE as usize;
@@ -129,7 +158,7 @@ impl Memory {
     }
 
     /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])` over this window over `space`,
-    /// `logsumexp` the cells of a tile it broadcasts over ([`AxisSlices::probabilities`]).
+    /// `logsumexp` the cells of a tile it broadcasts over ([`DimensionSlices::probabilities`]).
     pub(crate) fn probabilities_along<E: Float>(
         &mut self,
         scale: E,
@@ -139,7 +168,7 @@ impl Memory {
         #[comptime] broadcast: Broadcast,
     ) {
         let (slices, length) = comptime!((
-            space.slices_along(space.axis_at(space.rank() - 1)),
+            space.slices_along(space.dimension_at(space.rank() - 1)),
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
@@ -154,7 +183,7 @@ impl Memory {
                 let score = view.read(at).extract(0usize) * scale
                     + bias.value_at::<E>(i as u32, s as u32, space);
                 let probability =
-                    AxisSlices::exp_minus_cell::<E>(score, logsumexp[first + s * step]);
+                    DimensionSlices::exp_minus_cell::<E>(score, logsumexp[first + s * step]);
                 view.write(at, Vector::cast_from(probability));
                 s += PLANE_DIM as usize;
             }
@@ -163,7 +192,7 @@ impl Memory {
 
     /// `self[c] = probabilities[c] · (self[c] − delta[c])` over this window and `probabilities`,
     /// both over `space`, `delta` the cells of a tile they broadcast over
-    /// ([`AxisSlices::softmax_gradient`]).
+    /// ([`DimensionSlices::softmax_gradient`]).
     pub(crate) fn softmax_gradient_along<E: Float>(
         &mut self,
         probabilities: &Memory,
@@ -172,7 +201,7 @@ impl Memory {
         #[comptime] broadcast: Broadcast,
     ) {
         let (slices, length) = comptime!((
-            space.slices_along(space.axis_at(space.rank() - 1)),
+            space.slices_along(space.dimension_at(space.rank() - 1)),
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;

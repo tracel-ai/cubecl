@@ -1271,9 +1271,9 @@ dependencies = [
 
 [[package]]
 name = "cubecl-hip-sys"
-version = "7.14.6085001"
+version = "7.14.6085002"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ba92853ebdf935ce68fdf96e4631a121ab72ce078201371ce7ace26603597f6"
+checksum = "0c7a11dd1459e758d6d9fe29e0d414b404b309b9582f08b5d8d03b541cc45e65"
 dependencies = [
  "libc",
  "libloading 0.8.9",
@@ -1458,6 +1458,7 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "md-5",
+ "num-traits",
  "pliron",
  "rand 0.10.2",
  "serde",
@@ -3396,7 +3397,6 @@ name = "multi_device"
 version = "0.12.0-pre.2"
 dependencies = [
  "cubecl",
- "half",
 ]
 
 [[package]]

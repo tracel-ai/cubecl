@@ -1,4 +1,4 @@
-//! A convolution's gathered input staged dense over its logical axes (im2col in shared memory)
+//! A convolution's gathered input staged dense over its dimensions (im2col in shared memory)
 //! and contracted by tensor-core instructions, which refuse a gathered operand read in place.
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -11,10 +11,10 @@ use half::f16;
 
 use super::{Form, implied};
 
-const OH: Axis = Axis(0);
-const CO: Axis = Axis(1);
-const RH: Axis = Axis(2);
-const CI: Axis = Axis(3);
+const OH: Dimension = Dimension(0);
+const CO: Dimension = Dimension(1);
+const RH: Dimension = Dimension(2);
+const CI: Dimension = Dimension(3);
 
 const CO_EXTENT: usize = 16;
 const RH_EXTENT: usize = 4;
@@ -23,7 +23,7 @@ const RH_EXTENT: usize = 4;
 fn conv_dense_stage_kernel<E: Numeric>(
     input: &TileTensor<'_>,
     weight: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -33,10 +33,10 @@ fn conv_dense_stage_kernel<E: Numeric>(
 ) {
     let input = input.tile(&space);
     let weight = weight.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for cube in space.over(&cubes) {
         let (input, weight, out) = (input.at(&cube), weight.at(&cube), out.at(&cube));
-        let acc = out.accumulator::<E>(&input, &weight, Semiring::SUM_PROD);
+        let acc = out.accumulator::<E>(&input, &weight, Semiring::SumProd);
         let walk = cube.over(&steps);
         let mut stages = Stages::smem(&walk, &input, &weight, storage.clone(), 1usize, None);
         stages.pipelined(walk, |slot, region| {
@@ -288,7 +288,7 @@ fn conv_dense_stage_mma_tiled_stage() {
 }
 
 /// One plane over a 2 by 2 grid of fragments, whose lhs rows step by the stride of the output's
-/// row axis, `taps * channels`, not the channels of one tap.
+/// row dimension, `taps * channels`, not the channels of one tap.
 const GRID: Case = Case {
     planes: 1,
     grid: true,
