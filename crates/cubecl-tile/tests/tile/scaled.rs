@@ -3140,12 +3140,61 @@ fn a_tile_ordered_weight_decoded_by_the_stage_fill_contracts_as_its_values() {
     );
 }
 
-/// The same asked to wait in registers: a fill that decodes cannot copy its source straight into
-/// them, so the stage is contracted as the values it decodes to.
+/// The same with the next stage waiting in registers: each unit holds its loads of the weight's
+/// words and its block scales' words across the contraction, and decodes them into the stage after
+/// it, which then contracts as the values it decodes to.
 #[test]
 fn a_stage_the_fill_decodes_contracts_as_its_values_when_registers_are_asked_for() {
     check_staged_stepped(
         TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid::ONE,
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
+    );
+}
+
+/// The same with two planes splitting the rows, both reading the stage the cube's units decoded
+/// out of their registers.
+#[test]
+fn a_stage_decoded_out_of_registers_serves_every_plane_sharing_it() {
+    check_staged_stepped(
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid {
+            rows: 2,
+            columns: 1,
+        },
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
+    );
+}
+
+/// The same into stages held in padded blocks, under two planes each way: the decode out of
+/// registers lands each value where the stage's layout puts it, as the decoding copy does.
+#[test]
+fn a_stage_decoded_out_of_registers_lands_in_padded_blocks() {
+    check_staged_stepped(
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid {
+            rows: 2,
+            columns: 2,
+        },
+        Unpacked::ByTheFill,
+        StagesHeld::InPaddedBlocks,
+        Prefetch::InRegisters,
+    );
+}
+
+/// The same under `f32` block scales, plain rather than packed in words: the fetch holds only
+/// scales packed as words, so the ring fills its slots, and the product is the same.
+#[test]
+fn a_stage_whose_scales_are_no_words_fills_its_slots_when_registers_are_asked_for() {
+    check_staged_stepped(
+        TileScales::F32,
         f16::elem_type_native(),
         PlaneGrid::ONE,
         Unpacked::ByTheFill,

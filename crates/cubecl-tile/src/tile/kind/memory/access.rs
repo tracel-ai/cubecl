@@ -564,11 +564,21 @@ impl Memory {
         layout: ProjectionInKernel,
         #[comptime] guard: Guard,
     ) -> Masked<'_, Vector<u32, WP>, CoordsDyn> {
+        self.nd_words_as::<u32, WP>(layout, guard)
+    }
+
+    /// [`nd_words`](Memory::nd_words) read as `I`, an element a caller binds to `u32` at
+    /// expansion: what a register fetch holds a packed load in, its registers typed by the walk.
+    pub(crate) fn nd_words_as<I: Numeric, WP: Size>(
+        &self,
+        layout: ProjectionInKernel,
+        #[comptime] guard: Guard,
+    ) -> Masked<'_, Vector<I, WP>, CoordsDyn> {
         comptime!(assert!(
             matches!(self.store.packing, Packing::Packed { .. }),
             "Memory::nd_words: only a packed store holds words"
         ));
-        let words = self.window_view_storage::<u32, WP>(guard).view(layout);
+        let words = self.window_view_storage::<I, WP>(guard).view(layout);
         Masked::new(
             words,
             comptime!(guard.checks() && self.access.overhang.masks()),
