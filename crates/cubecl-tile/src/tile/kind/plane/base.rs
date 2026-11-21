@@ -657,7 +657,9 @@ impl PlanePartition {
             // The rows a unit holds are the same in every tile of a row of tiles: picked once.
             #[unroll]
             for mi in 0..self.m_tiles {
-                let held = self.at(mi, 0usize).held_rows(factors, comptime!(mi * self.rows));
+                let held = self
+                    .at(mi, 0usize)
+                    .held_rows(factors, comptime!(mi * self.rows));
                 #[unroll]
                 for ni in 0..self.n_tiles {
                     self.at(mi, ni).mul_along(&held, 0usize);
