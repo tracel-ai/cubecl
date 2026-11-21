@@ -10,7 +10,7 @@ use cubecl::prelude::*;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
+    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
     Projection, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
 };
 
@@ -269,6 +269,14 @@ impl<'a> Arg<'a, Labelled> {
             overhangs,
             width,
         )?;
+        for &boundary in boundaries.modes.iter().flatten() {
+            data.delivery.reads_edge(boundary)?;
+        }
+        if !matches!(packing, Packing::Plain)
+            && Boundary::edge_identity(&boundaries.modes).is_some()
+        {
+            return Err(Decline::IdentityEdgeOfPackedValues);
+        }
         // Inside its storage tile a window is one unmasked run: a checked operand whose launch
         // reaches past its padding would read storage tiles it does not have, which the kernel
         // can only find out as it expands.

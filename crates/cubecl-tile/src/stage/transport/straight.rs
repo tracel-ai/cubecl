@@ -85,19 +85,19 @@ impl Memory {
                     && (src_rank != plen || src.projection.composition() != Composition::Disjoint)
             );
             let s = if steps.is_empty() && !through_projection {
-                Masked::new(
+                src.edged(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked)),
                     check,
                 )
             } else if through_projection {
                 // Read at the stage's logical coordinates through the source's own projection.
-                Masked::new(
+                src.edged(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
                         .view(src.dimension_projection(space)),
                     check,
                 )
             } else {
-                Masked::new(
+                src.edged(
                     src.window_view_storage::<I2, WP2>(comptime!(Guard::Checked))
                         .view(CompactionStep::new(shape.clone(), comptime!(steps))),
                     check,
@@ -115,12 +115,12 @@ impl Memory {
             );
         } else {
             let s = if steps.is_empty() {
-                Masked::new(
+                src.edged(
                     src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked)),
                     check,
                 )
             } else {
-                Masked::new(
+                src.edged(
                     src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked))
                         .view(CompactionStep::new(
                             widened_shape(&shape, comptime!(plen), comptime!(w)),
