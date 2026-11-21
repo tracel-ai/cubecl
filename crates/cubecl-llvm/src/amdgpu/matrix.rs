@@ -1071,6 +1071,24 @@ mod tests {
     }
 
     #[test]
+    fn a_swapped_form_swaps_its_operands_formats_and_signs() {
+        let fp8 = WmmaForm::Fp8 { a: E4M3, b: E5M2 };
+        let int8 = WmmaForm::Int8 {
+            a_signed: true,
+            b_signed: false,
+        };
+
+        assert_eq!(fp8.swapped(), WmmaForm::Fp8 { a: E5M2, b: E4M3 });
+        assert_eq!(
+            int8.swapped(),
+            WmmaForm::Int8 {
+                a_signed: false,
+                b_signed: true
+            }
+        );
+    }
+
+    #[test]
     fn an_rdna4_accumulator_is_held_along_its_rows() {
         let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
 
