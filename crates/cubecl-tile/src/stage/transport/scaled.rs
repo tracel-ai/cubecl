@@ -153,15 +153,13 @@ impl Tile {
         let stage = comptime!(self.place.space.clone());
         // The fetch holds each block scale's word as stored, so the block scales are packed words
         // and the only level of scales that varies within a region.
-        let inner = src.factor.inner_stored();
-        let depth = src.factor.depth();
+        let as_words = src.factor.fetches_as_words();
         comptime!({
             // Counted off the stage: the walk asks before it windows the source to a region.
             let cells = stage.cells();
             let loads = cells / load.values();
             let fetchable = matches!(packing, Packing::Packed { .. })
-                && matches!(inner, Some(Packing::Packed { .. }))
-                && depth >= 1
+                && as_words
                 && delivery.route() == Route::Registers
                 && cells.is_multiple_of(load.values())
                 && load.values().is_multiple_of(lands.values());
