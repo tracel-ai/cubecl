@@ -256,7 +256,8 @@ impl Tile {
                     let mut at = Coords::<u32>::new();
                     #[unroll]
                     for p in 0..rank {
-                        let inner = comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
+                        let inner =
+                            comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
                         at.push(start.at(p) + inner);
                     }
                     // The scale's word as stored, nothing computed on it: a wait for the load
@@ -330,7 +331,8 @@ impl Tile {
                     let mut to = Coords::<u32>::new();
                     #[unroll]
                     for p in 0..rank {
-                        let step = comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
+                        let step =
+                            comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
                         let coord = start.at(p) + step;
                         at.push(coord);
                         if dst.contains(space.dimension_at(p)) {

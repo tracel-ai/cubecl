@@ -342,14 +342,8 @@ impl Stages<OperandPair> {
         let rhs_beside = self.sources.rhs.scales_beside();
         let lhs_delivery = self.sources.lhs.delivery();
         let rhs_delivery = self.sources.rhs.delivery();
-        let lhs_scalars = staged
-            .data
-            .lhs
-            .register_fetched_scalars(&self.sources.lhs);
-        let rhs_scalars = staged
-            .data
-            .rhs
-            .register_fetched_scalars(&self.sources.rhs);
+        let lhs_scalars = staged.data.lhs.register_fetched_scalars(&self.sources.lhs);
+        let rhs_scalars = staged.data.rhs.register_fetched_scalars(&self.sources.rhs);
         comptime!(
             !fixed
                 && !lhs_beside
@@ -366,14 +360,8 @@ impl Stages<OperandPair> {
     #[allow(dead_code)] // Reached through its expand, from `prefetched`.
     pub(crate) fn fetched_elements(&self) -> comptime_type!((ElemType, ElemType)) {
         let staged = self.slots.index(FIRST_SLOT);
-        let lhs = staged
-            .data
-            .lhs
-            .register_fetched_element(&self.sources.lhs);
-        let rhs = staged
-            .data
-            .rhs
-            .register_fetched_element(&self.sources.rhs);
+        let lhs = staged.data.lhs.register_fetched_element(&self.sources.lhs);
+        let rhs = staged.data.rhs.register_fetched_element(&self.sources.rhs);
         comptime!((lhs, rhs))
     }
 
