@@ -69,9 +69,14 @@ impl AmdMatrixCore {
     }
 
     /// How the manual MMA lays its registers out on this core, whichever backend lowers it: `A`
-    /// along its rows, `B` and the accumulator along their columns. RDNA3 holds every A/B cell
-    /// in both halves of its 32-lane wavefront, RDNA4 once; CDNA splits `k` between the four
-    /// 16-lane groups of its 64-lane wavefront.
+    /// along its rows, `B` along its columns. RDNA3 holds every A/B cell in both halves of its
+    /// 32-lane wavefront, RDNA4 once; CDNA splits `k` between the four 16-lane groups of its
+    /// 64-lane wavefront.
+    ///
+    /// The accumulator lies along its columns, except on RDNA4: there A and B hold their
+    /// registers alike, so the backends run the instruction with them swapped and get the
+    /// transposed accumulator, along its rows as A is. A product then feeds the next one as its
+    /// A in registers, and each lane holds whole rows for a factor per row.
     pub fn mma_properties(self) -> MmaProperties {
         let (plane_size, duplication_ab) = match self {
             AmdMatrixCore::Wmma(AmdWmma::Rdna3) => (32, 2),
@@ -83,12 +88,16 @@ impl AmdMatrixCore {
             AmdMatrixCore::Wmma(AmdWmma::Rdna4) => ContiguousElements::new(contiguous_rdna4),
             AmdMatrixCore::Mfma(_) => ContiguousElements::new(contiguous_cdna),
         };
+        let register_layout_acc = match self {
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4) => MatrixLayout::RowMajor,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => MatrixLayout::ColMajor,
+        };
         MmaProperties {
             register_size_bits: REGISTER_BITS,
             const_plane_size: plane_size,
             register_layout_a: MatrixLayout::RowMajor,
             register_layout_b: MatrixLayout::ColMajor,
-            register_layout_acc: MatrixLayout::ColMajor,
+            register_layout_acc,
             register_duplication_a: duplication_ab,
             register_duplication_b: duplication_ab,
             register_duplication_acc: 1,

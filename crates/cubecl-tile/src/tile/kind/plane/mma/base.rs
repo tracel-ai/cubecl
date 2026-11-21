@@ -1391,9 +1391,10 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
 /// contraction, each of them `m` high and an equal share of `k` wide: for 16-bit operands the
 /// manual-mma layouts put an accumulator's cell `e` where the operand's cell `e` of the same
 /// columns is, and the operand holds its columns' shares one after another, so a product
-/// contracting its own output reads it without moving a cell between units. A run of one is an
-/// accumulator as deep as it is wide; a longer run is what lets the product contract on an
-/// instruction deeper than the accumulators are wide.
+/// contracting its own output reads it without moving a cell between units, whatever widths the
+/// two group their cells in (RDNA4 holds an accumulator's row a cell a vector, its `A` the same
+/// row in one vector). A run of one is an accumulator as deep as it is wide; a longer run is
+/// what lets the product contract on an instruction deeper than the accumulators are wide.
 ///
 /// An 8-bit `A` holds twice an accumulator vector's cells in each of its vectors, along one row
 /// as the accumulator's are: each holds two accumulators' vectors of the same row side by side,
@@ -1435,12 +1436,14 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         "accumulators_as_a: an accumulator's cells sit along the A operand's rows for 16- and \
          8-bit operands; a {bytes}-byte operand's A lays them otherwise"
     ));
-    // Accumulator vectors one `A` vector holds side by side, on the same row. The 8-bit placement,
-    // and the order its `B` reads its rows in ([`key_row`]), are the `mma.sync` layouts': two
-    // accumulator vectors a unit, a row each, and four `A` vectors, rows alternating.
+    // Accumulator vectors one `A` vector holds side by side, on the same row. A 16-bit `A` holds
+    // the cells in the accumulators' order. The 8-bit placement, and the order its `B` reads its
+    // rows in ([`key_row`]), are the `mma.sync` layouts': two accumulator vectors a unit, a row
+    // each, and four `A` vectors, rows alternating.
     let side_by_side = comptime!(a_width / acc_width);
+    let in_order = comptime!(side_by_side == 1 || bytes == 2);
     comptime!(assert!(
-        side_by_side == 1 || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
+        in_order || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
         "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \
          {acc_regs} vectors of {acc_width} is laid out unlike the `mma.sync` layouts its rows \
          are placed for"
@@ -1474,10 +1477,16 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         for i in 0..acc_regs {
             #[unroll]
             for e in 0..acc_width {
-                let (register, slot) = comptime!((
-                    i + acc_regs * (j / side_by_side),
-                    acc_width * (j % side_by_side) + e
-                ));
+                let (register, slot) = comptime!(match in_order {
+                    true => {
+                        let cell = (j * acc_regs + i) * acc_width + e;
+                        (cell / a_width, cell % a_width)
+                    }
+                    false => (
+                        i + acc_regs * (j / side_by_side),
+                        acc_width * (j % side_by_side) + e,
+                    ),
+                });
                 let mut vector = registers[register];
                 vector.insert(slot, acc[i].extract(e));
                 registers[register] = vector;

@@ -126,6 +126,18 @@ impl WmmaForm {
             .collect()
     }
 
+    /// The form multiplying B by A where this one multiplies A by B.
+    fn swapped(self) -> Self {
+        match self {
+            WmmaForm::Half { .. } => self,
+            WmmaForm::Fp8 { a, b } => WmmaForm::Fp8 { a: b, b: a },
+            WmmaForm::Int8 { a_signed, b_signed } => WmmaForm::Int8 {
+                a_signed: b_signed,
+                b_signed: a_signed,
+            },
+        }
+    }
+
     /// The intrinsic's name up to its overloaded types.
     fn intrinsic(&self) -> String {
         let shape = format!("{INSTRUCTION_M}x{INSTRUCTION_N}x{INSTRUCTION_K}");
@@ -335,7 +347,7 @@ fn element_index(
     let along = along(ctx, rw, matrix, step, lane);
     let across = lane.in_row;
 
-    if is_strided(matrix.ident, layout) {
+    if is_strided(ctx.matrix_core(), matrix.ident, layout) {
         let scaled = mul(ctx, rw, along, stride);
         add(ctx, rw, scaled, across)
     } else {
@@ -344,13 +356,24 @@ fn element_index(
     }
 }
 
-fn is_strided(ident: MatrixIdent, layout: MatrixLayout) -> bool {
-    matches!(
-        (ident, layout),
-        (MatrixIdent::A, MatrixLayout::ColMajor)
-            | (MatrixIdent::B, MatrixLayout::RowMajor)
-            | (MatrixIdent::Accumulator, MatrixLayout::RowMajor)
-    )
+/// Whether a lane's place in its row of 16 lanes names the row of the matrix it holds, its run
+/// of elements then lying along that row; otherwise it names a column. RDNA4's accumulator is
+/// held as A is, since `emit_wmma` runs the instruction on it transposed.
+fn lane_names_row(core: AmdMatrixCore, ident: MatrixIdent) -> bool {
+    match ident {
+        MatrixIdent::A => true,
+        MatrixIdent::B => false,
+        MatrixIdent::Accumulator => core == AmdMatrixCore::Wmma(AmdWmma::Rdna4),
+    }
+}
+
+/// Whether a lane's run of elements steps by the stride in memory laid out as `layout`.
+fn is_strided(core: AmdMatrixCore, ident: MatrixIdent, layout: MatrixLayout) -> bool {
+    let run_layout = match lane_names_row(core, ident) {
+        true => MatrixLayout::ColMajor,
+        false => MatrixLayout::RowMajor,
+    };
+    layout == run_layout
 }
 
 /// Vector access requires consecutive elements in both memory and registers.
@@ -360,7 +383,7 @@ fn fragment_is_contiguous(
     layout: MatrixLayout,
     step: usize,
 ) -> bool {
-    if step != 1 || is_strided(matrix.ident, layout) {
+    if step != 1 || is_strided(core, matrix.ident, layout) {
         return false;
     }
     match matrix.ident {
@@ -628,6 +651,10 @@ impl MatrixForm {
 /// A deeper tile is cut into consecutive slices of each lane's fragment. On RDNA4 a lane holds
 /// its half's run of `k`, so a slice pairs `k` from both halves the instruction would not, but A
 /// and B are sliced alike and the products summed are the same.
+///
+/// On RDNA4, A and B hold their registers alike, so the instruction is given B as its A and A as
+/// its B: it computes the transposed product, which leaves each lane one row of the accumulator,
+/// as A holds it (see `AmdMatrixCore::mma_properties`).
 fn emit_wmma(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -637,6 +664,10 @@ fn emit_wmma(
     cd_ty: TypeHandle,
 ) -> Option<Value> {
     let steps = instruction_steps(shape, INSTRUCTION_K)?;
+    let (form, a_val, b_val) = match ctx.matrix_core() {
+        AmdMatrixCore::Wmma(AmdWmma::Rdna4) => (form.swapped(), b_val, a_val),
+        AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => (form, a_val, b_val),
+    };
     let slice_width = ctx.matrix_core().frag_ab_elems(INSTRUCTION_K);
 
     let fragment_cd_ty = cd_ty;
@@ -828,8 +859,7 @@ fn axis_index(
     let lane = LanePosition::of(ctx, rw, lane);
     let along = along(ctx, rw, matrix, i, lane);
 
-    let lane_names_row = matrix.ident == MatrixIdent::A;
-    match (axis, lane_names_row) {
+    match (axis, lane_names_row(ctx.matrix_core(), matrix.ident)) {
         (Axis::Row, true) | (Axis::Col, false) => lane.in_row,
         (Axis::Row, false) | (Axis::Col, true) => along,
     }
@@ -1031,9 +1061,29 @@ mod tests {
         use MatrixIdent::{A, Accumulator, B};
         use MatrixLayout::{ColMajor, RowMajor};
 
-        assert!(is_strided(A, ColMajor) && !is_strided(A, RowMajor));
-        assert!(is_strided(B, RowMajor) && !is_strided(B, ColMajor));
-        assert!(is_strided(Accumulator, RowMajor) && !is_strided(Accumulator, ColMajor));
+        let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+        let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+
+        assert!(is_strided(rdna3, A, ColMajor) && !is_strided(rdna3, A, RowMajor));
+        assert!(is_strided(rdna3, B, RowMajor) && !is_strided(rdna3, B, ColMajor));
+        assert!(is_strided(rdna3, Accumulator, RowMajor));
+        assert!(!is_strided(rdna3, Accumulator, ColMajor));
+    }
+
+    #[test]
+    fn an_rdna4_accumulator_is_held_along_its_rows() {
+        let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+
+        assert!(is_strided(
+            rdna4,
+            MatrixIdent::Accumulator,
+            MatrixLayout::ColMajor
+        ));
+        assert!(!is_strided(
+            rdna4,
+            MatrixIdent::Accumulator,
+            MatrixLayout::RowMajor
+        ));
     }
 
     #[test]
@@ -1066,13 +1116,13 @@ mod tests {
         assert!(fragment_is_contiguous(
             AmdMatrixCore::Wmma(AmdWmma::Rdna4),
             &acc32,
-            MatrixLayout::ColMajor,
+            MatrixLayout::RowMajor,
             1
         ));
         assert!(!fragment_is_contiguous(
             AmdMatrixCore::Wmma(AmdWmma::Rdna4),
             &acc16,
-            MatrixLayout::ColMajor,
+            MatrixLayout::RowMajor,
             2
         ));
     }
