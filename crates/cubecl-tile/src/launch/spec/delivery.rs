@@ -8,7 +8,7 @@
 use cubecl::ir::{DeviceProperties, OpaqueType};
 
 use crate::stage::{ASYNC_PER_UNIT, Prefetch, SYNC_PER_UNIT, TMA};
-use crate::{Decline, Rendezvous, Space};
+use crate::{Boundary, Decline, Rendezvous, Space};
 
 /// The engine that moves an operand's bytes into a stage filled from it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
@@ -146,6 +146,17 @@ impl Delivery {
         }
     }
 
+    /// Whether this delivery fills a stage from an operand whose edge reads as `boundary` says: an
+    /// engine moving memory to memory fills past the edge with zero, never a monoid's identity.
+    pub fn reads_edge(self, boundary: Boundary) -> Result<(), Decline> {
+        match (self.route(), boundary) {
+            (Route::MemoryToMemory, Boundary::Identity(_)) => {
+                Err(Decline::IdentityEdgePastDelivery(self))
+            }
+            (Route::Registers, _) | (_, Boundary::Zero | Boundary::Clamp) => Ok(()),
+        }
+    }
+
     /// Whether this delivery moves lines `bits` long whole.
     pub fn moves_lines(self, bits: usize) -> Result<(), Decline> {
         match self.engine().line_bytes {
@@ -184,6 +195,7 @@ impl Delivery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Monoid;
     use cubecl::ir::features::Tma;
     use cubecl::ir::{
         DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize, features::Features,
@@ -290,6 +302,21 @@ mod tests {
                 delivery.holds(Prefetch::InRegisters),
                 Err(Decline::PrefetchPastDelivery(delivery))
             );
+        }
+    }
+
+    /// A stage filled through the registers reads the identity past the edge as the operand does;
+    /// an engine moving memory to memory can only zero it.
+    #[test]
+    fn an_identity_edge_is_filled_only_through_the_registers() {
+        let identity = Boundary::Identity(Monoid::Max);
+        assert_eq!(Delivery::SyncPerUnit.reads_edge(identity), Ok(()));
+        for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
+            assert_eq!(
+                delivery.reads_edge(identity),
+                Err(Decline::IdentityEdgePastDelivery(delivery))
+            );
+            assert_eq!(delivery.reads_edge(Boundary::Zero), Ok(()));
         }
     }
 
