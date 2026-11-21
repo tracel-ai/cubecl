@@ -177,13 +177,27 @@ impl PlaneTile {
     /// already, as [`mul_along`](Self::mul_along) does.
     pub(crate) fn mul_every_row<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
         match self {
-            PlaneTile::Mma(fragment) => {
-                let mut fragment = fragment.clone();
-                fragment.mul_every_row(factors, first);
-            }
+            PlaneTile::Mma(fragment) => self.mul_along(&fragment.held_rows(factors, first), 0usize),
             PlaneTile::Registers(_) | PlaneTile::Cmma(_) | PlaneTile::Wgmma(_) => {
                 self.mul_along(factors, first)
             }
+        }
+    }
+
+    /// The factors of the rows this tile's unit holds, from `factors` holding every row from
+    /// `first` on, as [`mul_along`](Self::mul_along) reads them: a manual-mma fragment's own rows
+    /// ([`MmaData::held_rows`]).
+    pub(crate) fn held_rows<T: Numeric>(
+        &self,
+        factors: &Array<T>,
+        #[comptime] first: usize,
+    ) -> Array<T> {
+        match self {
+            PlaneTile::Mma(fragment) => fragment.held_rows(factors, first),
+            PlaneTile::Registers(_) | PlaneTile::Cmma(_) | PlaneTile::Wgmma(_) => panic!(
+                "PlaneTile::held_rows: only a manual-mma fragment holds rows of its own; any other \
+                 tile indexes every row"
+            ),
         }
     }
 
@@ -634,20 +648,23 @@ impl PlanePartition {
     }
 
     /// `self[i, :] *= factors[i]` for every row `i` of the whole grid, `factors` holding every row
-    /// in every unit ([`PlaneTile::mul_every_row`]); a scratch holding the whole grid bounces it
-    /// as [`mul_along`](Self::mul_along) does.
+    /// in every unit: a grid of manual-mma fragments picks each unit's rows once for every row of
+    /// tiles ([`PlaneTile::held_rows`]); any other indexes every row, as
+    /// [`mul_along`](Self::mul_along) does.
     pub(crate) fn mul_every_row<T: Numeric>(&self, factors: &Array<T>) {
-        if comptime!(self.held == Scratch::WholeGrid) {
-            self.mul_along_whole_grid(factors);
-        } else {
+        let mma = self.at(0usize, 0usize).is_mma_accumulator();
+        if comptime!(mma) {
+            // The rows a unit holds are the same in every tile of a row of tiles: picked once.
             #[unroll]
             for mi in 0..self.m_tiles {
+                let held = self.at(mi, 0usize).held_rows(factors, comptime!(mi * self.rows));
                 #[unroll]
                 for ni in 0..self.n_tiles {
-                    self.at(mi, ni)
-                        .mul_every_row(factors, comptime!(mi * self.rows));
+                    self.at(mi, ni).mul_along(&held, 0usize);
                 }
             }
+        } else {
+            self.mul_along(factors);
         }
     }
 

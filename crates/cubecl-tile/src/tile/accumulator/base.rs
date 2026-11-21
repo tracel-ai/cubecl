@@ -403,6 +403,25 @@ impl Tile {
         }
     }
 
+    /// This sum multiplied by the scales it carries, once, and carrying none: what a drain that
+    /// lands it a chunk at a time ([`drained_chunk_into`](Tile::drained_chunk_into)) writes. A
+    /// grid of cmma fragments opened with no scratch is scaled through the smallest.
+    pub(crate) fn with_scales_applied(&self) -> Tile {
+        let levels = self.factor_levels();
+        let unopened = self.scratch_unopened();
+        let scaled = comptime!(levels > 0);
+        let scratch = comptime!(if unopened && scaled {
+            Scratch::OneTile
+        } else {
+            Scratch::None
+        });
+        let mut sum = self.clone().with_scratch(scratch).unscaled();
+        if scaled {
+            sum.scale_by::<f32>(self.factor.whole());
+        }
+        sum
+    }
+
     /// [`drained_into`](Tile::drained_into) for the fragments of chunk `turn` alone, of
     /// `chunks` the fragment grid is dealt into by place: what one writer of a cyclic schedule
     /// lands in one round, each fragment drained in exactly one of the `chunks` rounds. It reaches
