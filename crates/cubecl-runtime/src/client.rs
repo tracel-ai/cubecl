@@ -1822,17 +1822,21 @@ impl Client {
     /// work's output, and the recorded run places it on room no other graph of the stream
     /// writes, so the output outlives every replay but its own graph's.
     ///
-    /// `work` must therefore allocate the same buffers, and keep the same ones, on every run,
-    /// and must not read the device: a planning run's launches never ran. For the same reason a
-    /// tune first met in a planning run measures its candidates on inputs nothing wrote, so a
-    /// kernel whose speed depends on its data is better tuned before the capture. A temporary
+    /// `work` must therefore keep the same buffers on every run, allocated in the same order.
+    /// Its temporaries may differ from run to run, as a framework's do when it writes in place
+    /// into a buffer only while nothing else holds it: they sit on room every graph of the
+    /// stream overwrites, so which ones a run allocates is its own business.
+    ///
+    /// `work` must not read the device either: a planning run's launches never ran. For the same
+    /// reason a tune first met in a planning run measures its candidates on inputs nothing wrote,
+    /// so a kernel whose speed depends on its data is better tuned before the capture. A temporary
     /// still held when a run returns, as a lazily released handle is, counts as an output: it
     /// takes room of its own rather than the shared room, which is safe and only costs memory.
     ///
     /// # Errors
     ///
     /// When the backend has no graph support, a capture is already under way on the stream,
-    /// the recorded run allocated otherwise than the last planning run, or anything the window
+    /// the recorded run kept a buffer the last planning run did not, or anything the window
     /// could not record (see [`start_capture`](Self::start_capture)). The capture this call
     /// prepared is over either way, and so it is when `work` panics: left prepared, the stream
     /// would discard every launch that follows.

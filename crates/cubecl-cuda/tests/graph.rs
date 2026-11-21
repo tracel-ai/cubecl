@@ -391,3 +391,10 @@ fn cuda_graph_input_written_between_runs_survives_another_graphs_replay() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::an_input_written_between_runs_survives_another_graphs_replay::<CudaRuntime>();
 }
+
+/// See [`graph_sharing::a_recording_allocating_other_temporaries_than_planned_seals`].
+#[test]
+fn cuda_graph_recording_allocating_other_temporaries_than_planned_seals() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_recording_allocating_other_temporaries_than_planned_seals::<CudaRuntime>();
+}
