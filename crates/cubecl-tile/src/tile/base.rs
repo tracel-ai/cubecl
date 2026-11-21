@@ -1841,7 +1841,6 @@ impl Tile {
 
     /// Where the value at `coords` sits in the load holding it: its place counted across every
     /// axis the load spans ([`value_in_line`](Tile::value_in_line)).
-    #[allow(dead_code)] // Reached through its expand, from `value_in_line` and `scale_in_word`.
     fn position_in_load(&self, coords: &Coords<u32>) -> u32 {
         let space = comptime!(self.place.space.clone());
         let rank = space.rank();
@@ -1909,20 +1908,10 @@ impl Tile {
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
-        let rank = space.rank();
         let load = self.vector_tile();
         let width = comptime!(load.values());
         let packing = self.packing();
-        let mut position = 0u32.runtime();
-        #[unroll]
-        for p in 0..rank {
-            let dimension = space.dimension_at(p);
-            let extent = comptime!(load.extent_along(dimension) as u32);
-            if extent > 1 {
-                let step = comptime!(load.step_along(dimension) as u32);
-                position += coords.at(p).remainder(extent).times(step);
-            }
-        }
+        let position = self.position_in_load(coords);
         match comptime!(packing) {
             Packing::Plain | Packing::Words { .. } => {
                 let size!(W) = width;

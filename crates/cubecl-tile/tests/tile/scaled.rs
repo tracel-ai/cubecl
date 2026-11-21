@@ -2193,6 +2193,19 @@ enum TileScales {
     F32,
     /// `ue4m3` bytes, four to a word: what NVFP4 carries.
     Ue4m3,
+    /// `ue8m0` bytes, four to a word: what MXFP4 carries, a power of two each.
+    Ue8m0,
+}
+
+impl TileScales {
+    /// Whether these scales are packed words, which a decoding fill holds as stored across a
+    /// contraction.
+    fn in_words(self) -> bool {
+        match self {
+            TileScales::F32 => false,
+            TileScales::Ue4m3 | TileScales::Ue8m0 => true,
+        }
+    }
 }
 
 /// A weight stored in tile order, with its activation and the host's view of both.
@@ -2249,6 +2262,15 @@ impl TileOrdered {
             .map(|i| ((i % 8) + (i / 8) + (i / 64)) as f32 % 8.0 / 2.0 + 0.5)
             .collect();
         TileOrdered { words, s, ..this }
+    }
+
+    /// These values under scales a power of two each, from 0.25 to 4, which `ue8m0` holds
+    /// exactly, still different between neighbouring columns and neighbouring tiles.
+    fn under_powers_of_two(self) -> Self {
+        let s = (0..self.s.len())
+            .map(|i| 2f32.powi(((i % 5) + (i / 16)) as i32 % 5 - 2))
+            .collect();
+        Self { s, ..self }
     }
 
     fn depth(&self) -> usize {
@@ -2393,15 +2415,23 @@ impl TileOrdered {
                     .build()
                     .unwrap()
             }
-            TileScales::Ue4m3 => {
+            TileScales::Ue4m3 | TileScales::Ue8m0 => {
                 let per_word = 4;
+                let byte = |v: f32| match scales {
+                    TileScales::Ue8m0 => (v.log2().round() as i32 + 127) as u32,
+                    _ => e4m3::from_f32(v).to_bits() as u32,
+                };
+                let field = match scales {
+                    TileScales::Ue8m0 => ScaleDtype::UE8M0,
+                    _ => ScaleDtype::UE4M3,
+                };
                 let bytes: Vec<u32> = self
                     .s
                     .chunks(per_word)
                     .map(|word| {
-                        word.iter().enumerate().fold(0u32, |acc, (j, &v)| {
-                            acc | ((e4m3::from_f32(v).to_bits() as u32) << (j * 8))
-                        })
+                        word.iter()
+                            .enumerate()
+                            .fold(0u32, |acc, (j, &v)| acc | (byte(v) << (j * 8)))
                     })
                     .collect();
                 let s_t = TensorHandle::new_contiguous(
@@ -2415,7 +2445,7 @@ impl TileOrdered {
                 launcher
                     .arg(binding, u32::elem_type_native())
                     .gathered(dimensions)
-                    .packed(Field::of_scale(ScaleDtype::UE4M3))
+                    .packed(Field::of_scale(field))
                     .vectorize(served)
                     .build()
                     .unwrap()
@@ -2902,6 +2932,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
     #[comptime] storage: StageStorage,
     #[comptime] decoded: ElemType,
     #[comptime] prefetch: Prefetch,
+    #[comptime] in_registers: Option<bool>,
     #[define(A)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -2925,6 +2956,15 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
             1usize,
             comptime!(Some(decoded)),
         );
+        if comptime!(in_registers.is_some()) {
+            // The slots give the same product, so a fallback would pass on the numbers alone.
+            let held = stages.prefetches_in_registers();
+            comptime!(assert_eq!(
+                Some(held),
+                in_registers,
+                "where the stage waits under {prefetch:?}"
+            ));
+        }
         stages.walk(run, prefetch, |slot, stage| {
             let sum_stage = sum.at(stage);
             let scale_stage = scale_cube.at(stage);
@@ -3001,9 +3041,53 @@ fn check_staged_stepped(
     stages: StagesHeld,
     prefetch: Prefetch,
 ) {
-    let (plane_rows, n_tiles, k_tiles, fragment) = (16, 2, 4, 8);
+    check_staged_stepped_over(
+        TileCounts::POWERS_OF_TWO,
+        scales,
+        elem,
+        planes,
+        unpacked,
+        stages,
+        prefetch,
+    );
+}
+
+/// How many tiles of the weight lie along `N` and down `K`.
+#[derive(Clone, Copy, Debug)]
+struct TileCounts {
+    n: usize,
+    k: usize,
+}
+
+impl TileCounts {
+    const POWERS_OF_TWO: Self = Self { n: 2, k: 4 };
+    /// Three of each: three cubes, and a walk of three stages, which no power of two divides.
+    const THREES: Self = Self { n: 3, k: 3 };
+}
+
+/// [`check_staged_stepped`] over a weight of `tiles`. A fill the scales decode and the next stage
+/// asked for in registers holds that stage there wherever the scales are words, which the kernel
+/// asserts.
+fn check_staged_stepped_over(
+    tiles: TileCounts,
+    scales: TileScales,
+    elem: ElemType,
+    planes: PlaneGrid,
+    unpacked: Unpacked,
+    stages: StagesHeld,
+    prefetch: Prefetch,
+) {
+    let (plane_rows, n_tiles, k_tiles, fragment) = (16, tiles.n, tiles.k, 8);
     let rows = plane_rows * planes.rows;
     let w = TileOrdered::new(rows, n_tiles, k_tiles);
+    let w = match scales {
+        TileScales::Ue8m0 => w.under_powers_of_two(),
+        TileScales::F32 | TileScales::Ue4m3 => w,
+    };
+    let in_registers = match (unpacked, prefetch) {
+        (Unpacked::ByTheFill, Prefetch::InRegisters) => Some(scales.in_words()),
+        _ => None,
+    };
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
     if !require_cmma_8x8x8(&client, elem, dtype) {
@@ -3043,12 +3127,44 @@ fn check_staged_stepped(
         stages.storage(fragment),
         elem,
         prefetch,
+        in_registers,
         dtype,
     );
     w.check(
         &client,
         c,
         &format!("staged stepped {scales:?} {elem:?} {unpacked:?} {stages:?} {prefetch:?}"),
+    );
+}
+
+/// MXFP4's `ue8m0` block scales are words as NVFP4's are: the fill holds them across the
+/// contraction and decodes at the store.
+#[test]
+fn a_stage_decoded_out_of_registers_under_e8m0_scales_contracts_as_its_values() {
+    check_staged_stepped(
+        TileScales::Ue8m0,
+        f16::elem_type_native(),
+        PlaneGrid::ONE,
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
+    );
+}
+
+/// Three tiles each way: an odd count of cubes and of stages, the last one no pair's.
+#[test]
+fn a_stage_decoded_out_of_registers_over_three_tiles_each_way_contracts_as_its_values() {
+    check_staged_stepped_over(
+        TileCounts::THREES,
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid {
+            rows: 1,
+            columns: 2,
+        },
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
     );
 }
 

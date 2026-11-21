@@ -170,17 +170,22 @@ impl Tile {
         })
     }
 
-    /// Scalars one unit holds between [`fetch_decoded_from`](Tile::fetch_decoded_from) and
-    /// [`store_decoded`](Tile::store_decoded): each load's words and a scale for every line it
-    /// lands. `None` where [`decoded_fetch_turns`](Tile::decoded_fetch_turns) is.
+    /// 32-bit registers one unit holds between [`fetch_decoded_from`](Tile::fetch_decoded_from)
+    /// and [`store_decoded`](Tile::store_decoded) ([`Prefetch::decoded_registers`]). `None` where
+    /// [`decoded_fetch_turns`](Tile::decoded_fetch_turns) is.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
-    pub(crate) fn decoded_fetched_scalars(&self, src: &Tile) -> comptime_type!(Option<usize>) {
+    pub(crate) fn decoded_fetched_registers(&self, src: &Tile) -> comptime_type!(Option<usize>) {
         let turns = self.decoded_fetch_turns(src);
         let packing = src.packing();
         let (load, lands) = (src.vector_tile(), self.vector_tile());
         comptime!(turns.map(|turns| {
-            let (sw, vw) = (load.values(), lands.values());
-            turns * (packing.physical(sw) + sw / vw)
+            let bits = match packing {
+                Packing::Packed { field } => field.size_bits(),
+                Packing::Plain | Packing::Words { .. } => {
+                    unreachable!("Tile::decoded_fetched_registers: a decoding fetch is packed")
+                }
+            };
+            Prefetch::decoded_registers(turns, load.values(), bits, lands.values())
         }))
     }
 

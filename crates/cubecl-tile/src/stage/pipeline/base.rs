@@ -253,14 +253,18 @@ impl Tile {
         })
     }
 
-    /// Scalars one unit holds between the fetch and the store of this stage's fill from `src`.
+    /// 32-bit registers one unit holds between the fetch and the store of this stage's fill from
+    /// `src`, counted as [`Prefetch`] counts them for a caller that plans before expanding.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
-    pub(crate) fn register_fetched_scalars(&self, src: &Tile) -> comptime_type!(Option<usize>) {
+    pub(crate) fn register_fetched_registers(&self, src: &Tile) -> comptime_type!(Option<usize>) {
         let fill = self.register_fetch(src);
         let straight = self.fetched_scalars();
-        let decoded = self.decoded_fetched_scalars(src);
+        let width = self.vector_size();
+        let decoded = self.decoded_fetched_registers(src);
         comptime!(match fill {
-            Some(FetchedFill::Straight) => straight,
+            Some(FetchedFill::Straight) => straight.map(|scalars| {
+                Prefetch::straight_registers(scalars / width, width, src.element.size_bits())
+            }),
             Some(FetchedFill::Decoded) => decoded,
             None => None,
         })
@@ -342,8 +346,14 @@ impl Stages<OperandPair> {
         let rhs_beside = self.sources.rhs.scales_beside();
         let lhs_delivery = self.sources.lhs.delivery();
         let rhs_delivery = self.sources.rhs.delivery();
-        let lhs_scalars = staged.data.lhs.register_fetched_scalars(&self.sources.lhs);
-        let rhs_scalars = staged.data.rhs.register_fetched_scalars(&self.sources.rhs);
+        let lhs_registers = staged
+            .data
+            .lhs
+            .register_fetched_registers(&self.sources.lhs);
+        let rhs_registers = staged
+            .data
+            .rhs
+            .register_fetched_registers(&self.sources.rhs);
         comptime!(
             !fixed
                 && !lhs_beside
@@ -352,7 +362,10 @@ impl Stages<OperandPair> {
                 && self.depth <= 2
                 && lhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
-                && matches!((lhs_scalars, rhs_scalars), (Some(l), Some(r)) if Prefetch::fits(l + r))
+                && matches!(
+                    (lhs_registers, rhs_registers),
+                    (Some(l), Some(r)) if Prefetch::fits(l + r)
+                )
         )
     }
 
