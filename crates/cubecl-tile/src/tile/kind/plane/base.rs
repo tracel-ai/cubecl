@@ -171,6 +171,22 @@ impl PlaneTile {
         }
     }
 
+    /// `self[i, :] *= factors[first + i]` for every row `i` of the tile, `factors` holding every
+    /// row in every unit: a manual-mma fragment reads the factor of each row its unit holds cells
+    /// of ([`MmaData::mul_every_row`]); a register block and a cmma fragment index every row
+    /// already, as [`mul_along`](Self::mul_along) does.
+    pub(crate) fn mul_every_row<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
+        match self {
+            PlaneTile::Mma(fragment) => {
+                let mut fragment = fragment.clone();
+                fragment.mul_every_row(factors, first);
+            }
+            PlaneTile::Registers(_) | PlaneTile::Cmma(_) | PlaneTile::Wgmma(_) => {
+                self.mul_along(factors, first)
+            }
+        }
+    }
+
     /// This accumulator tile with each cell cast to `E` where its units hold it
     /// ([`MmaData::cast`]). A cmma fragment or a register block is cast as it drains.
     pub(crate) fn cast<T: Numeric, E: Numeric>(&self) -> PlaneTile {
@@ -612,6 +628,24 @@ impl PlanePartition {
                     let tile = self.at(mi, ni);
                     let rows = tile.rows_per_unit::<T>();
                     tile.mul_along(factors, comptime!(mi * rows));
+                }
+            }
+        }
+    }
+
+    /// `self[i, :] *= factors[i]` for every row `i` of the whole grid, `factors` holding every row
+    /// in every unit ([`PlaneTile::mul_every_row`]); a scratch holding the whole grid bounces it
+    /// as [`mul_along`](Self::mul_along) does.
+    pub(crate) fn mul_every_row<T: Numeric>(&self, factors: &Array<T>) {
+        if comptime!(self.held == Scratch::WholeGrid) {
+            self.mul_along_whole_grid(factors);
+        } else {
+            #[unroll]
+            for mi in 0..self.m_tiles {
+                #[unroll]
+                for ni in 0..self.n_tiles {
+                    self.at(mi, ni)
+                        .mul_every_row(factors, comptime!(mi * self.rows));
                 }
             }
         }

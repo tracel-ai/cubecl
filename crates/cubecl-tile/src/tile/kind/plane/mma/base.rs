@@ -650,6 +650,28 @@ impl MmaData {
         }
     }
 
+    /// `self[r, :] *= factors[first + r]` for every row `r` of the fragment, `factors` holding
+    /// every row: each register vector takes the factor of the row
+    /// [`MmaDefinition::position_of_nth`] places it on.
+    pub(crate) fn mul_every_row<E: Numeric>(
+        &mut self,
+        factors: &Array<E>,
+        #[comptime] first: usize,
+    ) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let acc = self.acc_registers_mut::<E>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let (row, _) = def.position_of_nth(
+                UNIT_POS_PLANE,
+                comptime!((i * vector_size) as u32),
+                MatrixIdent::Accumulator,
+            );
+            acc[i] *= Vector::cast_from(factors[first + row as usize]);
+        }
+    }
+
     /// `slots[first + r]` combined under `monoid` with this unit's cells on its row `r`: the
     /// unit's own part of each row, which [`reduce_across_units`](Self::reduce_across_units)
     /// completes.

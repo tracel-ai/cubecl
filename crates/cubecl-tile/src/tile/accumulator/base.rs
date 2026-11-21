@@ -149,23 +149,31 @@ impl Tile {
         rhs: &Tile,
         #[comptime] semiring: Semiring,
     ) -> Tile {
-        let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
-        let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
-        let instruction = comptime!(call.instruction);
-        if comptime!(instruction == Instruction::Wgmma) {
-            comptime!(assert_groups_own_their_box(&self.place));
-        }
-        let vector_size = self.vector_size();
-        accumulator_in::<EA>(
-            &place,
+        self.opened_accumulator::<EA>(lhs, rhs, semiring, comptime!(OpenedBy::Accumulator))
+    }
+
+    /// [`accumulator`](Tile::accumulator) for a sum whose rows are scaled between its products, as
+    /// an online softmax's output is: held where its units scale a row in their registers
+    /// wherever the device offers that at the fragment API's call
+    /// ([`Instruction::for_rescaled_accumulator`](crate::Instruction::for_rescaled_accumulator)).
+    /// Held in the fragment API, it bounces each scale through `scratch`
+    /// ([`with_scratch`](Tile::with_scratch)); held otherwise, it takes none.
+    pub fn rescaled_accumulator<EA: Numeric>(
+        &self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] semiring: Semiring,
+        #[comptime] scratch: Scratch,
+    ) -> Tile {
+        let sum = self.opened_accumulator::<EA>(
             lhs,
-            instruction,
-            vector_size,
-            1usize,
-            comptime!(Accumulation::Contraction(semiring)),
-        )
+            rhs,
+            semiring,
+            comptime!(OpenedBy::RescaledAccumulator),
+        );
+        let instruction = sum.sum_instruction();
+        let bounced = comptime!(instruction == Instruction::Cmma);
+        sum.with_scratch(comptime!(if bounced { scratch } else { Scratch::None }))
     }
 
     /// What this output sums `lhs · rhs` into under `semiring`, at the element `EA`, opened at
@@ -802,10 +810,41 @@ impl Tile {
     }
 }
 
+#[cube]
+impl Tile {
+    /// The sum the planes holding this output open over `lhs · rhs` under `semiring`, at `EA`,
+    /// opened at zero in the instruction the tile layer picks for a sum opened by `opened_by`.
+    fn opened_accumulator<EA: Numeric>(
+        &self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] semiring: Semiring,
+        #[comptime] opened_by: OpenedBy,
+    ) -> Tile {
+        let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
+        let call = plane_call::<EA>(&place, lhs, rhs, opened_by);
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
+        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+        let instruction = comptime!(call.instruction);
+        if comptime!(instruction == Instruction::Wgmma) {
+            comptime!(assert_groups_own_their_box(&self.place));
+        }
+        let vector_size = self.vector_size();
+        accumulator_in::<EA>(
+            &place,
+            lhs,
+            instruction,
+            vector_size,
+            1usize,
+            comptime!(Accumulation::Contraction(semiring)),
+        )
+    }
+}
+
 /// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts
 /// through on the device the kernel compiles for, at the shape of one of its calls, read off the
 /// device and its target as the kernel expands ([`Instruction::for_accumulator`],
-/// [`Instruction::for_stage_accumulator`]).
+/// [`Instruction::for_stage_accumulator`], [`Instruction::for_rescaled_accumulator`]).
 #[cube]
 fn plane_call<EA: Numeric>(
     #[comptime] out: &Placement,
