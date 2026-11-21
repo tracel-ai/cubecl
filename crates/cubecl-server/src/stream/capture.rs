@@ -165,7 +165,8 @@ impl StreamCapture {
 
     /// Note an allocation of `size_bytes` given to `memory` by the logical `stream`, placed as
     /// `placement` says, while that stream captures: the planning runs list theirs to learn
-    /// which are outputs, and the recorded run lists its own to check it allocated as planned.
+    /// which are outputs, and the recorded run lists its own to check it kept no buffer it placed
+    /// as a temporary.
     /// What the recorded run placed as an output is held for the graph it seals into: every
     /// replay writes it whether or not the work kept it, so a slice the work let go must not go
     /// back to the room other graphs' outputs are carved from.
@@ -190,10 +191,10 @@ impl StreamCapture {
         }
     }
 
-    /// Where the next allocation of `size_bytes` goes: while a capture is under way, what the
-    /// last planning run found to be an output at its position is placed off the shared room,
-    /// in the planning runs as in the recording, so the recording lands where the last
-    /// planning did.
+    /// Where the next allocation of `size_bytes` goes: while a capture is under way, one the
+    /// plan matches to an output is placed off the shared room, in the planning runs as in the
+    /// recording, so the recording lands where the last planning did (see
+    /// `AllocationPlanner::place_bytes`).
     ///
     /// Only the capture's own logical `stream` follows the plan, as in
     /// [`allocated`](Self::allocated).
@@ -239,9 +240,9 @@ impl StreamCapture {
         Ok(())
     }
 
-    /// End a planning run, once its deferred frees are reclaimed, and answer whether it
-    /// allocated what the run before it did, the same sizes in the same order with the same
-    /// ones still held: the work has reached its steady state, and the recording can follow it.
+    /// End a planning run, once its deferred frees are reclaimed, and answer whether it kept
+    /// the buffers the run before it kept, the same sizes in the same order: what the recording's
+    /// seal depends on has settled, and the recording can follow it.
     ///
     /// # Errors
     ///
@@ -432,7 +433,9 @@ impl StreamCapture {
     /// state and the recording untouched.
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
-        self.clear();
+        self.clear_window();
+        // A refused recording's allocations stay the plan, for a retry to record at once.
+        self.planner.restart();
         self.planner.start_run();
         Ok(())
     }
@@ -473,12 +476,17 @@ impl StreamCapture {
     }
 
     fn clear(&mut self) {
+        self.clear_window();
+        self.planner.clear();
+    }
+
+    /// Forget everything a window recorded or retained, and keep the plan.
+    fn clear_window(&mut self) {
         self.recorded.clear();
         self.touched.clear();
         self.primed.clear();
         self.retained_host.clear();
         self.retained_peers.clear();
-        self.planner.clear();
         self.retained_outputs.clear();
         self.failed = None;
     }

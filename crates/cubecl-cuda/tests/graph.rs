@@ -392,9 +392,16 @@ fn cuda_graph_input_written_between_runs_survives_another_graphs_replay() {
     graph_sharing::an_input_written_between_runs_survives_another_graphs_replay::<CudaRuntime>();
 }
 
-/// See [`graph_sharing::a_recording_allocating_other_temporaries_than_planned_seals`].
+/// See [`graph_sharing::a_recording_allocating_a_temporary_its_plan_did_not_seals`].
 #[test]
-fn cuda_graph_recording_allocating_other_temporaries_than_planned_seals() {
+fn cuda_graph_recording_allocating_a_temporary_its_plan_did_not_seals() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    graph_sharing::a_recording_allocating_other_temporaries_than_planned_seals::<CudaRuntime>();
+    graph_sharing::a_recording_allocating_a_temporary_its_plan_did_not_seals::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::a_recording_skipping_a_temporary_its_plan_made_seals`].
+#[test]
+fn cuda_graph_recording_skipping_a_temporary_its_plan_made_seals() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_recording_skipping_a_temporary_its_plan_made_seals::<CudaRuntime>();
 }

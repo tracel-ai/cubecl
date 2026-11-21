@@ -932,6 +932,10 @@ pub trait Server:
     /// asks for, since the capture window allocates nothing, and every page the
     /// recording touches is guarded for the graph's lifetime.
     ///
+    /// A capture prepared right after a recording on `stream_id` was refused
+    /// for keeping a buffer it placed as a temporary starts with that
+    /// recording's allocations as its plan, so it may open its window at once.
+    ///
     /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
@@ -939,7 +943,7 @@ pub trait Server:
     }
 
     /// End a planning run of the work a capture on `stream_id` is about to
-    /// record, and answer whether it allocated what the run before it did.
+    /// record, and answer whether it kept the buffers the run before it kept.
     ///
     /// The last run is the recording's plan: what it left allocated is the
     /// work's output, which the recorded run places on room no other graph's
