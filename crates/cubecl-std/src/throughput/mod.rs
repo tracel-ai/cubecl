@@ -1,5 +1,6 @@
 mod base;
 mod launch;
+mod link;
 mod operands;
 mod pooling;
 mod runners;
@@ -8,6 +9,7 @@ mod workers;
 
 pub use base::*;
 pub use launch::*;
+pub use link::*;
 pub use runners::*;
 
 use operands::{Arithmetic, CooperativeMatrix};

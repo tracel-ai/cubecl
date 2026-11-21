@@ -82,7 +82,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
             );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = client.profile(move || self.execute(inputs), &self.name);
+        let profiled = client.profile(move || self.race(inputs), &self.name);
 
         match profiled {
             Ok((Ok(_), duration)) => Ok(duration),
@@ -155,7 +155,7 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
 
     for _ in 0..num_warmup {
         let inputs = inputs.clone();
-        let profiled = client.profile(move || operation.execute(inputs), &operation.name);
+        let profiled = client.profile(move || operation.race(inputs), &operation.name);
 
         match profiled {
             // The tunable rejected its own configuration, which it will do identically on

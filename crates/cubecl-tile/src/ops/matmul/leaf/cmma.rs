@@ -16,10 +16,10 @@ impl CmmaData {
         &self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
-        let a_read = comptime!(FragmentRead::new(Side::Lhs, &lhs.place.space, &out));
-        let b_read = comptime!(FragmentRead::new(Side::Rhs, &rhs.place.space, &out));
+        let a_read = comptime!(FragmentRead::new(Side::Lhs, &lhs.place.space, out));
+        let b_read = comptime!(FragmentRead::new(Side::Rhs, &rhs.place.space, out));
         cmma::execute(
             &lhs.cmma_fragment::<EL>(MatrixIdent::A, a_read),
             &rhs.cmma_fragment::<ER>(MatrixIdent::B, b_read),
@@ -70,7 +70,7 @@ pub(crate) struct FragmentRead {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    /// The window's layout, read off its trailing axis.
+    /// The window's layout, read off its trailing dimension.
     pub layout: MatrixLayout,
     /// What this factor's scales are checked against.
     pub side: Side,
@@ -80,14 +80,14 @@ pub(crate) struct FragmentRead {
 impl FragmentRead {
     /// How the `side` factor spanning `own` is read for a contraction into `out`, from it alone.
     pub(crate) fn new(side: Side, own: &Space, out: &Space) -> Self {
-        let acc_axes = accumulator_axes(side, out, own);
-        let m = acc_axes.rows(out);
-        let n = acc_axes.cols(out);
+        let acc_dimensions = accumulator_dimensions(side, out, own);
+        let m = acc_dimensions.rows(out);
+        let n = acc_dimensions.cols(out);
         // A split contraction is one `k` edge.
         let k = own.contracted_extent(out);
-        // Whether the window's trailing axis is one of the output's, its rows for the lhs and
+        // Whether the window's trailing dimension is one of the output's, its rows for the lhs and
         // its columns for the rhs, or the contracted one: a window is read as it is laid out.
-        let trailing_kept = out.contains(own.axis_at(own.rank() - 1));
+        let trailing_kept = out.contains(own.dimension_at(own.rank() - 1));
         let layout = match (side, trailing_kept) {
             (Side::Lhs, false) | (Side::Rhs, true) => MatrixLayout::RowMajor,
             (Side::Lhs, true) | (Side::Rhs, false) => MatrixLayout::ColMajor,
@@ -113,20 +113,20 @@ impl Tile {
         let packing = self.packing();
         let shared = self.is_shared();
         if comptime!(scaled || !packing.as_stored() || !shared) {
-            let landing = self.landed::<E>(read.side, read.out.clone());
-            landing.load_into(frag, read.out.clone());
+            let landing = self.landed::<E>(read.side, &read.out);
+            landing.load_into(frag, &read.out);
             // The landing is this region's until every unit's load has read it.
             sync_plane();
         } else {
-            // A row is every axis past the last one on the other side of the output, which a
-            // window of several axes a side holds as one run: its stride is that axis's.
+            // A row is every dimension past the last one on the other side of the output, which a
+            // window of several dimensions a side holds as one run: its stride is that dimension's.
             let row = comptime!({
                 let space = &self.place.space;
                 let rank = space.rank();
-                let innermost = read.out.contains(space.axis_at(rank - 1));
+                let innermost = read.out.contains(space.dimension_at(rank - 1));
                 (0..rank)
                     .rev()
-                    .find(|&p| read.out.contains(space.axis_at(p)) != innermost)
+                    .find(|&p| read.out.contains(space.dimension_at(p)) != innermost)
                     .unwrap_or(rank - 2)
             });
             match &self.kind {
@@ -149,7 +149,7 @@ impl Tile {
     pub(crate) fn landed_for<S: Numeric>(
         &self,
         #[comptime] side: Side,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
         #[comptime] instruction: Instruction,
     ) -> Tile {
         let scaled = self.quantized();
@@ -166,28 +166,28 @@ impl Tile {
     pub(crate) fn landed<S: Numeric>(
         &self,
         #[comptime] side: Side,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) -> Tile {
         let space = comptime!(self.place.space.clone());
         let units = self.units();
         let planes = comptime!(plane_windows(&space, &self.place.levels));
-        let (stage, mut window) = Memory::landing::<S>(space.clone(), units, planes);
+        let (stage, mut window) = Memory::landing::<S>(&space, units, planes);
         let landing = Tile::new::<S>(stage.kind, comptime!(self.place.clone()));
 
-        // A load is read whole, a tile of several axes included, and landed a run of its finest
-        // axis at a time, each run under the scale at its own coordinates.
+        // A load is read whole, a tile of several dimensions included, and landed a run of its
+        // finest dimension at a time, each run under the scale at its own coordinates.
         let load = self.vector_tile();
         let (sw, (finest, run)) = comptime!((load.values(), load.extents()[0]));
         let size!(SW) = sw;
         let size!(RUN) = run;
         let view = self.nd_packed::<S, SW>(comptime!(Guard::Checked));
-        let acc_axes = comptime!(accumulator_axes(side, &out, &space));
+        let acc_dimensions = comptime!(accumulator_dimensions(side, out, &space));
         let scales = self.reader(
-            comptime!(MatrixAxes::trailing(&space)),
+            comptime!(MatrixDimensions::trailing(&space)),
             0usize,
             side,
             out.clone(),
-            acc_axes,
+            acc_dimensions,
         );
         let lines = load.count(&space);
         let rank = space.rank();
@@ -208,7 +208,8 @@ impl Tile {
                 #[unroll]
                 for p in 0..rank {
                     at.push(
-                        start.at(p) + comptime!(load.offset_along(offset, space.axis_at(p)) as u32),
+                        start.at(p)
+                            + comptime!(load.offset_along(offset, space.dimension_at(p)) as u32),
                     );
                 }
                 let mut values = Vector::<S, RUN>::empty();
@@ -233,9 +234,9 @@ impl Tile {
 
 #[cube]
 impl Tile {
-    /// This landing loaded into `frag`, dense over the window's axes.
-    pub(crate) fn load_into<E: Numeric>(&self, frag: &mut Matrix<E>, #[comptime] out: Space) {
-        let cols = comptime!(landed_cols(&self.place.space, &out) as u32);
+    /// This landing loaded into `frag`, dense over the window's dimensions.
+    pub(crate) fn load_into<E: Numeric>(&self, frag: &mut Matrix<E>, #[comptime] out: &Space) {
+        let cols = comptime!(landed_cols(&self.place.space, out) as u32);
         match &self.kind {
             TileKind::Memory(m) => {
                 comptime!(assert!(
@@ -253,29 +254,29 @@ impl Tile {
     }
 }
 
-/// The column count of a landed window's matrix: the trailing axes on the innermost axis's side
-/// of the contraction.
+/// The column count of a landed window's matrix: the trailing dimensions on the innermost
+/// dimension's side of the contraction.
 fn landed_cols(window: &Space, out: &Space) -> usize {
     let rank = window.rank();
-    let innermost = out.contains(window.axis_at(rank - 1));
+    let innermost = out.contains(window.dimension_at(rank - 1));
     (0..rank)
         .rev()
-        .take_while(|&p| out.contains(window.axis_at(p)) == innermost)
+        .take_while(|&p| out.contains(window.dimension_at(p)) == innermost)
         .map(|p| window.extent_at(p))
         .product()
 }
 
-/// The accumulator's [`MatrixAxes`] read off one factor alone.
-fn accumulator_axes(side: Side, out: &Space, own: &Space) -> MatrixAxes {
+/// The accumulator's [`MatrixDimensions`] read off one factor alone.
+fn accumulator_dimensions(side: Side, out: &Space, own: &Space) -> MatrixDimensions {
     let mut col_split = out.rank() - 1;
-    let in_columns = |axis: Axis| match side {
-        Side::Lhs => !own.contains(axis),
-        Side::Rhs => own.contains(axis),
+    let in_columns = |dimension: Dimension| match side {
+        Side::Lhs => !own.contains(dimension),
+        Side::Rhs => own.contains(dimension),
     };
-    while col_split > 1 && in_columns(out.axis_at(col_split - 1)) {
+    while col_split > 1 && in_columns(out.dimension_at(col_split - 1)) {
         col_split -= 1;
     }
-    MatrixAxes {
+    MatrixDimensions {
         row_split: col_split - 1,
         col_split,
     }

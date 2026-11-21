@@ -24,7 +24,7 @@ pub(crate) struct TmaData {
     layout: VirtualLayout<CoordsDyn, Sequence<i32>>,
     pos: CoordsDyn,
     pub(crate) bound: CoordsDyn,
-    /// The launch's cube size, `0` when unknown ([`FillUnits::count`](crate::FillUnits)).
+    /// The launch's cube size, `0` when unknown ([`TileSpec::units`](crate::TileSpec)).
     #[cube(comptime)]
     pub(crate) units: usize,
     /// How the values sit in the cells the descriptor moves.
@@ -33,12 +33,22 @@ pub(crate) struct TmaData {
     /// The cells a line of a stage it fills holds ([`TileTensorLaunch::served_wide`]).
     #[cube(comptime)]
     pub(crate) width: usize,
+    /// How the operand's dimensions lie in what the descriptor moves: direct, or a gather's,
+    /// whose stage is the compacted window it reads
+    /// ([`TileTensorLaunch::tensor_map_with_coordinates_through`]).
+    #[cube(comptime)]
+    pub(crate) projection: Projection,
+    /// Whether a box may be stored into the map: one served from a `TileTensor` taken by `&` is
+    /// read-only ([`READ_ONLY`]).
+    #[cube(comptime)]
+    pub(crate) writable: bool,
 }
 
 #[cube]
 impl TmaData {
     /// Wrap a TMA tensor `map`, `layout` landing a position in it, as a `TmaGmem` tile payload,
     /// positioned at the origin.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_tensor_map<T: Numeric>(
         map: TensorMap<T, Tiled>,
         layout: VirtualLayout<CoordsDyn, Sequence<i32>>,
@@ -46,6 +56,8 @@ impl TmaData {
         #[comptime] units: usize,
         #[comptime] packing: Packing,
         #[comptime] width: usize,
+        #[comptime] projection: Projection,
+        #[comptime] writable: bool,
     ) -> TmaData {
         let bound = layout.shape();
         let mut pos = CoordsDyn::new();
@@ -61,11 +73,13 @@ impl TmaData {
             units,
             packing,
             width,
+            projection,
+            writable,
         }
     }
 
-    /// Issue the `tensor_map_load` into `dst` on `barrier` without arriving or waiting.
-    /// Only the electing unit may call it, since it alone declares the transaction count.
+    /// Issue the `tensor_map_load` into `dst` on `barrier` without arriving or waiting; who issues
+    /// it, and when, is the TMA engine's ([`Memory::issue_box`]).
     pub(crate) fn stage_into<T: Numeric>(&self, dst: &mut Memory, barrier: &Shared<Barrier>) {
         // A box lands its rows dense, swizzled by the descriptor where the stage keeps them
         // swizzled; the launch built the descriptor off the same answer
@@ -91,28 +105,13 @@ impl TmaData {
         }
     }
 
-    /// Bulk-copy into shared-memory `dst` and wait, on a local mbarrier.
-    pub(crate) fn load_into<T: Numeric>(&self, dst: &mut Memory) {
-        comptime!(assert!(
-            dst.address == AddressSpace::Shared,
-            "TmaData::load_into: a tensor map bulk-copies into shared memory only"
-        ));
-        let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
-        sync_async_proxy_shared();
-        let expected = select(UNIT_POS == 0, dst.size_bytes::<T>(), 0);
-        if UNIT_POS == 0 {
-            self.stage_into::<T>(dst, &barrier);
-        }
-        let token = barrier.arrive_and_expect_tx(1, expected);
-        barrier.wait(token);
-    }
-
     /// Bulk-copy shared-memory `src` out to this box, once every unit of the cube has written its
     /// share of `src`: every unit fences its writes into the async proxy the engine reads through
     /// and meets the others on a cube barrier, then one unit issues the store and waits until the
     /// engine has read `src`, and the cube meets again, so no unit writes `src` before the engine
     /// is done with it. What lies past the tensor is not written: the descriptor clips the box.
     pub(crate) fn store_from<T: Numeric>(&self, src: &Memory) {
+        comptime!(assert!(self.writable, "TmaData::store_from: {READ_ONLY}"));
         comptime!(assert!(
             src.address == AddressSpace::Shared,
             "TmaData::store_from: a tensor map bulk-copies out of shared memory only"
@@ -143,18 +142,18 @@ impl TmaData {
         sync_cube();
     }
 
-    /// Window down to `step`: advance the global box origin by each axis's tile offset.
+    /// Window down to `step`: advance the global box origin by each dimension's tile offset.
     // The layout is `Copy`, but its expand is an `Arc` that the expansion moves: clone it.
     #[allow(clippy::clone_on_copy)]
-    pub(crate) fn at(&self, step: &Step, #[comptime] space: Space) -> TmaData {
+    pub(crate) fn at(&self, step: &Step, #[comptime] space: &Space) -> TmaData {
         let mut pos = CoordsDyn::new();
 
         #[unroll]
         for p in 0..space.rank() {
-            let axis = space.axis_at(p);
-            match comptime!(step.level.tile(axis)) {
+            let dimension = space.dimension_at(p);
+            match comptime!(step.level.tile(dimension)) {
                 Some(tile) => {
-                    let index = step.coord(axis);
+                    let index = step.coord(dimension);
                     pos.push(self.pos[p] + (index * tile) as u32);
                 }
                 None => pos.push(self.pos[p]),
@@ -169,6 +168,8 @@ impl TmaData {
             units: self.units,
             packing: self.packing,
             width: self.width,
+            projection: comptime!(self.projection.clone()),
+            writable: self.writable,
         }
     }
 }

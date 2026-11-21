@@ -178,7 +178,7 @@ fn stays_ahead<E: Numeric, N: Size>(
 ) -> Vector<bool, N> {
     let elem = elem_type_of::<E>();
     // `value` is not better: the negated compare, so that a NaN `value` is better.
-    let by_order = match comptime!(monoid) {
+    let by_order = match monoid {
         Monoid::Max => kept.greater_equal(&value),
         _ => kept.less_equal(&value),
     };
@@ -237,7 +237,16 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopValues<E, N, K> {
     /// lists are swapped and combined, one unit bit at a time.
     fn across(value: Self, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
-        match comptime!(share) {
+        let hardware = comptime::hardware_properties().comptime();
+        // A singleton plane already holds the entire list and needs no lane communication.
+        let share = comptime!(
+            if hardware.plane_size_min == 1 && hardware.plane_size_max == 1 {
+                UnitShare::Whole
+            } else {
+                share
+            }
+        );
+        match share {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane => {
                 let k = K::value();

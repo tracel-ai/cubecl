@@ -10,7 +10,7 @@ use crate::{
         metadata::LowerInfoPass,
         signature::{
             CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
-            DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
+            DeclareStructTypesPass, DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -315,6 +315,7 @@ where
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.add_pass(DeclareStructTypesPass);
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
         // Some passes insert ops without a location. They get the location of the op before them,
@@ -427,7 +428,9 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+    // Every target converts these, in software where it has no instruction for them: `ue8m0` is
+    // the block scale of MXFP4 and MXFP8, so a device without it refuses both formats.
+    for ty in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
         props.register_type_usage(
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
@@ -443,6 +446,38 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
         props.register_shared_atomic_type_usage(Type::atomic(ty), usage);
+    }
+}
+
+#[cfg(test)]
+mod supported_types_tests {
+    use super::register_supported_types;
+    use cubecl_common::quant::scheme::ScaleDtype;
+    use cubecl_core::{
+        ir::{ElemType, features::TypeUsage},
+        runtime_tests::offline::offline_device_properties,
+    };
+
+    /// A quantized tensor is usable where its block scale is a buffer the device converts, which
+    /// is what burn asks before it packs one. Every device these types are registered for, HIP and
+    /// CUDA before Blackwell included, holds each scale a scheme names.
+    #[test]
+    fn every_block_scale_is_a_buffer_the_device_converts() {
+        let mut properties = offline_device_properties(32);
+        register_supported_types(&mut properties);
+        for scale in [
+            ScaleDtype::F32,
+            ScaleDtype::F16,
+            ScaleDtype::BF16,
+            ScaleDtype::UE8M0,
+            ScaleDtype::UE4M3,
+        ] {
+            let usage = properties.type_usage(ElemType::from_scale_dtype(scale));
+            assert!(
+                usage.is_superset(TypeUsage::Buffer | TypeUsage::Conversion),
+                "{scale:?} scales are not usable: {usage:?}"
+            );
+        }
     }
 }
 
@@ -479,7 +514,7 @@ mod shared_memory_tests {
         let mut first = Shared::<[f32]>::new_slice(256usize);
         first[UNIT_POS as usize] = 1.0;
         sync_cube();
-        match comptime!(freed) {
+        match freed {
             Freed::Synced | Freed::DeclaredBeforeTheBarrier | Freed::Unsynced => unsafe {
                 first.free()
             },

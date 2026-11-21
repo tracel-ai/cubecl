@@ -162,6 +162,18 @@ pub trait AllocationController {
         None
     }
 
+    /// The file the allocation is read from, while it still is: `None` once its content is
+    /// in memory, where it may have been written since, and for every allocation not read
+    /// from a file.
+    ///
+    /// This query must not materialize storage. Its answer is a type only this crate names,
+    /// so only this crate's file allocation answers it.
+    #[cfg(feature = "std")]
+    #[doc(hidden)]
+    fn file(&self) -> Option<crate::bytes::file::FileWindow<'_>> {
+        None
+    }
+
     /// Reads the data from the current allocation controller and copy its content into the provided
     /// buffer.
     ///
@@ -378,6 +390,31 @@ impl Bytes {
             controller: Box::new(controller),
             len: size as usize,
         }
+    }
+
+    /// The `size` bytes of `file`, opened at `path`, read from the open file
+    /// when first used: a file renamed over `path` meanwhile is not the one
+    /// read.
+    #[cfg(native_cache)]
+    pub(crate) fn from_opened_file(
+        file: std::fs::File,
+        path: std::path::PathBuf,
+        size: u64,
+    ) -> Self {
+        let controller = crate::bytes::file::FileAllocationController::opened(file, path, size);
+
+        Self {
+            controller: Box::new(controller),
+            len: size as usize,
+        }
+    }
+
+    /// The file these bytes are read from, while they still are: bytes made
+    /// from a file and not yet read into memory. A reader that understands
+    /// the file opens it in place rather than copy it.
+    #[cfg(native_cache)]
+    pub(crate) fn file(&self) -> Option<crate::bytes::file::FileWindow<'_>> {
+        self.controller.file()
     }
 
     /// Creates bytes from a shared [`bytes::Bytes`] buffer (zero-copy).

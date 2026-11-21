@@ -3,6 +3,7 @@
 use crate::{
     nvptx::{
         address::NvptxSpace,
+        inline_asm::InlineAsm,
         registers::{
             RegisterForm, call_returning_registers, extract_lane, insert_lane, load_fragment,
             poison, store_fragment, vector_bits,
@@ -25,7 +26,7 @@ use cubecl_core::ir::{
     types::{
         LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, StMatrixForm,
         matrix::MatrixType,
-        scalar::{Float4E2M1x2Type, Float8E4M3Type, Float8E8M0Type},
+        scalar::{Float4E2M1x2Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type},
     },
 };
 
@@ -498,6 +499,10 @@ fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterFo
     } else if elem.is_int(ctx) && elem.size_bits(ctx) == 8 {
         let name = if elem.is_signed_int(ctx) { "s8" } else { "u8" };
         Some((name, RegisterForm::Word))
+    } else if elem.deref(ctx).is::<Float8E4M3Type>() {
+        Some(("e4m3", RegisterForm::Word))
+    } else if elem.deref(ctx).is::<Float8E5M2Type>() {
+        Some(("e5m2", RegisterForm::Word))
     } else if elem.is_int(ctx) && elem.size_bits(ctx) == 32 {
         Some(("s32", RegisterForm::Scalar))
     } else {
@@ -505,9 +510,12 @@ fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterFo
     }
 }
 
-/// Type suffixes follow `MMA_SIGNATURE` in LLVM `IntrinsicsNVVM.td`.
+/// Type suffixes follow `MMA_SIGNATURE` in LLVM `IntrinsicsNVVM.td`: an FP8 form is named by its
+/// result, both inputs and its accumulator.
 fn mma_signature(a: &str, b: &str, cd: &str) -> String {
-    if a == "f16" {
+    if is_fp8(a) {
+        format!("{cd}.{a}.{b}.{cd}")
+    } else if a == "f16" {
         format!("{cd}.{cd}")
     } else if a != b {
         format!("{a}.{b}")
@@ -516,10 +524,16 @@ fn mma_signature(a: &str, b: &str, cd: &str) -> String {
     }
 }
 
+/// Whether an `mma` operand's PTX name is an FP8 element's.
+fn is_fp8(name: &str) -> bool {
+    matches!(name, "e4m3" | "e5m2")
+}
+
 #[derive(Debug, Error)]
 #[error(
-    "no `mma` instruction multiplies a {a} A fragment by a {b} B fragment: the floating-point \
-     forms take one element for both, the integer ones any pair of `s8` and `u8`"
+    "no `mma` instruction multiplies a {a} A fragment by a {b} B fragment: the 16-bit and tf32 \
+     forms take one element for both, the integer ones any pair of `s8` and `u8`, the FP8 ones \
+     any pair of `e4m3` and `e5m2`"
 )]
 pub struct MmaOperandsMismatched {
     a: String,
@@ -558,9 +572,10 @@ pub(crate) fn mma_manual(
 
     // The intrinsic is named for A's element alone where both operands share it, so a B of
     // another element would reach instruction selection, which aborts the process rather than
-    // failing the compile.
+    // failing the compile. The integer and the FP8 forms name both, any pairing of their family.
     let bytes = |name: &str| matches!(name, "s8" | "u8");
-    if a_name != b_name && !(bytes(a_name) && bytes(b_name)) {
+    if a_name != b_name && !(bytes(a_name) && bytes(b_name)) && !(is_fp8(a_name) && is_fp8(b_name))
+    {
         return input_err!(
             op.loc(ctx),
             MmaOperandsMismatched {
@@ -722,20 +737,41 @@ pub(crate) fn ld_matrix(
     let factor = op.factor(ctx).0;
     let transpose = op.transpose(ctx).0;
     let form = op.form(ctx).0;
-    if form != LdMatrixForm::M8N8B16 {
-        return input_err!(op.loc(ctx), MatrixMoveFormUnsupported(format!("{form:?}")));
-    }
-
     let (out_vec_ty, _) = registers_as_vector(ctx, operands_info, out_arr);
     let source = NvptxSpace::Shared.cast(ctx, rw, ptr);
     let word = i32_ty(ctx);
-
-    let name = format!(
-        "llvm.nvvm.ldmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",
-        transpose_name(transpose),
-        llvm_mangled_ty(ctx, source.get_type(ctx)),
-    );
-    let regs = call_returning_registers(ctx, rw, &name, vec![word; factor], vec![source]);
+    let regs = match form {
+        LdMatrixForm::M8N8B16 => {
+            let name = format!(
+                "llvm.nvvm.ldmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",
+                transpose_name(transpose),
+                llvm_mangled_ty(ctx, source.get_type(ctx)),
+            );
+            call_returning_registers(ctx, rw, &name, vec![word; factor], vec![source])
+        }
+        // The 16×16 byte matrices of the `sm_120f` family, which PTX reads transposed only and
+        // NVVM has no intrinsic for: inline PTX, two registers a matrix, each unit addressing one
+        // of its rows.
+        LdMatrixForm::M16N16B8 => {
+            let zeros = (0..2 * factor)
+                .map(|_| {
+                    let zero = i32_const_op(ctx, 0);
+                    insert(ctx, rw, &zero)
+                })
+                .collect();
+            // A shared-space address is 32 bits wide, the register PTX names it in.
+            let address = llvm::PtrToIntOp::new(ctx, source, word);
+            let address = insert(ctx, rw, &address);
+            let mut asm = InlineAsm::new(zeros).convergent();
+            let address = asm.input(address);
+            let template = format!(
+                "ldmatrix.sync.aligned.m16n16.x{factor}.trans.shared::cta.b8 {}, [{address}];",
+                asm.tied_operands()
+            );
+            asm.emit(ctx, rw, &template)
+        }
+        _ => return input_err!(op.loc(ctx), MatrixMoveFormUnsupported(format!("{form:?}"))),
+    };
 
     let value = RegisterForm::Word.join(ctx, rw, &regs, out_vec_ty);
     let out_array_ty = registers_array_ty(ctx, operands_info, out_arr);

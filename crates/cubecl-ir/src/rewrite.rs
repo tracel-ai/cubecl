@@ -35,7 +35,7 @@ use pliron::{
 };
 
 use crate::{
-    dialect::BlockPtrExt,
+    dialect::{BlockPtrExt, vector::VectorBroadcastOp},
     interfaces::{CanonicalizeInterface, LowerInterface, SimplifyInterface},
     prelude::*,
 };
@@ -266,7 +266,7 @@ impl MatchRewrite for SimplifyOps {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let dyn_op = op.dyn_op(ctx);
-        let operand_attrs = const_operands(ctx, op);
+        let operand_attrs = splat_operands(ctx, op);
         let simplify = op_cast::<dyn SimplifyInterface>(&*dyn_op).unwrap();
         if let Some(value) = simplify.check_fold(ctx, &operand_attrs) {
             rewriter.replace_operation_with_values(ctx, op, vec![value]);
@@ -283,6 +283,31 @@ pub fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>>
     op.deref(ctx)
         .operands()
         .map(|opd| {
+            Some(
+                opd.defining_op()?
+                    .as_op::<ConstantOp>(ctx)?
+                    .get_attr_builtin_constant_value(ctx)?
+                    .clone(),
+            )
+        })
+        .collect()
+}
+
+/// The constant each operand of `op` holds in every lane: its own constant, or the one a vector
+/// broadcasts. A simplification only ever returns one of the op's own operands, so the scalar
+/// constant of a vector operand is enough to decide it, and a vector kernel simplifies what a
+/// one-lane kernel does.
+fn splat_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
+    op.deref(ctx)
+        .operands()
+        .map(|opd| {
+            let opd = match opd
+                .defining_op()
+                .and_then(|def| def.as_op::<VectorBroadcastOp>(ctx))
+            {
+                Some(broadcast) => broadcast.input(ctx),
+                None => opd,
+            };
             Some(
                 opd.defining_op()?
                     .as_op::<ConstantOp>(ctx)?

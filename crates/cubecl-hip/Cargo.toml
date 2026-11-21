@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-hip"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-hip"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -58,7 +59,7 @@ cubecl-core = { workspace = true, features = [
 ] }
 cubecl-cpp = { workspace = true, features = [
 ] }
-cubecl-hip-sys = { version = "7.14.6085001" }
+cubecl-hip-sys = { version = "7.14.6085002" }
 cubecl-llvm = { workspace = true, features = [
     "std",
     "amdgpu",

@@ -3,8 +3,8 @@
 use cubecl::{prelude::*, unexpanded};
 
 use crate::{
-    Axis, ComputeScope, Count, Coverage, CubeAxis, Level, LevelTable, Region, RegionExpand, Space,
-    Walk,
+    ComputeScope, Count, Coverage, CubeAxis, Dimension, Level, LevelTable, Region, RegionExpand,
+    Space, Walk,
 };
 
 use super::UnitCube;
@@ -109,14 +109,28 @@ impl Iterable for &PartitioningExpand {
 
 impl Partitioning {
     /// `space` cut by `levels`, outermost first. Panics where two levels distribute over one
-    /// scope: a scope's instances take one level's tiles.
+    /// scope: a scope's instances take one level's tiles. Cube levels are the exception where
+    /// they ride different dimensions of the grid ([`Levels::cubes`](crate::Levels::cubes)): a
+    /// cube takes one tile of each.
     pub fn new(space: Space, levels: Vec<Level>) -> Self {
+        let cube_axes = |level: &Level| -> Vec<CubeAxis> {
+            level
+                .dimensions()
+                .into_iter()
+                .filter_map(|dimension| level.cube_axis(dimension))
+                .collect()
+        };
         for (i, level) in levels.iter().enumerate() {
             if let Some(scope) = level.coverage().scope() {
+                let cubes = Coverage::Distribute(ComputeScope::Cube);
                 assert!(
-                    levels[i + 1..]
-                        .iter()
-                        .all(|other| other.coverage() != level.coverage()),
+                    levels[i + 1..].iter().all(|other| {
+                        other.coverage() != level.coverage()
+                            || (level.coverage() == cubes
+                                && cube_axes(other)
+                                    .iter()
+                                    .all(|cube_axis| !cube_axes(level).contains(cube_axis)))
+                    }),
                     "Partitioning::new: two levels distribute over {scope:?}"
                 );
             }
@@ -161,8 +175,9 @@ impl Partitioning {
         }
     }
 
-    /// This partitioning's table with a name for each axis; unnamed axes print their index.
-    pub fn table<'a>(&'a self, labels: &'a [(Axis, &'a str)]) -> LevelTable<'a> {
+    /// This partitioning's table with a name for each dimension; unnamed dimensions print their
+    /// index.
+    pub fn table<'a>(&'a self, labels: &'a [(Dimension, &'a str)]) -> LevelTable<'a> {
         LevelTable::new(self, labels)
     }
 
@@ -171,15 +186,15 @@ impl Partitioning {
         self.space.leaf(&self.levels)
     }
 
-    /// Whether some level's edge fails to divide the extent of `axis` handed to it.
-    pub fn overhangs(&self, axis: Axis) -> bool {
+    /// Whether some level's edge fails to divide the extent of `dimension` handed to it.
+    pub fn overhangs(&self, dimension: Dimension) -> bool {
         assert!(
-            !self.space.is_dynamic(axis),
-            "Partitioning::overhangs: axis {axis:?} is Dynamic; ask the concrete space"
+            !self.space.is_dynamic(dimension),
+            "Partitioning::overhangs: dimension {dimension:?} is Dynamic; ask the concrete space"
         );
         let mut space = self.space.clone();
         for level in &self.levels {
-            if level.overhangs(&space, axis) {
+            if level.overhangs(&space, dimension) {
                 return true;
             }
             space = level.child(&space);
@@ -187,31 +202,32 @@ impl Partitioning {
         false
     }
 
-    /// Every axis some tile reaches past the end of, whose accesses are masked, in the space's
+    /// Every dimension some tile reaches past the end of, whose accesses are masked, in the space's
     /// order.
     ///
-    /// One walk down the levels, every axis asked at each: [`overhangs`](Self::overhangs) asked
-    /// axis by axis would cut the space down through every level once per axis, and a launch asks
-    /// this of every operand it binds, on every call.
-    pub(crate) fn overhanging(&self) -> Vec<Axis> {
-        let axes: Vec<Axis> = self.space.axes().collect();
-        for &axis in &axes {
+    /// One walk down the levels, every dimension asked at each: [`overhangs`](Self::overhangs)
+    /// asked dimension by dimension would cut the space down through every level once per
+    /// dimension, and a launch asks this of every operand it binds, on every call.
+    pub(crate) fn overhanging(&self) -> Vec<Dimension> {
+        let dimensions: Vec<Dimension> = self.space.dimensions().collect();
+        for &dimension in &dimensions {
             assert!(
-                !self.space.is_dynamic(axis),
-                "Partitioning::overhanging: axis {axis:?} is Dynamic; ask the concrete space"
+                !self.space.is_dynamic(dimension),
+                "Partitioning::overhanging: dimension {dimension:?} is Dynamic; ask the concrete space"
             );
         }
-        let mut overhanging = vec![false; axes.len()];
+        let mut overhanging = vec![false; dimensions.len()];
         let mut space = self.space.clone();
         for level in &self.levels {
-            for (hangs, &axis) in overhanging.iter_mut().zip(&axes) {
-                *hangs |= level.overhangs(&space, axis);
+            for (hangs, &dimension) in overhanging.iter_mut().zip(&dimensions) {
+                *hangs |= level.overhangs(&space, dimension);
             }
             space = level.child(&space);
         }
-        axes.into_iter()
+        dimensions
+            .into_iter()
             .zip(overhanging)
-            .filter_map(|(axis, hangs)| hangs.then_some(axis))
+            .filter_map(|(dimension, hangs)| hangs.then_some(dimension))
             .collect()
     }
 
@@ -223,28 +239,29 @@ impl Partitioning {
             .find(|level| level.coverage() == coverage)
     }
 
-    /// The tiles along `axis` that a level hands its units in turns, where one does.
-    pub fn distributed(&self, axis: Axis) -> Option<usize> {
+    /// The tiles along `dimension` that a level hands its units in turns, where one does.
+    pub fn distributed(&self, dimension: Dimension) -> Option<usize> {
         self.levels
             .iter()
-            .find_map(|level| match level.count(axis) {
-                Some(Count::Distributed(tiles)) => Some(tiles),
+            .find_map(|level| match level.count(dimension) {
+                Some(Count::InTurns { tiles, .. }) => tiles,
                 _ => None,
             })
     }
 
-    /// The box one of `scope`'s instances covers: the space cut down through the level distributed
-    /// over it. Panics where no level distributes over `scope`.
+    /// The box one of `scope`'s instances covers: the space cut down through the innermost level
+    /// distributed over it. Panics where no level distributes over `scope`.
     pub fn box_of(&self, scope: ComputeScope) -> Space {
         let coverage = Coverage::Distribute(scope);
         let mut space = self.space.clone();
+        let mut held = None;
         for level in &self.levels {
             space = level.child(&space);
             if level.coverage() == coverage {
-                return space;
+                held = Some(space.clone());
             }
         }
-        panic!("Partitioning::box_of: no level distributes over {scope:?}")
+        held.unwrap_or_else(|| panic!("Partitioning::box_of: no level distributes over {scope:?}"))
     }
 
     /// The levels one instance walks, outermost first.
@@ -259,7 +276,7 @@ impl Partitioning {
         match coverage {
             Coverage::Distribute(ComputeScope::Cube) => [CubeAxis::X, CubeAxis::Y, CubeAxis::Z]
                 .into_iter()
-                .map(|dim| self.cube_instances(dim))
+                .map(|cube_axis| self.cube_instances(cube_axis))
                 .product(),
             Coverage::Distribute(ComputeScope::Plane)
             | Coverage::Distribute(ComputeScope::PlaneGroup { .. })
@@ -270,14 +287,14 @@ impl Partitioning {
         }
     }
 
-    /// Cubes on grid dimension `dim`.
-    fn cube_instances(&self, dim: CubeAxis) -> u32 {
+    /// Cubes on grid axis `cube_axis`.
+    fn cube_instances(&self, cube_axis: CubeAxis) -> u32 {
         self.count_instances(
             |level| {
                 level.coverage() == Coverage::Distribute(ComputeScope::Cube)
-                    && (level.shared_by().is_none() || dim == CubeAxis::X)
+                    && (level.shared_by().is_none() || cube_axis == CubeAxis::X)
             },
-            |level, axis| level.cube_axis(axis) == Some(dim),
+            |level, dimension| level.cube_axis(dimension) == Some(cube_axis),
         )
     }
 
@@ -285,23 +302,24 @@ impl Partitioning {
     fn count_instances(
         &self,
         levels: impl Fn(&Level) -> bool,
-        axes: impl Fn(&Level, Axis) -> bool,
+        dimensions: impl Fn(&Level, Dimension) -> bool,
     ) -> u32 {
         let mut total = 1u32;
         let mut space = self.space.clone();
         for level in &self.levels {
-            // A unit of a level spanning the launch takes one tile, and asks for no units of its own.
+            // A unit of a level spanning the launch takes one tile, and asks for no units of its
+            // own.
             if levels(level) && level.unit_cube().is_none() {
                 match level.shared_by() {
                     Some(workers) => total *= workers as u32,
                     None => {
-                        for axis in space.axes() {
-                            if level.distributes(axis) && axes(level, axis) {
-                                total *= match level.count(axis) {
+                        for dimension in space.dimensions() {
+                            if level.distributes(dimension) && dimensions(level, dimension) {
+                                total *= match level.count(dimension) {
                                     Some(Count::AllAcross(workers)) => workers,
                                     // Launch-sized units ask for none of their own.
-                                    Some(Count::Distributed(_)) => 1,
-                                    _ => level.tiles(&space, axis),
+                                    Some(Count::InTurns { .. }) => 1,
+                                    _ => level.tiles(&space, dimension),
                                 } as u32;
                             }
                         }
@@ -376,9 +394,9 @@ mod tests {
     use super::*;
     use crate::Levels;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
     /// A cube grid over `M`/`N`, a `K` walk, then one partition per plane.
     fn staged(fillers: usize) -> Partitioning {
@@ -415,8 +433,11 @@ mod tests {
             plain.instances(Coverage::Distribute(ComputeScope::Plane))
         );
         assert_eq!(filled.units(), plain.units());
-        for dim in [CubeAxis::X, CubeAxis::Y, CubeAxis::Z] {
-            assert_eq!(filled.cube_instances(dim), plain.cube_instances(dim));
+        for cube_axis in [CubeAxis::X, CubeAxis::Y, CubeAxis::Z] {
+            assert_eq!(
+                filled.cube_instances(cube_axis),
+                plain.cube_instances(cube_axis)
+            );
         }
     }
 
@@ -449,10 +470,11 @@ mod tests {
         );
     }
 
-    /// The overhanging axes are the ones some level's tile fails to divide, asked axis by axis,
-    /// in the space's order: an edge at the cube level, one only a plane's box meets, and none.
+    /// The overhanging dimensions are the ones some level's tile fails to divide, asked dimension
+    /// by dimension, in the space's order: an edge at the cube level, one only a plane's box meets,
+    /// and none.
     #[test]
-    fn the_overhanging_axes_are_the_ones_some_level_overhangs() {
+    fn the_overhanging_dimensions_are_the_ones_some_level_overhangs() {
         let partitioning = Partitioning::new(
             Space::new(&[(M, 200), (N, 256), (K, 96)]),
             Levels::leaf(&[(M, 64), (N, 48), (K, 32)])
@@ -461,9 +483,9 @@ mod tests {
                 .cubes(&[M, N])
                 .build(),
         );
-        let asked: Vec<Axis> = [M, N, K]
+        let asked: Vec<Dimension> = [M, N, K]
             .into_iter()
-            .filter(|&axis| partitioning.overhangs(axis))
+            .filter(|&dimension| partitioning.overhangs(dimension))
             .collect();
         assert_eq!(partitioning.overhanging(), asked);
         assert_eq!(asked, vec![M, N]);

@@ -7,7 +7,8 @@
 //!
 //! What a *quantized* operand adds on top is its scales, which are their own tensor and their own
 //! operand; multiplying them in is a verb the kernel writes ([`Tile::mm_scaled`], see
-//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode step's one-row product.
+//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode step's
+//! one-row product.
 //!
 //! Every test packs its own words: values low field first, `32 / bits` of them per word, and a
 //! binding whose shape counts *values* while the packing says how many sit in one stored word.
@@ -20,7 +21,6 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3, e5m2};
 
 use crate::tile::uncut;
-use cubecl_tile::Instruction;
 use cubecl_tile::kind::Field;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
@@ -29,24 +29,25 @@ use half::f16;
 use super::matmul::require_cmma_8x8x8_f32;
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-/// The contraction as the two axes a scale block makes of it: which block, and where inside it.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+/// The contraction as the two dimensions a scale block makes of it: which block, and where inside
+/// it.
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 /// The columns, likewise, where a scale covers a block of them.
-const NB: Axis = Axis(4);
-const NI: Axis = Axis(5);
+const NB: Dimension = Dimension(4);
+const NI: Dimension = Dimension(5);
 
 /// The register block every contraction here runs under.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// A packed operand copied into a plain one: the words unpack at the read, and nothing in the
 /// kernel, the spec or the launch mentions a scale.
 #[cube(launch)]
-fn packed_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
+fn packed_copy(input: &TileTensor<'_>, output: &mut TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.copy_from(&input);
 }
 
@@ -57,18 +58,18 @@ fn packed_matmul(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let w = w.tile(&space).mul(&scale.tile(&space));
     let x = x.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -80,7 +81,7 @@ fn nvfp4_shaped_matmul(
     x: &TileTensor<'_>,
     blocks: &TileTensor<'_>,
     global: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -90,12 +91,12 @@ fn nvfp4_shaped_matmul(
         .mul(&blocks.tile(&space))
         .mul(&global.tile(&space));
     let x = x.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -105,7 +106,8 @@ fn nvfp4_shaped_matmul(
 ///
 /// The only thing standing between this and the format itself is where the block scales are
 /// *stored*: `nvfp4` puts them in `ue4m3`, which needs a device that loads it. Everything else is
-/// here: the decode, two ordered levels, the coarser spanning no axis, 16-blocks on 8-value words.
+/// here: the decode, two ordered levels, the coarser spanning no dimension, 16-blocks on 8-value
+/// words.
 ///
 /// Nothing in the kernel names the format, the block, or the number of levels.
 ///
@@ -212,7 +214,7 @@ fn nvfp4_shaped_decode() {
             g_tensor.binding().into_tensor_arg(),
             dtype,
             1,
-            // The same axes, addressing neither: one value over all their tiles.
+            // The same dimensions, addressing neither: one value over all their tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -245,24 +247,24 @@ fn nvfp4_shaped_decode() {
 
 /// `c = x · (w ⊗ s)` with `w` packed along its columns: the q4 kernel with the *weights on the
 /// right*, which is the shape the shipped quant matmul has. Same verb, same body: the scales are
-/// written on the other factor, and their axes are checked against it.
+/// written on the other factor, and their dimensions are checked against it.
 #[cube(launch)]
 fn packed_matmul_rhs(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&x.at(&region), &w.at(&region));
     }
 }
@@ -275,53 +277,47 @@ fn native_matmul(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let w = w.tile(&space);
     let x = x.tile(&space);
     let w = w.mul(&scale.tile(&space));
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
 
-/// The decode step's one-row product, whole: one row of activations against packed weights read straight from
-/// global memory, their scales beside them, accumulating in a register block opened above the
-/// walk. `N` spreads across cubes, which is all a one-row product has to spread.
+/// The decode step's one-row product, whole: one row of activations against packed weights read
+/// straight from global memory, their scales beside them, accumulating in a register block opened
+/// above the walk. `N` spreads across cubes, which is all a one-row product has to spread.
 #[cube(launch)]
 fn packed_one_row_product<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let values = w.tile(&space);
     let w = values.mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
         // The accumulator lives in registers across the whole walk and drains once.
-        let acc = c.accumulator::<E>(
-            &x,
-            &values,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &values, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -337,18 +333,18 @@ fn packed_matmul_byte_scales(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let w = w.tile(&space).mul(&scale.tile(&space));
     let x = x.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_r.mma(&w.at(&region), &x.at(&region));
     }
 }
@@ -359,27 +355,21 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let values = w.tile(&space);
     let w = values.mul(&scale.tile(&space));
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let values = values.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
-            &x,
-            &values,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &values, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -391,12 +381,11 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
 /// The prefill shape on the tensor cores: a packed weight on the rhs with byte scales, landed
 /// unpacked and scaled by the plane's units, contracted through the plain cmma instruction.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -405,8 +394,8 @@ fn packed_cmma_rhs<E: Numeric>(
     // unchecked.
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&x, &w, Instruction::Cmma, Semiring::SUM_PROD);
+    let c = c.tile_mut(&space);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SumProd);
     // The level cuts the columns into two fragments and walks `K`: unrolled, so each region
     // selects its fragment at comptime.
     for region in space.over(&level).unrolled() {
@@ -419,12 +408,11 @@ fn packed_cmma_rhs<E: Numeric>(
 /// [`packed_cmma_rhs`] with the weight dequantized at `element` by the kernel, before it
 /// contracts.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs_dequantized<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] element: ElemType,
@@ -432,8 +420,8 @@ fn packed_cmma_rhs_dequantized<E: Numeric>(
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space).mul(&scale.tile(&space));
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&x, &w, Instruction::Cmma, Semiring::SUM_PROD);
+    let c = c.tile_mut(&space);
+    let acc = c.accumulator::<E>(&x, &w, Semiring::SumProd);
     for region in space.over(&level).unrolled() {
         let mut acc_r = acc.at(&region);
         let w_r = acc_r.dequantized(&w.at(&region), element);
@@ -1284,8 +1272,8 @@ fn a_packed_rhs_contracts_against_its_scales() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1432,8 +1420,8 @@ fn an_eight_bit_packed_rhs_contracts_against_its_scales() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1583,8 +1571,8 @@ fn several_lines_may_share_one_scale() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1845,8 +1833,8 @@ fn a_packed_decode_runs_in_this_spelling() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -1990,8 +1978,8 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
             dtype,
             1,
             // One scale per `(block of K, block of N)`: `KI` is carried and addressed by
-            // nothing, and the position inside a column block is not an axis of this operand at
-            // all, which leaves its innermost axis one it actually varies over.
+            // nothing, and the position inside a column block is not a dimension of this operand at
+            // all, which leaves its innermost dimension one it actually varies over.
             TileSpec::new(Projection::new(
                 &[KB, KI, NB],
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
@@ -2032,25 +2020,19 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
 fn packed_one_row_product_unscaled<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let x = x.at(&cube);
         let w = w.at(&cube);
         let c = c.at(&cube);
-        let acc = c.accumulator::<E>(
-            &x,
-            &w,
-            comptime!(Instruction::Registers {
-                config: REGISTER_BLOCK
-            }),
-            Semiring::SUM_PROD,
-        );
+        let acc =
+            c.register_accumulator::<E>(&x, &w, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
         for step in cube {
             let mut acc_s = acc.at(&step);
             acc_s.mma(&x.at(&step), &w.at(&step));
@@ -2061,9 +2043,9 @@ fn packed_one_row_product_unscaled<E: Numeric>(
 
 /// A packed rhs drains from a promoted accumulator, exactly as its scaled twin does.
 ///
-/// [`a_packed_decode_runs_in_this_spelling`] runs this block with the scales multiplied in, and
-/// the two reach the same `block::contract` through the same `RegisterData`, so if a packed rhs
-/// were what a promoted accumulator could not drain, the one-row product could not be spelled either.
+/// [`a_packed_decode_runs_in_this_spelling`] runs this block with the scales multiplied in, and the
+/// two reach the same `block::contract` through the same `RegisterData`, so if a packed rhs were
+/// what a promoted accumulator could not drain, the one-row product could not be spelled either.
 ///
 /// What makes both work is the accumulator being declared at the *served* width (`V = factor`); a
 /// narrower one is refused by the width assert, and that is the only thing packing owes here.
@@ -2962,12 +2944,12 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
 fn packed_scaled_copy(
     input: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let input = input.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&input.mul(&scales));
 }
 
@@ -3066,14 +3048,14 @@ fn a_copy_of_scaled_packed_fields_decodes_them() {
     }
 }
 
-/// The axis of a codebook's table: its positions, outside the kernel's space.
-const TBL: Axis = Axis(6);
+/// The dimension of a codebook's table: its positions, outside the kernel's space.
+const TBL: Dimension = Dimension(6);
 
 /// `output = table[input] ⊗ scales`, the input bound under its codebook and its scales.
 #[cube(launch)]
-fn looked_up_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
+fn looked_up_copy(input: &TileTensor<'_>, output: &mut TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&input);
 }
 
@@ -3220,7 +3202,7 @@ fn decoded_lines<N: Size>(
     let at = ABSOLUTE_POS;
     let (row, line) = (at / lines, at % lines);
     if at < output.len() {
-        output[at] = match comptime!(read) {
+        output[at] = match read {
             LineRead::Masked => decoded.read(row, line),
             LineRead::Untested => decoded.read_unchecked(row, line),
         };
@@ -3381,17 +3363,17 @@ fn a_packed_operand_is_bound_at_its_words() {
     );
 }
 
-/// A word-wide float field staged once for a walk at `decoded`, as an attention stages its query,
-/// and the stage copied out as it holds it.
+/// A float field staged once for a walk at `decoded`, as an attention stages its query and its
+/// cache, and the stage copied out as it holds it.
 #[cube(launch)]
-fn word_field_staged_for_a_walk(
+fn field_staged_for_a_walk(
     input: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] decoded: Option<cubecl::ir::ElemType>,
 ) {
     let input = input.tile(&space);
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     let walk = space.walk();
     let first = walk.region(0);
     let source = input.at(&first);
@@ -3402,11 +3384,15 @@ fn word_field_staged_for_a_walk(
     out.copy_cast_from(&staged);
 }
 
-/// `f32` values bound as their words, one a word, staged for a walk at `decoded` and copied out.
-fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> Vec<f32> {
+/// An 8 by 16 tile of `field` values packed into `words`, staged for a walk at `decoded` and
+/// copied out, as wide a line as a word holds values: the width the packed source is served at.
+fn staged_for_a_walk(
+    words: Vec<u32>,
+    field: Field,
+    decoded: Option<cubecl::ir::ElemType>,
+) -> Vec<f32> {
     let (rows, cols) = (8, 16);
     let client = cubecl::test_device().client();
-    let words: Vec<u32> = values.iter().map(|value| value.to_bits()).collect();
     let input = TensorHandle::new_contiguous(
         vec![rows, cols],
         client.create(Bytes::from_elems(words)),
@@ -3427,7 +3413,7 @@ fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> V
         ),
         Form::Static,
     );
-    word_field_staged_for_a_walk::launch(
+    field_staged_for_a_walk::launch(
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
@@ -3435,12 +3421,12 @@ fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> V
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
-            TileSpec::direct(&[M, N]).packed(Field::Float(FloatKind::F32)),
+            TileSpec::direct(&[M, N]).packed(field),
         ),
         TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
-            1,
+            field.per_word(),
             TileSpec::direct(&[M, N]),
         ),
         launcher.partitioning_arg(),
@@ -3465,7 +3451,34 @@ fn a_word_wide_field_staged_for_a_walk_holds_the_element_its_kernel_names() {
         .map(|&value| f16::from_f32(value).to_f32())
         .collect();
     assert_ne!(rounded, values, "the values must be finer than f16 keeps");
+    let words: Vec<u32> = values.iter().map(|value| value.to_bits()).collect();
+    let (field, f16) = (
+        Field::Float(FloatKind::F32),
+        cubecl::ir::ElemType::Float(FloatKind::F16),
+    );
+    assert_eq!(staged_for_a_walk(words.clone(), field, Some(f16)), rounded);
+    assert_eq!(staged_for_a_walk(words, field, None), values);
+}
+
+/// **A stage for a walk holds `e4m3` fields, four a word, as the values its kernel names.** A
+/// matrix fragment loads `e4m3` values at `f16` from a stage of `f16` values, which their fill
+/// decodes, where from a stage of their words it would pick each cell apart.
+#[test]
+fn e4m3_fields_staged_for_a_walk_hold_the_element_their_kernel_names() {
+    let values: Vec<f32> = (0..8 * 16)
+        .map(|i| e4m3::from_f32((i as f32 - 64.0) / 8.0).to_f32())
+        .collect();
+    let words: Vec<u32> = values
+        .chunks(4)
+        .map(|word| {
+            word.iter().enumerate().fold(0u32, |acc, (j, &value)| {
+                acc | (u32::from(e4m3::from_f32(value).to_bits()) << (j * 8))
+            })
+        })
+        .collect();
     let f16 = cubecl::ir::ElemType::Float(FloatKind::F16);
-    assert_eq!(staged_for_a_walk(&values, Some(f16)), rounded);
-    assert_eq!(staged_for_a_walk(&values, None), values);
+    assert_eq!(
+        staged_for_a_walk(words, Field::from(FloatKind::E4M3), Some(f16)),
+        values
+    );
 }

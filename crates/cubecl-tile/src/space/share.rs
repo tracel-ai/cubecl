@@ -2,7 +2,7 @@
 
 use cubecl::prelude::*;
 
-use crate::{Axis, Carrier, ComputeScope, Count, Coverage, Level, Monoid, Space};
+use crate::{Carrier, ComputeScope, Count, Coverage, Dimension, Level, Monoid, Space};
 
 /// What the plane's units each hold of a tile's cells once a units level is distributed.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -13,8 +13,8 @@ pub enum UnitShare {
     Whole,
     /// Every unit holds a partial of the same cell.
     Plane,
-    /// Groups of units share one cell each; `unit_bits` are the unit-index bits the reduced axes
-    /// occupy.
+    /// Groups of units share one cell each; `unit_bits` are the unit-index bits the reduced
+    /// dimensions occupy.
     Group { unit_bits: usize },
 }
 
@@ -28,17 +28,17 @@ impl UnitShare {
         if level.unit_cube().is_some() {
             return UnitShare::Whole;
         }
-        // Innermost first, so `weight` is the axis's stride in the unit index.
+        // Innermost first, so `weight` is the dimension's stride in the unit index.
         let (mut weight, mut unit_bits) = (1usize, 0usize);
-        for axis in level.axes().into_iter().rev() {
-            if let Count::Distributed(_) = level.cut(axis).count {
-                match spanned.contains(axis) {
+        for dimension in level.dimensions().into_iter().rev() {
+            if let Count::InTurns { .. } = level.cut(dimension).count {
+                match spanned.contains(dimension) {
                     true => continue,
                     false => return UnitShare::Plane,
                 }
             }
             let plane_units = level
-                .cut(axis)
+                .cut(dimension)
                 .count
                 .stated()
                 .expect("Level::new: a units level carries stated counts");
@@ -47,10 +47,10 @@ impl UnitShare {
             }
             assert!(
                 plane_units.is_power_of_two(),
-                "UnitShare: {axis:?} rides {plane_units} units, which is not a power of two, so its \
+                "UnitShare: {dimension:?} rides {plane_units} units, which is not a power of two, so its \
                  partials are not a bit range"
             );
-            if !spanned.contains(axis) {
+            if !spanned.contains(dimension) {
                 unit_bits |= (plane_units - 1) * weight;
             }
             weight *= plane_units;
@@ -122,11 +122,14 @@ impl SplitShare {
             | Coverage::Distribute(ComputeScope::PlaneGroup { .. })
             | Coverage::Distribute(ComputeScope::Cube) => {}
         }
-        // A shared flat index over an unspanned axis may cover part of a cell.
+        // A shared flat index over an unspanned dimension may cover part of a cell.
         let split = match level.shared_by() {
-            Some(_) => level.axes().iter().any(|axis| !spanned.contains(*axis)),
-            None => level.axes().into_iter().any(|axis: Axis| {
-                !spanned.contains(axis) && level.instances_along(space, axis) != Some(1)
+            Some(_) => level
+                .dimensions()
+                .iter()
+                .any(|dimension| !spanned.contains(*dimension)),
+            None => level.dimensions().into_iter().any(|dimension: Dimension| {
+                !spanned.contains(dimension) && level.instances_along(space, dimension) != Some(1)
             }),
         };
         match (split, level.coverage()) {
@@ -158,9 +161,9 @@ mod tests {
     use super::*;
     use crate::{Levels, Space};
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
     /// A cube-cut contraction is partial to the output.
     #[test]
@@ -203,9 +206,9 @@ mod tests {
         assert_eq!(SplitShare::new(&level, &space, &space), SplitShare::Whole);
     }
 
-    /// A cube cut of the whole axis is not a split.
+    /// A cube cut of the whole dimension is not a split.
     #[test]
-    fn a_cube_cut_of_the_whole_axis_is_not_a_split() {
+    fn a_cube_cut_of_the_whole_dimension_is_not_a_split() {
         let space = Space::new(&[(M, 4), (N, 4), (K, 8)]);
         let level = Levels::leaf(&[(N, 1), (K, 8)]).cubes(&[N, K]).level();
         assert_eq!(
@@ -214,9 +217,9 @@ mod tests {
         );
     }
 
-    /// A cube cut of an output axis stays whole.
+    /// A cube cut of an output dimension stays whole.
     #[test]
-    fn a_cube_cut_output_axis_stays_whole() {
+    fn a_cube_cut_output_dimension_stays_whole() {
         let space = Space::new(&[(M, 4), (N, 8), (K, 4)]);
         let level = Levels::leaf(&[(N, 4)]).cubes(&[N]).level();
         assert_eq!(

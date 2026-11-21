@@ -105,7 +105,7 @@ pub enum TensorMapSwizzle {
 }
 
 impl From<cubecl_ir::dialect::matrix::WgmmaSwizzle> for TensorMapSwizzle {
-    /// The swizzle that writes a tile the way a warpgroup MMA reads it with `swizzle`.
+    /// The swizzle that writes a tile the way a plane group MMA reads it with `swizzle`.
     fn from(swizzle: cubecl_ir::dialect::matrix::WgmmaSwizzle) -> Self {
         use cubecl_ir::dialect::matrix::WgmmaSwizzle;
         match swizzle {

@@ -127,6 +127,24 @@ is deduplicated by claim — the allocation *and* the byte range — because the
 taint bookkeeping is range-exact, and two tensors carved from one batched
 allocation are two claims, not one.
 
+## A launch that is discarded
+
+A pass that compiles without running — a `ProcessModeOverride` of
+`CompileOnly` or `CompileAndAutotune` — discards its launches, so a kernel
+that fails to compile there has no output to flag: tainting buffers the pass
+deliberately leaves alone would fail unrelated reads. Its failure goes to the
+pass's own `StatisticsCollector` instead, which lists it in `work_failures` —
+the caller that opened the pass asked for it, and holds it for as long as it
+cares. Only a kernel the work launched is listed: an autotune candidate that
+fails is the race's to drop (`LaunchPurpose::Race`), and so is a candidate run
+in place of a pick not decided yet (`LaunchPurpose::Provisional`), which the
+tune drops when it measures. A pass that wants to fail on a kernel the work
+can never run reads that list once its passes close.
+
+`crates/cubecl-core/src/runtime_tests/compile_only_failures.rs` checks both
+sides, from a test binary of its own in each backend, since the override is
+process-wide.
+
 ## What is deliberately absent
 
 **No queue.** A failure is not owed to a later flush. It is on the buffers, and

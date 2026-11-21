@@ -1,5 +1,6 @@
-//! The axis-agnostic tile DSL engine: a [`Space`] cut into [`Level`]s forms a [`Partitioning`],
-//! whose loops hand out [`Region`]s; the [`Launcher`] reads the grid off the same levels.
+//! The dimension-agnostic tile DSL engine: a [`Space`] cut into [`Level`]s forms a
+//! [`Partitioning`], whose loops hand out [`Region`]s; the [`Launcher`] reads the grid off the same
+//! levels.
 
 // `#[cube]` expands to `cubecl::` paths, which the language crate serves.
 extern crate cubecl_core as cubecl;
@@ -60,11 +61,15 @@ pub use launch::arg::tensor::{TileTensor, TileTensorLaunch};
 pub use launch::base::Launcher;
 pub use launch::spec::TileSpec;
 pub use layout::projection::Projection;
+pub use layout::reads::{MicroTile, OperandReads};
 pub use layout::storage::Geometry;
-pub use ops::matmul::instruction::{BlockScaledOperands, Instruction, MmaOperands};
-pub use ops::matmul::register_block::RegisterBlock;
-pub use space::axis::Axis;
+pub use ops::matmul::instruction::{
+    BlockScaledOperands, FragmentSource, Instruction, MmaOperands, ShapedInstruction,
+};
+pub use ops::matmul::software_matmul::SoftwareMatmul;
+pub use ops::matmul::step::{ProductStep, StepCost};
 pub use space::base::Space;
+pub use space::dimension::Dimension;
 pub use space::partition::base::Partitioning;
 pub use space::partition::level::Level;
 pub use space::partition::levels::Levels;
@@ -77,4 +82,4 @@ pub use tile::base::{Tile, TileExpand};
 pub use tile::factor::{Factor, FactorExpand};
 pub use tile::index::Indexing;
 pub use tile::kind::plane::mma::lane_runs::LaneMap;
-pub use tile::slices::{AxisSlices, AxisSlicesExpand};
+pub use tile::slices::{DimensionSlices, DimensionSlicesExpand};

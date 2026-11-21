@@ -10,7 +10,7 @@ use cubecl::unexpanded;
 
 use super::constant::{Constant, ConstantExpand};
 use super::{FactorReads, Recipe, RecipeCoords, RecipeCoordsExpand, RecipeExpand, SeparableExpand};
-use crate::Axis;
+use crate::Dimension;
 use crate::tile::held::read_as;
 
 /// A recipe as a tile holds it: its values, at the element it computes them in.
@@ -24,7 +24,7 @@ pub(crate) trait RecipeCall {
 #[doc(hidden)]
 pub(crate) trait SeparableCall: RecipeCall {
     fn call_factors(&self, scope: &Scope) -> usize;
-    fn call_factor_reads(&self, scope: &Scope, factor: usize, axis: Axis) -> bool;
+    fn call_factor_reads(&self, scope: &Scope, factor: usize, dimension: Dimension) -> bool;
     fn call_factor(
         &self,
         scope: &Scope,
@@ -57,8 +57,8 @@ where
     fn call_factors(&self, scope: &Scope) -> usize {
         self.recipe.__expand_factors_method(scope)
     }
-    fn call_factor_reads(&self, scope: &Scope, factor: usize, axis: Axis) -> bool {
-        self.recipe.factor_reads(scope, factor, axis)
+    fn call_factor_reads(&self, scope: &Scope, factor: usize, dimension: Dimension) -> bool {
+        self.recipe.factor_reads(scope, factor, dimension)
     }
     fn call_factor(
         &self,
@@ -135,7 +135,7 @@ impl ErasedRecipe {
         unexpanded!()
     }
 
-    /// One factor per contracted axis if the recipe is separable, else `None`.
+    /// One factor per contracted dimension if the recipe is separable, else `None`.
     pub(crate) fn factorization(&self) -> comptime_type!(Option<usize>) {
         unexpanded!()
     }
@@ -150,9 +150,13 @@ impl ErasedRecipe {
         unexpanded!()
     }
 
-    /// Whether one separable factor reads `axis` from its recipe coordinates.
+    /// Whether one separable factor reads `dimension` from its recipe coordinates.
     #[allow(dead_code)] // Reached through its expand, from [`Procedural::factor_reads`].
-    pub(crate) fn factor_reads(&self, _factor: usize, _axis: Axis) -> comptime_type!(bool) {
+    pub(crate) fn factor_reads(
+        &self,
+        _factor: usize,
+        _dimension: Dimension,
+    ) -> comptime_type!(bool) {
         unexpanded!()
     }
 }
@@ -198,10 +202,10 @@ impl ErasedRecipeExpand {
         &self,
         scope: &Scope,
         factor: usize,
-        axis: Axis,
+        dimension: Dimension,
     ) -> bool {
         match &self.separable {
-            Some(separable) => separable.call_factor_reads(scope, factor, axis),
+            Some(separable) => separable.call_factor_reads(scope, factor, dimension),
             None => true,
         }
     }

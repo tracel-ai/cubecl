@@ -43,6 +43,7 @@ macro_rules! binop_to_spirv_dialect {
                 let new_op = <$new_ty>::new(ctx, out_ty, lhs, rhs, $($extra),*);
                 crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 crate::compiler::decorate_strict_float(ctx, op, new_op.get_operation());
+                crate::compiler::decorate_contraction(ctx, new_op.get_operation());
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 

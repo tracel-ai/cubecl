@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    cmma::{MatrixIdent, MatrixType},
+    cmma::MatrixIdent,
     ir::{
         ElemType, FloatKind,
         dialect::matrix::{ColIndexOp, MmaManualOp, RowIndexOp},
@@ -11,7 +11,7 @@ use cubecl_core::{
     prelude::*,
 };
 use itertools::Itertools;
-use pliron::{context::Context, r#type::TypedHandle, value::Value};
+use pliron::{context::Context, value::Value};
 
 use crate::{
     hip::{
@@ -69,7 +69,7 @@ fn row_index(
     match ident {
         MatrixIdent::A => lane_id % 16,
         MatrixIdent::B => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, k)
             } else {
                 // RDNA3 hands every lane the whole `k` range, duplicated across the lane halves.
@@ -77,7 +77,7 @@ fn row_index(
             }
         }
         MatrixIdent::Accumulator => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, m)
             } else {
                 // 2 * i, offset by 1 if lane_id >= 16
@@ -97,7 +97,7 @@ fn col_index(
 ) -> u32 {
     match ident {
         MatrixIdent::A => {
-            if comptime![rdna4] {
+            if rdna4 {
                 split_half(lane_id, i, k)
             } else {
                 i
@@ -227,37 +227,4 @@ pub fn supported_scaled_mma_combinations(
     _arch: &AMDArchitecture,
 ) -> SupportedScaledMmaCombinations {
     vec![]
-}
-
-pub fn contiguous_elements_rdna3(
-    ctx: &Context,
-    ident: MatrixIdent,
-    matrix: TypedHandle<MatrixType>,
-) -> usize {
-    contiguous_elements(AmdWmma::Rdna3, ctx, ident, matrix)
-}
-
-pub fn contiguous_elements_rdna4(
-    ctx: &Context,
-    ident: MatrixIdent,
-    matrix: TypedHandle<MatrixType>,
-) -> usize {
-    contiguous_elements(AmdWmma::Rdna4, ctx, ident, matrix)
-}
-
-fn contiguous_elements(
-    wmma: AmdWmma,
-    ctx: &Context,
-    ident: MatrixIdent,
-    matrix: TypedHandle<MatrixType>,
-) -> usize {
-    let matrix = matrix.deref(ctx);
-    // Don't exceed swizzle atom and load width
-    let max_vector_size = 16 / matrix.elem_ty.size(ctx);
-    match ident {
-        // Consecutive elements of a lane's fragment are consecutive `k`, so a lane can load as
-        // many in one go as it holds.
-        MatrixIdent::A | MatrixIdent::B => wmma.frag_ab_elems(matrix.shape.k).min(max_vector_size),
-        MatrixIdent::Accumulator => 1,
-    }
 }

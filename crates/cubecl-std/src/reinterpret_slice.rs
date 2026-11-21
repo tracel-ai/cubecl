@@ -36,7 +36,7 @@ impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<'a, S, T> {
             in_vector_size,
             target_size
         ));
-        match comptime!(optimized_vector_size) {
+        match optimized_vector_size {
             Some(vector_size) => {
                 let size!(N2) = vector_size;
                 let slice = slice.as_vectorized().with_vector_size::<N2>();
@@ -112,7 +112,7 @@ impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<'a, S, T> {
             in_vector_size,
             target_size
         ));
-        match comptime!(optimized_vector_size) {
+        match optimized_vector_size {
             Some(vector_size) => {
                 let size!(N2) = vector_size;
                 let slice = slice.as_vectorized_mut().with_vector_size_mut::<N2>();

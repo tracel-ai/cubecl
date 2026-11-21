@@ -1,4 +1,4 @@
-//! The 2-D contraction nest: a single contracted axis, no gathered operands.
+//! The 2-D contraction nest: a single contracted dimension, no gathered operands.
 
 use cubecl::prelude::*;
 
@@ -10,14 +10,13 @@ use crate::*;
 /// The 2-D contraction nest: over each batch matrix, the `mr × nr` accumulator block lives in
 /// registers.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     #[comptime] contracted_per_step: usize,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let lhs_gathered = lhs.gathered();
@@ -38,7 +37,7 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let shape = comptime!(ContractShape::new(
         &lhs.place.space,
         &rhs.place.space,
-        space,
+        space.clone(),
         contracted_per_step,
         lw,
         rw,
@@ -46,9 +45,9 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     ));
     comptime!(assert!(
         shape
-            .matrix_axes(&lhs.place.space, &rhs.place.space)
+            .matrix_dimensions(&lhs.place.space, &rhs.place.space)
             .is_some(),
-        "contract: the 2-D nest reads each operand as one matrix, and no grouping of these axes \
+        "contract: the 2-D nest reads each operand as one matrix, and no grouping of these dimensions \
          gives one; the N-D nest reads them a cell at a time"
     ));
 
@@ -68,14 +67,13 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
 
 /// The nest at fixed line widths: `L` the lhs's, `V` the rhs's and block's, `A` the accumulator's.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Size>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
     #[comptime] shape: ContractShape,
     #[comptime] columns: usize,
-    #[comptime] config: RegisterBlock,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let mr = shape.mr;
@@ -87,8 +85,8 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
     let aw = shape.aw;
     let matrices = shape.matrices();
 
-    let lhs_axes = comptime!(shape.lhs_axes(&lhs.place.space));
-    let rhs_axes = comptime!(shape.rhs_axes(&rhs.place.space));
+    let lhs_dimensions = comptime!(shape.lhs_dimensions(&lhs.place.space));
+    let rhs_dimensions = comptime!(shape.rhs_dimensions(&rhs.place.space));
 
     let lhs_k_lines = kc.div_ceil(lw);
     let component_fanout = config.component_fanout;
@@ -97,24 +95,24 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
     // its lift carried by the factor.
     let (lhs, rhs) = (lhs.placed(), rhs.placed());
     for mat in 0..matrices {
-        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, mat);
-        let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, mat);
+        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_dimensions, mat);
+        let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_dimensions, mat);
         let lhs_scales = lhs.reader(
-            lhs_axes,
+            lhs_dimensions,
             mat,
             comptime!(Side::Lhs),
             shape.space.clone(),
-            shape.acc_axes,
+            shape.acc_dimensions,
         );
         let rhs_scales = rhs.reader(
-            rhs_axes,
+            rhs_dimensions,
             mat,
             comptime!(Side::Rhs),
             shape.space.clone(),
-            shape.acc_axes,
+            shape.acc_dimensions,
         );
         let mut acc_view =
-            acc.matrix_accumulate::<E, A>(mat, shape.acc_axes, shape.space.clone(), semiring.add());
+            acc.matrix_accumulate::<E, A>(mat, shape.acc_dimensions, &shape.space, semiring.add());
 
         // Split into an in-bounds body kept in registers and a checked edge body.
         let lhs_check = comptime!(lhs_mat.check);
@@ -123,7 +121,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
         let eligible = shape.scalars() <= config.budget;
         let split_edge =
             comptime!(eligible && config.split_edge && (lhs_check || rhs_check || acc_check));
-        let in_bounds = if comptime!(split_edge) {
+        let in_bounds = if split_edge {
             let origin = (0u32.runtime(), 0u32.runtime());
             let lhs_extent = (
                 comptime!(mr as u32).runtime(),
@@ -151,7 +149,7 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
             false.runtime()
         };
 
-        if comptime!(split_edge) {
+        if split_edge {
             if in_bounds {
                 body::<E, EL, L, ER, V, A, RL>(
                     &mut acc_view,
@@ -217,7 +215,6 @@ fn nest<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Siz
 
 /// The nest body, either unrolled in registers or the checked edge fallback.
 #[cube]
-#[allow(clippy::too_many_arguments)]
 fn body<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size, RL: Size>(
     acc: &mut AccumulateView<'_, E, A>,
     lhs: &MatrixView<'_, Vector<EL, L>>,

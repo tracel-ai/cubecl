@@ -11,9 +11,10 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, PeerBinding, ProfileError, ProfilingToken, Reduction, ServerCommunication,
-        ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, Handle, KernelArguments,
+        KernelResource, LaunchError, PeerAccess, PeerBinding, ProfileError, ProfilingToken,
+        Reduction, SendOutcome, SendReport, ServerCommunication, ServerError, ServerUtilities,
+        TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -64,14 +65,14 @@ fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, Serve
     command.stream().info_cache.mode(cache_mode);
 
     if !command.stream().info_cache.should_cache(size) {
-        return Ok(command.create_with_data(bytemuck::cast_slice(words))?);
+        return Ok(command.create_metadata(bytemuck::cast_slice(words))?);
     }
     // Look up by the borrowed words — a hit clones nothing. On a miss we build
     // the buffer and clone the words into the cache as the key.
     if let Some(handle) = command.stream().info_cache.get(words) {
         return Ok(handle);
     }
-    let handle = command.create_with_data(bytemuck::cast_slice(words))?;
+    let handle = command.create_metadata(bytemuck::cast_slice(words))?;
     command
         .stream()
         .info_cache
@@ -90,7 +91,7 @@ pub struct CudaServer {
     streams: MultiStream<CudaStreamBackend>,
     utilities: Arc<ServerUtilities>,
     /// The groups this device has joined — see [`Collectives`].
-    collectives: Collectives<Cuda>,
+    collectives: Collectives<Cuda, crate::compute::events::Cuda>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
     /// the client. `end_capture` inserts, `replay` looks up, `graph_destroy`
     /// removes (dropping the [`CudaGraph`] destroys its executable and unpins the
@@ -208,6 +209,22 @@ impl Server for CudaServer {
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
+        // A planning run's launch builds what the launch path allocates — its
+        // metadata buffer, the staging that uploads it — and stops before the
+        // dispatch, so the recorded run allocates none of it.
+        if launch_mode == LaunchMode::Resolve {
+            // A failure here is the recorded run's to report: it repeats this
+            // launch and needs what failed to build.
+            let _ = self.launch_checked(
+                id.kernel,
+                &loaded,
+                (1, 1, 1),
+                bindings,
+                stream_id,
+                launch_mode,
+            );
+            return;
+        }
         if launch_mode.discards_launch() {
             return;
         }
@@ -263,7 +280,9 @@ impl Server for CudaServer {
             bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+        .execute(|server| {
+            server.launch_checked(kernel_id, &loaded, count, bindings, stream_id, launch_mode)
+        });
         match outcome {
             ScopedOutcome::Executed(()) => peers.enqueued(),
             ScopedOutcome::Failed(error) | ScopedOutcome::Skipped(error) => peers.failed(&error),
@@ -295,6 +314,16 @@ impl Server for CudaServer {
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).end_run(stream_id)
+    }
+
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).start_run(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -521,14 +550,19 @@ impl ServerCommunication for CudaServer {
         CollectiveServer::sync_collective(self, stream_id)
     }
 
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        CollectiveServer::time_next_communication(self, timing)
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
     fn send(
         &mut self,
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -537,18 +571,16 @@ impl ServerCommunication for CudaServer {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src)
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
     }
 
-    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
         use cudarc::driver::sys::CUdevice_P2PAttribute as Attribute;
         let (Ok(own), Ok(other)) = (cuda_device(self.device_id), cuda_device(peer)) else {
-            return false;
+            return PeerAccess::None;
         };
-        // Kernels on two devices hand data off through system-scope atomics
-        // on one's memory, so plain loads and stores are not enough: over a
-        // PCIe link without atomics, the producer's flag updates can be lost.
         let attribute = |attribute| {
             let mut value = 0;
             // SAFETY: `value` is a valid stack variable the driver writes through.
@@ -557,8 +589,13 @@ impl ServerCommunication for CudaServer {
             };
             status.result().is_ok() && value != 0
         };
-        attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_ACCESS_SUPPORTED)
-            && attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_NATIVE_ATOMIC_SUPPORTED)
+        if !attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_ACCESS_SUPPORTED) {
+            PeerAccess::None
+        } else if attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_NATIVE_ATOMIC_SUPPORTED) {
+            PeerAccess::MemoryAndAtomics
+        } else {
+            PeerAccess::Memory
+        }
     }
 
     fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
@@ -638,13 +675,20 @@ impl CudaServer {
 
 impl CollectiveServer for CudaServer {
     type Driver = Cuda;
+    type Events = crate::compute::events::Cuda;
 
     fn device_id(&self) -> DeviceId {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Cuda> {
+    fn collectives(&mut self) -> &mut Collectives<Cuda, crate::compute::events::Cuda> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut crate::compute::events::EventProfiler {
+        // Its first mark creates events and a stream, which belong to the current context.
+        self.unsafe_set_current();
+        &mut self.ctx.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<CudaStreamBackend> {
@@ -883,7 +927,11 @@ impl CudaServer {
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
+        // Arguments refused while they were registered never run: the scope
+        // leaves the outputs carrying why.
+        bindings.check_arguments()?;
         let address_type = kernel_id.address_type;
         let grid_constants = self
             .ctx
@@ -959,6 +1007,9 @@ impl CudaServer {
             resources.push(command.resource(binding.binding())?.binding);
         }
         resources.extend(info_const);
+        if launch_mode == LaunchMode::Resolve {
+            return Ok(());
+        }
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
         command.hold_peers(peers);

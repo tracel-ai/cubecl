@@ -1,19 +1,19 @@
 //! A register block contracting a weight lined along the contraction, checked against the host
-//! with the contracted axis's extent read at compile time and at launch.
+//! with the contracted dimension's extent read at compile time and at launch.
 //!
 //! `out = x · w`, the weight stored `[n, k]` and read as `[k, n]`, each step four lines of `K`.
 //! Two walks of it: every unit taking a column's whole `K`, and a column's units taking its steps
 //! in turns, their partials summed by the drain, as `matmul_mb` does. A `k` whose last step
-//! reaches past the end is not a case: an operand lined along an axis it overhangs is refused.
+//! reaches past the end is not a case: an operand lined along a dimension it overhangs is refused.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{prelude::*, zspace::shape};
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 const VECTOR: usize = 4;
 const STEP: usize = VECTOR * 4;
@@ -32,21 +32,19 @@ const FORMS: [Form<'static>; 4] = [
 fn contract<E: Numeric>(
     x: &TileTensor<'_>,
     w: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = x.tile(&space);
     let b = w.tile(&space);
-    let c = out.tile(&space);
-    let acc = c.accumulator::<E>(
+    let c = out.tile_mut(&space);
+    let acc = c.register_accumulator::<E>(
         &a,
         &b,
-        comptime!(Instruction::Registers {
-            config: RegisterBlock::new(budget)
-        }),
-        Semiring::SUM_PROD,
+        comptime!(SoftwareMatmul::new(budget)),
+        Semiring::SumProd,
     );
     for cube in space {
         for plane in cube {
@@ -124,7 +122,7 @@ fn run(
 
     let a = launcher
         .arg(x.binding(), dtype)
-        .axes(&[M, K])
+        .dimensions(&[M, K])
         .vectorize(VECTOR)
         .build()
         .unwrap();
@@ -133,14 +131,14 @@ fn run(
     weight.strides = [1, k].into();
     let b = launcher
         .arg(weight, dtype)
-        .axes(&[K, N])
+        .dimensions(&[K, N])
         .in_stride_order()
         .vectorize(VECTOR)
         .build()
         .unwrap();
     let c = launcher
         .arg(out.clone().binding(), dtype)
-        .axes(&[M, N])
+        .dimensions(&[M, N])
         .vectorize(1)
         .build()
         .unwrap();

@@ -13,8 +13,8 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     acc: &mut Memory,
     lhs: &Tile,
     rhs: &Tile,
-    #[comptime] space: Space,
-    #[comptime] config: RegisterBlock,
+    #[comptime] space: &Space,
+    #[comptime] config: SoftwareMatmul,
     #[comptime] semiring: Semiring,
 ) {
     let lhs_scaled = lhs.quantized();
@@ -35,17 +35,18 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let rhs_along_k = comptime!(
         lhs.place
             .space
-            .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
+            .contains(rhs.place.space.dimension_at(rhs.place.space.rank() - 1))
     );
     let contracted_per_step = comptime!(contracted_per_step(
         &lhs.place.space,
         &rhs.place.space,
-        &space,
+        space,
         lw,
         rw,
         aw
     ));
-    // Several contracted axes still form one `k` edge when an operand carries them as one run.
+    // Several contracted dimensions still form one `k` edge when an operand carries them as one
+    // run.
     let shape = comptime!(ContractShape::new(
         &lhs.place.space,
         &rhs.place.space,
@@ -57,7 +58,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     ));
     let flat = comptime!(
         shape
-            .matrix_axes(&lhs.place.space, &rhs.place.space)
+            .matrix_dimensions(&lhs.place.space, &rhs.place.space)
             .is_some()
     );
     let nd = comptime!(
@@ -94,7 +95,7 @@ pub(crate) fn contracted_per_step(
 ) -> usize {
     let contracted = Space::contracted(&[lhs, rhs], acc);
     let k = contracted[contracted.len() - 1];
-    let lined = rhs.axis_at(rhs.rank() - 1);
+    let lined = rhs.dimension_at(rhs.rank() - 1);
     if lined != k {
         assert!(
             rw == aw || aw == 1,
@@ -108,8 +109,8 @@ pub(crate) fn contracted_per_step(
     let contracted_per_step = rhs.contracted_per_step(&contracted, rw);
     assert!(
         contracted_per_step > 1 || rw == 1,
-        "contract: the rhs lines along the contracted axis {k:?}, which is served in whole lines; \
-         its width {rw} must divide the axis's extent {:?}",
+        "contract: the rhs lines along the contracted dimension {k:?}, which is served in whole lines; \
+         its width {rw} must divide the dimension's extent {:?}",
         rhs.extent_raw(k)
     );
     assert_eq!(
@@ -130,15 +131,15 @@ pub(crate) fn contracted_per_step(
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
-    fn spaces(lhs: &[Axis], rhs: &[Axis]) -> (Space, Space, Space) {
+    fn spaces(lhs: &[Dimension], rhs: &[Dimension]) -> (Space, Space, Space) {
         let extents = [(M, 4usize), (N, 4), (K, 8)];
-        let pick = |axes: &[Axis]| {
+        let pick = |dimensions: &[Dimension]| {
             Space::new(
-                &axes
+                &dimensions
                     .iter()
                     .map(|&a| (a, extents.iter().find(|e| e.0 == a).unwrap().1))
                     .collect::<Vec<_>>(),
@@ -154,16 +155,16 @@ mod tests {
         assert_eq!(contracted_per_step(&lhs, &rhs, &acc, 4, 2, 2), 1);
     }
 
-    /// Both operands lined along the contracted axis serve a line.
+    /// Both operands lined along the contracted dimension serve a line.
     #[test]
-    fn both_operands_lined_along_the_contracted_axis_serve_a_line() {
+    fn both_operands_lined_along_the_contracted_dimension_serve_a_line() {
         let (lhs, rhs, acc) = spaces(&[M, K], &[N, K]);
         assert_eq!(contracted_per_step(&lhs, &rhs, &acc, 4, 4, 1), 4);
     }
 
-    /// A dynamic contracted axis serves a line.
+    /// A dynamic contracted dimension serves a line.
     #[test]
-    fn a_dynamic_contracted_axis_serves_a_line() {
+    fn a_dynamic_contracted_dimension_serves_a_line() {
         let (lhs, rhs, acc) = spaces(&[M, K], &[N, K]);
         let (lhs, rhs) = (lhs.with_dynamic(&[K]), rhs.with_dynamic(&[K]));
         assert_eq!(contracted_per_step(&lhs, &rhs, &acc, 4, 4, 1), 4);
@@ -172,7 +173,7 @@ mod tests {
     /// A width that does not divide the contracted extent is refused.
     #[test]
     #[should_panic(expected = "served in whole lines")]
-    fn a_width_that_misdivides_the_contracted_axis_is_refused() {
+    fn a_width_that_misdivides_the_contracted_dimension_is_refused() {
         let (lhs, rhs, acc) = spaces(&[M, K], &[N, K]);
         contracted_per_step(&lhs, &rhs, &acc, 3, 3, 1);
     }

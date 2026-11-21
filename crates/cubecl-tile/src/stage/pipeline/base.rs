@@ -136,10 +136,13 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
     /// Free the shared memory every slot holds, for what the kernel declares after it to take:
     /// once the walk is over, nothing reads a stage again. Every unit of the cube reaches it, and
     /// a cube barrier comes before any unit touches what is declared in its place, as
-    /// [`Tile::smem_accumulation`] and [`Tile::smem_cyclic_accumulation`] open with.
+    /// [`Tile::smem_accumulation`] and [`Tile::smem_cyclic_accumulation`] open with. The slots'
+    /// rendezvous end with them, so a ring built again in their place, in a loop, meets on new
+    /// barriers.
     pub fn free(&self) {
         #[unroll]
         for slot in 0..comptime!(self.depth) {
+            self.slots.index(slot).meeting.end();
             self.slots.index(slot).data.free();
         }
     }
@@ -239,8 +242,8 @@ impl Stages<OperandPair> {
                 && !rhs_beside
                 && self.fillers == 0
                 && self.depth <= 2
-                && lhs_delivery == Delivery::SyncPerUnit
-                && rhs_delivery == Delivery::SyncPerUnit
+                && lhs_delivery.holds(Prefetch::InRegisters).is_ok()
+                && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && lhs_straight
                 && rhs_straight
                 && matches!((lhs_scalars, rhs_scalars), (Some(l), Some(r)) if Prefetch::fits(l + r))

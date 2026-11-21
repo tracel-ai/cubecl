@@ -75,6 +75,10 @@ pub struct Context {
     /// operator short-circuit with a branch, while a bare comptime value lets it be a plain `and`,
     /// so the wrapper changes the kernel and is never redundant.
     pub in_short_circuit_operand: bool,
+    /// Set while parsing a `comptime!` that is the whole condition of an `if` or the whole value
+    /// of a `match`. There the macro picks a comptime branch for any comptime value, a lone
+    /// comptime local included, so the wrapper is redundant around one.
+    pub in_branch_selector: bool,
 }
 
 impl Context {
@@ -105,6 +109,7 @@ impl Context {
             debug_pos_count: 0,
             has_early_return: false,
             in_short_circuit_operand: false,
+            in_branch_selector: false,
         }
     }
 

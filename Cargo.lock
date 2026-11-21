@@ -1054,6 +1054,7 @@ dependencies = [
  "cubecl-ir",
  "cubecl-metal",
  "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "cubecl-tile",
  "cubecl-wgpu",
@@ -1145,6 +1146,7 @@ name = "cubecl-cpu"
 version = "0.12.0-pre.2"
 dependencies = [
  "bytemuck",
+ "ciborium",
  "crossbeam-utils",
  "cubecl-common",
  "cubecl-core",
@@ -1194,6 +1196,7 @@ dependencies = [
  "async-channel",
  "backtrace",
  "branches",
+ "buildid",
  "bytemuck",
  "bytes",
  "cfg-if",
@@ -1230,6 +1233,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "web-time",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -1265,9 +1269,9 @@ dependencies = [
 
 [[package]]
 name = "cubecl-hip-sys"
-version = "7.14.6085001"
+version = "7.14.6085002"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ba92853ebdf935ce68fdf96e4631a121ab72ce078201371ce7ace26603597f6"
+checksum = "0c7a11dd1459e758d6d9fe29e0d414b404b309b9582f08b5d8d03b541cc45e65"
 dependencies = [
  "libc",
  "libloading 0.8.9",
@@ -1414,7 +1418,6 @@ name = "cubecl-opt"
 version = "0.12.0-pre.2"
 dependencies = [
  "cubecl-common",
- "cubecl-core",
  "cubecl-environment",
  "cubecl-ir",
  "derive-new",
@@ -1437,7 +1440,6 @@ dependencies = [
 name = "cubecl-runtime"
 version = "0.12.0-pre.2"
 dependencies = [
- "buildid",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -1454,6 +1456,7 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "md-5",
+ "num-traits",
  "pliron",
  "rand 0.10.2",
  "serde",
@@ -1473,10 +1476,10 @@ dependencies = [
 name = "cubecl-server"
 version = "0.12.0-pre.2"
 dependencies = [
- "buildid",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
+ "ciborium",
  "cubecl-common",
  "cubecl-environment",
  "cubecl-ir",
@@ -1604,7 +1607,6 @@ dependencies = [
 name = "cubecl-zspace"
 version = "0.12.0-pre.2"
 dependencies = [
- "derive-new",
  "serde",
  "smallvec",
 ]
@@ -3156,9 +3158,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -3377,7 +3379,6 @@ name = "multi_device"
 version = "0.12.0-pre.2"
 dependencies = [
  "cubecl",
- "half",
 ]
 
 [[package]]
@@ -4598,9 +4599,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.40.2"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",

@@ -119,7 +119,7 @@ pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Ex
 
 pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
     let span = if_expr.span();
-    let condition = Expression::from_expr(*if_expr.cond, context)
+    let condition = Expression::from_branch_selector(*if_expr.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported if condition"))?;
 
     let compute_branches = |context: &mut Context, closure_scope: ClosureScope| -> syn::Result<_> {

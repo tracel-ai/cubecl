@@ -5,20 +5,25 @@
 pub(crate) mod arg;
 pub(crate) mod base;
 pub(crate) mod binding;
-pub(crate) mod refusal;
+pub(crate) mod decline;
 pub(crate) mod spec;
 pub(crate) mod vectorization;
 
+pub use crate::ops::matmul::leaf::memory::gather::LhsVectorMisfit;
 pub use arg::accumulate::{AccumulateArg, AccumulateArgLaunch};
 pub use arg::destination::{
-    Buffered, Destination, DestinationLaunch, SinkLaunch, SinkLaunchVisitor, TmaStored,
+    Buffered, Destination, DestinationLaunch, OpenedDestination, OpenedDestinationExpand,
+    ServedDestination, ServedDestinationExpand, SinkLaunch, SinkLaunchVisitor, TmaStored,
 };
 pub use arg::last_arrival::LastArrival;
 pub use arg::output::{Output, OutputArgs};
 pub use arg::relay::Relay;
+pub use arg::stored_tile_operand::StoredTileOperand;
+pub use arg::tile_operand::TileOperand;
 pub use arg::tma::{TmaBox, TmaCoordinates, TmaLanding, TmaTerm};
 pub use base::{Grid, spawnable};
 pub use binding::{Arg, Bound, Labelled, Unbound, Unlabelled};
-pub use refusal::Refusal;
+pub use decline::Decline;
 pub use spec::{BoundaryPolicy, Delivery};
+pub(crate) use spec::{Engine, Issuer, Landing, Route};
 pub use vectorization::{MaskedExtent, VectorRequirement, Vectorization};

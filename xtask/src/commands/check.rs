@@ -78,7 +78,8 @@ pub(crate) fn handle_command(
 }
 
 /// Run workspace lint, excluding platform-specific crates. A `comptime!` the `#[cube]` macro doesn't
-/// need is a warning here too, so the wrappers don't come back.
+/// need, and a lint a `#[cube]` function allows that the macro already allows, are warnings here
+/// too, so they don't come back.
 pub(crate) fn run_ci_lint() -> anyhow::Result<()> {
     let mut cmd_args: Vec<&str> = vec![
         "clippy",
@@ -86,7 +87,7 @@ pub(crate) fn run_ci_lint() -> anyhow::Result<()> {
         "--no-deps",
         "--color=always",
         "--features",
-        "cubecl-macros/warn-redundant-comptime",
+        "cubecl-macros/warn-redundant-comptime,cubecl-macros/warn-redundant-allow",
     ];
     for crate_name in CI_EXCLUDED_CRATES {
         cmd_args.push("--exclude");

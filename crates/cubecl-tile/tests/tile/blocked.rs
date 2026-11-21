@@ -1,16 +1,16 @@
-//! An axis spelled as two: `x = xb · B + xi`, the axis partitioned into blocks.
+//! A dimension spelled as two: `x = xb · B + xi`, the dimension partitioned into blocks.
 //!
-//! A *partition* of an axis is not a gather: the windows tile instead of overlapping, so a
+//! A *partition* of a dimension is not a gather: the windows tile instead of overlapping, so a
 //! logical position still determines a cell and every window is still a dense box. An operand
 //! spanning `(KB, KI)` must therefore read exactly as one spanning `K` does, and cost the same.
 //!
-//! An axis exists when an operand *distinguishes* it: a quantized operand's scales vary over the
-//! block index and not over the position inside the block, so those are two axes, which is why an
-//! axis gets split at all.
+//! A dimension exists when an operand *distinguishes* it: a quantized operand's scales vary over
+//! the block index and not over the position inside the block, so those are two dimensions, which
+//! is why an dimension gets split at all.
 //!
-//! The first two tests split a *contracted* axis, without scales and then with them; the last two
-//! split an axis the *output* spans, the shape a per-column-block scale needs and the one the
-//! accumulator's edges had to be derived to allow.
+//! The first two tests split a *contracted* dimension, without scales and then with them; the last
+//! two split a dimension the *output* spans, the shape a per-column-block scale needs and the one
+//! the accumulator's edges had to be derived to allow.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput};
@@ -26,35 +26,35 @@ enum Scaled {
     Rhs,
 }
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-/// The contracted axis, unsplit: what the reference kernel walks.
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+/// The contracted dimension, unsplit: what the reference kernel walks.
+const K: Dimension = Dimension(2);
 /// Which block, and where inside it. Together they are `K`.
-const KB: Axis = Axis(3);
-const KI: Axis = Axis(4);
+const KB: Dimension = Dimension(3);
+const KI: Dimension = Dimension(4);
 /// The same, for the output's columns: together they are `N`.
-const NB: Axis = Axis(5);
-const NI: Axis = Axis(6);
+const NB: Dimension = Dimension(5);
+const NI: Dimension = Dimension(6);
 
 /// The register block every leaf here runs under.
-const BLOCK: RegisterBlock = RegisterBlock::new(16);
+const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
-/// `C = A · B`, whichever axes the operands spell their contraction over.
+/// `C = A · B`, whichever dimensions the operands spell their contraction over.
 #[cube(launch)]
 fn matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
-        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
+        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SumProd);
         c_region.mma(&a.at(&region), &b.at(&region));
     }
 }
@@ -65,7 +65,7 @@ fn scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -73,20 +73,20 @@ fn scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
-        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
-        match comptime!(side) {
+        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SumProd);
+        match side {
             Scaled::Lhs => c_region.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_region.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
     }
 }
 
-/// The reference: one contracted axis, cut at the block. What the split has to reproduce.
+/// The reference: one contracted dimension, cut at the block. What the split has to reproduce.
 #[test]
-fn one_contracted_axis_is_the_reference() {
+fn one_contracted_dimension_is_the_reference() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
     let depth = block * blocks;
 
@@ -161,7 +161,7 @@ fn one_contracted_axis_is_the_reference() {
 /// The same contraction with `K` spelled `(KB, KI)`, the walk stepping one block per region so the
 /// leaf spans one. Same buffers, same numbers, and the direct nest either way.
 #[test]
-fn a_partitioned_axis_contracts_the_same() {
+fn a_partitioned_dimension_contracts_the_same() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
     let depth = block * blocks;
 
@@ -247,9 +247,10 @@ fn a_partitioned_axis_contracts_the_same() {
 
 /// **The split, with scales.** `S` carries `KI` and addresses nothing with it, so it cannot vary
 /// inside a block. One scale per block stops being an arithmetic claim (`⌊k / 8⌋`) and becomes a
-/// fact about which axes the operand spans, which is what already makes a broadcast a broadcast.
+/// fact about which dimensions the operand spans, which is what already makes a broadcast a
+/// broadcast.
 #[test]
-fn scales_omit_the_axis_inside_the_block() {
+fn scales_omit_the_dimension_inside_the_block() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
     let depth = block * blocks;
 
@@ -320,8 +321,8 @@ fn scales_omit_the_axis_inside_the_block() {
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // The block index alone. The position inside a block is not an axis of this operand,
-            // which is the whole statement that one scale covers the block.
+            // The block index alone. The position inside a block is not a dimension of this
+            // operand, which is the whole statement that one scale covers the block.
             TileSpec::new(Projection::new(
                 &[M, KB],
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
@@ -357,11 +358,12 @@ fn scales_omit_the_axis_inside_the_block() {
 // meet (`Projection::validate_composition`), unit-tested host-side in `physical::projection::base`
 // rather than here: in the kernel it fires on a worker thread `#[should_panic]` never sees.
 
-/// **An axis the output spans, split.** `N` is spelled `(NB, NI)` and the accumulator spans both,
-/// so its column edge is two axes. Reading the trailing axis alone would take `NB` for the row
-/// edge and contract against nothing; the edge instead spans every innermost axis not the lhs's.
+/// **A dimension the output spans, split.** `N` is spelled `(NB, NI)` and the accumulator spans
+/// both, so its column edge is two dimensions. Reading the trailing dimension alone would take `NB`
+/// for the row edge and contract against nothing; the edge instead spans every innermost dimension
+/// not the lhs's.
 #[test]
-fn a_split_output_axis_contracts_the_same() {
+fn a_split_output_dimension_contracts_the_same() {
     let (rows, blocks, inside, depth) = (4, 2, 4, 8);
     let cols = blocks * inside;
 
@@ -447,13 +449,13 @@ fn a_split_output_axis_contracts_the_same() {
 
 /// **A scale per column block, by omission.** The rhs's `N` is split, and the scales span `(NB,
 /// NI)` addressing `NB` alone: one scale covers a whole block of columns because the operand has
-/// no axis to vary over inside one, with nothing dividing anything.
+/// no dimension to vary over inside one, with nothing dividing anything.
 ///
 /// This is the shape the rational spelling (`PhysicalAxisMap::of(N).over(bn)`) stands in for, and
 /// the one that needed the accumulator's column edge to be a run: `NB` and `NI` are both the
 /// rhs's, so both are columns.
 #[test]
-fn scales_omit_the_axis_inside_the_column_block() {
+fn scales_omit_the_dimension_inside_the_column_block() {
     let (rows, blocks, inside, depth) = (4, 2, 4, 8);
     let cols = blocks * inside;
 
@@ -519,7 +521,7 @@ fn scales_omit_the_axis_inside_the_column_block() {
             dtype,
             1,
             // `K` carried and addressed by nothing, and the position inside a column block is
-            // not an axis here at all: the scale varies over the block index alone.
+            // not a dimension here at all: the scale varies over the block index alone.
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
         TileTensorLaunch::new(
@@ -554,29 +556,29 @@ fn scales_omit_the_axis_inside_the_column_block() {
     }
 }
 
-/// [`a_split_output_axis_contracts_the_same`] with the rhs and the accumulator served as lines
-/// exactly one column block wide, so the column group's two axes straddle the line boundary: `NI`
-/// is one whole line and `NB` counts them.
+/// [`a_split_output_dimension_contracts_the_same`] with the rhs and the accumulator served as lines
+/// exactly one column block wide, so the column group's two dimensions straddle the line boundary:
+/// `NI` is one whole line and `NB` counts them.
 #[cube(launch)]
 fn wide_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
-        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
+        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SumProd);
         c_region.mma(&a.at(&region), &b.at(&region));
     }
 }
 
 #[test]
-fn a_split_output_axis_serves_lines_one_block_wide() {
+fn a_split_output_dimension_serves_lines_one_block_wide() {
     let (rows, blocks, inside, depth) = (4, 2, 4, 8);
     let cols = blocks * inside;
 
@@ -666,24 +668,24 @@ fn wide_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
-        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
+        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SumProd);
         c_region.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region)));
     }
 }
 
-/// **The scales read as a line.** Their innermost axis is `NB`, the block index, an axis they
-/// actually vary over, so a read of four serves four *different* scales covering four blocks of
-/// columns. A value line's component is its ordinal along the shared edge, constant across the
+/// **The scales read as a line.** Their innermost dimension is `NB`, the block index, a dimension
+/// they actually vary over, so a read of four serves four *different* scales covering four blocks
+/// of columns. A value line's component is its ordinal along the shared edge, constant across the
 /// block.
 #[test]
 fn scales_are_served_several_at_a_time() {
@@ -751,8 +753,8 @@ fn scales_are_served_several_at_a_time() {
             s_t.binding().into_tensor_arg(),
             dtype,
             units,
-            // The block index alone, and it is innermost: the width lands on the axis the scales
-            // vary over, so one read serves `units` different scales.
+            // The block index alone, and it is innermost: the width lands on the dimension the
+            // scales vary over, so one read serves `units` different scales.
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
         TileTensorLaunch::new(
@@ -786,27 +788,22 @@ fn scales_are_served_several_at_a_time() {
     }
 }
 
-/// A split output axis against a *promoted* accumulator: the partials live in registers across the
-/// whole walk, and the block they live in has to be sized by the column group rather than by its
-/// innermost axis.
+/// A split output dimension against a *promoted* accumulator: the partials live in registers across
+/// the whole walk, and the block they live in has to be sized by the column group rather than by
+/// its innermost dimension.
 #[cube(launch)]
 fn promoted_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let c = c.tile_mut(&space);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
@@ -815,7 +812,7 @@ fn promoted_matmul<E: Numeric>(
 }
 
 #[test]
-fn a_promoted_accumulator_spans_a_split_output_axis() {
+fn a_promoted_accumulator_spans_a_split_output_dimension() {
     let (rows, blocks, inside, depth) = (4, 4, 2, 8);
     let cols = blocks * inside;
 
@@ -901,14 +898,14 @@ fn a_promoted_accumulator_spans_a_split_output_axis() {
 }
 
 /// [`wide_scaled_matmul`] with the accumulator promoted to registers: the partials never touch
-/// memory between `K` steps, which is what a decode step's one-row product keeps them in, and the scales covering
-/// four column blocks still arrive in one read.
+/// memory between `K` steps, which is what a decode step's one-row product keeps them in, and the
+/// scales covering four column blocks still arrive in one read.
 #[cube(launch)]
 fn wide_scaled_promoted<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -916,13 +913,8 @@ fn wide_scaled_promoted<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers { config: BLOCK }),
-        Semiring::SUM_PROD,
-    );
+    let c = c.tile_mut(&space);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region)));
@@ -930,7 +922,8 @@ fn wide_scaled_promoted<E: Numeric>(
     acc.drained_into(&c);
 }
 
-/// **The shape a decode step's one-row product runs.** Scales read as a line against a register accumulator.
+/// **The shape a decode step's one-row product runs.** Scales read as a line against a register
+/// accumulator.
 #[test]
 fn a_promoted_accumulator_takes_scales_by_the_line() {
     let (rows, blocks, inside, depth, units) = (4, 4, 2, 8, 4);
@@ -1036,17 +1029,17 @@ fn wide_typed_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
-        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SUM_PROD);
+        let mut c_region = c.at(&region).accumulating(BLOCK, Semiring::SumProd);
         c_region.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region)));
     }
 }

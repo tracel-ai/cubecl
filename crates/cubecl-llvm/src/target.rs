@@ -1,6 +1,7 @@
 //! LLVM compilation targets.
 
-use crate::prelude::{Context, ContextExt};
+use crate::prelude::{Context, ContextExt, SyncScopeAttr};
+use cubecl_core::ir::dialect::synchronization::SyncScope;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LlvmTarget {
@@ -16,6 +17,27 @@ impl LlvmTarget {
     /// Whether the target provides a hardware launch grid.
     pub fn is_gpu(self) -> bool {
         !matches!(self, LlvmTarget::Cpu)
+    }
+
+    /// LLVM's syncscope for `scope` on this target. A scope the target has no name for takes the
+    /// next wider one it has.
+    pub fn sync_scope(self, scope: SyncScope) -> SyncScopeAttr {
+        match (self, scope) {
+            (_, SyncScope::Unit) => SyncScopeAttr::SingleThread,
+            (_, SyncScope::System) | (LlvmTarget::Cpu, _) => SyncScopeAttr::System,
+            #[cfg(feature = "amdgpu")]
+            (LlvmTarget::AmdGpu, SyncScope::Plane) => SyncScopeAttr::NamedScope("wavefront".into()),
+            #[cfg(feature = "amdgpu")]
+            (LlvmTarget::AmdGpu, SyncScope::Cube) => SyncScopeAttr::NamedScope("workgroup".into()),
+            #[cfg(feature = "amdgpu")]
+            (LlvmTarget::AmdGpu, SyncScope::Device) => SyncScopeAttr::NamedScope("agent".into()),
+            #[cfg(feature = "nvptx")]
+            (LlvmTarget::Nvptx, SyncScope::Plane | SyncScope::Cube) => {
+                SyncScopeAttr::NamedScope("block".into())
+            }
+            #[cfg(feature = "nvptx")]
+            (LlvmTarget::Nvptx, SyncScope::Device) => SyncScopeAttr::NamedScope("device".into()),
+        }
     }
 }
 

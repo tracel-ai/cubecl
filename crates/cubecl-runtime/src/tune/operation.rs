@@ -5,6 +5,8 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
@@ -36,6 +38,14 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
         (self.func)(inputs)
     }
+
+    /// Run the wrapped function as an autotune race runs a candidate, to
+    /// measure it or gather its kernels: what it launches is
+    /// [issued for the race](crate::execution::LaunchPurpose::Race), never
+    /// the work's.
+    pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
+        crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
+    }
 }
 
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
@@ -53,6 +63,9 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
     short_circuit: bool,
+    /// Planned once a key: ranking candidates can build every one's blueprint, which costs
+    /// more than the launch, and an untuned key is reached at every layer of a compile pass.
+    run_orders: Mutex<HashMap<K, Arc<[usize]>>>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
@@ -66,6 +79,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             bounds_gen: None,
             eviction: None,
             short_circuit: true,
+            run_orders: Mutex::new(HashMap::new()),
         };
         set.checksum = set.names_hash() as u64;
         set
@@ -91,6 +105,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
         self.checksum = self.names_hash() as u64;
+        self.run_orders = Mutex::new(HashMap::new());
         self
     }
 
@@ -126,6 +141,23 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Returns the [autotune plan](TunePlan) for the given set.
     pub(crate) fn plan(&self, key: &K) -> TunePlan {
         TunePlan::new(key, &self.tunables)
+    }
+
+    /// The candidates of `key` in the order an untuned key runs them: its plan's
+    /// [order](TunePlan::order).
+    pub(crate) fn run_order(&self, key: &K) -> Arc<[usize]> {
+        if let Some(order) = self.run_orders.lock().get(key) {
+            return order.clone();
+        }
+        // Planned outside the lock: a priority may run for long.
+        let order: Arc<[usize]> = self
+            .plan(key)
+            .order(self.len())
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect();
+        self.run_orders.lock().insert(key.clone(), order.clone());
+        order
     }
 
     /// Returns the operation for the given index, matching the order returned by

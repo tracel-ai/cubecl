@@ -10,12 +10,13 @@ use crate::*;
 impl Tile {
     /// [`dequantize_from`](Tile::dequantize_from) a source in memory, read in the source's own
     /// loads ([`vector_tile`](Tile::vector_tile)), a run or a rectangle of its stored tiles. The
-    /// source may carry extra axes only if each is one wide.
+    /// source may carry extra dimensions only if each is one wide.
     pub(crate) fn copy_scaled_from<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        // It decodes in the unit that loads each line; an async copy lands the bytes as they lie.
+        // It decodes in the unit that loads each line; an engine moving memory to memory lands the
+        // bytes as they lie.
         let delivery = src.delivery();
         comptime!(assert!(
-            !delivery.is_async(),
+            delivery.route() == Route::Registers,
             "Tile::dequantize_from: a decoding copy cannot be delivered {delivery:?}; deliver it \
              SyncPerUnit, or stage it as it lies and decode out of the stage"
         ));
@@ -52,7 +53,7 @@ impl Tile {
         let size!(VW) = vw;
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
-        let along = dst.axis_at(dst.rank() - 1);
+        let along = dst.dimension_at(dst.rank() - 1);
         let varies = src.factor.varies_along(comptime!(along));
         comptime!(check_scaled_copy(
             "Tile::dequantize_from",
@@ -64,49 +65,19 @@ impl Tile {
         ));
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
-        let fill = self.fill_units();
+        let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
-        let units = fill.count;
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let mut out = self.nd_mut::<O, VW>();
-        // A comptime worker count unrolls the loads, as a straight fill unrolls its lines: a
-        // runtime stride stalls each store on Metal's in-order pipe.
-        if units > 0 && loads.div_ceil(units) <= 8 {
-            #[unroll]
-            for t in 0..loads.div_ceil(units) {
-                let line = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if (t + 1) * units <= loads {
-                    src.decode_load_into::<S, O, I, WP, VW>(
-                        &stored,
-                        &mut out,
-                        line,
-                        dst.clone(),
-                        comptime!(lands.clone()),
-                    );
-                } else {
-                    if line < comptime!(loads as u32) {
-                        src.decode_load_into::<S, O, I, WP, VW>(
-                            &stored,
-                            &mut out,
-                            line,
-                            dst.clone(),
-                            comptime!(lands.clone()),
-                        );
-                    }
-                }
-            }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for line in range_stepped(first, comptime!(loads as u32), stride) {
-                src.decode_load_into::<S, O, I, WP, VW>(
-                    &stored,
-                    &mut out,
-                    line,
-                    dst.clone(),
-                    comptime!(lands.clone()),
-                );
-            }
+        // The loads dealt to the units that fill, as a straight fill's lines are.
+        for load in Walk::copy(&fill, comptime!(loads).runtime()) {
+            src.decode_load_into::<S, O, I, WP, VW>(
+                &stored,
+                &mut out,
+                load.coord(Level::COPIED) as u32,
+                &dst,
+                lands.clone(),
+            );
         }
     }
 
@@ -117,7 +88,7 @@ impl Tile {
         stored: &Masked<'_, Vector<I, WP>, CoordsDyn>,
         out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
         line: u32,
-        #[comptime] dst: Space,
+        #[comptime] dst: &Space,
         #[comptime] lands: VectorTile,
     ) {
         let load = self.vector_tile();
@@ -140,10 +111,10 @@ impl Tile {
             let mut to = Coords::<u32>::new();
             #[unroll]
             for p in 0..rank {
-                let inner = comptime!(load.offset_along(offset, space.axis_at(p)) as u32);
+                let inner = comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
                 let coord = start.at(p) + inner;
                 at.push(coord);
-                if dst.contains(space.axis_at(p)) {
+                if dst.contains(space.dimension_at(p)) {
                     to.push(coord);
                 }
             }
@@ -158,14 +129,14 @@ impl Tile {
             let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
                 * Vector::<f32, VW>::cast_from(scale);
             let decoded = Vector::<O, VW>::cast_from(scaled);
-            out.write(lands.index(&to, &dst), decoded);
+            out.write(lands.index(&to, dst), decoded);
         }
     }
 }
 
 /// What a copy through scales rests on, `reader` the copy: the packed side spans `src`, read or
 /// written in `load`s, and the float side `dst`, written or read `vw` wide. `varies` is whether
-/// the scales vary along the float side's innermost axis.
+/// the scales vary along the float side's innermost dimension.
 pub(super) fn check_scaled_copy(
     reader: &str,
     src: &Space,
@@ -175,19 +146,19 @@ pub(super) fn check_scaled_copy(
     varies: bool,
 ) {
     assert!(
-        src.axes().all(|axis| !src.is_dynamic(axis)),
-        "{reader}: a copy through scales walks the packed window through its own axes, which \
-         needs their extents at expansion; this window spans a dynamic axis. Copy a region a \
+        src.dimensions().all(|dimension| !src.is_dynamic(dimension)),
+        "{reader}: a copy through scales walks the packed window through its own dimensions, which \
+         needs their extents at expansion; this window spans a dynamic dimension. Copy a region a \
          level cuts to (a stage, a leaf) rather than the whole dynamic tile"
     );
     assert!(
         src.narrows_to(dst),
         "{reader}: a copy through scales takes the box it gives, and {src:?} does not narrow to \
-         {dst:?} by dropping one-wide axes"
+         {dst:?} by dropping one-wide dimensions"
     );
-    // A float line is `vw` consecutive values along its innermost axis, so it sits inside one
-    // load only where that is the load's finest axis and its extent there holds whole lines.
-    let along = dst.axis_at(dst.rank() - 1);
+    // A float line is `vw` consecutive values along its innermost dimension, so it sits inside one
+    // load only where that is the load's finest dimension and its extent there holds whole lines.
+    let along = dst.dimension_at(dst.rank() - 1);
     let &(finest, run) = load
         .extents()
         .first()

@@ -26,18 +26,18 @@ const SCALES_PER_WORD: usize = 4;
 
 /// Values of `k` one `e4m3` scale of a word covers: the words this decodes are NVFP4's, four
 /// blocks of sixteen. Words of another field, or of another block, are refused
-/// ([`steps_refusal()`]): a word read whole does not say its block.
+/// ([`steps_decline()`]): a word read whole does not say its block.
 const E2M1_SCALE_BLOCK: usize = 16;
 
-/// Why `src`, a shared-memory window of an `m × n × k` fragment of `T` in role `ident`, cannot
-/// load a step at a time; `None` where it can: a fragment deeper than its instruction over a plain
+/// Why `src`, a shared-memory window of an `m × n × k` fragment of `T` in role `ident`, cannot load
+/// a step at a time; `None` where it can: a fragment deeper than its instruction over a plain
 /// window, each step read as a fragment of its own at its offset along `k`, whatever layout the
 /// target's registers take; or deeper than a 16-bit `m16n8k16` instruction, on a target that lays
-/// its registers out as [`LaneMap::NVIDIA_M16N8K16`] reads them, over a `B` of `e2m1` codes along `k`
-/// under one level of words of block scales, a whole number of words deep so every window starts
-/// on a word.
+/// its registers out as [`LaneMap::NVIDIA_M16N8K16`] reads them, over a `B` of `e2m1` codes along
+/// `k` under one level of words of block scales, a whole number of words deep so every window
+/// starts on a word.
 #[cube]
-pub(crate) fn steps_refusal<T: Numeric>(
+pub(crate) fn steps_decline<T: Numeric>(
     src: &Tile,
     #[comptime] ident: MatrixIdent,
     #[comptime] layout: MatrixLayout,
@@ -84,8 +84,8 @@ pub(crate) fn load_in_steps<T: Numeric, N: Size>(
     #[comptime] io: MmaIo,
     #[comptime] shape: (usize, usize, usize),
 ) {
-    let refusal = steps_refusal::<T>(src, ident, layout, shape);
-    comptime!(if let Some(why) = refusal {
+    let decline = steps_decline::<T>(src, ident, layout, shape);
+    comptime!(if let Some(why) = decline {
         panic!(
             "MmaData::load: a fragment deeper than its instruction loads a step at a time: {why}"
         )
@@ -130,7 +130,7 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
 ) {
     let space = comptime!(src.place.space.clone());
     // A col-major `B`'s rows are its columns.
-    let axes = comptime!(MatrixAxes::new(&space, n, k).unwrap_or_else(|no| {
+    let dimensions = comptime!(MatrixDimensions::new(&space, n, k).unwrap_or_else(|no| {
         panic!("MmaData::load: a stepped weight is an {n} x {k} matrix: {no:?}")
     }));
     let load = src.vector_tile();
@@ -158,7 +158,7 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
             comptime!((l * values) as u32),
             0usize,
             &space,
-            axes,
+            dimensions,
             1usize,
         );
         codes[l] = words.read(load.index(&at, &space));
@@ -174,7 +174,7 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
             comptime!((w * E2M1_SCALE_BLOCK * SCALES_PER_WORD) as u32),
             0usize,
             &space,
-            axes,
+            dimensions,
             1usize,
         );
         let word = factor.word_at(&at, space.clone());

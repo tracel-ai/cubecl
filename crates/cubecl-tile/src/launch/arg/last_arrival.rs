@@ -3,6 +3,7 @@
 use cubecl::prelude::*;
 
 use crate::launch::arg::adding::adding_tile;
+use crate::launch::arg::destination::{ServedDestination, ServedDestinationExpand};
 use crate::launch::arg::tensor::TileTensorExpand;
 use crate::space::Extent;
 use crate::*;
@@ -16,7 +17,7 @@ use crate::*;
 /// parts are added in the order of their runs, so the total is the same bits whichever run arrives
 /// last.
 ///
-/// The slots are one operand over the output's axes, in its order, of two boxes a run
+/// The slots are one operand over the output's dimensions, in its order, of two boxes a run
 /// ([`Partitioning::arrival_slots`]): the first holds the part of the box the run starts in, the
 /// second the part of the box it ends in. A run's other boxes are its own whole, so no part needs a
 /// third. The counters are one `u32` a box ([`Partitioning::arrival_counters`]), holding zero, and
@@ -48,26 +49,27 @@ pub struct LastArrival<'a> {
 impl<'a> TileTensor<'a> {
     /// This operand as the slots of a [`LastArrival`] at the `i`-th box `portion` touches, under
     /// `partitioning`, whose cube level shares its steps ([`shared_by`](Levels::shared_by)). The
-    /// operand is laid out as [`Partitioning::arrival_slots`] says for its axes.
+    /// operand is laid out as [`Partitioning::arrival_slots`] says for its dimensions.
     pub fn last_arrival<'t, V: Size>(
-        &self,
+        &mut self,
         partitioning: &Partitioning,
         portion: &Portion,
         i: usize,
         arrivals: &'t [Atomic<u32>],
     ) -> LastArrival<'t> {
-        let boxes_space = comptime!(partitioning.clone().arrival_slots_space(self.spec.axes()));
+        let boxes_space = comptime!(
+            partitioning
+                .clone()
+                .arrival_slots_space(self.spec.dimensions())
+        );
         let boxes = Partitioning {
-            space: Space::with_sizes(
-                boxes_space.space().clone(),
-                partitioning.space.sizes.clone(),
-            ),
+            space: Space::with_sizes(boxes_space.space(), partitioning.space.sizes.clone()),
             levels: boxes_space.levels().to_vec(),
         };
         let (first, holders) = portion.holders(i);
         let run = portion.run();
         let first_slot = 2 * first + select(portion.starts_in(i, first), 0usize, 1usize);
-        let slots = self.tile(&boxes);
+        let slots = self.tile_mut(&boxes);
         let define!(Served) = self.element;
         let walk = boxes.walk();
         let own_box = walk.region(2 * run + select(portion.starts_in(i, run), 0usize, 1usize));
@@ -97,21 +99,21 @@ impl<'a> LastArrival<'a> {
         self.own.clone()
     }
 
-    /// Hand `sum`, opened on [`tile`](LastArrival::tile), on to `out` with a cast: drained straight
-    /// into it where this run holds the box whole, parked and merged by the last run to arrive
-    /// otherwise. Every unit of the cube reaches it.
-    pub fn hand_on(&self, sum: &Tile, out: &mut Tile) {
+    /// Hand `sum`, opened on [`tile`](LastArrival::tile), on to `dest` at this box: the sum
+    /// itself where this run holds the box whole, otherwise parked, and the total merged by the
+    /// last run to arrive, which alone hands it on. Every unit of the cube reaches it.
+    pub fn hand_on<D: ServedDestination>(&self, sum: &Tile, dest: &D) {
         let slot = self.own.projection();
-        let output = out.projection();
+        let output = dest.tile().projection();
         comptime!(assert!(
-            slot.logical_axes() == output.logical_axes(),
+            slot.dimensions() == output.dimensions(),
             "LastArrival::hand_on: the slots span {:?} and the output {:?}; a sum opened on a slot \
-             drains into the output axis for axis, so the slots span the output's axes in its order",
-            slot.logical_axes(),
-            output.logical_axes()
+             drains into the output dimension for dimension, so the slots span the output's dimensions in its order",
+            slot.dimensions(),
+            output.dimensions()
         ));
         if self.holders == 1 {
-            sum.drained_into(&out.at(&self.region));
+            sum.consumed_by::<D>(dest, &self.region);
         } else {
             sum.drained_into(&self.tile());
             // The part lands at device scope before the run counts itself in.
@@ -133,8 +135,7 @@ impl<'a> LastArrival<'a> {
                 }
                 // Every line of the total is in before any is read back.
                 sync_storage();
-                let mut out_box = out.at(&self.region);
-                out_box.copy_cast_from(&self.slots.at(&total));
+                self.slots.at(&total).consumed_by::<D>(dest, &self.region);
                 if UNIT_POS == 0 {
                     self.arrivals[self.counter].store(0u32);
                 }
@@ -149,28 +150,32 @@ impl Partitioning {
     pub fn arrival_counters(&self) -> usize {
         let level = &self.levels()[0];
         self.space()
-            .axes()
-            .map(|axis| level.tiles(self.space(), axis))
+            .dimensions()
+            .map(|dimension| level.tiles(self.space(), dimension))
             .product()
     }
 
-    /// The shape of a [`LastArrival`]'s slots for an output over `axes`, in that order: two cube
-    /// boxes a run of the shared cube level, stacked along the first of `axes`.
-    pub fn arrival_slots(&self, axes: &[Axis]) -> cubecl::zspace::Shape {
-        let boxes = self.arrival_slots_space(axes);
-        cubecl::zspace::Shape::from(axes.iter().map(|&axis| boxes.space().extent(axis)))
+    /// The shape of a [`LastArrival`]'s slots for an output over `dimensions`, in that order: two
+    /// cube boxes a run of the shared cube level, stacked along the first of `dimensions`.
+    pub fn arrival_slots(&self, dimensions: &[Dimension]) -> cubecl::zspace::Shape {
+        let boxes = self.arrival_slots_space(dimensions);
+        cubecl::zspace::Shape::from(
+            dimensions
+                .iter()
+                .map(|&dimension| boxes.space().extent(dimension)),
+        )
     }
 
-    /// The space the slots of a [`LastArrival`] for an output over `axes` are boxes of, cut by
-    /// these levels: one cube box, with the first of `axes` two boxes a run long. Every axis the
-    /// cube level cuts, a batch one included, is one box long, so the slot boxes are counted along
-    /// that first axis alone.
-    fn arrival_slots_space(&self, axes: &[Axis]) -> Partitioning {
+    /// The space the slots of a [`LastArrival`] for an output over `dimensions` are boxes of, cut
+    /// by these levels: one cube box, with the first of `dimensions` two boxes a run long. Every
+    /// dimension the cube level cuts, a batch one included, is one box long, so the slot boxes are
+    /// counted along that first dimension alone.
+    fn arrival_slots_space(&self, dimensions: &[Dimension]) -> Partitioning {
         let level = &self.levels()[0];
         let runs = level.shared_by().expect(
             "LastArrival: the cube level distributes no grid as one index; say `shared_by`",
         );
-        let stacked = axes[0];
+        let stacked = dimensions[0];
         let cube_box = level.child(self.space());
         let Extent::Static(edge) = cube_box.extent_raw(stacked) else {
             panic!(
@@ -178,11 +183,11 @@ impl Partitioning {
                  stack cube boxes along it, so the cube level cuts it by a stated tile"
             )
         };
-        let extents: Vec<(Axis, Extent)> = cube_box
-            .axes()
-            .map(|axis| match axis == stacked {
-                true => (axis, Extent::Static(2 * runs * edge)),
-                false => (axis, cube_box.extent_raw(axis)),
+        let extents: Vec<(Dimension, Extent)> = cube_box
+            .dimensions()
+            .map(|dimension| match dimension == stacked {
+                true => (dimension, Extent::Static(2 * runs * edge)),
+                false => (dimension, cube_box.extent_raw(dimension)),
             })
             .collect();
         Partitioning::new(Space::from_extents(&extents), self.levels().to_vec())

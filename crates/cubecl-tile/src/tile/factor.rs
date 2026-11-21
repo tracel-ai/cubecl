@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
-use cubecl::ir::{ExpandValue, Scope};
+use cubecl::ir::{ExpandValue, Scope, types::Fp8Format};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::QuantValue;
 use cubecl::unexpanded;
@@ -41,22 +41,22 @@ impl Factor {
         unexpanded!()
     }
 
-    /// This factor with every scale that spans `axis` one wide at `coord` along it, as the values
-    /// it rides are ([`Tile::placed_at`](crate::Tile::placed_at)).
+    /// This factor with every scale that spans `dimension` one wide at `coord` along it, as the
+    /// values it rides are ([`Tile::placed_at`](crate::Tile::placed_at)).
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
-    pub(crate) fn placed_at(&self, _axis: Axis, _coord: u32) -> Factor {
+    pub(crate) fn placed_at(&self, _dimension: Dimension, _coord: u32) -> Factor {
         unexpanded!()
     }
 
-    /// This factor with every scale that spans `axis` reading the run `[from, until)` along it,
-    /// as the values it rides are ([`Tile::run_within`](crate::Tile::run_within)).
+    /// This factor with every scale that spans `dimension` reading the run `[from, until)` along
+    /// it, as the values it rides are ([`Tile::run_within`](crate::Tile::run_within)).
     #[allow(dead_code)] // Reached through its expand, from [`Tile::indexed_at`](crate::Tile::indexed_at).
-    pub(crate) fn run_within(&self, _axis: Axis, _from: u32, _until: u32) -> Factor {
+    pub(crate) fn run_within(&self, _dimension: Dimension, _from: u32, _until: u32) -> Factor {
         unexpanded!()
     }
 
-    /// Whether the innermost scales vary along `axis`, so a run along it spans scales.
-    pub(crate) fn varies_along(&self, _axis: Axis) -> bool {
+    /// Whether the innermost scales vary along `dimension`, so a run along it spans scales.
+    pub(crate) fn varies_along(&self, _dimension: Dimension) -> bool {
         unexpanded!()
     }
 
@@ -67,9 +67,13 @@ impl Factor {
         unexpanded!()
     }
 
-    /// The one scale every value shares: the product down the chain, no scale of which varies
-    /// along any axis.
-    pub(crate) fn whole(&self) -> f32 {
+    /// The one scale every value shares: the product down the chain, no scale of which varies along
+    /// any dimension. What a sum held outside any tile, in a unit's own registers, is multiplied by
+    /// where it takes on the per-tensor scale [`Tile::factor`](crate::Tile::factor) took out of an
+    /// operand it summed; `1` where the factor holds no scale.
+    ///
+    /// Expansion panics on a factor holding a scale that varies along a dimension.
+    pub fn whole(&self) -> f32 {
         unexpanded!()
     }
 
@@ -105,8 +109,10 @@ impl Factor {
         unexpanded!()
     }
 
-    /// How the innermost scales sit in their buffer: `None` where these values carry no scale.
-    pub(crate) fn inner_stored(&self) -> comptime_type!(Option<Packing>) {
+    /// The 8-bit float format of the innermost scales, packed as fields in words or read alone as
+    /// their element alike: `None` where they are no 8-bit float, or held as whole words a
+    /// block-scaled instruction reads.
+    pub(crate) fn inner_fp8(&self) -> comptime_type!(Option<Fp8Format>) {
         unexpanded!()
     }
 
@@ -166,6 +172,13 @@ impl FactorExpand {
         }
     }
 
+    /// Whether the values were marked as staged as they are stored, their scales, if any, kept
+    /// beside them ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)): a reader
+    /// decodes them as it loads.
+    pub(crate) fn is_kept_beside(&self) -> bool {
+        self.kept_beside
+    }
+
     /// This factor, its scales kept beside the values by a stage.
     pub(crate) fn kept_beside(self) -> Self {
         FactorExpand {
@@ -188,17 +201,17 @@ impl FactorExpand {
         std::iter::successors(self.scale.as_deref(), |scale| scale.factor.scale.as_deref())
     }
 
-    /// Whether `scale`'s own scales vary along an axis outside `space`.
+    /// Whether `scale`'s own scales vary along a dimension outside `space`.
     fn varies_outside(scope: &Scope, scale: &TileExpand, space: &Space) -> bool {
         let projection = scale.clone().__expand_projection_method(scope);
         scale
             .place
             .space
-            .axes()
-            .any(|axis| projection.addresses(axis) && !space.contains(axis))
+            .dimensions()
+            .any(|dimension| projection.addresses(dimension) && !space.contains(dimension))
     }
 
-    /// This factor cut in two: the inner scales, down to the last one that varies along an axis
+    /// This factor cut in two: the inner scales, down to the last one that varies along a dimension
     /// outside `space`, and the rest, which vary only along `space`. Each scale covers more than
     /// the one inside it, so once one varies only along `space`, every one outside it does too.
     pub(crate) fn split_on(&self, scope: &Scope, space: &Space) -> (FactorExpand, FactorExpand) {
@@ -269,41 +282,41 @@ impl FactorExpand {
     pub(crate) fn __expand_placed_at_method(
         &self,
         scope: &Scope,
-        axis: Axis,
+        dimension: Dimension,
         coord: NativeExpand<u32>,
     ) -> FactorExpand {
-        self.spanning(axis, |scale| {
-            scale.__expand_placed_at_method(scope, axis, coord)
+        self.spanning(dimension, |scale| {
+            scale.__expand_placed_at_method(scope, dimension, coord)
         })
     }
 
     pub(crate) fn __expand_run_within_method(
         &self,
         scope: &Scope,
-        axis: Axis,
+        dimension: Dimension,
         from: NativeExpand<u32>,
         until: NativeExpand<u32>,
     ) -> FactorExpand {
-        self.spanning(axis, |scale| {
-            scale.__expand_run_within_method(scope, axis, from, until)
+        self.spanning(dimension, |scale| {
+            scale.__expand_run_within_method(scope, dimension, from, until)
         })
     }
 
-    /// This factor with `place` applied to every scale that spans `axis`, which carries its own
-    /// scales along; the scales that do not span it, as they are.
+    /// This factor with `place` applied to every scale that spans `dimension`, which carries its
+    /// own scales along; the scales that do not span it, as they are.
     pub(crate) fn spanning(
         &self,
-        axis: Axis,
+        dimension: Dimension,
         place: impl Fn(&TileExpand) -> TileExpand,
     ) -> FactorExpand {
         match self.scale.as_deref() {
             None => FactorExpand::default(),
-            Some(scale) if scale.place.space.contains(axis) => {
+            Some(scale) if scale.place.space.contains(dimension) => {
                 FactorExpand::of(&place(scale)).keeping(self)
             }
             Some(scale) => {
                 let mut kept = scale.clone();
-                kept.factor = scale.factor.spanning(axis, place);
+                kept.factor = scale.factor.spanning(dimension, place);
                 FactorExpand::of(&kept).keeping(self)
             }
         }
@@ -332,7 +345,7 @@ impl FactorExpand {
         product.unwrap_or_else(|| ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into())
     }
 
-    pub(crate) fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
+    pub fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
         let mut product: NativeExpand<f32> =
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
         for scale in self.chain() {
@@ -341,8 +354,8 @@ impl FactorExpand {
                 scale
                     .place
                     .space
-                    .axes()
-                    .all(|axis| !projection.addresses(axis)),
+                    .dimensions()
+                    .all(|dimension| !projection.addresses(dimension)),
                 "Factor::whole: a scale that varies across the output is applied where the output \
                  is written through memory, not on the sum's fragments"
             );
@@ -366,10 +379,16 @@ impl FactorExpand {
         self.depth()
     }
 
-    pub(crate) fn __expand_inner_stored_method(&self, scope: &Scope) -> Option<Packing> {
-        self.scale
-            .as_deref()
-            .map(|scale| scale.clone().__expand_packing_method(scope))
+    pub(crate) fn __expand_inner_fp8_method(&self, scope: &Scope) -> Option<Fp8Format> {
+        let scale = self.scale.as_deref()?;
+        match scale.clone().__expand_packing_method(scope) {
+            Packing::Packed { field } => field.fp8(),
+            Packing::Plain => match scale.element {
+                ElemType::Float(kind) => Field::of_float(kind).fp8(),
+                _ => None,
+            },
+            Packing::Words { .. } => None,
+        }
     }
 
     pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
@@ -455,7 +474,7 @@ impl FactorExpand {
             .expect("Factor::word_at: the innermost scales are no words of block scales");
         scale
             .clone()
-            .__expand_scale_for_method::<u32>(scope, coords, values, Guard::Checked)
+            .__expand_scale_for_method::<u32>(scope, coords, &values, Guard::Checked)
     }
 
     pub(crate) fn __expand_write_at_method<N: Size>(
@@ -468,7 +487,7 @@ impl FactorExpand {
         let mut scale = self
             .innermost_tile()
             .expect("Factor::write_at: these values carry no scale to write");
-        scale.__expand_write_scales_for_method::<N>(scope, coords, values, scales);
+        scale.__expand_write_scales_for_method::<N>(scope, coords, &values, scales);
     }
 
     pub(crate) fn __expand_calibrate_from_method<F: Float>(
@@ -494,7 +513,7 @@ impl Tile {
     pub(crate) fn write_scales_for<N: Size>(
         &mut self,
         coords: &Coords<u32>,
-        #[comptime] values: Space,
+        #[comptime] values: &Space,
         scales: Vector<f32, N>,
     ) {
         let own = self.scale_coords(coords, values);
@@ -558,7 +577,7 @@ fn scale_for(
 ) -> NativeExpand<f32> {
     scale
         .clone()
-        .__expand_scale_for_method::<f32>(scope, coords, values.clone(), guard)
+        .__expand_scale_for_method::<f32>(scope, coords, values, guard)
 }
 
 /// The all-zero coordinate of `space`: where a scale covering a whole region is read.
@@ -584,7 +603,7 @@ pub(crate) struct FactorReader {
     #[cube(comptime)]
     pub(crate) values: Space,
     #[cube(comptime)]
-    pub(crate) axes: MatrixAxes,
+    pub(crate) dimensions: MatrixDimensions,
     #[cube(comptime)]
     pub(crate) vector_size: usize,
     /// Whether there is a scale at all.
@@ -609,7 +628,7 @@ impl FactorReader {
                 col,
                 self.matrix,
                 comptime!(&self.values),
-                comptime!(self.axes),
+                comptime!(self.dimensions),
                 comptime!(self.vector_size),
             );
             self.apply_at::<E, V>(value, &coords)
@@ -630,8 +649,8 @@ impl FactorReader {
                 comptime!(self.values.clone()),
                 comptime!(Guard::Checked),
             );
-            // Multiplied in `f32`, rounded to `E` once: a placed `e2m1` value is a lift short, which
-            // the factor carries, and the lift times a scale is past a half's range where its
+            // Multiplied in `f32`, rounded to `E` once: a placed `e2m1` value is a lift short,
+            // which the factor carries, and the lift times a scale is past a half's range where its
             // product with the value is not.
             let scaled = Vector::<f32, V>::cast_from(value)
                 * Vector::<f32, V>::cast_from(scale * self.coarse);
@@ -643,12 +662,12 @@ impl FactorReader {
 }
 
 impl FactorExpand {
-    pub(crate) fn __expand_varies_along_method(&self, scope: &Scope, axis: Axis) -> bool {
+    pub(crate) fn __expand_varies_along_method(&self, scope: &Scope, dimension: Dimension) -> bool {
         self.scale.as_deref().is_some_and(|scale| {
             scale
                 .clone()
                 .__expand_projection_method(scope)
-                .addresses(axis)
+                .addresses(dimension)
         })
     }
 }

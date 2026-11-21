@@ -8,7 +8,7 @@ use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{prelude::*, zspace::Shape};
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
+const M: Dimension = Dimension(0);
 
 const CELLS: usize = 6;
 

@@ -1,19 +1,22 @@
 [package]
 authors = []
-name = "gelu"
-publish = false
 edition.workspace = true
 license.workspace = true
+name = "gelu"
+publish = false
 version.workspace = true
+
+[lints]
+workspace = true
 
 [features]
 # An example with no runtime linked has nothing to run on, so the
 # portable one is the default. `--no-default-features --features cuda`
 # (or hip, cpu, metal) picks another.
+cpu = ["cubecl/cpu"]
+cuda = ["cubecl/cuda"]
 default = ["wgpu"]
 wgpu = ["cubecl/wgpu"]
-cuda = ["cubecl/cuda"]
-cpu = ["cubecl/cpu"]
 
 [dependencies]
 cubecl = { workspace = true, default-features = true }

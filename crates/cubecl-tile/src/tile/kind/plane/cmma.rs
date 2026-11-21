@@ -181,7 +181,7 @@ impl CmmaData {
     pub(crate) fn add_from_scratch<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let scratch = self.scratch_slot::<T>();
         let (m, n) = comptime!(self.shape);
@@ -194,8 +194,8 @@ impl CmmaData {
         let size!(W) = width;
         let lines_per_row = n / width;
         let lines = m * lines_per_row;
-        let axes = comptime!(MatrixAxes::trailing(&space));
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
+        let dimensions = comptime!(MatrixDimensions::trailing(space));
+        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
         let plane_units = PLANE_DIM as usize;
         let mut line = UNIT_POS_PLANE as usize;
         while line < lines {
@@ -212,17 +212,19 @@ impl CmmaData {
         }
     }
 
-    /// Drain this fragment through the plane's scratch, with cube-wide syncs.
+    /// Drain this fragment through its slot of the plane's scratch. The slot is the plane's own,
+    /// so the plane alone meets around it, as [`scale`](Self::scale) does; ordering `mem` against
+    /// other planes is its caller's, as for every other drain.
     pub(crate) fn bounce_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
-        sync_cube();
+        sync_plane();
         self.spill_to_scratch::<T>();
-        sync_cube();
+        sync_plane();
         self.add_from_scratch::<T, Out>(mem, space);
-        sync_cube();
+        sync_plane();
     }
 
     /// This fragment's slot of the plane's scratch, or the reason there is none.
@@ -356,7 +358,7 @@ mod fragment_drain_tests {
             whole: false,
             overhang,
             write,
-            fill: FillUnits::cube(0),
+            copy: Level::copied_by_cube(0),
             storage: WindowStorage::Stored(Storage::Strided),
             delivery: Delivery::SyncPerUnit,
         }

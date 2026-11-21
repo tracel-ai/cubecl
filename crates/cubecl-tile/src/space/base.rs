@@ -4,9 +4,10 @@ use cubecl::prelude::*;
 use cubecl::zspace::SmallVec;
 
 use crate::algebra::gcd;
-use crate::{Axis, Extent, Level, Shape};
+use crate::{Dimension, Extent, Level, Shape};
 
-/// Every axis with its extent, in canonical order, plus the runtime sizes of dynamic axes.
+/// Every dimension with its extent, in canonical order, plus the runtime sizes of dynamic
+/// dimensions.
 #[derive(CubeType, CubeLaunch, Clone, Debug)]
 pub struct Space {
     #[cube(comptime)]
@@ -47,37 +48,37 @@ impl SpaceExpand {
         self.shape.rank()
     }
 
-    pub fn axis_at(&self, i: usize) -> Axis {
-        self.shape.axis_at(i)
+    pub fn dimension_at(&self, i: usize) -> Dimension {
+        self.shape.dimension_at(i)
     }
 
-    pub fn position(&self, axis: Axis) -> usize {
-        self.shape.position(axis)
+    pub fn position(&self, dimension: Dimension) -> usize {
+        self.shape.position(dimension)
     }
 
-    pub fn contains(&self, axis: Axis) -> bool {
-        self.shape.contains(axis)
+    pub fn contains(&self, dimension: Dimension) -> bool {
+        self.shape.contains(dimension)
     }
 
-    pub fn axes(&self) -> impl Iterator<Item = Axis> + '_ {
-        self.shape.axes()
+    pub fn dimensions(&self) -> impl Iterator<Item = Dimension> + '_ {
+        self.shape.dimensions()
     }
 
-    pub fn extent(&self, axis: Axis) -> usize {
-        self.shape.extent(axis)
+    pub fn extent(&self, dimension: Dimension) -> usize {
+        self.shape.extent(dimension)
     }
 
     pub fn extent_at(&self, i: usize) -> usize {
         self.shape.extent_at(i)
     }
 
-    pub fn is_dynamic(&self, axis: Axis) -> bool {
-        self.shape.is_dynamic(axis)
+    pub fn is_dynamic(&self, dimension: Dimension) -> bool {
+        self.shape.is_dynamic(dimension)
     }
 
-    /// The listed axes with their extents, in the order listed.
-    pub fn subspace(&self, axes: &[Axis]) -> Space {
-        Space::from_shape(self.shape.subspace(axes))
+    /// The listed dimensions with their extents, in the order listed.
+    pub fn subspace(&self, dimensions: &[Dimension]) -> Space {
+        Space::from_shape(self.shape.subspace(dimensions))
     }
 }
 
@@ -86,67 +87,73 @@ impl Space {
         &self.shape
     }
 
-    /// Whether `other` is this space with some one-wide axes dropped, order and extents kept.
+    /// Whether `other` is this space with some one-wide dimensions dropped, order and extents kept.
     pub(crate) fn narrows_to(&self, other: &Space) -> bool {
-        self.axes()
-            .filter(|&axis| other.contains(axis))
-            .eq(other.axes())
-            && self.axes().last().is_some_and(|axis| other.contains(axis))
-            && self.axes().all(|axis| match other.contains(axis) {
-                true => self.extent(axis) == other.extent(axis),
-                false => self.extent(axis) == 1,
-            })
+        self.dimensions()
+            .filter(|&dimension| other.contains(dimension))
+            .eq(other.dimensions())
+            && self
+                .dimensions()
+                .last()
+                .is_some_and(|dimension| other.contains(dimension))
+            && self
+                .dimensions()
+                .all(|dimension| match other.contains(dimension) {
+                    true => self.extent(dimension) == other.extent(dimension),
+                    false => self.extent(dimension) == 1,
+                })
     }
 
     pub fn rank(&self) -> usize {
         self.shape.rank()
     }
 
-    pub fn axis_at(&self, i: usize) -> Axis {
-        self.shape.axis_at(i)
+    pub fn dimension_at(&self, i: usize) -> Dimension {
+        self.shape.dimension_at(i)
     }
 
-    pub fn position(&self, axis: Axis) -> usize {
-        self.shape.position(axis)
+    pub fn position(&self, dimension: Dimension) -> usize {
+        self.shape.position(dimension)
     }
 
-    pub fn contains(&self, axis: Axis) -> bool {
-        self.shape.contains(axis)
+    pub fn contains(&self, dimension: Dimension) -> bool {
+        self.shape.contains(dimension)
     }
 
-    pub fn axes(&self) -> impl Iterator<Item = Axis> + '_ {
-        self.shape.axes()
+    pub fn dimensions(&self) -> impl Iterator<Item = Dimension> + '_ {
+        self.shape.dimensions()
     }
 
-    pub(crate) fn extent_raw(&self, axis: Axis) -> Extent {
-        self.shape.extent_raw(axis)
+    pub(crate) fn extent_raw(&self, dimension: Dimension) -> Extent {
+        self.shape.extent_raw(dimension)
     }
 
-    /// The axis's comptime size; panics on a `Dynamic` axis.
-    pub fn extent(&self, axis: Axis) -> usize {
-        self.shape.extent(axis)
+    /// The dimension's comptime size; panics on a `Dynamic` dimension.
+    pub fn extent(&self, dimension: Dimension) -> usize {
+        self.shape.extent(dimension)
     }
 
     pub fn extent_at(&self, i: usize) -> usize {
         self.shape.extent_at(i)
     }
 
-    pub fn is_dynamic(&self, axis: Axis) -> bool {
-        self.shape.is_dynamic(axis)
+    pub fn is_dynamic(&self, dimension: Dimension) -> bool {
+        self.shape.is_dynamic(dimension)
     }
 
-    /// The listed axes with their extents, in the order listed.
-    pub fn subspace(&self, axes: &[Axis]) -> Space {
-        Space::from_shape(self.shape.subspace(axes))
+    /// The listed dimensions with their extents, in the order listed.
+    pub fn subspace(&self, dimensions: &[Dimension]) -> Space {
+        Space::from_shape(self.shape.subspace(dimensions))
     }
 
-    /// This box listed in `held`'s order where `held` spans the same axes, as it is otherwise:
-    /// the box a plane-resident accumulator writes through, its fragments' rows along its own
-    /// leading axes whatever order the memory it drains into lists them in.
+    /// This box listed in `held`'s order where `held` spans the same dimensions, as it is
+    /// otherwise: the box a plane-resident accumulator writes through, its fragments' rows along
+    /// its own leading dimensions whatever order the memory it drains into lists them in.
     pub(crate) fn in_order_of(&self, held: &Space) -> Space {
-        let same_axes = held.rank() == self.rank() && held.axes().all(|axis| self.contains(axis));
-        match same_axes {
-            true => self.subspace(&held.axes().collect::<Vec<_>>()),
+        let same_dimensions = held.rank() == self.rank()
+            && held.dimensions().all(|dimension| self.contains(dimension));
+        match same_dimensions {
+            true => self.subspace(&held.dimensions().collect::<Vec<_>>()),
             false => self.clone(),
         }
     }
@@ -155,17 +162,17 @@ impl Space {
 #[cube]
 impl Space {
     /// The runtime operation space: the comptime space plus the runtime `sizes` of its
-    /// `Dynamic` axes (aligned to axis order; empty when fully `Static`).
-    pub(crate) fn with_sizes(#[comptime] space: Space, sizes: Sequence<usize>) -> Space {
+    /// `Dynamic` dimensions (aligned to dimension order; empty when fully `Static`).
+    pub(crate) fn with_sizes(#[comptime] space: &Space, sizes: Sequence<usize>) -> Space {
         Space {
             shape: space.shape.clone(),
             sizes,
         }
     }
 
-    /// Axis `p`'s tile count for a sub-tile `edge`; comptime for a `Static` axis.
+    /// Dimension `p`'s tile count for a sub-tile `edge`; comptime for a `Static` dimension.
     pub fn count(&self, #[comptime] p: usize, #[comptime] edge: usize) -> usize {
-        match comptime!(self.shape.extent_raw(self.shape.axis_at(p))) {
+        match comptime!(self.shape.extent_raw(self.shape.dimension_at(p))) {
             Extent::Static(n) => comptime!(n.div_ceil(edge)).runtime(),
             Extent::Dynamic => (*self.sizes.index(p)).div_ceil(edge),
         }
@@ -173,10 +180,10 @@ impl Space {
 }
 
 impl Space {
-    /// The most axes a space holds inline.
+    /// The most dimensions a space holds inline.
     pub const MAX_RANK: usize = 6;
 
-    pub fn new(extents: &[(Axis, usize)]) -> Self {
+    pub fn new(extents: &[(Dimension, usize)]) -> Self {
         let extents: Vec<_> = extents
             .iter()
             .map(|&(a, n)| (a, Extent::Static(n)))
@@ -185,7 +192,7 @@ impl Space {
     }
 
     /// Construct directly from [`Extent`]s.
-    pub(crate) fn from_extents(extents: &[(Axis, Extent)]) -> Self {
+    pub(crate) fn from_extents(extents: &[(Dimension, Extent)]) -> Self {
         Space::from_shape(Shape::new(extents))
     }
 
@@ -197,18 +204,18 @@ impl Space {
         }
     }
 
-    /// Flip the listed axes to `Dynamic`.
-    pub fn with_dynamic(mut self, axes: &[Axis]) -> Self {
-        for axis in axes {
+    /// Flip the listed dimensions to `Dynamic`.
+    pub fn with_dynamic(mut self, dimensions: &[Dimension]) -> Self {
+        for dimension in dimensions {
             assert!(
-                self.contains(*axis),
-                "Space::with_dynamic: {axis:?} is not an axis of this space"
+                self.contains(*dimension),
+                "Space::with_dynamic: {dimension:?} is not a dimension of this space"
             );
         }
         let entries: Vec<_> = self
-            .axes()
+            .dimensions()
             .map(|a| {
-                let extent = if axes.contains(&a) {
+                let extent = if dimensions.contains(&a) {
                     Extent::Dynamic
                 } else {
                     self.extent_raw(a)
@@ -220,20 +227,22 @@ impl Space {
         self
     }
 
-    /// Every axis dynamic (see [`with_dynamic`](Space::with_dynamic)).
+    /// Every dimension dynamic (see [`with_dynamic`](Space::with_dynamic)).
     pub fn all_dynamic(self) -> Self {
-        let axes: Vec<_> = self.axes().collect();
-        self.with_dynamic(&axes)
+        let dimensions: Vec<_> = self.dimensions().collect();
+        self.with_dynamic(&dimensions)
     }
 
-    /// Every axis is [`Static`](Extent::Static), so the walk is fully comptime.
+    /// Every dimension is [`Static`](Extent::Static), so the walk is fully comptime.
     pub(crate) fn is_static(&self) -> bool {
         self.shape.is_static()
     }
 
-    /// The static extents, in axis order.
-    pub fn extents(&self) -> Vec<(Axis, usize)> {
-        self.axes().map(|axis| (axis, self.extent(axis))).collect()
+    /// The static extents, in dimension order.
+    pub fn extents(&self) -> Vec<(Dimension, usize)> {
+        self.dimensions()
+            .map(|dimension| (dimension, self.extent(dimension)))
+            .collect()
     }
 
     /// The leaf `levels` reach below this space.
@@ -243,72 +252,74 @@ impl Space {
             .fold(self.clone(), |space, level| level.child(&space))
     }
 
-    /// The smallest space containing every `part`, axes in first-appearance order, shared axes
-    /// broadcast-merged. E.g. `{M,K} ∪ {K,N} ∪ {M,N} = {M,N,K}`.
+    /// The smallest space containing every `part`, dimensions in first-appearance order, shared
+    /// dimensions broadcast-merged. E.g. `{M,K} ∪ {K,N} ∪ {M,N} = {M,N,K}`.
     pub fn merge(parts: &[&Space]) -> Space {
-        let mut entries: SmallVec<[(Axis, Extent); Space::MAX_RANK]> = SmallVec::new();
+        let mut entries: SmallVec<[(Dimension, Extent); Space::MAX_RANK]> = SmallVec::new();
 
         for part in parts {
-            for axis in part.axes() {
-                let extent = part.extent_raw(axis);
-                match entries.iter_mut().find(|(a, _)| *a == axis) {
+            for dimension in part.dimensions() {
+                let extent = part.extent_raw(dimension);
+                match entries.iter_mut().find(|(a, _)| *a == dimension) {
                     Some(slot) => slot.1 = slot.1.broadcast(extent),
-                    None => entries.push((axis, extent)),
+                    None => entries.push((dimension, extent)),
                 }
             }
         }
         Space::from_shape(Shape::new(&entries))
     }
 
-    /// The smallest space every one of `parts` tiles evenly: on each axis the least common
-    /// multiple of the parts' extents, axes in first-appearance order. The box a step covers so
-    /// that each operand's load fills it whole: NVFP4 values loaded `{k 16, n 2}`, their scales
+    /// The smallest space every one of `parts` tiles evenly: on each dimension the least common
+    /// multiple of the parts' extents, dimensions in first-appearance order. The box a step covers
+    /// so that each operand's load fills it whole: NVFP4 values loaded `{k 16, n 2}`, their scales
     /// `{k 16, n 16}` and an `f16` activation `{k 8}` cover `{k 16, n 16}`.
     ///
     /// # Panics
     ///
     /// On a dynamic extent, which has no multiple.
     pub fn covering(parts: &[&Space]) -> Space {
-        let mut extents: Vec<(Axis, usize)> = Vec::new();
+        let mut extents: Vec<(Dimension, usize)> = Vec::new();
         for part in parts {
-            for (axis, extent) in part.extents() {
-                match extents.iter_mut().find(|(a, _)| *a == axis) {
+            for (dimension, extent) in part.extents() {
+                match extents.iter_mut().find(|(a, _)| *a == dimension) {
                     Some((_, held)) => *held = *held / gcd(*held, extent) * extent,
-                    None => extents.push((axis, extent)),
+                    None => extents.push((dimension, extent)),
                 }
             }
         }
         Space::new(&extents)
     }
 
-    /// How many `tile`s this space holds, laid side by side along every axis `tile` names; an axis
-    /// it does not name it spans whole, one tile serving every position along it. An `f16`
-    /// activation loaded `{k 8}` fills a step `{k 16, n 16}` in two loads.
+    /// How many `tile`s this space holds, laid side by side along every dimension `tile` names; a
+    /// dimension it does not name it spans whole, one tile serving every position along it. An
+    /// `f16` activation loaded `{k 8}` fills a step `{k 16, n 16}` in two loads.
     ///
     /// # Panics
     ///
-    /// Where `tile` names an axis this space lacks, or does not divide its extent there.
+    /// Where `tile` names a dimension this space lacks, or does not divide its extent there.
     pub fn tiles(&self, tile: &Space) -> usize {
-        tile.axes()
-            .map(|axis| {
-                let (whole, part) = (self.extent(axis), tile.extent(axis));
+        tile.dimensions()
+            .map(|dimension| {
+                let (whole, part) = (self.extent(dimension), tile.extent(dimension));
                 assert!(
                     whole.is_multiple_of(part),
-                    "Space::tiles: {part} along {axis:?} does not tile {whole}"
+                    "Space::tiles: {part} along {dimension:?} does not tile {whole}"
                 );
                 whole / part
             })
             .product()
     }
 
-    /// The axes in this space but not in `output`: those contracted.
-    pub(crate) fn difference(&self, output: &Space) -> SmallVec<[Axis; Space::MAX_RANK]> {
-        self.axes().filter(|&axis| !output.contains(axis)).collect()
+    /// The dimensions in this space but not in `output`: those contracted.
+    pub(crate) fn difference(&self, output: &Space) -> SmallVec<[Dimension; Space::MAX_RANK]> {
+        self.dimensions()
+            .filter(|&dimension| !output.contains(dimension))
+            .collect()
     }
 
     /// How many contracted values one step consumes off a `width`-wide line of this operand.
-    pub(crate) fn contracted_per_step(&self, contracted: &[Axis], width: usize) -> usize {
-        let lined = self.axis_at(self.rank() - 1);
+    pub(crate) fn contracted_per_step(&self, contracted: &[Dimension], width: usize) -> usize {
+        let lined = self.dimension_at(self.rank() - 1);
         let whole_lines = match self.extent_raw(lined) {
             Extent::Static(extent) => extent.is_multiple_of(width),
             Extent::Dynamic => true,
@@ -317,16 +328,20 @@ impl Space {
         if sums_lines { width } else { 1 }
     }
 
-    /// The axes `operands` jointly contract against `output`.
-    pub fn contracted(operands: &[&Space], output: &Space) -> SmallVec<[Axis; Space::MAX_RANK]> {
+    /// The dimensions `operands` jointly contract against `output`.
+    pub fn contracted(
+        operands: &[&Space],
+        output: &Space,
+    ) -> SmallVec<[Dimension; Space::MAX_RANK]> {
         let merged = Space::merge(operands);
         // Read raw: asking a `Dynamic` extent's comptime size panics.
-        let varies = |axis: Axis| merged.extent_raw(axis) != Extent::Static(1);
-        let shared = |axis: Axis| operands.iter().all(|operand| operand.contains(axis));
+        let varies = |dimension: Dimension| merged.extent_raw(dimension) != Extent::Static(1);
+        let shared =
+            |dimension: Dimension| operands.iter().all(|operand| operand.contains(dimension));
         merged
             .difference(output)
             .into_iter()
-            .filter(|&axis| varies(axis) || shared(axis))
+            .filter(|&dimension| varies(dimension) || shared(dimension))
             .collect()
     }
 
@@ -334,18 +349,18 @@ impl Space {
     pub(crate) fn contracted_extent(&self, output: &Space) -> usize {
         self.difference(output)
             .iter()
-            .map(|&axis| self.extent(axis))
+            .map(|&dimension| self.extent(dimension))
             .product()
     }
 
-    /// Whether `lhs` and `rhs` enumerate their jointly contracted axes in the same order.
+    /// Whether `lhs` and `rhs` enumerate their jointly contracted dimensions in the same order.
     pub(crate) fn contraction_agrees(lhs: &Space, rhs: &Space, output: &Space) -> bool {
         let joint = Space::contracted(&[lhs, rhs], output);
-        let listed = |operand: &Space| -> SmallVec<[Axis; Space::MAX_RANK]> {
+        let listed = |operand: &Space| -> SmallVec<[Dimension; Space::MAX_RANK]> {
             operand
                 .difference(output)
                 .into_iter()
-                .filter(|axis| joint.contains(axis))
+                .filter(|dimension| joint.contains(dimension))
                 .collect()
         };
         listed(lhs) == listed(rhs)
@@ -353,30 +368,34 @@ impl Space {
 
     /// How many cells the space holds.
     pub fn cells(&self) -> usize {
-        self.axes().map(|axis| self.extent(axis)).product()
+        self.dimensions()
+            .map(|dimension| self.extent(dimension))
+            .product()
     }
 
-    /// How many slices along `axis` the space holds: one for every index of its other axes. The
-    /// extent of `axis` itself may be one a walk has yet to cut, which only the launch knows.
-    pub(crate) fn slices_along(&self, axis: Axis) -> usize {
-        self.axes()
-            .filter(|&other| other != axis)
+    /// How many slices along `dimension` the space holds: one for every index of its other
+    /// dimensions. The extent of `dimension` itself may be one a walk has yet to cut, which only
+    /// the launch knows.
+    pub(crate) fn slices_along(&self, dimension: Dimension) -> usize {
+        self.dimensions()
+            .filter(|&other| other != dimension)
             .map(|other| self.extent(other))
             .product()
     }
 
-    /// The widest run along `axis` that divides both `widest` and this space's extent there: the
-    /// widest line a buffer read in boxes of this space can hold without a box starting mid-line.
-    pub(crate) fn whole_run(&self, axis: Axis, widest: usize) -> usize {
-        gcd(widest, self.extent(axis))
+    /// The widest run along `dimension` that divides both `widest` and this space's extent there:
+    /// the widest line a buffer read in boxes of this space can hold without a box starting
+    /// mid-line.
+    pub(crate) fn whole_run(&self, dimension: Dimension, widest: usize) -> usize {
+        gcd(widest, self.extent(dimension))
     }
 }
 
 #[cube]
 impl Space {
-    /// Axis `i`'s extent, a dynamic extent as its runtime size.
+    /// Dimension `i`'s extent, a dynamic extent as its runtime size.
     pub(crate) fn runtime_extent_at(&self, #[comptime] i: usize) -> usize {
-        match comptime!(self.shape.extent_raw(self.shape.axis_at(i))) {
+        match comptime!(self.shape.extent_raw(self.shape.dimension_at(i))) {
             Extent::Static(n) => comptime!(n).runtime(),
             Extent::Dynamic => *self.sizes.index(i),
         }
@@ -387,10 +406,10 @@ impl Space {
 mod contraction_tests {
     use crate::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
-    const R: Axis = Axis(3);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+    const R: Dimension = Dimension(3);
 
     /// NVFP4's step: values loaded two words down `k` by two columns, a load of sixteen scales
     /// each covering sixteen of `k`, and an `f16` activation eight at a time cover sixteen by
@@ -423,9 +442,9 @@ mod contraction_tests {
         );
     }
 
-    /// A matmul's `k` is its one contracted axis.
+    /// A matmul's `k` is its one contracted dimension.
     #[test]
-    fn a_matmul_contracts_its_one_axis() {
+    fn a_matmul_contracts_its_one_dimension() {
         let lhs = Space::new(&[(M, 8), (K, 4)]);
         let out = Space::new(&[(M, 8), (N, 8)]);
         assert_eq!(lhs.contracted_extent(&out), 4);

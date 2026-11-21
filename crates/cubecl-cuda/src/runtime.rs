@@ -46,6 +46,7 @@ use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
     runtime::{DeviceDescription, DeviceKind, Runtime},
+    server::DeviceTransport,
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
@@ -135,8 +136,11 @@ impl DeviceService for CudaServer {
                 .expect("the memory pools are sized against the device's capacity");
             bytes.assume_init() as u64
         };
+        // Pages are a quarter of the device by policy; `cuMemAlloc` itself
+        // serves a single buffer up to the whole device.
         let mem_properties = MemoryDeviceProperties::new(max_memory / 4, mem_alignment as u64)
-            .with_max_memory(max_memory);
+            .with_max_memory(max_memory)
+            .with_max_allocation_size(max_memory);
 
         let mut comp_opts = CompilationOptions {
             supports_features: CppSupportedFeatures {
@@ -204,6 +208,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
+                num_cpu_physical_cores: None,
                 last_level_cache_size,
                 max_vector_size: VectorSize::MAX,
                 cube_mma_reserved_shared_memory: 0,
@@ -234,6 +239,13 @@ impl DeviceService for CudaServer {
                 ty,
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
+        }
+        // A 16-bit float's atomic load and store are plain volatile accesses, which every arch
+        // has; its exchange is not, since `atomicExch` has no 16-bit overload.
+        for kind in [FloatKind::F16, FloatKind::BF16] {
+            let ty = Type::atomic(ElemType::Float(kind));
+            device_props.register_atomic_type_usage(ty, AtomicUsage::LoadStore);
+            device_props.register_shared_atomic_type_usage(ty, AtomicUsage::LoadStore);
         }
         // Shared memory takes the scalar atomics: PTX's vector atomics (`.v2`, `.v4`, `.v8`)
         // address global memory only.
@@ -395,10 +407,6 @@ impl DeviceService for CudaServer {
                 ElemType::Float(FloatKind::E3M2),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
-            device_props.register_type_usage(
-                ElemType::Float(FloatKind::UE8M0),
-                TypeUsage::Conversion | TypeUsage::Buffer,
-            );
 
             if CUDA_VERSION >= 12080 {
                 device_props.features.tma.insert(Tma::SwizzleAtomicity);
@@ -470,8 +478,11 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        utilities.device_transport = Nccl::new(arch_version)
-            .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
+        utilities.device_transport = DeviceTransport::configured(|| {
+            Nccl::new(arch_version).map(|nccl| {
+                nccl.transport(utilities.properties.features.types.elem.keys().copied())
+            })
+        });
 
         CudaServer::new(
             cuda_ctx,

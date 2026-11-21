@@ -9,18 +9,18 @@ use crate::*;
 
 #[cube]
 impl RegisterData {
-    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales multiplied in.
-    /// The block must be opened against the rhs it contracts (width and values a step).
+    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales multiplied
+    /// in. The block must be opened against the rhs it contracts (width and values a step).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mma<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,
         lhs: &Tile,
         rhs: &Tile,
-        #[comptime] out: Space,
+        #[comptime] out: &Space,
     ) {
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma"));
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         // A load stored across several columns reads as their runs along the contraction.
         let rhs_load = rhs.vector_tile();
         let vw = comptime!(rhs_load.run_length());
@@ -40,7 +40,7 @@ impl RegisterData {
         let lined_along_k = comptime!(
             lhs.place
                 .space
-                .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
+                .contains(rhs.place.space.dimension_at(rhs.place.space.rank() - 1))
         );
         comptime!(assert!(
             contracted_per_step == if lined_along_k { vw } else { 1 },
@@ -60,18 +60,19 @@ impl RegisterData {
         let size!(L) = lw;
 
         let operands = comptime!(Space::merge(&[&lhs.place.space, &rhs.place.space]));
-        let kc = operands.contracted_extent(&out);
+        let kc = operands.contracted_extent(out);
         let (mr, nr) = comptime!((self.mr, self.nr));
 
         // Read the column edge off the operands so a split column group stays one edge.
-        let acc_axes = comptime!(MatrixAxes::accumulator(&out, &lhs.place.space));
-        let cols = acc_axes.cols(&out);
-        let lhs_axes =
-            comptime!(MatrixAxes::new(&lhs.place.space, mr, kc).unwrap_or_else(|e| panic!("{e}")));
-        let rhs_axes = comptime!(if lined_along_k {
-            MatrixAxes::new(&rhs.place.space, cols, kc).unwrap_or_else(|e| panic!("{e}"))
+        let acc_dimensions = comptime!(MatrixDimensions::accumulator(out, &lhs.place.space));
+        let cols = acc_dimensions.cols(out);
+        let lhs_dimensions = comptime!(
+            MatrixDimensions::new(&lhs.place.space, mr, kc).unwrap_or_else(|e| panic!("{e}"))
+        );
+        let rhs_dimensions = comptime!(if lined_along_k {
+            MatrixDimensions::new(&rhs.place.space, cols, kc).unwrap_or_else(|e| panic!("{e}"))
         } else {
-            MatrixAxes::new(&rhs.place.space, kc, cols).unwrap_or_else(|e| panic!("{e}"))
+            MatrixDimensions::new(&rhs.place.space, kc, cols).unwrap_or_else(|e| panic!("{e}"))
         });
 
         let size!(RL) = comptime!(rhs_load.values());
@@ -82,21 +83,24 @@ impl RegisterData {
         let unroll = comptime!(mr * nr * self.vector_size <= config.budget);
         let component_fanout = config.component_fanout;
 
-        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, 0usize);
-        let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_axes, 0usize);
+        // Every value this block reads is read under its factor, so an `e2m1` operand is read
+        // placed, its lift carried by the factor: one multiply a scale, not one a value.
+        let (lhs, rhs) = (lhs.placed(), rhs.placed());
+        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_dimensions, 0usize);
+        let rhs_mat = rhs.matrix_packed::<ER, RL>(rhs_dimensions, 0usize);
         let lhs_scales = lhs.reader(
-            lhs_axes,
+            lhs_dimensions,
             0usize,
             comptime!(Side::Lhs),
             out.clone(),
-            comptime!(acc_axes),
+            comptime!(acc_dimensions),
         );
         let rhs_scales = rhs.reader(
-            rhs_axes,
+            rhs_dimensions,
             0usize,
             comptime!(Side::Rhs),
             out.clone(),
-            comptime!(acc_axes),
+            comptime!(acc_dimensions),
         );
 
         registers::contract::<T, EL, L, ER, RA, RL>(
@@ -128,15 +132,23 @@ impl RegisterData {
     ///
     /// Every cell of `lhs` is a whole value, whatever it summed: a block that summed runs of its
     /// contraction into its cells is one value wide. This block's lines are neighbours along the
-    /// columns `rhs` is lined along.
+    /// columns `rhs` is lined along. `rhs` is read as its values lie: values under scales are
+    /// refused, since the contraction would read them without.
     pub(crate) fn mma_block<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,
         lhs: &RegisterData,
         rhs: &Tile,
     ) {
+        let scaled = rhs.factor.scaled();
+        if comptime!(scaled) {
+            panic!(
+                "RegisterData::mma_block: the rhs carries scales this contraction would read \
+                 without; take them out (`Tile::factor`) and apply them to the sum (`Tile::scaled`)"
+            )
+        }
         let data = self.data.at_mut::<T>();
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma_block"));
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         comptime!(assert!(
             self.contracted_per_step == 1,
             "RegisterData::mma_block: this block's lines are neighbours along the rhs's columns, \
@@ -165,10 +177,10 @@ impl RegisterData {
         // A block over budget walks its columns at runtime: unrolled, every cell's read and step
         // is spelled out once per step of the contraction.
         let unroll = comptime!(mr * nr * self.vector_size <= self.config.budget);
-        let rhs_axes = comptime!(
-            MatrixAxes::new(&rhs.place.space, kc, nr * vw).unwrap_or_else(|e| panic!("{e}"))
+        let rhs_dimensions = comptime!(
+            MatrixDimensions::new(&rhs.place.space, kc, nr * vw).unwrap_or_else(|e| panic!("{e}"))
         );
-        let rhs_mat = rhs.matrix_packed::<ER, RA>(rhs_axes, 0usize);
+        let rhs_mat = rhs.matrix_packed::<ER, RA>(rhs_dimensions, 0usize);
         let mut b = Array::<Vector<T, RA>>::new(nr);
         #[unroll]
         for k in 0..kc {

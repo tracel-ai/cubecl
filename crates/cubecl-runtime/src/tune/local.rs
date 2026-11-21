@@ -115,8 +115,8 @@ where
     /// Get or initialize the [`TunableSet`] for `id`.
     ///
     /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`
-    /// *and* by `id`, so the initializer runs once per device rather than once
-    /// per process.
+    /// *and* by `id`, so the initializer runs once per device, until a
+    /// [`clear`](Self::clear), rather than once per process.
     ///
     /// The device is part of the key because a set is routinely built from the
     /// device it will run on: a closure captures that device's
@@ -201,9 +201,15 @@ where
         Some(operations.identity(fastest_index).clone())
     }
 
-    /// Clear the autotune state.
+    /// Clear the autotune state, and the sets [`init`](Self::init) built, which keep the run
+    /// orders they planned.
     pub fn clear(&self) {
-        self.state.lock().take();
+        // Dropped after unlocking: a captured value's drop may call back into this tuner.
+        let cleared = {
+            let mut sets = self.sets.write();
+            (self.state.lock().take(), sets.take())
+        };
+        core::mem::drop(cleared);
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -218,7 +224,7 @@ where
         let mut checks_outputs = Vec::new();
         for i in 0..operations.len() {
             let op = operations.fastest(i);
-            let result = op.execute(inputs.clone());
+            let result = op.race(inputs.clone());
             checks_outputs.push((op.name.to_string(), result));
         }
         super::check_autotune_outputs(checks_outputs)
@@ -258,7 +264,10 @@ where
                     crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
                 log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
             }
-            return execute_settled(&operations, &key, fastest_index, inputs);
+            return operations
+                .fastest(fastest_index)
+                .execute(inputs)
+                .expect("Should run when selected by autotune.");
         }
 
         // Built after the fast path: a hit logs nothing, so it takes no logger lock.
@@ -273,9 +282,10 @@ where
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => {
-                execute_settled(&operations, &key, fastest_index, inputs)
-            }
+            TuneCacheResult::Hit { fastest_index } => operations
+                .fastest(fastest_index)
+                .execute(inputs)
+                .expect("Should run when selected by autotune."),
             TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
@@ -286,7 +296,7 @@ where
             // the candidates run in the plan's order, the one the measurement follows, so the
             // best ranked candidate that launches runs rather than the first declared.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
-                match execute_in_plan_order(&operations, &key, inputs) {
+                match execute_in_plan_order(&operations, &operations.run_order(&key), inputs) {
                     Ok(output) => output,
                     Err(failures) => panic!(
                         "All autotune operations failed, no viable operation found.\n{failures:?}"
@@ -297,54 +307,25 @@ where
     }
 }
 
-/// Runs the candidates in the plan's [order](super::TunePlan::order) and hands back the
-/// first output, or every candidate's error when none launches. A candidate that fails to
+/// Runs the candidates in `order`, the key's [run order](TunableSet::run_order), and hands
+/// back the first output, or every candidate's error when none launches. A candidate that fails to
 /// launch is skipped, as the measurement skips it.
-/// The candidate `key` settled on, run on `inputs`; where it refuses them, the candidates in the
-/// plan's order, the first that launches.
-///
-/// A key stands for every call of its bucket, and its candidates are prepared and timed on one
-/// representative of it: a winner can still refuse a call the representative did not show, as a
-/// launch whose grid grows with a batch the key does not tell apart passes the device's limit.
-/// Every candidate computes the same output, so the call runs the next one that serves it, as a
-/// call does while its key is still tuning.
-///
-/// # Panics
-///
-/// When no candidate launches on `inputs`.
-fn execute_settled<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
-    operations: &TunableSet<AK, I, Out, Id>,
-    key: &AK,
-    fastest_index: usize,
-    inputs: <I as TuneInputs>::At<'a>,
-) -> Out
-where
-    <I as TuneInputs>::At<'a>: Clone,
-{
-    let refused = match operations.fastest(fastest_index).execute(inputs.clone()) {
-        Ok(output) => return output,
-        Err(refused) => refused,
-    };
-    match execute_in_plan_order(operations, key, inputs) {
-        Ok(output) => output,
-        Err(failures) => panic!(
-            "The operation autotune settled on refused this call ({refused:?}), and so did every \
-             other candidate.\n{failures:?}"
-        ),
-    }
-}
-
 fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
-    key: &AK,
+    order: &[usize],
     inputs: <I as TuneInputs>::At<'a>,
 ) -> Result<Out, Vec<AutotuneError>>
 where
     <I as TuneInputs>::At<'a>: Clone,
 {
     let mut failures = Vec::new();
-    for (index, _) in operations.plan(key).order(operations.len()) {
-        match operations.fastest(index).execute(inputs.clone()) {
+    for &index in order {
+        // Run as the work, but before the tune decided: a candidate whose
+        // kernel fails to compile is the tune's to drop, not the work's failure.
+        let output = crate::execution::LaunchPurpose::provisionally(|| {
+            operations.fastest(index).execute(inputs.clone())
+        });
+        match output {
             Ok(output) => return Ok(output),
             Err(err) => failures.push(err),
         }
@@ -397,7 +378,7 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
+            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
             Some(1)
         );
     }
@@ -420,40 +401,9 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
+            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
             Some(2)
         );
-    }
-
-    #[test]
-    fn a_settled_winner_that_refuses_a_call_falls_back_down_the_plan() {
-        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
-        let operations = set()
-            .with(
-                Tunable::<FakeAutotuneKey, (), usize>::new("settled_winner", fails)
-                    .group(&group, |_| 2),
-            )
-            .with(
-                Tunable::<FakeAutotuneKey, (), usize>::new("planned_second", answers(1))
-                    .group(&group, |_| 1),
-            );
-
-        assert_eq!(execute_settled(&operations, &FakeAutotuneKey, 0, ()), 1);
-    }
-
-    #[test]
-    fn a_settled_winner_that_serves_the_call_runs() {
-        let operations = set()
-            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
-                "first",
-                answers(0),
-            ))
-            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
-                "settled_winner",
-                answers(1),
-            ));
-
-        assert_eq!(execute_settled(&operations, &FakeAutotuneKey, 1, ()), 1);
     }
 
     #[test]
@@ -470,10 +420,91 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
+            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
             Some(1)
         );
         let nothing = set().with(Tunable::<FakeAutotuneKey, (), usize>::new("fails", fails));
-        assert!(execute_in_plan_order(&nothing, &FakeAutotuneKey, ()).is_err());
+        assert!(execute_in_plan_order(&nothing, &nothing.run_order(&FakeAutotuneKey), ()).is_err());
+    }
+
+    #[test]
+    fn an_untuned_key_is_planned_once() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counted = asked.clone();
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", move |_| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            1
+        });
+        let operations = set()
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("first", answers(0))
+                    .group(&group, |_| 1),
+            )
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("second", answers(1))
+                    .group(&group, |_| 2),
+            );
+
+        let first = operations.run_order(&FakeAutotuneKey);
+        let planned = asked.load(Ordering::Relaxed);
+        let again = operations.run_order(&FakeAutotuneKey);
+
+        assert_eq!((&*first, &*again), (&[1, 0][..], &[1, 0][..]));
+        assert_eq!(asked.load(Ordering::Relaxed), planned);
+    }
+
+    #[test]
+    fn a_candidate_added_after_planning_is_planned_in() {
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+        let operations = set()
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
+                "first",
+                answers(0),
+            ))
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
+                "second",
+                answers(1),
+            ));
+        assert_eq!(&*operations.run_order(&FakeAutotuneKey), &[0, 1]);
+
+        let operations = operations.with(
+            Tunable::<FakeAutotuneKey, (), usize>::new("added", answers(2)).group(&group, |_| 1),
+        );
+
+        assert_eq!(operations.run_order(&FakeAutotuneKey)[0], 2);
+    }
+
+    #[test]
+    fn a_cleared_tuner_plans_its_keys_afresh() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+
+        let second_leads = Arc::new(AtomicBool::new(false));
+        let read = second_leads.clone();
+        let build = move || {
+            let read = read.clone();
+            let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+            TunableSet::new(|_: &()| FakeAutotuneKey, |_: &FakeAutotuneKey, _: &()| ())
+                .with(
+                    Tunable::<FakeAutotuneKey, (), ()>::new("first", |_| Ok::<_, String>(()))
+                        .group(&group, |_| 1),
+                )
+                .with(
+                    Tunable::<FakeAutotuneKey, (), ()>::new("second", |_| Ok::<_, String>(()))
+                        .group(
+                            &group,
+                            move |_| if read.load(Ordering::Relaxed) { 2 } else { 0 },
+                        ),
+                )
+        };
+        let tuner = LocalTuner::<FakeAutotuneKey, u8>::new("test");
+        let before = tuner.init(&0, build.clone()).run_order(&FakeAutotuneKey);
+
+        second_leads.store(true, Ordering::Relaxed);
+        tuner.clear();
+
+        let after = tuner.init(&0, build).run_order(&FakeAutotuneKey);
+        assert_eq!((&*before, &*after), (&[0, 1][..], &[1, 0][..]));
     }
 }

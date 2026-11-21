@@ -50,9 +50,9 @@ impl Tile {
 
         let units = self.units();
         let sink = Memory::smem_backed::<A>(
-            space.clone(),
+            &space,
             1usize,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             Backing::new_WriteCall(RawCall::of::<A>(
                 ErasedTensor::<A, WriteOnly>::of_smem_accumulate(&values),
             )),
@@ -64,9 +64,9 @@ impl Tile {
             comptime!(Overhang::Masked),
         );
         let source = Memory::smem_backed::<Served>(
-            space,
+            &space,
             1usize,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             Backing::new_ReadCall(RawCall::of::<Served>(
                 ErasedTensor::<Served, ReadOnly>::of_smem_load::<A>(&values),
             )),

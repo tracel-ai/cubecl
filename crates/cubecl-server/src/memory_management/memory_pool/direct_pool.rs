@@ -34,6 +34,11 @@ pub struct DirectPool {
     /// of growing `slices` for the life of the process.
     vacant: Vec<usize>,
     alignment: u64,
+    /// The largest device allocation this pool asks the storage for, padding
+    /// included. A larger one is refused before the storage sees it: some
+    /// backends (wgpu) treat a buffer past the device's limit as a validation
+    /// error that poisons the device rather than as a failed allocation.
+    max_alloc_size: u64,
     location_base: MemoryLocation,
     /// Reserved-bytes ceiling above which a [reclaim](Self::reclaim) returns
     /// free slices to the driver. A watermark, not a budget: live memory is
@@ -47,13 +52,15 @@ pub struct DirectPool {
 }
 
 impl DirectPool {
-    /// Create a pool that accepts any size: with no pages to fit an allocation
-    /// into, the only limit is what the storage can allocate.
-    pub fn new(alignment: u64, pool_pos: u8, reclaim_at: Option<u64>) -> Self {
+    /// Create a pool that serves any size up to `max_alloc_size`, the largest
+    /// single allocation the device makes: with no pages to fit an allocation
+    /// into, that is its only limit.
+    pub fn new(max_alloc_size: u64, alignment: u64, pool_pos: u8, reclaim_at: Option<u64>) -> Self {
         Self {
             slices: Vec::new(),
             vacant: Vec::new(),
             alignment,
+            max_alloc_size,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
             reclaim_at,
             pages_peak: 0,
@@ -146,8 +153,8 @@ impl DirectPool {
 }
 
 impl MemoryPool for DirectPool {
-    fn accept(&self, _size: u64) -> bool {
-        true
+    fn accept(&self, size: u64) -> bool {
+        size + calculate_padding(size, self.alignment) <= self.max_alloc_size
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -209,6 +216,13 @@ impl MemoryPool for DirectPool {
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
+
+        if effective_size > self.max_alloc_size {
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
+        }
 
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
 
@@ -341,5 +355,84 @@ impl core::fmt::Display for DirectPool {
             BytesFormat::new(self.largest_alloc)
         ))?;
         f.write_fmt(format_args!("\n{usage}\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{BytesStorage, ComputeStorage};
+
+    /// The largest allocation the pools under test may make.
+    const MAX: u64 = 1024;
+    const ALIGNMENT: u64 = 16;
+
+    fn pool() -> DirectPool {
+        DirectPool::new(MAX, ALIGNMENT, 0, Some(0))
+    }
+
+    fn alloc(
+        pool: &mut DirectPool,
+        storage: &mut BytesStorage,
+        size: u64,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        pool.alloc(
+            storage,
+            size,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        )
+    }
+
+    /// A size past the largest allocation is refused as `BufferTooBig`
+    /// before the storage is asked for anything.
+    #[test_log::test]
+    fn an_allocation_past_the_limit_is_refused_before_the_storage() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        let refused = alloc(&mut pool, &mut storage, 2 * MAX);
+
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { size, .. }) if size == 2 * MAX),
+            "got {refused:?}"
+        );
+        assert_eq!(storage.bytes_allocated(), 0, "the storage was never asked");
+        assert!(!pool.accept(2 * MAX));
+    }
+
+    /// The padded size is what the device allocates, so it is what the limit
+    /// bounds: one byte past the last aligned size under the limit is refused.
+    #[test_log::test]
+    fn padding_counts_against_the_limit() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        assert!(pool.accept(MAX));
+        assert!(!pool.accept(MAX + 1));
+        assert!(
+            matches!(
+                alloc(&mut pool, &mut storage, MAX + 1),
+                Err(IoError::BufferTooBig { .. })
+            ),
+            "{} pads to {} bytes, past {MAX}",
+            MAX + 1,
+            MAX + ALIGNMENT
+        );
+    }
+
+    /// A refusal leaves the pool serving: the next allocation, exactly at the
+    /// limit, is served.
+    #[test_log::test]
+    fn the_pool_serves_after_a_refusal() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        alloc(&mut pool, &mut storage, 4 * MAX).expect_err("past the limit");
+        let served = alloc(&mut pool, &mut storage, MAX).expect("exactly the limit fits");
+
+        assert_eq!(storage.bytes_allocated(), MAX);
+        assert_eq!(pool.get_memory_usage().number_allocs, 1);
+        core::mem::drop(served);
     }
 }

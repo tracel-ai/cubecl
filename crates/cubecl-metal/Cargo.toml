@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl-metal"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-metal"
+rust-version.workspace = true
 version.workspace = true
 
 [features]
