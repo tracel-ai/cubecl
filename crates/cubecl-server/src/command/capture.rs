@@ -382,11 +382,11 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // flushes were deferred for as long as it was.
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
-        // A recording that allocated otherwise than its planning run may have
-        // put a buffer it keeps on room another graph's replay overwrites.
+        // A recording that keeps a buffer its planning run did not may have put
+        // it on room another graph's replay overwrites.
         let diverged = stream.capturing().finish_recording().map(|divergence| {
             ServerError::graph_state(format!(
-                "the recorded run did not allocate as its planning run did, so the graph cannot \
+                "the recorded run kept a buffer its planning run did not, so the graph cannot \
                  seal: {divergence}"
             ))
         });

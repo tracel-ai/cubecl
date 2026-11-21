@@ -184,7 +184,7 @@ impl StreamCapture {
             return;
         }
         let binding = memory.clone().binding();
-        self.planner.allocated(size_bytes, &binding);
+        self.planner.allocated(size_bytes, &binding, placement);
         if placement == Placement::Output && self.state.is_recording() {
             self.retained_outputs.push(binding);
         }
@@ -287,8 +287,8 @@ impl StreamCapture {
         self.planner.has_plan()
     }
 
-    /// End the recorded run, once its deferred frees are reclaimed: where it allocated
-    /// otherwise than planned, if it did, which means the graph must not seal.
+    /// End the recorded run, once its deferred frees are reclaimed: the first buffer it keeps
+    /// on room the plan left to temporaries, if it does, which means the graph must not seal.
     pub fn finish_recording(&mut self) -> Option<Divergence> {
         self.planner.finish_recording()
     }

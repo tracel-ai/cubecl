@@ -350,3 +350,58 @@ pub fn an_input_written_between_runs_survives_another_graphs_replay<R: Runtime>(
         assert_eq!(read(&client, &narrow_out), vec![12.0; ELEMENTS]);
     });
 }
+
+/// `output = input + 3`, through a temporary the work then adds one to in place when nothing
+/// else holds it, and into a buffer of its own otherwise, as a framework's elementwise launch
+/// decides by [`Handle::can_mut`]. A run that finds the temporary `held` allocates one more
+/// buffer.
+fn run_in_place_where_free(client: &Client, input: &Handle, output: &Handle, held: bool) {
+    let launch = |from: &Handle, into: &Handle| {
+        add_one::launch(
+            client,
+            CubeCount::Static(ELEMENTS as u32 / CUBE, 1, 1),
+            CubeDim::new_1d(CUBE),
+            unsafe { BufferArg::from_raw_parts(from.clone(), ELEMENTS) },
+            unsafe { BufferArg::from_raw_parts(into.clone(), ELEMENTS) },
+        );
+    };
+    let temporary = client.empty(BYTES);
+    launch(input, &temporary);
+    let holder = held.then(|| temporary.clone());
+    let added = match temporary.can_mut() {
+        true => {
+            launch(&temporary, &temporary);
+            temporary
+        }
+        false => {
+            let fresh = client.empty(BYTES);
+            launch(&temporary, &fresh);
+            fresh
+        }
+    };
+    launch(&added, output);
+    drop(holder);
+}
+
+/// A recording whose temporaries are not its planning runs' still seals, and its replay computes
+/// what the work does: temporaries sit on the room every graph of the stream overwrites, so which
+/// ones a run allocates is the run's own business. Every other run here finds its temporary held,
+/// as a reference another queue keeps until it drains would hold it, so no two runs in a row
+/// allocate alike, and the recording allocates one buffer more than the last planning run.
+pub fn a_recording_allocating_other_temporaries_than_planned_seals<R: Runtime>() {
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_008 }.executes(|| {
+        let (input, output) = (filled(&client, 0.0), client.empty(BYTES));
+        let mut runs = 0;
+        let (graph, ()) = client
+            .capture(|| {
+                run_in_place_where_free(&client, &input, &output, runs % 2 == 0);
+                runs += 1;
+            })
+            .expect("a recording whose temporaries differ from its plan's seals");
+
+        client.write(&input, bytes(10.0));
+        unsafe { graph.replay() }.expect("replay enqueues");
+        assert_eq!(read(&client, &output), vec![13.0; ELEMENTS]);
+    });
+}

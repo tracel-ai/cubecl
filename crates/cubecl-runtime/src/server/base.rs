@@ -943,8 +943,8 @@ pub trait Server:
     ///
     /// The last run is the recording's plan: what it left allocated is the
     /// work's output, which the recorded run places on room no other graph's
-    /// replay writes, and a recorded run that allocates otherwise does not
-    /// seal. The run's launches are the client's to discard (see
+    /// replay writes, and a recorded run that keeps a buffer the plan does
+    /// not does not seal. The run's launches are the client's to discard (see
     /// [`Client::capture`](crate::client::Client::capture)).
     ///
     /// `true` by default, for a backend whose graphs share no room and so
