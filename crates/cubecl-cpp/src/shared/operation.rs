@@ -1,14 +1,21 @@
 use cubecl_core::{
     cmma::MatrixType,
     ir::{
-        AddressSpace, Scope, cube_op,
+        AddressSpace, Scope,
+        attributes::ZeroAttr,
+        cube_op,
         dialect::{
             base::OperationPtrExt,
             general::{CommentOp, PoisonOp, PrintfOp},
             math::FmaOp,
             memory::{DeclareVariableOp, UnrelatedAllocInfo},
         },
+        interfaces::memory_slot::{
+            DestructurableConstructorOpInterface, DestructurableTypeInterface,
+            DestructurableValueSlot, ValueSlot,
+        },
         prelude::*,
+        try_cast_ty,
         types::PointerType,
     },
 };
@@ -19,6 +26,7 @@ use pliron::{
     attribute::{AttrObj, boxed_attr_cast},
     builtin::{attributes::TypeAttr, ops::ConstantOp},
     opts::mem2reg::{AllocInfo, PromotableAllocationInterface},
+    utils::table::{HMap, SmallSet},
 };
 
 use crate::{
@@ -137,6 +145,73 @@ impl PromotableAllocationInterface for DeclareLocalOp {
         }
         rewriter.erase_operation(ctx, self.get_operation());
         Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl DestructurableConstructorOpInterface for DeclareLocalOp {
+    fn destructurable_values(&self, ctx: &Context) -> Vec<DestructurableValueSlot> {
+        if let Some(init) = self.initializer(ctx)
+            && !init.is::<ZeroAttr>()
+        {
+            return vec![];
+        }
+        let value_ty = self.value_ty(ctx).get_type(ctx);
+        let ty = value_ty.deref(ctx);
+        let Some(destructurable) = type_cast::<dyn DestructurableTypeInterface>(&*ty) else {
+            return vec![];
+        };
+        let Some(destructured_type) = destructurable.subelement_index_map(ctx) else {
+            return vec![];
+        };
+
+        vec![DestructurableValueSlot {
+            slot: ValueSlot::new(self.get_result(ctx), value_ty),
+            subelement_types: destructured_type,
+        }]
+    }
+
+    fn destructure(
+        &self,
+        ctx: &mut Context,
+        _value: &DestructurableValueSlot,
+        used_indices: &SmallSet<AttrObj, 8>,
+        rewriter: &mut PassRewriter,
+        new_constructors: &mut Vec<TraitOp<dyn DestructurableConstructorOpInterface>>,
+    ) -> HMap<AttrObj, ValueSlot> {
+        let init = self.initializer(ctx).map(|it| {
+            assert!(it.is::<ZeroAttr>());
+        });
+        let destructured_type = {
+            let ty = self.value_ty(ctx).get_type(ctx).deref(ctx);
+            let destructurable = try_cast_ty!(ty, ctx, dyn DestructurableTypeInterface);
+            destructurable.subelement_index_map(ctx).unwrap()
+        };
+
+        let mut slot_map = HMap::new();
+        for used_index in used_indices {
+            let value_ty = destructured_type[used_index];
+            let init = init.map(|_| ZeroAttr::new(value_ty).into());
+            let suballoc = DeclareLocalOp::new(ctx, value_ty, init);
+            rewriter.append_op(ctx, &suballoc);
+
+            let slot = ValueSlot::new(suballoc.get_result(ctx), value_ty);
+            slot_map.insert(used_index.clone(), slot);
+            new_constructors.push(TraitOp::try_from_op(suballoc.get_operation(), ctx).unwrap());
+        }
+
+        slot_map
+    }
+
+    fn handle_destructuring_complete(
+        &self,
+        ctx: &mut Context,
+        value: &DestructurableValueSlot,
+        rewriter: &mut PassRewriter,
+    ) -> Option<TraitOp<dyn DestructurableConstructorOpInterface>> {
+        assert_eq!(value.slot.value, self.get_result(ctx));
+        rewriter.erase_operation(ctx, self.get_operation());
+        None
     }
 }
 
