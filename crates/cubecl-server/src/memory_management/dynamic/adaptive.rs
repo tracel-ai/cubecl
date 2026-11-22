@@ -68,10 +68,11 @@ pub struct AdaptiveMemory {
     arena: PoolArena,
     /// What outlives a graph capture — its outputs, the metadata its graph
     /// keeps — apart from the arena, whose pages the stream's graphs share
-    /// (see [`PinnedPages::Separate`]). Only such allocations carve it, each
-    /// held for as long as its graph lives, so they pack together whatever
-    /// pages graphs pinned. Never relocated: what it holds is pinned by the
-    /// graphs that write it.
+    /// (see [`PinnedPages::Separate`]), and the work outside a capture that
+    /// finds no unpinned room on the arena once graphs pin it. No graph's
+    /// replay writes its free room, so they pack together whatever pages
+    /// graphs pinned. Never relocated: what it holds is pinned by the graphs
+    /// that read and write it.
     separate: PoolArena,
     /// When emptying the arena's outdated pools is worth its copies.
     trigger: RelocationTrigger,
@@ -171,6 +172,14 @@ impl AdaptiveMemory {
     /// buffer kept past its capture must never sit where another graph's
     /// replay writes.
     ///
+    /// What [`PinnedPages::Avoid`] asks for, work outside a capture, takes the
+    /// arena's unpinned room, and the separate arena's once graphs pin every
+    /// page of the arena's current pool, unless it outgrows the arena's pages,
+    /// which then grow as they would. A new page of the current size would hold
+    /// little more than that buffer: the arena's pages are sized to the largest
+    /// temporary, and a recording's input, kept for its graph's life and read
+    /// by it, would leave the page pinned and never empty, a page per graph.
+    ///
     /// # Errors
     ///
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
@@ -191,15 +200,21 @@ impl AdaptiveMemory {
             return self.small.reserve(storage, size, mapping, failures);
         }
         match pinned {
-            // Only what outlives a capture carves the separate arena, so its
+            // What carves the separate arena is never written by a replay, so its
             // pinned pages are its to share.
             PinnedPages::Separate => {
                 self.separate
                     .reserve(storage, size, mapping, PinnedPages::Share, failures)
             }
-            PinnedPages::Avoid | PinnedPages::Share => {
-                self.arena.reserve(storage, size, mapping, pinned, failures)
-            }
+            PinnedPages::Share => self.arena.reserve(storage, size, mapping, pinned, failures),
+            PinnedPages::Avoid => match self.arena.try_reserve(size, pinned, failures) {
+                Some(handle) => Ok(handle),
+                None if self.arena.fits(size) && self.arena.is_pinned() => {
+                    self.separate
+                        .reserve(storage, size, mapping, PinnedPages::Share, failures)
+                }
+                None => self.arena.reserve(storage, size, mapping, pinned, failures),
+            },
         }
     }
 
@@ -221,9 +236,11 @@ impl AdaptiveMemory {
             PinnedPages::Separate => self
                 .separate
                 .try_reserve(size, PinnedPages::Share, failures),
-            PinnedPages::Avoid | PinnedPages::Share => {
-                self.arena.try_reserve(size, pinned, failures)
-            }
+            PinnedPages::Share => self.arena.try_reserve(size, pinned, failures),
+            PinnedPages::Avoid => self.arena.try_reserve(size, pinned, failures).or_else(|| {
+                self.separate
+                    .try_reserve(size, PinnedPages::Share, failures)
+            }),
         }
     }
 
@@ -608,6 +625,46 @@ mod tests {
         );
         assert_eq!(page_of(&kept), page_of(&large));
         assert_eq!(relocation(&memory), None, "nothing is outdated any more");
+    }
+
+    /// The bytes the pools hold in pages, every pool together.
+    fn reserved(memory: &MemoryManagement<BytesStorage>) -> u64 {
+        memory
+            .memory_report()
+            .dynamic
+            .iter()
+            .map(|pool| pool.usage.bytes_reserved)
+            .sum()
+    }
+
+    /// A buffer kept outside a capture, which the next graph reads — a recording's input — takes
+    /// no arena page of its own once the stream's graphs pin every page the arena holds. Each such
+    /// page would hold that one buffer, and the graph reading it would pin it in turn, so every
+    /// recording would add a page of the arena's size, however small its input.
+    #[test]
+    fn a_kept_input_takes_no_arena_page_once_graphs_pin_the_arena() {
+        let mut memory = adaptive();
+        // A graph's temporary sizes the arena's pages, and the graph pins its page.
+        let temporary = reserve(&mut memory, 8 * MIB);
+        let _graph = memory.guard(temporary.descriptor().location());
+        drop(temporary);
+        let before = reserved(&memory);
+
+        // Each later graph's input, read by that graph and kept for its life.
+        let inputs: alloc::vec::Vec<_> = (0..4)
+            .map(|_| {
+                let input = reserve(&mut memory, 128 * 1024);
+                let graph = memory.guard(input.descriptor().location());
+                (input, graph)
+            })
+            .collect();
+
+        let grown = reserved(&memory) - before;
+        assert!(
+            grown < 9 * MIB,
+            "four 128 KiB inputs took {grown} B, an arena page each"
+        );
+        drop(inputs);
     }
 
     /// With nothing outdated there is nothing to free, however full the
