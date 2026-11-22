@@ -289,15 +289,18 @@ impl Server for MetalServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // Taken before the handle moves into the pool, for a failure to land on: a binding,
+        // which no `can_mut` counts, rather than a clone of the handle.
+        let binding = memory.to_binding();
         let result = self.command_no_inputs(stream_id).and_then(|mut command| {
             command
-                .initialize_memory(memory.clone(), size)
+                .initialize_memory(memory, size)
                 .map_err(ServerError::from)
         });
         // No stream to allocate on, or no memory to allocate: the buffer carries the
         // error instead.
         if let Err(error) = &result {
-            self.streams.fail_unallocated(&memory, error.clone());
+            self.streams.fail_unallocated(&binding, error.clone());
         }
         result
     }

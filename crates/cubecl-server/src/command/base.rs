@@ -261,16 +261,22 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `memory` `size` bytes of device memory on the current stream.
     ///
+    /// `memory` is the handle the task that asked for it owns, and it ends in the pool, moved
+    /// rather than cloned: from the ask to the pool, the buffer has exactly one handle besides
+    /// its users', so what [`can_mut`](ManagedMemoryHandle::can_mut) answers them never depends
+    /// on how far the device thread has got.
+    ///
     /// # Errors
     ///
     /// Returns an [`IoError`] when the memory cannot be reserved or bound, e.g. when the device
-    /// is out of memory. The caller records it on `memory`, which has no binding to carry it.
+    /// is out of memory. The caller records it on `memory`, which has no binding to carry it:
+    /// it takes `memory`'s [binding](ManagedMemoryHandle::to_binding) before handing it over.
     pub fn initialize_memory(
         &mut self,
         memory: ManagedMemoryHandle,
         size: u64,
     ) -> Result<(), IoError> {
-        match self.allocate(size, &memory) {
+        match self.allocate(size, memory) {
             Ok(()) => Ok(()),
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
@@ -287,8 +293,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// # Errors
     ///
-    /// Whatever the reservation or the bind reports.
-    pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
+    /// Whatever the reservation or the bind reports. `memory` is dropped then.
+    pub fn allocate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let placement = self.streams.current().capturing().place(current, size);
         self.allocate_at(size, memory, placement)
@@ -300,35 +306,32 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Left out of the run's sequence: its placement never depends on the plan, and a launch's
     /// metadata is built only where the cache misses, which the planning runs and the recording
     /// need not agree on — a scalar that changes between runs misses once more.
-    fn allocate_separate(
-        &mut self,
-        size: u64,
-        memory: &ManagedMemoryHandle,
-    ) -> Result<(), IoError> {
+    fn allocate_separate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let reserved = match self.streams.current().capturing().is_owned_by(current) {
             true => self.reserve_sharing(size, PinnedPages::Separate)?,
             false => self.reserve(size)?,
         };
-        self.bind(reserved, memory.clone())
+        self.bind(reserved, memory)
     }
 
     fn allocate_at(
         &mut self,
         size: u64,
-        memory: &ManagedMemoryHandle,
+        memory: ManagedMemoryHandle,
         placement: Placement,
     ) -> Result<(), IoError> {
         let reserved = match placement {
             Placement::Output => self.reserve_sharing(size, PinnedPages::Separate)?,
             Placement::Pools => self.reserve(size)?,
         };
-        self.bind(reserved, memory.clone())?;
+        let binding = memory.to_binding();
+        self.bind(reserved, memory)?;
         let current = self.streams.current;
         self.streams
             .current()
             .capturing()
-            .allocated(current, size, memory, placement);
+            .allocated(current, size, binding, placement);
         Ok(())
     }
 
@@ -344,7 +347,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Whatever the allocation or the bind reports.
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = Handle::new(self.service, self.streams.current, size);
-        self.allocate(size, &handle.memory)?;
+        self.allocate(size, handle.memory.clone())?;
 
         Ok(handle)
     }
@@ -620,13 +623,13 @@ impl<'a, D: Driver> Command<'a, D> {
         let size = staging.len() as u64;
         let handle = Handle::new(self.service, self.streams.current, size);
         match room {
-            Room::Planned => self.allocate(size, &handle.memory)?,
-            Room::Separate => self.allocate_separate(size, &handle.memory)?,
+            Room::Planned => self.allocate(size, handle.memory.clone())?,
+            Room::Separate => self.allocate_separate(size, handle.memory.clone())?,
         }
 
         self.write_to_gpu(
             CopyDescriptor {
-                handle: handle.clone().binding(),
+                handle: handle.to_binding(),
                 shape: [data.len()].into(),
                 strides: [1].into(),
                 elem_size: 1,

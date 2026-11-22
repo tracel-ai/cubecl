@@ -4,9 +4,7 @@
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
 use super::allocation_planner::{AllocationPlanner, Divergence, Placement};
-use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, PageUpdate, PinnedPages,
-};
+use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate, PinnedPages};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -163,9 +161,10 @@ impl StreamCapture {
         }
     }
 
-    /// Note an allocation of `size_bytes` given to `memory` by the logical `stream`, placed as
-    /// `placement` says, while that stream captures: the planning runs list theirs to learn
-    /// which are outputs, and the recorded run lists its own to check it allocated as planned.
+    /// Note an allocation of `size_bytes` given to the memory `binding` names by the logical
+    /// `stream`, placed as `placement` says, while that stream captures: the planning runs list
+    /// theirs to learn which are outputs, and the recorded run lists its own to check it
+    /// allocated as planned.
     /// What the recorded run placed as an output is held for the graph it seals into: every
     /// replay writes it whether or not the work kept it, so a slice the work let go must not go
     /// back to the room other graphs' outputs are carved from.
@@ -177,13 +176,12 @@ impl StreamCapture {
         &mut self,
         stream: StreamId,
         size_bytes: u64,
-        memory: &ManagedMemoryHandle,
+        binding: ManagedMemoryBinding,
         placement: Placement,
     ) {
         if !self.runs_work_of(stream) {
             return;
         }
-        let binding = memory.clone().binding();
         self.planner.allocated(size_bytes, &binding);
         if placement == Placement::Output && self.state.is_recording() {
             self.retained_outputs.push(binding);

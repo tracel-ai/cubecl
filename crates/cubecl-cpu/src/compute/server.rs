@@ -222,7 +222,7 @@ impl Server for CpuServer {
             Err(err) => {
                 // Nothing to allocate: the buffer carries the error instead.
                 let err = ServerError::from(err);
-                failures.fail_unallocated(&memory, err.clone());
+                failures.fail_unallocated(&memory.to_binding(), err.clone());
                 return Err(err);
             }
         };

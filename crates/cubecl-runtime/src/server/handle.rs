@@ -210,6 +210,21 @@ impl Handle {
         }
     }
 
+    /// The [`BufferBinding`] for this handle, which stays where it is: unlike
+    /// `handle.clone().binding()`, it never counts among the handles
+    /// [`can_mut`](Self::can_mut) reads, not even for a moment.
+    pub fn to_binding(&self) -> BufferBinding {
+        BufferBinding {
+            memory: self.memory.to_binding(),
+            service: self.service,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
+            stream: self.stream,
+            size: self.size,
+            peer: self.peer.clone(),
+        }
+    }
+
     /// Add to the current offset in bytes.
     pub fn offset_start(mut self, offset: u64) -> Self {
         if let Some(val) = &mut self.offset_start {

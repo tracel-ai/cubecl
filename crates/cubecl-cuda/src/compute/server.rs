@@ -149,16 +149,19 @@ impl Server for CudaServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // Taken before the handle moves into the pool, for a failure to land on: a binding,
+        // which no `can_mut` counts, rather than a clone of the handle.
+        let binding = memory.to_binding();
         let result = match self.command_no_inputs(stream_id) {
             Ok(mut command) => command
-                .initialize_memory(memory.clone(), size)
+                .initialize_memory(memory, size)
                 .map_err(ServerError::from),
             Err(error) => Err(error),
         };
         // No stream to allocate on, or no memory to allocate: the buffer carries the
         // error instead.
         if let Err(error) = &result {
-            self.streams.fail_unallocated(&memory, error.clone());
+            self.streams.fail_unallocated(&binding, error.clone());
         }
         result
     }

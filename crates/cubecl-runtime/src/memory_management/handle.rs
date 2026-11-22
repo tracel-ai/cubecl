@@ -236,6 +236,16 @@ impl ManagedMemoryHandle {
 
     /// Returns the binding for the current handle.
     pub fn binding(self) -> ManagedMemoryBinding {
+        self.to_binding()
+    }
+
+    /// The binding for this handle, which stays where it is.
+    ///
+    /// What a server takes to find or mark an allocation it does not own: unlike a clone of the
+    /// handle, even one turned into a binding right away, it never counts among the handles
+    /// [`can_mut`](Self::can_mut) reads, so the answer a client gets does not depend on what the
+    /// device thread is doing at that moment.
+    pub fn to_binding(&self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             descriptor: self.descriptor.clone(),
         }

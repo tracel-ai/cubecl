@@ -268,13 +268,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             Err(err) => {
                 // Nothing to allocate: the buffer carries the error instead.
                 let err = ServerError::from(err);
-                failures.fail_unallocated(&memory, err.clone());
+                failures.fail_unallocated(&memory.to_binding(), err.clone());
                 return Err(err);
             }
         };
-        if let Err(err) = stream.memory.bind(reserved, memory.clone(), 0, failures) {
+        // The handle moves into the pool rather than a clone of it: see
+        // `Command::initialize_memory`. A binding stays for a failure to land on.
+        let binding = memory.to_binding();
+        if let Err(err) = stream.memory.bind(reserved, memory, 0, failures) {
             let err = ServerError::from(err);
-            failures.fail_unallocated(&memory, err.clone());
+            failures.fail_unallocated(&binding, err.clone());
             return Err(err);
         }
         Ok(())

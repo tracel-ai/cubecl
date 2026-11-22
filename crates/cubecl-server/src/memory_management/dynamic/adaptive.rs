@@ -340,7 +340,7 @@ impl AdaptiveMemory {
             return Ok(None);
         }
         let slice = pool.slice_at(source);
-        let (size, allocation) = (slice.storage.size(), slice.handle.clone());
+        let (size, allocation) = (slice.storage.size(), slice.handle.to_binding());
         let source_storage = pool.storage_at(source);
         let target = self.separate.reserve(
             storage,
