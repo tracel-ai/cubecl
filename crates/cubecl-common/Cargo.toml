@@ -62,7 +62,7 @@ xxhash-rust = { workspace = true, features = [
     "const_xxh3",
 ], optional = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = { workspace = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
