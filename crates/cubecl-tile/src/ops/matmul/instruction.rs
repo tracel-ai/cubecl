@@ -817,15 +817,8 @@ pub(crate) mod tests {
 
     /// What a rescaled sum over `shape` contracts through on `device`.
     fn rescaled(device: &DeviceProperties, shape: [usize; 3]) -> Option<Instruction> {
-        Instruction::for_rescaled_accumulator(
-            device,
-            &sum_is_not_next_a(),
-            HALF,
-            HALF,
-            F32,
-            shape,
-        )
-        .map(|call| call.instruction)
+        Instruction::for_rescaled_accumulator(device, &sum_is_not_next_a(), HALF, HALF, F32, shape)
+            .map(|call| call.instruction)
     }
 
     /// A sum scaled along its rows is held where its units read the rows, wherever the manual mma
