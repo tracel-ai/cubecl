@@ -542,7 +542,7 @@ impl<'a> AllocPromoter<'a> {
     }
 
     fn promote_alloc(&mut self, ctx: &mut Context) -> Result<()> {
-        let alloc_op = self.alloc.ptr.get_root_defining_op(ctx).unwrap();
+        let alloc_op = self.alloc.ptr.get_root_ptr_defining_op(ctx).unwrap();
         let ptr_region = alloc_op.deref(ctx).get_parent_region(ctx).unwrap();
         // Perform the promotion recursively through nested regions. The reaching
         // definition starts with a None value that will be replaced by a

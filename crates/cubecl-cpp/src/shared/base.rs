@@ -48,7 +48,7 @@ use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, scalar_extract::ScalarExtractPass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass, stack_move::RemoveStackMoves,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -239,6 +239,7 @@ where
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
+        func_passes.add_pass(RemoveStackMoves);
         func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(SROAPass);
@@ -309,6 +310,7 @@ where
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(RemoveStackMoves);
 
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(PromoteUnsupportedTypesPass::default());

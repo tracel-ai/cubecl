@@ -27,6 +27,7 @@ pub use solver::*;
 pub mod control_flow_uniformity;
 pub mod dead_code;
 pub mod dense;
+pub mod pointer_liveness;
 pub mod pre;
 pub mod sccp;
 pub mod sparse;
@@ -237,6 +238,16 @@ mod solver {
         pub fn clear_states_of_type<T: AnalysisState>(&mut self) {
             let mut states = self.analysis_states.borrow_mut();
             states.retain(|(_, t), _| t != &TypeId::of::<T>());
+        }
+
+        pub fn get_analysis<T: DataflowAnalysis>(&self) -> Option<&T> {
+            self.child_analyses.get(&TypeId::of::<T>())?.downcast_ref()
+        }
+
+        pub fn get_analysis_mut<T: DataflowAnalysis>(&mut self) -> Option<&mut T> {
+            self.child_analyses
+                .get_mut(&TypeId::of::<T>())?
+                .downcast_mut()
         }
     }
 

@@ -133,16 +133,28 @@ pub enum CompositeConstructError {
 
 #[op_interface_impl]
 impl AliasingOp for CompositeExtractOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
         let aggregate = self.composite(ctx);
         let field = self.index(ctx).0;
         let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
         let destruct = try_cast_ty!(aggregate_ty, ctx, dyn DestructurableTypeInterface);
         if destruct.type_at_index(ctx, &index_attr(field)).is_ptr(ctx) {
             let construct = aggregate.defining_op().expect("Should be construct");
-            Some(construct.operand(ctx, field))
+            vec![construct.operand(ctx, field)]
         } else {
-            None
+            vec![]
+        }
+    }
+
+    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
+        let aggregate = self.composite(ctx);
+        let field = self.index(ctx).0;
+        let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
+        let destruct = try_cast_ty!(aggregate_ty, ctx, dyn DestructurableTypeInterface);
+        if destruct.type_at_index(ctx, &index_attr(field)).is_ptr(ctx) {
+            vec![self.get_result(ctx)]
+        } else {
+            vec![]
         }
     }
 }
@@ -175,6 +187,26 @@ impl Verify for CompositeConstructOp {
         }
 
         Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl AliasingOp for CompositeConstructOp {
+    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
+        let ptrs = self.values(ctx).into_iter().filter(|it| it.is_ptr(ctx));
+        ptrs.collect()
+    }
+
+    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
+        let res = self.get_result(ctx);
+        let mut out = vec![];
+        for r#use in res.uses(ctx) {
+            let Some(aliasing) = r#use.user_op().cast::<dyn AliasingOp>(ctx) else {
+                return vec![res];
+            };
+            out.extend(aliasing.dest_ptr(ctx));
+        }
+        out
     }
 }
 

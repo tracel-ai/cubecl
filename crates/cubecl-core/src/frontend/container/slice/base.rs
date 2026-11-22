@@ -69,7 +69,7 @@ fn buffer_binding(scope: &Scope, list: Value) -> BufferBindingAttr {
         // Op is only allowed as a source for pointers (i.e. slice), so chase the pointer to its root
         DefiningEntity::Op(_) => {
             let block = list
-                .get_root_defining_block(ctx)
+                .get_root_ptr_defining_block(ctx)
                 .expect("Should be block arg");
             let idx = list.find_root_index(ctx);
             (block, idx)

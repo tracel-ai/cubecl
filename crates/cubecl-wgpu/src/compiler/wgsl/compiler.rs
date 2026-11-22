@@ -39,6 +39,7 @@ use cubecl_ir::{
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    stack_move::RemoveStackMoves,
 };
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel;
@@ -139,6 +140,7 @@ impl WgslCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
+        func_passes.add_pass(RemoveStackMoves);
         func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
@@ -175,6 +177,7 @@ impl WgslCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(RemoveStackMoves);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);

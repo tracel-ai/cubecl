@@ -11,7 +11,7 @@ use cubecl_ir::{
     },
     prelude::*,
 };
-use derive_more::Deref;
+use derive_more::{Deref, DerefMut};
 use pliron::{
     basic_block::BasicBlock,
     graph::{ControlFlowGraph, walkers::uninterruptible::immutable::walk_op},
@@ -620,6 +620,15 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         Ok(())
     }
 
+    fn initialize(
+        this: &mut DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        root: Ptr<Operation>,
+    ) {
+        let _ = (this, solver, ctx, root);
+    }
+
     fn build_operation_equivalent_lattice_anchor(
         this: &DenseBackward<Self>,
         solver: &DataflowSolver,
@@ -754,9 +763,10 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
     }
 }
 
-#[derive(Default, Deref)]
+#[derive(Default, Deref, DerefMut)]
 pub struct DenseBackward<T: DenseBackwardDataflowAnalysis> {
     #[deref]
+    #[deref_mut]
     inner: T,
     symbol_table: RefCell<SymbolTableCollection>,
 }
@@ -767,6 +777,25 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
             inner,
             symbol_table: Default::default(),
         }
+    }
+
+    fn initialize_inner(
+        &mut self,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        root: Ptr<Operation>,
+    ) -> Result<()> {
+        self.process_operation(solver, ctx, root)?;
+
+        for region in root.deref(ctx).regions() {
+            for block in region.deref(ctx).iter(ctx) {
+                self.visit_block(solver, ctx, block)?;
+                for op in block.deref(ctx).iter(ctx).rev() {
+                    self.initialize_inner(solver, ctx, op)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -786,17 +815,8 @@ impl<T: DenseBackwardDataflowAnalysis> DataflowAnalysis for DenseBackward<T> {
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {
-        self.process_operation(solver, ctx, root)?;
-
-        for region in root.deref(ctx).regions() {
-            for block in region.deref(ctx).iter(ctx) {
-                self.visit_block(solver, ctx, block)?;
-                for op in block.deref(ctx).iter(ctx).rev() {
-                    self.initialize(solver, ctx, op)?;
-                }
-            }
-        }
-        Ok(())
+        T::initialize(self, solver, ctx, root);
+        self.initialize_inner(solver, ctx, root)
     }
 
     fn visit(&self, solver: &DataflowSolver, ctx: &Context, point: ProgramPoint) -> Result<()> {

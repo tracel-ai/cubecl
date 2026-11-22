@@ -48,6 +48,7 @@ use cubecl_opt::passes::{
     sccp::SCCPPass,
     simple_cse::SimpleCSEPass,
     sroa::SROAPass,
+    stack_move::RemoveStackMoves,
     uniformity::{DYNAMICALLY_UNIFORM_ATTR, MarkDynamicallyUniformPass, UniformAttr},
 };
 use cubecl_runtime::compiler::CompilationError;
@@ -204,6 +205,7 @@ impl SpirvCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(RemoveStackMoves);
         func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
@@ -252,6 +254,7 @@ impl SpirvCompiler {
         func_passes.add_pass(Mem2RegPass);
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(RemoveStackMoves);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(SSCMPre);

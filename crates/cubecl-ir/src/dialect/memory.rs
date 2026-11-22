@@ -287,8 +287,12 @@ pub struct IndexOp {
 
 #[op_interface_impl]
 impl AliasingOp for IndexOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        Some(self.base(ctx))
+    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
+        vec![self.base(ctx)]
+    }
+
+    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
+        vec![self.get_result(ctx)]
     }
 }
 
@@ -378,8 +382,12 @@ pub struct StructFieldOp {
 
 #[op_interface_impl]
 impl AliasingOp for StructFieldOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        Some(self.base(ctx))
+    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
+        vec![self.base(ctx)]
+    }
+
+    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
+        vec![self.get_result(ctx)]
     }
 }
 

@@ -441,7 +441,7 @@ fn steps_through_local_array(ctx: &Context, looped: Ptr<Operation>) -> bool {
             let steps = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
                 index
                     .base(ctx)
-                    .get_root_defining_op(ctx)
+                    .get_root_ptr_defining_op(ctx)
                     .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
                     .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local)
                     && varies_per_turn(ctx, index.index(ctx), *looped, seen)
