@@ -22,6 +22,7 @@ use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
+#[cfg(not(target_family = "wasm"))]
 use crate::tune::sampler::measured;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -720,7 +721,17 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
         futures_util::future::join_all(profiles.into_iter().map(ProfileDuration::resolve))
             .await
             .into_iter()
-            .map(measured)
+            .map(|p| {
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    measured(p)
+                }
+                #[cfg(target_family = "wasm")]
+                {
+                    let _ = p;
+                    None
+                }
+            })
             .collect::<Option<Vec<Duration>>>()
     else {
         return AutotuneResult::error(AutotuneError::NotMeasured {
