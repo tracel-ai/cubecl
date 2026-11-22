@@ -1062,7 +1062,6 @@ mod tests {
         use MatrixLayout::{ColMajor, RowMajor};
 
         let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
-        let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
 
         assert!(is_strided(rdna3, A, ColMajor) && !is_strided(rdna3, A, RowMajor));
         assert!(is_strided(rdna3, B, RowMajor) && !is_strided(rdna3, B, ColMajor));
