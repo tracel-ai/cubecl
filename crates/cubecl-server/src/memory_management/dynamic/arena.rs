@@ -183,8 +183,7 @@ impl PoolArena {
     /// Whether graphs guard every page the current pool holds, and it holds some: room
     /// for work outside a capture comes only from a new page then.
     pub fn is_pinned(&self) -> bool {
-        let mut pages = self.current().pages().peekable();
-        pages.peek().is_some() && pages.all(|page| page.is_guarded())
+        self.current().is_pinned()
     }
 
     /// What a relocation trigger reads of the arena.

@@ -403,3 +403,10 @@ fn hip_graph_inputs_kept_per_graph_take_no_page_of_their_own() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::inputs_kept_per_graph_take_no_page_of_their_own::<HipRuntime>();
 }
+
+/// See [`graph_sharing::small_buffers_kept_per_graph_take_no_page_of_their_own`].
+#[test]
+fn hip_graph_small_buffers_kept_per_graph_take_no_page_of_their_own() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::small_buffers_kept_per_graph_take_no_page_of_their_own::<HipRuntime>();
+}

@@ -112,6 +112,12 @@ impl SlicedPool {
             .slice_mut(location.slice as usize)
     }
 
+    /// Whether graphs guard every page the pool holds, and it holds some: room for work outside
+    /// a capture comes only from a new page then.
+    pub(crate) fn is_pinned(&self) -> bool {
+        !self.pages.is_empty() && self.pages().all(MemoryPage::is_guarded)
+    }
+
     /// Whether a graph guards the page the slice `location` names is on.
     pub(crate) fn is_guarded_at(&self, location: MemoryLocation) -> bool {
         self.pages[location.page as usize].0.is_guarded()

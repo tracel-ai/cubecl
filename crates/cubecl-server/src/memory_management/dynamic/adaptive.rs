@@ -31,12 +31,14 @@ const SMALL_POOL: u8 = 1;
 const ARENA_POOLS: u8 = 2;
 /// The pool index of the separate arena's first slot, past the arena's.
 const SEPARATE_POOLS: u8 = ARENA_POOLS + ARENA_SLOTS as u8;
+/// The pool index of the small allocations kept apart, past the separate arena's.
+const SMALL_SEPARATE_POOL: u8 = SEPARATE_POOLS + ARENA_SLOTS as u8;
 
 // The arenas' pools are addressed from `ARENA_POOLS` on, one after the other,
 // and must stay clear of the fixed indices the dedicated and persistent pools
 // carry.
 const _: () = assert!(
-    SEPARATE_POOLS as usize + ARENA_SLOTS <= DEDICATED_POOL_POS as usize,
+    (SMALL_SEPARATE_POOL as usize) < DEDICATED_POOL_POS as usize,
     "the arenas' pool indices would reach the fixed ones"
 );
 
@@ -64,6 +66,11 @@ pub struct AdaptiveMemory {
     /// slices. Kept off the arena's pages so they neither fragment them nor
     /// count toward their size.
     small: SlicedPool,
+    /// The small allocations kept apart from the room the stream's graphs share
+    /// on `small`, as the separate arena keeps the larger ones apart from the
+    /// arena's: the metadata a graph keeps, and small work outside a capture
+    /// once graphs pin every page of `small`.
+    small_separate: SlicedPool,
     /// Everything else.
     arena: PoolArena,
     /// What outlives a graph capture — its outputs, the metadata its graph
@@ -106,6 +113,13 @@ impl AdaptiveMemory {
             // Allocations near its page size belong to the arena, whose
             // pages are sized to what they serve.
             .up_to_max_slice(),
+            small_separate: SlicedPool::new(SlicedLayout {
+                page_size: SMALL_PAGE.next_multiple_of(alignment),
+                max_slice_size: SMALL_SLICE.next_multiple_of(alignment),
+                alignment,
+                pool: SMALL_SEPARATE_POOL,
+            })
+            .up_to_max_slice(),
             arena: PoolArena::new(sizing, ARENA_POOLS, logger.clone(), name.clone()),
             separate: PoolArena::new(
                 PageSizing::new(min_page, properties),
@@ -126,6 +140,7 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => Some(&self.tiny),
             SMALL_POOL => Some(&self.small),
+            SMALL_SEPARATE_POOL => Some(&self.small_separate),
             ARENA_POOLS..SEPARATE_POOLS => Some(self.arena.pool(index)?),
             _ => Some(self.separate.pool(index)?),
         }
@@ -136,6 +151,7 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => Some(&mut self.tiny),
             SMALL_POOL => Some(&mut self.small),
+            SMALL_SEPARATE_POOL => Some(&mut self.small_separate),
             ARENA_POOLS..SEPARATE_POOLS => Some(self.arena.pool_mut(index)?),
             _ => Some(self.separate.pool_mut(index)?),
         }
@@ -152,6 +168,7 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => self.tiny.materialize(storage, binding),
             SMALL_POOL => self.small.materialize(storage, binding),
+            SMALL_SEPARATE_POOL => self.small_separate.materialize(storage, binding),
             ARENA_POOLS..SEPARATE_POOLS => match self.arena.pool_mut(index) {
                 Some(pool) => pool.materialize(storage, binding),
                 None => Ok(()),
@@ -166,19 +183,21 @@ impl AdaptiveMemory {
     /// Reserve `size` bytes on the pool that serves them, growing the arena's
     /// pages when `size` outgrows them.
     ///
-    /// Only the arena shares the room on pinned pages: the small pool holds
-    /// the metadata a capture's info cache keeps for every graph, and what
-    /// [`PinnedPages::Separate`] asks for goes to the separate arena, since a
-    /// buffer kept past its capture must never sit where another graph's
-    /// replay writes.
+    /// A capture's temporaries share the room on pinned pages of the arena or
+    /// of the small pool, by size. What [`PinnedPages::Separate`] asks for,
+    /// the metadata a capture's info cache keeps for every graph among it,
+    /// goes to the separate arena or the small separate pool, since a buffer
+    /// kept past its capture must never sit where another graph's replay
+    /// writes.
     ///
     /// What [`PinnedPages::Avoid`] asks for, work outside a capture, takes the
-    /// arena's unpinned room, and the separate arena's once graphs pin every
-    /// page of the arena's current pool, unless it outgrows the arena's pages,
-    /// which then grow as they would. A new page of the current size would hold
-    /// little more than that buffer: the arena's pages are sized to the largest
-    /// temporary, and a recording's input, kept for its graph's life and read
-    /// by it, would leave the page pinned and never empty, a page per graph.
+    /// unpinned room of the arena or the small pool, and the room kept apart
+    /// once graphs pin every page of the arena's current pool or of the small
+    /// pool, unless it outgrows the arena's pages, which then grow as they
+    /// would. A new page of the current size would hold little more than that
+    /// buffer: the arena's pages are sized to the largest temporary, and a
+    /// recording's input, kept for its graph's life and read by it, would leave
+    /// the page pinned and never empty, a page per graph.
     ///
     /// # Errors
     ///
@@ -197,7 +216,12 @@ impl AdaptiveMemory {
             return self.tiny.reserve(storage, size, mapping, failures);
         }
         if self.small.accept(size) {
-            return self.small.reserve(storage, size, mapping, failures);
+            return match self.small_room(size, pinned, failures) {
+                Some(handle) => Ok(handle),
+                None => self
+                    .small_pool_for(pinned)
+                    .alloc(storage, size, mapping, failures),
+            };
         }
         match pinned {
             // What carves the separate arena is never written by a replay, so its
@@ -230,7 +254,7 @@ impl AdaptiveMemory {
             return self.tiny.try_reserve(size, failures);
         }
         if self.small.accept(size) {
-            return self.small.try_reserve(size, failures);
+            return self.small_room(size, pinned, failures);
         }
         match pinned {
             PinnedPages::Separate => self
@@ -241,6 +265,41 @@ impl AdaptiveMemory {
                 self.separate
                     .try_reserve(size, PinnedPages::Share, failures)
             }),
+        }
+    }
+
+    /// Room for a small allocation on the pages its small pool holds: as the arena's room is
+    /// shared, with the metadata a graph keeps in the place of its outputs.
+    fn small_room(
+        &mut self,
+        size: u64,
+        pinned: PinnedPages,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        match pinned {
+            PinnedPages::Share => self.small.try_reserve_sharing(size, pinned, failures),
+            PinnedPages::Separate => {
+                self.small_separate
+                    .try_reserve_sharing(size, PinnedPages::Share, failures)
+            }
+            PinnedPages::Avoid => self
+                .small
+                .try_reserve_sharing(size, pinned, failures)
+                .or_else(|| {
+                    self.small_separate
+                        .try_reserve_sharing(size, PinnedPages::Share, failures)
+                }),
+        }
+    }
+
+    /// The small pool a new page for an allocation `pinned` describes goes to: work outside a
+    /// capture takes the separate one once graphs pin every page of the shared one.
+    fn small_pool_for(&mut self, pinned: PinnedPages) -> &mut SlicedPool {
+        match pinned {
+            PinnedPages::Share => &mut self.small,
+            PinnedPages::Separate => &mut self.small_separate,
+            PinnedPages::Avoid if self.small.is_pinned() => &mut self.small_separate,
+            PinnedPages::Avoid => &mut self.small,
         }
     }
 
@@ -397,6 +456,8 @@ impl AdaptiveMemory {
     ) {
         self.tiny.cleanup(storage, alloc_nr, cleanup, failures);
         self.small.cleanup(storage, alloc_nr, cleanup, failures);
+        self.small_separate
+            .cleanup(storage, alloc_nr, cleanup, failures);
         self.arena.cleanup(storage, alloc_nr, cleanup, failures);
         self.separate.cleanup(storage, alloc_nr, cleanup, failures);
     }
@@ -405,11 +466,15 @@ impl AdaptiveMemory {
     /// them, the outdated ones last. The arena's current pool reports how many
     /// pages the outdated ones hold.
     pub fn report(&self) -> Vec<MemoryPoolReport> {
-        [self.tiny.report(), self.small.report()]
-            .into_iter()
-            .chain(self.arena.report())
-            .chain(self.separate.report())
-            .collect()
+        [
+            self.tiny.report(),
+            self.small.report(),
+            self.small_separate.report(),
+        ]
+        .into_iter()
+        .chain(self.arena.report())
+        .chain(self.separate.report())
+        .collect()
     }
 
     fn log_layout(&self) {
@@ -424,8 +489,8 @@ impl core::fmt::Display for AdaptiveMemory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "{}{}{}{}",
-            self.tiny, self.small, self.arena, self.separate
+            "{}{}{}{}{}",
+            self.tiny, self.small, self.small_separate, self.arena, self.separate
         )
     }
 }
@@ -455,7 +520,8 @@ mod tests {
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
 
-    const MIB: u64 = 1024 * 1024;
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
     const PROPERTIES: MemoryDeviceProperties = MemoryDeviceProperties::new(1024 * MIB, 32);
 
     /// The floor the `Adaptive` preset carves its pages at, until a larger
@@ -665,6 +731,41 @@ mod tests {
             "four 128 KiB inputs took {grown} B, an arena page each"
         );
         drop(inputs);
+    }
+
+    /// Metadata a graph keeps and small inputs it reads, kept for its life, pack together rather
+    /// than taking a metadata page each: once graphs pin every page of the small-allocation pool,
+    /// each would otherwise take a page of its own, which the graph reading it pins in turn and
+    /// which never empties, a page per graph.
+    #[test]
+    fn kept_metadata_and_small_inputs_take_no_small_page_per_graph() {
+        let mut memory = adaptive();
+        let failures = &mut ErrorGraph::default();
+        let mut kept = alloc::vec::Vec::new();
+        let before = reserved(&memory);
+
+        for _ in 0..4 {
+            // What a recording keeps for its graph: its launches' metadata and its input.
+            let metadata = memory
+                .reserve_sharing(
+                    KIB,
+                    PageUpdate::Allow,
+                    super::PinnedPages::Separate,
+                    failures,
+                )
+                .unwrap();
+            let input = reserve(&mut memory, 4 * KIB);
+            for handle in [metadata, input] {
+                let graph = memory.guard(handle.descriptor().location());
+                kept.push((handle, graph));
+            }
+        }
+
+        let grown = reserved(&memory) - before;
+        assert!(
+            grown <= 8 * MIB,
+            "four graphs' metadata and small inputs took {grown} B, a metadata page each"
+        );
     }
 
     /// With nothing outdated there is nothing to free, however full the
