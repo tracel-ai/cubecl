@@ -194,11 +194,11 @@ impl AdaptiveMemory {
     /// What [`AllocationKind::Eager`] asks for takes the unpinned room of the
     /// arena or the small pool, and the room kept apart once graphs pin every
     /// page of the small pool, or of the arena's current pool when the pages
-    /// of both arenas fit it. A new page of the current size would hold little more than
-    /// that buffer: the arena's pages are sized to the largest temporary, and a
-    /// recording's input, kept for its graph's life and read by it, would leave
-    /// the page pinned and never empty, a page per graph. One that outgrows the
-    /// arena's pages grows them as it would.
+    /// of both arenas fit it. A new page of the current size would hold little
+    /// more than that buffer: the arena's pages are sized to the largest
+    /// temporary, and a recording's input, kept for its graph's life and read
+    /// by it, would leave the page pinned and never empty, a page per graph.
+    /// One that outgrows the arena's pages grows them as it would.
     ///
     /// # Errors
     ///
