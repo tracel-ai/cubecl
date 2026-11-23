@@ -219,6 +219,19 @@ impl FactorExpand {
             .any(|dimension| projection.addresses(dimension) && !space.contains(dimension))
     }
 
+    /// Whether a scale of this factor varies along a dimension of `space`: one a sum holding
+    /// `space` applies cell by cell, not as one number ([`whole`](Factor::whole)).
+    pub(crate) fn varies_within(&self, scope: &Scope, space: &Space) -> bool {
+        self.chain().any(|scale| {
+            let projection = scale.clone().__expand_projection_method(scope);
+            scale
+                .place
+                .space
+                .dimensions()
+                .any(|dimension| projection.addresses(dimension) && space.contains(dimension))
+        })
+    }
+
     /// This factor cut in two: the inner scales, down to the last one that varies along a dimension
     /// outside `space`, and the rest, which vary only along `space`. Each scale covers more than
     /// the one inside it, so once one varies only along `space`, every one outside it does too.

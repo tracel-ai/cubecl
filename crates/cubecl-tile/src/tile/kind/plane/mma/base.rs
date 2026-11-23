@@ -255,6 +255,52 @@ impl MmaData {
         }
     }
 
+    /// Multiply each cell of this (accumulator) fragment by `factor` at the cell's place in
+    /// `space`, the fragment's window: scales varying across the output, a row's and a column's,
+    /// read where each unit holds its cells.
+    #[allow(dead_code)] // Reached through its expand, from `Tile::scale_own_cells`.
+    pub(crate) fn scale_cells<T: Numeric>(&mut self, factor: &Factor, #[comptime] space: &Space) {
+        let def = MmaDefinition::<T, T, T>::new(self.m, self.n, self.k);
+        let layout = comptime!(self.layout);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let dimensions = comptime!(MatrixDimensions::trailing(space));
+        match &mut self.fragment {
+            MmaFragment::Acc(f) => {
+                let acc = f.at_mut::<T>();
+                #[unroll]
+                for i in 0..acc.len() {
+                    let mut vector = acc[i];
+                    #[unroll]
+                    for e in 0..vector_size {
+                        let (row, col) = def.position_of_nth(
+                            UNIT_POS_PLANE,
+                            comptime!((i * vector_size + e) as u32),
+                            MatrixIdent::Accumulator,
+                        );
+                        let (row, col) = match layout {
+                            MatrixLayout::RowMajor => (row, col),
+                            MatrixLayout::ColMajor => (col, row),
+                            MatrixLayout::Undefined => {
+                                panic!("MmaData::scale_cells: a sum is row- or col-major")
+                            }
+                        };
+                        let at =
+                            TileMatrix::value_coords(row, col, 0usize, space, dimensions, 1usize);
+                        let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
+                        vector.insert(e, vector.extract(e) * T::cast_from(scale));
+                    }
+                    acc[i] = vector;
+                }
+            }
+            MmaFragment::Lhs(_)
+            | MmaFragment::Rhs(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::scale_cells: an operand fragment is contracted, not scaled")
+            }
+        }
+    }
+
     /// Fill this fragment from `src`'s window by the role's transport, a fragment deeper than its
     /// instruction as `load` says.
     pub(crate) fn load_window<T: Numeric>(&mut self, src: &Tile, #[comptime] load: DeepLoad) {

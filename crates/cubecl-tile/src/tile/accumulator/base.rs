@@ -307,12 +307,36 @@ impl Tile {
         if comptime!(unopened && (scaled || bounces)) {
             let opened = self.clone().with_scratch(Scratch::OneTile);
             opened.drain_into(dest);
+        } else if scaled && self.factor_varies() {
+            scale_cells_below::<Served>(self, comptime!(self.place.below().to_vec()), 0usize);
+            self.unscaled().drain_into(dest);
         } else if scaled {
             let mut sum = self.unscaled();
             sum.scale_by::<f32>(self.factor.whole());
             sum.drain_into(dest);
         } else {
             self.drain_as_opened::<Served, Out>(dest);
+        }
+    }
+}
+
+/// Each fragment of `acc` below `levels[i..]` multiplied cell by cell by its scales, which vary
+/// across the output: a row's and a column's, where a product's inputs carry them per row.
+#[cube]
+fn scale_cells_below<A: Numeric>(acc: &Tile, #[comptime] levels: Vec<Level>, #[comptime] i: usize) {
+    if i == levels.len() {
+        let mut fragment = acc.clone();
+        fragment.scale_own_cells::<A>();
+    } else {
+        let level = comptime!(levels[i].clone());
+        if comptime!(level.coverage() == Coverage::Walk) {
+            for region in acc.over(&level).unrolled() {
+                scale_cells_below::<A>(&acc.at(&region), levels.clone(), i + 1);
+            }
+        } else {
+            for region in acc.over(&level) {
+                scale_cells_below::<A>(&acc.at(&region), levels.clone(), i + 1);
+            }
         }
     }
 }

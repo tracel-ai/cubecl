@@ -300,6 +300,8 @@ impl Instruction {
     ///   lays a fragment's `A` like its accumulator: this crate's transport first;
     /// - a sum whose rows are scaled between its products, where this crate's transport offers the
     ///   call the fragment API would take: this crate's transport, the same call;
+    /// - a product of 8-bit floats, whose scales its sum applies cell by cell: this crate's
+    ///   transport first;
     /// - otherwise the fragment API first.
     ///
     /// A packed operand decoded on the way contracts at the other operand's element.
@@ -369,7 +371,14 @@ impl Instruction {
                 .filter(product)
                 .any(|shape| !matmul.cmma.iter().filter(product).any(|c| c == shape))
         };
+        // An 8-bit float product carries its range in scales outside its values, a row's and a
+        // column's, which its sum applies cell by cell as it drains: this crate's transport holds
+        // each unit's cells where it can read them, the fragment API where only it knows.
+        let eight_bit = |element: ElemType| {
+            matches!(element, ElemType::Float(_)) && element.size_bits() == u8::BITS as usize
+        };
         let mma_first = mma_reads
+            || (eight_bit(lhs_element) && eight_bit(rhs_element))
             || (opened_by == OpenedBy::StageAccumulator
                 && accumulator_is_a(target)
                 && mma_adds_calls);
