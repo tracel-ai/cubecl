@@ -412,7 +412,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
             let cursor_handle = B::handle_cursor(&stream.stream, handle);
 
             self.shared_bindings_pool.push((
-                handle.memory.descriptor().id,
+                handle.memory.descriptor().id(),
                 handle.stream,
                 cursor_handle,
             ));
@@ -586,7 +586,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            binding_2.memory.descriptor().id,
+            binding_2.memory.descriptor().id(),
             ms.streams.stream_index(&binding_2.stream),
         );
 
@@ -613,7 +613,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            binding_2.memory.descriptor().id,
+            binding_2.memory.descriptor().id(),
             ms.streams.stream_index(&binding_2.stream),
         );
 

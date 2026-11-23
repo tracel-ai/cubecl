@@ -17,9 +17,9 @@ pub struct PersistentPool {
     max_alloc_size: u64,
     location_base: MemoryLocation,
     /// The most slices (one device allocation each) ever held at once.
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 impl core::fmt::Display for PersistentPool {
@@ -41,7 +41,7 @@ impl core::fmt::Display for PersistentPool {
 
             f.write_fmt(format_args!(
                 "  - Slices {} =>  {num_free} free - {num_full} full - {total} total\n",
-                BytesFormat::new(*size)
+                BytesFormat::from_byte_count(*size)
             ))?;
         }
 
@@ -61,8 +61,8 @@ impl PersistentPool {
             max_alloc_size,
             alignment,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -72,9 +72,9 @@ impl PersistentPool {
             kind: MemoryPoolKind::Persistent,
             usage: self.get_memory_usage(),
             pages: self.slices.len() as u64,
-            pages_peak: self.pages_peak,
-            pages_unmapped: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
-            largest_alloc: self.largest_alloc,
+            peak_pages: self.peak_pages,
+            unmapped_pages: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -127,7 +127,7 @@ impl MemoryPool for PersistentPool {
                 if slice.is_free() {
                     slice.storage.utilization.size = size;
                     slice.storage.utilization.offset = 0;
-                    self.largest_alloc = self.largest_alloc.max(size);
+                    self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
                     return Some(slice.handle.clone());
                 }
             }
@@ -181,8 +181,8 @@ impl MemoryPool for PersistentPool {
 
         let handle = slice.handle.clone();
         self.slices.push(slice);
-        self.pages_peak = self.pages_peak.max(self.slices.len() as u64);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.peak_pages = self.peak_pages.max(self.slices.len() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(handle)
     }
@@ -200,10 +200,10 @@ impl MemoryPool for PersistentPool {
             .collect();
 
         MemoryUsage {
-            number_allocs: used_slices.len() as u64,
-            bytes_in_use: used_slices.iter().map(|slice| slice.storage.size()).sum(),
-            bytes_padding: used_slices.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self.slices.iter().map(|slice| slice.effective_size()).sum(),
+            allocations: used_slices.len() as u64,
+            in_use_bytes: used_slices.iter().map(|slice| slice.storage.size()).sum(),
+            padding_bytes: used_slices.iter().map(|slice| slice.padding).sum(),
+            reserved_bytes: self.slices.iter().map(|slice| slice.effective_size()).sum(),
         }
     }
 
@@ -396,20 +396,20 @@ mod tests {
             &mut ErrorGraph::default(),
         );
         let usage = pool.get_memory_usage();
-        assert_eq!(usage.bytes_in_use, 1024);
-        assert_eq!(usage.bytes_reserved, 2048);
+        assert_eq!(usage.in_use_bytes, 1024);
+        assert_eq!(usage.reserved_bytes, 2048);
 
         let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         let usage = pool.get_memory_usage();
         assert!(result.is_some(), "Handle1 is free to be reused.");
-        assert_eq!(usage.bytes_in_use, 2048);
-        assert_eq!(usage.bytes_reserved, 2048);
+        assert_eq!(usage.in_use_bytes, 2048);
+        assert_eq!(usage.reserved_bytes, 2048);
 
         core::mem::drop(alloc2);
         core::mem::drop(result);
 
         let usage = pool.get_memory_usage();
-        assert_eq!(usage.bytes_in_use, 0);
-        assert_eq!(usage.bytes_reserved, 2048);
+        assert_eq!(usage.in_use_bytes, 0);
+        assert_eq!(usage.reserved_bytes, 2048);
     }
 }

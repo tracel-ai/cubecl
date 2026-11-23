@@ -534,7 +534,7 @@ mod tests {
     fn an_unallocated_failure_is_reported_and_released_with_its_buffer() {
         let mut graph = ErrorGraph::default();
         let memory = ManagedMemoryHandle::new();
-        let id = memory.descriptor().id;
+        let id = memory.descriptor().id();
 
         graph.fail_unallocated(
             &memory,
@@ -550,7 +550,7 @@ mod tests {
 
         let other = ManagedMemoryHandle::new();
         let unrecorded = graph
-            .reports([Claim::Unallocated(other.descriptor().id)].into_iter())
+            .reports([Claim::Unallocated(other.descriptor().id())].into_iter())
             .expect_err("an unallocated buffer never reads clean");
         assert!(
             unrecorded.to_string().contains("never allocated"),

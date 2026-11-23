@@ -9,7 +9,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         AuxiliaryMemoryReport, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
-        MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryManagementOptions, PageUpdate,
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, PageUpdate,
     },
     storage::ComputeStorage,
 };
@@ -132,7 +132,7 @@ impl AuxiliaryMemory {
         let handle = self
             .staging
             .reserve(size, PageUpdate::Allow, &mut self.failures)?;
-        let binding = MemoryHandle::binding(handle);
+        let binding = handle.binding();
         let resource = self
             .staging
             .get_resource(binding.clone(), None, None)

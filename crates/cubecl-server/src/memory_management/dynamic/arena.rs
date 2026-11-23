@@ -459,7 +459,7 @@ impl PoolArena {
                 format!(
                     "[{}] Carving pages of {} from here on:\n{self}",
                     self.name,
-                    BytesFormat::new(page_size)
+                    BytesFormat::from_byte_count(page_size)
                 )
             },
         );

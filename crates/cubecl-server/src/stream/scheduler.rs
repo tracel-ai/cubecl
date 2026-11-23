@@ -293,7 +293,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// The streams a task using `binding` must follow: the one that owns it, and the one with a
     /// queued write into it when that is another.
     pub fn streams_to_align(&self, binding: &BufferBinding) -> impl Iterator<Item = StreamId> {
-        let id = binding.memory.descriptor().id;
+        let id = binding.memory.descriptor().id();
         let writer = self
             .foreign_writes
             .iter()
@@ -307,7 +307,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// recorded: it already aligned with any pending writer, and executing that writer drops it.
     fn record_write(&mut self, writer: StreamId, binding: &BufferBinding) {
         let owner = binding.stream;
-        let memory = binding.memory.descriptor().id;
+        let memory = binding.memory.descriptor().id();
         self.foreign_writes
             .retain(|write| write.owner != owner || write.memory != memory);
         if owner != writer {

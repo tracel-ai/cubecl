@@ -252,7 +252,7 @@ impl Handle {
         };
         let mine = bytes(self);
         let theirs = bytes(other);
-        if self.memory.descriptor().id != other.memory.descriptor().id
+        if self.memory.descriptor().id() != other.memory.descriptor().id()
             || mine.end <= theirs.start
             || theirs.end <= mine.start
         {

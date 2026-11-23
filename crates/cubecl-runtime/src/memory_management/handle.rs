@@ -1,79 +1,55 @@
-use super::{
-    ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryId, MemoryHandle, MemoryLocation,
-};
+use super::{ManagedMemoryBinding, ManagedMemoryDescriptor};
 use alloc::sync::Arc;
-use core::sync::atomic::AtomicU64;
 
-/// Managed Memory handle
-#[derive(Debug)]
+/// The owner of one allocation in the managed pools.
+///
+/// Cloning it shares the allocation. The pool that carved the allocation
+/// keeps a handle of its own, so the allocation is free once every other
+/// handle and every [`ManagedMemoryBinding`] of it is dropped.
+#[derive(Debug, Clone)]
 pub struct ManagedMemoryHandle {
     descriptor: Arc<ManagedMemoryDescriptor>,
-    // Holds only the reference counts of the handle.
+    // Counts the handles only: the descriptor also counts the bindings.
     handle_count: Arc<()>,
 }
 
-impl Clone for ManagedMemoryHandle {
-    fn clone(&self) -> Self {
-        Self {
-            descriptor: self.descriptor.clone(),
-            handle_count: self.handle_count.clone(),
-        }
-    }
-}
-
 impl ManagedMemoryHandle {
-    /// Creates a new managed memory handle.
+    /// A handle on memory no pool has placed yet, with an id no other
+    /// allocation has.
     pub fn new() -> Self {
-        let value = Self::gen_id();
-
         Self {
-            descriptor: Arc::new(ManagedMemoryDescriptor {
-                id: ManagedMemoryId { value },
-                location: AtomicU64::new(MemoryLocation::uninit().to_bits()),
-            }),
+            descriptor: Arc::new(ManagedMemoryDescriptor::new()),
             handle_count: Arc::new(()),
         }
     }
 
-    /// Retrieves the descriptor for the current handle.
+    /// The descriptor every handle and binding of this allocation shares.
     #[doc(hidden)]
     pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 
-    /// Return whether the current handle can be modified in-place.
+    /// Whether this handle and the pool's are the only handles, so the
+    /// allocation can be written in place.
     pub fn can_mut(&self) -> bool {
         Arc::strong_count(&self.handle_count) <= 2
     }
 
     /// Whether a [binding](Self::binding) is out: something holds the
     /// allocation's address, not only its handle.
-    ///
-    /// Handles and bindings share the descriptor, and only handles count in
-    /// `handle_count`, so the difference is the bindings.
     pub fn is_bound(&self) -> bool {
-        Arc::strong_count(&self.descriptor) > Arc::strong_count(&self.handle_count)
+        holds_more_than(&self.descriptor, &self.handle_count)
     }
 
-    /// Return whether the current handle is free.
+    /// Whether nothing but this handle refers to the allocation, so its pool
+    /// may hand it out again.
     pub fn is_free(&self) -> bool {
         Arc::strong_count(&self.descriptor) <= 1
     }
 
-    /// Returns the binding for the current handle.
+    /// A binding that keeps the allocation reserved while it lives.
     pub fn binding(self) -> ManagedMemoryBinding {
-        ManagedMemoryBinding {
-            descriptor: self.descriptor.clone(),
-        }
-    }
-
-    fn gen_id() -> usize {
-        static COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-        let value = COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if value == usize::MAX {
-            core::panic!("Memory ID overflowed");
-        }
-        value
+        ManagedMemoryBinding::from_descriptor(self.descriptor)
     }
 }
 
@@ -83,12 +59,79 @@ impl Default for ManagedMemoryHandle {
     }
 }
 
-impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
-    fn can_mut(&self) -> bool {
-        self.can_mut()
+/// Whether `shared` has more owners than `counted`: the descriptor counts
+/// handles and bindings, the handle count handles alone, so the difference is
+/// the bindings.
+fn holds_more_than(shared: &Arc<ManagedMemoryDescriptor>, counted: &Arc<()>) -> bool {
+    Arc::strong_count(shared) > Arc::strong_count(counted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_handle_and_one_clone_can_mutate() {
+        let handle = ManagedMemoryHandle::new();
+        let _pool = handle.clone();
+
+        assert!(handle.can_mut());
     }
 
-    fn binding(self) -> ManagedMemoryBinding {
-        self.binding()
+    #[test]
+    fn a_third_handle_forbids_mutation() {
+        let handle = ManagedMemoryHandle::new();
+        let _clones = (handle.clone(), handle.clone());
+
+        assert!(!handle.can_mut());
+    }
+
+    #[test]
+    fn a_lone_handle_is_free() {
+        let handle = ManagedMemoryHandle::new();
+
+        assert!(handle.is_free());
+    }
+
+    #[test]
+    fn a_cloned_handle_is_not_free() {
+        let handle = ManagedMemoryHandle::new();
+        let _clone = handle.clone();
+
+        assert!(!handle.is_free());
+    }
+
+    #[test]
+    fn a_handle_without_binding_is_not_bound() {
+        let handle = ManagedMemoryHandle::new();
+        let _clone = handle.clone();
+
+        assert!(!handle.is_bound());
+    }
+
+    #[test]
+    fn a_binding_out_makes_its_handle_bound() {
+        let handle = ManagedMemoryHandle::new();
+        let _binding = handle.clone().binding();
+
+        assert!(handle.is_bound());
+    }
+
+    #[test]
+    fn a_binding_names_its_handle_allocation() {
+        let handle = ManagedMemoryHandle::new();
+        let id = handle.descriptor().id();
+
+        assert_eq!(handle.binding().id(), id);
+    }
+
+    #[test]
+    fn clones_share_the_location() {
+        let handle = ManagedMemoryHandle::new();
+        let clone = handle.clone();
+
+        handle.descriptor().update_slice(4);
+
+        assert_eq!(clone.descriptor().slice(), 4);
     }
 }

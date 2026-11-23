@@ -17,8 +17,8 @@ use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard,
-    PageUpdate, PinnedPages, StreamMemoryReport,
+    ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, PageGuard, PageUpdate,
+    PinnedPages, StreamMemoryReport,
 };
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
@@ -390,7 +390,7 @@ impl<'a, D: Driver> Command<'a, D> {
             .reserve(size as u64, update, failures)
             .ok()?;
 
-        let binding = MemoryHandle::binding(handle);
+        let binding = handle.binding();
         stream.capturing().prime(&binding);
         let resource = stream
             .host_memory()
