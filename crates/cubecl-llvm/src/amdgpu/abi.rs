@@ -3,7 +3,9 @@
 use crate::{
     amdgpu::builtins::AmdGpuDispatch,
     prelude::*,
-    shared::{builtins::InsertGpuBuiltinsPass, metadata::rebuild_func_type},
+    shared::{
+        builtins::InsertGpuBuiltinsPass, metadata::rebuild_func_type, native_decode::NativeDecode,
+    },
 };
 use cubecl_opt::passes::{alloc_shared_memory::AllocateSharedMemoryBlockPass, pre::SSCMPre};
 
@@ -72,5 +74,9 @@ impl TargetLowering for AmdGpuLowering {
 
     fn pre(&self, passes: &mut OpPass<ModuleOp, Passes>) {
         passes.add_pass(SSCMPre);
+    }
+
+    fn native_decodes(&self) -> &'static [NativeDecode] {
+        crate::amdgpu::native_decode::native_decodes()
     }
 }
