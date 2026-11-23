@@ -213,6 +213,17 @@ impl Memory {
         }
     }
 
+    /// What a checked read past this window's edge does: a launched source's read runs its
+    /// caller's code ([`GlobalOperand::source`]), so it runs only where it has a value to give.
+    /// A source over shared memory is this crate's, and only loads.
+    fn past_edge(&self) -> comptime_type!(PastEdge) {
+        let has_address = self.store.has_address();
+        comptime!(match self.address {
+            AddressSpace::Global if !has_address => PastEdge::Skip,
+            AddressSpace::Global | AddressSpace::Shared => PastEdge::Clamp,
+        })
+    }
+
     /// The window as a view over its own coordinates, served at `T` grouped `W` wide.
     fn window_view<T: Numeric, W: Size>(
         &self,
@@ -227,6 +238,7 @@ impl Memory {
             WindowStorage::Stored(_) => WindowedView::new(
                 self.read_view::<T, W>(self.base()),
                 self.window().with_guard(guard),
+                self.past_edge(),
             )
             .view(),
         }
@@ -246,6 +258,7 @@ impl Memory {
             WindowStorage::Stored(_) => WindowedView::new(
                 self.lines_storage::<I, WP>().view(self.base()),
                 self.window().with_guard(guard),
+                comptime!(PastEdge::Clamp),
             )
             .view(),
         }
