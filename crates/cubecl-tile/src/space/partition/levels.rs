@@ -10,8 +10,9 @@
 //!     .build()
 //! ```
 //!
-//! An `every` level ([`Count::All`]) closes its dimension; only [`across`](Levels::across) may name
-//! it again, on the cube level.
+//! An `every` level ([`Count::All`]) closes its dimension; only a level dealing it in runs may name
+//! it again: a cube level [`across`](Levels::across) it, or
+//! [`planes_across`](Levels::planes_across) it.
 
 use super::{CubeOrder, LaunchSpan, PlaneOrder, UnitCube};
 use crate::{ComputeScope, Count, Coverage, Dimension, Level, Spread};
@@ -23,14 +24,15 @@ struct StatedLevel {
     /// `(dimension, tile size, count)`; an every-level's count is unused.
     tiles: Vec<(Dimension, usize, usize)>,
     takes: Takes,
-    /// A cube level distributing one of its dimensions across several cubes.
+    /// A cube or plane level distributing one of its dimensions across several cubes or planes, in
+    /// runs.
     across: Option<(Dimension, usize)>,
     shared_by: Option<usize>,
     fillers: usize,
     batches: Vec<Dimension>,
     interleaved: Vec<Dimension>,
     reversed: Vec<Dimension>,
-    /// Closed dimensions this cube level names again, to distribute across cubes.
+    /// Closed dimensions this cube or plane level names again, to distribute in runs.
     reopened: Vec<Dimension>,
     order: CubeOrder,
     /// Who across the whole launch takes this level's tiles, where it spans the launch.
@@ -190,7 +192,7 @@ impl Levels {
         let stated = self.last("across");
         assert!(
             stated.coverage == Coverage::Distribute(ComputeScope::Cube),
-            "Levels::across: only cubes take a dimension in runs; the level just stated is {:?}",
+            "Levels::across: only cubes take a dimension in runs here; the level just stated is {:?}",
             stated.coverage
         );
         assert!(
@@ -237,7 +239,7 @@ impl Levels {
         self
     }
 
-    /// The level just stated, a cube level or a plane level spanning the launch, hands out
+    /// The level just stated, a cube level or one spanning the launch, hands out
     /// `dimension`'s tiles from the last to the first: the first workers launched take the last
     /// tiles. Where the later tiles hold more work, the heaviest start first and the light ones
     /// fill in behind them.
@@ -388,6 +390,14 @@ impl StatedLevel {
                 .collect()
         };
         if let Some(span) = &self.launch_span {
+            assert!(
+                self.interleaved.is_empty()
+                    && self.shared_by.is_none()
+                    && self.fillers == 0
+                    && self.batches.is_empty(),
+                "Levels: a level spanning the launch deals its tiles in its own order, so it is not \
+                 interleaved, shared, filled or batched"
+            );
             let level = match span {
                 LaunchSpan::Planes(order) => Level::spanning_launch(&tile(), order.clone()),
                 LaunchSpan::Units(cube) => Level::units_spanning_launch(&tile(), *cube),
@@ -446,6 +456,16 @@ mod tests {
     const N: Dimension = Dimension(1);
     const K: Dimension = Dimension(2);
     const B: Dimension = Dimension(3);
+
+    /// A level spanning the launch takes no filling plane.
+    #[test]
+    #[should_panic(expected = "a level spanning the launch deals its tiles in its own order")]
+    fn a_level_spanning_the_launch_is_not_filled() {
+        Levels::leaf(&[(M, 64)])
+            .launch_planes(&[M], PlaneOrder::new(&[(M, 1)], CubeOrder::RowMajor))
+            .filled_by(1)
+            .build();
+    }
 
     /// A level's tiles stay inside the box it is handed exactly where its tile divides that box,
     /// which is what lets a window cut by it keep the page of the window it was cut from: pages of
