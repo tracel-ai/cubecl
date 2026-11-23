@@ -71,6 +71,18 @@ impl ProductStep {
             .map(|call| StepCost::of(call.instruction, call.cell()))
     }
 
+    /// What this Step spends where its sum's rows are scaled between its products
+    /// ([`Instruction::for_rescaled_accumulator`]): nothing bounced where the sum is held in the
+    /// manual mma. `None` where the device offers no matrix instruction for it.
+    pub fn rescaled_cost(
+        &self,
+        device: &DeviceProperties,
+        target: &TargetProperties,
+    ) -> Option<StepCost> {
+        self.call(device, target, OpenedBy::RescaledAccumulator)
+            .map(|call| StepCost::of(call.instruction, call.cell()))
+    }
+
     /// What computing `next` spends where it reads this Step's sum as its `A` where the sum lies,
     /// in the registers of the units that hold it, as attention's value reads its score
     /// ([`Tile::stage_accumulator`](crate::Tile::stage_accumulator)). `None` where the sum cannot

@@ -148,6 +148,7 @@ impl<A: Numeric> SmemCyclicAccumulation<A> {
     #[doc(hidden)] // Public for its test only.
     pub fn drain_at(&self, partial: &Tile, window: &Region, writer: usize) {
         let define!(Served) = partial.element;
+        let partial = partial.with_scales_applied();
         #[unroll]
         for round in 0..self.writers {
             let turn = (writer + round) % comptime!(self.writers);

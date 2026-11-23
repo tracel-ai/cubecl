@@ -650,6 +650,38 @@ impl MmaData {
         }
     }
 
+    /// `factors[first + r]` for each row `r` this unit holds cells of, in the order
+    /// [`mul_along`](Self::mul_along) reads them, from `factors` holding every row of the
+    /// fragment. Each row is picked among the fragment's rows by comparison rather than read at
+    /// an index the unit computes, so `factors` stays in registers.
+    pub(crate) fn held_rows<E: Numeric>(
+        &self,
+        factors: &Array<E>,
+        #[comptime] first: usize,
+    ) -> Array<E> {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let rows = self.rows_per_unit::<E>();
+        let mut held = Array::<E>::new(rows);
+        #[unroll]
+        for i in 0..rows {
+            let (row, _) = def.position_of_nth(
+                UNIT_POS_PLANE,
+                comptime!((i * vector_size) as u32),
+                MatrixIdent::Accumulator,
+            );
+            let mut factor = factors[first];
+            #[unroll]
+            for r in 1..self.m {
+                if row == comptime!(r as u32) {
+                    factor = factors[first + r];
+                }
+            }
+            held[i] = factor;
+        }
+        held
+    }
+
     /// `slots[first + r]` combined under `monoid` with this unit's cells on its row `r`: the
     /// unit's own part of each row, which [`reduce_across_units`](Self::reduce_across_units)
     /// completes.

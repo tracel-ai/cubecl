@@ -474,3 +474,81 @@ pub fn small_buffers_kept_per_graph_take_no_page_of_their_own<R: Runtime>() {
         }
     });
 }
+
+/// `input + 2` in a buffer the work allocates and hands back: one to a temporary, and one more in
+/// place when nothing else holds that temporary, which is then the output, or into a fresh output
+/// otherwise, as a framework's elementwise launch decides by [`Handle::can_mut`]. A run that
+/// finds the temporary `held` allocates one buffer more, of the output's size, just before it.
+fn add_two_in_place_where_free(client: &Client, input: &Handle, held: bool) -> Handle {
+    let launch = |from: &Handle, into: &Handle| {
+        add_one::launch(
+            client,
+            CubeCount::Static(ELEMENTS as u32 / CUBE, 1, 1),
+            CubeDim::new_1d(CUBE),
+            unsafe { BufferArg::from_raw_parts(from.clone(), ELEMENTS) },
+            unsafe { BufferArg::from_raw_parts(into.clone(), ELEMENTS) },
+        );
+    };
+    let temporary = client.empty(BYTES);
+    launch(input, &temporary);
+    let holder = held.then(|| temporary.clone());
+    let output = match temporary.can_mut() {
+        true => {
+            launch(&temporary, &temporary);
+            temporary
+        }
+        false => {
+            let fresh = client.empty(BYTES);
+            launch(&temporary, &fresh);
+            fresh
+        }
+    };
+    drop(holder);
+    output
+}
+
+/// Record [`add_two_in_place_where_free`] with its temporary held from run `held_from` on, or
+/// before it when `held_before`: the planning runs settle by their second run, so the recording
+/// allocates otherwise than the plan from run 2. Then check that the graph's output, which its
+/// work allocated, survives another graph of the stream replaying over the shared room, and
+/// holds what the work computes.
+fn record_in_place_where_free<R: Runtime>(stream: u64, held: impl Fn(usize) -> bool) {
+    let client = R::client(&Default::default());
+    StreamId { value: stream }.executes(|| {
+        let input = filled(&client, 0.0);
+        let mut runs = 0;
+        let (graph, output) = client
+            .capture(|| {
+                let output = add_two_in_place_where_free(&client, &input, held(runs));
+                runs += 1;
+                output
+            })
+            .expect("a recording whose temporaries differ from its plan's seals");
+        assert!(runs > 2, "the work was recorded after its planning runs");
+
+        let (wide_in, wide_out) = (filled(&client, 0.0), client.empty(BYTES));
+        let wide = record_chain(&client, &wide_in, &wide_out, 4);
+
+        client.write(&input, bytes(10.0));
+        unsafe { graph.replay() }.expect("replay enqueues");
+        unsafe { wide.replay() }.expect("replay enqueues");
+        assert_eq!(read(&client, &output), vec![12.0; ELEMENTS]);
+        assert_eq!(read(&client, &wide_out), vec![5.0; ELEMENTS]);
+    });
+}
+
+/// A recording that allocates a temporary just before an output of its size, where its plan
+/// wrote that output in place, seals: the temporary takes the output's room first, so the first
+/// recording keeps a buffer on the shared room and is refused, and the next one follows it.
+/// Its output then survives another graph's replay, and holds what the work computes.
+pub fn a_recording_allocating_a_temporary_its_plan_did_not_seals<R: Runtime>() {
+    record_in_place_where_free::<R>(3_100_008, |run| run >= 2);
+}
+
+/// A recording that writes in place where its plan allocated a temporary and then an output of
+/// its size seals: its output first matches the planned temporary, so the first recording keeps
+/// a buffer on the shared room and is refused, and the next one follows it. Its output then
+/// survives another graph's replay, and holds what the work computes.
+pub fn a_recording_skipping_a_temporary_its_plan_made_seals<R: Runtime>() {
+    record_in_place_where_free::<R>(3_100_009, |run| run < 2);
+}

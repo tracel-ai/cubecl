@@ -203,6 +203,9 @@ pub(crate) enum OpenedBy {
     /// [`Tile::stage_accumulator`](crate::Tile::stage_accumulator) and its sibling: a sum
     /// contracted again as the next product's `A`.
     StageAccumulator,
+    /// [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator): a sum drained into an
+    /// output whose rows are scaled between its products, as an online softmax's output is.
+    RescaledAccumulator,
 }
 
 impl Instruction {
@@ -259,8 +262,35 @@ impl Instruction {
         )
     }
 
-    /// The rule behind [`for_accumulator`](Self::for_accumulator) and
-    /// [`for_stage_accumulator`](Self::for_stage_accumulator):
+    /// What the sum [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator) opens
+    /// contracts through, a sum whose rows are scaled between its products:
+    /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
+    /// first where it offers the call the fragment API would take. Its units hold their cells
+    /// where the rows can be read, so a row is scaled in their registers; a fragment API's cells
+    /// lie where only the instruction knows, and each scale bounces the sum through shared memory.
+    pub fn for_rescaled_accumulator(
+        device: &DeviceProperties,
+        target: &TargetProperties,
+        lhs: FragmentSource,
+        rhs: FragmentSource,
+        sum: ElemType,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
+        Self::for_plane(
+            device,
+            target,
+            ComputeScope::Plane,
+            lhs,
+            rhs,
+            sum,
+            shape,
+            OpenedBy::RescaledAccumulator,
+        )
+    }
+
+    /// The rule behind [`for_accumulator`](Self::for_accumulator),
+    /// [`for_stage_accumulator`](Self::for_stage_accumulator) and
+    /// [`for_rescaled_accumulator`](Self::for_rescaled_accumulator):
     /// - held by a plane group (`holder`): the plane group MMA;
     /// - an operand already held in fragments: their instruction, which reads them as they lie;
     /// - both operands codes the device's block-scaled instruction of that shape reads as stored:
@@ -268,6 +298,8 @@ impl Instruction {
     /// - an operand the TMA engine lands, codes kept beside their scales, which this crate's
     ///   transport decodes in lane runs as it loads, or a sum contracted again where the target
     ///   lays a fragment's `A` like its accumulator: this crate's transport first;
+    /// - a sum whose rows are scaled between its products, where this crate's transport offers the
+    ///   call the fragment API would take: this crate's transport, the same call;
     /// - otherwise the fragment API first.
     ///
     /// A packed operand decoded on the way contracts at the other operand's element.
@@ -345,14 +377,21 @@ impl Instruction {
             io: MmaIo::default(),
             operands: MmaOperands::Plain,
         };
+        // A rescaled sum takes this crate's transport only at the fragment API's own call, so the
+        // tile cuts its leaf as it would have: on CUDA, whose manual `16 × 8` cuts a `16 × 16`
+        // cell in two, the sum stays in the fragment API.
+        let scaled_in_place = |calls: [Option<Call>; 2]| {
+            opened_by == OpenedBy::RescaledAccumulator && calls[1].is_some() && calls[0] == calls[1]
+        };
         // Each transport's calls in the order it is preferred; within them, one call that fills
         // the leaf first.
-        let pick = |[cmma_call, mma_call]: [Option<Call>; 2]| {
+        let pick = |calls: [Option<Call>; 2]| {
+            let [cmma_call, mma_call] = calls;
             let picks = [
                 cmma_call.map(|call| call.picked(Instruction::Cmma)),
                 mma_call.map(|call| call.picked(mma)),
             ];
-            let ordered = match mma_first {
+            let ordered = match mma_first || scaled_in_place(calls) {
                 true => [picks[1], picks[0]],
                 false => picks,
             };
@@ -693,6 +732,14 @@ pub(crate) mod tests {
         device
     }
 
+    /// An RDNA-like device: `wmma` and the manual mma both at `16 × 16 × 16`.
+    pub(crate) fn rdna() -> DeviceProperties {
+        let mut device = plain();
+        device.features.matmul.cmma.insert(shape(16, 16, 16));
+        device.features.matmul.mma.insert(shape(16, 16, 16));
+        device
+    }
+
     /// A target whose `A` and accumulator lie alike, as on CUDA and Metal.
     pub(crate) fn sum_is_next_a() -> TargetProperties {
         let mut target = TargetProperties::default();
@@ -742,6 +789,27 @@ pub(crate) mod tests {
     fn an_accumulators_sum_goes_through_cmma() {
         assert_eq!(picked(&metal(), HALF, [8, 8, 8]), Some(Instruction::Cmma));
         assert_eq!(picked(&cuda(), HALF, [16, 16, 16]), Some(Instruction::Cmma));
+    }
+
+    /// What a rescaled sum over `shape` contracts through on `device`.
+    fn rescaled(device: &DeviceProperties, shape: [usize; 3]) -> Option<Instruction> {
+        Instruction::for_rescaled_accumulator(device, &sum_is_not_next_a(), HALF, HALF, F32, shape)
+            .map(|call| call.instruction)
+    }
+
+    /// A sum scaled along its rows is held where its units read the rows, wherever the manual mma
+    /// offers the fragment API's call.
+    #[test]
+    fn a_rescaled_sum_takes_the_manual_mma_at_the_fragment_apis_call() {
+        assert_eq!(rescaled(&rdna(), [16, 16, 16]), Some(mma()));
+        assert_eq!(rescaled(&metal(), [8, 8, 8]), Some(mma()));
+    }
+
+    /// Where the manual mma would cut the fragment API's cell otherwise, as CUDA's `16 × 8` cuts a
+    /// `16 × 16`, a rescaled sum stays in the fragment API.
+    #[test]
+    fn a_rescaled_sum_stays_in_cmma_where_the_manual_mma_cuts_another_call() {
+        assert_eq!(rescaled(&cuda(), [16, 16, 16]), Some(Instruction::Cmma));
     }
 
     /// What a drained sum over `shape` contracts through, at the shape of one call.

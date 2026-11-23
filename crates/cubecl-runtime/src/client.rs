@@ -5,7 +5,7 @@ use crate::{
     kernel::CubeKernel,
     logging::{
         CollectivePath, Communication, ExecutionId, ExecutionKind, ExecutionPlace, ExecutionScope,
-        ProfileLevel, StreamRole, TransferRoute, WaitTarget,
+        ProfileLevel, StreamRole, TimingRequest, TransferRoute, WaitTarget,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
@@ -1134,6 +1134,21 @@ impl Client {
         self.utilities.communication_skips.any()
     }
 
+    /// Whether launches on this device read their kernel's duration before returning, which waits
+    /// for the kernel to end: an observer asks for each one read, or the profiling logger reads
+    /// those it keeps. A discarded launch, or one whose profile the device refuses, reads none.
+    /// Metal waits for every timed launch, read or not.
+    pub fn launches_read_timing(&self) -> bool {
+        match crate::logging::timing_requested() {
+            TimingRequest::None => false,
+            TimingRequest::Resolved => true,
+            TimingRequest::Deferred(_) => !matches!(
+                self.utilities.logger.profile_level(),
+                None | Some(ProfileLevel::ExecutionOnly)
+            ),
+        }
+    }
+
     pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
         &self.utilities.communication_skips
     }
@@ -1801,31 +1816,41 @@ impl Client {
     ///
     /// `work` runs several times. First as planning runs, with its launches discarded: kernels
     /// compile and tunes measure, and the pools grow to what it allocates, so the recorded run
-    /// needs no fresh memory. The planning runs repeat until two runs in a row allocate alike, since
-    /// a first run can take another path than the steady state (a tune, a fused optimization
-    /// being built). Then once more, recorded. What the last planning run left allocated is the
-    /// work's output, and the recorded run places it on room no other graph of the stream
-    /// writes, so the output outlives every replay but its own graph's.
+    /// needs no fresh memory. The planning runs repeat until two runs in a row keep the same
+    /// buffers, since a first run can take another path than the steady state (a tune, a fused
+    /// optimization being built). Then once more, recorded. What the last planning run left
+    /// allocated is the work's output, and the recorded run places it on room no other graph of
+    /// the stream writes, so the output outlives every replay but its own graph's.
     ///
-    /// `work` must therefore allocate the same buffers, and keep the same ones, on every run,
-    /// and must not read the device: a planning run's launches never ran. For the same reason a
-    /// tune first met in a planning run measures its candidates on inputs nothing wrote, so a
-    /// kernel whose speed depends on its data is better tuned before the capture. A temporary
+    /// `work` must therefore keep the same buffers on every run, allocated in the same order.
+    /// Its temporaries may differ from run to run, as a framework's do when it writes in place
+    /// into a buffer only while nothing else holds it: they sit on room every graph of the
+    /// stream overwrites, so which ones a run allocates is its own business. A recording can
+    /// still place a buffer it keeps as a temporary — one allocated just before an output of its
+    /// size takes the output's room — and is then refused; it is recorded again, following the
+    /// refused recording's own allocations, up to three recordings in all.
+    ///
+    /// `work` must not read the device either: a planning run's launches never ran. For the same
+    /// reason a tune first met in a planning run measures its candidates on inputs nothing wrote,
+    /// so a kernel whose speed depends on its data is better tuned before the capture. A temporary
     /// still held when a run returns, as a lazily released handle is, counts as an output: it
     /// takes room of its own rather than the shared room, which is safe and only costs memory.
     ///
     /// # Errors
     ///
     /// When the backend has no graph support, a capture is already under way on the stream,
-    /// the recorded run allocated otherwise than the last planning run, or anything the window
-    /// could not record (see [`start_capture`](Self::start_capture)). The capture this call
-    /// prepared is over either way, and so it is when `work` panics: left prepared, the stream
-    /// would discard every launch that follows.
+    /// every recording kept a buffer it placed as a temporary, or anything the window could not
+    /// record (see [`start_capture`](Self::start_capture)). The capture this call prepared is
+    /// over either way, and so it is when `work` panics: left prepared, the stream would discard
+    /// every launch that follows.
     pub fn capture<T>(&self, mut work: impl FnMut() -> T) -> Result<(Graph, T), ServerError> {
         /// Runs a capture plans before recording whatever it found: a cold fused path
-        /// settles by its second run. The recording is checked against the last run, so a work
-        /// that never settles seals only when its recording allocates as that run did.
+        /// settles by its second run. A work whose kept buffers never settle is recorded after
+        /// this many runs all the same: only what the recording keeps decides whether it seals.
         const PLANNING_RUNS_MAX: usize = 4;
+        /// Recordings a capture makes before it gives up: a refused one is the plan of the
+        /// next, which seals whenever it allocates as the refused one did.
+        const RECORDINGS_MAX: usize = 3;
 
         self.graph_prepare()?;
         let closer = CaptureCloser { client: self };
@@ -1841,8 +1866,22 @@ impl Client {
             }
         }
         self.start_capture()?;
-        let output = work();
-        let graph = self.stop_capture();
+        let mut output = work();
+        let mut graph = self.stop_capture();
+        for _ in 1..RECORDINGS_MAX {
+            let Err(refusal) = graph else {
+                break;
+            };
+            core::mem::drop(output);
+            // A capture prepared right after a refused recording follows its allocations, and
+            // records at once. One refused otherwise has no plan, and the window stays shut.
+            self.graph_prepare()?;
+            if self.start_capture().is_err() {
+                return Err(refusal);
+            }
+            output = work();
+            graph = self.stop_capture();
+        }
         core::mem::drop(closer);
         Ok((graph?, output))
     }
@@ -1866,7 +1905,7 @@ impl Client {
     }
 
     /// End one planning run of the work, with what it returned still held, and answer whether it
-    /// allocated what the run before it did: the work has reached its steady state, and the
+    /// kept the buffers the run before it kept: the work has reached its steady state, and the
     /// recording can follow it (see [`Server::graph_end_run`]).
     ///
     /// # Errors
