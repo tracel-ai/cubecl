@@ -8,7 +8,8 @@ use crate::{e2m1, ue8m0};
 /// Describes a quantization scheme/configuration.
 ///
 /// Scales come at up to two levels, each an optional field set through
-/// [`per_tensor`](Self::per_tensor) and [`per_block`](Self::per_block) in any order:
+/// [`per_tensor`](Self::per_tensor) and one of [`per_block`](Self::per_block) and
+/// [`per_row`](Self::per_row), in any order:
 ///
 /// ```
 /// # use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
@@ -17,6 +18,9 @@ use crate::{e2m1, ue8m0};
 ///
 /// // One scale per block of 32 values.
 /// QuantScheme::default().per_block([32], ScaleDtype::F32);
+///
+/// // One scale per row, however wide the last axis is.
+/// QuantScheme::default().per_row(ScaleDtype::F32);
 ///
 /// // Two levels: ue4m3 block scales, normalized by a single per-tensor f32 scale.
 /// QuantScheme::default()
@@ -45,6 +49,10 @@ pub struct QuantScheme {
     tensor: Option<ScaleDtype>,
     /// The per-block scale level, the innermost when both levels are present.
     block: Option<BlockScale>,
+    /// The per-row scale level. Never beside a block level: each of
+    /// [`per_block`](Self::per_block) and [`per_row`](Self::per_row) replaces the other.
+    #[serde(default)]
+    row: Option<RowScale>,
 }
 
 impl Default for QuantScheme {
@@ -55,6 +63,7 @@ impl Default for QuantScheme {
             mode: QuantMode::Symmetric,
             tensor: None,
             block: None,
+            row: None,
         }
     }
 }
@@ -90,6 +99,17 @@ impl QuantScheme {
             size: BlockSize::new(block),
             dtype,
         });
+        self.row = None;
+        self
+    }
+
+    /// Set the per-row scale level: one scale per row of the innermost axis, stored as `dtype`.
+    ///
+    /// A row is the axis' whole extent, whatever it is: a block names its extent, which a row of
+    /// a tensor does not have until the tensor is known, and no block is as wide as most rows.
+    pub fn per_row(mut self, dtype: ScaleDtype) -> Self {
+        self.row = Some(RowScale { axis: 0, dtype });
+        self.block = None;
         self
     }
 
@@ -99,7 +119,7 @@ impl QuantScheme {
     /// is not stored, so such a scheme compares equal to [`Default`], not to an explicit
     /// `per_tensor(F32)`.
     pub fn tensor_scale(&self) -> Option<ScaleDtype> {
-        if self.tensor.is_none() && self.block.is_none() {
+        if self.tensor.is_none() && self.block.is_none() && self.row.is_none() {
             return Some(ScaleDtype::F32);
         }
         self.tensor
@@ -110,15 +130,53 @@ impl QuantScheme {
         self.block
     }
 
+    /// The per-row scale level, the innermost when a per-tensor level is present too.
+    pub fn row_scale(&self) -> Option<RowScale> {
+        self.row
+    }
+
+    /// Whether the innermost level holds a grid of scales, one a block or one a row, rather than
+    /// one scale for the whole tensor.
+    pub fn has_scale_grid(&self) -> bool {
+        self.block.is_some() || self.row.is_some()
+    }
+
+    /// How far one scale of the innermost level reaches along each dimension of a tensor of
+    /// `shape`: a block's extents, or the whole of a row's axis and one index of every other.
+    /// [`None`] where one scale covers the whole tensor.
+    ///
+    /// # Panics
+    ///
+    /// When the tensor has not the axis a row runs along.
+    pub fn scale_extents(&self, shape: &[usize]) -> Option<Vec<usize>> {
+        let rank = shape.len();
+        if let Some(row) = self.row {
+            let dim = row.dim(rank);
+            let mut extents = vec![1; rank];
+            extents[dim] = shape[dim];
+            return Some(extents);
+        }
+        self.block_size().map(|block| {
+            block
+                .to_dim_vec(rank)
+                .into_iter()
+                .map(usize::from)
+                .collect()
+        })
+    }
+
     /// The number of scale levels: as many scale tensors ride along with the values.
     pub fn num_levels(&self) -> usize {
-        self.block_scale().is_some() as usize + self.tensor_scale().is_some() as usize
+        self.block_scale().is_some() as usize
+            + self.row_scale().is_some() as usize
+            + self.tensor_scale().is_some() as usize
     }
 
     /// The innermost level's scale dtype, the type the per-position scales are stored in.
     pub fn scale_dtype(&self) -> ScaleDtype {
         self.block
             .map(|block| block.dtype)
+            .or(self.row.map(|row| row.dtype))
             .or(self.tensor)
             .unwrap_or(ScaleDtype::F32)
     }
@@ -128,8 +186,8 @@ impl QuantScheme {
         self.block.map(|block| block.size)
     }
 
-    /// Swap two tensor dimensions in the block level, mirroring `shape.swap(dim0, dim1)`. The
-    /// per-tensor level is unaffected.
+    /// Swap two tensor dimensions in the block or per-row level, mirroring `shape.swap(dim0, dim1)`.
+    /// The per-tensor level is unaffected.
     ///
     /// `dim0`/`dim1` are bare indices on purpose, mirroring `[T]::swap`'s own signature.
     pub fn swap_block_dims(&mut self, rank: usize, dim0: usize, dim1: usize) {
@@ -138,13 +196,19 @@ impl QuantScheme {
         self.permute_block_dims(rank, &axes);
     }
 
-    /// Permute the block level, mirroring a permutation of the tensor's axes. The per-tensor
-    /// level is unaffected.
+    /// Permute the block or per-row level, mirroring a permutation of the tensor's axes. The
+    /// per-tensor level is unaffected.
     pub fn permute_block_dims(&mut self, rank: usize, axes: &[usize]) {
         if let Some(block) = &mut self.block {
             let dims = block.size.to_dim_vec(rank);
             let permuted: Vec<u8> = axes.iter().map(|&axis| dims[axis]).collect();
             block.size = BlockSize::new(permuted);
+        }
+        // A scalar keeps its row axis, as it keeps its packing dim.
+        if let Some(row) = &mut self.row
+            && !axes.is_empty()
+        {
+            row.axis = moved_innermost(row.axis, axes);
         }
     }
 
@@ -174,15 +238,6 @@ impl QuantScheme {
         self.store.packing_dim()
     }
 
-    /// Swap two tensor dimensions in the packing dim, mirroring `shape.swap(dim0, dim1)` on a
-    /// tensor of `rank` dimensions: the packing dim counts from the innermost dimension, so it
-    /// takes the rank to know which dimension it is.
-    fn swap_packing_dim(&mut self, rank: usize, dim0: usize, dim1: usize) {
-        let mut axes: Vec<usize> = (0..rank).collect();
-        axes.swap(dim0, dim1);
-        self.permute_packing_dim(&axes);
-    }
-
     /// Permute the packing dim, mirroring a permutation of the tensor's axes.
     fn permute_packing_dim(&mut self, axes: &[usize]) {
         // A scalar keeps its packing dim, as `reshape_packing_dim` leaves it.
@@ -190,26 +245,20 @@ impl QuantScheme {
             &mut self.store
             && !axes.is_empty()
         {
-            let rank = axes.len();
-            let packed_axis = rank
-                .checked_sub(*packed_dim + 1)
-                .expect("the packing dim to be one of the permuted axes");
-            let new_axis = axes
-                .iter()
-                .position(|axis| *axis == packed_axis)
-                .expect("the permutation to contain the packed axis");
-            *packed_dim = rank - new_axis - 1;
+            *packed_dim = moved_innermost(*packed_dim, axes);
         }
     }
 
-    /// Swap two tensor dimensions in the block level and the packing dim, mirroring
-    /// `shape.swap(dim0, dim1)`.
+    /// Swap two tensor dimensions in the block level, the per-row level and the packing dim,
+    /// mirroring `shape.swap(dim0, dim1)`.
     pub fn swap_dims(&mut self, rank: usize, dim0: usize, dim1: usize) {
-        self.swap_block_dims(rank, dim0, dim1);
-        self.swap_packing_dim(rank, dim0, dim1);
+        let mut axes: Vec<usize> = (0..rank).collect();
+        axes.swap(dim0, dim1);
+        self.permute_dims(&axes);
     }
 
-    /// Permute the block level and the packing dim, mirroring a permutation of the tensor's axes.
+    /// Permute the block level, the per-row level and the packing dim, mirroring a permutation of
+    /// the tensor's axes.
     pub fn permute_dims(&mut self, axes: &[usize]) {
         self.permute_block_dims(axes.len(), axes);
         self.permute_packing_dim(axes);
@@ -225,6 +274,42 @@ impl QuantScheme {
         {
             *packed_dim = 0;
         }
+    }
+}
+
+/// Where the axis `innermost` counts from the innermost one, lies once the axes are permuted to
+/// `axes`, counted the same way.
+fn moved_innermost(innermost: usize, axes: &[usize]) -> usize {
+    let rank = axes.len();
+    let axis = rank
+        .checked_sub(innermost + 1)
+        .expect("the axis should be one of the permuted axes");
+    let moved = axes
+        .iter()
+        .position(|candidate| *candidate == axis)
+        .expect("the permutation should contain the axis");
+    rank - moved - 1
+}
+
+/// The per-row scale level of a [`QuantScheme`]: one scale per row of one axis, whatever its
+/// extent.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RowScale {
+    /// The axis a row runs along, counted from the innermost dimension.
+    pub axis: usize,
+    /// The dtype the level's scales are stored in.
+    pub dtype: ScaleDtype,
+}
+
+impl RowScale {
+    /// The dimension a row runs along in a tensor of `rank` dimensions.
+    ///
+    /// # Panics
+    ///
+    /// When the tensor has no such dimension.
+    pub fn dim(&self, rank: usize) -> usize {
+        rank.checked_sub(self.axis + 1)
+            .expect("the tensor should have the axis its rows run along")
     }
 }
 
@@ -712,13 +797,17 @@ codes!(ScaleDtype {
     UE4M3 => 5,
 });
 
+/// The rank a [`QuantScheme`]'s code states for a per-row level, which no block has.
+const ROW_RANK: u64 = 7;
+
 /// A [`QuantScheme`] packed into one `u64`, for an IR that carries a scheme as a scalar: a remote
 /// backend's custom operation crosses the wire as tensors and scalars only.
 ///
 /// The layout, from the low bits: the value (4), the store's kind (2) and packing axis (6), the
-/// mode (2), the per-tensor level (3), the block level's dtype (3), its rank (3) and its sizes
-/// (8 each, up to [`BlockSize::MAX_DIMS`]). A level's 3 bits are `0` for none, else its dtype's
-/// code.
+/// mode (2), the per-tensor level (3), the inner level's dtype (3), and what is per block: its
+/// rank (3) and its sizes (8 each, up to [`BlockSize::MAX_DIMS`]). A level's 3 bits are `0` for
+/// none, else its dtype's code. The per-row level is an inner level of rank [`ROW_RANK`], its
+/// axis in the first size's bits.
 impl QuantScheme {
     /// This scheme as one `u64`; [`from_code`](Self::from_code) reads it back. `None` for a scheme
     /// no code holds: a packing axis past 63, or a block dimension of zero, which covers no
@@ -733,6 +822,21 @@ impl QuantScheme {
             return None;
         }
         let level = |dtype: Option<ScaleDtype>| dtype.map_or(0, ScaleDtype::to_code);
+        if let Some(row) = self.row {
+            if row.axis >= 1 << 8 {
+                return None;
+            }
+            return Some(
+                self.value.to_code()
+                    | (store << 4)
+                    | ((axis as u64) << 6)
+                    | (self.mode.to_code() << 12)
+                    | (level(self.tensor) << 14)
+                    | (row.dtype.to_code() << 17)
+                    | (ROW_RANK << 20)
+                    | ((row.axis as u64) << 23),
+            );
+        }
         let sizes = self
             .block
             .as_ref()
@@ -776,6 +880,21 @@ impl QuantScheme {
             bits => ScaleDtype::from_code(bits).map(Some),
         };
         let tensor = level(field(14, 3))?;
+        if field(20, 3) == ROW_RANK {
+            let row = level(field(17, 3))??;
+            return Some(Self {
+                value,
+                store,
+                mode,
+                tensor,
+                block: None,
+                row: Some(RowScale {
+                    axis: field(23, 8) as usize,
+                    dtype: row,
+                }),
+            })
+            .filter(|scheme| scheme.to_code() == Some(code));
+        }
         let rank = field(20, 3) as usize;
         if rank > MAX_DIMS {
             return None;
@@ -797,6 +916,7 @@ impl QuantScheme {
             mode,
             tensor,
             block,
+            row: None,
         })
         .filter(|scheme| scheme.to_code() == Some(code))
     }
@@ -877,6 +997,46 @@ mod tests {
                 .per_tensor(ScaleDtype::F32)
                 .per_block([16], ScaleDtype::UE4M3),
         );
+    }
+
+    #[test]
+    fn a_row_level_stands_alone() {
+        let scheme = QuantScheme::default().per_row(ScaleDtype::F32);
+        assert_eq!(scheme.tensor_scale(), None);
+        assert_eq!(scheme.block_size(), None);
+        assert_eq!(scheme.scale_dtype(), ScaleDtype::F32);
+        assert_eq!(scheme.num_levels(), 1);
+    }
+
+    #[test]
+    fn one_scale_reaches_a_block_or_a_whole_row() {
+        let rows = QuantScheme::default().per_row(ScaleDtype::F32);
+        assert_eq!(rows.scale_extents(&[4, 8, 5120]), Some(vec![1, 1, 5120]));
+        let blocks = QuantScheme::default().per_block([2, 32], ScaleDtype::F32);
+        assert_eq!(blocks.scale_extents(&[4, 8, 64]), Some(vec![1, 2, 32]));
+        assert_eq!(QuantScheme::default().scale_extents(&[4, 8]), None);
+        assert!(rows.has_scale_grid() && blocks.has_scale_grid());
+        assert!(!QuantScheme::default().has_scale_grid());
+    }
+
+    #[test]
+    fn a_row_level_and_a_block_level_replace_each_other() {
+        let rows = QuantScheme::default().per_row(ScaleDtype::F32);
+        let blocks = QuantScheme::default().per_block([32], ScaleDtype::F16);
+        assert_eq!(blocks.per_row(ScaleDtype::F32), rows);
+        assert_eq!(rows.per_block([32], ScaleDtype::F16), blocks);
+    }
+
+    #[test]
+    fn swapping_dims_moves_a_row_with_its_axis() {
+        let mut scheme = QuantScheme::default()
+            .with_store(QuantStore::Native)
+            .per_row(ScaleDtype::F32);
+        scheme.swap_dims(3, 0, 1);
+        assert_eq!(scheme.row_scale().unwrap().axis, 0);
+        scheme.swap_dims(3, 0, 2);
+        assert_eq!(scheme.row_scale().unwrap().axis, 2);
+        assert_eq!(scheme.scale_extents(&[5, 7, 9]), Some(vec![5, 1, 1]));
     }
 
     #[test]
@@ -1198,7 +1358,16 @@ mod tests {
                                     .iter()
                                     .map(move |size| scheme.per_block(*size, *dtype))
                             }));
-                        for scheme in blocks {
+                        let rows = dtypes.iter().flat_map(|dtype| {
+                            [0, 1].map(|axis| {
+                                let mut scheme = scheme.per_row(*dtype);
+                                if axis == 1 {
+                                    scheme.swap_block_dims(2, 0, 1);
+                                }
+                                scheme
+                            })
+                        });
+                        for scheme in blocks.chain(rows) {
                             let code = scheme.to_code().unwrap();
                             assert_eq!(QuantScheme::from_code(code), Some(scheme), "{scheme:?}");
                             codes.insert(code);
@@ -1224,6 +1393,11 @@ mod tests {
             .with_store(QuantStore::Native)
             .to_code()
             .unwrap();
+        let row = QuantScheme::default()
+            .with_store(QuantStore::Native)
+            .per_row(ScaleDtype::F32)
+            .to_code()
+            .unwrap();
         let refused = [
             ("value 9", (canonical & !0xF) | 9),
             ("value 15", (canonical & !0xF) | 15),
@@ -1237,6 +1411,8 @@ mod tests {
             ("a size past the rank", canonical | (8 << 31)),
             ("a block size of zero", canonical & !(0xFF << 23)),
             ("bit 63", canonical | (1 << 63)),
+            ("a row with no dtype", native | (ROW_RANK << 20)),
+            ("a row with a size past its axis", row | (1 << 31)),
         ];
         for (case, code) in refused {
             assert_eq!(QuantScheme::from_code(code), None, "{case}");

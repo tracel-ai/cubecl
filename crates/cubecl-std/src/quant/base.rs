@@ -30,7 +30,7 @@ pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
 /// The global-level half of [`check_scale_bindings`], for a consumer holding global scales already
 /// folded into a register rather than as countable bindings.
 pub fn check_global_levels(scheme: &QuantScheme) {
-    if scheme.block_scale().is_some()
+    if scheme.has_scale_grid()
         && let Some(tensor) = scheme.tensor_scale()
     {
         assert!(
