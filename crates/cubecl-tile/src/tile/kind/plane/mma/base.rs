@@ -1232,6 +1232,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
     let (quantized, packing) = (src.quantized(), src.packing());
     let as_stored = comptime!(!quantized && packing == Packing::Plain);
+    let shared = src.is_shared();
     comptime!(assert!(
         !along_lines || vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size),
         "MmaData::load: a {vector_size}-cell register vector neither holds whole {width}-wide \
@@ -1261,6 +1262,10 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
                 }
+            } else if comptime!(width == vector_size && !shared) {
+                // A whole line of global memory, read as the view guards it: a window may run past
+                // the problem's edge there, which a stage never does.
+                vector = Vector::cast_from(view.read((line_row, cell / comptime!(width as u32))));
             } else if comptime!(width >= vector_size) {
                 // A register vector starts at a multiple of its size, so it stays within `width`:
                 // the line read at the register's width holds it whole, one load at the unit's

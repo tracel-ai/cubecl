@@ -1,5 +1,6 @@
 //! The plane-resident accumulator an output opens ([`Tile::accumulator`]).
 
+use cubecl::cmma::{MatrixIdent, MatrixLayout};
 use cubecl::prelude::*;
 
 use crate::dialect::DrainOp;
@@ -790,6 +791,63 @@ impl Tile {
             comptime!(walk.parent.path.root_levels()),
             lhs,
         )
+    }
+
+    /// The fragments each plane holds of this factor of `sum`'s products, the first one, uninitialized:
+    /// one for each step of the contraction a call of `sum`'s instruction takes and each row of
+    /// `sum`'s grid, which the plane fills once from its own window ([`copy_from`](Tile::copy_from)
+    /// at the plane's region) and every product into `sum` then reads in registers. It is laid out
+    /// as `sum` is cut, so it is indexed by the regions `sum` is. This factor spans nothing the walk
+    /// steps but the contraction, as an attention's query does, and takes no shared memory.
+    pub fn held_for(&self, sum: &Tile) -> Tile {
+        let define!(Served) = self.element;
+        let (_, m, n) = sum.fragment_grid();
+        let instruction = sum.sum_instruction();
+        let place = comptime!(Placement::new(
+            self.place.space.clone(),
+            sum.place.depth,
+            sum.place.levels.clone()
+        ));
+        let (tiles, leaf) = comptime!((
+            partition_shape(&place.space, place.below()),
+            place.space.leaf(place.below())
+        ));
+        let edges = comptime!(MatrixDimensions::edges(&leaf));
+        let (rows, k) = comptime!((edges.rows(&leaf), edges.cols(&leaf)));
+        comptime!(assert!(
+            matches!(instruction, Instruction::Mma { .. })
+                && rows == m
+                && leaf.contracted_extent(&sum.place.space) == k,
+            "Tile::held_for: a factor held in registers is the rows of a manual-mma sum by its \
+             contraction, fragments of {m} by the instruction's depth; this one's leaf is {leaf:?}"
+        ));
+        let (m_tiles, n_tiles) = tiles;
+        let mut frags = Sequence::<PlaneTile>::new();
+        #[unroll]
+        for _i in 0..comptime!(m_tiles * n_tiles) {
+            frags.push(PlaneTile::operand::<Served>(
+                instruction,
+                comptime!(MatrixIdent::A),
+                m,
+                n,
+                k,
+                comptime!(MatrixLayout::RowMajor),
+            ));
+        }
+        Tile {
+            kind: TileKind::new_PlanePartition(PlanePartition {
+                frags,
+                m_tiles,
+                n_tiles,
+                rows: m,
+                cols: k,
+                scratch: ComptimeOption::new_None(),
+                held: Scratch::None,
+            }),
+            factor: Factor::none(),
+            place,
+            element: elem_type_of::<Served>(),
+        }
     }
 
     /// A plane-resident accumulator over `space`, placed at `depth` of `levels` as
