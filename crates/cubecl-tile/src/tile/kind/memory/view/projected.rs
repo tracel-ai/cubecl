@@ -116,6 +116,16 @@ impl Tile {
         g.nd_words::<WP>(layout, guard)
     }
 
+    /// [`nd_words`](Tile::nd_words) read as `I`, bound to `u32` at expansion.
+    pub(crate) fn nd_words_as<I: Numeric, WP: Size>(
+        &self,
+        #[comptime] guard: Guard,
+    ) -> Masked<'_, Vector<I, WP>, CoordsDyn> {
+        let g = self.mem("nd_words_as");
+        let layout = g.dimension_projection(&self.place.space);
+        g.nd_words_as::<I, WP>(layout, guard)
+    }
+
     /// The mutable twin of [`nd_words`](Tile::nd_words); refused where a write would alias.
     pub(crate) fn nd_words_mut<WP: Size>(&mut self) -> MaskedMut<'_, Vector<u32, WP>, CoordsDyn> {
         let space = comptime!(self.place.space.clone());

@@ -50,6 +50,10 @@ impl FakeServer {
             .unwrap();
     }
 
+    fn prepare_retry(&mut self, stream: StreamId) -> Result<bool, ServerError> {
+        Window::on(&mut self.command(stream)).prepare_retry(stream)
+    }
+
     fn end_run(&mut self, stream: StreamId) -> Result<bool, ServerError> {
         Window::on(&mut self.command(stream)).end_run(stream)
     }
@@ -351,4 +355,104 @@ fn only_the_owner_ends_a_planning_run() {
     );
     assert!(!server.end_run(OWNER).unwrap(), "the owner's first run");
     drop(output);
+}
+
+/// Seal a graph on [`OWNER`] whose replays write a temporary of `size_bytes`, then plan a work
+/// whose one output has that size and record it keeping one more buffer of that size, which it
+/// places as a temporary: the graph, and the refusal.
+fn refuse_an_extra_kept_buffer(
+    server: &mut FakeServer,
+    size_bytes: u64,
+) -> (Graph<Fake>, ServerError) {
+    server.prepare(OWNER);
+    let temporary = |server: &mut FakeServer| {
+        let temporary = server.work_of(OWNER, size_bytes).unwrap();
+        server.touch(OWNER, &temporary);
+    };
+    temporary(server);
+    while !server.end_run(OWNER).unwrap() {
+        server.start_run(OWNER).unwrap();
+        temporary(server);
+    }
+    server.begin(OWNER);
+    temporary(server);
+    let other = server.seal(OWNER).unwrap();
+
+    server.prepare(OWNER);
+    let output = server.work_of(OWNER, size_bytes).unwrap();
+    let mut stable = server.end_run(OWNER).unwrap();
+    drop(output);
+    while !stable {
+        server.start_run(OWNER).unwrap();
+        let output = server.work_of(OWNER, size_bytes).unwrap();
+        stable = server.end_run(OWNER).unwrap();
+        drop(output);
+    }
+    server.begin(OWNER);
+    let kept = (
+        server.work_of(OWNER, size_bytes),
+        server.work_of(OWNER, size_bytes),
+    );
+    let refusal = server
+        .seal(OWNER)
+        .err()
+        .expect("a buffer kept on the shared room");
+    drop(kept);
+    (other, refusal)
+}
+
+/// A retry plans once, placed by the refused recording, before it records: the room apart its
+/// kept buffers need is grown, since the window adds no page. Of a size no page holds twice, so
+/// only a page the retry grew holds the second one.
+#[test]
+fn a_retry_grows_the_room_its_refused_recording_kept() {
+    const SIZE_BYTES: u64 = 64 * MIB;
+    let mut server = FakeServer::new();
+    let (_other, _refusal) = refuse_an_extra_kept_buffer(&mut server, SIZE_BYTES);
+
+    assert!(
+        server.prepare_retry(OWNER).unwrap(),
+        "a recording was refused"
+    );
+    let planned = (
+        server.work_of(OWNER, SIZE_BYTES).unwrap(),
+        server.work_of(OWNER, SIZE_BYTES).unwrap(),
+    );
+    server.end_run(OWNER).unwrap();
+    drop(planned);
+    server.begin(OWNER);
+    let kept = (
+        server
+            .work_of(OWNER, SIZE_BYTES)
+            .expect("the first kept buffer finds room"),
+        server
+            .work_of(OWNER, SIZE_BYTES)
+            .expect("the second kept buffer finds room"),
+    );
+    server.seal(OWNER).expect("the retry seals");
+    drop(kept);
+}
+
+/// A retry's window does not open on the refused recording alone: it plans first.
+#[test]
+fn a_retry_records_only_after_a_planning_run() {
+    let mut server = FakeServer::new();
+    let (_other, _refusal) = refuse_an_extra_kept_buffer(&mut server, MIB);
+
+    assert!(
+        server.prepare_retry(OWNER).unwrap(),
+        "a recording was refused"
+    );
+    assert!(Window::on(&mut server.command(OWNER)).begin().is_err());
+}
+
+/// A capture prepared afresh after a refused recording forgets it: a retry after that capture
+/// has nothing to follow, and prepares nothing.
+#[test]
+fn a_fresh_capture_forgets_a_refused_recording() {
+    let mut server = FakeServer::new();
+    let (_other, _refusal) = refuse_an_extra_kept_buffer(&mut server, MIB);
+    let (_graph, _output) = record(&mut server, OWNER);
+
+    assert!(!server.prepare_retry(OWNER).unwrap());
 }

@@ -433,11 +433,28 @@ impl StreamCapture {
     /// state and the recording untouched.
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
-        self.clear_window();
-        // A refused recording's allocations stay the plan, for a retry to record at once.
-        self.planner.restart();
+        self.clear();
         self.planner.start_run();
         Ok(())
+    }
+
+    /// [`prepare`](Self::prepare) a retry of the recording just refused for keeping a buffer
+    /// it placed as a temporary, and answer whether there was one: its allocations place the
+    /// first planning run, which grows the room apart for every buffer it kept. Nothing is
+    /// prepared when there was none.
+    ///
+    /// # Errors
+    ///
+    /// As [`prepare`](Self::prepare).
+    pub fn prepare_retry(&mut self, owner: StreamId) -> Result<bool, ServerError> {
+        if !self.planner.has_refused_recording() {
+            return Ok(false);
+        }
+        self.state.prepare(owner)?;
+        self.clear_window();
+        self.planner.retry();
+        self.planner.start_run();
+        Ok(true)
     }
 
     /// Open the window: launches from here until [`end`](Self::end) are

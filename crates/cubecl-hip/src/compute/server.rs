@@ -284,6 +284,11 @@ impl Server for HipServer {
         Window::on(&mut command).prepare(stream_id)
     }
 
+    fn graph_prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).prepare_retry(stream_id)
+    }
+
     fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).end_run(stream_id)
