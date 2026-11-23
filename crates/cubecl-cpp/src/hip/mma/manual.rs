@@ -30,11 +30,11 @@ use crate::{
 impl LowerOp<Hip> for RowIndexOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let matrix = self.matrix_ty(scope.ctx()).deref(scope.ctx());
-        let (ident, m, k) = (matrix.ident, matrix.shape.m as u32, matrix.shape.k as u32);
+        let (ident, k) = (matrix.ident, matrix.shape.k as u32);
         let rdna4 = amd_wmma(scope.ctx()) == AmdWmma::Rdna4;
         let lane_id = self.lane_id(scope.ctx());
         let i = self.i(scope.ctx());
-        vec![row_index::expand(scope, lane_id.into(), i.into(), ident, m, k, rdna4).value(scope)]
+        vec![row_index::expand(scope, lane_id.into(), i.into(), ident, k, rdna4).value(scope)]
     }
 }
 
@@ -42,16 +42,16 @@ impl LowerOp<Hip> for RowIndexOp {
 impl LowerOp<Hip> for ColIndexOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let matrix = self.matrix_ty(scope.ctx()).deref(scope.ctx());
-        let (ident, k) = (matrix.ident, matrix.shape.k as u32);
+        let (ident, n, k) = (matrix.ident, matrix.shape.n as u32, matrix.shape.k as u32);
         let rdna4 = amd_wmma(scope.ctx()) == AmdWmma::Rdna4;
         let lane_id = self.lane_id(scope.ctx());
         let i = self.i(scope.ctx());
-        vec![col_index::expand(scope, lane_id.into(), i.into(), ident, k, rdna4).value(scope)]
+        vec![col_index::expand(scope, lane_id.into(), i.into(), ident, n, k, rdna4).value(scope)]
     }
 }
 
 /// RDNA4 splits a dimension between lanes 0-15 and 16-31, giving each lane a contiguous half of
-/// it. Every RDNA4 fragment is built this way: A and B split `k`, the accumulator splits `m`.
+/// it. Every RDNA4 fragment is built this way: A and B split `k`, the accumulator splits `n`.
 #[cube]
 fn split_half(lane_id: u32, i: u32, #[comptime] dim: u32) -> u32 {
     (lane_id / 16) * (dim / 2) + i
@@ -62,7 +62,6 @@ fn row_index(
     lane_id: u32,
     i: u32,
     #[comptime] ident: MatrixIdent,
-    #[comptime] m: u32,
     #[comptime] k: u32,
     #[comptime] rdna4: bool,
 ) -> u32 {
@@ -78,7 +77,9 @@ fn row_index(
         }
         MatrixIdent::Accumulator => {
             if rdna4 {
-                split_half(lane_id, i, m)
+                // The instruction runs with A and B swapped (see `compile_manual_mma`), so it
+                // writes the transposed accumulator: each lane holds one row, as in A.
+                lane_id % 16
             } else {
                 // 2 * i, offset by 1 if lane_id >= 16
                 i * 2 + (lane_id / 16)
@@ -92,6 +93,7 @@ fn col_index(
     lane_id: u32,
     i: u32,
     #[comptime] ident: MatrixIdent,
+    #[comptime] n: u32,
     #[comptime] k: u32,
     #[comptime] rdna4: bool,
 ) -> u32 {
@@ -104,7 +106,13 @@ fn col_index(
             }
         }
         MatrixIdent::B => lane_id % 16,
-        MatrixIdent::Accumulator => lane_id % 16,
+        MatrixIdent::Accumulator => {
+            if rdna4 {
+                split_half(lane_id, i, n)
+            } else {
+                lane_id % 16
+            }
+        }
     }
 }
 
@@ -142,6 +150,14 @@ pub(super) fn compile_manual_mma(op: &MmaManualOp, ctx: &Context) -> String {
         (0..len).map(|i| format!("{ptr}[{i}]")).join(", ")
     };
 
+    // On RDNA4, A and B lay out their registers alike, each lane holding one row of A or one
+    // column of B. Handing the instruction B as its A and A as its B computes the transposed
+    // product, which leaves each lane one row of the accumulator: the same layout as A, so a
+    // product can feed the next one as its A without leaving registers.
+    let (frag_a, frag_b) = match amd_wmma(ctx) {
+        AmdWmma::Rdna3 => (frag_a, frag_b),
+        AmdWmma::Rdna4 => (frag_b, frag_a),
+    };
     let frag_a = frag(frag_a, ab_elems);
     let frag_b = frag(frag_b, ab_elems);
     // C matrix needs to be padded for f16, because it only uses the low bytes. The simplest way is

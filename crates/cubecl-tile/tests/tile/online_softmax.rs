@@ -75,6 +75,7 @@ fn plane_attention<E: Float>(
     #[comptime] block_keys: usize,
     #[comptime] unbiased: bool,
     #[comptime] over_run: bool,
+    #[comptime] rescaled: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -113,11 +114,20 @@ fn plane_attention<E: Float>(
             let walk = keys_walk.range(0, blocks);
             let score = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
             let mut p = Tile::scratch::<E>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
-            // The value's sum is opened against what it contracts: the probabilities.
-            let acc = out
-                .at(&plane)
-                .accumulator::<f32>(&p, &v_p, Semiring::SumProd)
-                .with_scratch(Scratch::OneTile);
+            // The value's sum is opened against what it contracts: the probabilities. A rescaled
+            // one is held where its units scale a row in registers, where the device offers that.
+            let acc = match rescaled {
+                true => out.at(&plane).rescaled_accumulator::<f32>(
+                    &p,
+                    &v_p,
+                    Semiring::SumProd,
+                    Scratch::OneTile,
+                ),
+                false => out
+                    .at(&plane)
+                    .accumulator::<f32>(&p, &v_p, Semiring::SumProd)
+                    .with_scratch(Scratch::OneTile),
+            };
             let mut softmax = OnlineSoftmax::<f32>::along(&score, S);
             // The query spans no key: staged once, before the walk, where the keys are staged.
             let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
@@ -143,14 +153,22 @@ fn plane_attention<E: Float>(
                     p.copy_cast_from(&score);
                     // The probabilities land before the fragments load them.
                     sync_plane();
-                    acc.along(V).mul(&correction);
+                    // The window's state holds every row in every unit.
+                    match rescaled {
+                        true => acc.along(V).mul_every_slice(&correction),
+                        false => acc.along(V).mul(&correction),
+                    }
                     for fragment in stage.walk().routed(D, 0).unrolled() {
                         let mut cell = acc.at(&fragment);
                         cell.mma(&p.at(&fragment), &v_s.at(&fragment));
                     }
                 });
             });
-            acc.along(V).mul(&softmax.normalizer(&plane));
+            let normalizer = softmax.normalizer(&plane);
+            match rescaled {
+                true => acc.along(V).mul_every_slice(&normalizer),
+                false => acc.along(V).mul(&normalizer),
+            }
             out_cube.drain(&acc, &plane);
         }
         out_cube.write();
@@ -651,6 +669,9 @@ struct Case {
     /// The walk told it steps the attended keys' run ([`Walk::over_run`]): every block but the
     /// last filled unchecked ([`plane_attention`] alone).
     over_run: bool,
+    /// The value's sum opened as a rescaled accumulator ([`Tile::rescaled_accumulator`]), scaled
+    /// by every row's factor ([`DimensionSlices::mul_every_slice`]) ([`plane_attention`] alone).
+    rescaled: bool,
 }
 
 impl Case {
@@ -746,6 +767,7 @@ fn run<E: Float + CubeElement>(case: Case) {
         edge * block,
         case.unbiased(),
         case.over_run,
+        case.rescaled,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -754,10 +776,12 @@ fn run<E: Float + CubeElement>(case: Case) {
     );
 }
 
-/// A case through [`register_plane_attention`]: the leaf one `16 × 8` instruction along the
-/// queries and keys, `16` deep along the head and `8` wide along the values, under a level that
-/// steps the keys `run` leaves at a time. The score contracts `m16n8k16` on each leaf of a run,
-/// and the value the run at once, `m16n8k8` for a run of one and `m16n8k16` for a run of two.
+/// A case through [`register_plane_attention`]: the leaf one `16 × n` instruction along the
+/// queries and keys, as deep along the head as a register holds two rows of its operand, and `n`
+/// wide along the values, under a level that steps the keys `run` leaves at a time. `n` is `8`
+/// where the device offers `m16n8` (`mma.sync`), else `16` where it offers `m16n16` (RDNA's
+/// WMMA). The score contracts each leaf of a run, and the value the run at once: on `m16n8`,
+/// `m16n8k8` for a run of one and `m16n8k16` for a run of two.
 fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize) {
     run_registers_at(E::elem_type_native(), case, ending, run)
 }
@@ -767,24 +791,40 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
 fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
     let client: Client = cubecl::test_device().client();
     let f32_ty = f32::elem_type_native();
-    let offered = |k: u32| {
+    let offered = |n: u32, k: u32| {
         client.properties().features.matmul.mma.iter().any(|cfg| {
             cfg.a_type == e_ty
                 && cfg.b_type == e_ty
                 && cfg.cd_type == f32_ty
-                && [cfg.m, cfg.n, cfg.k] == [16, 8, k]
+                && [cfg.m, cfg.n, cfg.k] == [16, n, k]
         })
     };
     // The score's instruction is as deep as a register holds its operand's cells in two rows.
     let depth = 32 / e_ty.size();
-    let value_depth = 8 * run as u32;
-    if !(offered(depth as u32) && offered(value_depth)) {
+    // The score is held where the value rereads it only where the tile keeps it in the manual
+    // mma; a device whose fragment API offers the same calls keeps it there instead.
+    let kept_in_mma = |n: u32| {
+        Instruction::for_stage_accumulator(
+            client.properties(),
+            client.target_properties(),
+            FragmentSource::Values(e_ty),
+            FragmentSource::Values(e_ty),
+            f32_ty,
+            [16, n as usize, depth],
+        )
+        .is_some_and(|pick| matches!(pick.instruction, Instruction::Mma { .. }))
+    };
+    let Some(n) = [8u32, 16].into_iter().find(|&n| {
+        offered(n, depth as u32) && offered(n, n * run as u32) && kept_in_mma(n)
+    }) else {
         ValidationResult::Skipped(format!(
-            "no m16n8k{depth} and m16n8k{value_depth} {e_ty:?} instructions summing in f32"
+            "no m16n8 or m16n16 {e_ty:?} instructions summing in f32, {depth} deep for a score \
+             kept in the manual mma and a run of {run} leaves deep for the value"
         ))
         .enforce();
         return;
-    }
+    };
+    let n = n as usize;
     let Case {
         queries,
         keys,
@@ -797,7 +837,7 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
         causal,
         ..
     } = case;
-    let (m, n) = (16, 8);
+    let m = 16;
     let launcher = implied(
         &client,
         Partitioning::new(
@@ -1397,6 +1437,7 @@ const PREFILL: Case = Case {
     causal: false,
     unbiased: false,
     over_run: false,
+    rescaled: false,
 };
 
 #[test]
@@ -1437,6 +1478,32 @@ const WIDE_PREFILL: Case = Case {
     edge: 16,
     ..PREFILL
 };
+
+/// [`WIDE_PREFILL`] with a value four fragments wide: a plane's output holds a grid of fragments
+/// along both the queries and the values, each scaled by its own rows' factors.
+#[test]
+fn plane_attention_on_wide_fragments_holds_a_grid_of_output_fragments() {
+    run::<half::f16>(Case {
+        value: 64,
+        ..WIDE_PREFILL
+    });
+}
+
+/// [`plane_attention_on_wide_fragments_holds_a_grid_of_output_fragments`] with the value's sum
+/// opened as a rescaled accumulator, as a forward attention opens it: held where its units scale
+/// a row in registers, each picking its own rows' factors out of the window's state. Causally
+/// too, so a masked row's factor is the one its unit picks.
+#[test]
+fn plane_attention_rescales_a_grid_of_output_fragments_in_place() {
+    for causal in [false, true] {
+        run::<half::f16>(Case {
+            value: 64,
+            causal,
+            rescaled: true,
+            ..WIDE_PREFILL
+        });
+    }
+}
 
 /// Every block stepped as one no bias touches, the max over the raw scores and each cell's
 /// exponential one multiply-add.
@@ -1490,6 +1557,7 @@ const REGISTER_PREFILL: Case = Case {
     causal: false,
     unbiased: false,
     over_run: false,
+    rescaled: false,
 };
 
 #[test]
@@ -1709,6 +1777,7 @@ fn a_plane_stating_its_tile_holds_a_score_the_tile_cuts() {
         causal: false,
         unbiased: false,
         over_run: false,
+        rescaled: false,
     };
     run_cut::<half::f16>(case);
     run_cut::<half::f16>(Case {
