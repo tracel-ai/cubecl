@@ -675,7 +675,7 @@ impl HipServer {
         captures: DeviceCaptures,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let device_id = utilities.service.device;
 
@@ -692,7 +692,7 @@ impl HipServer {
                     utilities.logger.clone(),
                     captures,
                 ),
-                max_streams,
+                max_stream_count,
             ),
             utilities: Arc::new(utilities),
             collectives: Collectives::new(device_id),

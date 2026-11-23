@@ -159,7 +159,7 @@ The `[streaming]` section manages logging and stream configurations.
 ```toml
 [streaming]
 logger = { level = "basic", file = "cubecl.log", append = true }
-max_streams: 4
+max_stream_count = 4
 ```
 
 ### Memory

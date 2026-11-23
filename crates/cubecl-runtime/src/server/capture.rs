@@ -56,7 +56,7 @@ pub struct CaptureStatus(Arc<CaptureRecord>);
 /// # What the neighbours pay
 ///
 /// The window is held on a pooled stream, and logical streams fold onto those
-/// with `id % max_streams` — so a capture costs every logical stream sharing
+/// with `id % max_stream_count` — so a capture costs every logical stream sharing
 /// that slot, not just the one recording. On a software-graph backend a
 /// neighbour's read, sync or profile is refused outright for the duration, and
 /// its write is refused with the refusal landing on its own destinations; on a

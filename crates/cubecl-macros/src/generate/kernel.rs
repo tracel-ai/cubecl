@@ -504,12 +504,12 @@ impl Launch {
                         let address_type = self.settings.address_type;
 
                         #kernel_id::new::<Self>()
-                            .address_type(address_type)
-                            .cube_dim(self.settings.cube_dim.clone())
-                            .mode(self.settings.execution_mode)
-                            .debug_info(self.settings.debug_info)
-                            .float_contraction(self.settings.float_contraction)
-                            .info(#info_ty_name #info_generics {
+                            .with_address_type(address_type)
+                            .with_cube_dim(self.settings.cube_dim.clone())
+                            .with_mode(self.settings.execution_mode)
+                            .with_debug_info(self.settings.debug_info)
+                            .with_float_contraction(self.settings.float_contraction)
+                            .with_info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init
                             })

@@ -23,7 +23,7 @@ fn a_mapped_write_lands_after_a_write_queued_on_another_stream() {
     }
     let client = <WgpuRuntime>::client(&device);
 
-    // Two ids far enough apart to land on different pooled streams for any `max_streams`.
+    // Two ids far enough apart to land on different pooled streams for any `max_stream_count`.
     let owner = StreamId { value: 2_000_001 };
     let writer = StreamId { value: 2_000_002 };
 

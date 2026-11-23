@@ -121,7 +121,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     let (_, num_samples) = crate::config::CubeClRuntimeConfig::get()
         .autotune
         .bench
-        .samples();
+        .sample_count_range();
     let mut durations = Vec::new();
 
     for _ in 0..num_samples {

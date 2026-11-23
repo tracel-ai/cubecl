@@ -71,23 +71,23 @@ pub struct StreamPool<F: StreamFactory> {
     /// The factory used to create new streams when needed.
     factory: F,
     /// Maximum number of regular streams (excludes special streams).
-    max_streams: usize,
+    max_stream_count: usize,
 }
 
 impl<F: StreamFactory> StreamPool<F> {
     /// Creates a new stream pool with the given backend factory and capacity constraints.
-    pub fn new(backend: F, max_streams: u8, num_special: u8) -> Self {
+    pub fn new(backend: F, max_stream_count: u8, num_special: u8) -> Self {
         // Initialize a vector with capacity for regular and special streams.
-        let mut streams = Vec::with_capacity(max_streams as usize);
+        let mut streams = Vec::with_capacity(max_stream_count as usize);
         // Pre-populate the vector with None to reserve space for all streams.
-        for _ in 0..(max_streams.saturating_add(num_special)) {
+        for _ in 0..(max_stream_count.saturating_add(num_special)) {
             streams.push(None);
         }
 
         Self {
             streams,
             factory: backend,
-            max_streams: max_streams as usize,
+            max_stream_count: max_stream_count as usize,
         }
     }
 
@@ -105,10 +105,10 @@ impl<F: StreamFactory> StreamPool<F> {
     ///
     /// Each id round-trips through [`Self::get_mut`] to the same slot it
     /// came from (slot `i` is reachable via `StreamId { value: i }` since
-    /// indexing is `value % max_streams`), so it's safe to feed these
+    /// indexing is `value % max_stream_count`), so it's safe to feed these
     /// ids back into per-stream APIs.
     pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
-        self.streams[..self.max_streams]
+        self.streams[..self.max_stream_count]
             .iter()
             .enumerate()
             .filter_map(|(i, s)| s.as_ref().map(|_| StreamId { value: i as u64 }))
@@ -135,7 +135,7 @@ impl<F: StreamFactory> StreamPool<F> {
     ///
     /// # Safety
     ///
-    /// * Caller must ensure the index is valid (less than `max_streams + num_special`).
+    /// * Caller must ensure the index is valid (less than `max_stream_count + num_special`).
     /// * Lifetimes still follow the Rust rules.
     pub unsafe fn get_mut_index(&mut self, index: usize) -> &mut F::Stream {
         unsafe { self.get_or_create_index(index) }
@@ -166,14 +166,14 @@ impl<F: StreamFactory> StreamPool<F> {
         &mut self,
         index: u8,
     ) -> Result<&mut F::Stream, ServerError> {
-        unsafe { self.get_or_create_index(self.max_streams + index as usize) }
+        unsafe { self.get_or_create_index(self.max_stream_count + index as usize) }
     }
 
     /// The stream at `index`, created if it does not exist yet.
     ///
     /// # Safety
     ///
-    /// * Caller must ensure the index is valid (less than `max_streams + num_special`).
+    /// * Caller must ensure the index is valid (less than `max_stream_count + num_special`).
     pub(crate) unsafe fn get_or_create_index(
         &mut self,
         index: usize,
@@ -208,13 +208,13 @@ impl<F: StreamFactory> StreamPool<F> {
     /// * Caller must ensure the index corresponds to a valid special stream.
     /// * Lifetimes still follow the Rust rules.
     pub unsafe fn get_special(&mut self, index: u8) -> &mut F::Stream {
-        // Calculate the index for the special stream (offset by max_streams).
-        unsafe { self.get_mut_index(self.max_streams + index as usize) }
+        // Calculate the index for the special stream (offset by max_stream_count).
+        unsafe { self.get_mut_index(self.max_stream_count + index as usize) }
     }
 
     /// Calculates the index for a given stream ID, mapping it to the pool's capacity.
     pub fn stream_index(&mut self, id: &StreamId) -> usize {
-        stream_index(id, self.max_streams)
+        stream_index(id, self.max_stream_count)
     }
 
     /// The stream on `id`'s slot, when that slot was ever initialized.
@@ -225,12 +225,12 @@ impl<F: StreamFactory> StreamPool<F> {
     /// initialized by the allocation itself, so `None` here means the binding
     /// is not this pool's to answer for.
     pub fn try_get(&self, id: &StreamId) -> Option<&F::Stream> {
-        self.streams[stream_index(id, self.max_streams)].as_ref()
+        self.streams[stream_index(id, self.max_stream_count)].as_ref()
     }
 
     /// [`try_get`](Self::try_get), mutably.
     pub fn try_get_mut(&mut self, id: &StreamId) -> Option<&mut F::Stream> {
-        self.streams[stream_index(id, self.max_streams)].as_mut()
+        self.streams[stream_index(id, self.max_stream_count)].as_mut()
     }
 
     /// Mutable access to the factory, e.g. to change the configuration new
@@ -241,8 +241,8 @@ impl<F: StreamFactory> StreamPool<F> {
 }
 
 /// Maps a stream ID to an index within the pool's capacity using modulo arithmetic.
-pub fn stream_index(stream_id: &StreamId, max_streams: usize) -> usize {
-    stream_id.value as usize % max_streams
+pub fn stream_index(stream_id: &StreamId, max_stream_count: usize) -> usize {
+    stream_id.value as usize % max_stream_count
 }
 
 /// Point the bytes every binding in `written` names at `failure`.

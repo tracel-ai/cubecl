@@ -149,7 +149,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         );
 
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let compiler = WgpuArtifactCompiler::new(
             device,
@@ -176,13 +176,13 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 utilities.logger.clone(),
                 backend_scheduler,
                 SchedulerMultiStreamOptions {
-                    max_streams,
+                    max_stream_count,
                     max_tasks: tasks_max,
                     strategy: SchedulerStrategy::Interleave,
                 },
             ),
             utilities: Arc::new(utilities),
-            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
+            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_stream_count as usize),
             graphs: HashMap::new(),
             _compiler: PhantomData,
         }
