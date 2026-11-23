@@ -14,7 +14,7 @@
 //! the graph leaks if and only if the program leaks memory.
 
 use crate::id::KernelId;
-use crate::memory_management::{ManagedMemoryHandle, ManagedMemoryId, WeakMemoryBinding};
+use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryId, WeakMemoryBinding};
 use crate::server::{IoError, ServerError};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -303,7 +303,7 @@ impl ErrorGraph {
 
     /// Record `error` as the reason `memory` was never allocated, so a read of that memory
     /// reports that error.
-    pub fn fail_unallocated(&mut self, memory: &ManagedMemoryHandle, error: ServerError) {
+    pub fn fail_unallocated(&mut self, memory: &ManagedMemoryBinding, error: ServerError) {
         // Released lazily: a record whose buffer is gone is found here, when the next one is
         // made, rather than through a drop hook the buffer does not have.
         let dropped: Vec<_> = self
@@ -320,9 +320,8 @@ impl ErrorGraph {
 
         let failure = self.insert(error);
         self.tag(failure);
-        let binding = memory.clone().binding();
-        let id = binding.id();
-        if let Some((previous, _)) = self.unallocated.insert(id, (failure, binding.downgrade())) {
+        let id = memory.id();
+        if let Some((previous, _)) = self.unallocated.insert(id, (failure, memory.downgrade())) {
             self.untag(Some(previous));
         }
     }
@@ -372,6 +371,7 @@ impl ErrorGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_management::ManagedMemoryHandle;
     use alloc::string::ToString;
 
     fn error(reason: &str) -> ServerError {
@@ -537,7 +537,7 @@ mod tests {
         let id = memory.descriptor().id();
 
         graph.fail_unallocated(
-            &memory,
+            &memory.to_binding(),
             crate::driver::DevicePoison::new("the device is poisoned").into(),
         );
         let reported = graph
@@ -558,7 +558,7 @@ mod tests {
         );
 
         // An unallocated buffer's sole reference belongs to its caller, not a pool.
-        graph.fail_unallocated(&other, error("again"));
+        graph.fail_unallocated(&other.to_binding(), error("again"));
         let reported = graph
             .reports([Claim::Unallocated(id)].into_iter())
             .unwrap_err();
@@ -567,7 +567,7 @@ mod tests {
 
         // Released lazily, when the next record is made.
         drop(memory);
-        graph.fail_unallocated(&other, error("again"));
+        graph.fail_unallocated(&other.to_binding(), error("again"));
         assert_eq!(graph.len(), 1, "the dropped buffer's failure is released");
     }
 }

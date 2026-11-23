@@ -1,4 +1,4 @@
-use crate::memory_management::{Cleanup, PinnedPages};
+use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
@@ -11,6 +11,16 @@ use crate::{
 use alloc::vec::Vec;
 use core::fmt::Display;
 use cubecl_environment::backtrace::BackTrace;
+
+/// Whether a reservation may carve the free room on a page a graph guards (see [`PageGuard`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinnedRoom {
+    /// Leave it alone: what lands there would be overwritten by the next replay of the graph
+    /// that used that room.
+    Avoid,
+    /// Carve it too: whatever lands there is overwritten only while it is not in use.
+    Share,
+}
 
 /// A pool that carves slices out of pages of one size.
 ///
@@ -112,6 +122,12 @@ impl SlicedPool {
             .slice_mut(location.slice as usize)
     }
 
+    /// Whether graphs guard every page the pool holds, and it holds some: room for work outside
+    /// a capture comes only from a new page then.
+    pub(crate) fn is_pinned(&self) -> bool {
+        !self.pages.is_empty() && self.pages().all(MemoryPage::is_guarded)
+    }
+
     /// Whether a graph guards the page the slice `location` names is on.
     pub(crate) fn is_guarded_at(&self, location: MemoryLocation) -> bool {
         self.pages[location.page as usize].0.is_guarded()
@@ -139,17 +155,17 @@ impl SlicedPool {
     }
 
     /// Reserve `size` bytes on a page already held, coalescing as it goes. A
-    /// guarded page is carved only when `pinned` shares it.
+    /// guarded page is carved only when `room` shares it.
     pub(crate) fn try_reserve_sharing(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         let handle = self
             .pages
             .iter_mut()
-            .filter(|(page, _)| pinned == PinnedPages::Share || !page.is_guarded())
+            .filter(|(page, _)| room == PinnedRoom::Share || !page.is_guarded())
             .find_map(|(page, _)| {
                 page.coalesce(failures);
                 page.try_reserve(size)
@@ -167,10 +183,10 @@ impl SlicedPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        pinned: PinnedPages,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        match self.try_reserve_sharing(size, pinned, failures) {
+        match self.try_reserve_sharing(size, room, failures) {
             Some(handle) => Ok(handle),
             None => self.alloc_page(storage, size, mapping),
         }
@@ -301,7 +317,7 @@ impl MemoryPool for SlicedPool {
     }
 
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
-        self.try_reserve_sharing(size, PinnedPages::Avoid, failures)
+        self.try_reserve_sharing(size, PinnedRoom::Avoid, failures)
     }
 
     #[cfg_attr(

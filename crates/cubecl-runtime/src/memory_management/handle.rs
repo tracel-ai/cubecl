@@ -47,9 +47,21 @@ impl ManagedMemoryHandle {
         Arc::strong_count(&self.descriptor) <= 1
     }
 
-    /// A binding that keeps the allocation reserved while it lives.
+    /// A binding that keeps the allocation reserved while it lives, giving up
+    /// this handle's claim on it.
     pub fn binding(self) -> ManagedMemoryBinding {
-        ManagedMemoryBinding::from_descriptor(self.descriptor)
+        self.to_binding()
+    }
+
+    /// A binding of this allocation that leaves the handle where it is.
+    ///
+    /// The binding keeps the slice from being freed or reused, but it is not a handle:
+    /// [`can_mut`](Self::can_mut) never counts it, not even for a moment, so what a client is
+    /// told does not depend on how far the device thread has got. Like every binding, its uses
+    /// are ordered against the owner's writes by the stream the server runs them on.
+    #[doc(hidden)]
+    pub fn to_binding(&self) -> ManagedMemoryBinding {
+        ManagedMemoryBinding::from_descriptor(self.descriptor.clone())
     }
 }
 
@@ -123,6 +135,16 @@ mod tests {
         let id = handle.descriptor().id();
 
         assert_eq!(handle.binding().id(), id);
+    }
+
+    #[test]
+    fn a_borrowed_binding_does_not_count_as_a_handle() {
+        let handle = ManagedMemoryHandle::new();
+        let _pool = handle.clone();
+
+        let _binding = handle.to_binding();
+
+        assert!(handle.can_mut());
     }
 
     #[test]

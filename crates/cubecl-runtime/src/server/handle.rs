@@ -199,14 +199,21 @@ impl Handle {
 
     /// Returns the [`BufferBinding`] corresponding to the current handle.
     pub fn binding(self) -> BufferBinding {
+        self.to_binding()
+    }
+
+    /// The [`BufferBinding`] for this handle, which stays where it is (see
+    /// [`ManagedMemoryHandle::to_binding`]).
+    #[doc(hidden)]
+    pub fn to_binding(&self) -> BufferBinding {
         BufferBinding {
-            memory: self.memory.binding(),
+            memory: self.memory.to_binding(),
             service: self.service,
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             stream: self.stream,
             size: self.size,
-            peer: self.peer,
+            peer: self.peer.clone(),
         }
     }
 

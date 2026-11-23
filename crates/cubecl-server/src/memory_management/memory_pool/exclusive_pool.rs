@@ -230,7 +230,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let page = self.pages.get(location.page as usize)?;
-        Some(PageGuard::allocation(page.slice.handle.clone().binding()))
+        Some(PageGuard::allocation(page.slice.handle.to_binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
