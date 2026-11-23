@@ -1407,6 +1407,7 @@ impl Tile {
 
     /// Multiply each cell of this one-fragment sum by its scales at the cell's place: a sum held
     /// in this crate's transport, whose units hold their cells where they can read them.
+    #[allow(clippy::extra_unused_type_parameters)] // Read by the expansion.
     pub(crate) fn scale_own_cells<T: Numeric>(&mut self) {
         unexpanded!()
     }

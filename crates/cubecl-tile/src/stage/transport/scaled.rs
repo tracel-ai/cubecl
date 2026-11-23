@@ -136,7 +136,9 @@ impl Tile {
                 .at_coords(&at, space.clone(), comptime!(Guard::Checked));
             let steps =
                 i32::cast_from(u32::reinterpret(unlifted) >> F32_MANTISSA_BITS) - F32_EXPONENT_BIAS;
-            let in_range = steps >= E2M1_LOWEST_STEPS && steps <= E2M1_HIGHEST_STEPS;
+            // Counted from the lowest as unsigned, a step below it wraps past the span.
+            let in_range = u32::cast_from(steps - E2M1_LOWEST_STEPS)
+                <= (E2M1_HIGHEST_STEPS - E2M1_LOWEST_STEPS) as u32;
             if comptime!(e2m1_into_e4m3) {
                 if in_range {
                     let size!(VB) = comptime!(vw / BYTES_PER_WORD);
