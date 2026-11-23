@@ -65,14 +65,14 @@ fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, Serve
     command.stream().info_cache.mode(cache_mode);
 
     if !command.stream().info_cache.should_cache(size) {
-        return Ok(command.create_with_data(bytemuck::cast_slice(words))?);
+        return Ok(command.create_metadata(bytemuck::cast_slice(words))?);
     }
     // Look up by the borrowed words — a hit clones nothing. On a miss we build
     // the buffer and clone the words into the cache as the key.
     if let Some(handle) = command.stream().info_cache.get(words) {
         return Ok(handle);
     }
-    let handle = command.create_with_data(bytemuck::cast_slice(words))?;
+    let handle = command.create_metadata(bytemuck::cast_slice(words))?;
     command
         .stream()
         .info_cache
@@ -209,6 +209,22 @@ impl Server for CudaServer {
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
+        // A planning run's launch builds what the launch path allocates — its
+        // metadata buffer, the staging that uploads it — and stops before the
+        // dispatch, so the recorded run allocates none of it.
+        if launch_mode == LaunchMode::Resolve {
+            // A failure here is the recorded run's to report: it repeats this
+            // launch and needs what failed to build.
+            let _ = self.launch_checked(
+                id.kernel,
+                &loaded,
+                (1, 1, 1),
+                bindings,
+                stream_id,
+                launch_mode,
+            );
+            return;
+        }
         if launch_mode.discards_launch() {
             return;
         }
@@ -264,7 +280,9 @@ impl Server for CudaServer {
             bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+        .execute(|server| {
+            server.launch_checked(kernel_id, &loaded, count, bindings, stream_id, launch_mode)
+        });
         match outcome {
             ScopedOutcome::Executed(()) => peers.enqueued(),
             ScopedOutcome::Failed(error) | ScopedOutcome::Skipped(error) => peers.failed(&error),
@@ -296,6 +314,16 @@ impl Server for CudaServer {
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).end_run(stream_id)
+    }
+
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).start_run(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -899,7 +927,11 @@ impl CudaServer {
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
+        // Arguments refused while they were registered never run: the scope
+        // leaves the outputs carrying why.
+        bindings.check_arguments()?;
         let address_type = kernel_id.address_type;
         let grid_constants = self
             .ctx
@@ -975,6 +1007,9 @@ impl CudaServer {
             resources.push(command.resource(binding.binding())?.binding);
         }
         resources.extend(info_const);
+        if launch_mode == LaunchMode::Resolve {
+            return Ok(());
+        }
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
         command.hold_peers(peers);

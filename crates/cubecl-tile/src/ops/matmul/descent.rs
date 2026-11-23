@@ -43,9 +43,9 @@ impl Descent {
         let operands = Space::merge(&[lhs, rhs]);
         let walks_contraction = |level: &Level| {
             level
-                .axes()
+                .dimensions()
                 .iter()
-                .any(|&axis| operands.contains(axis) && !acc.space.contains(axis))
+                .any(|&dimension| operands.contains(dimension) && !acc.space.contains(dimension))
         };
         let below = acc.below();
         let Some(instruction) = grid else {
@@ -83,11 +83,14 @@ fn fragment_loads_deep(
     })
 }
 
-/// Whether the level below `acc` steps only axes the sum does not hold: the contraction.
+/// Whether the level below `acc` steps only dimensions the sum does not hold: the contraction.
 fn steps_contraction_only(acc: &Placement) -> bool {
-    acc.below()
-        .first()
-        .is_some_and(|level| level.axes().iter().all(|&axis| !acc.space.contains(axis)))
+    acc.below().first().is_some_and(|level| {
+        level
+            .dimensions()
+            .iter()
+            .all(|&dimension| !acc.space.contains(dimension))
+    })
 }
 
 #[cube]
@@ -144,7 +147,7 @@ impl Descent {
     }
 
     /// [`Descent::Steps`]: each region of the level below, walked over the whole contraction's box
-    /// (`acc`'s alone lacks the contracted axes).
+    /// (`acc`'s alone lacks the contracted dimensions).
     ///
     /// A factor the tensor cores read through a landing, scaled or packed, lands once for every
     /// step, a whole load at a time: a step of the instruction may be narrower than one of its
@@ -242,9 +245,9 @@ impl Descent {
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
     /// A 2×2 grid of 8×8 fragments, with `below` the level under it.
     fn grid_over(below: Level) -> Placement {

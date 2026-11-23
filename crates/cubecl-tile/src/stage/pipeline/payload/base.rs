@@ -9,11 +9,11 @@ use crate::*;
 pub(crate) struct StageOperand {
     /// Who moves this operand's bytes into its stage.
     pub(crate) delivery: Delivery,
-    /// The axes the operand spans.
+    /// The dimensions the operand spans.
     pub(crate) space: Space,
     /// The keys of a table the operand has yet to read ([`Indexing`]): its window moves along
     /// them too, though it spans none of them.
-    pub(crate) keys: Vec<Axis>,
+    pub(crate) keys: Vec<Dimension>,
 }
 
 /// What shapes a slot's buffers: level, depth, storage, optional line width, and who holds them.

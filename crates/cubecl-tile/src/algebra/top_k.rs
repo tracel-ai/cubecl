@@ -8,10 +8,12 @@ use crate::algebra::indexed::{nan_lanes, ordered_only, wins};
 use crate::space::UnitShare;
 use crate::{Carrier, Indexed, Monoid};
 
-/// The most steps a `K`-by-`K` walk of a [`TopK`] is unrolled to: past it, as for the `k = 300`
-/// of an object-detection head, the walks stay loops, since unrolled the kernel grows with `K²`
-/// and the backend compilers stop returning from it.
-pub const TOP_K_UNROLL_BUDGET: usize = 1024;
+/// The most steps a `K`-by-`K` walk of a [`TopK`] is unrolled to, up to `k = 64`: within it the
+/// list stays in registers. Past it, as for the `k = 300` of an object-detection head, the walks
+/// stay loops, since unrolled the kernel grows with `K²` and the backend compilers stop
+/// returning from it. A loop around a walk, over the values a list takes in from memory, stays a
+/// loop whatever `K`: unrolled, its code outgrows the instruction cache.
+pub const TOP_K_UNROLL_BUDGET: usize = 4096;
 
 /// The `K` best values seen, each with the index it was read at, best first, pointwise on
 /// vectors: `Monoid::Max` over it is the top-k, `Monoid::Min` the bottom-k.
@@ -335,7 +337,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
 /// Where `value`, read at `index` and no NaN, takes the slot holding `kept` read at
 /// `kept_index`: it is better, or as good at a lower index. A NaN `kept` compares false both
 /// ways, so it keeps its slot.
-#[cube]
+#[cube(harness)]
 fn takes_the_slot<E: Numeric, N: Size>(
     kept: Vector<E, N>,
     kept_index: Vector<u32, N>,
@@ -421,5 +423,55 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate cubecl as cubecl_runtime;
+    use cubecl_runtime::TestRuntime;
+
+    /// Against what each slot keeps: a larger value, a smaller one, an equal one read at a lower
+    /// index, and any value against a kept NaN. Under `Max` the larger and the earlier tie take
+    /// the slot.
+    #[test]
+    fn under_max_a_larger_value_or_an_earlier_tie_takes_the_slot() {
+        let takes = takes_the_slot::harness::<TestRuntime, f32, Const<4>>(
+            &[1.0, 2.0, 2.0, f32::NAN],
+            &[0, 0, 5, 0],
+            &[2.0, 1.0, 2.0, 3.0],
+            &[1, 1, 3, 1],
+            Monoid::Max,
+        );
+        assert_eq!(takes, [true, false, true, false]);
+    }
+
+    /// Against what each slot keeps: a smaller value, a larger one, an equal one read at a lower
+    /// index, and any value against a kept NaN. Under `Min` the smaller and the earlier tie take
+    /// the slot.
+    #[test]
+    fn under_min_a_smaller_value_or_an_earlier_tie_takes_the_slot() {
+        let takes = takes_the_slot::harness::<TestRuntime, f32, Const<4>>(
+            &[2.0, 1.0, 2.0, f32::NAN],
+            &[0, 0, 5, 0],
+            &[1.0, 2.0, 2.0, 0.0],
+            &[1, 1, 3, 1],
+            Monoid::Min,
+        );
+        assert_eq!(takes, [true, false, true, false]);
+    }
+
+    /// An equal value read at a higher index leaves the slot as it is.
+    #[test]
+    fn a_later_tie_keeps_the_slot() {
+        let takes = takes_the_slot::harness::<TestRuntime, f32, Const<1>>(
+            &[2.0],
+            &[3],
+            &[2.0],
+            &[5],
+            Monoid::Max,
+        );
+        assert_eq!(takes, [false]);
     }
 }

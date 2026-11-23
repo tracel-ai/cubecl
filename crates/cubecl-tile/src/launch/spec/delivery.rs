@@ -8,7 +8,7 @@
 use cubecl::ir::{DeviceProperties, OpaqueType};
 
 use crate::stage::{ASYNC_PER_UNIT, Prefetch, SYNC_PER_UNIT, TMA};
-use crate::{Refusal, Rendezvous, Space};
+use crate::{Boundary, Decline, Rendezvous, Space};
 
 /// The engine that moves an operand's bytes into a stage filled from it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
@@ -38,7 +38,7 @@ pub(crate) struct Engine {
     pub(crate) present: fn(&DeviceProperties) -> bool,
     /// The line lengths it moves whole, in bytes; `None` for any.
     pub(crate) line_bytes: Option<&'static [usize]>,
-    /// The most cells a box it moves holds along one axis; `None` for no bound.
+    /// The most cells a box it moves holds along one dimension; `None` for no bound.
     pub(crate) box_edge: Option<usize>,
     /// The byte alignment a stage it lands in starts on; `0` for none.
     pub(crate) stage_alignment: usize,
@@ -106,19 +106,23 @@ impl Delivery {
     }
 
     /// Whether this delivery moves `stage` in one transfer, and why not where it cannot.
-    pub fn moves(self, stage: &Space) -> Result<(), Refusal> {
+    pub fn moves(self, stage: &Space) -> Result<(), Decline> {
         let Some(most) = self.engine().box_edge else {
             return Ok(());
         };
         match stage.extents().into_iter().find(|&(_, edge)| edge > most) {
-            Some((axis, edge)) => Err(Refusal::BoxPastDescriptor { axis, edge, most }),
+            Some((dimension, edge)) => Err(Decline::BoxPastDescriptor {
+                dimension,
+                edge,
+                most,
+            }),
             None => Ok(()),
         }
     }
 
     /// Whether `device` has what this delivery runs on: its engine, and the barrier what it moves
     /// lands on where that is after the fill returns.
-    pub fn runs_on(self, device: &DeviceProperties) -> Result<(), Refusal> {
+    pub fn runs_on(self, device: &DeviceProperties) -> Result<(), Decline> {
         let barriers = match self.landing() {
             Landing::OnReturn => true,
             Landing::Arrivals | Landing::Bytes => {
@@ -127,26 +131,37 @@ impl Delivery {
         };
         match (self.engine().present)(device) && barriers {
             true => Ok(()),
-            false => Err(Refusal::DeliveryNotOnDevice(self)),
+            false => Err(Decline::DeliveryNotOnDevice(self)),
         }
     }
 
     /// Whether this delivery fills a ring that holds its next stage as `prefetch` says: a stage
     /// held in the units' registers is one the units load and store themselves.
-    pub fn holds(self, prefetch: Prefetch) -> Result<(), Refusal> {
+    pub fn holds(self, prefetch: Prefetch) -> Result<(), Decline> {
         match (prefetch, self.landing()) {
             (Prefetch::InSlots, _) | (Prefetch::InRegisters, Landing::OnReturn) => Ok(()),
             (Prefetch::InRegisters, Landing::Arrivals | Landing::Bytes) => {
-                Err(Refusal::PrefetchPastDelivery(self))
+                Err(Decline::PrefetchPastDelivery(self))
             }
         }
     }
 
+    /// Whether this delivery fills a stage from an operand whose edge reads as `boundary` says: an
+    /// engine moving memory to memory fills past the edge with zero, never a monoid's identity.
+    pub fn reads_edge(self, boundary: Boundary) -> Result<(), Decline> {
+        match (self.route(), boundary) {
+            (Route::MemoryToMemory, Boundary::Identity(_)) => {
+                Err(Decline::IdentityEdgePastDelivery(self))
+            }
+            (Route::Registers, _) | (_, Boundary::Zero | Boundary::Clamp) => Ok(()),
+        }
+    }
+
     /// Whether this delivery moves lines `bits` long whole.
-    pub fn moves_lines(self, bits: usize) -> Result<(), Refusal> {
+    pub fn moves_lines(self, bits: usize) -> Result<(), Decline> {
         match self.engine().line_bytes {
             Some(lengths) if !lengths.iter().any(|&bytes| bytes * 8 == bits) => {
-                Err(Refusal::LineNotCopied { bits })
+                Err(Decline::LineNotCopied { bits })
             }
             Some(_) | None => Ok(()),
         }
@@ -180,6 +195,7 @@ impl Delivery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Monoid;
     use cubecl::ir::features::Tma;
     use cubecl::ir::{
         DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize, features::Features,
@@ -259,7 +275,7 @@ mod tests {
         for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
             assert_eq!(
                 delivery.runs_on(&bare),
-                Err(Refusal::DeliveryNotOnDevice(delivery))
+                Err(Decline::DeliveryNotOnDevice(delivery))
             );
             assert_eq!(delivery.runs_on(&engines), Ok(()));
         }
@@ -271,7 +287,7 @@ mod tests {
             .remove(&OpaqueType::Barrier);
         assert_eq!(
             Delivery::AsyncPerUnit.runs_on(&no_barrier),
-            Err(Refusal::DeliveryNotOnDevice(Delivery::AsyncPerUnit))
+            Err(Decline::DeliveryNotOnDevice(Delivery::AsyncPerUnit))
         );
     }
 
@@ -284,8 +300,23 @@ mod tests {
             assert_eq!(delivery.holds(Prefetch::InSlots), Ok(()));
             assert_eq!(
                 delivery.holds(Prefetch::InRegisters),
-                Err(Refusal::PrefetchPastDelivery(delivery))
+                Err(Decline::PrefetchPastDelivery(delivery))
             );
+        }
+    }
+
+    /// A stage filled through the registers reads the identity past the edge as the operand does;
+    /// an engine moving memory to memory can only zero it.
+    #[test]
+    fn an_identity_edge_is_filled_only_through_the_registers() {
+        let identity = Boundary::Identity(Monoid::Max);
+        assert_eq!(Delivery::SyncPerUnit.reads_edge(identity), Ok(()));
+        for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
+            assert_eq!(
+                delivery.reads_edge(identity),
+                Err(Decline::IdentityEdgePastDelivery(delivery))
+            );
+            assert_eq!(delivery.reads_edge(Boundary::Zero), Ok(()));
         }
     }
 
@@ -298,7 +329,7 @@ mod tests {
         for bits in [8, 16, 256] {
             assert_eq!(
                 Delivery::AsyncPerUnit.moves_lines(bits),
-                Err(Refusal::LineNotCopied { bits })
+                Err(Decline::LineNotCopied { bits })
             );
             assert_eq!(Delivery::SyncPerUnit.moves_lines(bits), Ok(()));
         }

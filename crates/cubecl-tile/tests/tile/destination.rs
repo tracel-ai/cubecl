@@ -58,8 +58,8 @@ impl Destination for Doubled {
     fn serve<E: Numeric, V: Size>(arg: &mut Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         let mut geometry = RuntimeGeometry::new();
         #[unroll]
-        for axis in 0..comptime!(arg.rank) {
-            geometry.push(*arg.shape.index(axis), *arg.strides.index(axis));
+        for dimension in 0..comptime!(arg.rank) {
+            geometry.push(*arg.shape.index(dimension), *arg.strides.index(dimension));
         }
         let sink = doubling_sink::<E, V>(arg.values);
         // Read at expansion, not as a Rust constant: a launch-time `Size` has no `value()` until
@@ -164,8 +164,8 @@ fn store_doubled<E: Numeric, N: Size>(values: &mut Tensor<E>, index: usize, valu
 // A store, generic over its destination
 // ===========================================================================
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 const ROWS: usize = 4;
 const COLS: usize = 6;
 /// Two values a line, so the sink is handed lines rather than scalars.
@@ -214,7 +214,7 @@ fn run_store(sink: bool) -> HostData {
         .generate_without_host_data();
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(WIDTH)
         .build()
         .unwrap();
@@ -222,12 +222,12 @@ fn run_store(sink: bool) -> HostData {
         .dtype(dtype)
         .zeros()
         .generate_without_host_data();
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match sink {
         true => {
             let derived = launcher
                 .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
-                .axes(&[ROW, COL])
+                .dimensions(&[ROW, COL])
                 .vectorize(WIDTH)
                 .build_spec()
                 .unwrap();
@@ -238,7 +238,7 @@ fn run_store(sink: bool) -> HostData {
             store::launch::<Doubled>(
                 &client,
                 count,
-                dim,
+                axis,
                 WIDTH,
                 src.arg(),
                 Doubled::arg(operand),
@@ -249,14 +249,14 @@ fn run_store(sink: bool) -> HostData {
         false => {
             let bound = launcher
                 .arg(output.clone().binding(), dtype)
-                .axes(&[ROW, COL])
+                .dimensions(&[ROW, COL])
                 .vectorize(WIDTH)
                 .build()
                 .unwrap();
             store::launch::<Buffered>(
                 &client,
                 count,
-                dim,
+                axis,
                 WIDTH,
                 src.arg(),
                 Buffered::arg((bound, Write::Replace)),
@@ -295,9 +295,9 @@ fn one_kernel_stores_into_a_buffer_or_a_caller_sink() {
 // A contraction draining into the sink
 // ===========================================================================
 
-const M: Axis = Axis(2);
-const N: Axis = Axis(3);
-const K: Axis = Axis(4);
+const M: Dimension = Dimension(2);
+const N: Dimension = Dimension(3);
+const K: Dimension = Dimension(4);
 const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The promoted matmul over any destination: `K` sums in registers and the drain is the only
@@ -316,7 +316,7 @@ fn contract<E: Numeric, EA: Numeric, O: Destination>(
     let b = b.tile(&space);
     let dest = O::serve::<E, Const<1>>(out, &space);
     let c = dest.tile();
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
@@ -350,13 +350,13 @@ fn run_contract(sink: bool) -> HostData {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     let level = launcher.partitioning().level(0);
     match sink {
         true => {
             let derived = launcher
                 .unbound(&Geometry::new(&[(m, n), (n, 1)]))
-                .axes(&[M, N])
+                .dimensions(&[M, N])
                 .build_spec()
                 .unwrap();
             let operand = DoubledOperand {
@@ -366,7 +366,7 @@ fn run_contract(sink: bool) -> HostData {
             contract::launch::<Doubled>(
                 &client,
                 count,
-                dim,
+                axis,
                 a.arg(&launcher, 1),
                 b.arg(&launcher, 1),
                 Doubled::arg(operand),
@@ -379,13 +379,13 @@ fn run_contract(sink: bool) -> HostData {
         false => {
             let bound = launcher
                 .arg(c.handle().binding(), dtype)
-                .axes(&[M, N])
+                .dimensions(&[M, N])
                 .build()
                 .unwrap();
             contract::launch::<Buffered>(
                 &client,
                 count,
-                dim,
+                axis,
                 a.arg(&launcher, 1),
                 b.arg(&launcher, 1),
                 Buffered::arg((bound, Write::Replace)),
@@ -540,15 +540,15 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
     let CubeCount::Static(x, y, z) = launcher.cube_count() else {
         panic!("a static space spawns a static grid");
     };
-    let dim = launcher.cube_dim();
-    let units = (x + extra) * y * z * dim.num_elems();
+    let axis = launcher.cube_dim();
+    let units = (x + extra) * y * z * axis.num_elems();
     let input = TestInput::builder(client.clone(), shape![ROWS, COLS])
         .dtype(dtype)
         .arange()
         .generate_without_host_data();
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(WIDTH)
         .build()
         .unwrap();
@@ -558,7 +558,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
         .generate_without_host_data();
     let derived = launcher
         .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(WIDTH)
         .build_spec()
         .unwrap();
@@ -575,7 +575,7 @@ fn run_totaled(extra: u32) -> Option<(HostData, u32, u32, u32)> {
     store::launch::<Totaled>(
         &client,
         CubeCount::Static(x + extra, y, z),
-        dim,
+        axis,
         WIDTH,
         src.arg(),
         out,

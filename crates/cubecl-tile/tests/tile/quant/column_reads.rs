@@ -11,11 +11,11 @@ use cubecl_tile::*;
 
 use crate::tile::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
 /// `K` as blocks of one scale, and the position inside one.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 
 /// NVFP4's block: sixteen values under one scale, two words of eight.
 const BLOCK: usize = 16;
@@ -45,7 +45,7 @@ fn column_one_row_product<E: Numeric>(
             &x,
             &values,
             comptime!(SoftwareMatmul::new(64)),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in cube {
             let mut acc_s = acc.at(&step);
@@ -55,8 +55,8 @@ fn column_one_row_product<E: Numeric>(
     }
 }
 
-/// [`column_one_row_product`] with the accumulator in memory: the output zeroed once, and every step's
-/// block seeded from it and committed back ([`Tile::mma`]).
+/// [`column_one_row_product`] with the accumulator in memory: the output zeroed once, and every
+/// step's block seeded from it and committed back ([`Tile::mma`]).
 #[cube(launch)]
 fn column_one_row_product_in_memory(
     x: &TileTensor<'_>,
@@ -79,24 +79,25 @@ fn column_one_row_product_in_memory(
         for step in cube {
             let mut c_s = c
                 .at(&step)
-                .accumulating(comptime!(SoftwareMatmul::new(64)), Semiring::SUM_PROD);
+                .accumulating(comptime!(SoftwareMatmul::new(64)), Semiring::SumProd);
             c_s.mma(&x.at(&step), &w.at(&step));
         }
     }
 }
 
-/// Where the value at `coords` (along `axes`) sits in a buffer of `geometry`, its dims named
-/// `labels`, outermost first: each coordinate spread over the dims its axis names, finest last.
+/// Where the value at `coords` (along `dimensions`) sits in a buffer of `geometry`, its axes named
+/// `labels`, outermost first: each coordinate spread over the axes its dimension names, finest
+/// last.
 pub(crate) fn offset(
     geometry: &Geometry,
-    labels: &[Axis],
-    axes: &[Axis],
+    labels: &[Dimension],
+    dimensions: &[Dimension],
     coords: &[usize],
 ) -> usize {
     let mut rest = coords.to_vec();
     let mut offset = 0;
     for d in (0..labels.len()).rev() {
-        let a = axes.iter().position(|&a| a == labels[d]).unwrap();
+        let a = dimensions.iter().position(|&a| a == labels[d]).unwrap();
         let extent = geometry.shape()[d];
         offset += (rest[a] % extent) * geometry.strides()[d];
         rest[a] /= extent;
@@ -121,16 +122,16 @@ fn scales(
         );
         return (handle, TileSpec::direct(&[N, KB]), 1);
     };
-    let axes = [N, KB];
+    let dimensions = [N, KB];
     let storage = StorageLevels::new(&[(KB, 2)])
         .tile(&[(N, columns)])
         .grid(&[N, KB]);
     let geometry = storage.physical(&[(N, cols), (KB, blocks)]).unwrap();
-    let labels = geometry.labels(&axes);
+    let labels = geometry.labels(&dimensions);
     let mut stored = vec![0f32; cols * blocks];
     for n in 0..cols {
         for kb in 0..blocks {
-            stored[offset(&geometry, &labels, &axes, &[n, kb])] = s[n * blocks + kb];
+            stored[offset(&geometry, &labels, &dimensions, &[n, kb])] = s[n * blocks + kb];
         }
     }
     let handle = TensorHandle::new(
@@ -139,7 +140,7 @@ fn scales(
         geometry.strides().to_vec(),
         dtype,
     );
-    let mut spec = TileSpec::new(Projection::tiled(&axes, &labels));
+    let mut spec = TileSpec::new(Projection::tiled(&dimensions, &labels));
     spec.stored_tiles = storage.tiles().to_vec();
     (handle, spec, 2 * columns)
 }
@@ -156,21 +157,21 @@ fn one_row_product_against_the_reference(
     let (cols, blocks) = (16, 8);
     let client = cubecl::test_device().client();
 
-    let axes = [N, KB, KI];
+    let dimensions = [N, KB, KI];
     let storage = StorageLevels::new(&[(KI, PER_WORD)])
         .tile(&[(N, columns)])
         .grid(&[N, KB, KI]);
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
         .unwrap();
-    let labels = geometry.labels(&axes);
+    let labels = geometry.labels(&dimensions);
 
     let code = |n: usize, kb: usize, ki: usize| ((n * 7 + kb * 3 + ki) % 16) as u32;
     let mut words = vec![0u32; cols * blocks * BLOCK / PER_WORD];
     for n in 0..cols {
         for kb in 0..blocks {
             for ki in 0..BLOCK {
-                let at = offset(&geometry, &labels, &axes, &[n, kb, ki]);
+                let at = offset(&geometry, &labels, &dimensions, &[n, kb, ki]);
                 words[at / PER_WORD] |= code(n, kb, ki) << ((at % PER_WORD) * 4);
             }
         }
@@ -211,7 +212,8 @@ fn one_row_product_against_the_reference(
         Form::Static,
     );
 
-    let mut w_spec = TileSpec::new(Projection::tiled(&axes, &labels)).packed(QuantValue::E2M1);
+    let mut w_spec =
+        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
     w_spec.stored_tiles = storage.tiles().to_vec();
     // One statement of the arguments, for either kernel.
     macro_rules! launch {

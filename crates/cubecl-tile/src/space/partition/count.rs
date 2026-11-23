@@ -1,8 +1,8 @@
-//! [`Count`]: how many tiles a level takes along one of its axes.
+//! [`Count`]: how many tiles a level takes along one of its dimensions.
 
 use crate::{ComputeScope, Extent};
 
-/// How many tiles a level takes along one of its axes.
+/// How many tiles a level takes along one of its dimensions.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Count {
     /// This many, stated: a walk's steps, or a scope's workers with one tile each.
@@ -23,7 +23,7 @@ pub(crate) enum Count {
     },
 }
 
-/// What a walk counts along one axis of a level: a constant, or the extent handed down.
+/// What a walk counts along one dimension of a level: a constant, or the extent handed down.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum GridCount {
     Const(usize),
@@ -39,7 +39,7 @@ impl Count {
         }
     }
 
-    /// Tiles this count takes along an axis of `extent`; a partial last tile counts.
+    /// Tiles this count takes along a dimension of `extent`; a partial last tile counts.
     pub(crate) fn tiles(self, extent: usize, tile: usize) -> usize {
         match self {
             Count::Stated(n) | Count::InTurns { tiles: Some(n), .. } => n,
@@ -58,7 +58,7 @@ impl Count {
         }
     }
 
-    /// What a walk counts along an axis stepped in `tile`.
+    /// What a walk counts along a dimension stepped in `tile`.
     pub(crate) fn grid(self, tile: usize) -> GridCount {
         match self {
             Count::Stated(n) | Count::InTurns { tiles: Some(n), .. } => GridCount::Const(n),
@@ -69,7 +69,7 @@ impl Count {
     }
 }
 
-/// A count a units level states along an axis, as the units it takes.
+/// A count a units level states along a dimension, as the units it takes.
 impl From<Count> for usize {
     fn from(count: Count) -> usize {
         count

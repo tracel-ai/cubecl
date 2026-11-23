@@ -6,7 +6,8 @@ use cubecl::ir::{ElemType, HardwareProperties, OpaqueType};
 use cubecl::prelude::*;
 
 use crate::{
-    Arg, Axis, Geometry, Partitioning, PartitioningLaunch, Refusal, Space, SpaceLaunch, Unlabelled,
+    Arg, Decline, Dimension, Geometry, Partitioning, PartitioningLaunch, Space, SpaceLaunch,
+    Unlabelled,
 };
 
 /// How many cubes of how many units the launch runs: stated, or read off the levels.
@@ -20,45 +21,45 @@ pub enum Grid {
 }
 
 /// Whether a device of `hardware` spawns `cube_count` cubes of `cube_dim` units, or the
-/// [`Refusal`] saying why not.
+/// [`Decline`] saying why not.
 ///
-/// Three caps, and a launch clears all of them: the cube's unit product, the cube's per-axis
-/// shape, and the grid's per-axis extent. Checking only the product passes a cube legal in size
-/// and illegal in shape: a CPU runtime reports its core count on every axis, and a cube of many
-/// planes overruns `max_cube_dim.1` long before the product notices.
+/// Three caps, and a launch clears all of them: the cube's unit product, the cube's per-dimension
+/// shape, and the grid's per-dimension extent. Checking only the product passes a cube legal in
+/// size and illegal in shape: a CPU runtime reports its core count on every dimension, and a cube
+/// of many planes overruns `max_cube_dim.1` long before the product notices.
 ///
-/// A zero axis is no launch rather than a small grid: cubecl's CUDA server returns before
+/// A zero dimension is no launch rather than a small grid: cubecl's CUDA server returns before
 /// dispatching one, so the outputs keep what they held and the call is timed as though it ran.
 /// A dynamic count lives on the device, and the kernel reading one owns its bound.
 pub fn spawnable(
     hardware: &HardwareProperties,
     cube_dim: CubeDim,
     cube_count: &CubeCount,
-) -> Result<(), Refusal> {
+) -> Result<(), Decline> {
     let units = cube_dim.num_elems();
     if units > hardware.max_units_per_cube {
-        return Err(Refusal::CubePastDevice {
+        return Err(Decline::CubePastDevice {
             units,
             most: hardware.max_units_per_cube,
         });
     }
     if units == 0 {
-        return Err(Refusal::NoUnits);
+        return Err(Decline::NoUnits);
     }
     let (most_x, most_y, most_z) = hardware.max_cube_dim;
     if cube_dim.x > most_x || cube_dim.y > most_y || cube_dim.z > most_z {
-        return Err(Refusal::CubeShapePastDevice {
+        return Err(Decline::CubeShapePastDevice {
             shape: (cube_dim.x, cube_dim.y, cube_dim.z),
             most: hardware.max_cube_dim,
         });
     }
     if let CubeCount::Static(x, y, z) = *cube_count {
         if x == 0 || y == 0 || z == 0 {
-            return Err(Refusal::NoCubes);
+            return Err(Decline::NoCubes);
         }
         let (most_x, most_y, most_z) = hardware.max_cube_count;
         if x > most_x || y > most_y || z > most_z {
-            return Err(Refusal::GridPastDevice {
+            return Err(Decline::GridPastDevice {
                 count: (x, y, z),
                 most: hardware.max_cube_count,
             });
@@ -76,22 +77,22 @@ pub struct Launcher {
     concrete: Arc<Space>,
     cube_count: CubeCount,
     cube_dim: CubeDim,
-    /// The axes some tile reaches past the end of over the concrete space, worked out once: every
-    /// operand the launch binds asks for them.
-    overhanging: Arc<[Axis]>,
+    /// The dimensions some tile reaches past the end of over the concrete space, worked out once:
+    /// every operand the launch binds asks for them.
+    overhanging: Arc<[Dimension]>,
     /// The leaf over the concrete space.
     leaf: Arc<Space>,
 }
 
 impl Launcher {
-    /// `partitioning` over `concrete`'s real extents, on `grid`, or the [`Refusal`] saying why the
+    /// `partitioning` over `concrete`'s real extents, on `grid`, or the [`Decline`] saying why the
     /// device cannot run it.
     pub fn new(
         client: &Client,
         partitioning: Partitioning,
         concrete: &Space,
         grid: Grid,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         // The kernel-form space may state no extents.
         let over_concrete = Partitioning::new(concrete.clone(), partitioning.levels().to_vec());
         let (cube_count, cube_dim) = match grid {
@@ -103,7 +104,7 @@ impl Launcher {
                 let plane_size = client.properties().hardware.plane_size_max;
                 let plane_units = partitioning.units();
                 if plane_units != 1 && plane_units != plane_size {
-                    return Err(Refusal::GridNotReadOffLevels {
+                    return Err(Decline::GridNotReadOffLevels {
                         units: plane_units,
                         plane: plane_size,
                     });
@@ -124,7 +125,7 @@ impl Launcher {
             .opaque
             .contains(&OpaqueType::Barrier);
         if fillers > 0 && !barriers {
-            return Err(Refusal::FillersWithoutBarriers { fillers });
+            return Err(Decline::FillersWithoutBarriers { fillers });
         }
         Ok(Launcher {
             client: client.clone(),
@@ -137,15 +138,16 @@ impl Launcher {
         })
     }
 
-    /// This launch, each cube holding `bytes` of shared memory, or the [`Refusal`] saying the device
-    /// gives one less: what the device gives a cube, less what it reserves for cube-scoped matrices.
-    pub fn holding(self, bytes: usize) -> Result<Self, Refusal> {
+    /// This launch, each cube holding `bytes` of shared memory, or the [`Decline`] saying the
+    /// device gives one less: what the device gives a cube, less what it reserves for cube-scoped
+    /// matrices.
+    pub fn holding(self, bytes: usize) -> Result<Self, Decline> {
         let hardware = &self.client.properties().hardware;
         let most = hardware
             .max_shared_memory_size
             .saturating_sub(hardware.cube_mma_reserved_shared_memory);
         match bytes > most {
-            true => Err(Refusal::SharedMemoryPastDevice { bytes, most }),
+            true => Err(Decline::SharedMemoryPastDevice { bytes, most }),
             false => Ok(self),
         }
     }
@@ -182,47 +184,50 @@ impl Launcher {
         let kernel = self.partitioning.space();
         let mut sizes = SequenceArg::new();
         if !kernel.is_static() {
-            for axis in kernel.axes() {
-                sizes.push(self.concrete.extent(axis));
+            for dimension in kernel.dimensions() {
+                sizes.push(self.concrete.extent(dimension));
             }
         }
         SpaceLaunch::new(kernel.shape().clone(), sizes)
     }
 
-    /// The axes some tile reaches past the end of, whose accesses are masked.
-    pub(crate) fn overhangs(&self) -> &[Axis] {
+    /// The dimensions some tile reaches past the end of, whose accesses are masked.
+    pub(crate) fn overhangs(&self) -> &[Dimension] {
         &self.overhanging
     }
 
-    /// The axes some tile reaches past the end of at some extent: this launch's
-    /// [`overhangs`](Self::overhangs), and every axis the kernel-form space leaves dynamic that a
-    /// level cuts in tiles wider than one or launches in an order that can overrun it. A tile of
-    /// one divides every extent.
-    pub(crate) fn may_overhang(&self) -> Vec<Axis> {
+    /// The dimensions some tile reaches past the end of at some extent: this launch's
+    /// [`overhangs`](Self::overhangs), and every dimension the kernel-form space leaves dynamic
+    /// that a level cuts in tiles wider than one or launches in an order that can overrun it. A
+    /// tile of one divides every extent.
+    pub(crate) fn may_overhang(&self) -> Vec<Dimension> {
         let kernel = self.partitioning.space();
         let levels = self.partitioning.levels();
-        let mut axes = self.overhanging.to_vec();
-        for axis in kernel.axes().filter(|&axis| kernel.is_dynamic(axis)) {
+        let mut dimensions = self.overhanging.to_vec();
+        for dimension in kernel
+            .dimensions()
+            .filter(|&dimension| kernel.is_dynamic(dimension))
+        {
             let cut_short = levels.iter().any(|level| {
                 level
-                    .tile(axis)
+                    .tile(dimension)
                     .is_some_and(|tile| tile > 1 || level.launch_order().is_some())
             });
-            if cut_short && !axes.contains(&axis) {
-                axes.push(axis);
+            if cut_short && !dimensions.contains(&dimension) {
+                dimensions.push(dimension);
             }
         }
-        axes
+        dimensions
     }
 
-    /// The leaf edge along `axis`: the stated tile, or the whole extent where none was.
-    fn leaf_edge(&self, axis: Axis) -> usize {
+    /// The leaf edge along `dimension`: the stated tile, or the whole extent where none was.
+    fn leaf_edge(&self, dimension: Dimension) -> usize {
         self.leaf
             .extents()
             .iter()
-            .find(|&&(a, _)| a == axis)
+            .find(|&&(a, _)| a == dimension)
             .map(|&(_, edge)| edge)
-            .unwrap_or_else(|| self.concrete.extent(axis))
+            .unwrap_or_else(|| self.concrete.extent(dimension))
     }
 
     /// Bind `binding`, whose buffer holds `element`, as an operand of this launch: for a
@@ -237,37 +242,37 @@ impl Launcher {
         Arg::unbound(self, geometry)
     }
 
-    /// The widest line every operand can be served in along `axis`, which must label each
-    /// operand's innermost dim.
+    /// The widest line every operand can be served in along `dimension`, which must label each
+    /// operand's innermost axis.
     pub fn vector_size(
         &self,
-        axis: Axis,
-        operands: &[(&Geometry, &[Axis])],
+        dimension: Dimension,
+        operands: &[(&Geometry, &[Dimension])],
         type_size: usize,
     ) -> usize {
-        for (_, axes) in operands {
+        for (_, dimensions) in operands {
             assert_eq!(
-                axes.last(),
-                Some(&axis),
-                "Launcher::vector_size: axis {axis:?} must label each operand's innermost dim"
+                dimensions.last(),
+                Some(&dimension),
+                "Launcher::vector_size: dimension {dimension:?} must label each operand's innermost axis"
             );
         }
         // A masked access counts in lines and would clip wrongly, so overhangs serve scalar.
         let overhangs = self.overhangs();
         let masked = operands
             .iter()
-            .any(|(_, axes)| axes.iter().any(|a| overhangs.contains(a)));
+            .any(|(_, dimensions)| dimensions.iter().any(|a| overhangs.contains(a)));
         if masked {
             return 1;
         }
-        let leaf = self.leaf_edge(axis);
+        let leaf = self.leaf_edge(dimension);
         self.client
             .io_optimized_vector_sizes(type_size)
             .filter(|&v| {
                 leaf.is_multiple_of(v)
                     && operands
                         .iter()
-                        .all(|(g, axes)| g.serves(&[(axis, v)], axes).is_ok())
+                        .all(|(g, dimensions)| g.serves(&[(dimension, v)], dimensions).is_ok())
             })
             .max()
             .unwrap_or(1)
@@ -278,11 +283,11 @@ impl Launcher {
 mod tests {
     use super::*;
 
-    /// A grid with a zero axis is refused, not launched: cubecl's CUDA server returns without
-    /// dispatching one, so the launch would answer with an uncomputed buffer. Every axis, since
-    /// the count is read off whichever axis a level put there.
+    /// A grid with a zero dimension is refused, not launched: cubecl's CUDA server returns without
+    /// dispatching one, so the launch would answer with an uncomputed buffer. Every dimension,
+    /// since the count is read off whichever dimension a level put there.
     #[test]
-    fn a_grid_with_a_zero_axis_is_refused() {
+    fn a_grid_with_a_zero_dimension_is_refused() {
         let hardware = HardwareProperties {
             load_width: 128,
             vector_register_count: None,
@@ -310,7 +315,7 @@ mod tests {
         ] {
             assert_eq!(
                 spawnable(&hardware, cube_dim, &count),
-                Err(Refusal::NoCubes),
+                Err(Decline::NoCubes),
                 "{count:?}"
             );
         }

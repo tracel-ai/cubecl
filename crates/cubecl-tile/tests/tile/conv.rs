@@ -1,8 +1,9 @@
-//! Convolution as a client of the tile DSL: a gather-reduce whose reduce axes are *abstract*.
+//! Convolution as a client of the tile DSL: a gather-reduce whose reduce dimensions are *abstract*.
 //!
-//! A convolution's window axes are not physical axes of the input. They address the same physical
-//! axis its output axes address, at their own coefficient: `Ih = Oh*stride + Rh*dilation`. So the
-//! input tile spans more logical axes than its buffer has physical ones, and tiles overlap.
+//! A convolution's window dimensions are not physical axes of the input. They address the same
+//! physical axis its output dimensions address, at their own coefficient: `Ih = Oh*stride +
+//! Rh*dilation`. So the input tile spans more dimensions than its buffer has physical ones, and
+//! tiles overlap.
 //!
 //! That mapping is the operand's [`Projection`]; everything else (the space, the walk, `Tile::at`,
 //! the leaf) is the same machinery matmul runs on.
@@ -24,12 +25,12 @@ use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
 // Output positions, output channels, window taps, input channels. `OW`/`RW` are the second
 // spatial pair the 2-D case adds.
-const OH: Axis = Axis(0);
-const CO: Axis = Axis(1);
-const RH: Axis = Axis(2);
-const CI: Axis = Axis(3);
-const OW: Axis = Axis(4);
-const RW: Axis = Axis(5);
+const OH: Dimension = Dimension(0);
+const CO: Dimension = Dimension(1);
+const RH: Dimension = Dimension(2);
+const CI: Dimension = Dimension(3);
+const OW: Dimension = Dimension(4);
+const RW: Dimension = Dimension(5);
 
 /// The software instruction the leaves here run under unless a test states another: a 16-cell
 /// budget, no edge split, no unit fan-out.
@@ -46,7 +47,7 @@ enum Stage {
 
 /// The same body matmul runs: the operands' spaces say what is contracted, their projections say
 /// how they are addressed, and the leaf does the rest. The input's line width, along its fastest
-/// contracted axis, is what the leaf splits into line index and unit; a real width is needed.
+/// contracted dimension, is what the leaf splits into line index and unit; a real width is needed.
 #[cube(launch)]
 pub(crate) fn conv_kernel(
     input: &TileTensor<'_>,
@@ -60,7 +61,7 @@ pub(crate) fn conv_kernel(
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
     for region in space.over(&level) {
-        let mut out_region = out.at(&region).accumulating(config, Semiring::SUM_PROD);
+        let mut out_region = out.at(&region).accumulating(config, Semiring::SumProd);
         out_region.mm(&input.at(&region), &weight.at(&region));
     }
 }
@@ -84,7 +85,7 @@ fn conv_kernel_smem(
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
     stages.pipelined(walk, |slot, region| {
-        let mut out_region = out.at(region).accumulating(config, Semiring::SUM_PROD);
+        let mut out_region = out.at(region).accumulating(config, Semiring::SumProd);
         slot.consume(|input, weight| {
             out_region.mm(input, weight);
         });
@@ -117,7 +118,7 @@ fn conv_kernel_smem_padded(
         None,
     );
     stages.pipelined(walk, |slot, region| {
-        let mut out_region = out.at(region).accumulating(config, Semiring::SUM_PROD);
+        let mut out_region = out.at(region).accumulating(config, Semiring::SumProd);
         let weight = weight.at(region);
         slot.consume(|input| {
             out_region.mm(input, &weight);
@@ -145,9 +146,7 @@ fn conv_kernel_two_levels(
         let input_outer = input.at(&outer);
         let weight_outer = weight.at(&outer);
         for inner in outer.over(&inner) {
-            let mut out_inner = out_outer
-                .at(&inner)
-                .accumulating(config, Semiring::SUM_PROD);
+            let mut out_inner = out_outer.at(&inner).accumulating(config, Semiring::SumProd);
             out_inner.mm(&input_outer.at(&inner), &weight_outer.at(&inner));
         }
     }
@@ -175,9 +174,7 @@ fn conv_kernel_two_levels_smem(
         let out_outer = out.at(region);
         slot.consume(|input, weight| {
             for inner in region.over(&inner) {
-                let mut out_inner = out_outer
-                    .at(&inner)
-                    .accumulating(config, Semiring::SUM_PROD);
+                let mut out_inner = out_outer.at(&inner).accumulating(config, Semiring::SumProd);
                 out_inner.mm(&input.at(&inner), &weight.at(&inner));
             }
         });
@@ -196,7 +193,7 @@ fn run(
     w_shape: Shape,
     out_shape: Shape,
     in_spec: TileSpec,
-    w_axes: &[Axis],
+    w_dimensions: &[Dimension],
     out_spec: TileSpec,
     launcher: Launcher,
     in_v: usize,
@@ -230,7 +227,7 @@ fn run(
         w_handle.binding().into_tensor_arg(),
         f32_ty,
         1,
-        TileSpec::direct(w_axes),
+        TileSpec::direct(w_dimensions),
     );
     let out_arg = TileTensorLaunch::new(
         out_handle.clone().binding().into_tensor_arg(),
@@ -367,7 +364,7 @@ impl Conv1d {
     }
 
     /// `check` with the input served in `in_v`-wide lines and, when `checked`, both the input and
-    /// the output bounds-masked: the two gather-path axes a plain `check` leaves degenerate.
+    /// the output bounds-masked: the two gather-path dimensions a plain `check` leaves degenerate.
     /// `stage` picks gathering from gmem or from a compacted stage, and how deeply it is buffered.
     fn check_at(&self, tile_oh: usize, tile_co: usize, in_v: usize, checked: bool, stage: Stage) {
         self.check_at_with_block(
@@ -764,9 +761,9 @@ fn conv1d_padded_staged_underflow_masks_to_zero() {
     }
 }
 
-/// The gathered operand in two-wide lines. Its innermost axis is `CI`, the fastest contracted one,
-/// so the leaf splits each reduce step into the line index it reads and the unit it broadcasts:
-/// the one arithmetic on the gather path that a width of `1` leaves dead.
+/// The gathered operand in two-wide lines. Its innermost dimension is `CI`, the fastest contracted
+/// one, so the leaf splits each reduce step into the line index it reads and the unit it
+/// broadcasts: the one arithmetic on the gather path that a width of `1` leaves dead.
 #[test]
 fn conv1d_vectorized_input() {
     Conv1d {
@@ -834,13 +831,13 @@ impl Conv1d {
     /// kernel projects from the kernel-form nest and one compiled kernel serves every shape.
     ///
     /// `padding` shifts the window's origin, which the builder's derived check has to arm on by
-    /// itself. `dynamic` is the axis set the kernel takes at runtime, `None` for all of them.
+    /// itself. `dynamic` is the dimension set the kernel takes at runtime, `None` for all of them.
     fn check_launched_over(
         &self,
         tile_oh: usize,
         tile_co: usize,
         padding: usize,
-        dynamic: Option<&[Axis]>,
+        dynamic: Option<&[Dimension]>,
         stage: Stage,
     ) {
         let client = cubecl::test_device().client();
@@ -878,17 +875,17 @@ impl Conv1d {
             .zeros()
             .generate_without_host_data();
 
-        // Every axis here can go runtime, including the two the input gathers over: `OH` is stated
-        // by the output, which maps it identically, and `RH` by the weight. Only an axis no
-        // operand witnesses has to stay static, which is what `dynamic` narrows to.
+        // Every dimension here can go runtime, including the two the input gathers over: `OH` is
+        // stated by the output, which maps it identically, and `RH` by the weight. Only a dimension
+        // no operand witnesses has to stay static, which is what `dynamic` narrows to.
         let launch = match dynamic {
-            Some(axes) => implied(
+            Some(dimensions) => implied(
                 &client,
                 Partitioning::new(
                     launcher.space().clone(),
                     launcher.partitioning().levels().to_vec(),
                 ),
-                Form::DynamicAlong(axes),
+                Form::DynamicAlong(dimensions),
             ),
             None => implied(
                 &client,
@@ -913,12 +910,12 @@ impl Conv1d {
             .unwrap();
         let w_arg = launch
             .arg(w_handle.binding(), f32_ty)
-            .axes(&[RH, CI, CO])
+            .dimensions(&[RH, CI, CO])
             .build()
             .unwrap();
         let out_arg = launch
             .arg(out_handle.clone().binding(), f32_ty)
-            .axes(&[OH, CO])
+            .dimensions(&[OH, CO])
             .build()
             .unwrap();
 
@@ -964,15 +961,16 @@ impl Conv1d {
         }
     }
 
-    /// [`check_launched_over`](Conv1d::check_launched_over) with every axis runtime.
+    /// [`check_launched_over`](Conv1d::check_launched_over) with every dimension runtime.
     fn check_launched(&self, tile_oh: usize, tile_co: usize, padding: usize, stage: Stage) {
         self.check_launched_over(tile_oh, tile_co, padding, None, stage);
     }
 }
 
-/// The two axes the input gathers over, `OH` and `RH`, kept static while the rest goes runtime:
-/// the launch a gathered operand was restricted to before any operand could state a gathered
-/// axis' size. It must keep working: an axis no operand witnesses still reaches the kernel static.
+/// The two dimensions the input gathers over, `OH` and `RH`, kept static while the rest goes
+/// runtime: the launch a gathered operand was restricted to before any operand could state a
+/// gathered dimension' size. It must keep working: a dimension no operand witnesses still reaches
+/// the kernel static.
 #[test]
 fn conv1d_launched_static_window() {
     Conv1d {
@@ -1160,8 +1158,8 @@ impl Conv1d {
     }
 }
 
-/// The degenerate coefficients, which a `Static` projection evaluates away entirely: the runtime path
-/// has to produce the same answer without that evaluation.
+/// The degenerate coefficients, which a `Static` projection evaluates away entirely: the runtime
+/// path has to produce the same answer without that evaluation.
 #[test]
 fn conv1d_dynamic_unit_coefficients() {
     Conv1d {
@@ -1477,7 +1475,8 @@ impl Conv2d {
             Form::Static,
         );
 
-        // Two gathered physical axes, one per spatial axis pair; the channel axis rides identity.
+        // Two gathered physical axes, one per spatial dimension pair; the channel dimension rides
+        // identity.
         let in_spec = TileSpec::new(Projection::new(
             &[OH, OW, RH, RW, CI],
             &[
@@ -1532,8 +1531,8 @@ fn conv2d_dense_window() {
     .check(2, 2, 4);
 }
 
-/// Different stride and dilation per spatial axis, so the two projected physical axes cannot be
-/// confused.
+/// Different stride and dilation per spatial dimension, so the two projected physical axes cannot
+/// be confused.
 #[test]
 fn conv2d_asymmetric_stride_and_dilation() {
     Conv2d {
@@ -1551,7 +1550,7 @@ fn conv2d_asymmetric_stride_and_dilation() {
     .check(2, 3, 2);
 }
 
-/// One tile covering the whole output: every axis's window is the full receptive field.
+/// One tile covering the whole output: every dimension's window is the full receptive field.
 #[test]
 fn conv2d_single_tile() {
     Conv2d {
@@ -1602,8 +1601,8 @@ fn conv1d_staged_dense_window() {
     );
 }
 
-/// Stride and dilation both off `1`: the fill's per-axis advance and the receptive-field span are
-/// what place each staged element, so neither can collapse to the edge.
+/// Stride and dilation both off `1`: the fill's per-dimension advance and the receptive-field span
+/// are what place each staged element, so neither can collapse to the edge.
 #[test]
 fn conv1d_staged_strided_and_dilated() {
     Conv1d {
@@ -1627,7 +1626,7 @@ fn conv1d_staged_strided_and_dilated() {
 }
 
 /// A single tap at unit stride: the window is exactly the output's own extent, so the stage is the
-/// smallest it ever gets while the projection stays affine (`Rh` is still a declared axis at
+/// smallest it ever gets while the projection stays affine (`Rh` is still a declared dimension at
 /// coefficient `1`, so the leaf stays on the N-D nest). The answer must not move.
 #[test]
 fn conv1d_staged_single_tap() {
@@ -1674,7 +1673,7 @@ fn conv1d_staged_single_tile() {
     );
 }
 
-/// Staged in two-wide lines: the fill moves whole lines, and the innermost axis is the one the
+/// Staged in two-wide lines: the fill moves whole lines, and the innermost dimension is the one the
 /// projection is required to carry at coefficient `1` for that to be sound.
 #[test]
 fn conv1d_staged_vectorized_input() {
@@ -1842,7 +1841,7 @@ fn conv1d_staged_double_buffered() {
 }
 
 /// Two gathered physical axes staged at once: the fill decodes one destination coordinate per
-/// logical axis, so both affine maps are resolved from the same index.
+/// dimension, so both affine maps are resolved from the same index.
 #[test]
 fn conv2d_staged_dense_window() {
     Conv2d {
@@ -1868,7 +1867,7 @@ fn conv2d_staged_dense_window() {
     );
 }
 
-/// Different stride and dilation per spatial axis, so the two staged physical axes cannot be
+/// Different stride and dilation per spatial dimension, so the two staged physical axes cannot be
 /// confused for one another.
 #[test]
 fn conv2d_staged_asymmetric_stride_and_dilation() {
@@ -1967,9 +1966,9 @@ impl Resize1d {
         out
     }
 
-    /// `OH` cut at `oh` under the leaf and the other axes whole, then one walk per count above
-    /// it: a count nests a second descent, which is where a rational window's leftover phase has
-    /// to accumulate rather than restart.
+    /// `OH` cut at `oh` under the leaf and the other dimensions whole, then one walk per count
+    /// above it: a count nests a second descent, which is where a rational window's leftover phase
+    /// has to accumulate rather than restart.
     fn space(&self, oh: usize, oh_counts: &[usize]) -> Launcher {
         let leaf = Levels::leaf(&[(OH, oh), (CO, self.co), (RH, self.rh), (CI, self.ci)]);
         let tiling = oh_counts.iter().fold(leaf, |tiling, &count| {
@@ -2061,7 +2060,7 @@ fn resize1d_staged_padded_stage_width() {
     .check_padded(2, &[], 4);
 }
 
-/// The tap axis carries the divisor as its coefficient, so it survives the division whole: the
+/// The tap dimension carries the divisor as its coefficient, so it survives the division whole: the
 /// resample shape, `⌊(o·4 - 2) / 6⌋ + r`. The last outputs read past the input, which
 /// `Boundary::Zero` masks.
 #[test]
@@ -2185,7 +2184,7 @@ fn resize1d_staged_fractional_taps() {
     );
 }
 
-/// Staged rational gather served in two-wide lines on the ungathered `CI` axis.
+/// Staged rational gather served in two-wide lines on the ungathered `CI` dimension.
 #[test]
 fn resize1d_staged_vectorized() {
     Resize1d {
@@ -2229,7 +2228,7 @@ fn conv_kernel_input_staged(
         sync_cube();
         let mut out_region = out
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         out_region.mm(&stage, &weight.at(&region));
         sync_cube();
     }
@@ -2344,11 +2343,11 @@ fn check_resize1d_rational_dynamic(staged: bool) {
     }
 }
 
-/// A gathered convolution with multiple reduce axes (`[RH, CI]`, where `RH = 3, CI = 3`),
+/// A gathered convolution with multiple reduce dimensions (`[RH, CI]`, where `RH = 3, CI = 3`),
 /// with the gathered input staged at line width 4. The flat walk must extract units using the
-/// fastest contracted axis (`CI`) coordinate, not flat step `p`.
+/// fastest contracted dimension (`CI`) coordinate, not flat step `p`.
 #[test]
-fn conv1d_staged_padded_multi_axis_reduce_component_indexing() {
+fn conv1d_staged_padded_multi_dimension_reduce_component_indexing() {
     let oh = 6;
     let co = 4;
     let rh = 3;
@@ -2419,7 +2418,7 @@ fn conv1d_staged_padded_multi_axis_reduce_component_indexing() {
             assert_eq!(
                 got.get_f32(&[o, c]),
                 want[o * co + c],
-                "conv1d_staged_padded_multi_axis_reduce: wrong at ({o}, {c})"
+                "conv1d_staged_padded_multi_dimension_reduce: wrong at ({o}, {c})"
             );
         }
     }
@@ -2429,7 +2428,7 @@ fn conv1d_staged_padded_multi_axis_reduce_component_indexing() {
 /// The innermost reduction extent `CI = 3` is not divisible by stage line width `4`,
 /// so it correctly falls back to the coordinate-decoded flat walk rather than corrupting units.
 #[test]
-fn conv1d_staged_padded_multi_axis_reduce_component_fanout() {
+fn conv1d_staged_padded_multi_dimension_reduce_component_fanout() {
     let (in_len, ci, co, rh) = (16, 3, 4, 3);
     let (stride, dilation, padding) = (1, 1, 1);
     let oh = (in_len + 2 * padding - (rh - 1) * dilation - 1) / stride + 1;
@@ -2495,7 +2494,7 @@ fn conv1d_staged_padded_multi_axis_reduce_component_fanout() {
             assert_eq!(
                 got.get_f32(&[o, c]),
                 want[o * co + c],
-                "conv1d_staged_padded_multi_axis_reduce_component_fanout: wrong at ({o}, {c})"
+                "conv1d_staged_padded_multi_dimension_reduce_component_fanout: wrong at ({o}, {c})"
             );
         }
     }

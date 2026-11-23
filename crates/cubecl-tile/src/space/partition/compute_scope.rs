@@ -40,9 +40,7 @@ impl ComputeScope {
             ComputeScope::PlaneGroup { planes } => UNIT_POS_Y as usize / planes,
             ComputeScope::Unit => UNIT_POS_X as usize,
             ComputeScope::Cube => {
-                panic!(
-                    "ComputeScope::position: a cube has one position per grid dimension; say which"
-                )
+                panic!("ComputeScope::position: a cube has one position per grid axis; say which")
             }
         }
     }

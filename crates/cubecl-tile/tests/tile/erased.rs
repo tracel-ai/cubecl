@@ -28,8 +28,8 @@ use cubecl_tile::procedural::RecipeCoords;
 use cubecl_tile::procedural::RecipeExpand;
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 const ROWS: usize = 4;
 const COLS: usize = 6;
 
@@ -223,7 +223,7 @@ fn a_launcher_derived_spec_addresses_the_sink() {
     // What the destination would have been, had it been a tensor to bind.
     let derived = launcher
         .unbound(&Geometry::new(&[(ROWS, COLS), (COLS, 1)]))
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(1)
         .build_spec()
         .unwrap();
@@ -260,9 +260,9 @@ fn a_launcher_derived_spec_addresses_the_sink() {
 // A contraction into a sink
 // ===========================================================================
 
-const M: Axis = Axis(2);
-const N: Axis = Axis(3);
-const K: Axis = Axis(4);
+const M: Dimension = Dimension(2);
+const N: Dimension = Dimension(3);
+const K: Dimension = Dimension(4);
 /// The register block the promoted accumulator contracts through.
 const BLOCK: SoftwareMatmul = SoftwareMatmul::new(16);
 
@@ -280,7 +280,7 @@ fn buffer_matmul<EA: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let c = c.tile_mut(&space);
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -319,7 +319,7 @@ fn sink_matmul<E: Numeric, EA: Numeric>(
         Write::Replace,
     )
     .tile::<E>(comptime!(space.levels().to_vec()));
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -357,7 +357,7 @@ fn source_matmul<E: Numeric, EA: Numeric>(
     .tile::<E>(comptime!(space.levels().to_vec()));
     let b = b.tile(&space);
     let c = c.tile_mut(&space);
-    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SUM_PROD);
+    let acc = c.register_accumulator::<EA>(&a, &b, comptime!(BLOCK), Semiring::SumProd);
     // The K steps select the one fragment by comptime coordinate, so the walk unrolls.
     for region in space.over(&level).unrolled() {
         let mut acc_region = acc.at(&region);
@@ -410,12 +410,12 @@ fn run_matmul(backed: Backed) -> HostData {
         .untiled()
         .uniform(4242, 10., 100.);
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match backed {
         Backed::Sink => sink_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -427,7 +427,7 @@ fn run_matmul(backed: Backed) -> HostData {
         Backed::Source => source_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -439,7 +439,7 @@ fn run_matmul(backed: Backed) -> HostData {
         Backed::Buffer => buffer_matmul::launch(
             &client,
             count,
-            dim,
+            axis,
             a.arg(&launcher, 1),
             b.arg(&launcher, 1),
             c.arg(&launcher, 1),
@@ -516,7 +516,7 @@ const MASKED_ROWS: usize = 5;
 /// the walk and the write, and a served width of two makes the tile count its innermost extent in
 /// lines and re-express every coarser stride as `stride / 2`, on numbers nobody read off a tensor.
 ///
-/// The columns stay exact and in bounds, since a vectorized innermost axis that can leave the
+/// The columns stay exact and in bounds, since a vectorized innermost dimension that can leave the
 /// buffer is refused outright.
 fn masked_space(form: Form) -> Launcher {
     implied(
@@ -618,22 +618,22 @@ fn run_masked(erased: Erased) -> HostData {
     // walks the tile the buffer kernel walks rather than one this test talked it into.
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(2)
         .build()
         .unwrap();
     let out = launcher
         .arg(output.clone().binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(2)
         .build()
         .unwrap();
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     match erased {
         Erased::Sink => wide_sink_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),
@@ -642,7 +642,7 @@ fn run_masked(erased: Erased) -> HostData {
         Erased::Source => wide_source_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),
@@ -651,7 +651,7 @@ fn run_masked(erased: Erased) -> HostData {
         Erased::Neither => wide_buffer_kernel::launch(
             &client,
             count,
-            dim,
+            axis,
             src.arg(),
             out.arg(),
             launcher.partitioning_arg(),

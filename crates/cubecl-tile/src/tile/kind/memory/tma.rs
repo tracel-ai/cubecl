@@ -33,7 +33,7 @@ pub(crate) struct TmaData {
     /// The cells a line of a stage it fills holds ([`TileTensorLaunch::served_wide`]).
     #[cube(comptime)]
     pub(crate) width: usize,
-    /// How the operand's logical axes lie in what the descriptor moves: direct, or a gather's,
+    /// How the operand's dimensions lie in what the descriptor moves: direct, or a gather's,
     /// whose stage is the compacted window it reads
     /// ([`TileTensorLaunch::tensor_map_with_coordinates_through`]).
     #[cube(comptime)]
@@ -142,7 +142,7 @@ impl TmaData {
         sync_cube();
     }
 
-    /// Window down to `step`: advance the global box origin by each axis's tile offset.
+    /// Window down to `step`: advance the global box origin by each dimension's tile offset.
     // The layout is `Copy`, but its expand is an `Arc` that the expansion moves: clone it.
     #[allow(clippy::clone_on_copy)]
     pub(crate) fn at(&self, step: &Step, #[comptime] space: &Space) -> TmaData {
@@ -150,10 +150,10 @@ impl TmaData {
 
         #[unroll]
         for p in 0..space.rank() {
-            let axis = space.axis_at(p);
-            match comptime!(step.level.tile(axis)) {
+            let dimension = space.dimension_at(p);
+            match comptime!(step.level.tile(dimension)) {
                 Some(tile) => {
-                    let index = step.coord(axis);
+                    let index = step.coord(dimension);
                     pos.push(self.pos[p] + (index * tile) as u32);
                 }
                 None => pos.push(self.pos[p]),

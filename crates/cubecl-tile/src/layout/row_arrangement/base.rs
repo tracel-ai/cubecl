@@ -90,8 +90,8 @@ impl RowArrangement {
         assert!(
             self.rows_are_runs(),
             "{reader}: a swizzled stage keeps a row's chunks out of order, so a fragment API \
-             reading rows off a pointer and a stride (cmma) cannot read it; stage it \
-             RowChunks::InOrder or RowChunks::Padded"
+             reading rows off a pointer and a stride (cmma) cannot read it; stage it as \
+             ProductStep::stage_storage arranges it, or RowChunks::InOrder or RowChunks::Padded"
         );
     }
 

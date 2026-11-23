@@ -326,7 +326,7 @@ impl Memory {
                     rows: form.rows,
                     paging: ComptimeOption::new_None(),
                 },
-                // Empty: a list over the buffer's own dims would misalign one level down.
+                // Empty: a list over the buffer's own axes would misalign one level down.
                 window: Window::new(origin, extent, bound, false, comptime!(SmallVec::new())),
                 projection: form.projection,
                 map,
@@ -416,7 +416,7 @@ impl Memory {
     }
 }
 
-/// The whole-buffer window of a stage: zero origin, its extents along the axes its buffer is
+/// The whole-buffer window of a stage: zero origin, its extents along the dimensions its buffer is
 /// addressed by ([`window_extents`](StageForm::window_extents)).
 #[cube]
 #[allow(clippy::needless_range_loop)] // `#[unroll]` requires a range loop.
@@ -450,7 +450,7 @@ pub(crate) fn stage_compaction(
     if src.composition() == Composition::Disjoint && dst.is_direct() {
         return None;
     }
-    let compaction = Compaction::new(src, vector_size, |axis| space.extent(axis));
+    let compaction = Compaction::new(src, vector_size, |dimension| space.extent(dimension));
     assert!(
         compaction.projection() == dst,
         "stage_compaction: a gathered source fills the compacted stage of its own \
@@ -467,7 +467,7 @@ pub(crate) struct StageForm {
     extents: Vec<usize>,
     /// The buffer's own per-position map.
     positional: Projection,
-    /// How the staged tile's logical axes address those extents.
+    /// How the staged tile's dimensions address those extents.
     projection: Projection,
     /// Per physical axis, what a stage coordinate is multiplied by to land on the source.
     steps: SmallVec<[usize; Space::MAX_RANK]>,
@@ -509,7 +509,8 @@ impl StageForm {
             "StageForm: a gathered operand stages into a plain row-major window, but {stage:?} \
              storage was asked for"
         );
-        let compaction = Compaction::new(projection, vector_size, |axis| space.extent(axis));
+        let compaction =
+            Compaction::new(projection, vector_size, |dimension| space.extent(dimension));
         let extents = compaction.line_extents(vector_size);
         StageForm {
             rows: RowArrangement::InOrder,
@@ -520,14 +521,14 @@ impl StageForm {
         }
     }
 
-    /// The extent in lines along each axis the buffer is addressed by, a window's axes: what the
-    /// physical extents carrying that axis hold between them, so a buffer tiled into
-    /// `[grid…, block…]` is still windowed one coordinate an axis.
+    /// The extent in lines along each dimension the buffer is addressed by, a window's dimensions:
+    /// what the physical extents carrying that dimension hold between them, so a buffer tiled into
+    /// `[grid…, block…]` is still windowed one coordinate a dimension.
     fn window_extents(&self) -> Vec<usize> {
         (0..self.positional.coordinate_rank())
             .map(|c| {
                 self.positional
-                    .carriers(Axis(c as u8))
+                    .carriers(Dimension(c as u8))
                     .iter()
                     .map(|&p| self.extents[p])
                     .product()
@@ -596,11 +597,12 @@ impl StageForm {
         pitched
     }
 
-    /// A stage's buffer addressed by position: `rank` synthetic axes, each split into `pieces` dims.
+    /// A stage's buffer addressed by position: `rank` synthetic dimensions, each split into
+    /// `pieces` axes.
     fn positional(rank: usize, pieces: usize) -> Projection {
-        let axes: Vec<Axis> = (0..rank).map(|p| Axis(p as u8)).collect();
-        let labels = StoragePartitioning::level_major(&axes, &vec![pieces; rank]);
-        Projection::tiled(&axes, &labels)
+        let dimensions: Vec<Dimension> = (0..rank).map(|p| Dimension(p as u8)).collect();
+        let labels = StoragePartitioning::level_major(&dimensions, &vec![pieces; rank]);
+        Projection::tiled(&dimensions, &labels)
     }
 
     /// A dense stage's physical line extents: `[extents…]` or `[grid…, …, block…]`.
@@ -614,7 +616,7 @@ impl StageForm {
                 assert!(
                     e.is_multiple_of(b),
                     "Memory::smem: a {b}-element storage block must divide the {e}-element block \
-                     enclosing it on axis {p}"
+                     enclosing it on dimension {p}"
                 );
                 extents.push(e / b);
             }
@@ -661,11 +663,11 @@ fn aligned_cells(cells: usize, line_bytes: usize, alignment: usize) -> usize {
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
-    /// `16 -> 8 -> 4` on both axes: three distinct block shapes.
+    /// `16 -> 8 -> 4` on both dimensions: three distinct block shapes.
     fn space() -> (Space, Vec<Level>) {
         (
             Space::new(&[(M, 16), (N, 16)]),
@@ -676,7 +678,7 @@ mod tests {
         )
     }
 
-    /// [`space`] plus an ungathered innermost axis, cut to `8 x 8 x 4`.
+    /// [`space`] plus an ungathered innermost dimension, cut to `8 x 8 x 4`.
     fn gathered_space() -> Space {
         Space::new(&[(M, 8), (N, 8), (K, 4)])
     }
@@ -835,15 +837,15 @@ mod tests {
         );
         assert!(matches!(
             tiled(16, RowChunks::Swizzled).tma_swizzle(&stage(32), 1, f16_bits),
-            Err(Refusal::BoxSplitsStageBlocks { axis: K, .. })
+            Err(Decline::BoxSplitsStageBlocks { dimension: K, .. })
         ));
         assert!(matches!(
             tiled(32, RowChunks::Padded).tma_swizzle(&stage(32), 1, f16_bits),
-            Err(Refusal::RowsNoDescriptorLands { .. })
+            Err(Decline::RowsNoDescriptorLands { .. })
         ));
         assert!(matches!(
             tiled(128, RowChunks::Swizzled).tma_swizzle(&stage(128), 1, f16_bits),
-            Err(Refusal::RowsNoDescriptorLands { .. })
+            Err(Decline::RowsNoDescriptorLands { .. })
         ));
     }
 
@@ -857,8 +859,8 @@ mod tests {
         };
         assert_eq!(
             storage.tma_swizzle(&Space::new(&[(M, 64), (K, 32)]), 1, 16),
-            Err(Refusal::BoxSplitsStageBlocks {
-                axis: K,
+            Err(Decline::BoxSplitsStageBlocks {
+                dimension: K,
                 rows: 4,
                 period: 8
             })

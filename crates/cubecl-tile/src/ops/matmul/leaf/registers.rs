@@ -171,7 +171,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, RL: Size
             "mm: a cell holds a run's {contracted_per_step} partials or their sum, not {cell} values"
         ));
         let summed = comptime!(cell == 1);
-        let scale_sum = comptime!(summed && semiring == Semiring::SUM_PROD);
+        let scale_sum = comptime!(summed && semiring == Semiring::SumProd);
         let mut a = Array::<Vector<E, L>>::new(mr);
         #[unroll(unroll)]
         for i in 0..mr {

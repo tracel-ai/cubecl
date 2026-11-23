@@ -1,4 +1,4 @@
-//! A paged KV cache, which is expert routing with the axis split.
+//! A paged KV cache, which is expert routing with the dimension split.
 //!
 //! The physical pool is `[PAGE, OFFSET]` over one buffer, spelled with
 //! [`PhysicalAxisMap::disjoint`] exactly as a quantization block splits `K`. A page table names
@@ -16,20 +16,20 @@ use super::{Form, implied, uncut};
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::std::tensor::TensorHandle;
 use cubecl::{prelude::*, zspace::Shape};
-use cubecl_tile::launch::{Bound, Refusal};
+use cubecl_tile::launch::{Bound, Decline};
 use cubecl_tile::layout::{PageEntry, PhysicalAxisMap};
 use cubecl_tile::*;
 
 /// Which sequence.
-const B: Axis = Axis(0);
+const B: Dimension = Dimension(0);
 /// Which of the sequence's own pages: what the table is addressed by.
-const LP: Axis = Axis(1);
+const LP: Dimension = Dimension(1);
 /// Which physical page of the pool: what the table names, and what the walk routes.
-const PAGE: Axis = Axis(2);
+const PAGE: Dimension = Dimension(2);
 /// Where inside a page.
-const OFFSET: Axis = Axis(3);
+const OFFSET: Dimension = Dimension(3);
 /// The feature a slot carries.
-const D: Axis = Axis(4);
+const D: Dimension = Dimension(4);
 
 const SEQS: usize = 2;
 const PAGES_PER_SEQ: usize = 2;
@@ -66,11 +66,11 @@ fn paged_sum_kernel<E: Numeric>(
         for lp in sequence.over(&logical) {
             let phys = table[b * PAGES_PER_SEQ + lp.coord(LP)] as usize;
 
-            // The same call MoE makes: the axis keeps the pool's four pages, the walk visits the
-            // one the table named.
+            // The same call MoE makes: the dimension keeps the pool's four pages, the walk visits
+            // the one the table named.
             for page in lp.over(&physical).routed(PAGE, phys) {
                 let mut cell = out.at(&page);
-                cell.reduce_axis_accumulate(&kv.at(&page), comptime!(Monoid::Sum));
+                cell.reduce_dimension_accumulate(&kv.at(&page), comptime!(Monoid::Sum));
             }
         }
     }
@@ -131,7 +131,7 @@ fn run(table: &[u32]) -> HostData {
             kv_handle.binding().into_tensor_arg(),
             f32_ty,
             1,
-            // The pool's one dimension read as two axes: `slot = page * PAGE_SIZE + offset`.
+            // The pool's one dimension read as two dimensions: `slot = page * PAGE_SIZE + offset`.
             TileSpec::new(Projection::new(
                 &[PAGE, OFFSET, D],
                 &[
@@ -180,7 +180,7 @@ fn expected(table: &[u32]) -> Vec<Vec<f32>> {
 /// Two page tables over the same pool: the answer follows the table, which it could not if the
 /// route did nothing, since the walk would reduce the whole pool under both.
 #[test]
-fn a_routed_page_axis_reduces_each_sequence_over_the_pages_it_holds() {
+fn a_routed_page_dimension_reduces_each_sequence_over_the_pages_it_holds() {
     for table in [TABLE, [0, 1, 1, 0]] {
         let got = run(&table);
         let want = expected(&table);
@@ -198,9 +198,9 @@ fn a_routed_page_axis_reduces_each_sequence_over_the_pages_it_holds() {
 }
 
 /// The paged reads below: a position, as the sequences see it, and nothing of the pool.
-const S: Axis = Axis(1);
+const S: Dimension = Dimension(1);
 /// The feature a position carries.
-const F: Axis = Axis(2);
+const F: Dimension = Dimension(2);
 
 const SEQUENCES: usize = 3;
 const PAGES_EACH: usize = 3;
@@ -216,7 +216,7 @@ const PAGES: [[u32; PAGES_EACH]; SEQUENCES] = [[5, 0, 3], [1, 6, 2], [4, 4, 0]];
 
 /// `handle`, a `u32` page table `[sequences, pages_per_sequence]`, keyed by `keys`: the sequence
 /// whose pages it lists, then the positions they hold.
-fn page_table(handle: TensorHandle, keys: &[Axis]) -> TileTensorLaunch {
+fn page_table(handle: TensorHandle, keys: &[Dimension]) -> TileTensorLaunch {
     TileTensorLaunch::new(
         handle.binding().into_tensor_arg(),
         u32::elem_type_native(),
@@ -260,9 +260,9 @@ impl Handing {
 }
 
 /// `out[b] = Σ pool[b's page of s, s % PAGE_LEN]` over positions `from..lens[b]` of sequence `b`,
-/// read through the table its binding carries: the kernel walks logical positions, `read_block` of them
-/// a step, and [`Tile::within`] cuts each sequence at its own length, handing each cut the entry
-/// `handing` names.
+/// read through the table its binding carries: the kernel walks logical positions, `read_block` of
+/// them a step, and [`Tile::within`] cuts each sequence at its own length, handing each cut the
+/// entry `handing` names.
 #[cube(launch)]
 fn paged_read_sum_kernel<E: Numeric>(
     pool: &TileTensor<'_>,
@@ -295,7 +295,7 @@ fn paged_read_sum_kernel<E: Numeric>(
             let blk = steps.region(i);
             let mut cell = out.at(&blk);
             if comptime!(handing == Handing::Nothing) {
-                cell.reduce_axis_accumulate(&positions.at(&blk), comptime!(Monoid::Sum));
+                cell.reduce_dimension_accumulate(&positions.at(&blk), comptime!(Monoid::Sum));
             } else {
                 let mut entry = PageEntry::unlisted();
                 if comptime!(handing == Handing::Carried) {
@@ -309,7 +309,7 @@ fn paged_read_sum_kernel<E: Numeric>(
                     entry = positions.read_page_entry(&source);
                 }
                 let handed = positions.with_page_entry(&entry);
-                cell.reduce_axis_accumulate(&handed.at(&blk), comptime!(Monoid::Sum));
+                cell.reduce_dimension_accumulate(&handed.at(&blk), comptime!(Monoid::Sum));
             }
         }
     }
@@ -371,7 +371,7 @@ fn run_paged_read_blocks(
 
 /// How a read places its pool by its table: [`TileTensorLaunch::indexed`] or
 /// [`TileTensorLaunch::indexed_covering`].
-type Bind = fn(TileTensorLaunch, TileTensorLaunch, Indexing) -> Result<TileTensorLaunch, Refusal>;
+type Bind = fn(TileTensorLaunch, TileTensorLaunch, Indexing) -> Result<TileTensorLaunch, Decline>;
 
 /// [`run_paged_read_blocks`] through a table of `entries` laid out as `shape`, any rank, the pool
 /// bound by `bind`.
@@ -429,7 +429,7 @@ fn run_paged_read_table(
 
     let pool = launcher
         .arg(pool_handle.binding(), f32_ty)
-        .axes(&[B, S, F])
+        .dimensions(&[B, S, F])
         .build()
         .unwrap()
         .arg();
@@ -496,7 +496,7 @@ fn paged_page_walk_sum_kernel<E: Numeric>(
             let page_window = positions.at(&held);
             for step in held.walk() {
                 let mut cell = out.at(&step);
-                cell.reduce_axis_accumulate(&page_window.at(&step), comptime!(Monoid::Sum));
+                cell.reduce_dimension_accumulate(&page_window.at(&step), comptime!(Monoid::Sum));
             }
         }
     }
@@ -551,7 +551,7 @@ fn run_paged_page_walk(lens: &[u32; SEQUENCES], step: usize, from: u32) -> HostD
 
     let pool = launcher
         .arg(pool_handle.binding(), f32_ty)
-        .axes(&[B, S, F])
+        .dimensions(&[B, S, F])
         .build()
         .unwrap()
         .arg()
@@ -871,9 +871,8 @@ fn a_covering_table_reads_each_sequence_through_it() {
 }
 
 /// What a kernel could not read through a table is refused as the table is bound: a table of
-/// another rank than its two keys, one dim for both axes, pages along the innermost dim, a pool of
-/// no pages, and a delivery that moves
-/// runs.
+/// another rank than its two keys, one axis for both dimensions, pages along the innermost axis, a
+/// pool of no pages, and a delivery that moves runs.
 #[test]
 fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
     let client = cubecl::test_device().client();
@@ -898,7 +897,7 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
         .dtype(u32::elem_type_native())
         .zeros()
         .generate_without_host_data();
-    let placed = |bound: Result<Bound, Refusal>, (sequence, position)| {
+    let placed = |bound: Result<Bound, Decline>, (sequence, position)| {
         bound
             .and_then(|pool| {
                 pool.arg().indexed(
@@ -908,10 +907,10 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
             })
             .err()
     };
-    let refusal = |binding, axes: &[Axis], keys, width| {
+    let decline = |binding, dimensions: &[Dimension], keys, width| {
         let pool = launcher
             .arg(binding, f32::elem_type_native())
-            .axes(axes)
+            .dimensions(dimensions)
             .vectorize(width)
             .build();
         placed(pool, keys)
@@ -923,7 +922,7 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
     let rows = pool([POOL, 3, 4]);
     let flat_table = launcher
         .arg(rows.binding(), f32::elem_type_native())
-        .axes(&[B, S, F])
+        .dimensions(&[B, S, F])
         .build()
         .and_then(|pool| {
             pool.arg()
@@ -932,30 +931,30 @@ fn a_paged_operand_the_table_cannot_resolve_is_refused_at_build() {
         .err();
     assert_eq!(
         flat_table,
-        Some(Refusal::IndexTableRank { keys: 2, rank: 1 })
+        Some(Decline::IndexTableRank { keys: 2, rank: 1 })
     );
     let a = pool([POOL, 3, 4]);
     assert_eq!(
-        refusal(a.binding(), &[B, S, F], (S, S), 1),
-        Some(Refusal::PagingOfOneDim(S))
+        decline(a.binding(), &[B, S, F], (S, S), 1),
+        Some(Decline::PagingOfOneAxis(S))
     );
     let b = pool([POOL, 3, 4]);
     assert_eq!(
-        refusal(b.binding(), &[S, F, B], (B, S), 1),
-        Some(Refusal::PagesAlongALine(B))
+        decline(b.binding(), &[S, F, B], (B, S), 1),
+        Some(Decline::PagesAlongALine(B))
     );
     let e = pool([0, 3, 4]);
     assert_eq!(
-        refusal(e.binding(), &[B, S, F], (B, S), 1),
-        Some(Refusal::PagingOfAnEmptyPool)
+        decline(e.binding(), &[B, S, F], (B, S), 1),
+        Some(Decline::PagingOfAnEmptyPool)
     );
 }
 
-/// The pool is bound as it lies, so where its pages sit among its dims is no matter: pages inner
+/// The pool is bound as it lies, so where its pages sit among its axes is no matter: pages inner
 /// to a head dim, and a head dim of one whose stride is anything, as an `unsqueeze` leaves it.
 #[test]
 fn a_paged_pool_binds_wherever_its_pages_lie() {
-    const H: Axis = Axis(3);
+    const H: Dimension = Dimension(3);
     let client = cubecl::test_device().client();
     let launcher = implied(
         &client,
@@ -983,7 +982,7 @@ fn a_paged_pool_binds_wherever_its_pages_lie() {
     };
     let heads_outside = launcher
         .arg(pool.binding(), f32::elem_type_native())
-        .axes(&[H, B, S, F])
+        .dimensions(&[H, B, S, F])
         .build()
         .and_then(placed);
     assert!(heads_outside.is_ok(), "{:?}", heads_outside.err());
@@ -996,7 +995,7 @@ fn a_paged_pool_binds_wherever_its_pages_lie() {
     binding.strides = [PAGE_LEN * 4, 4096, 4, 1].into();
     let one_head = launcher
         .arg(binding, f32::elem_type_native())
-        .axes(&[B, H, S, F])
+        .dimensions(&[B, H, S, F])
         .build()
         .and_then(placed);
     assert!(one_head.is_ok(), "{:?}", one_head.err());
@@ -1073,7 +1072,7 @@ fn run_packed_paged(pools: PagedPools) -> Option<HostData> {
             );
             launcher
                 .arg(pool.binding(), u32_ty)
-                .axes(&[B, S, F])
+                .dimensions(&[B, S, F])
                 .vectorize(features)
                 .packed(field)
         }
@@ -1092,7 +1091,7 @@ fn run_packed_paged(pools: PagedPools) -> Option<HostData> {
                     .generate_with_f32_host_data();
             launcher
                 .arg(pool.binding(), f32_ty)
-                .axes(&[B, S, F])
+                .dimensions(&[B, S, F])
                 .vectorize(features)
         }
     }
@@ -1107,7 +1106,7 @@ fn run_packed_paged(pools: PagedPools) -> Option<HostData> {
                 .generate_with_f32_host_data();
             let scales = launcher
                 .arg(scale_pool.binding(), f32_ty)
-                .axes(&[B, S])
+                .dimensions(&[B, S])
                 .build()
                 .unwrap()
                 .arg()
@@ -1122,7 +1121,7 @@ fn run_packed_paged(pools: PagedPools) -> Option<HostData> {
         .unwrap();
     let out_arg = launcher
         .arg(out.clone().binding(), f32_ty)
-        .axes(&[B, S, F])
+        .dimensions(&[B, S, F])
         .vectorize(features)
         .build()
         .unwrap();
@@ -1171,7 +1170,7 @@ fn check_packed_paged(pools: PagedPools) {
     }
 }
 
-/// A packed pool is paged like a plain one: its words lie along the features, the innermost dim,
+/// A packed pool is paged like a plain one: its words lie along the features, the innermost axis,
 /// across no page, so the table resolves them as it does a plain pool's lines.
 #[test]
 fn a_packed_pool_reads_each_sequence_through_its_table() {

@@ -10,13 +10,13 @@ use cubecl::prelude::*;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Axis, Delivery, Extent, Field, Geometry, Launcher, LineMisfit, Packing, Projection, Refusal,
-    Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
+    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
+    Projection, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
 };
 
-/// Typestate marker: the operand's axes are not yet stated.
+/// Typestate marker: the operand's dimensions are not yet stated.
 pub struct Unlabelled;
-/// Typestate marker: the operand's axes are stated.
+/// Typestate marker: the operand's dimensions are stated.
 pub struct Labelled;
 
 /// What the builder accumulates.
@@ -26,9 +26,9 @@ pub(crate) struct ArgData<'a> {
     /// destination with no address.
     pub(crate) binding: Option<(TensorBinding, ElemType)>,
     pub(crate) geometry: Geometry,
-    pub(crate) axes: &'a [Axis],
-    pub(crate) batches: &'a [Axis],
-    /// The operand's own affine mapping; `None` derives it from the labelled dims.
+    pub(crate) dimensions: &'a [Dimension],
+    pub(crate) batches: &'a [Dimension],
+    /// The operand's own affine mapping; `None` derives it from the labelled axes.
     pub(crate) projection: Option<Projection>,
     pub(crate) width: usize,
     /// The stated policy; `None` derives one from the overhangs.
@@ -36,11 +36,11 @@ pub(crate) struct ArgData<'a> {
     pub(crate) packing: Packing,
     /// Who moves the operand into a stage ([`delivery`](Arg::delivery)).
     pub(crate) delivery: Delivery,
-    /// Whether the labelled dims bind in stride order ([`in_stride_order`](Arg::in_stride_order)).
+    /// Whether the labelled axes bind in stride order ([`in_stride_order`](Arg::in_stride_order)).
     pub(crate) in_stride_order: bool,
 }
 
-/// One operand of a launch, being described; `S` says whether its axes are stated yet.
+/// One operand of a launch, being described; `S` says whether its dimensions are stated yet.
 pub struct Arg<'a, S> {
     data: ArgData<'a>,
     _state: PhantomData<S>,
@@ -66,7 +66,7 @@ impl<'a> Arg<'a, Unlabelled> {
                 launch,
                 binding,
                 geometry,
-                axes: &[],
+                dimensions: &[],
                 batches: &[],
                 projection: None,
                 width: 1,
@@ -79,9 +79,9 @@ impl<'a> Arg<'a, Unlabelled> {
         }
     }
 
-    /// The axes the operand's trailing buffer dims carry.
-    pub fn axes(mut self, axes: &'a [Axis]) -> Arg<'a, Labelled> {
-        self.data.axes = axes;
+    /// The dimensions the operand's trailing buffer axes carry.
+    pub fn dimensions(mut self, dimensions: &'a [Dimension]) -> Arg<'a, Labelled> {
+        self.data.dimensions = dimensions;
         self.labelled()
     }
 
@@ -101,19 +101,20 @@ impl<'a> Arg<'a, Unlabelled> {
 }
 
 impl<'a> Arg<'a, Labelled> {
-    /// The batch axes in the output's order, right-aligned to the leading dims (numpy broadcast).
-    pub fn batches(mut self, axes: &'a [Axis]) -> Self {
-        self.data.batches = axes;
+    /// The batch dimensions in the output's order, right-aligned to the leading axes (numpy
+    /// broadcast).
+    pub fn batches(mut self, dimensions: &'a [Dimension]) -> Self {
+        self.data.batches = dimensions;
         self
     }
 
-    /// Bind the labelled dims in the order they step, coarsest first; batch dims stay put.
+    /// Bind the labelled axes in the order they step, coarsest first; batch axes stay put.
     pub fn in_stride_order(mut self) -> Self {
         self.data.in_stride_order = true;
         self
     }
 
-    /// Serve the innermost axis in `width`-wide lines; that axis must be contiguous.
+    /// Serve the innermost dimension in `width`-wide lines; that dimension must be contiguous.
     pub fn vectorize(mut self, width: usize) -> Self {
         self.data.width = width;
         self
@@ -149,13 +150,30 @@ impl<'a> Arg<'a, Labelled> {
         self
     }
 
-    /// The operand, bound, or the [`Refusal`] saying why it cannot be.
-    pub fn build(self) -> Result<Bound, Refusal> {
+    /// The operand, bound, or the [`Decline`] saying why it cannot be.
+    ///
+    /// # Errors
+    ///
+    /// The [`Decline`] of a binding this launch cannot serve.
+    ///
+    /// # Panics
+    ///
+    /// Where a [`gathered`](Arg::gathered) operand also states [`batches`](Arg::batches), or its
+    /// mapping spans a dimension the launched space does not have.
+    pub fn build(self) -> Result<Bound, Decline> {
         self.realize().map(|(bound, _)| bound)
     }
 
     /// [`build`](Self::build) without the tensor argument, for an operand with no address.
-    pub fn build_spec(self) -> Result<Unbound, Refusal> {
+    ///
+    /// # Errors
+    ///
+    /// As [`build`](Self::build).
+    ///
+    /// # Panics
+    ///
+    /// As [`build`](Self::build).
+    pub fn build_spec(self) -> Result<Unbound, Decline> {
         let (bound, geometry) = self.realize()?;
         Ok(Unbound {
             spec: bound.spec,
@@ -166,7 +184,7 @@ impl<'a> Arg<'a, Labelled> {
 
     /// The derivation both builds share, looked up where an earlier launch already made it
     /// ([`Derivation`]): it reads nothing a launch changes but the tensor's address.
-    fn realize(self) -> Result<(Bound, Geometry), Refusal> {
+    fn realize(self) -> Result<(Bound, Geometry), Decline> {
         let packing = self.data.packing.read_on(self.data.launch.client());
         let stored = self
             .data
@@ -177,7 +195,7 @@ impl<'a> Arg<'a, Labelled> {
         let derived = Derivation::view(&self.data, packing, stored)
             .derived(|| self.derive(packing, stored))?;
         let tensor = self.data.binding.map(|(mut binding, element)| {
-            // Its tiling restated over the settled geometry's dims.
+            // Its tiling restated over the settled geometry's axes.
             binding.shape = derived.geometry.shape().into();
             binding.strides = derived.geometry.strides().into();
             binding.tiling = derived.geometry.tiling();
@@ -193,40 +211,48 @@ impl<'a> Arg<'a, Labelled> {
 
     /// The derivation itself, its packing read on the device as `packing` and its buffer stored as
     /// `stored`.
-    fn derive(&self, packing: Packing, stored: Tiling) -> Result<Derived, Refusal> {
+    fn derive(&self, packing: Packing, stored: Tiling) -> Result<Derived, Decline> {
         let data = &self.data;
         let launch = data.launch;
         let width = data.width;
         let stated = data.projection.is_some() || stored.is_tiled();
-        let (geometry, axes) = match data.in_stride_order {
-            true if stated => return Err(Refusal::StrideOrderOfAStatedLayout),
-            true => data.geometry.clone().in_stride_order(data.axes),
-            false => (data.geometry.clone(), data.axes.to_vec()),
+        let (geometry, dimensions) = match data.in_stride_order {
+            true if stated => return Err(Decline::StrideOrderOfAStatedLayout),
+            true => data.geometry.clone().in_stride_order(data.dimensions),
+            false => (data.geometry.clone(), data.dimensions.to_vec()),
         };
-        let (storage, stored_tiles) = self.storage(&geometry, &axes);
+        let (storage, stored_tiles) = self.storage(&geometry, &dimensions);
         let labels = match data.projection.clone() {
-            Some(projection) => {
-                Labels::stated(&geometry, launch, projection, &axes, data.batches, stored)?
-            }
-            None => Labels::new(&geometry, &axes, data.batches)?,
+            Some(projection) => Labels::stated(
+                &geometry,
+                launch,
+                projection,
+                &dimensions,
+                data.batches,
+                stored,
+            )?,
+            None => Labels::new(&geometry, &dimensions, data.batches)?,
         };
         let Labels {
             geometry,
             projection,
             addressed,
         } = labels;
+        if data.projection.is_some() && !stored.is_tiled() {
+            projection.dimensions_in_axis_order(width)?;
+        }
         projection.validate(width)?;
-        // A stated width is checked here: `stride / width` would truncate silently.
-        // A line runs along the innermost dim's axis; a buffer with no labelled dim has none.
+        // A stated width is checked here: `stride / width` would truncate silently. A line runs
+        // along the innermost axis's dimension; a buffer with no labelled axis has none.
         let labels = projection.dense_labels();
         let served = match labels.last() {
-            Some(&axis) => VectorTile::new(&stored_tiles, axis, width)
+            Some(&dimension) => VectorTile::new(&stored_tiles, dimension, width)
                 .map_err(LineMisfit::Tile)
                 .and_then(|tile| geometry.serves(tile.extents(), &labels)),
             None if width == 1 => Ok(()),
-            None => Err(LineMisfit::NoDims),
+            None => Err(LineMisfit::NoAxes),
         };
-        served.map_err(|why| Refusal::WidthNotServed { width, why })?;
+        served.map_err(|why| Decline::WidthNotServed { width, why })?;
         let may_overhang;
         let overhangs = match data.boundary {
             Some(BoundaryPolicy::AnyExtent(_)) => {
@@ -243,14 +269,22 @@ impl<'a> Arg<'a, Labelled> {
             overhangs,
             width,
         )?;
+        for &boundary in boundaries.modes.iter().flatten() {
+            data.delivery.reads_edge(boundary)?;
+        }
+        if !matches!(packing, Packing::Plain)
+            && Boundary::edge_identity(&boundaries.modes).is_some()
+        {
+            return Err(Decline::IdentityEdgeOfPackedValues);
+        }
         // Inside its storage tile a window is one unmasked run: a checked operand whose launch
         // reaches past its padding would read storage tiles it does not have, which the kernel
         // can only find out as it expands.
         if let Storage::Tiled(Some(level)) = storage
             && !boundaries.modes.is_empty()
-            && self.reaches_past_storage_tiles(&axes, level)
+            && self.reaches_past_storage_tiles(&dimensions, level)
         {
-            return Err(Refusal::CheckedInsideStorageTile { level });
+            return Err(Decline::CheckedInsideStorageTile { level });
         }
         let spec = TileSpec {
             projection,
@@ -267,14 +301,18 @@ impl<'a> Arg<'a, Labelled> {
     }
 
     /// The coarsest level whose windows the operand's storage tiles address with one stride per
-    /// axis (one contiguous run each), every other window walked through the layout; and the stored
-    /// tiles themselves, finest first ([`TileSpec::stored_tiles`]).
-    fn storage(&self, geometry: &Geometry, axes: &[Axis]) -> (Storage, Vec<(Axis, usize)>) {
+    /// dimension (one contiguous run each), every other window walked through the layout; and the
+    /// stored tiles themselves, finest first ([`TileSpec::stored_tiles`]).
+    fn storage(
+        &self,
+        geometry: &Geometry,
+        dimensions: &[Dimension],
+    ) -> (Storage, Vec<(Dimension, usize)>) {
         let launch = self.data.launch;
         if !(self.data.projection.is_none() && geometry.tiling().is_tiled()) {
             return (Storage::Strided, Vec::new());
         }
-        let labels = geometry.labels(axes);
+        let labels = geometry.labels(dimensions);
         let partitioning = StoragePartitioning::new(geometry, &labels);
         let stored_tiles = partitioning
             .as_ref()
@@ -285,21 +323,21 @@ impl<'a> Arg<'a, Labelled> {
             .map(|storage| storage.contiguous_tiles(&geometry.extents(&labels)))
             .unwrap_or_default();
         tiles.retain(|tile| tile.iter().map(|&(_, extent)| extent).product::<usize>() <= dense_run);
-        // Each level's window along the operand's axes, outermost first: the extent this launch
-        // cuts it to, and whether the kernel hands it down dynamic. A level that cuts an axis gives
-        // it its tile; one that does not passes the window above it down.
+        // Each level's window along the operand's dimensions, outermost first: the extent this
+        // launch cuts it to, and whether the kernel hands it down dynamic. A level that cuts a
+        // dimension gives it its tile; one that does not passes the window above it down.
         let (space, kernel) = (launch.space(), launch.partitioning().space());
-        let mut window: LevelWindow = axes
+        let mut window: LevelWindow = dimensions
             .iter()
-            .map(|&axis| (space.extent_raw(axis), kernel.is_dynamic(axis)))
+            .map(|&dimension| (space.extent_raw(dimension), kernel.is_dynamic(dimension)))
             .collect();
         let windows: SmallVec<[LevelWindow; 8]> = launch
             .partitioning()
             .levels()
             .iter()
             .map(|level| {
-                for (&axis, cut) in axes.iter().zip(window.iter_mut()) {
-                    if let Some(tile) = level.tile(axis) {
+                for (&dimension, cut) in dimensions.iter().zip(window.iter_mut()) {
+                    if let Some(tile) = level.tile(dimension) {
                         *cut = (Extent::Static(tile), false);
                     }
                 }
@@ -308,14 +346,17 @@ impl<'a> Arg<'a, Labelled> {
             .collect();
         // A tile the kernel hands down dynamic is no window a storage tile can be, whatever this
         // launch's extent makes it.
-        let cuts_to = |window: &[(Extent, bool)], tile: &[(Axis, usize)]| {
-            axes.iter().zip(window).all(|(&axis, &(extent, dynamic))| {
-                let stored = tile
-                    .iter()
-                    .find(|&&(a, _)| a == axis)
-                    .map_or(1, |&(_, e)| e);
-                !dynamic && extent == Extent::Static(stored)
-            })
+        let cuts_to = |window: &[(Extent, bool)], tile: &[(Dimension, usize)]| {
+            dimensions
+                .iter()
+                .zip(window)
+                .all(|(&dimension, &(extent, dynamic))| {
+                    let stored = tile
+                        .iter()
+                        .find(|&&(a, _)| a == dimension)
+                        .map_or(1, |&(_, e)| e);
+                    !dynamic && extent == Extent::Static(stored)
+                })
         };
         let level = tiles
             .iter()
@@ -325,22 +366,40 @@ impl<'a> Arg<'a, Labelled> {
     }
 
     /// Whether a window of `level`, the storage tile's, lies wholly past the operand along one of
-    /// `axes`: the launch's outermost tile reaches past the extent padded to whole storage tiles,
-    /// where no storage tile is allocated. A window that only overhangs the extent reads padding.
-    fn reaches_past_storage_tiles(&self, axes: &[Axis], level: usize) -> bool {
+    /// `dimensions`: the launch's outermost tile reaches past the extent padded to whole storage tiles,
+    /// where no storage tile is allocated, or a level down to it is launched in an order that
+    /// starts planes past the last of its tiles ([`PlaneOrder::overruns`]), however evenly its
+    /// tile divides the extent. A window that only overhangs the extent reads padding.
+    ///
+    /// [`PlaneOrder::overruns`]: crate::space::PlaneOrder
+    fn reaches_past_storage_tiles(&self, dimensions: &[Dimension], level: usize) -> bool {
         let launch = self.data.launch;
         let levels = launch.partitioning().levels();
-        axes.iter().any(|&axis| {
-            // The outermost level cutting the axis tiles the grid; the last one down to `level`
-            // is the storage tile's extent along it. No cut leaves one window, the whole extent.
-            let mut cuts = levels[..=level].iter().filter_map(|level| level.tile(axis));
-            let Some(outer) = cuts.next() else {
-                return false;
-            };
-            let stored = cuts.next_back().unwrap_or(outer);
-            let extent = launch.space().extent(axis);
-            extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
-        })
+        let mut space = launch.space().clone();
+        let overruns = levels[..=level].iter().any(|level| {
+            let overruns = level.launch_order().is_some_and(|order| {
+                dimensions.iter().any(|&dimension| {
+                    level.tile(dimension).is_some() && order.overruns(level, &space, dimension)
+                })
+            });
+            space = level.child(&space);
+            overruns
+        });
+        overruns
+            || dimensions.iter().any(|&dimension| {
+                // The outermost level cutting the dimension tiles the grid; the last one down to
+                // `level` is the storage tile's extent along it. No cut leaves one window, the
+                // whole extent.
+                let mut cuts = levels[..=level]
+                    .iter()
+                    .filter_map(|level| level.tile(dimension));
+                let Some(outer) = cuts.next() else {
+                    return false;
+                };
+                let stored = cuts.next_back().unwrap_or(outer);
+                let extent = launch.space().extent(dimension);
+                extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
+            })
     }
 }
 
@@ -394,6 +453,6 @@ pub struct Unbound {
     pub geometry: Geometry,
 }
 
-/// One level's window along an operand's axes, in their order: the extent the launch cuts each axis
-/// to, and whether the kernel hands it down dynamic.
+/// One level's window along an operand's dimensions, in their order: the extent the launch cuts
+/// each dimension to, and whether the kernel hands it down dynamic.
 type LevelWindow = SmallVec<[(Extent, bool); Space::MAX_RANK]>;

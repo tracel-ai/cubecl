@@ -669,6 +669,59 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     );
 }
 
+/// Checked against the launch: the profiling logger, when on, makes a deferred observer's wait too.
+#[test_log::test]
+#[serial_test::serial]
+fn launches_read_timing_exactly_when_their_observer_is_handed_a_read_duration() {
+    struct Asks {
+        timing: TimingRequest,
+        read: core::sync::atomic::AtomicBool,
+    }
+    impl ExecutionObserver for Asks {
+        fn issued(&self, _execution: &Execution) {}
+        fn timing(&self) -> TimingRequest {
+            self.timing
+        }
+        fn measured(&self, _execution: &Execution, measurement: Measurement) {
+            if matches!(measurement, Measurement::Read { .. }) {
+                self.read.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
+    let client = test_client(&DummyDevice);
+    assert!(!client.launches_read_timing(), "unobserved");
+
+    for timing in [
+        TimingRequest::Resolved,
+        TimingRequest::Deferred(Timed::Kernels),
+    ] {
+        let observer = Arc::new(Asks {
+            timing,
+            read: core::sync::atomic::AtomicBool::new(false),
+        });
+        let watching = ExecutionObservation::new(observer.clone());
+        let waits = client.launches_read_timing();
+        let lhs = client.create_from_slice(&[0, 1, 2]);
+        let rhs = client.create_from_slice(&[4, 4, 4]);
+        let out = client.empty(3);
+        client.launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![
+                lhs.binding(),
+                rhs.binding(),
+                out.clone().binding(),
+            ]),
+        );
+        client.read_one(out).unwrap();
+        drop(watching);
+
+        assert_eq!(waits, observer.read.load(Ordering::Relaxed), "{timing:?}");
+    }
+    assert!(!client.launches_read_timing(), "after the observation");
+}
+
 #[test_log::test]
 #[serial_test::serial]
 #[cfg(feature = "std")]

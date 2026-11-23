@@ -1,10 +1,10 @@
-//! A buffer layout's alignment in elements, along its innermost dim.
+//! A buffer layout's alignment in elements, along its innermost axis.
 
 use super::geometry::stride_order;
-use crate::{Axis, Geometry, gcd, layout::StoragePartitioning};
+use crate::{Dimension, Geometry, gcd, layout::StoragePartitioning};
 use cubecl::prelude::TensorBinding;
 
-/// The alignment of a buffer's layout, counted in elements along its innermost dim: the number
+/// The alignment of a buffer's layout, counted in elements along its innermost axis: the number
 /// every line width that reads the buffer's elements and no others divides.
 ///
 /// Not a byte or address alignment: the tile launcher refuses a width that does not divide the
@@ -32,16 +32,16 @@ enum Widths {
 
 impl ElemAlignment {
     /// A layout aligned to one element, read one element at a time: a strided or broadcast view,
-    /// whose innermost dim strides past one.
+    /// whose innermost axis strides past one.
     pub const ONE: Self = Self(Widths::Dividing(1));
 
-    /// The alignment of a buffer of `shape` at `strides`, its dims taken in the order the buffer
+    /// The alignment of a buffer of `shape` at `strides`, its axes taken in the order the buffer
     /// steps them, whatever order the view names them in.
     pub fn in_stride_order(shape: &[usize], strides: &[usize]) -> Self {
-        let mut dims: Vec<(usize, usize)> =
+        let mut axes: Vec<(usize, usize)> =
             shape.iter().copied().zip(strides.iter().copied()).collect();
-        dims.sort_by_key(|&dim| stride_order(dim));
-        let (shape, strides): (Vec<usize>, Vec<usize>) = dims.into_iter().unzip();
+        axes.sort_by_key(|&axis| stride_order(axis));
+        let (shape, strides): (Vec<usize>, Vec<usize>) = axes.into_iter().unzip();
         Self::new(&shape, &strides)
     }
 
@@ -53,7 +53,7 @@ impl ElemAlignment {
 
     /// The alignment of a buffer of `shape` at `strides`, innermost last.
     ///
-    /// A dim of one element steps nowhere, so its stride reads no address and aligns nothing:
+    /// An axis of one element steps nowhere, so its stride reads no address and aligns nothing:
     /// a view `[1, k]` swapped out of a column `[k, 1]` keeps the column's stride of one on its
     /// single row, and is as aligned as the dense row it is.
     pub fn new(shape: &[usize], strides: &[usize]) -> Self {
@@ -115,8 +115,8 @@ impl From<&TensorBinding> for ElemAlignment {
         if !binding.tiling.is_tiled() {
             return Self::new(&binding.shape, &binding.strides);
         }
-        const ROWS: Axis = Axis(0);
-        const COLS: Axis = Axis(1);
+        const ROWS: Dimension = Dimension(0);
+        const COLS: Dimension = Dimension(1);
         let geometry = Geometry::from(binding);
         let storage = StoragePartitioning::new(&geometry, &geometry.labels(&[ROWS, COLS]));
         match storage.as_ref().and_then(|storage| storage.tiles().first()) {
@@ -131,24 +131,25 @@ mod tests {
     /// A row viewed out of a column keeps the column's stride on its single row, which steps
     /// nowhere: it is as aligned as the dense row it is.
     #[test]
-    fn a_dim_of_one_element_aligns_nothing() {
+    fn an_axis_of_one_element_aligns_nothing() {
         let k = 8;
         let row = ElemAlignment::new(&[1, k], &[1, 1]);
         assert_eq!(row, ElemAlignment::dense_rows(k));
         assert!(ElemAlignment::in_stride_order(&[1, k], &[1, 1]).admits(k));
     }
 
-    /// A column bound in buffer order runs its lines along the dim it steps, not along its dim of
+    /// A column bound in buffer order runs its lines along the axis it steps, not along its axis of
     /// one element, which ties its stride: `[k, 1]` at strides `[1, 1]` is a dense run of `k`.
     #[test]
-    fn a_dim_of_one_element_is_never_innermost_in_stride_order() {
+    fn an_axis_of_one_element_is_never_innermost_in_stride_order() {
         let k = 4;
         assert_eq!(
             ElemAlignment::in_stride_order(&[k, 1], &[1, 1]),
             ElemAlignment::dense_rows(k)
         );
-        let (_, axes) = Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Axis(2), Axis(1)]);
-        assert_eq!(axes, [Axis(1), Axis(2)]);
+        let (_, dimensions) =
+            Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Dimension(2), Dimension(1)]);
+        assert_eq!(dimensions, [Dimension(1), Dimension(2)]);
     }
 
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.
@@ -163,7 +164,7 @@ mod tests {
     use super::*;
 
     /// A dense row is aligned to its length; padding past it to what the pad
-    /// divides too; a strided innermost dim to one element.
+    /// divides too; a strided innermost axis to one element.
     /// A view's start aligns it to its offset in elements: any width at its buffer's start, the
     /// offset's divisors partway in, one element where the start splits an element.
     #[test]
