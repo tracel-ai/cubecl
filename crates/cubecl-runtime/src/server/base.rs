@@ -932,14 +932,29 @@ pub trait Server:
     /// asks for, since the capture window allocates nothing, and every page the
     /// recording touches is guarded for the graph's lifetime.
     ///
-    /// A capture prepared right after a recording on `stream_id` was refused
-    /// for keeping a buffer it placed as a temporary starts with that
-    /// recording's allocations as its plan, so it may open its window at once.
-    ///
     /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Ok(())
+    }
+
+    /// [`graph_prepare`](Server::graph_prepare) a retry of the recording just
+    /// refused on `stream_id` for keeping a buffer it placed as a temporary,
+    /// and answer whether there was one: nothing is prepared otherwise.
+    ///
+    /// The refused recording's allocations place the retry's first planning
+    /// run, so that run grows the room apart for every buffer the recording
+    /// kept. A recording follows that run, never the refused one: its window
+    /// adds no page. A capture prepared with `graph_prepare` forgets them.
+    ///
+    /// `false` by default, for a backend that refuses no recording that way.
+    ///
+    /// # Errors
+    ///
+    /// As [`graph_prepare`](Server::graph_prepare).
+    fn graph_prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let _ = stream_id;
+        Ok(false)
     }
 
     /// End a planning run of the work a capture on `stream_id` is about to
