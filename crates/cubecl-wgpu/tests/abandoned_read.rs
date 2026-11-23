@@ -15,7 +15,11 @@ fn a_read_dropped_unawaited_releases_its_staging_buffer_unmapped() {
     let values = vec![7u8; 256];
     let handle = client.create(Bytes::from_bytes_vec(values.clone()));
 
-    core::mem::drop(client.read_async(vec![handle.clone()]));
+    let read = {
+        let client = client.clone();
+        client.read_async(vec![handle.clone()])
+    };
+    core::mem::drop(read);
     block_on(client.sync()).expect("the device runs");
     assert_eq!(staging_in_use(&client).in_use_bytes, 0);
 

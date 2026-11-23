@@ -1,3 +1,4 @@
+use crate::compute::device_poison::PoisonWatch;
 use alloc::sync::Arc;
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{
@@ -92,6 +93,7 @@ impl WgpuAllocController {
 pub(crate) struct MappingStaging {
     staging: Arc<Mutex<Staging>>,
     size: usize,
+    poison: PoisonWatch,
 }
 
 /// What the read and its map's callback share. Only the callback may unmap a
@@ -108,6 +110,7 @@ impl MappingStaging {
         buffer: wgpu::Buffer,
         binding: ManagedMemoryBinding,
         size: usize,
+        poison: &PoisonWatch,
         on_mapped: impl FnOnce(Result<(), wgpu::BufferAsyncError>) + Send + 'static,
     ) -> Self {
         let staging = Arc::new(Mutex::new(Staging {
@@ -123,7 +126,11 @@ impl MappingStaging {
                 on_mapped(result);
             });
 
-        Self { staging, size }
+        Self {
+            staging,
+            size,
+            poison: poison.clone(),
+        }
     }
 
     /// The buffer's first `size` bytes, once its map has completed.
@@ -142,7 +149,16 @@ impl MappingStaging {
 
 impl Drop for MappingStaging {
     fn drop(&mut self) {
-        self.staging.lock().abandon();
+        let mut staging = self.staging.lock();
+        staging.abandon();
+        // A lost device may never run the callback, which would keep the buffer reserved.
+        let lost = match self.poison.is_poisoned() {
+            true => staging.buffer_and_binding.take(),
+            false => None,
+        };
+        // Dropped unlocked: dropping a buffer's last handle runs its pending callback.
+        core::mem::drop(staging);
+        core::mem::drop(lost);
     }
 }
 

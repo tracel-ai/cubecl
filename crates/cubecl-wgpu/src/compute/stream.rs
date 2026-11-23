@@ -434,12 +434,13 @@ impl WgpuStream {
                 self.poison.wake_on_loss(&sender);
                 // Held until the map completes, which an abandoned read's staging buffer waits on.
                 let polling = self.poll.start_polling();
-                let staging = MappingStaging::map(staging.buffer, binding, size, move |v| {
-                    // This might fail if the channel is closed (eg. the future is dropped).
-                    // This is fine, just means results aren't needed anymore.
-                    let _ = sender.try_send(v);
-                    core::mem::drop(polling);
-                });
+                let staging =
+                    MappingStaging::map(staging.buffer, binding, size, &self.poison, move |v| {
+                        // This might fail if the channel is closed (eg. the future is dropped).
+                        // This is fine, just means results aren't needed anymore.
+                        let _ = sender.try_send(v);
+                        core::mem::drop(polling);
+                    });
 
                 callbacks.push(Some(receiver));
                 staged.push(Some(staging));
