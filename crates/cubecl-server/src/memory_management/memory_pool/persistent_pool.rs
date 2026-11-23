@@ -189,7 +189,10 @@ impl MemoryPool for PersistentPool {
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?;
-        Some(PageGuard::allocation(slice.handle.to_binding()))
+        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
+        Some(PageGuard::allocation(unsafe {
+            slice.handle.uncounted_binding()
+        }))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

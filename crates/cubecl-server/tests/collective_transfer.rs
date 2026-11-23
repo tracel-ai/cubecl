@@ -364,7 +364,9 @@ impl FakeServer {
     fn out_of_memory(&mut self, reason: &str) -> Handle {
         let handle = self.unallocated();
         self.streams
-            .fail_unallocated(&handle.memory.to_binding(), error(reason));
+            // Safety: the binding only finds or marks the allocation, and touches none of its
+            // bytes.
+            .fail_unallocated(&unsafe { handle.memory.uncounted_binding() }, error(reason));
         handle
     }
 

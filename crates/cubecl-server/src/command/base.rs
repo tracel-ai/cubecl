@@ -270,7 +270,7 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// Returns an [`IoError`] when the memory cannot be reserved or bound, e.g. when the device
     /// is out of memory. The caller records it on `memory`, which has no binding to carry it:
-    /// it takes `memory`'s [binding](ManagedMemoryHandle::to_binding) before handing it over.
+    /// it takes `memory`'s [binding](ManagedMemoryHandle::uncounted_binding) before handing it over.
     pub fn initialize_memory(
         &mut self,
         memory: ManagedMemoryHandle,
@@ -325,7 +325,9 @@ impl<'a, D: Driver> Command<'a, D> {
             Placement::Output => self.reserve_sharing(size, PinnedPages::Separate)?,
             Placement::Pools => self.reserve(size)?,
         };
-        let binding = memory.to_binding();
+        // Safety: the binding runs on the device thread in the stream's order, ahead of any later
+        // launch of the buffer's owner.
+        let binding = unsafe { memory.uncounted_binding() };
         self.bind(reserved, memory)?;
         let current = self.streams.current;
         self.streams
@@ -629,7 +631,9 @@ impl<'a, D: Driver> Command<'a, D> {
 
         self.write_to_gpu(
             CopyDescriptor {
-                handle: handle.to_binding(),
+                // Safety: the binding runs on the device thread in the stream's order, ahead of any
+                // later launch of the buffer's owner.
+                handle: unsafe { handle.uncounted_binding() },
                 shape: [data.len()].into(),
                 strides: [1].into(),
                 elem_size: 1,
