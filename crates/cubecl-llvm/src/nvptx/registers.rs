@@ -10,20 +10,10 @@ use crate::{
     shared::{
         matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
         plane::bitcast,
+        to_llvm::vector::extract_lane,
     },
 };
 use pliron_llvm::types::{StructLayout, StructType};
-
-pub(crate) fn extract_lane(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    vector: Value,
-    i: usize,
-) -> Value {
-    let index = insert_i32_const(ctx, rw, i as i32);
-    let op = llvm::ExtractElementOp::new(ctx, vector, index);
-    insert(ctx, rw, &op)
-}
 
 pub(crate) fn insert_lane(
     ctx: &mut Context,

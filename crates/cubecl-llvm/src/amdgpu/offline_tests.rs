@@ -2,9 +2,9 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, cdna_manual_product_kernel, cdna_quantized_product_kernel,
-    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel, fence_send_kernel,
+    keep_largest_kernel, nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel,
+    relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -135,6 +135,21 @@ fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
         "gfx1201",
     );
     assert!(asm.contains("v_wmma_f32_16x16x16_bf8_bf8"), "{asm}");
+}
+
+/// RDNA4 converts `e4m3` itself, an instruction a code decoded and one a pair encoded; RDNA3 has no
+/// conversion and CDNA3's are of another format, so there it is the software codec.
+#[test]
+fn e4m3_converts_on_the_part_where_it_is_ocp() {
+    let count = |asm: &str, op: &str| asm.matches(op).count();
+    let asm = asm_of(e4m3_decode_kernel(), "gfx1201");
+    assert_eq!(count(&asm, "v_cvt_f32_fp8"), 4, "one a code:\n{asm}");
+    let asm = asm_of(e4m3_encode_kernel(), "gfx1201");
+    assert_eq!(count(&asm, "v_cvt_pk_fp8_f32"), 2, "one a pair:\n{asm}");
+    for arch in ["gfx1151", "gfx942"] {
+        let asm = asm_of(e4m3_encode_kernel(), arch);
+        assert_eq!(count(&asm, "fp8"), 0, "{arch}, the software codec:\n{asm}");
+    }
 }
 
 /// An 8-bit integer product tells the instruction which operand is signed through `neg_lo`, and

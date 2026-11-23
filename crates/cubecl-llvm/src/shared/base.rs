@@ -292,13 +292,14 @@ impl PlironCompiler {
         ctx.set_grid_constants(false);
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
-        ctx.set_matrix_core(arch.matrix_core());
+        let matrix = arch.matrix_core();
+        ctx.set_matrix_core(matrix);
 
         let Lowered {
             io,
             atomic_reads,
             peers,
-        } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
+        } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim, matrix })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
