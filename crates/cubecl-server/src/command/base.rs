@@ -425,11 +425,14 @@ impl<'a, D: Driver> Command<'a, D> {
             .iter()
             .map(|descriptor| descriptor.handle.clone())
             .collect::<Vec<_>>();
+        let copies_any = descriptors
+            .iter()
+            .any(|descriptor| num_bytes(descriptor) != 0);
         let result = self.copies_to_bytes(descriptors);
         let fence = D::Stream::fence(self.streams.current().signal());
-        let copies = match held.is_empty() {
-            true => InFlight::unguarded(fence, (held, result)),
-            false => InFlight::new(fence, (held, result)),
+        let copies = match copies_any && result.is_ok() {
+            false => InFlight::unguarded(fence, (held, result)),
+            true => InFlight::new(fence, (held, result)),
         };
 
         async move {
@@ -474,8 +477,7 @@ impl<'a, D: Driver> Command<'a, D> {
         descriptor: CopyDescriptor,
         stream_id: Option<StreamId>,
     ) -> Result<Bytes, IoError> {
-        let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let mut bytes = self.reserve_cpu(num_bytes, stream_id);
+        let mut bytes = self.reserve_cpu(num_bytes(&descriptor), stream_id);
         self.write_to_cpu(descriptor, &mut bytes, stream_id)?;
 
         Ok(bytes)
@@ -800,6 +802,11 @@ enum Room {
     Planned,
     /// Apart from the room the stream's graphs share, while a capture is under way.
     Separate,
+}
+
+/// How many bytes reading `descriptor` copies to the host.
+fn num_bytes(descriptor: &CopyDescriptor) -> usize {
+    descriptor.shape.iter().product::<usize>() * descriptor.elem_size
 }
 
 /// Memory a stream's copies may still be using until `fence` is reached: their
