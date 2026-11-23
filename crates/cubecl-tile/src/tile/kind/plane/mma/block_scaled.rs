@@ -1,11 +1,14 @@
 //! The block-scaled manual mma: packed codes under block scales, contracted by the device's
 //! block-scaled instruction of the form the blueprint states ([`BlockScaledOperands`]): NVFP4's
 //! `e2m1` under `e4m3` scales of sixteen, MXFP4's and MXFP8's under `ue8m0` scales of
-//! thirty-two, or any other the device takes.
+//! thirty-two, or any other the device takes. A device with no block-scaled instruction of a
+//! form may contract it through its quantized MMA ([`BlockScaledContraction::Quantized`]): the
+//! codes' plain product into a zero sum, scaled into the accumulator, as RDNA4 multiplies 8-bit
+//! floats. Its registers then hold the plain MMA's runs of codes, and its scales one pair a sum.
 
 use cubecl::{
-    cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
-    ir::{ElemType, FloatKind},
+    cmma::{MatrixIdent, MatrixLayout, MmaDefinition, QuantizedMma},
+    ir::{ElemType, FloatKind, features::QuantizedMmaConfig},
     prelude::*,
 };
 
@@ -23,10 +26,18 @@ const LDMATRIX_ROW_WORDS: usize = LDMATRIX_ROW_BYTES / size_of::<u32>();
 #[cube]
 pub(crate) fn register_scaled_sizes(
     def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
+    #[comptime] form: BlockScaledOperands,
     #[comptime] ident: MatrixIdent,
+    #[comptime] shape: (usize, usize, usize),
 ) {
     let values = def.vector_size(ident);
-    let scales = def.scales_vector_size();
+    let (m, n, k) = comptime!(shape);
+    let contraction = quantized_contraction(form, m, n, k);
+    let scales = match comptime!(contraction.is_some()) {
+        // One scale a register, one register a sum the lane holds.
+        true => comptime!(1usize),
+        false => def.scales_vector_size(),
+    };
     intrinsic!(|scope| {
         match ident {
             MatrixIdent::A => scope.register_size::<NLB>(values),
@@ -52,6 +63,9 @@ pub(crate) fn register_scaled_elements(#[comptime] form: BlockScaledOperands) {
 
 /// The device's block-scaled instruction of `m × n × k` over `form`'s codes under its scales,
 /// summing in `CD`: one scale every `form.block` values of `k`.
+///
+/// Through the quantized MMA, the plain MMA of `m × n × k` over the codes, whose registers its
+/// codes are laid in.
 #[cube]
 pub(crate) fn block_scaled_definition<CD: Numeric>(
     #[comptime] form: BlockScaledOperands,
@@ -59,7 +73,37 @@ pub(crate) fn block_scaled_definition<CD: Numeric>(
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> MmaDefinition<LhsCodes, RhsCodes, CD> {
-    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(m, n, k, k / form.block)
+    let contraction = quantized_contraction(form, m, n, k);
+    match comptime!(contraction.is_some()) {
+        true => MmaDefinition::<LhsCodes, RhsCodes, CD>::new(m, n, k),
+        false => MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(
+            m,
+            n,
+            k,
+            k / form.block,
+        ),
+    }
+}
+
+/// Scale registers a lane holds of either operand of the block-scaled form `form` at
+/// `m × n × k`: one, its row's or column's scales along the step, under the block-scaled
+/// instruction; one a sum the lane holds under the quantized MMA, its row's for `A` and its
+/// column's for `B`.
+#[cube]
+pub(crate) fn scale_registers(
+    #[comptime] form: BlockScaledOperands,
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) -> comptime_type!(usize) {
+    let contraction = quantized_contraction(form, m, n, k);
+    match comptime!(contraction) {
+        Some(config) => {
+            register_scaled_elements(form);
+            QuantizedMma::<LhsCodes, RhsCodes, BlockScale>::new(config).scales_per_lane()
+        }
+        None => comptime!(1usize),
+    }
 }
 
 /// Refuses `src`, loaded into a fragment of `T` in role `ident`, as an operand of the device's
@@ -109,6 +153,8 @@ fn refuse_unless_block_scaled<T: Numeric>(
     let levels = src.factor_levels();
     let word_field = src.innermost_factor().word_field();
     let offered = offers_block_scaled(form, m, n, k);
+    let contraction = quantized_contraction(form, m, n, k);
+    let quantized = comptime!(contraction.is_some());
     let as_stored = served_as_stored::<T>();
     let registers = codes_per_register(form, ident, m, n, k);
     comptime!({
@@ -132,7 +178,11 @@ fn refuse_unless_block_scaled<T: Numeric>(
             Some(format!(
                 "the operand is stored as {packing:?}, not packed {held:?} codes"
             ))
-        } else if stored.map(|(_, per_word)| per_word) != Some(registers) {
+        } else if !stored.is_some_and(|(_, per_word)| match quantized {
+            // A register of the plain MMA holds a run of whole words.
+            true => registers.is_multiple_of(per_word),
+            false => per_word == registers,
+        }) {
             Some(format!(
                 "the operand stores {packing:?} words, and a register of the instruction holds \
                  {registers} {held:?} codes"
@@ -150,9 +200,15 @@ fn refuse_unless_block_scaled<T: Numeric>(
                 "the operand carries {levels} levels of scales and the instruction reads one; \
                  take the coarser ones out for the sum (`Tile::factor`)"
             ))
-        } else if !k.is_multiple_of(form.block) {
+        } else if !quantized && !k.is_multiple_of(form.block) {
             Some(format!(
                 "a depth of {k} is not whole blocks of {}",
+                form.block
+            ))
+        } else if quantized && word_field.is_some() {
+            Some(format!(
+                "the scales are words of {word_field:?}, and the quantized MMA reads one scale a \
+                 block of {}",
                 form.block
             ))
         } else if word_field.is_some_and(|field| field != scale_field) {
@@ -215,12 +271,35 @@ fn offers_block_scaled(
     #[comptime] k: usize,
 ) -> comptime_type!(bool) {
     intrinsic!(|scope| {
-        let wanted = form.instruction(m, n, k);
         scope
             .state()
             .device_properties
             .as_ref()
-            .is_some_and(|properties| properties.features.matmul.scaled_mma.contains(&wanted))
+            .and_then(|properties| form.contraction(properties, m, n, k))
+            .is_some()
+    })
+}
+
+/// The quantized MMA the device contracts `form` at `m × n × k` through, where it has no
+/// block-scaled instruction of it ([`BlockScaledContraction::Quantized`]), read off its
+/// properties at expansion.
+#[cube]
+pub(crate) fn quantized_contraction(
+    #[comptime] form: BlockScaledOperands,
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) -> comptime_type!(Option<QuantizedMmaConfig>) {
+    intrinsic!(|scope| {
+        let contraction = scope
+            .state()
+            .device_properties
+            .as_ref()
+            .and_then(|properties| form.contraction(properties, m, n, k));
+        match contraction {
+            Some(BlockScaledContraction::Quantized(config)) => Some(config),
+            Some(BlockScaledContraction::Scaled) | None => None,
+        }
     })
 }
 
@@ -302,7 +381,9 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     let offered = loads_words_as_matrix();
     let shared = src.is_shared();
     let gathered = src.gathered();
-    let method = comptime!(match offered && shared && !gathered {
+    let contraction = quantized_contraction(form, m, n, k);
+    let quantized = comptime!(contraction.is_some());
+    let method = comptime!(match offered && shared && !gathered && !quantized {
         true => io.load_method(ident),
         false => LoadMethod::Manual,
     });
@@ -318,6 +399,15 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
             let per_register = def.vector_size(ident);
             let per_element = comptime!(BlockScaledOperands::values_per_element(form.codes(ident)));
             let registers = def.vectors_per_lane(ident);
+            // Words a register holds: one under the block-scaled instruction, a run of them under
+            // the plain MMA the quantized one shares registers with, read out of one line.
+            let register_words = comptime!(per_register * per_element / per_word);
+            comptime!(assert!(
+                line_words.is_multiple_of(register_words),
+                "MmaData::load_block_scaled: a register of {register_words} words is read out of \
+                 one line; this window is read {line_words} words a load"
+            ));
+            let size!(RW) = register_words;
             #[unroll]
             for i in 0..registers {
                 let (row, col) = def.position_of_nth(
@@ -331,43 +421,89 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
                 );
                 // The window's columns run along `k` whichever its layout.
                 let line = words.read(load.index(&at, &space));
-                let word = window_col / comptime!(per_word as u32) % comptime!(line_words as u32);
-                values[i] =
-                    Vector::<C, NV>::reinterpret(line.extract_dynamic(word.cast::<usize>()));
+                let first = window_col / comptime!(per_word as u32) % comptime!(line_words as u32);
+                if comptime!(register_words == 1) {
+                    values[i] =
+                        Vector::<C, NV>::reinterpret(line.extract_dynamic(first.cast::<usize>()));
+                } else if comptime!(register_words == line_words) {
+                    values[i] = Vector::<C, NV>::reinterpret(line);
+                } else {
+                    let mut register = Vector::<u32, RW>::empty();
+                    #[unroll]
+                    for w in 0..register_words {
+                        let word = first + comptime!(w as u32);
+                        register.insert(w, line.extract_dynamic(word.cast::<usize>()));
+                    }
+                    values[i] = Vector::<C, NV>::reinterpret(register);
+                }
             }
         }
     }
-    // The row of `A` or the column of `B` this unit's scale register serves, its scales along
-    // `k` one a block.
-    let served = def.scales_index(unit, ident);
     let factor = src.innermost_factor();
-    let packed_scales = factor.holds_words();
-    if comptime!(packed_scales) {
-        // The step's scales as the operand stores them: one word, the register itself
-        // (`assert_block_scaled` holds a word to a step's scales).
-        let at =
-            TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, dimensions, 1usize);
-        let word = factor.word_at(&at, space.clone());
-        scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
-    } else {
-        let mut register = Vector::<BlockScale, NS>::empty();
+    if comptime!(quantized) {
+        // A scale a sum the unit holds: the row of `A` or the column of `B` it lies in, the tile
+        // within one block, so its scale is the one at the tile's first value of `k`
+        // (`assert_block_scaled` holds the scales one a value).
+        let count = scale_registers(form, m, n, k);
         #[unroll]
-        for b in 0..(k / form.block) {
-            // The window's rows are the served dimension whichever its layout: an `A`'s rows, a
-            // `B`'s columns lying col-major.
-            let along_k = comptime!((b * form.block) as u32);
+        for i in 0..count {
+            let (row, col) =
+                def.position_of_nth(unit, comptime!(i as u32), MatrixIdent::Accumulator);
+            let served = match comptime!(ident) {
+                MatrixIdent::A => row,
+                _ => col,
+            };
             let at = TileMatrix::value_coords(
                 served,
-                along_k.runtime(),
+                0u32.runtime(),
                 0usize,
                 &space,
                 dimensions,
                 1usize,
             );
             let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
-            register.insert(b, BlockScale::cast_from(scale));
+            let mut register = Vector::<BlockScale, NS>::empty();
+            register.insert(0usize, BlockScale::cast_from(scale));
+            scales[i] = register;
         }
-        scales[0] = register;
+    } else {
+        // The row of `A` or the column of `B` this unit's scale register serves, its scales along
+        // `k` one a block.
+        let served = def.scales_index(unit, ident);
+        let packed_scales = factor.holds_words();
+        if comptime!(packed_scales) {
+            // The step's scales as the operand stores them: one word, the register itself
+            // (`assert_block_scaled` holds a word to a step's scales).
+            let at = TileMatrix::value_coords(
+                served,
+                0u32.runtime(),
+                0usize,
+                &space,
+                dimensions,
+                1usize,
+            );
+            let word = factor.word_at(&at, space.clone());
+            scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
+        } else {
+            let mut register = Vector::<BlockScale, NS>::empty();
+            #[unroll]
+            for b in 0..(k / form.block) {
+                // The window's rows are the served dimension whichever its layout: an `A`'s rows, a
+                // `B`'s columns lying col-major.
+                let along_k = comptime!((b * form.block) as u32);
+                let at = TileMatrix::value_coords(
+                    served,
+                    along_k.runtime(),
+                    0usize,
+                    &space,
+                    dimensions,
+                    1usize,
+                );
+                let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
+                register.insert(b, BlockScale::cast_from(scale));
+            }
+            scales[0] = register;
+        }
     }
 }
 
@@ -475,16 +611,51 @@ pub(crate) fn mma_execute_block_scaled<A: Numeric>(
 ) {
     register_scaled_elements(form);
     let def = block_scaled_definition::<A>(form, m, n, k);
-    let out = def.execute_scaled(
-        lhs.at::<LhsCodes>(),
-        rhs.at::<RhsCodes>(),
-        &*acc,
-        lhs_scales.at::<BlockScale>()[0],
-        rhs_scales.at::<BlockScale>()[0],
-    );
     let num = def.vectors_per_lane(MatrixIdent::Accumulator);
-    #[unroll]
-    for i in 0..num {
-        acc[i] = out[i];
+    let contraction = quantized_contraction(form, m, n, k);
+    match comptime!(contraction) {
+        Some(config) => {
+            // The quantized MMA sums in `f32` and takes its scales one a sum, as scalars.
+            let quantized = QuantizedMma::<LhsCodes, RhsCodes, BlockScale>::new(config);
+            let count = quantized.scales_per_lane();
+            let (lhs_held, rhs_held) =
+                (lhs_scales.at::<BlockScale>(), rhs_scales.at::<BlockScale>());
+            let mut scales_a = Array::<BlockScale>::new(count);
+            let mut scales_b = Array::<BlockScale>::new(count);
+            #[unroll]
+            for i in 0..count {
+                scales_a[i] = lhs_held[i].extract(0usize);
+                scales_b[i] = rhs_held[i].extract(0usize);
+            }
+            let mut sums = Array::<Vector<f32, NA>>::new(num);
+            #[unroll]
+            for i in 0..num {
+                sums[i] = Vector::<f32, NA>::cast_from(acc[i]);
+            }
+            let out = quantized.execute(
+                lhs.at::<LhsCodes>(),
+                rhs.at::<RhsCodes>(),
+                &scales_a,
+                &scales_b,
+                &sums,
+            );
+            #[unroll]
+            for i in 0..num {
+                acc[i] = Vector::<A, NA>::cast_from(out[i]);
+            }
+        }
+        None => {
+            let out = def.execute_scaled(
+                lhs.at::<LhsCodes>(),
+                rhs.at::<RhsCodes>(),
+                &*acc,
+                lhs_scales.at::<BlockScale>()[0],
+                rhs_scales.at::<BlockScale>()[0],
+            );
+            #[unroll]
+            for i in 0..num {
+                acc[i] = out[i];
+            }
+        }
     }
 }

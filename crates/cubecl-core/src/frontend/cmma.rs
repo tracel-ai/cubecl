@@ -1447,4 +1447,4 @@ pub mod execute_elementwise_op {
 
 mod quantized;
 
-pub use quantized::{QuantizedMma, QuantizedMmaExpand};
+pub use quantized::{QuantizedMma, QuantizedMmaExpand, codes_held_in};

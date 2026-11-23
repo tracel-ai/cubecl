@@ -107,7 +107,10 @@ impl AmdMatrixCore {
         let matrix = matrix.deref(ctx);
         let widest = LOAD_WIDTH_BYTES / matrix.elem_ty.size(ctx);
         match ident {
-            MatrixIdent::A | MatrixIdent::B => self.frag_ab_elems(matrix.shape.k).min(widest),
+            // A run of `k` counts values, which a packed element holds several of.
+            MatrixIdent::A | MatrixIdent::B => (self.frag_ab_elems(matrix.shape.k)
+                / matrix.elem_ty.packing_factor(ctx))
+            .min(widest),
             MatrixIdent::Accumulator => 1,
         }
     }

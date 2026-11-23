@@ -10,6 +10,7 @@ pub const BF16: ElemType = ElemType::Float(FloatKind::BF16);
 pub const F32: ElemType = ElemType::Float(FloatKind::F32);
 pub const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
 pub const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
+pub const E2M1X2: ElemType = ElemType::Float(FloatKind::E2M1x2);
 pub const I8: ElemType = ElemType::Int(IntKind::I8);
 pub const U8: ElemType = ElemType::UInt(UIntKind::U8);
 pub const I32: ElemType = ElemType::Int(IntKind::I32);

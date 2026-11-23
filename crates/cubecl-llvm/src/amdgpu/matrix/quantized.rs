@@ -7,10 +7,17 @@
 //! its value, so the product as a quarter, which the scale makes up for, and OCP's negative zero
 //! reads as NaN, so it is cleared to a positive zero first. OCP NaN and infinity codes read as
 //! large finite values there, which a saturating quantizer never stores.
+//!
+//! `e2m1` codes, two a byte, are widened to the `e4m3` bytes of the same values before the
+//! product, so a 4-bit operand multiplies through the part's 8-bit float form: exact, every
+//! `e2m1` value being an `e4m3` one, and the block scales untouched.
 
 use super::*;
-use crate::amdgpu::fragment::{F32, I32, INSTRUCTION_M, INSTRUCTION_N, TILE_DEPTHS, WORD_BITS};
+use crate::amdgpu::fragment::{
+    E2M1X2, E4M3, F32, I32, INSTRUCTION_M, INSTRUCTION_N, TILE_DEPTHS, WORD_BITS,
+};
 use crate::shared::matrix::{registers_as_vector, registers_value};
+use crate::shared::plane::{lshr, shl};
 use cubecl_core::ir::{dialect::matrix::MmaQuantizedOp, features::QuantizedMmaConfig};
 use cubecl_core::quant::scheme::{QuantValue, ScaleDtype};
 use pliron::{attribute::boxed_attr_cast, builtin::attributes::FPSingleAttr};
@@ -109,6 +116,9 @@ pub fn mma_quantized(
     let (b_ty, b_elem) = registers_as_vector(ctx, operands_info, b);
     let (cd_ty, _) = registers_as_vector(ctx, operands_info, c);
     let (scales_ty, _) = registers_as_vector(ctx, operands_info, scales_a);
+    let (a_codes, b_codes) = (elem_type(ctx, a_elem), elem_type(ctx, b_elem));
+    let a_elem = multiplied_as(a_codes).to_type(ctx);
+    let b_elem = multiplied_as(b_codes).to_type(ctx);
 
     let sum = Sum::of(elem_type(ctx, a_elem));
     let sum_elem = sum.elem().to_type(ctx);
@@ -127,6 +137,8 @@ pub fn mma_quantized(
 
     let a_val = registers_value(ctx, rw, a, a_ty);
     let b_val = registers_value(ctx, rw, b, b_ty);
+    let a_val = widened(ctx, rw, a_val, a_codes, a_elem);
+    let b_val = widened(ctx, rw, b_val, b_codes, b_elem);
     let c_val = registers_value(ctx, rw, c, cd_ty);
     let scales_a = registers_value(ctx, rw, scales_a, scales_ty);
     let scales_b = registers_value(ctx, rw, scales_b, scales_ty);
@@ -160,6 +172,116 @@ pub fn mma_quantized(
     rw.erase_operation(ctx, old_op);
     Ok(())
 }
+
+/// The codes the part multiplies `codes` as: `e2m1` pairs as the `e4m3` bytes they widen to
+/// ([`widened`]), any other as they are.
+fn multiplied_as(codes: ElemType) -> ElemType {
+    match codes {
+        E2M1X2 => E4M3,
+        other => other,
+    }
+}
+
+/// `codes`, held as `held`, as the codes [`multiplied_as`] multiplies them as, held in `elem`:
+/// `e2m1` pairs, the low nibble first as a packed word stores them, each code the `e4m3` byte of
+/// its value; any other as it is.
+///
+/// A word at a time, through the byte permute (`v_perm_b32`): a word's eight codes spread to the
+/// bytes of two, each byte a code's sign bit and three magnitude bits; the magnitudes picked out
+/// of the eight `e4m3` bytes they read as ([`E4M3_OF_E2M1_LOW`], [`E4M3_OF_E2M1_HIGH`]), the
+/// sign moved to the byte's top bit.
+fn widened(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    codes: Value,
+    held: ElemType,
+    elem: TypeHandle,
+) -> Value {
+    if held != E2M1X2 {
+        return codes;
+    }
+    let pairs = vector_lanes(ctx, codes.get_type(ctx));
+    let words = pairs / CODES_PER_WORD;
+    let word_ty: TypeHandle = IntegerType::get(ctx, WORD_BITS, Signedness::Signless).into();
+    let words_ty: TypeHandle =
+        LlvmVectorType::get(ctx, word_ty, words, VectorTypeKind::Fixed).into();
+    let widened_ty: TypeHandle =
+        LlvmVectorType::get(ctx, word_ty, words * 2, VectorTypeKind::Fixed).into();
+    let packed = bitcast(ctx, rw, codes, words_ty);
+    let poison = llvm::PoisonOp::new(ctx, widened_ty);
+    rw.insert_op(ctx, &poison);
+    let mut widened = poison.get_result(ctx);
+    let four = word_const(ctx, rw, 4);
+    let nibbles = word_const(ctx, rw, LOW_NIBBLES);
+    let magnitudes = word_const(ctx, rw, MAGNITUDE_BITS);
+    let signs = word_const(ctx, rw, SIGN_BITS);
+    let low = word_const(ctx, rw, E4M3_OF_E2M1_LOW);
+    let high = word_const(ctx, rw, E4M3_OF_E2M1_HIGH);
+    for w in 0..words {
+        let at = word_const(ctx, rw, w);
+        let op = llvm::ExtractElementOp::new(ctx, packed, at);
+        let word = insert(ctx, rw, &op);
+        // The even codes, a byte each, and the odd ones.
+        let even = and(ctx, rw, word, nibbles);
+        let shifted = lshr(ctx, rw, word, four);
+        let odd = and(ctx, rw, shifted, nibbles);
+        for half in 0..2u32 {
+            let interleave = word_const(ctx, rw, INTERLEAVE[half as usize]);
+            let codes = permute(ctx, rw, odd, even, interleave);
+            let magnitude = and(ctx, rw, codes, magnitudes);
+            let value = permute(ctx, rw, high, low, magnitude);
+            let sign = and(ctx, rw, codes, signs);
+            let sign = shl(ctx, rw, sign, four);
+            let value = or(ctx, rw, value, sign);
+            let at = word_const(ctx, rw, 2 * w + half);
+            let op = llvm::InsertElementOp::new(ctx, widened, value, at);
+            widened = insert(ctx, rw, &op);
+        }
+    }
+    let elem_ty = LlvmVectorType::get(
+        ctx,
+        cube_type_to_llvm(ctx, elem),
+        pairs * 2,
+        VectorTypeKind::Fixed,
+    );
+    bitcast(ctx, rw, widened, elem_ty.into())
+}
+
+/// The `i32` constant of `value`'s bits.
+fn word_const(ctx: &mut Context, rw: &mut DialectConversionRewriter, value: u32) -> Value {
+    insert_i32_const(ctx, rw, value as i32)
+}
+
+/// The bytes `selector` picks out of `high` and `low`, the byte permute: selector byte `i` names
+/// one of `low`'s bytes (0 to 3) or `high`'s (4 to 7).
+fn permute(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    high: Value,
+    low: Value,
+    selector: Value,
+) -> Value {
+    let word_ty = high.get_type(ctx);
+    call_intrinsic(
+        ctx,
+        rw,
+        "llvm.amdgcn.perm",
+        word_ty,
+        vec![high, low, selector],
+    )
+}
+
+/// The low nibble of each byte of a word.
+const LOW_NIBBLES: u32 = 0x0F0F_0F0F;
+/// The byte permutes interleaving the even codes (the low word) with the odd ones (the high word):
+/// codes 0 to 3 of a word, then 4 to 7.
+const INTERLEAVE: [u32; 2] = [0x0501_0400, 0x0703_0602];
+/// An `e2m1` code's magnitude bits and its sign bit, in each byte of a word.
+const MAGNITUDE_BITS: u32 = 0x0707_0707;
+const SIGN_BITS: u32 = 0x0808_0808;
+/// The `e4m3` bytes of `e2m1`'s eight magnitudes, `0`, `0.5`, `1`, `1.5` and `2`, `3`, `4`, `6`.
+const E4M3_OF_E2M1_LOW: u32 = 0x3C38_3000;
+const E4M3_OF_E2M1_HIGH: u32 = 0x4C48_4440;
 
 /// The lanes of a fragment vector.
 fn vector_lanes(ctx: &Context, ty: TypeHandle) -> u32 {
@@ -250,12 +372,16 @@ fn clear_negative_zero_word(word: u32) -> u32 {
     word & (nonzero | low_bits)
 }
 
-/// The value pairs whose codes an 8-bit float form multiplies.
-const FP8_PAIRS: [(QuantValue, QuantValue); 4] = [
+/// The value pairs whose codes an 8-bit float form multiplies, `e2m1` widened to `e4m3` first.
+const FP8_PAIRS: [(QuantValue, QuantValue); 7] = [
     (QuantValue::E4M3, QuantValue::E4M3),
     (QuantValue::E4M3, QuantValue::E5M2),
     (QuantValue::E5M2, QuantValue::E4M3),
     (QuantValue::E5M2, QuantValue::E5M2),
+    // `e2m1` codes widened to `e4m3` before the product (`widened`).
+    (QuantValue::E4M3, QuantValue::E2M1),
+    (QuantValue::E2M1, QuantValue::E4M3),
+    (QuantValue::E2M1, QuantValue::E2M1),
 ];
 
 /// The value pairs whose codes an 8-bit integer form multiplies: both are held in `i8`, so each
@@ -284,7 +410,10 @@ const BLOCK_KS: [usize; 3] = [32, 64, 128];
 /// the one [`mma_quantized`] lowers to, chosen the same way.
 pub fn quantized_configs(core: AmdMatrixCore) -> Vec<QuantizedMmaConfig> {
     let instruction_k = |a: QuantValue, b: QuantValue| {
-        let (a, b) = (ElemType::from_quant_value(a), ElemType::from_quant_value(b));
+        let (a, b) = (
+            multiplied_as(cubecl_core::cmma::codes_held_in(a)),
+            multiplied_as(cubecl_core::cmma::codes_held_in(b)),
+        );
         let form = MatrixForm::of(core, a, b, Sum::of(a).elem())?;
         Some(form.instruction_k())
     };

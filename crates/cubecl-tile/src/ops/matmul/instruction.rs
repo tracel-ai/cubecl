@@ -1,12 +1,13 @@
 //! What one plane contracts through ([`Instruction`]).
 
-use cubecl::cmma::MatrixIdent;
+use cubecl::cmma::{MatrixIdent, codes_held_in};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
-    DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
+    DeviceProperties, ElemType, FloatKind, TargetProperties,
+    features::{QuantizedMmaConfig, ScaledMmaConfig},
 };
 
-use cubecl::quant::scheme::QuantValue;
+use cubecl::quant::scheme::{QuantValue, ScaleDtype};
 
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
@@ -110,6 +111,70 @@ impl BlockScaledOperands {
         }
     }
 
+    /// The device's quantized MMA of `m × n × k` this form names: its codes multiplied by the
+    /// plain MMA into a zero sum, then scaled into the accumulator, the tile within one block.
+    /// `None` for a form whose codes or scales no quantized MMA names, or whose block is not
+    /// whole tiles of `k`.
+    pub fn quantized(&self, m: usize, n: usize, k: usize) -> Option<QuantizedMmaConfig> {
+        let code = |kind: FloatKind| match kind {
+            FloatKind::E2M1x2 => Some(QuantValue::E2M1),
+            FloatKind::E4M3 => Some(QuantValue::E4M3),
+            FloatKind::E5M2 => Some(QuantValue::E5M2),
+            _ => None,
+        };
+        let scales = match self.scales {
+            FloatKind::UE8M0 => ScaleDtype::UE8M0,
+            FloatKind::E4M3 => ScaleDtype::UE4M3,
+            FloatKind::F32 => ScaleDtype::F32,
+            FloatKind::F16 => ScaleDtype::F16,
+            FloatKind::BF16 => ScaleDtype::BF16,
+            _ => return None,
+        };
+        (k > 0 && self.block.is_multiple_of(k)).then_some(())?;
+        Some(QuantizedMmaConfig {
+            a: code(self.lhs)?,
+            b: code(self.rhs)?,
+            scales,
+            block_k: self.block as u32,
+            m: m as u32,
+            n: n as u32,
+            k: k as u32,
+        })
+    }
+
+    /// The form a device's quantized MMA reads its operands in: each operand's codes as a
+    /// register element holds them ([`codes_held_in`]), under its scales one every `block_k`.
+    pub fn of_quantized(instruction: &QuantizedMmaConfig) -> Option<Self> {
+        let float = |elem: ElemType| match elem {
+            ElemType::Float(kind) => Some(kind),
+            _ => None,
+        };
+        Some(Self {
+            lhs: float(codes_held_in(instruction.a))?,
+            rhs: float(codes_held_in(instruction.b))?,
+            scales: float(ElemType::from_scale_dtype(instruction.scales))?,
+            block: instruction.block_k as usize,
+        })
+    }
+
+    /// How `device` contracts this form's operands at `m × n × k`, where it does: its
+    /// block-scaled instruction, else its quantized MMA.
+    pub fn contraction(
+        &self,
+        device: &DeviceProperties,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Option<BlockScaledContraction> {
+        let matmul = &device.features.matmul;
+        if k.is_multiple_of(self.block) && matmul.scaled_mma.contains(&self.instruction(m, n, k)) {
+            return Some(BlockScaledContraction::Scaled);
+        }
+        self.quantized(m, n, k)
+            .filter(|config| matmul.quantized_mma.contains(config))
+            .map(BlockScaledContraction::Quantized)
+    }
+
     /// The form of `instruction`, a device's block-scaled instruction.
     pub fn of(instruction: &ScaledMmaConfig) -> Option<Self> {
         let float = |elem: ElemType| match elem {
@@ -141,6 +206,16 @@ impl BlockScaledOperands {
             _ => 1,
         }
     }
+}
+
+/// The device instruction a block-scaled form's operands are contracted through.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum BlockScaledContraction {
+    /// The device's block-scaled instruction, which applies the scales itself: NVIDIA's.
+    Scaled,
+    /// The device's quantized MMA: the codes' plain product into a zero sum, scaled into the
+    /// accumulator by one scale pair a sum, the tile within one block: RDNA4's 8-bit floats.
+    Quantized(QuantizedMmaConfig),
 }
 
 /// What a plane's fragments of one operand load from, as the tile layer sees it while the kernel
@@ -547,19 +622,18 @@ fn block_scaled(
             code_of(held) == Some(code)
                 && scales.is_none_or(|field| field == Field::of_float(form.scales))
         };
-    device
-        .features
-        .matmul
-        .scaled_mma
-        .iter()
-        .find_map(|instruction| {
-            let form = BlockScaledOperands::of(instruction)?;
-            let shape = [instruction.m, instruction.n, instruction.k].map(|e| e as usize);
-            (shape == [m, n, k]
-                && reads(lhs_code, lhs_scales, form.lhs, &form)
-                && reads(rhs_code, rhs_scales, form.rhs, &form))
-            .then_some(form)
-        })
+    let matmul = &device.features.matmul;
+    let scaled = matmul.scaled_mma.iter().filter_map(|instruction| {
+        let shape = [instruction.m, instruction.n, instruction.k].map(|e| e as usize);
+        (shape == [m, n, k]).then_some(BlockScaledOperands::of(instruction)?)
+    });
+    let quantized = matmul.quantized_mma.iter().filter_map(|instruction| {
+        let shape = [instruction.m, instruction.n, instruction.k].map(|e| e as usize);
+        (shape == [m, n, k]).then_some(BlockScaledOperands::of_quantized(instruction)?)
+    });
+    scaled.chain(quantized).find(|form| {
+        reads(lhs_code, lhs_scales, form.lhs, form) && reads(rhs_code, rhs_scales, form.rhs, form)
+    })
 }
 
 /// The code a register element of a block-scaled instruction holds: `e2m1x2` two `e2m1`. `None`

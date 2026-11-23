@@ -193,19 +193,20 @@ impl MmaData {
         );
         register_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
-        register_scaled_sizes(&def, ident);
+        register_scaled_sizes(&def, form, ident, (m, n, k));
+        let scales = scale_registers(form, m, n, k);
         let fragment = match ident {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
                 Raw::<Registers<NLB>>::of::<LhsCodes>(Array::new(
                     def.vectors_per_lane(MatrixIdent::A),
                 )),
-                Raw::<Registers<NSB>>::of::<BlockScale>(Array::new(1usize)),
+                Raw::<Registers<NSB>>::of::<BlockScale>(Array::new(scales)),
             ),
             MatrixIdent::B => MmaFragment::new_RhsBlockScaled(
                 Raw::<Registers<NRB>>::of::<RhsCodes>(Array::new(
                     def.vectors_per_lane(MatrixIdent::B),
                 )),
-                Raw::<Registers<NSB>>::of::<BlockScale>(Array::new(1usize)),
+                Raw::<Registers<NSB>>::of::<BlockScale>(Array::new(scales)),
             ),
             MatrixIdent::Accumulator => {
                 panic!("MmaData::block_scaled: an accumulator carries no scales")

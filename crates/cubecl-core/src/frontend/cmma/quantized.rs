@@ -17,6 +17,7 @@ use super::{MatrixIdent, MatrixLayout, MmaDefinitionExpand};
 use crate::{self as cubecl, prelude::*};
 use alloc::format;
 use core::marker::PhantomData;
+use cubecl_common::quant::scheme::QuantValue;
 use cubecl_ir::{
     ElemType, FloatKind, Scope, VectorSize, dialect::matrix::MmaQuantizedOp,
     features::QuantizedMmaConfig,
@@ -26,7 +27,8 @@ use pliron::r#type::TypeHandle;
 
 /// A quantized MMA the device lowers, of the [`QuantizedMmaConfig`] it advertises: `A` and `B`
 /// are the codes each operand's [`QuantValue`](cubecl_common::quant::scheme::QuantValue) is held
-/// in, `S` the type its [`ScaleDtype`](cubecl_common::quant::scheme::ScaleDtype) is stored in.
+/// in ([`codes_held_in`]: `e2m1` two a byte), `S` the type its
+/// [`ScaleDtype`](cubecl_common::quant::scheme::ScaleDtype) is stored in.
 ///
 /// The codes are laid out in registers as the plain MMA of the same shape lays its operands out:
 /// [`position_of_nth`](Self::position_of_nth) places them. The scales come one pair per
@@ -104,6 +106,15 @@ enum Registers {
     Scales,
 }
 
+/// The type a register element holds `value`'s codes in: `e2m1` two a byte, as `e2m1x2`; any
+/// other one a register element, as [`ElemType::from_quant_value`] names it.
+pub fn codes_held_in(value: QuantValue) -> ElemType {
+    match value {
+        QuantValue::E2M1 => ElemType::Float(FloatKind::E2M1x2),
+        other => ElemType::from_quant_value(other),
+    }
+}
+
 /// Refuses the kernel unless `held`, the type it names for `registers`, is `named`, the type its
 /// configuration's quantization type is held in.
 fn check_held_in(scope: &Scope, registers: Registers, held: TypeHandle, named: ElemType) {
@@ -137,16 +148,16 @@ impl<A: Scalar, B: Scalar, S: Scalar> QuantizedMma<A, B, S> {
     /// [`quantized_mma`](cubecl_ir::features::MatmulFeatures::quantized_mma).
     ///
     /// Refuses the kernel unless the device advertises `config`, and unless `A`, `B` and `S`
-    /// are the types its codes and scales are held in: the [`ElemType::from_quant_value`] of
-    /// each operand's value and the [`ElemType::from_scale_dtype`] of its scales.
+    /// are the types its codes and scales are held in: the [`codes_held_in`] of each operand's
+    /// value and the [`ElemType::from_scale_dtype`] of its scales.
     pub fn new(#[comptime] config: QuantizedMmaConfig) -> Self {
         intrinsic!(|scope| {
             check_advertised(scope, config);
             let a_type = A::Scalar::__expand_as_type(scope);
             let b_type = B::Scalar::__expand_as_type(scope);
             let scales_type = S::Scalar::__expand_as_type(scope);
-            let codes_a = ElemType::from_quant_value(config.a);
-            let codes_b = ElemType::from_quant_value(config.b);
+            let codes_a = codes_held_in(config.a);
+            let codes_b = codes_held_in(config.b);
             let scales = ElemType::from_scale_dtype(config.scales);
             check_held_in(scope, Registers::CodesA, a_type, codes_a);
             check_held_in(scope, Registers::CodesB, b_type, codes_b);
