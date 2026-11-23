@@ -1,6 +1,5 @@
-use cubecl_runtime::throughput::{
-    KernelConfig, ThroughputBenchmarker, ThroughputError, ThroughputValue,
-};
+use crate::throughput::{KernelConfig, ThroughputSampler};
+use cubecl_runtime::throughput::{ThroughputError, ThroughputValue};
 
 /// The shapes a probe can be launched in, ranked against each other so that
 /// only the winner is measured in full.
@@ -38,8 +37,8 @@ impl<S: Copy> ShapeSweep<S> {
 
         let config = build(fastest)?;
         let value = match warmed {
-            Some(iterations) => ThroughputBenchmarker::sample_at(&config, iterations),
-            None => ThroughputBenchmarker::sample(config),
+            Some(iterations) => ThroughputSampler::sample_at(&config, iterations),
+            None => ThroughputSampler::sample(config),
         };
 
         value
@@ -61,8 +60,8 @@ impl<S: Copy> ShapeSweep<S> {
 
         for shape in &self.shapes {
             let config = build(*shape)?;
-            let start = *warmed.get_or_insert_with(|| ThroughputBenchmarker::warm(&config));
-            let ranked = ThroughputBenchmarker::rank(&config, start);
+            let start = *warmed.get_or_insert_with(|| ThroughputSampler::warm(&config));
+            let ranked = ThroughputSampler::rank(&config, start);
             let rate = ranked.value.ops_per_s();
 
             // The next shape starts from what this one settled on, so a sweep

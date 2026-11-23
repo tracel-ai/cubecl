@@ -386,3 +386,75 @@ mod tests {
         assert_ne!(small, large);
     }
 }
+
+#[cfg(test)]
+mod sample_tests {
+    use super::*;
+
+    #[test]
+    fn one_sample_has_no_statistics() {
+        assert_eq!(SampleStats::new(&[Duration::from_millis(5)]), None);
+    }
+
+    #[test]
+    fn a_timer_reading_zero_has_no_relative_deviation() {
+        let samples = SampleStats::new(&[Duration::ZERO, Duration::ZERO]).expect("two samples");
+
+        assert_eq!(samples.relative_std_dev(), None);
+    }
+
+    #[test]
+    fn a_sample_at_the_largest_duration_does_not_panic() {
+        let samples = SampleStats::new(&[Duration::from_millis(1), Duration::MAX]);
+
+        assert!(samples.is_some());
+    }
+
+    #[test]
+    fn the_slowest_sample_is_kept() {
+        let samples = SampleStats::new(&[
+            Duration::from_micros(10),
+            Duration::from_micros(30),
+            Duration::from_micros(20),
+        ])
+        .expect("three samples");
+
+        assert_eq!(samples.max, Duration::from_micros(30));
+        let above_mean = samples.relative_max().expect("a mean above zero");
+        assert!(
+            (above_mean - 0.5).abs() < 1e-9,
+            "max sits {above_mean} above the mean"
+        );
+    }
+
+    #[test]
+    fn a_value_from_the_largest_sample_does_not_panic() {
+        let value = ThroughputValue::from_samples(1, 1, &[Duration::MAX]);
+
+        assert_eq!(value.duration, Duration::MAX);
+    }
+
+    #[test]
+    fn a_pass_under_a_nanosecond_rounds_to_the_nearest() {
+        let value = ThroughputValue::from_samples(1, 4_000_000, &[Duration::from_millis(3)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn a_count_past_u32_divides_whole() {
+        let iterations = 1usize << 33;
+        let value = ThroughputValue::from_samples(1, iterations, &[Duration::from_nanos(1 << 33)]);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
+    }
+
+    #[test]
+    fn identical_samples_deviate_by_nothing() {
+        let sample = Duration::from_micros(7);
+        let samples = SampleStats::new(&[sample; 4]).expect("four samples");
+
+        assert_eq!(samples.std_dev, Duration::ZERO);
+    }
+}

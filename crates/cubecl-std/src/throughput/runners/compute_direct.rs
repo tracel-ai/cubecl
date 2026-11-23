@@ -1,6 +1,7 @@
+use crate::throughput::KernelConfig;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, frontend::fma, ir::ElemType};
-use cubecl_runtime::throughput::{KernelConfig, ThroughputError};
+use cubecl_runtime::throughput::ThroughputError;
 
 use crate::throughput::{LaunchConfig, verify::verify};
 

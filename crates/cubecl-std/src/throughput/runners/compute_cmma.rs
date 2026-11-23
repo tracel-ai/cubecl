@@ -1,8 +1,7 @@
+use crate::throughput::KernelConfig;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{
-    CmmaDims, ComputeCmmaConfig, KernelConfig, ThroughputError, ThroughputKey,
-};
+use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig, ThroughputError, ThroughputKey};
 
 use crate::throughput::{LaunchConfig, verify::verify};
 

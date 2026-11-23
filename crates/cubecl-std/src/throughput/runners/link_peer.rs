@@ -6,10 +6,10 @@ use cubecl_core as cubecl;
 use cubecl_core::ir::{ElemType, UIntKind};
 use cubecl_runtime::{
     server::{Handle, PeerAccess},
-    throughput::{KernelConfig, ThroughputError},
+    throughput::ThroughputError,
 };
 
-use crate::throughput::{LaunchConfig, memory_probe};
+use crate::throughput::{KernelConfig, LaunchConfig, memory_probe};
 
 /// `u32`s per vector a peer kernel moves: 16 bytes, the widest load every runtime issues.
 const VECTOR_WIDTH: usize = 4;

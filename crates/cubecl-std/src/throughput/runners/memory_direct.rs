@@ -1,6 +1,7 @@
+use crate::throughput::KernelConfig;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
+use cubecl_runtime::throughput::{MemorySpec, ThroughputError, ThroughputKey};
 
 use crate::throughput::{
     LaunchConfig,

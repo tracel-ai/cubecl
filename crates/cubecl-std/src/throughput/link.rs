@@ -6,14 +6,14 @@ use cubecl_runtime::{
     execution::{StreamMode, StreamModeOverride},
     logging::TransferRoute,
     throughput::{
-        DEFAULT_WORKING_SET_BYTES, KernelConfig, LinkKey, LinkRoute, MemoryCurve, MemoryPoint,
+        DEFAULT_WORKING_SET_BYTES, LinkKey, LinkRoute, MemoryCurve, MemoryPoint,
         ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputValue, Traffic,
         working_set_sweep,
     },
 };
 
 use crate::throughput::{
-    ShapeSweep, link_collective,
+    KernelConfig, ShapeSweep, link_collective,
     link_peer::{MAX_BYTES, PeerCopier, PeerCopyKind},
     link_transfer,
 };

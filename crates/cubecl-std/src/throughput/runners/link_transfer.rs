@@ -1,7 +1,8 @@
+use crate::throughput::KernelConfig;
 use alloc::boxed::Box;
 use cubecl_common::profile::Instant;
 use cubecl_core::{future::block_on, prelude::*};
-use cubecl_runtime::throughput::{KernelConfig, ThroughputError};
+use cubecl_runtime::throughput::ThroughputError;
 
 use crate::throughput::{link_peer::MAX_BYTES, memory_probe};
 

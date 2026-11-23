@@ -7,10 +7,10 @@ use cubecl_core::{
 use cubecl_runtime::{
     client::{Client, ClientGroup, MemberBuffers},
     server::{Collective, Handle, ReduceOperation},
-    throughput::{KernelConfig, ThroughputError},
+    throughput::ThroughputError,
 };
 
-use crate::throughput::{link_peer::MAX_BYTES, memory_probe};
+use crate::throughput::{KernelConfig, link_peer::MAX_BYTES, memory_probe};
 
 const REDUCED: ElemType = ElemType::Float(FloatKind::F32);
 
