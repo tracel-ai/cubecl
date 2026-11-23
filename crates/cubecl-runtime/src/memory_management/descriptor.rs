@@ -123,10 +123,7 @@ impl Default for ManagedMemoryDescriptor {
 
 impl core::fmt::Debug for ManagedMemoryDescriptor {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ManagedMemoryDescriptor")
-            .field("id", &self.id)
-            .field("location", &self.location())
-            .finish()
+        (self.id, self.location()).fmt(f)
     }
 }
 
