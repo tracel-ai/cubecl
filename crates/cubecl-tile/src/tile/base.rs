@@ -1440,6 +1440,13 @@ impl Tile {
         unexpanded!()
     }
 
+    /// These packed values decoded by a stage's fill into `element`, as the reader's stages hold
+    /// them: what its fragments then load, so a sum opened on them is opened on `element`'s
+    /// values, as a sum over two packed operands both decoded must be.
+    pub fn decoded_into(&self, _element: ElemType) -> Tile {
+        unexpanded!()
+    }
+
     /// This stage of `operand` with `operand`'s scales staged beside it as `spec` shapes it,
     /// where a stage keeps them beside it ([`decodes`](Tile::decodes)); itself otherwise.
     pub(crate) fn with_scales_staged(&self, _operand: &Tile, _spec: StageSpec) -> Tile {
@@ -1657,9 +1664,20 @@ impl TileExpand {
                         .__expand_word_field_method(scope),
                 },
                 Some(code) if self.factor.is_kept_beside() => FragmentSource::StoredCodes(code),
-                _ => FragmentSource::Decoded,
+                // Decoded by the fill: the element its stage holds where the reader stated it,
+                // which then names the fragments whatever the other operand is.
+                _ => match self.factor.decoded_element() {
+                    Some(element) => FragmentSource::Values(element),
+                    None => FragmentSource::Decoded,
+                },
             },
         }
+    }
+
+    pub fn __expand_decoded_into_method(&self, _scope: &Scope, element: ElemType) -> TileExpand {
+        let mut decoded = self.clone();
+        decoded.factor = self.factor.clone().decoded_into(element);
+        decoded
     }
 
     pub fn __expand_scales_kept_beside_method(&self, _scope: &Scope) -> TileExpand {
