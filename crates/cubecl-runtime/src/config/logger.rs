@@ -1,4 +1,4 @@
-use super::{CubeClRuntimeConfig, RuntimeConfig};
+use super::{CubeClRuntimeConfig, LogLevel, LoggerConfig, RuntimeConfig};
 use crate::config::{
     autotune::AutotuneLogLevel, compilation::CompilationLogLevel, memory::MemoryLogLevel,
     profiling::ProfilingLogLevel, streaming::StreamingLogLevel,
@@ -7,9 +7,8 @@ use alloc::{sync::Arc, vec::Vec};
 use core::fmt::Display;
 
 use cubecl_environment::config::logger::LoggerSinks;
-pub(crate) use cubecl_environment::config::logger::{LogLevel, LoggerConfig};
 
-/// Central logging utility for `CubeCL`, managing multiple log outputs.
+/// Writes each of `CubeCL`'s logs to the sinks the configuration gives it.
 #[derive(Debug)]
 pub struct Logger {
     sinks: LoggerSinks,
@@ -19,8 +18,7 @@ pub struct Logger {
     autotune_decisions_index: Vec<usize>,
     streaming_index: Vec<usize>,
     memory_index: Vec<usize>,
-    /// Global configuration for logging settings.
-    pub config: Arc<CubeClRuntimeConfig>,
+    config: Arc<CubeClRuntimeConfig>,
 }
 
 impl Default for Logger {
@@ -30,7 +28,12 @@ impl Default for Logger {
 }
 
 impl Logger {
-    /// Creates a new `Logger` instance based on the global configuration.
+    /// The configuration this logger was made for, levels included.
+    pub fn config(&self) -> &CubeClRuntimeConfig {
+        &self.config
+    }
+
+    /// A logger for the global configuration's sinks and levels.
     ///
     /// Note that creating a logger is quite expensive.
     pub fn new() -> Self {
@@ -114,11 +117,6 @@ impl Logger {
             .log(&self.autotune_index, "cubecl::autotune", msg);
     }
 
-    /// Returns the current streaming log level from the global configuration.
-    pub fn log_level_streaming(&self) -> StreamingLogLevel {
-        self.config.streaming.logger.level
-    }
-
     /// Writes one autotune decision, directing it to all configured decision sinks.
     pub fn log_autotune_decision<S: Display>(&mut self, msg: &S) {
         self.sinks.log(
@@ -127,27 +125,6 @@ impl Logger {
             "cubecl::autotune::record",
             msg,
         );
-    }
-
-    /// Returns the current autotune log level from the global configuration.
-    pub fn log_level_autotune(&self) -> AutotuneLogLevel {
-        self.config.autotune.logger.level
-    }
-
-    /// Whether autotune decisions have a sink. See
-    /// [`AutotuneConfig::decisions_enabled`](crate::config::autotune::AutotuneConfig::decisions_enabled).
-    pub fn autotune_decisions_enabled(&self) -> bool {
-        self.config.autotune.decisions_enabled()
-    }
-
-    /// Returns the current compilation log level from the global configuration.
-    pub fn log_level_compilation(&self) -> CompilationLogLevel {
-        self.config.compilation.logger.level
-    }
-
-    /// Returns the current profiling log level from the global configuration.
-    pub fn log_level_profiling(&self) -> ProfilingLogLevel {
-        self.config.profiling.logger.level
     }
 }
 

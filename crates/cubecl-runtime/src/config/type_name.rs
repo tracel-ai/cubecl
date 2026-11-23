@@ -1,83 +1,87 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 
+/// How much of a type name a report keeps.
 #[derive(Clone, Copy, Debug)]
-/// How to format cubecl type names.
 pub enum TypeNameFormatLevel {
-    /// No formatting apply, full information is included.
+    /// The whole name, paths and generic arguments included.
     Full,
-    /// Most information is removed for a small formatted name.
+    /// The last path segment of the type, without its generic arguments.
     Short,
-    /// Balanced info is kept.
+    /// The last path segment of the type and of each generic argument, joined by ` | `.
     Balanced,
 }
 
-/// Format a type name with different options.
-pub fn type_name_format(name: &str, level: TypeNameFormatLevel) -> String {
-    match level {
-        TypeNameFormatLevel::Full => name.to_string(),
-        TypeNameFormatLevel::Short => {
-            if let Some(val) = name.split("<").next() {
-                val.split("::").last().unwrap_or(name).to_string()
-            } else {
-                name.to_string()
-            }
-        }
-        TypeNameFormatLevel::Balanced => {
-            let mut split = name.split("<");
-            let before_generic = split.next();
-            let after_generic = split.next();
-
-            let before_generic = match before_generic {
-                None => return name.to_string(),
-                Some(val) => val
-                    .split("::")
-                    .last()
-                    .unwrap_or(val)
-                    .trim()
-                    .replace(">", "")
-                    .to_string(),
-            };
-            let inside_generic = match after_generic {
-                None => return before_generic.to_string(),
-                Some(val) => {
-                    let mut val = val.to_string();
-                    for s in split {
-                        val += "<";
-                        val += s;
-                    }
-                    val
-                }
-            };
-
-            let inside = type_name_list_format(&inside_generic, level);
-
-            format!("{before_generic}{inside}")
+impl TypeNameFormatLevel {
+    /// `name` with only what this level keeps.
+    pub fn format(self, name: &str) -> String {
+        match self {
+            Self::Full => name.to_string(),
+            Self::Short => short_type_name(name).to_string(),
+            Self::Balanced => balanced_type_name(name),
         }
     }
 }
 
-fn type_name_list_format(name: &str, level: TypeNameFormatLevel) -> String {
-    let mut acc = String::new();
-    let splits = name.split(", ");
+/// The last path segment of the type `name` names, without its generic arguments.
+pub fn short_type_name(name: &str) -> &str {
+    let outer = name.split('<').next().unwrap_or(name);
+    outer.rsplit("::").next().unwrap_or(outer)
+}
 
-    for a in splits {
-        acc += " | ";
-        acc += &type_name_format(a, level);
-    }
+fn balanced_type_name(name: &str) -> String {
+    let Some((outer, generics)) = name.split_once('<') else {
+        return last_segment(name);
+    };
+    format!("{}{}", last_segment(outer), balanced_generics(generics))
+}
 
-    acc
+/// The last path segment of `path`, without what closes an enclosing generic list.
+fn last_segment(path: &str) -> String {
+    path.rsplit("::")
+        .next()
+        .unwrap_or(path)
+        .trim()
+        .replace('>', "")
+}
+
+/// Each generic argument of `generics`, shortened, after a ` | `.
+fn balanced_generics(generics: &str) -> String {
+    generics
+        .split(", ")
+        .map(|argument| format!(" | {}", balanced_type_name(argument)))
+        .collect()
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
-    #[test_log::test]
-    fn test_format_name() {
-        let full_name = "burn_cubecl::kernel::unary_numeric::unary_numeric::UnaryNumeric<f32, burn_cubecl::tensor::base::CubeTensor<_>::copy::Copy, cubecl_cuda::runtime::CudaRuntime>";
-        let name = type_name_format(full_name, TypeNameFormatLevel::Balanced);
+    const KERNEL: &str = "burn_cubecl::kernel::unary_numeric::unary_numeric::UnaryNumeric<f32, burn_cubecl::tensor::base::CubeTensor<_>::copy::Copy, cubecl_cuda::runtime::CudaRuntime>";
 
-        assert_eq!(name, "UnaryNumeric | f32 | CubeTensor | Copy | CudaRuntime");
+    #[test]
+    fn full_keeps_the_whole_name() {
+        assert_eq!(TypeNameFormatLevel::Full.format(KERNEL), KERNEL);
+    }
+
+    #[test]
+    fn short_keeps_the_last_segment_of_the_type() {
+        assert_eq!(TypeNameFormatLevel::Short.format(KERNEL), "UnaryNumeric");
+    }
+
+    #[test]
+    fn balanced_keeps_the_last_segment_of_each_argument() {
+        assert_eq!(
+            TypeNameFormatLevel::Balanced.format(KERNEL),
+            "UnaryNumeric | f32 | CubeTensor | Copy | CudaRuntime"
+        );
+    }
+
+    #[test]
+    fn balanced_keeps_a_name_without_generics() {
+        assert_eq!(
+            TypeNameFormatLevel::Balanced.format("a::b::Kernel"),
+            "Kernel"
+        );
     }
 }

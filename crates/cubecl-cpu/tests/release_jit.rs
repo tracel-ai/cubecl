@@ -8,7 +8,8 @@ use cubecl_core::ir::settings::DebugInfo;
 use cubecl_core::prelude::*;
 use cubecl_core::runtime_tests::offline::nested_calls;
 use cubecl_cpu::{CpuDevice, CpuRuntime};
-use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, effective_debug_info};
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
+use cubecl_server::id::KernelId;
 use cubecl_server::runtime::Runtime;
 
 #[test]
@@ -16,7 +17,10 @@ fn a_kernel_without_debug_data_runs() {
     let mut config = CubeClRuntimeConfig::default();
     config.compilation.debug_info = Some(DebugInfo::None);
     CubeClRuntimeConfig::set(config);
-    assert_eq!(effective_debug_info(DebugInfo::Full), DebugInfo::None);
+    assert_eq!(
+        KernelId::new::<()>().debug_info(DebugInfo::Full).debug_info,
+        DebugInfo::None
+    );
 
     let client = CpuRuntime::client(&CpuDevice);
     let input = client.create_from_slice(f32::as_bytes(&[3.0, 1.5, 0.0, -6.0]));

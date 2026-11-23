@@ -1,9 +1,9 @@
-use super::logger::{LogLevel, LoggerConfig};
+use super::{LogLevel, LoggerConfig};
 
-/// Configuration for autotuning in `CubeCL`.
+/// How autotune benchmarks its candidates, how hard it tries, and where it reports.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AutotuneConfig {
-    /// Logger configuration for autotune logs, using autotune-specific log levels.
+    /// Where the autotune log goes, and how much it says.
     #[serde(default)]
     pub logger: LoggerConfig<AutotuneLogLevel>,
 
@@ -40,7 +40,7 @@ pub struct AutotuneConfig {
 
 /// Controls how many samples autotune collects per candidate and when candidates are dropped.
 ///
-/// Only [`max_samples`](Self::max_samples) and [`adaptive`](Self::adaptive) mean anything to the
+/// Only [`max_sample_count`](Self::max_sample_count) and [`adaptive`](Self::adaptive) mean anything to the
 /// fixed-count pass; the rest describe elimination, which only the adaptive scheduler performs.
 /// Each field says so, because a knob that silently does nothing on the strategy actually running
 /// is worse than no knob at all — and `adaptive` is native-only, so on wasm that is every run.
@@ -50,14 +50,14 @@ pub struct BenchConfig {
     /// Samples every surviving candidate gets before any elimination happens.
     ///
     /// Adaptive only: the fixed-count pass eliminates nothing, so every candidate gets
-    /// [`max_samples`](Self::max_samples) regardless.
-    pub min_samples: usize,
+    /// [`max_sample_count`](Self::max_sample_count) regardless.
+    pub min_sample_count: usize,
 
     /// Upper bound on samples collected for a single candidate.
     ///
     /// Read by both strategies: the ceiling for the adaptive scheduler, and the flat count for
     /// the fixed pass, which has no elimination to spend a smaller budget on.
-    pub max_samples: usize,
+    pub max_sample_count: usize,
 
     /// Samples that must independently land under the time limit to short circuit.
     ///
@@ -66,7 +66,7 @@ pub struct BenchConfig {
     ///
     /// Adaptive only: the fixed pass has the whole sample set in hand before it tests the limit,
     /// so it has nothing to confirm.
-    pub short_circuit_samples: usize,
+    pub short_circuit_sample_count: usize,
 
     /// How many times slower than the current best a candidate may be before elimination.
     ///
@@ -84,9 +84,9 @@ pub struct BenchConfig {
 impl Default for BenchConfig {
     fn default() -> Self {
         Self {
-            min_samples: 3,
-            max_samples: 10,
-            short_circuit_samples: 2,
+            min_sample_count: 3,
+            max_sample_count: 10,
+            short_circuit_sample_count: 2,
             speed_factor: 1.5,
             adaptive: true,
         }
@@ -96,24 +96,24 @@ impl Default for BenchConfig {
 /// Every knob is read through an accessor that clamps it into its usable range, so a config file
 /// can hold a nonsensical value without any single call site having to remember the repair.
 impl BenchConfig {
-    /// The sample budget, clamped so the range is always usable.
-    pub fn samples(&self) -> (usize, usize) {
-        let min = self.min_samples.max(1);
-        (min, self.max_samples.max(min))
+    /// The fewest and the most samples a candidate gets, clamped so the range is always usable.
+    pub fn sample_count_range(&self) -> (usize, usize) {
+        let min = self.min_sample_count.max(1);
+        (min, self.max_sample_count.max(min))
     }
 
     /// How many samples must land under the limit, clamped so a short circuit always needs one.
-    pub fn short_circuit_samples(&self) -> usize {
-        self.short_circuit_samples.max(1)
+    pub fn clamped_short_circuit_sample_count(&self) -> usize {
+        self.short_circuit_sample_count.max(1)
     }
 
     /// The elimination threshold, clamped so it can never sit below the leader's own time.
-    pub fn speed_factor(&self) -> f64 {
+    pub fn clamped_speed_factor(&self) -> f64 {
         self.speed_factor.max(1.0)
     }
 }
 
-/// Log levels for autotune logging in `CubeCL`.
+/// How much the autotune log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AutotuneLogLevel {
     /// Autotune logging is disabled.
@@ -156,8 +156,8 @@ impl AutotuneConfig {
     }
 }
 
-/// Autotune levels controlling the intensity of autotuning.
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+/// How many candidates autotune benchmarks.
+#[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AutotuneLevel {
     /// Minimal autotuning effort.
     #[serde(rename = "minimal")]
@@ -177,17 +177,60 @@ pub enum AutotuneLevel {
     Full,
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     /// A config naming the sink `recorder` still writes decisions there.
+    #[cfg(feature = "std")]
     #[test]
     fn decisions_are_read_under_recorder_too() {
         let config: AutotuneConfig = toml::from_str("[recorder]\nstdout = true").unwrap();
+
         assert!(config.decisions.stdout);
+    }
+
+    #[test]
+    fn a_sink_enables_decisions() {
+        let mut config = AutotuneConfig::default();
+        config.decisions.stderr = true;
+
         assert!(config.decisions_enabled());
-        let config: AutotuneConfig = toml::from_str("[decisions]\nstderr = true").unwrap();
-        assert!(config.decisions.stderr);
+    }
+
+    #[test]
+    fn decisions_without_a_sink_are_disabled() {
+        assert!(!AutotuneConfig::default().decisions_enabled());
+    }
+
+    #[test]
+    fn the_sample_range_needs_one_sample_and_never_inverts() {
+        let config = BenchConfig {
+            min_sample_count: 0,
+            max_sample_count: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(config.sample_count_range(), (1, 1));
+    }
+
+    #[test]
+    fn a_short_circuit_needs_one_sample() {
+        let config = BenchConfig {
+            short_circuit_sample_count: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(config.clamped_short_circuit_sample_count(), 1);
+    }
+
+    #[test]
+    fn the_speed_factor_never_sits_below_the_leader() {
+        let config = BenchConfig {
+            speed_factor: 0.5,
+            ..Default::default()
+        };
+
+        assert_eq!(config.clamped_speed_factor(), 1.0);
     }
 }

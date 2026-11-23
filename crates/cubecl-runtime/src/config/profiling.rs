@@ -1,14 +1,14 @@
-use super::logger::{LogLevel, LoggerConfig};
+use super::{LogLevel, LoggerConfig};
 
-/// Configuration for profiling settings in `CubeCL`.
+/// What the profiling log reports.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProfilingConfig {
-    /// Logger configuration for profiling logs, using profiling-specific log levels.
+    /// Where the profiling log goes, and how much it says.
     #[serde(default)]
     pub logger: LoggerConfig<ProfilingLogLevel>,
 }
 
-/// Log levels for profiling in `CubeCL`.
+/// How much the profiling log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ProfilingLogLevel {
     /// Profiling logging is disabled.

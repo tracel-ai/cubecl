@@ -753,7 +753,7 @@ impl CudaServer {
         captures: DeviceCaptures,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
         let stream_priority = config.streaming.priority;
 
         ctx.unsafe_set_current().unwrap();
@@ -771,7 +771,7 @@ impl CudaServer {
                     stream_priority,
                     captures,
                 ),
-                max_streams,
+                max_stream_count,
             ),
             utilities: Arc::new(utilities),
             collectives: Collectives::new(device_id),

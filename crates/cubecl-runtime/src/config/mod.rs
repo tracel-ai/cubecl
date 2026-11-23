@@ -1,25 +1,18 @@
-/// Autotune config module.
+/// How autotune benchmarks its candidates and where it reports.
 pub mod autotune;
-/// Cache config module, re-exported from `cubecl-environment`.
-#[cfg(std_io)]
-pub mod cache {
-    pub use cubecl_environment::persistence::CacheConfig;
-}
-/// Compilation config module.
+/// How kernels compile: bounds checks, debug data, dumps and the compile threads.
 pub mod compilation;
 /// Which named environment the process warms into.
 pub mod environment;
-/// Memory config module.
+/// Which pools persistent allocations go to, and the memory log.
 pub mod memory;
-/// Profiling config module.
+/// What the profiling log reports.
 pub mod profiling;
-/// Human-readable byte sizes for config files.
-pub mod size;
-/// Streaming config module.
+/// How many streams a device runs and how they are chosen.
 pub mod streaming;
-/// Throughput config module.
+/// Whether throughput measurements are cached.
 pub mod throughput;
-/// Device transport config module.
+/// How a runtime moves data between its devices.
 pub mod transport;
 
 mod base;
@@ -29,8 +22,14 @@ mod env;
 mod logger;
 mod type_name;
 
-pub use base::*;
+pub use base::CubeClRuntimeConfig;
 pub use cubecl_environment::config::RuntimeConfig;
-pub use debug_info::effective_debug_info;
-pub use logger::Logger;
-pub use type_name::*;
+#[cfg(std_io)]
+pub use cubecl_environment::persistence::CacheConfig;
+pub use cubecl_environment::stream::StreamPolicy;
+pub use type_name::TypeNameFormatLevel;
+
+pub(crate) use cubecl_environment::config::logger::{LogLevel, LoggerConfig};
+pub(crate) use debug_info::effective_debug_info;
+pub(crate) use logger::Logger;
+pub(crate) use type_name::short_type_name;

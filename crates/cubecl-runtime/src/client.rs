@@ -1,5 +1,5 @@
 use crate::{
-    config::{TypeNameFormatLevel, type_name_format},
+    config::TypeNameFormatLevel,
     device::HardwareIdentity,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
@@ -2493,7 +2493,7 @@ impl Client {
 }
 
 fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
-    let base = type_name_format(name, TypeNameFormatLevel::Balanced);
+    let base = TypeNameFormatLevel::Balanced.format(name);
     kernel_id.entrypoint_name(&base)
 }
 

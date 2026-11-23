@@ -27,9 +27,15 @@ mod tests {
     #[test]
     fn a_config_file_without_the_section_loads_the_device_transport() {
         let config: CubeClRuntimeConfig = toml::from_str("").unwrap();
-        assert_eq!(config.transport.device, DeviceTransportMode::Auto);
 
+        assert_eq!(config.transport.device, DeviceTransportMode::Auto);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn the_device_transport_can_be_turned_off() {
         let config: CubeClRuntimeConfig = toml::from_str("[transport]\ndevice = \"off\"").unwrap();
+
         assert_eq!(config.transport.device, DeviceTransportMode::Off);
     }
 }
