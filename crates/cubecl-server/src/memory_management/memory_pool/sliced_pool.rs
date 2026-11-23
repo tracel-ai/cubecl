@@ -39,9 +39,9 @@ pub struct SlicedPool {
     alignment: u64,
     location_base: MemoryLocation,
     /// The most pages ever held at once.
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 /// What a [`SlicedPool`] carves, and the pool index its slices carry.
@@ -68,8 +68,8 @@ impl SlicedPool {
             near_page_size: true,
             alignment: layout.alignment,
             location_base: MemoryLocation::new(layout.pool, 0, 0),
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -95,13 +95,13 @@ impl SlicedPool {
             },
             usage: self.get_memory_usage(),
             pages: self.pages.len() as u64,
-            pages_peak: self.pages_peak,
-            pages_unmapped: self
+            peak_pages: self.peak_pages,
+            unmapped_pages: self
                 .pages
                 .iter()
                 .filter(|(page, _)| !page.is_mapped())
                 .count() as u64,
-            largest_alloc: self.largest_alloc,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -171,7 +171,7 @@ impl SlicedPool {
                 page.try_reserve(size)
             });
         if handle.is_some() {
-            self.largest_alloc = self.largest_alloc.max(size);
+            self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         }
         handle
     }
@@ -213,8 +213,8 @@ impl SlicedPool {
             .expect("callers only allocate a page for an allocation that fits it");
         let storage_id = page.storage_id();
         self.pages.push((page, storage_id));
-        self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(reserved)
     }
@@ -405,8 +405,8 @@ impl Display for SlicedPool {
 
         f.write_fmt(format_args!(
             " - Sliced Pool page_size={} max_alloc_size={}",
-            BytesFormat::new(self.page_size),
-            BytesFormat::new(self.max_slice_size)
+            BytesFormat::from_byte_count(self.page_size),
+            BytesFormat::from_byte_count(self.max_slice_size)
         ))?;
         f.write_str("\n")?;
 
@@ -415,9 +415,9 @@ impl Display for SlicedPool {
             f.write_fmt(format_args!(
                 "   - Page {id} num_slices={} => {} free - {} full - {} total\n",
                 summary.num_total,
-                BytesFormat::new(summary.amount_free),
-                BytesFormat::new(summary.amount_full),
-                BytesFormat::new(summary.amount_total),
+                BytesFormat::from_byte_count(summary.amount_free),
+                BytesFormat::from_byte_count(summary.amount_full),
+                BytesFormat::from_byte_count(summary.amount_total),
             ))?;
         }
 

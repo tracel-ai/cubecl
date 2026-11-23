@@ -82,7 +82,7 @@ fn reserved(client: &Client) -> u64 {
         .memory_report(MemoryScope::CurrentStream)
         .streams
         .iter()
-        .map(|stream| stream.pools.usage().bytes_reserved)
+        .map(|stream| stream.pools.usage().reserved_bytes)
         .sum()
 }
 

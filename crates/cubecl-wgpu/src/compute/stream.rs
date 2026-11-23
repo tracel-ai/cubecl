@@ -354,19 +354,14 @@ impl WgpuStream {
                 if self.capturing.is_recording() {
                     // Cross-stream input pins belong to the graph for its whole
                     // lifetime, not to the next submission.
-                    self.recording
-                        .shared
-                        .bindings
-                        .append(&mut shared_inputs.bindings);
+                    self.recording.shared.append(&mut shared_inputs);
                     let (resources, custom_handles, addresses) = resources.into_resources(self);
                     self.record_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
                     return;
                 }
                 // Drain into the stream's pending pins; the handle returns its buffer to the
                 // server pool when it drops at the end of this arm.
-                self.shared_bindings
-                    .bindings
-                    .append(&mut shared_inputs.bindings);
+                self.shared_bindings.append(&mut shared_inputs);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }

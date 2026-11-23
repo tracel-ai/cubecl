@@ -554,7 +554,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 format!(
                     "[{}] Reserved memory {} using dynamic pool",
                     self.name,
-                    BytesFormat::new(size)
+                    BytesFormat::from_byte_count(size)
                 )
             },
         );
@@ -780,7 +780,7 @@ mod tests {
             .memory_report()
             .dynamic
             .into_iter()
-            .find(|pool| pool.largest_alloc == 7 * MIB)
+            .find(|pool| pool.largest_alloc_bytes == 7 * MIB)
             .expect("some pool served the allocation");
         assert!(
             matches!(served.kind, MemoryPoolKind::Adaptive { .. }),
@@ -823,9 +823,9 @@ mod tests {
         let handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_report().usage();
 
-        assert_eq!(usage.bytes_in_use, 100);
+        assert_eq!(usage.in_use_bytes, 100);
         // A metadata-sized allocation is carved from one metadata page.
-        assert_eq!(usage.bytes_reserved, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
 
         // Drop and re-alloc.
         drop(handle);
@@ -912,7 +912,7 @@ mod tests {
             .unwrap();
 
         let binding_b = handle_b.binding();
-        let reserved = memory_management.memory_report().usage().bytes_reserved;
+        let reserved = memory_management.memory_report().usage().reserved_bytes;
         drop(handle_a);
         drop(handle_c);
 
@@ -922,7 +922,7 @@ mod tests {
         assert!(memory_management.get_cursor(binding_b.clone()).is_ok());
         assert!(memory_management.get_storage(binding_b).is_ok());
         assert!(
-            memory_management.memory_report().usage().bytes_reserved < reserved,
+            memory_management.memory_report().usage().reserved_bytes < reserved,
             "the two freed pages must have gone back"
         );
     }
@@ -952,14 +952,14 @@ mod tests {
             .unwrap();
         let report = memory_management.memory_report();
         assert_eq!(
-            report.persistent.usage.bytes_in_use, 1024,
+            report.persistent.usage.in_use_bytes, 1024,
             "an allocation inside the outer window is persistent"
         );
         assert_eq!(
             report
                 .dynamic
                 .iter()
-                .map(|pool| pool.pages_peak)
+                .map(|pool| pool.peak_pages)
                 .sum::<u64>(),
             0,
             "nothing leaked into the dynamic pools"
@@ -975,7 +975,7 @@ mod tests {
                 .memory_report()
                 .dynamic
                 .iter()
-                .map(|pool| pool.pages_peak)
+                .map(|pool| pool.peak_pages)
                 .sum::<u64>(),
             1
         );
@@ -1001,10 +1001,10 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.number_allocs, 2);
-        assert_eq!(usage.bytes_in_use, alloc_size * 2);
+        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.in_use_bytes, alloc_size * 2);
         // One page, not two: both slices were carved from the same one.
-        assert_eq!(usage.bytes_reserved, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
     }
 
     #[test_log::test]
@@ -1027,9 +1027,9 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.number_allocs, 1);
-        assert_eq!(usage.bytes_in_use, alloc_size);
-        assert_eq!(usage.bytes_reserved, METADATA_PAGE);
+        assert_eq!(usage.allocations, 1);
+        assert_eq!(usage.in_use_bytes, alloc_size);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
     }
 
     #[test_log::test]
@@ -1053,9 +1053,9 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.number_allocs, 2);
-        assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert_eq!(usage.bytes_reserved, page_size * 2);
+        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.in_use_bytes, alloc_size * 2);
+        assert_eq!(usage.reserved_bytes, page_size * 2);
     }
 
     #[test_log::test]
@@ -1075,7 +1075,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_report().usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
-        assert_eq!(usage.bytes_padding, 10 * 2);
+        assert_eq!(usage.padding_bytes, 10 * 2);
     }
 
     /// Each size lands on the pool that serves it: metadata churn stays on the
@@ -1107,8 +1107,8 @@ mod tests {
         let usage = memory_management.memory_report().usage();
         // Total memory should be size of all pages, and no more: one metadata
         // page, and one adaptive page grown to the 4 MiB allocation.
-        assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
-        assert_eq!(usage.bytes_reserved, METADATA_PAGE + 5 * MIB);
+        assert_eq!(usage.in_use_bytes, alloc_sizes.iter().sum::<u64>());
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE + 5 * MIB);
     }
 
     // The motivating use case: allocations from different "sequence-length
@@ -1137,11 +1137,11 @@ mod tests {
 
         let usage = memory_management.memory_report().usage();
         assert_eq!(
-            usage.bytes_reserved,
+            usage.reserved_bytes,
             2 * MIB,
             "both sizes must share a single arena page"
         );
-        assert_eq!(usage.number_allocs, 1);
+        assert_eq!(usage.allocations, 1);
         drop(large);
     }
 
@@ -1179,10 +1179,10 @@ mod tests {
             })
             .collect();
         let usage_after = memory_management.memory_report().usage();
-        assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
-        assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
+        assert_eq!(usage_before.allocations, usage_after.allocations);
+        assert_eq!(usage_before.in_use_bytes, usage_after.in_use_bytes);
         // Usage after can actually be _less_ because of defragging.
-        assert!(usage_before.bytes_reserved >= usage_after.bytes_reserved);
+        assert!(usage_before.reserved_bytes >= usage_after.reserved_bytes);
     }
 
     #[test_log::test]
@@ -1218,7 +1218,7 @@ mod tests {
         }
         let usage_after = memory_management.memory_report().usage();
         // Check that we haven't increased our memory usage significantly
-        assert!(usage_after.bytes_reserved <= (usage_before.bytes_reserved as f64 * 1.1) as u64);
+        assert!(usage_after.reserved_bytes <= (usage_before.reserved_bytes as f64 * 1.1) as u64);
     }
 
     // Test pools without slices. More or less same as tests above.
@@ -1257,9 +1257,9 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.number_allocs, 2);
-        assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert!(usage.bytes_reserved >= alloc_size * 2);
+        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.in_use_bytes, alloc_size * 2);
+        assert!(usage.reserved_bytes >= alloc_size * 2);
     }
 
     #[test_log::test]
@@ -1281,9 +1281,9 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.number_allocs, 1);
-        assert_eq!(usage.bytes_in_use, alloc_size);
-        assert!(usage.bytes_reserved >= alloc_size);
+        assert_eq!(usage.allocations, 1);
+        assert_eq!(usage.in_use_bytes, alloc_size);
+        assert!(usage.reserved_bytes >= alloc_size);
     }
 
     #[test_log::test]
@@ -1302,9 +1302,9 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.number_allocs, 2);
-        assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert!(usage.bytes_reserved >= alloc_size * 2);
+        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.in_use_bytes, alloc_size * 2);
+        assert!(usage.reserved_bytes >= alloc_size * 2);
     }
 
     #[test_log::test]
@@ -1323,7 +1323,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_report().usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
-        assert_eq!(usage.bytes_padding, 10 * 2);
+        assert_eq!(usage.padding_bytes, 10 * 2);
     }
 
     #[test_log::test]
@@ -1341,7 +1341,7 @@ mod tests {
             .map(|s| memory_management.reserve(s, PageUpdate::Allow, &mut ErrorGraph::default()));
         let usage = memory_management.memory_report().usage();
         // Total memory should be size of all pages, and no more.
-        assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
+        assert_eq!(usage.in_use_bytes, alloc_sizes.iter().sum::<u64>());
     }
 
     #[test_log::test]
@@ -1364,15 +1364,15 @@ mod tests {
 
         // Freed, but guarded: the next allocation of that size needs a page
         // of its own, and a cleanup leaves the guarded one where it is.
-        let before = memory_management.memory_report().usage().bytes_reserved;
+        let before = memory_management.memory_report().usage().reserved_bytes;
         let other = memory_management
             .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
-        let after = memory_management.memory_report().usage().bytes_reserved;
+        let after = memory_management.memory_report().usage().reserved_bytes;
         assert!(after > before, "the guarded page was handed out again");
         memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
         assert_eq!(
-            memory_management.memory_report().usage().bytes_reserved,
+            memory_management.memory_report().usage().reserved_bytes,
             after,
             "the guarded page was released"
         );
@@ -1380,7 +1380,7 @@ mod tests {
         drop(guard);
         drop(other);
         memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
-        assert_eq!(memory_management.memory_report().usage().bytes_reserved, 0);
+        assert_eq!(memory_management.memory_report().usage().reserved_bytes, 0);
     }
 
     /// The room a graph's temporaries left free on a page it pinned serves
@@ -1410,17 +1410,17 @@ mod tests {
             .guard(temporary.descriptor().location())
             .expect("the pool holds the page");
         drop(temporary);
-        let pinned = memory.memory_report().usage().bytes_reserved;
+        let pinned = memory.memory_report().usage().reserved_bytes;
 
         let later = share(&mut memory, PageUpdate::Forbidden)
             .expect("a capture carves the room the pin keeps");
-        assert_eq!(memory.memory_report().usage().bytes_reserved, pinned);
+        assert_eq!(memory.memory_report().usage().reserved_bytes, pinned);
 
         let _eager = memory
             .reserve(MIB, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         assert!(
-            memory.memory_report().usage().bytes_reserved > pinned,
+            memory.memory_report().usage().reserved_bytes > pinned,
             "work outside a capture took a page of its own"
         );
 
@@ -1487,8 +1487,8 @@ mod tests {
             })
             .collect();
         let usage_after = memory_management.memory_report().usage();
-        assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
-        assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
-        assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
+        assert_eq!(usage_before.allocations, usage_after.allocations);
+        assert_eq!(usage_before.in_use_bytes, usage_after.in_use_bytes);
+        assert_eq!(usage_before.reserved_bytes, usage_after.reserved_bytes);
     }
 }

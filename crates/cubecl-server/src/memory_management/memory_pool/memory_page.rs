@@ -141,19 +141,19 @@ impl MemoryPage {
     /// Gets the [memory usage](MemoryUsage) of the current memory page.
     pub fn memory_usage(&self) -> MemoryUsage {
         let mut usage = MemoryUsage {
-            number_allocs: 0,
-            bytes_in_use: 0,
-            bytes_padding: 0,
-            bytes_reserved: 0,
+            allocations: 0,
+            in_use_bytes: 0,
+            padding_bytes: 0,
+            reserved_bytes: 0,
         };
 
         for slice in self.slices.iter() {
-            usage.bytes_reserved += slice.effective_size();
+            usage.reserved_bytes += slice.effective_size();
 
             if !slice.handle.is_free() {
-                usage.number_allocs += 1;
-                usage.bytes_in_use += slice.storage.size();
-                usage.bytes_padding += slice.padding;
+                usage.allocations += 1;
+                usage.in_use_bytes += slice.storage.size();
+                usage.padding_bytes += slice.padding;
             }
         }
 
@@ -403,8 +403,14 @@ pub struct MemoryPageSummary {
 impl Display for MemoryBlock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.is_free {
-            true => f.write_fmt(format_args!("Free ({})", BytesFormat::new(self.size))),
-            false => f.write_fmt(format_args!("Reserved ({})", BytesFormat::new(self.size))),
+            true => f.write_fmt(format_args!(
+                "Free ({})",
+                BytesFormat::from_byte_count(self.size)
+            )),
+            false => f.write_fmt(format_args!(
+                "Reserved ({})",
+                BytesFormat::from_byte_count(self.size)
+            )),
         }
     }
 }
@@ -427,7 +433,7 @@ impl Debug for MemoryPageSummary {
             f.write_fmt(format_args!(
                 " - {tag}: {} slices ({})\n",
                 num,
-                BytesFormat::new(amount),
+                BytesFormat::from_byte_count(amount),
             ))?;
         }
 

@@ -741,7 +741,7 @@ mod tests {
             .memory_report()
             .dynamic
             .iter()
-            .map(|pool| pool.usage.bytes_reserved)
+            .map(|pool| pool.usage.reserved_bytes)
             .sum()
     }
 
@@ -1204,7 +1204,7 @@ mod tests {
             page_of(&large),
             "it shares the current page"
         );
-        assert_eq!(memory.memory_report().usage().bytes_in_use, 11 * MIB);
+        assert_eq!(memory.memory_report().usage().in_use_bytes, 11 * MIB);
     }
 
     /// A plan dropped before its commit leaves every allocation where it was.
@@ -1316,12 +1316,12 @@ mod tests {
         memory.mode(MemoryAllocationMode::Auto);
 
         assert_eq!(
-            memory.memory_report().persistent.usage.bytes_in_use,
+            memory.memory_report().persistent.usage.in_use_bytes,
             MIB,
             "closing the dedicated window restores the persistent one"
         );
         let report = memory.memory_report();
-        assert_eq!(report.usage().bytes_reserved, 200 * MIB + MIB);
+        assert_eq!(report.usage().reserved_bytes, 200 * MIB + MIB);
         assert_eq!(
             (report.dedicated.kind, report.dedicated.pages),
             (MemoryPoolKind::Direct, 1),
@@ -1331,7 +1331,7 @@ mod tests {
         drop(probe);
         let _tick = reserve(&mut memory, MIB);
         assert_eq!(
-            memory.memory_report().usage().bytes_reserved,
+            memory.memory_report().usage().reserved_bytes,
             MIB + FLOOR,
             "the probe buffer is gone; the weight and one adaptive page remain"
         );

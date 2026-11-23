@@ -46,9 +46,9 @@ pub struct DirectPool {
     /// leaving it to an explicit cleanup.
     reclaim_at: Option<u64>,
     /// The most slices ever held at once.
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 impl DirectPool {
@@ -63,8 +63,8 @@ impl DirectPool {
             max_alloc_size,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
             reclaim_at,
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -74,9 +74,9 @@ impl DirectPool {
             kind: MemoryPoolKind::Direct,
             usage: self.get_memory_usage(),
             pages: self.live().count() as u64,
-            pages_peak: self.pages_peak,
-            pages_unmapped: self.live().filter(|slice| !slice.mapped).count() as u64,
-            largest_alloc: self.largest_alloc,
+            peak_pages: self.peak_pages,
+            unmapped_pages: self.live().filter(|slice| !slice.mapped).count() as u64,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -202,7 +202,7 @@ impl MemoryPool for DirectPool {
         // size, and the next exact-fit lookup no longer recognizes it.
         slice.padding = padding;
         slice.storage.utilization = StorageUtilization { offset: 0, size };
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Some(slice.handle.clone())
     }
@@ -243,8 +243,8 @@ impl MemoryPool for DirectPool {
 
         let handle = slice.handle.clone();
         self.slices[index] = Some(slice);
-        self.pages_peak = self.pages_peak.max(self.live().count() as u64);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.peak_pages = self.peak_pages.max(self.live().count() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(handle)
     }
@@ -277,10 +277,10 @@ impl MemoryPool for DirectPool {
         let used: Vec<_> = self.live().filter(|slice| !slice.is_free()).collect();
 
         MemoryUsage {
-            number_allocs: used.len() as u64,
-            bytes_in_use: used.iter().map(|slice| slice.storage.size()).sum(),
-            bytes_padding: used.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self.live().map(|slice| slice.effective_size()).sum(),
+            allocations: used.len() as u64,
+            in_use_bytes: used.iter().map(|slice| slice.storage.size()).sum(),
+            padding_bytes: used.iter().map(|slice| slice.padding).sum(),
+            reserved_bytes: self.live().map(|slice| slice.effective_size()).sum(),
         }
     }
 
@@ -345,14 +345,14 @@ impl MemoryPool for DirectPool {
 impl core::fmt::Display for DirectPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let usage = self.get_memory_usage();
-        if usage.bytes_reserved == 0 {
+        if usage.reserved_bytes == 0 {
             return Ok(());
         }
 
         f.write_fmt(format_args!(
             "  - Direct: {} slices, largest {}\n",
             self.live().count(),
-            BytesFormat::new(self.largest_alloc)
+            BytesFormat::from_byte_count(self.largest_alloc_bytes)
         ))?;
         f.write_fmt(format_args!("\n{usage}\n"))
     }
@@ -432,7 +432,7 @@ mod tests {
         let served = alloc(&mut pool, &mut storage, MAX).expect("exactly the limit fits");
 
         assert_eq!(storage.bytes_allocated(), MAX);
-        assert_eq!(pool.get_memory_usage().number_allocs, 1);
+        assert_eq!(pool.get_memory_usage().allocations, 1);
         core::mem::drop(served);
     }
 }

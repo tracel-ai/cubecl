@@ -38,7 +38,7 @@ impl fmt::Display for Text<'_, MemorySnapshots> {
             let mut total = MemoryUsage::default();
             let mut add = |name: String, pool: &MemoryPoolReport| {
                 total = total.combine(pool.usage.clone());
-                let role = (pool.usage.bytes_reserved == 0).then_some(Role::Idle);
+                let role = (pool.usage.reserved_bytes == 0).then_some(Role::Idle);
                 table.row_in(role, pool_row(name, pool));
             };
             for stream in &snapshot.record.report.streams {
@@ -85,19 +85,19 @@ fn pool_row(name: String, pool: &MemoryPoolReport) -> Vec<String> {
         name,
         PoolKind(&pool.kind).to_string(),
         pool.pages.to_string(),
-        pool.pages_peak.to_string(),
-        pool.pages_unmapped.to_string(),
-        ByteSize(usage.bytes_in_use).to_string(),
-        ByteSize(usage.bytes_reserved).to_string(),
+        pool.peak_pages.to_string(),
+        pool.unmapped_pages.to_string(),
+        ByteSize(usage.in_use_bytes).to_string(),
+        ByteSize(usage.reserved_bytes).to_string(),
         format!(
             "{:.1}",
-            Percent::new(usage.bytes_in_use, usage.bytes_reserved)
+            Percent::new(usage.in_use_bytes, usage.reserved_bytes)
         ),
         format!(
             "{:.1}",
-            Percent::new(usage.bytes_padding, usage.bytes_in_use)
+            Percent::new(usage.padding_bytes, usage.in_use_bytes)
         ),
-        ByteSize(pool.largest_alloc).to_string(),
+        ByteSize(pool.largest_alloc_bytes).to_string(),
     ]
 }
 
@@ -111,15 +111,15 @@ fn total_row(usage: &MemoryUsage) -> Vec<String> {
         blank(),
         blank(),
         blank(),
-        ByteSize(usage.bytes_in_use).to_string(),
-        ByteSize(usage.bytes_reserved).to_string(),
+        ByteSize(usage.in_use_bytes).to_string(),
+        ByteSize(usage.reserved_bytes).to_string(),
         format!(
             "{:.1}",
-            Percent::new(usage.bytes_in_use, usage.bytes_reserved)
+            Percent::new(usage.in_use_bytes, usage.reserved_bytes)
         ),
         format!(
             "{:.1}",
-            Percent::new(usage.bytes_padding, usage.bytes_in_use)
+            Percent::new(usage.padding_bytes, usage.in_use_bytes)
         ),
         blank(),
     ]

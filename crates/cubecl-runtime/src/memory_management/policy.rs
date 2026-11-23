@@ -9,7 +9,7 @@
 /// deciding again.
 pub const EXCLUSIVE_MEMORY_ONLY: bool = cfg!(exclusive_memory_only);
 
-/// High level configuration of memory management.
+/// How a stream's dynamic pools are laid out on device pages.
 #[derive(Clone, Debug)]
 pub enum MemoryConfiguration {
     /// One page per allocation, in exponentially spaced size buckets: what a
@@ -41,7 +41,7 @@ impl Default for MemoryConfiguration {
 }
 
 #[derive(Default, Clone, Copy, Debug)]
-/// The mode of allocation used.
+/// Which pools serve an allocation.
 pub enum MemoryAllocationMode {
     /// Use the automatic memory management strategy for allocation.
     #[default]
