@@ -146,14 +146,19 @@ impl Space {
         Space::from_shape(self.shape.subspace(dimensions))
     }
 
-    /// This box listed in `held`'s order where `held` spans the same dimensions, as it is
-    /// otherwise: the box a plane-resident accumulator writes through, its fragments' rows along
-    /// its own leading dimensions whatever order the memory it drains into lists them in.
+    /// This box listed in `held`'s order where `held` spans its dimensions longer than one, the
+    /// one-wide ones it leaves out first, as it is otherwise: the box a plane-resident accumulator
+    /// writes through, its fragments' rows along its own leading dimensions whatever order the
+    /// memory it drains into lists them in.
     pub(crate) fn in_order_of(&self, held: &Space) -> Space {
-        let same_dimensions = held.rank() == self.rank()
-            && held.dimensions().all(|dimension| self.contains(dimension));
-        match same_dimensions {
-            true => self.subspace(&held.dimensions().collect::<Vec<_>>()),
+        let one_wide =
+            |dimension: &Dimension| matches!(self.extent_raw(*dimension), Extent::Static(1));
+        let (shared, left_out): (Vec<_>, Vec<_>) = self
+            .dimensions()
+            .partition(|&dimension| held.contains(dimension));
+        let spanned = shared.len() == held.rank() && left_out.iter().all(one_wide);
+        match spanned {
+            true => self.subspace(&left_out.into_iter().chain(held.dimensions()).collect::<Vec<_>>()),
             false => self.clone(),
         }
     }
