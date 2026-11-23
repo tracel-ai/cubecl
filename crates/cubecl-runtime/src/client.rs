@@ -15,7 +15,7 @@ use crate::{
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     throughput::{
         ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
@@ -425,7 +425,7 @@ impl Client {
     pub fn read_async(
         &self,
         handles: Vec<Handle>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let shapes = handles
             .iter()
             .map(|it| [it.size_in_used() as usize].into())
@@ -469,7 +469,7 @@ impl Client {
     pub fn read_tensor_async(
         &self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         self.do_read(descriptors)
     }
 
@@ -495,7 +495,7 @@ impl Client {
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         let fut = self.read_tensor_async(vec![descriptor]);
 
         async { Ok(fut.await?.remove(0)) }
@@ -526,7 +526,7 @@ impl Client {
     /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
-        self.expect_local(&source.handle.clone().binding());
+        self.expect_local(&source.handle.to_binding());
         lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
     }
 
@@ -544,8 +544,8 @@ impl Client {
     pub fn read_lazy_async(
         &self,
         source: CopyDescriptor<Handle>,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        let binding = source.handle.clone().binding();
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
+        let binding = source.handle.to_binding();
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
@@ -570,7 +570,7 @@ impl Client {
     pub fn read_lazy_async(
         &self,
         source: CopyDescriptor<Handle>,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         self.read_one_tensor_async(source.binding())
     }
 
@@ -578,7 +578,7 @@ impl Client {
     pub fn get_resource<S: ServerStorage>(
         &self,
         handle: Handle,
-    ) -> Result<ManagedResource<<S::Storage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<S::Storage as StorageAllocator>::Resource>, ServerError> {
         let stream_id = self.stream_id();
         let binding = handle.binding();
         self.local(&binding)?;
@@ -618,7 +618,7 @@ impl Client {
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.memory.clone().binding(),
+                        alloc.memory.to_binding(),
                         desc.shape,
                         alloc.strides.clone(),
                         desc.elem_size,
@@ -658,7 +658,7 @@ impl Client {
             .map(|((desc, layout), data)| {
                 (
                     CopyDescriptor::new(
-                        layout.memory.clone().binding(),
+                        layout.memory.to_binding(),
                         desc.shape,
                         layout.strides.clone(),
                         desc.elem_size,
@@ -796,7 +796,7 @@ impl Client {
     pub fn write(&self, handle: &Handle, data: Bytes) {
         let stream_id = self.stream_id();
         let descriptor =
-            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+            CopyDescriptor::new(handle.to_binding(), [data.len()].into(), [1].into(), 1);
         self.expect_local(&descriptor.handle);
         self.device.submit(move |server| {
             server.write(vec![(descriptor, data)], stream_id);
@@ -1029,7 +1029,7 @@ impl Client {
     /// failure the buffer carries.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
-        let binding = handle.clone().binding();
+        let binding = handle.to_binding();
         self.local(&binding)?;
         // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
@@ -1061,7 +1061,7 @@ impl Client {
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
-        self.expect_local(&src.clone().binding());
+        self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
@@ -1827,8 +1827,9 @@ impl Client {
     /// into a buffer only while nothing else holds it: they sit on room every graph of the
     /// stream overwrites, so which ones a run allocates is its own business. A recording can
     /// still place a buffer it keeps as a temporary — one allocated just before an output of its
-    /// size takes the output's room — and is then refused; it is recorded again, following the
-    /// refused recording's own allocations, up to three recordings in all.
+    /// size takes the output's room — and is then refused. The work then runs once more as a
+    /// planning run placed by the refused recording's allocations, and is recorded again, up to
+    /// three recordings in all.
     ///
     /// `work` must not read the device either: a planning run's launches never ran. For the same
     /// reason a tune first met in a planning run measures its candidates on inputs nothing wrote,
@@ -1848,8 +1849,8 @@ impl Client {
         /// settles by its second run. A work whose kept buffers never settle is recorded after
         /// this many runs all the same: only what the recording keeps decides whether it seals.
         const PLANNING_RUNS_MAX: usize = 4;
-        /// Recordings a capture makes before it gives up: a refused one is the plan of the
-        /// next, which seals whenever it allocates as the refused one did.
+        /// Recordings a capture makes before it gives up: a refused one places the planning
+        /// run of the next, which seals whenever it allocates as that run did.
         const RECORDINGS_MAX: usize = 3;
 
         self.graph_prepare()?;
@@ -1873,12 +1874,18 @@ impl Client {
                 break;
             };
             core::mem::drop(output);
-            // A capture prepared right after a refused recording follows its allocations, and
-            // records at once. One refused otherwise has no plan, and the window stays shut.
-            self.graph_prepare()?;
-            if self.start_capture().is_err() {
+            // Only a recording refused for keeping a buffer it placed as a temporary is
+            // retried, and the reason it failed is what the caller hears otherwise.
+            if !self.graph_prepare_retry().unwrap_or(false) {
                 return Err(refusal);
             }
+            // The window adds no page: one planning run grows the room apart for the buffers
+            // the refused recording kept. Whether it settled does not matter, only what the
+            // recording keeps decides whether it seals.
+            let planned = work();
+            self.graph_end_run()?;
+            core::mem::drop(planned);
+            self.start_capture()?;
             output = work();
             graph = self.stop_capture();
         }
@@ -1901,6 +1908,16 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_prepare(stream_id))
+            .closed_as_error()
+    }
+
+    /// [`graph_prepare`](Self::graph_prepare) a retry of the recording just refused on this
+    /// stream for keeping a buffer it placed as a temporary, and answer whether there was one
+    /// (see [`Server::graph_prepare_retry`]).
+    fn graph_prepare_retry(&self) -> Result<bool, ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.graph_prepare_retry(stream_id))
             .closed_as_error()
     }
 
@@ -2071,7 +2088,7 @@ impl Client {
         handles
             .into_iter()
             .map(|handle| {
-                let binding = handle.clone().binding();
+                let binding = handle.to_binding();
                 self.local(&binding)?;
                 Ok(binding)
             })
@@ -2429,7 +2446,7 @@ impl Client {
         let alloc = layouts.remove(0);
 
         let desc_descriptor = CopyDescriptor {
-            handle: handle_base.clone().binding(),
+            handle: handle_base.to_binding(),
             shape,
             strides: alloc.strides.clone(),
             elem_size,

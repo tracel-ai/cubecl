@@ -1,3 +1,7 @@
-mod base;
+mod allocator;
+mod handle;
+mod resource;
 
-pub use base::*;
+pub use allocator::*;
+pub use handle::*;
+pub use resource::*;

@@ -1,20 +1,22 @@
 //! The pools a workload's allocations are carved from, one per page size it
 //! grew through.
 
-use crate::memory_management::{Cleanup, PinnedPages};
+use crate::memory_management::Cleanup;
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
-        memory_pool::{MemoryPool, PageMapping, SlicedLayout, SlicedPool, calculate_padding},
+        memory_pool::{
+            MemoryPool, PageMapping, PinnedRoom, SlicedLayout, SlicedPool, calculate_padding,
+        },
         relocation::{
             ArenaShape, ArenaState, Landed, LiveAllocation, Move, OutdatedPages, Relocation,
             StorageCopy, TargetRoom,
         },
     },
     server::IoError,
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::backtrace::BackTrace;
@@ -174,6 +176,18 @@ impl PoolArena {
         !self.outdated.is_empty()
     }
 
+    /// Whether a page of the size the arena carves now holds `size` bytes: a new page for
+    /// them would not outdate the current ones.
+    pub fn fits(&self, size: u64) -> bool {
+        self.sizing.fit(size, self.current().page_size()) == Fit::Fits
+    }
+
+    /// Whether graphs guard every page the current pool holds, and it holds some: room
+    /// for work outside a capture comes only from a new page then.
+    pub fn is_pinned(&self) -> bool {
+        self.current().is_pinned()
+    }
+
     /// What a relocation trigger reads of the arena.
     pub fn state(&self) -> ArenaState {
         ArenaState {
@@ -236,18 +250,18 @@ impl PoolArena {
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
     /// [`IoError::PageSizesExhausted`] when it needs a new page size and
     /// every slot is taken, and whatever the device refused.
-    pub fn reserve<Storage: ComputeStorage>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        pinned: PinnedPages,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self.sizing.fit(size, self.current().page_size()) {
             Fit::Fits => self
                 .current_mut()
-                .reserve_sharing(storage, size, mapping, pinned, failures),
+                .reserve_sharing(storage, size, mapping, room, failures),
             Fit::Grow { page_size } => self.grow(storage, size, page_size, mapping, failures),
             Fit::TooLarge => Err(IoError::BufferTooBig {
                 size,
@@ -265,20 +279,18 @@ impl PoolArena {
     pub fn try_reserve(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self.sizing.fit(size, self.current().page_size()) {
-            Fit::Fits => self
-                .current_mut()
-                .try_reserve_sharing(size, pinned, failures),
+            Fit::Fits => self.current_mut().try_reserve_sharing(size, room, failures),
             Fit::Grow { .. } | Fit::TooLarge => None,
         }
     }
 
     /// Release what the current pool no longer needs, and drop every outdated
     /// pool that has drained.
-    pub fn cleanup<Storage: ComputeStorage>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
@@ -295,7 +307,11 @@ impl PoolArena {
     ///
     /// An outdated pool returns a page the moment it empties, rather than
     /// waiting for the explicit cleanup the current pool waits for.
-    fn drain<Storage: ComputeStorage>(&mut self, storage: &mut Storage, failures: &mut ErrorGraph) {
+    fn drain<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) {
         let slots = &mut self.slots;
         self.outdated.retain(|&slot| {
             let Some(pool) = slots[slot].as_mut() else {
@@ -331,7 +347,7 @@ impl PoolArena {
     /// `room` says whether a target may take a new page when the room held
     /// runs out. Nothing moves yet: the caller copies the bytes and hands the
     /// [`Landed`] relocation back to [`commit`](Self::commit).
-    pub fn plan<Storage: ComputeStorage>(
+    pub fn plan<Storage: StorageAllocator>(
         &mut self,
         room: TargetRoom,
         storage: &mut Storage,
@@ -360,7 +376,7 @@ impl PoolArena {
 
     /// Hand every allocation of `landed` over to the target reserved for it,
     /// now that its bytes are there, and drop the outdated pools that emptied.
-    pub fn commit<Storage: ComputeStorage>(
+    pub fn commit<Storage: StorageAllocator>(
         &mut self,
         landed: Landed,
         storage: &mut Storage,
@@ -389,7 +405,7 @@ impl PoolArena {
 
     /// Reserve a target for `allocation` on the current pool, and say what has
     /// to be copied into it. `None` when `room` has no place for it.
-    fn plan_move<Storage: ComputeStorage>(
+    fn plan_move<Storage: StorageAllocator>(
         &mut self,
         allocation: LiveAllocation,
         room: TargetRoom,
@@ -429,7 +445,7 @@ impl PoolArena {
     /// Carve `size` bytes from a new pool of `page_size` pages, which takes
     /// over from the current one only once the device gave it its first page:
     /// a refused allocation leaves the page size where it was.
-    fn grow<Storage: ComputeStorage>(
+    fn grow<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -459,7 +475,7 @@ impl PoolArena {
                 format!(
                     "[{}] Carving pages of {} from here on:\n{self}",
                     self.name,
-                    BytesFormat::new(page_size)
+                    BytesFormat::from_byte_count(page_size)
                 )
             },
         );
@@ -495,18 +511,14 @@ mod tests {
         limit: u64,
     }
 
-    impl ComputeStorage for Bookkeeping {
+    impl StorageAllocator for Bookkeeping {
         type Resource = ();
-
-        fn alignment(&self) -> usize {
-            32
-        }
 
         fn get(&mut self, _handle: &StorageHandle) -> Result<(), IoError> {
             Ok(())
         }
 
-        fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
             if size > self.limit {
                 return Err(IoError::OutOfMemory {
                     size,
@@ -515,11 +527,14 @@ mod tests {
             }
             Ok(StorageHandle::new(
                 StorageId::new(),
-                StorageUtilization { offset: 0, size },
+                StorageUtilization {
+                    offset_bytes: 0,
+                    size_bytes: size,
+                },
             ))
         }
 
-        fn dealloc(&mut self, _id: StorageId) {}
+        fn deallocate(&mut self, _id: StorageId) {}
 
         fn flush(&mut self) {}
 
@@ -554,7 +569,7 @@ mod tests {
             storage,
             size,
             PageMapping::Eager,
-            PinnedPages::Avoid,
+            PinnedRoom::Avoid,
             &mut ErrorGraph::default(),
         )
     }

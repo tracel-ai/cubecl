@@ -3312,7 +3312,7 @@ fn an_override_reserves_without_mapping() {
             .streams
             .iter()
             .flat_map(|stream| stream.pools.dynamic.iter())
-            .find(|pool| pool.largest_alloc == SIZE)
+            .find(|pool| pool.largest_alloc_bytes == SIZE)
             .expect("some pool served the buffer")
             .clone()
     }
@@ -3333,17 +3333,17 @@ fn an_override_reserves_without_mapping() {
     let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
-        pool.pages_unmapped, pool.pages,
+        pool.unmapped_page_count, pool.page_count,
         "the reservation must have no device backing: {report:?}"
     );
-    assert!(pool.pages >= 1, "{report:?}");
+    assert!(pool.page_count >= 1, "{report:?}");
 
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
     let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
-        arena(&report).pages_unmapped,
+        arena(&report).unmapped_page_count,
         0,
         "resolution installed the backing: {report:?}"
     );

@@ -63,7 +63,6 @@ impl StreamMemory for Stream {
 pub struct CudaStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
-    mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
     /// The device's captures, which every stream this creates takes its capture state from.
@@ -138,7 +137,7 @@ impl EventStreamBackend for CudaStreamBackend {
     fn create_stream(&self) -> Result<Self::Stream, ServerError> {
         let stream = create_cuda_stream(self.priority)?;
 
-        let storage = GpuStorage::new(self.mem_alignment);
+        let storage = GpuStorage::new();
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,

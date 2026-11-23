@@ -7,7 +7,7 @@ use crate::{
         memory_pool::{ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping},
     },
     server::IoError,
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
@@ -72,7 +72,7 @@ impl ExclusivePools {
     ///
     /// [`IoError::BufferTooBig`] when no bucket accepts the size, and whatever
     /// the device refused when one does.
-    pub fn reserve<Storage: ComputeStorage>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -105,7 +105,7 @@ impl ExclusivePools {
     }
 
     /// Release what the buckets no longer need.
-    pub fn cleanup<Storage: ComputeStorage>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,

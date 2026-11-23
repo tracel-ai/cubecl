@@ -355,7 +355,7 @@ impl FakeServer {
     fn allocated(&mut self) -> Handle {
         let handle = self.unallocated();
         let mut command = self.command(STREAM, [].into_iter()).unwrap();
-        command.allocate(SIZE, &handle.memory).unwrap();
+        command.allocate(SIZE, handle.memory.clone()).unwrap();
         drop(command);
         handle
     }
@@ -363,7 +363,8 @@ impl FakeServer {
     /// A buffer whose allocation failed with `reason`.
     fn out_of_memory(&mut self, reason: &str) -> Handle {
         let handle = self.unallocated();
-        self.streams.fail_unallocated(&handle.memory, error(reason));
+        self.streams
+            .fail_unallocated(&handle.memory.to_binding(), error(reason));
         handle
     }
 

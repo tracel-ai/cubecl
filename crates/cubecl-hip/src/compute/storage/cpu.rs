@@ -2,8 +2,7 @@ use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::storage::{
-    ComputeStorage, PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource, StorageHandle, StorageId,
-    StorageUtilization,
+    PinnedMemoryResource, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
 };
 use std::{collections::HashMap, ffi::c_void};
 
@@ -15,7 +14,6 @@ pub struct PinnedMemoryStorage {
     memory: HashMap<StorageId, PinnedMemory>,
     /// The bytes `memory` holds.
     allocated: u64,
-    mem_alignment: usize,
     stream: cubecl_hip_sys::hipStream_t,
 }
 
@@ -40,7 +38,6 @@ impl PinnedMemoryStorage {
         Self {
             memory: HashMap::new(),
             allocated: 0,
-            mem_alignment: PINNED_MEMORY_ALIGNMENT,
             stream,
         }
     }
@@ -51,12 +48,8 @@ impl PinnedMemoryStorage {
 // it manages are never shared across threads without synchronization.
 unsafe impl Send for PinnedMemoryStorage {}
 
-impl ComputeStorage for PinnedMemoryStorage {
+impl StorageAllocator for PinnedMemoryStorage {
     type Resource = PinnedMemoryResource;
-
-    fn alignment(&self) -> usize {
-        self.mem_alignment
-    }
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
         let memory = self
@@ -85,7 +78,7 @@ impl ComputeStorage for PinnedMemoryStorage {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, size))
     )]
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         // SAFETY: Calling HIP FFI to allocate page-locked (pinned) host memory. The
         // `hipHostMallocMapped` flag makes the memory accessible from both host and device.
         // We synchronize the stream afterward to ensure the allocation is visible.
@@ -113,12 +106,15 @@ impl ComputeStorage for PinnedMemoryStorage {
         self.allocated += size;
         Ok(StorageHandle::new(
             id,
-            StorageUtilization { offset: 0, size },
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
         ))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn dealloc(&mut self, id: StorageId) {
+    fn deallocate(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
             self.allocated -= resource.size;
             // SAFETY: `resource.ptr` was allocated by `hipHostMalloc` and has not been freed

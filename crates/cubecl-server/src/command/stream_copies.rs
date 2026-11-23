@@ -4,7 +4,7 @@ use super::{DeviceStream, Driver};
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{CopyQueue, StorageCopy};
 use crate::server::{IoError, ServerError};
-use crate::storage::ComputeStorage;
+use crate::storage::StorageAllocator;
 use alloc::vec::Vec;
 
 /// A command's streams, as the queue a relocation copies on: the current one

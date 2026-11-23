@@ -1,8 +1,5 @@
-use crate::{
-    memory_management::optimal_align,
-    server::{
-        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-    },
+use crate::server::{
+    Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
 };
 use alloc::vec::Vec;
 use cubecl_common::device::ServiceId;
@@ -119,7 +116,7 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
+    for i in (0..rank.saturating_sub(1)).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
@@ -189,6 +186,19 @@ impl Pitch {
     }
 }
 
+/// Calculates a best-effort heuristic for the alignment of row-aligned tensors.
+/// Prefers contiguous alignments for unit dimensions, 16-byte minimum alignment for non-unit,
+/// scaling with input size up to `buffer_align`.
+fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usize {
+    if shape == 1 {
+        elem_size
+    } else {
+        (shape * elem_size)
+            .next_power_of_two()
+            .clamp(16, buffer_align)
+    }
+}
+
 #[cfg(test)]
 mod pitch_tests {
     use super::Pitch;
@@ -239,5 +249,24 @@ mod pitch_tests {
         assert_eq!(wide.width_bytes, narrow.width_bytes * 8);
         assert_eq!(wide.stride_bytes, narrow.stride_bytes * 8);
         assert_eq!(wide.height, narrow.height);
+    }
+}
+
+#[cfg(test)]
+mod contiguous_strides_tests {
+    use super::contiguous_strides;
+    use cubecl_zspace::{shape, strides};
+
+    /// A scalar has no dimensions, so it has no strides.
+    #[test]
+    fn rank_zero_has_no_strides() {
+        assert_eq!(contiguous_strides(&shape![]), strides![]);
+    }
+
+    /// The last dimension is unit stride and each one before it spans the rest.
+    #[test]
+    fn strides_are_row_major() {
+        assert_eq!(contiguous_strides(&shape![7]), strides![1]);
+        assert_eq!(contiguous_strides(&shape![2, 3, 4]), strides![12, 4, 1]);
     }
 }

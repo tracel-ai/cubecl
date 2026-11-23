@@ -415,7 +415,7 @@ pub trait CollectiveServer: Sized {
     ) -> Result<(), ServerError> {
         let timing = self.collectives().take_timing();
         // Staged before the handle is consumed below.
-        let destination = handle.clone().binding();
+        let destination = handle.to_binding();
 
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
@@ -631,8 +631,10 @@ fn receive<S: CollectiveServer>(
     // A command on the destination server reserves the memory the incoming
     // data lands in.
     let mut command = server.command(stream_id, [].into_iter())?;
-    command.allocate(handle.size(), &handle.memory)?;
-    let resource = command.resource(handle.binding())?;
+    // The task's handle goes to the pool rather than a clone of it, as `initialize_memory`'s does.
+    let destination = handle.to_binding();
+    command.allocate(handle.size(), handle.memory)?;
+    let resource = command.resource(destination)?;
     let mut marks = marks.unless_capturing(command.stream());
     let stream = command.stream().signal();
     drop(command);
