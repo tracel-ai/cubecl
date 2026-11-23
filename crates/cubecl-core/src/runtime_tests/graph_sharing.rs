@@ -383,11 +383,11 @@ fn add_two_in_place_where_free(client: &Client, input: &Handle, held: bool) -> H
     output
 }
 
-/// Record [`add_two_in_place_where_free`] with its temporary held from run `held_from` on, or
-/// before it when `held_before`: the planning runs settle by their second run, so the recording
-/// allocates otherwise than the plan from run 2. Then check that the graph's output, which its
-/// work allocated, survives another graph of the stream replaying over the shared room, and
-/// holds what the work computes.
+/// Record [`add_two_in_place_where_free`] with its temporary held on the runs `held` names: the
+/// planning runs settle by their second run, so the recording allocates otherwise than the plan
+/// when `held` changes its answer at run 2. That recording is refused, and the retry plans once
+/// and records again. Then check that the graph's output, which its work allocated, survives
+/// another graph of the stream replaying over the shared room, and holds what the work computes.
 fn record_in_place_where_free<R: Runtime>(stream: u64, held: impl Fn(usize) -> bool) {
     let client = R::client(&Default::default());
     StreamId { value: stream }.executes(|| {
@@ -400,7 +400,10 @@ fn record_in_place_where_free<R: Runtime>(stream: u64, held: impl Fn(usize) -> b
                 output
             })
             .expect("a recording whose temporaries differ from its plan's seals");
-        assert!(runs > 2, "the work was recorded after its planning runs");
+        assert_eq!(
+            runs, 5,
+            "two planning runs, a refused recording, the retry's planning run and its recording"
+        );
 
         let (wide_in, wide_out) = (filled(&client, 0.0), client.empty(BYTES));
         let wide = record_chain(&client, &wide_in, &wide_out, 4);
@@ -415,15 +418,15 @@ fn record_in_place_where_free<R: Runtime>(stream: u64, held: impl Fn(usize) -> b
 
 /// A recording that allocates a temporary just before an output of its size, where its plan
 /// wrote that output in place, seals: the temporary takes the output's room first, so the first
-/// recording keeps a buffer on the shared room and is refused, and the next one follows it.
-/// Its output then survives another graph's replay, and holds what the work computes.
+/// recording keeps a buffer on the shared room and is refused, and the retry follows it. Its
+/// output then survives another graph's replay, and holds what the work computes.
 pub fn a_recording_allocating_a_temporary_its_plan_did_not_seals<R: Runtime>() {
     record_in_place_where_free::<R>(3_100_008, |run| run >= 2);
 }
 
 /// A recording that writes in place where its plan allocated a temporary and then an output of
 /// its size seals: its output first matches the planned temporary, so the first recording keeps
-/// a buffer on the shared room and is refused, and the next one follows it. Its output then
+/// a buffer on the shared room and is refused, and the retry follows it. Its output then
 /// survives another graph's replay, and holds what the work computes.
 pub fn a_recording_skipping_a_temporary_its_plan_made_seals<R: Runtime>() {
     record_in_place_where_free::<R>(3_100_009, |run| run < 2);

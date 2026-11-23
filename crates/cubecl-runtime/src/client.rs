@@ -1827,8 +1827,9 @@ impl Client {
     /// into a buffer only while nothing else holds it: they sit on room every graph of the
     /// stream overwrites, so which ones a run allocates is its own business. A recording can
     /// still place a buffer it keeps as a temporary — one allocated just before an output of its
-    /// size takes the output's room — and is then refused; it is recorded again, following the
-    /// refused recording's own allocations, up to three recordings in all.
+    /// size takes the output's room — and is then refused. The work then runs once more as a
+    /// planning run placed by the refused recording's allocations, and is recorded again, up to
+    /// three recordings in all.
     ///
     /// `work` must not read the device either: a planning run's launches never ran. For the same
     /// reason a tune first met in a planning run measures its candidates on inputs nothing wrote,
@@ -1848,8 +1849,8 @@ impl Client {
         /// settles by its second run. A work whose kept buffers never settle is recorded after
         /// this many runs all the same: only what the recording keeps decides whether it seals.
         const PLANNING_RUNS_MAX: usize = 4;
-        /// Recordings a capture makes before it gives up: a refused one is the plan of the
-        /// next, which seals whenever it allocates as the refused one did.
+        /// Recordings a capture makes before it gives up: a refused one places the planning
+        /// run of the next, which seals whenever it allocates as that run did.
         const RECORDINGS_MAX: usize = 3;
 
         self.graph_prepare()?;
@@ -1873,12 +1874,18 @@ impl Client {
                 break;
             };
             core::mem::drop(output);
-            // A capture prepared right after a refused recording follows its allocations, and
-            // records at once. One refused otherwise has no plan, and the window stays shut.
-            self.graph_prepare()?;
-            if self.start_capture().is_err() {
+            // Only a recording refused for keeping a buffer it placed as a temporary is
+            // retried, and the reason it failed is what the caller hears otherwise.
+            if !self.graph_prepare_retry().unwrap_or(false) {
                 return Err(refusal);
             }
+            // The window adds no page: one planning run grows the room apart for the buffers
+            // the refused recording kept. Whether it settled does not matter, only what the
+            // recording keeps decides whether it seals.
+            let planned = work();
+            self.graph_end_run()?;
+            core::mem::drop(planned);
+            self.start_capture()?;
             output = work();
             graph = self.stop_capture();
         }
@@ -1901,6 +1908,16 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_prepare(stream_id))
+            .closed_as_error()
+    }
+
+    /// [`graph_prepare`](Self::graph_prepare) a retry of the recording just refused on this
+    /// stream for keeping a buffer it placed as a temporary, and answer whether there was one
+    /// (see [`Server::graph_prepare_retry`]).
+    fn graph_prepare_retry(&self) -> Result<bool, ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.graph_prepare_retry(stream_id))
             .closed_as_error()
     }
 
