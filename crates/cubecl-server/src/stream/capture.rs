@@ -4,7 +4,7 @@
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
 use super::allocation_planner::{AllocationPlanner, Divergence, Placement};
-use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate, PinnedPages};
+use crate::memory_management::{AllocationKind, ManagedMemoryBinding, MemoryLocation, PageUpdate};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -141,8 +141,8 @@ impl StreamCapture {
         }
     }
 
-    /// Whether this stream's reservations may carve the free room on the pages
-    /// its graphs pinned.
+    /// What this stream's reservations are, which decides whether they may carve
+    /// the free room on the pages its graphs pinned.
     ///
     /// A capture's may, from its planning run on: the room is what earlier
     /// graphs' temporaries used, every graph of the stream replays in stream
@@ -154,10 +154,10 @@ impl StreamCapture {
     /// Only the capture's own logical `stream` may: another logical stream
     /// folded onto the same backend stream runs its work for real, and what
     /// it keeps would sit where a graph's replay writes.
-    pub fn pinned_pages(&self, stream: StreamId) -> PinnedPages {
+    pub fn allocation_kind(&self, stream: StreamId) -> AllocationKind {
         match self.runs_work_of(stream) {
-            true => PinnedPages::Share,
-            false => PinnedPages::Avoid,
+            true => AllocationKind::GraphIntermediate,
+            false => AllocationKind::Eager,
         }
     }
 

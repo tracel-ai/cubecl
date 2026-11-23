@@ -3,7 +3,7 @@
 //! A graph on a stream replays its temporaries over the room the stream's other graphs
 //! replay theirs on: that is what lets a stream hold about the largest graph's working set
 //! rather than the sum of all of them (see
-//! [`PinnedPages`](crate::memory_management::PinnedPages)). A buffer the graph's work leaves
+//! [`AllocationKind`](crate::memory_management::AllocationKind)). A buffer the graph's work leaves
 //! behind — an output the caller reads — must never sit on that room, or another graph's
 //! replay overwrites it. Whether an allocation is a temporary or an output is only known once
 //! the work is over, by which time a recording has baked its address.
