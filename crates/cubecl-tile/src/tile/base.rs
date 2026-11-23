@@ -1110,6 +1110,9 @@ impl Tile {
             (TileKind::PlanePartition(d), TileKind::Memory(_)) => {
                 d.fill_cast_from::<Served, Source>(src)
             }
+            (TileKind::PlaneTile(d), TileKind::Memory(_)) => {
+                d.load_cast_window::<Served, Source>(src)
+            }
             _ => panic!(
                 "Tile::copy_cast_from: a fragment or a memory window stores into memory, or a \
                  shared-memory box into a tensor map; nothing else casts"

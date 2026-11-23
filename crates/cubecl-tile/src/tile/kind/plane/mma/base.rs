@@ -818,12 +818,14 @@ impl MmaData {
 impl MmaData {
     /// Fill this fragment, an `A`, from `src`'s window of values of `R`, each cast as it is read: a
     /// unit's run of `k` a line at a time, read as the window guards its bounds, so the window may
-    /// run past the problem's edge.
+    /// run past the problem's edge. A fragment deeper than its instruction fills a step at a time,
+    /// its registers in the order [`load_in_steps`] leaves them.
     pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
         let (m, n, k) = comptime!((self.m, self.n, self.k));
         let layout = comptime!(self.layout);
-        let def = MmaDefinition::<T, T, T>::new(m, n, k);
-        let num_vectors = def.vectors_per_lane(MatrixIdent::A);
+        let depth = instruction_depth::<T>(m, n, k);
+        let def = MmaDefinition::<T, T, T>::new(m, n, depth);
+        let per_step = def.vectors_per_lane(MatrixIdent::A);
         let vector_size = def.vector_size(MatrixIdent::A);
         let vector_layout = def.vector_layout(MatrixIdent::A);
         let served = src.vector_size();
@@ -843,25 +845,32 @@ impl MmaData {
             MmaFragment::Lhs(fragment) => {
                 let fragment = fragment.at_mut::<T>();
                 #[unroll]
-                for i in 0..num_vectors {
-                    let (row, col) = def.position_of_nth(
-                        UNIT_POS_PLANE,
-                        comptime!(i * vector_size) as u32,
-                        MatrixIdent::A,
-                    );
-                    let mut vector = Vector::<T, NL>::cast_from(T::from_int(0));
-                    if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
-                        #[unroll]
-                        for l in 0..comptime!(vector_size / width) {
-                            let line = view
-                                .read((row, col / comptime!(width as u32) + comptime!(l as u32)));
+                for s in 0..comptime!(k / depth) {
+                    #[unroll]
+                    for i in 0..per_step {
+                        let (row, col) = def.position_of_nth(
+                            UNIT_POS_PLANE,
+                            comptime!(i * vector_size) as u32,
+                            MatrixIdent::A,
+                        );
+                        let col = col + comptime!((s * depth) as u32);
+                        let mut vector = Vector::<T, NL>::cast_from(T::from_int(0));
+                        if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32))
+                        {
                             #[unroll]
-                            for e in 0..width {
-                                vector.insert(l * width + e, T::cast_from(line.extract(e)));
+                            for l in 0..comptime!(vector_size / width) {
+                                let line = view.read((
+                                    row,
+                                    col / comptime!(width as u32) + comptime!(l as u32),
+                                ));
+                                #[unroll]
+                                for e in 0..width {
+                                    vector.insert(l * width + e, T::cast_from(line.extract(e)));
+                                }
                             }
                         }
+                        fragment[comptime!(s * per_step + i)] = vector;
                     }
-                    fragment[i] = vector;
                 }
             }
             MmaFragment::Rhs(_)

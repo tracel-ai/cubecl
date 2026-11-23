@@ -332,6 +332,17 @@ impl PlaneTile {
         }
     }
 
+    /// Load this fragment, an `A` held across its sum's products, from `src`'s window, cast as it
+    /// loads ([`MmaData::load_cast_window`]).
+    pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
+        match self {
+            PlaneTile::Mma(fragment) => fragment.load_cast_window::<T, R>(src),
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                panic!("PlaneTile::load_cast_window: only a manual-mma fragment is held cast")
+            }
+        }
+    }
+
     /// Fill this fragment from a memory `src`, a manual-mma one deeper than its instruction as
     /// `load` says. A cmma fragment steps its rows along `row`, a position in `src`'s space read
     /// off the window of its whole grid: under a contraction of several dimensions, the fragment's
@@ -984,15 +995,8 @@ impl PlanePartition {
                     mi,
                     ni,
                 ));
-                match self.at(mi, ni) {
-                    PlaneTile::Mma(fragment) => {
-                        let mut fragment = fragment.clone();
-                        fragment.load_cast_window::<T, R>(&window);
-                    }
-                    PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => panic!(
-                        "PlanePartition::fill_cast_from: only a manual-mma fragment is held cast"
-                    ),
-                }
+                let mut fragment = self.at(mi, ni);
+                fragment.load_cast_window::<T, R>(&window);
             }
         }
     }
