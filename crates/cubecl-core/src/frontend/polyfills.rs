@@ -87,30 +87,127 @@ fn max_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> 
     select_many(lhs.is_nan(), lhs, value)
 }
 
+/// The error function, as FreeBSD's and musl's `erff` compute it (Sun's `s_erff.c`): a rational
+/// approximation of `erf` below `0.84375`, of `erf - 0.845` up to `1.25`, and of
+/// `log(x · erfc(x)) + x²` up to 6, past which `erf` rounds to ±1. Within a few ulp of the exact
+/// value in f32, including the small arguments where `erf(x) ≈ 2x/√π`, and odd: `erf(-0) = -0`.
+///
+/// Every lane takes all three ranges and selects its own. A NaN fails the comparisons that pick
+/// the larger ranges, so it takes the first one, `x + x · P/Q`, and stays NaN. Half floats are
+/// evaluated in f32 and rounded once.
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
-    let erf = erf_positive(x.abs());
-    select_many(x.less_than(&Vector::new(F::new(0.0))), -erf, erf)
+    if comptime!(F::size().comptime() < 4) {
+        Vector::cast_from(erf_ranges::<f32, N>(Vector::cast_from(x)))
+    } else {
+        erf_ranges::<F, N>(x)
+    }
 }
 
-/// An approximation of the error function: <https://en.wikipedia.org/wiki/Error_function#Numerical_approximations>
-///
-/// > (maximum error: 1.5×10−7)
-/// > All of these approximations are valid for x ≥ 0. To use these approximations for negative x, use the fact that erf x is an odd function, so erf x = −erf(−x).
 #[cube]
-fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
-    let p = Vector::new(F::new(0.3275911));
-    let a1 = Vector::new(F::new(0.2548296));
-    let a2 = Vector::new(F::new(-0.28449674));
-    let a3 = Vector::new(F::new(1.4214137));
-    let a4 = Vector::new(F::new(-1.453152));
-    let a5 = Vector::new(F::new(1.0614054));
-    let one = Vector::new(F::new(1.0));
+fn erf_ranges<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
+    let one = k::<F, N>(1.0);
+    let ax = x.abs();
 
-    let t = one / (one + p * x);
-    let tmp = ((((a5 * t + a4) * t) + a3) * t + a2) * t + a1;
+    // |x| < 0.84375: erf(x) = x + x · P(x²)/Q(x²).
+    let z = x * x;
+    let p = ((((k::<F, N>(-2.3763017452e-05)) * z + k::<F, N>(-5.7702702470e-03)) * z
+        + k::<F, N>(-2.8481749818e-02))
+        * z
+        + k::<F, N>(-3.2504209876e-01))
+        * z
+        + k::<F, N>(1.2837916613e-01);
+    let q = one
+        + z * (((((k::<F, N>(-3.9602282413e-06)) * z + k::<F, N>(1.3249473704e-04)) * z
+            + k::<F, N>(5.0813062117e-03))
+            * z
+            + k::<F, N>(6.5022252500e-02))
+            * z
+            + k::<F, N>(3.9791721106e-01));
+    let small = x + x * (p / q);
 
-    one - (tmp * t * (-x * x).exp())
+    // 0.84375 <= |x| < 1.25: erf(|x|) = 0.845 + P(s)/Q(s), with s = |x| - 1.
+    let s = ax - one;
+    let p = ((((((k::<F, N>(-2.1663755178e-03)) * s + k::<F, N>(3.5478305072e-02)) * s
+        + k::<F, N>(-1.1089469492e-01))
+        * s
+        + k::<F, N>(3.1834661961e-01))
+        * s
+        + k::<F, N>(-3.7220788002e-01))
+        * s
+        + k::<F, N>(4.1485610604e-01))
+        * s
+        + k::<F, N>(-2.3621185683e-03);
+    let q = one
+        + s * ((((((k::<F, N>(1.1984500103e-02)) * s + k::<F, N>(1.3637083583e-02)) * s
+            + k::<F, N>(1.2617121637e-01))
+            * s
+            + k::<F, N>(7.1828655899e-02))
+            * s
+            + k::<F, N>(5.4039794207e-01))
+            * s
+            + k::<F, N>(1.0642088205e-01));
+    let mid = k::<F, N>(8.4506291151e-01) + p / q;
+
+    // 1.25 <= |x| < 6: erfc(|x|) = exp(-x² - 0.5625 + R(s)/S(s)) / |x|, with s = 1 / x², and the
+    // coefficients for below and above 1/0.35 picked lane by lane.
+    let s = one / z;
+    let near = ax.less_than(&k::<F, N>(2.857142857));
+    let r = (((((((pick::<F, N>(near, -9.8143291473e+00, 0.0)) * s
+        + pick::<F, N>(near, -8.1287437439e+01, -4.8351919556e+02))
+        * s
+        + pick::<F, N>(near, -1.8460508728e+02, -1.0250950928e+03))
+        * s
+        + pick::<F, N>(near, -1.6239666748e+02, -6.3756646729e+02))
+        * s
+        + pick::<F, N>(near, -6.2375331879e+01, -1.6063638306e+02))
+        * s
+        + pick::<F, N>(near, -1.0558626175e+01, -1.7757955551e+01))
+        * s
+        + pick::<F, N>(near, -6.9385856390e-01, -7.9928326607e-01))
+        * s
+        + pick::<F, N>(near, -9.8649440333e-03, -9.8649431020e-03);
+    let big_s = one
+        + s * ((((((((pick::<F, N>(near, -6.0424413532e-02, 0.0)) * s
+            + pick::<F, N>(near, 6.5702495575e+00, -2.2440952301e+01))
+            * s
+            + pick::<F, N>(near, 1.0863500214e+02, 4.7452853394e+02))
+            * s
+            + pick::<F, N>(near, 4.2900814819e+02, 2.5530502930e+03))
+            * s
+            + pick::<F, N>(near, 6.4538726807e+02, 3.1998581543e+03))
+            * s
+            + pick::<F, N>(near, 4.3456588745e+02, 1.5367296143e+03))
+            * s
+            + pick::<F, N>(near, 1.3765776062e+02, 3.2579251099e+02))
+            * s
+            + pick::<F, N>(near, 1.9651271820e+01, 3.0338060379e+01));
+    let erfc = (-z - k::<F, N>(0.5625) + r / big_s).exp() / ax;
+    let tail = one - erfc;
+
+    let above = select_many(
+        ax.greater_equal(&k::<F, N>(6.0)),
+        one,
+        select_many(ax.greater_equal(&k::<F, N>(1.25)), tail, mid),
+    );
+    let signed = select_many(x.less_than(&k::<F, N>(0.0)), -above, above);
+    select_many(ax.greater_equal(&k::<F, N>(0.84375)), signed, small)
+}
+
+/// `value` in every lane.
+#[cube]
+fn k<F: Float, N: Size>(#[comptime] value: f64) -> Vector<F, N> {
+    Vector::new(F::new(value))
+}
+
+/// `near` in the lanes `mask` sets, `far` in the others.
+#[cube]
+fn pick<F: Float, N: Size>(
+    mask: Vector<bool, N>,
+    #[comptime] near: f64,
+    #[comptime] far: f64,
+) -> Vector<F, N> {
+    select_many(mask, k::<F, N>(near), k::<F, N>(far))
 }
 
 #[cube]
