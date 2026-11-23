@@ -7,7 +7,7 @@
 //! before its bytes are where it moves to.
 
 use super::CopyQueue;
-use crate::memory_management::{ManagedMemoryHandle, release_or_leak};
+use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, release_or_leak};
 use crate::server::ServerError;
 use crate::storage::ComputeStorage;
 use crate::storage::StorageHandle;
@@ -55,8 +55,9 @@ pub struct StorageCopy {
 /// handed over to the target once `copy` has landed.
 #[derive(Debug)]
 pub(crate) struct Move {
-    /// The allocation being moved, as its owners hold it.
-    pub allocation: ManagedMemoryHandle,
+    /// The allocation being moved, bound rather than held, so the move does not count among
+    /// its owners' handles while it runs.
+    pub allocation: ManagedMemoryBinding,
     /// The slice reserved to receive it.
     pub target: ManagedMemoryHandle,
     /// The bytes to copy, or `None` when the source was carved under a process mode
@@ -147,7 +148,7 @@ mod tests {
         let source = ManagedMemoryHandle::new();
         let target = ManagedMemoryHandle::new();
         let relocation = Relocation::new(alloc::vec![Move {
-            allocation: source.clone(),
+            allocation: source.to_binding(),
             target: target.clone(),
             copy: Some(StorageCopy {
                 source: storage.alloc(4).unwrap(),

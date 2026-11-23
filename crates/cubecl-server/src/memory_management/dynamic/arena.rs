@@ -1,13 +1,15 @@
 //! The pools a workload's allocations are carved from, one per page size it
 //! grew through.
 
-use crate::memory_management::{Cleanup, PinnedPages};
+use crate::memory_management::Cleanup;
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
-        memory_pool::{MemoryPool, PageMapping, SlicedLayout, SlicedPool, calculate_padding},
+        memory_pool::{
+            MemoryPool, PageMapping, PinnedRoom, SlicedLayout, SlicedPool, calculate_padding,
+        },
         relocation::{
             ArenaShape, ArenaState, Landed, LiveAllocation, Move, OutdatedPages, Relocation,
             StorageCopy, TargetRoom,
@@ -174,6 +176,18 @@ impl PoolArena {
         !self.outdated.is_empty()
     }
 
+    /// Whether a page of the size the arena carves now holds `size` bytes: a new page for
+    /// them would not outdate the current ones.
+    pub fn fits(&self, size: u64) -> bool {
+        self.sizing.fit(size, self.current().page_size()) == Fit::Fits
+    }
+
+    /// Whether graphs guard every page the current pool holds, and it holds some: room
+    /// for work outside a capture comes only from a new page then.
+    pub fn is_pinned(&self) -> bool {
+        self.current().is_pinned()
+    }
+
     /// What a relocation trigger reads of the arena.
     pub fn state(&self) -> ArenaState {
         ArenaState {
@@ -241,13 +255,13 @@ impl PoolArena {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        pinned: PinnedPages,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self.sizing.fit(size, self.current().page_size()) {
             Fit::Fits => self
                 .current_mut()
-                .reserve_sharing(storage, size, mapping, pinned, failures),
+                .reserve_sharing(storage, size, mapping, room, failures),
             Fit::Grow { page_size } => self.grow(storage, size, page_size, mapping, failures),
             Fit::TooLarge => Err(IoError::BufferTooBig {
                 size,
@@ -265,13 +279,11 @@ impl PoolArena {
     pub fn try_reserve(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self.sizing.fit(size, self.current().page_size()) {
-            Fit::Fits => self
-                .current_mut()
-                .try_reserve_sharing(size, pinned, failures),
+            Fit::Fits => self.current_mut().try_reserve_sharing(size, room, failures),
             Fit::Grow { .. } | Fit::TooLarge => None,
         }
     }
@@ -554,7 +566,7 @@ mod tests {
             storage,
             size,
             PageMapping::Eager,
-            PinnedPages::Avoid,
+            PinnedRoom::Avoid,
             &mut ErrorGraph::default(),
         )
     }

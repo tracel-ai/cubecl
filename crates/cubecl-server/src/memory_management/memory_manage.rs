@@ -64,22 +64,21 @@ pub enum PageUpdate {
     Forbidden,
 }
 
-/// Whether a reservation may carve the free room on pages graphs pinned (see
-/// [`PageGuard`]).
+/// What an allocation is for, which decides whether it may carve the free room
+/// on pages graphs pinned (see [`PageGuard`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PinnedPages {
-    /// Leave it alone: what lands there would be overwritten by the next
-    /// replay of the graph that used that room.
-    Avoid,
-    /// Carve it too: a temporary of a graph capture on the stream that owns
-    /// this memory, whose graph replays in stream order with every graph
-    /// that pinned the page.
-    Share,
-    /// Take room apart from every page the stream's graphs share: what
-    /// outlives a graph capture — the work's outputs, the metadata its graph
-    /// keeps. That room is carved only by other such allocations, each held
-    /// for as long as its graph lives, so no replay writes over it.
-    Separate,
+pub enum AllocationKind {
+    /// Work that runs for real, outside a graph capture: it outlives the next
+    /// replay of every graph on the stream, so it never lands where one writes.
+    Eager,
+    /// A temporary of a graph capture on the stream that owns this memory. Its
+    /// graph replays in stream order with every graph that pinned a page, so
+    /// it shares the room their temporaries used.
+    GraphIntermediate,
+    /// What outlives a graph capture: the work's outputs, the metadata its
+    /// graph keeps. Held for as long as its graph lives, apart from every page
+    /// the stream's graphs share, so no replay writes over it.
+    GraphOutput,
 }
 
 /// Why a cleanup runs, which decides how much it gives back.
@@ -451,21 +450,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         update: PageUpdate,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.reserve_sharing(size, update, PinnedPages::Avoid, failures)
+        self.reserve_as(size, update, AllocationKind::Eager, failures)
     }
 
-    /// [`reserve`](Self::reserve), carving the free room on pinned pages too
-    /// when `pinned` shares it.
+    /// [`reserve`](Self::reserve), for an allocation of `kind`.
     ///
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
-    pub fn reserve_sharing(
+    pub fn reserve_as(
         &mut self,
         size: u64,
         update: PageUpdate,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match update {
@@ -477,10 +475,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // an explicit cleanup, which on long-running processes lets
                 // every stream's pools grow monotonically.
                 self.cleanup(Cleanup::Periodic, failures);
-                self.reserve_adding(size, pinned, failures)
+                self.reserve_adding(size, kind, failures)
             }
-            PageUpdate::AddOnly => self.reserve_adding(size, pinned, failures),
-            PageUpdate::Forbidden => self.reserve_held(size, pinned, failures).ok_or_else(|| {
+            PageUpdate::AddOnly => self.reserve_adding(size, kind, failures),
+            PageUpdate::Forbidden => self.reserve_held(size, kind, failures).ok_or_else(|| {
                 IoError::PageUpdateForbidden {
                     size,
                     backtrace: BackTrace::capture(),
@@ -494,7 +492,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn reserve_adding(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
@@ -563,7 +561,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let reserved = self
             .pools
-            .reserve(&mut self.storage, size, mapping, pinned, failures)?;
+            .reserve(&mut self.storage, size, mapping, kind, failures)?;
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
@@ -584,7 +582,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn reserve_held(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self.mode {
@@ -596,7 +594,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 {
                     return Some(handle);
                 }
-                self.pools.try_reserve(size, pinned, failures)
+                self.pools.try_reserve(size, kind, failures)
             }
         }
     }
@@ -1400,7 +1398,12 @@ mod tests {
             options(),
         );
         let share = |memory: &mut MemoryManagement<BytesStorage>, update| {
-            memory.reserve_sharing(MIB, update, PinnedPages::Share, &mut ErrorGraph::default())
+            memory.reserve_as(
+                MIB,
+                update,
+                AllocationKind::GraphIntermediate,
+                &mut ErrorGraph::default(),
+            )
         };
         let temporary = share(&mut memory, PageUpdate::Allow).unwrap();
         let _pin = memory

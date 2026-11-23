@@ -145,7 +145,7 @@ fn reserve_shared_memories(
             .reserve((block.size + padding) as u64, PageUpdate::Allow, failures)
             .expect("Failed to reserve the shared memory of the launch");
         let reserved = memory
-            .get_resource(handle.clone().binding(), None, None)
+            .get_resource(handle.to_binding(), None, None)
             .expect("Failed to resolve the shared memory of the launch");
         handles.push(handle);
 

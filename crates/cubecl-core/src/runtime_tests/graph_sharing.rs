@@ -351,6 +351,130 @@ pub fn an_input_written_between_runs_survives_another_graphs_replay<R: Runtime>(
     });
 }
 
+/// Elements of an input a graph reads: 128 KiB of `f32`, past what the small-allocation pool
+/// serves and far below a page the temporaries sized.
+const INPUT_ELEMENTS: usize = 32 * 1024;
+
+/// Inputs kept for each graph's life, which that graph reads, take no page of their own: past the
+/// first graphs, which settle the pools the inputs pack into, the stream's memory grows by less
+/// than one page however many more graphs it records. Each input is allocated outside a capture
+/// once the graphs before it pinned every page the temporaries use, so a new page of that size
+/// would hold little more than it, and the graph reading it would pin it in turn: a page per
+/// graph.
+pub fn inputs_kept_per_graph_take_no_page_of_their_own<R: Runtime>() {
+    const SETTLING: usize = 2;
+    const GRAPHS: usize = 6;
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_010 }.executes(|| {
+        let (input, output) = (filled(&client, 0.0), client.empty(BYTES));
+        let _first = record_chain(&client, &input, &output, 2);
+
+        let launch = |from: &Handle, into: &Handle| {
+            add_one::launch(
+                &client,
+                CubeCount::Static(INPUT_ELEMENTS as u32 / CUBE, 1, 1),
+                CubeDim::new_1d(CUBE),
+                unsafe { BufferArg::from_raw_parts(from.clone(), INPUT_ELEMENTS) },
+                unsafe { BufferArg::from_raw_parts(into.clone(), INPUT_ELEMENTS) },
+            );
+        };
+        let record = |graph: usize| {
+            let input =
+                client.create_from_slice(f32::as_bytes(&vec![graph as f32; INPUT_ELEMENTS]));
+            let output = client.empty(INPUT_ELEMENTS * core::mem::size_of::<f32>());
+            let (recording, ()) = client
+                .capture(|| {
+                    let temporary = client.empty(BYTES);
+                    launch(&input, &temporary);
+                    launch(&temporary, &output);
+                })
+                .expect("capture");
+            (recording, input, output)
+        };
+        let mut recorded: Vec<_> = (0..SETTLING).map(record).collect();
+        let settled = reserved(&client);
+        recorded.extend((SETTLING..SETTLING + GRAPHS).map(record));
+        let grown = reserved(&client) - settled;
+
+        println!(
+            "reserved: {settled} B after {SETTLING} graphs, {grown} B more after {GRAPHS} more"
+        );
+        assert!(
+            grown < BYTES as u64,
+            "{GRAPHS} graphs whose inputs are 128 KiB took {grown} B more"
+        );
+        for (graph, (recording, _input, output)) in recorded.iter().enumerate() {
+            unsafe { recording.replay() }.expect("replay enqueues");
+            let values = f32::from_bytes(&client.read_one(output.clone()).unwrap()).to_vec();
+            assert_eq!(
+                values,
+                vec![graph as f32 + 2.0; INPUT_ELEMENTS],
+                "graph {graph}"
+            );
+        }
+    });
+}
+
+/// Elements of a small input a graph reads: 4 KiB of `f32`, what the small-allocation pool serves.
+const TINY_INPUT_ELEMENTS: usize = 1024;
+
+/// Small inputs kept for each graph's life, and the metadata each graph's launches keep, take no
+/// small-allocation page of their own: past the first graphs, the stream's memory grows by less
+/// than one such page however many more graphs it records. Each would otherwise be allocated once
+/// the graphs before it pinned every page of the small-allocation pool, on a page of its own that
+/// the graph using it pins in turn and that never empties: a page per graph.
+pub fn small_buffers_kept_per_graph_take_no_page_of_their_own<R: Runtime>() {
+    const SMALL_PAGE: u64 = 8 * 1024 * 1024;
+    const SETTLING: usize = 2;
+    const GRAPHS: usize = 6;
+    let client = R::client(&Default::default());
+    StreamId { value: 3_100_011 }.executes(|| {
+        let launch = |from: &Handle, into: &Handle| {
+            add_one::launch(
+                &client,
+                CubeCount::Static(TINY_INPUT_ELEMENTS as u32 / CUBE, 1, 1),
+                CubeDim::new_1d(CUBE),
+                unsafe { BufferArg::from_raw_parts(from.clone(), TINY_INPUT_ELEMENTS) },
+                unsafe { BufferArg::from_raw_parts(into.clone(), TINY_INPUT_ELEMENTS) },
+            );
+        };
+        let record = |graph: usize| {
+            let input =
+                client.create_from_slice(f32::as_bytes(&vec![graph as f32; TINY_INPUT_ELEMENTS]));
+            let output = client.empty(TINY_INPUT_ELEMENTS * core::mem::size_of::<f32>());
+            let (recording, ()) = client
+                .capture(|| {
+                    let temporary = client.empty(TINY_INPUT_ELEMENTS * core::mem::size_of::<f32>());
+                    launch(&input, &temporary);
+                    launch(&temporary, &output);
+                })
+                .expect("capture");
+            (recording, input, output)
+        };
+        let mut recorded: Vec<_> = (0..SETTLING).map(record).collect();
+        let settled = reserved(&client);
+        recorded.extend((SETTLING..SETTLING + GRAPHS).map(record));
+        let grown = reserved(&client) - settled;
+
+        println!(
+            "reserved: {settled} B after {SETTLING} graphs, {grown} B more after {GRAPHS} more"
+        );
+        assert!(
+            grown < SMALL_PAGE,
+            "{GRAPHS} graphs whose inputs are 4 KiB took {grown} B more"
+        );
+        for (graph, (recording, _input, output)) in recorded.iter().enumerate() {
+            unsafe { recording.replay() }.expect("replay enqueues");
+            let values = f32::from_bytes(&client.read_one(output.clone()).unwrap()).to_vec();
+            assert_eq!(
+                values,
+                vec![graph as f32 + 2.0; TINY_INPUT_ELEMENTS],
+                "graph {graph}"
+            );
+        }
+    });
+}
+
 /// `input + 2` in a buffer the work allocates and hands back: one to a temporary, and one more in
 /// place when nothing else holds that temporary, which is then the output, or into a fresh output
 /// otherwise, as a framework's elementwise launch decides by [`Handle::can_mut`]. A run that

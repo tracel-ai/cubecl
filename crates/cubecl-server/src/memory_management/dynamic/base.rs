@@ -2,7 +2,7 @@
 
 use super::{AdaptiveMemory, ExclusivePools};
 use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
-use crate::memory_management::{Cleanup, PinnedPages};
+use crate::memory_management::{AllocationKind, Cleanup};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -98,7 +98,7 @@ impl DynamicMemory {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
@@ -106,7 +106,7 @@ impl DynamicMemory {
             // its pins are never shared.
             DynamicMemory::Exclusive(pools) => pools.reserve(storage, size, mapping, failures),
             DynamicMemory::Adaptive(memory) => {
-                memory.reserve(storage, size, mapping, pinned, failures)
+                memory.reserve(storage, size, mapping, kind, failures)
             }
         }
     }
@@ -116,12 +116,12 @@ impl DynamicMemory {
     pub fn try_reserve(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicMemory::Exclusive(pools) => pools.try_reserve(size, failures),
-            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, pinned, failures),
+            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, kind, failures),
         }
     }
 

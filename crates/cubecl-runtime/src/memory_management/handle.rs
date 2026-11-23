@@ -234,8 +234,19 @@ impl ManagedMemoryHandle {
         Arc::strong_count(&self.descriptor) <= 1
     }
 
-    /// Returns the binding for the current handle.
+    /// Returns the binding for the current handle, which gives up its claim on the buffer.
     pub fn binding(self) -> ManagedMemoryBinding {
+        self.to_binding()
+    }
+
+    /// A binding of this buffer that leaves the handle where it is.
+    ///
+    /// The binding keeps the slice from being freed or reused, but it is not a handle:
+    /// [`can_mut`](Self::can_mut) never counts it, not even for a moment, so what a client is
+    /// told does not depend on how far the device thread has got. Like every binding, its uses
+    /// are ordered against the owner's writes by the stream the server runs them on.
+    #[doc(hidden)]
+    pub fn to_binding(&self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             descriptor: self.descriptor.clone(),
         }

@@ -15,11 +15,11 @@ use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
-use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard,
-    PageUpdate, PinnedPages, StreamMemoryReport,
+    AllocationKind, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
+    PageGuard, PageUpdate, StreamMemoryReport,
 };
+use crate::memory_management::{Cleanup, release_or_leak};
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
 };
@@ -186,20 +186,19 @@ impl<'a, D: Driver> Command<'a, D> {
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let current = self.streams.current;
-        let pinned = self.streams.current().capturing().pinned_pages(current);
-        self.reserve_sharing(size, pinned)
+        let kind = self.streams.current().capturing().allocation_kind(current);
+        self.reserve_as(size, kind)
     }
 
-    /// [`reserve`](Self::reserve), carving the room the stream's graphs pinned only when
-    /// `pinned` shares it.
+    /// [`reserve`](Self::reserve), for an allocation of `kind`.
     ///
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
-    fn reserve_sharing(
+    fn reserve_as(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let update = self.streams.current().capturing().page_update();
         if update == PageUpdate::Allow {
@@ -209,7 +208,7 @@ impl<'a, D: Driver> Command<'a, D> {
         let (stream, failures) = self.streams.current_and_failures();
         match stream
             .device_memory()
-            .reserve_sharing(size, update, pinned, failures)
+            .reserve_as(size, update, kind, failures)
         {
             Ok(handle) => Ok(handle),
             // The recording now misses whatever this memory was for.
@@ -226,31 +225,32 @@ impl<'a, D: Driver> Command<'a, D> {
             // placed otherwise than the plan the recording follows.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                self.make_room(&err, pinned);
+                self.make_room(&err, kind);
                 let (stream, failures) = self.streams.current_and_failures();
                 stream
                     .device_memory()
-                    .reserve_sharing(size, PageUpdate::Allow, pinned, failures)
+                    .reserve_as(size, PageUpdate::Allow, kind, failures)
             }
         }
     }
 
     /// Get back what the reservation that failed with `err` needs: a slot for
-    /// a new page size when the arena it was `pinned` to is full, memory
-    /// otherwise.
-    fn make_room(&mut self, err: &IoError, pinned: PinnedPages) {
-        match (err, pinned) {
+    /// a new page size when the arena an allocation of `kind` goes to is full,
+    /// memory otherwise.
+    fn make_room(&mut self, err: &IoError, kind: AllocationKind) {
+        match (err, kind) {
             // Only a relocation that may allocate empties the outdated pools
             // whatever room the current pages have.
-            (IoError::PageSizesExhausted { .. }, PinnedPages::Avoid | PinnedPages::Share) => {
-                RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
-            }
+            (
+                IoError::PageSizesExhausted { .. },
+                AllocationKind::Eager | AllocationKind::GraphIntermediate,
+            ) => RelocatingStreams::relocate(self, RelocationReason::ArenaFull),
             // Nothing frees a slot of the separate arena: it is never
             // relocated, since its graphs pin what it holds, and every
             // reservation already drained its outdated pools that emptied. The
             // retry reports the exhaustion, rather than placing the output on
             // the shared room.
-            (IoError::PageSizesExhausted { .. }, PinnedPages::Separate) => {}
+            (IoError::PageSizesExhausted { .. }, AllocationKind::GraphOutput) => {}
             // No stream records (the caller checked), which is the only
             // refusal a cleanup has.
             _ => {
@@ -261,16 +261,22 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `memory` `size` bytes of device memory on the current stream.
     ///
+    /// `memory` is the handle the task that asked for it owns, and it ends in the pool, moved
+    /// rather than cloned: from the ask to the pool, the buffer has exactly one handle besides
+    /// its users', so what [`can_mut`](ManagedMemoryHandle::can_mut) answers them never depends
+    /// on how far the device thread has got.
+    ///
     /// # Errors
     ///
     /// Returns an [`IoError`] when the memory cannot be reserved or bound, e.g. when the device
-    /// is out of memory. The caller records it on `memory`, which has no binding to carry it.
+    /// is out of memory. The caller records it on `memory`, which has no binding to carry it:
+    /// it takes `memory`'s [binding](ManagedMemoryHandle::to_binding) before handing it over.
     pub fn initialize_memory(
         &mut self,
         memory: ManagedMemoryHandle,
         size: u64,
     ) -> Result<(), IoError> {
-        match self.allocate(size, &memory) {
+        match self.allocate(size, memory) {
             Ok(()) => Ok(()),
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
@@ -287,8 +293,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// # Errors
     ///
-    /// Whatever the reservation or the bind reports.
-    pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
+    /// Whatever the reservation or the bind reports. `memory` is dropped then.
+    pub fn allocate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let placement = self.streams.current().capturing().place(current, size);
         self.allocate_at(size, memory, placement)
@@ -300,35 +306,34 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Left out of the run's sequence: its placement never depends on the plan, and a launch's
     /// metadata is built only where the cache misses, which the planning runs and the recording
     /// need not agree on — a scalar that changes between runs misses once more.
-    fn allocate_separate(
-        &mut self,
-        size: u64,
-        memory: &ManagedMemoryHandle,
-    ) -> Result<(), IoError> {
+    fn allocate_separate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let reserved = match self.streams.current().capturing().is_owned_by(current) {
-            true => self.reserve_sharing(size, PinnedPages::Separate)?,
+            true => self.reserve_as(size, AllocationKind::GraphOutput)?,
             false => self.reserve(size)?,
         };
-        self.bind(reserved, memory.clone())
+        self.bind(reserved, memory)
     }
 
     fn allocate_at(
         &mut self,
         size: u64,
-        memory: &ManagedMemoryHandle,
+        memory: ManagedMemoryHandle,
         placement: Placement,
     ) -> Result<(), IoError> {
         let reserved = match placement {
-            Placement::Output => self.reserve_sharing(size, PinnedPages::Separate)?,
+            Placement::Output => self.reserve_as(size, AllocationKind::GraphOutput)?,
             Placement::Pools => self.reserve(size)?,
         };
-        self.bind(reserved, memory.clone())?;
+        // Taken before the handle moves into the pool. A recorded output's binding outlives this
+        // command: the graph it seals into writes the buffer on every replay, in stream order.
+        let binding = memory.to_binding();
+        self.bind(reserved, memory)?;
         let current = self.streams.current;
         self.streams
             .current()
             .capturing()
-            .allocated(current, size, memory, placement);
+            .allocated(current, size, binding, placement);
         Ok(())
     }
 
@@ -344,7 +349,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Whatever the allocation or the bind reports.
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = Handle::new(self.service, self.streams.current, size);
-        self.allocate(size, &handle.memory)?;
+        self.allocate(size, handle.memory.clone())?;
 
         Ok(handle)
     }
@@ -620,13 +625,13 @@ impl<'a, D: Driver> Command<'a, D> {
         let size = staging.len() as u64;
         let handle = Handle::new(self.service, self.streams.current, size);
         match room {
-            Room::Planned => self.allocate(size, &handle.memory)?,
-            Room::Separate => self.allocate_separate(size, &handle.memory)?,
+            Room::Planned => self.allocate(size, handle.memory.clone())?,
+            Room::Separate => self.allocate_separate(size, handle.memory.clone())?,
         }
 
         self.write_to_gpu(
             CopyDescriptor {
-                handle: handle.clone().binding(),
+                handle: handle.to_binding(),
                 shape: [data.len()].into(),
                 strides: [1].into(),
                 elem_size: 1,
