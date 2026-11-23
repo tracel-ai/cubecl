@@ -34,7 +34,9 @@ use crate::{e2m1, ue8m0};
 /// block dtype can express is stored at that dtype's smallest value, far too coarse for it, and
 /// every value in the block quantizes to zero. [`ScaleDtype::UE4M3`] spans about 2^18 this way, so
 /// a tensor holding a genuine outlier can lose its ordinary values.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+// `Debug` and `Hash` are written out so a scheme with no per-row level reads and hashes as it did
+// before the level existed: an autotune's saved keys are looked up by both.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
     /// The logical data type of quantized input values (e.g., [`QuantValue::Q8F`]).
     ///
@@ -49,9 +51,39 @@ pub struct QuantScheme {
     tensor: Option<ScaleDtype>,
     /// The per-row scale level: one scale for every index of the leading axes, over the whole
     /// last axis. The outer level in place of the per-tensor one: a scheme holds one or the other.
+    /// Left out of a serialized scheme that has none, which reads back as one without.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     row: Option<ScaleDtype>,
     /// The per-block scale level, the innermost when both levels are present.
     block: Option<BlockScale>,
+}
+
+impl core::fmt::Debug for QuantScheme {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut scheme = f.debug_struct("QuantScheme");
+        scheme
+            .field("value", &self.value)
+            .field("store", &self.store)
+            .field("mode", &self.mode)
+            .field("tensor", &self.tensor);
+        if let Some(row) = &self.row {
+            scheme.field("row", row);
+        }
+        scheme.field("block", &self.block).finish()
+    }
+}
+
+impl core::hash::Hash for QuantScheme {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+        self.store.hash(state);
+        self.mode.hash(state);
+        self.tensor.hash(state);
+        if let Some(row) = &self.row {
+            row.hash(state);
+        }
+        self.block.hash(state);
+    }
 }
 
 impl Default for QuantScheme {
@@ -1272,6 +1304,48 @@ mod tests {
             None,
             "a per-tensor level replaces the per-row one"
         );
+    }
+
+    /// A scheme with no per-row level reads and hashes as it did before the level existed, so an
+    /// autotune's saved keys still find it; one with the level reads and hashes apart.
+    #[test]
+    fn a_scheme_without_a_per_row_level_keys_as_before() {
+        use core::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        let scheme = QuantScheme::default()
+            .with_value(QuantValue::Q4S)
+            .per_block([32, 1], ScaleDtype::F16)
+            .with_store(QuantStore::PackedU32(1));
+        assert_eq!(
+            alloc::format!("{scheme:?}"),
+            "QuantScheme { value: Q4S, store: PackedU32(1), mode: Symmetric, tensor: None, \
+             block: Some(BlockScale { size: BlockSize([32, 1]), dtype: F16 }) }"
+        );
+        // The fields the scheme held before, in their order, hashed as the derive hashed them.
+        #[derive(Hash)]
+        struct Before {
+            value: QuantValue,
+            store: QuantStore,
+            mode: QuantMode,
+            tensor: Option<ScaleDtype>,
+            block: Option<BlockScale>,
+        }
+        let hash = |value: &dyn Fn(&mut DefaultHasher)| {
+            let mut hasher = DefaultHasher::new();
+            value(&mut hasher);
+            hasher.finish()
+        };
+        let before = Before {
+            value: scheme.value,
+            store: scheme.store,
+            mode: scheme.mode,
+            tensor: scheme.tensor,
+            block: scheme.block,
+        };
+        assert_eq!(hash(&|h| scheme.hash(h)), hash(&|h| before.hash(h)));
+        let row = scheme.per_row(ScaleDtype::F32);
+        assert!(alloc::format!("{row:?}").contains("row: F32"));
+        assert_ne!(hash(&|h| row.hash(h)), hash(&|h| scheme.hash(h)));
     }
 
     /// A code stating its outer level per row with no outer level reads back as no scheme.
