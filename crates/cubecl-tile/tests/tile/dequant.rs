@@ -227,13 +227,21 @@ fn e2m1_codes_decode_into_e4m3_under_scales_that_are_not_powers_of_two() {
             ],
         )
     };
-    let launcher = implied(
+    let launch = implied(
         &client,
         Partitioning::new(
             Space::new(&[(ROW, rows), (CB, blocks), (CI, inside)]),
             Levels::leaf(&[(ROW, rows), (CB, blocks), (CI, inside)])
                 .walk_every(&[ROW, CB, CI])
                 .build(),
+        ),
+        Form::Static,
+    );
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            launch.space().clone(),
+            launch.partitioning().levels().to_vec(),
         ),
         Form::Dynamic,
     );
@@ -262,7 +270,7 @@ fn e2m1_codes_decode_into_e4m3_under_scales_that_are_not_powers_of_two() {
         w_op.arg(),
         s_op.arg(),
         out_op.arg(),
-        launcher.partitioning_arg(),
+        launch.partitioning_arg(),
     );
 
     let got = client.read_one_unchecked_tensor(out.into_copy_descriptor());

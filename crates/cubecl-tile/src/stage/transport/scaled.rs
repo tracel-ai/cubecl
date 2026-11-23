@@ -126,6 +126,7 @@ impl Tile {
                 held,
                 comptime!(DecodedLine {
                     offset,
+                    width: vw,
                     stored_as,
                     powers_of_two,
                 }),
@@ -144,6 +145,8 @@ impl Tile {
 struct DecodedLine {
     /// Its first value's place in the load.
     offset: usize,
+    /// Its values, a destination line's.
+    width: usize,
     /// How the load's values are stored.
     stored_as: Packing,
     /// Whether every scale over the values is a power of two ([`Factor::powers_of_two`]).
@@ -153,9 +156,9 @@ struct DecodedLine {
 impl DecodedLine {
     /// Whether the line is `e2m1` codes the fill turns into `e4m3` through their bits
     /// ([`e2m1_word_into_e4m3`]): codes read from their own bits, not the device's conversion,
-    /// under powers of two alone, in whole words of the load and of a destination line
-    /// `width` wide, `into_e4m3` the destination's element, and no table.
-    fn e2m1_into_e4m3(self, width: usize, into_e4m3: bool, looks_up: bool) -> bool {
+    /// under powers of two alone, in whole words of the load and of the line, `into_e4m3` the
+    /// destination's element, and no table.
+    fn e2m1_into_e4m3(self, into_e4m3: bool, looks_up: bool) -> bool {
         let read_from_bits = matches!(
             self.stored_as,
             Packing::Packed {
@@ -170,7 +173,7 @@ impl DecodedLine {
             && self.powers_of_two
             && into_e4m3
             && !looks_up
-            && width.is_multiple_of(E2M1_CODES_PER_WORD)
+            && self.width.is_multiple_of(E2M1_CODES_PER_WORD)
             && self.offset.is_multiple_of(E2M1_CODES_PER_WORD)
     }
 }
@@ -188,8 +191,7 @@ fn write_decoded_line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
     index: CoordsDyn,
 ) {
     let into_e4m3 = is_e4m3::<O>();
-    let through_bits =
-        comptime!(line.e2m1_into_e4m3(VW::value(), into_e4m3, mem.codebook.present()));
+    let through_bits = comptime!(line.e2m1_into_e4m3(into_e4m3, mem.codebook.present()));
     if comptime!(through_bits) {
         write_e2m1_line_into_e4m3::<S, O, I, WP, VW>(held, line, mem, scale, out, index);
     } else {
@@ -220,7 +222,7 @@ fn write_e2m1_line_into_e4m3<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: S
     if normal {
         out.write(
             index.clone(),
-            e2m1_line_as_e4m3::<I, O, WP, VW>(held, line.offset, scale_exponent),
+            e2m1_line_as_e4m3::<I, O, WP, VW>(held, line, scale_exponent),
         );
     } else {
         out.write(
@@ -230,15 +232,15 @@ fn write_e2m1_line_into_e4m3<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: S
     }
 }
 
-/// The `VW` `e2m1` codes of `held` from `offset`, eight a word, as their `e4m3` bytes under
+/// The `e2m1` codes of `held` that `line` names, eight a word, as their `e4m3` bytes under
 /// `2^scale_exponent` ([`e2m1_word_into_e4m3`]).
 #[cube]
 fn e2m1_line_as_e4m3<I: Numeric, O: Numeric, WP: Size, VW: Size>(
     held: Vector<I, WP>,
-    #[comptime] offset: usize,
+    #[comptime] line: DecodedLine,
     scale_exponent: i32,
 ) -> Vector<O, VW> {
-    let width = VW::value();
+    let (offset, width) = comptime!((line.offset, line.width));
     let size!(VB) = comptime!(width / E4M3_PER_WORD);
     let mut bytes = Vector::<u32, VB>::empty();
     #[unroll]
