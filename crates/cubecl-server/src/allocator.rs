@@ -1,8 +1,5 @@
-use crate::{
-    memory_management::optimal_align,
-    server::{
-        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-    },
+use crate::server::{
+    Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
 };
 use alloc::vec::Vec;
 use cubecl_common::device::ServiceId;
@@ -239,5 +236,18 @@ mod pitch_tests {
         assert_eq!(wide.width_bytes, narrow.width_bytes * 8);
         assert_eq!(wide.stride_bytes, narrow.stride_bytes * 8);
         assert_eq!(wide.height, narrow.height);
+    }
+}
+
+/// Calculates a best-effort heuristic for the alignment of row-aligned tensors.
+/// Prefers contiguous alignments for unit dimensions, 16-byte minimum alignment for non-unit,
+/// scaling with input size up to `buffer_align`.
+fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usize {
+    if shape == 1 {
+        elem_size
+    } else {
+        (shape * elem_size)
+            .next_power_of_two()
+            .clamp(16, buffer_align)
     }
 }

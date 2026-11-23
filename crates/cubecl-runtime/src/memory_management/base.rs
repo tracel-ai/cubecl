@@ -1,4 +1,5 @@
-use alloc::string::{String, ToString};
+use super::bytes_format::bytes_format;
+use alloc::string::String;
 use alloc::vec::Vec;
 use cubecl_environment::stream::StreamId;
 
@@ -38,38 +39,6 @@ impl MemoryUsage {
             bytes_reserved: self.bytes_reserved + other.bytes_reserved,
         }
     }
-}
-
-#[derive(new)]
-#[doc(hidden)]
-pub struct BytesFormat {
-    bytes: u64,
-}
-
-impl core::fmt::Display for BytesFormat {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let unit = 1000;
-
-        if self.bytes < unit {
-            f.write_fmt(format_args!("{} B", self.bytes))
-        } else {
-            let size = self.bytes as f64;
-            let exp = match size.log(1000.0).floor() as usize {
-                0 => 1,
-                e => e,
-            };
-            let unit_prefix = "KMGTPEZY".as_bytes();
-            f.write_fmt(format_args!(
-                "{:.2} {}B",
-                (size / unit.pow(exp as u32) as f64),
-                unit_prefix[exp - 1] as char,
-            ))
-        }
-    }
-}
-
-fn bytes_format(bytes: u64) -> String {
-    BytesFormat::new(bytes).to_string()
 }
 
 impl core::fmt::Display for MemoryUsage {
@@ -271,6 +240,7 @@ pub trait MemoryHandle<Binding>: Clone + core::fmt::Debug {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
     use alloc::vec;
 
     fn pool(bytes_in_use: u64) -> MemoryPoolReport {
