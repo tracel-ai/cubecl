@@ -853,10 +853,8 @@ impl MmaData {
                     if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
                         #[unroll]
                         for l in 0..comptime!(vector_size / width) {
-                            let line = view.read((
-                                row,
-                                col / comptime!(width as u32) + comptime!(l as u32),
-                            ));
+                            let line = view
+                                .read((row, col / comptime!(width as u32) + comptime!(l as u32)));
                             #[unroll]
                             for e in 0..width {
                                 vector.insert(l * width + e, T::cast_from(line.extract(e)));
