@@ -365,7 +365,7 @@ pub(crate) fn warn_logger_takes_deferred_measurements() {
 }
 
 /// What the installed observer asked be done with each measurement.
-fn timing_requested() -> TimingRequest {
+pub(crate) fn timing_requested() -> TimingRequest {
     if !OBSERVING.load(Ordering::Relaxed) {
         return TimingRequest::None;
     }

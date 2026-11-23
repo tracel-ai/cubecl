@@ -34,6 +34,10 @@ fn main() {
             .cloned()
             .collect();
         for members in 2..=group.len() {
+            for route in [LinkRoute::RingPeerStore, LinkRoute::RingPeerLoad] {
+                let label = format!("{route:?} over {members} {runtime}");
+                print_curve(&label, &group[..members], route, 1.0);
+            }
             for kind in COLLECTIVES {
                 let route = LinkRoute::Collective(kind);
                 let label = format!("{kind} over {members} {runtime}");

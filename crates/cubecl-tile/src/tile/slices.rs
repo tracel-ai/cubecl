@@ -139,6 +139,20 @@ impl DimensionSlices {
         }
     }
 
+    /// `self[i, s] *= factors[i]`, `factors` holding one factor for every slice of the tile in
+    /// every unit, as a softmax kept in a window holds its state: where [`mul`](Self::mul) reads a
+    /// manual-mma fragment's factors one for each row its unit holds, this reads each row's own.
+    pub fn mul_every_slice<E: Float>(&mut self, factors: &Array<E>) {
+        match &mut self.kind {
+            DimensionSlicesKind::Registers(block) => block.mul_along::<E>(factors, 0usize),
+            DimensionSlicesKind::Window(window) => {
+                window.mul_along::<E>(factors, &self.space, self.dimension)
+            }
+            DimensionSlicesKind::Fragments(partition) => partition.mul_every_row::<E>(factors),
+            DimensionSlicesKind::Fragment(tile) => tile.mul_every_row(factors, 0usize),
+        }
+    }
+
     /// `self[c] = self[c] · exp(bias[c])`, the procedural `bias` read at each cell's coordinates as
     /// a log-weight: a cell whose bias is the minimum value or below is masked and becomes zero,
     /// whatever its score. It weighs scores by a decay instead of a softmax where their holder

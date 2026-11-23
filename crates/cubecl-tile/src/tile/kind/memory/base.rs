@@ -348,6 +348,19 @@ pub enum Boundary {
 }
 
 impl Boundary {
+    /// The monoid whose identity a read past the edge returns, over an operand's per-axis
+    /// `boundaries`: the one an [`Identity`](Boundary::Identity) names, or `None` where every
+    /// edge reads zero or clamps.
+    pub(crate) fn edge_identity(boundaries: &[Option<Boundary>]) -> Option<Monoid> {
+        boundaries
+            .iter()
+            .flatten()
+            .find_map(|boundary| match boundary {
+                Boundary::Identity(monoid) => Some(*monoid),
+                Boundary::Zero | Boundary::Clamp => None,
+            })
+    }
+
     /// Whether a position past the edge is masked (read as a fill, written nowhere), as `Zero` and
     /// `Identity` mask it, rather than clamped onto the edge cell.
     pub const fn masks(self) -> bool {
