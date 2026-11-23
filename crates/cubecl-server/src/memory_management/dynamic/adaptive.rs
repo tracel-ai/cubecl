@@ -432,9 +432,9 @@ mod tests {
             relocation::{CopyQueue, HostCopies, RelocationReason, StorageCopy},
         },
         server::{IoError, ServerError},
-        storage::BytesStorage,
+        storage::{BytesResource, BytesStorage, ComputeStorage, StorageHandle, StorageId},
     };
-    use alloc::vec;
+    use alloc::{vec, vec::Vec};
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
 
@@ -814,6 +814,70 @@ mod tests {
                 outdated: 0
             }
         );
+    }
+
+    /// A storage that, like a device's, frees nothing until it is flushed.
+    #[derive(Default)]
+    struct Deferred {
+        bytes: BytesStorage,
+        queued: Vec<StorageId>,
+    }
+
+    impl ComputeStorage for Deferred {
+        type Resource = BytesResource;
+
+        fn alignment(&self) -> usize {
+            self.bytes.alignment()
+        }
+
+        fn get(&mut self, handle: &StorageHandle) -> Result<BytesResource, IoError> {
+            self.bytes.get(handle)
+        }
+
+        fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+            self.bytes.alloc(size)
+        }
+
+        fn dealloc(&mut self, id: StorageId) {
+            self.queued.push(id);
+        }
+
+        fn flush(&mut self) {
+            for id in self.queued.drain(..) {
+                self.bytes.dealloc(id);
+            }
+        }
+
+        fn bytes_allocated(&self) -> u64 {
+            self.bytes.bytes_allocated()
+        }
+    }
+
+    /// The outdated page a periodic cleanup releases leaves the device then,
+    /// not whenever something next flushes the storage.
+    #[test]
+    fn a_released_page_leaves_the_device_on_a_periodic_cleanup() {
+        let mut memory = MemoryManagement::from_configuration(
+            Deferred::default(),
+            &PROPERTIES,
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            MemoryManagementOptions::new("adaptive"),
+        );
+        let reserve = |memory: &mut MemoryManagement<Deferred>, size| {
+            memory
+                .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
+                .unwrap()
+        };
+
+        let first = reserve(&mut memory, MIB);
+        let first_page = memory.bytes_allocated();
+        let _large = reserve(&mut memory, 10 * MIB);
+        let held = memory.bytes_allocated();
+
+        drop(first);
+        let _tick = reserve(&mut memory, MIB);
+        assert_eq!(memory.bytes_allocated(), held - first_page);
     }
 
     /// A reservation that may not update the pages serves only from the room
