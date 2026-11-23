@@ -600,6 +600,46 @@ fn holder(place: &Placement) -> ComputeScope {
         .unwrap_or_else(|| place.holder())
 }
 
+/// The sum [`Tile::placed_accumulator`] opens, of factors whose fragments load from `source`.
+#[cube]
+fn kept_accumulator<EA: Numeric>(
+    #[comptime] space: Space,
+    #[comptime] depth: usize,
+    #[comptime] levels: Vec<Level>,
+    lhs: &Tile,
+    #[comptime] source: FragmentSource,
+) -> Tile {
+    let place = comptime!(Placement::new(space, depth, levels));
+    let call = plane_call_on::<EA>(
+        &place,
+        &lhs.place.space,
+        source,
+        source,
+        comptime!(OpenedBy::StageAccumulator),
+    );
+    let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
+    let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+    let grid = comptime!(GridShape::new(&place, &lhs.place.space));
+    let instruction = comptime!(call.instruction);
+    let accumulation = comptime!(Accumulation::Contraction(Semiring::SumProd));
+    let mut acc = PlanePartition::mirror::<EA>(
+        &place.space,
+        comptime!(MatrixDimensions::accumulator(
+            &place.space,
+            &lhs.place.space
+        )),
+        instruction,
+        grid,
+        1usize,
+        1usize,
+        accumulation,
+        place.depth,
+        place.levels.clone(),
+    );
+    acc.init_identity::<EA>(accumulation.monoid());
+    acc
+}
+
 /// Panics where a plane group level splits a dimension the output at `place` lacks: each group
 /// would hold a partial of the same cells, and nothing merges plane groups' partials yet.
 fn assert_groups_own_their_box(place: &Placement) {
@@ -793,14 +833,32 @@ impl Tile {
         )
     }
 
-    /// The fragments each plane holds of this factor of `sum`'s products, the first one, uninitialized:
-    /// one for each step of the contraction a call of `sum`'s instruction takes and each row of
-    /// `sum`'s grid, which the plane fills once from its own window ([`copy_from`](Tile::copy_from)
-    /// at the plane's region) and every product into `sum` then reads in registers. It is laid out
-    /// as `sum` is cut, so it is indexed by the regions `sum` is. This factor spans nothing the walk
-    /// steps but the contraction, as an attention's query does, and takes no shared memory.
-    pub fn held_for(&self, sum: &Tile) -> Tile {
-        let define!(Served) = self.element;
+    /// [`stage_accumulator`](Tile::stage_accumulator) of products whose factors are read in `E`,
+    /// whatever element `lhs` is stored in: what a factor held in registers is cast to as it loads
+    /// ([`held_for`](Tile::held_for)).
+    pub fn stage_accumulator_in<EA: Numeric, E: Numeric>(
+        walk: &Walk,
+        #[comptime] dimensions: Vec<Dimension>,
+        lhs: &Tile,
+    ) -> Tile {
+        let element = elem_type_of::<E>();
+        kept_accumulator::<EA>(
+            comptime!(walk.level.child(&walk.space).subspace(&dimensions)),
+            comptime!(walk.depth()),
+            comptime!(walk.parent.path.root_levels()),
+            lhs,
+            comptime!(FragmentSource::Values(element)),
+        )
+    }
+
+    /// The fragments of `E` each plane holds of this factor of `sum`'s products, the first one,
+    /// unfilled: one for each step of the contraction a call of `sum`'s instruction takes and each
+    /// row of `sum`'s grid, which the plane fills once from its own window
+    /// ([`copy_cast_from`](Tile::copy_cast_from) at the plane's region), cast as they load, and every
+    /// product into `sum` then reads in registers. They are laid out as `sum` is cut, so they are
+    /// indexed by the regions `sum` is, and take no shared memory. This factor spans nothing the
+    /// walk steps but the contraction, as an attention's query does.
+    pub fn held_for<E: Numeric>(&self, sum: &Tile) -> Tile {
         let (_, m, n) = sum.fragment_grid();
         let instruction = sum.sum_instruction();
         let place = comptime!(Placement::new(
@@ -825,7 +883,7 @@ impl Tile {
         let mut frags = Sequence::<PlaneTile>::new();
         #[unroll]
         for _i in 0..comptime!(m_tiles * n_tiles) {
-            frags.push(PlaneTile::operand::<Served>(
+            frags.push(PlaneTile::operand::<E>(
                 instruction,
                 comptime!(MatrixIdent::A),
                 m,
@@ -846,7 +904,7 @@ impl Tile {
             }),
             factor: Factor::none(),
             place,
-            element: elem_type_of::<Served>(),
+            element: elem_type_of::<E>(),
         }
     }
 
@@ -861,29 +919,8 @@ impl Tile {
         #[comptime] levels: Vec<Level>,
         lhs: &Tile,
     ) -> Tile {
-        let place = comptime!(Placement::new(space, depth, levels));
-        let call = plane_call::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
-        let grid = comptime!(GridShape::new(&place, &lhs.place.space));
-        let instruction = comptime!(call.instruction);
-        let accumulation = comptime!(Accumulation::Contraction(Semiring::SumProd));
-        let mut acc = PlanePartition::mirror::<EA>(
-            &place.space,
-            comptime!(MatrixDimensions::accumulator(
-                &place.space,
-                &lhs.place.space
-            )),
-            instruction,
-            grid,
-            1usize,
-            1usize,
-            accumulation,
-            place.depth,
-            place.levels.clone(),
-        );
-        acc.init_identity::<EA>(accumulation.monoid());
-        acc
+        let source = lhs.fragment_source();
+        kept_accumulator::<EA>(space, depth, levels, lhs, source)
     }
 }
 
@@ -931,11 +968,24 @@ fn plane_call<EA: Numeric>(
 ) -> comptime_type!(ShapedInstruction) {
     let lhs_source = lhs.fragment_source();
     let rhs_source = rhs.fragment_source();
+    plane_call_on::<EA>(out, &lhs.place.space, lhs_source, rhs_source, opened_by)
+}
+
+/// [`plane_call`] of factors stated: the first's space, and the source each one's fragments load
+/// from.
+#[cube]
+fn plane_call_on<EA: Numeric>(
+    #[comptime] out: &Placement,
+    #[comptime] lhs: &Space,
+    #[comptime] lhs_source: FragmentSource,
+    #[comptime] rhs_source: FragmentSource,
+    #[comptime] opened_by: OpenedBy,
+) -> comptime_type!(ShapedInstruction) {
     let device = comptime::device_properties().comptime();
     let target = comptime::target_properties().comptime();
     let sum = elem_type_of::<EA>();
     comptime!({
-        let grid = GridShape::new(out, &lhs.place.space);
+        let grid = GridShape::new(out, lhs);
         let shape = [grid.m, grid.n, grid.k];
         Instruction::for_plane(
             &device,

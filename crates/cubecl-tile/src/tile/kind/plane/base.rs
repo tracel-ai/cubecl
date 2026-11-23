@@ -73,6 +73,21 @@ impl PlaneTile {
         }
     }
 
+    /// Whether a contraction rereading this tile as its `A` reads its columns in another order than
+    /// they lie ([`MmaData::reorders_as_a`]).
+    pub(crate) fn reorders_as_a<E: Numeric>(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Mma(data) => match &data.fragment {
+                MmaFragment::Acc(_) => data.reorders_as_a::<E>(),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Rhs(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile contracts through the block-scaled instruction, which reads its factors'
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
@@ -942,6 +957,44 @@ impl PlanePartition {
             frags.copy_from(src);
         }
         frags
+    }
+
+    /// [`fill_from`](Self::fill_from) with every cell cast from `R`, the element `src` serves, one
+    /// `A` fragment at a time ([`MmaData::load_cast_window`]).
+    pub(crate) fn fill_cast_from<T: Numeric, R: Numeric>(&self, src: &Tile) {
+        let level = comptime!(fragment_level(
+            &src.place.space,
+            (self.rows, self.cols),
+            (self.m_tiles, self.n_tiles)
+        ));
+        let edges = comptime!(grid_dimensions(
+            &src.place.space,
+            (self.rows, self.cols),
+            (self.m_tiles, self.n_tiles)
+        ));
+        #[unroll]
+        for mi in 0..comptime!(self.m_tiles) {
+            #[unroll]
+            for ni in 0..comptime!(self.n_tiles) {
+                let window = src.at(&Region::cell(
+                    comptime!(src.place.depth),
+                    &src.place.space,
+                    &level,
+                    edges,
+                    mi,
+                    ni,
+                ));
+                match self.at(mi, ni) {
+                    PlaneTile::Mma(fragment) => {
+                        let mut fragment = fragment.clone();
+                        fragment.load_cast_window::<T, R>(&window);
+                    }
+                    PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => panic!(
+                        "PlanePartition::fill_cast_from: only a manual-mma fragment is held cast"
+                    ),
+                }
+            }
+        }
     }
 
     /// Fill each tile from its window of `src`, in row-major order, manual-mma tiles deeper than

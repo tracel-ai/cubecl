@@ -391,20 +391,22 @@ impl Tile {
     }
 
     /// The order the `B` contracted with this tile, as its `A`, reads its rows in: a run of 8-bit
-    /// accumulators reread as the `A` holds its columns along its rows
-    /// ([`KeyOrder::AccumulatorRun`]); any other `A` holds each `k` where the instruction puts it.
+    /// accumulators reread as the `A` out of the order they hold their columns in, as the
+    /// `mma.sync` one's are, holds its columns along its rows ([`KeyOrder::AccumulatorRun`]); any
+    /// other `A` holds each `k` where the instruction puts it.
     pub(crate) fn rhs_keys(&self) -> comptime_type!(KeyOrder) {
-        let accumulators = match &self.kind {
+        let define!(Held) = self.element;
+        let reordered = match &self.kind {
             TileKind::PlanePartition(partition) => {
-                partition.at(0usize, 0usize).is_mma_accumulator()
+                partition.at(0usize, 0usize).reorders_as_a::<Held>()
             }
-            TileKind::PlaneTile(tile) => tile.is_mma_accumulator(),
+            TileKind::PlaneTile(tile) => tile.reorders_as_a::<Held>(),
             TileKind::Memory(_)
             | TileKind::Procedural(_)
             | TileKind::TmaGmem(_)
             | TileKind::Lines(_) => comptime!(false),
         };
-        comptime!(match accumulators && self.element.size() == 1 {
+        comptime!(match reordered {
             true => KeyOrder::AccumulatorRun,
             false => KeyOrder::AsLaid,
         })
@@ -1082,7 +1084,8 @@ impl Tile {
     }
 
     /// [`copy_from`](Tile::copy_from) with a cast: stores a wider resident fragment down to `T`,
-    /// or copies a memory window of the same box, the units sharing it a line at a time. A
+    /// or copies a memory window of the same box, the units sharing it a line at a time, or loads
+    /// the fragments a plane holds of a factor ([`held_for`](Tile::held_for)), cast as they load. A
     /// shared-memory box goes to a tensor map uncast, in one bulk store.
     pub fn copy_cast_from(&mut self, src: &Tile) {
         let define!(Served) = self.element;
@@ -1104,6 +1107,9 @@ impl Tile {
                 .fill_cast_from::<Served, Source>(s, &space),
             // The engine stores the box as it lies, so nothing casts on the way.
             (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<Served>(s),
+            (TileKind::PlanePartition(d), TileKind::Memory(_)) => {
+                d.fill_cast_from::<Served, Source>(src)
+            }
             _ => panic!(
                 "Tile::copy_cast_from: a fragment or a memory window stores into memory, or a \
                  shared-memory box into a tensor map; nothing else casts"

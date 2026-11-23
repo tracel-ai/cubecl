@@ -241,8 +241,8 @@ fn register_plane_attention<E: Float>(
             let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
             let q_s = match held {
                 true => {
-                    let mut fragments = q_s.held_for(&logits);
-                    fragments.copy_from(&q_s);
+                    let mut fragments = q_s.held_for::<E>(&logits);
+                    fragments.copy_cast_from(&q_s);
                     fragments
                 }
                 false => q_s,

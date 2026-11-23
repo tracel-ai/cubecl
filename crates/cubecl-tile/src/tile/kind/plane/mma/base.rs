@@ -782,6 +782,18 @@ impl MmaData {
 
 #[cube]
 impl MmaData {
+    /// Whether the `A` a contraction rereads this accumulator's cells of `E` as, holds them in
+    /// another order than they lie here: an 8-bit `A` vector two accumulator vectors long, whose
+    /// halves lie a row of vectors apart ([`accumulators_as_a`]). An `A` vector as long as the
+    /// accumulator's, as RDNA4's 8-bit one is, holds its columns as they lie.
+    pub(crate) fn reorders_as_a<E: Numeric>(&self) -> comptime_type!(bool) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.n);
+        let acc_width = def.vector_size(MatrixIdent::Accumulator);
+        let a_width = def.vector_size(MatrixIdent::A);
+        let bytes = E::size().comptime();
+        comptime!(bytes == 1 && a_width != acc_width)
+    }
+
     /// This accumulator with each cell cast to `E` in the register that holds it.
     pub(crate) fn cast<A: Numeric, E: Numeric>(&self) -> MmaData {
         let acc = self.acc_registers::<A>();
@@ -804,6 +816,64 @@ impl MmaData {
 
 #[cube]
 impl MmaData {
+    /// Fill this fragment, an `A`, from `src`'s window of values of `R`, each cast as it is read: a
+    /// unit's run of `k` a line at a time, read as the window guards its bounds, so the window may
+    /// run past the problem's edge.
+    pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
+        let (m, n, k) = comptime!((self.m, self.n, self.k));
+        let layout = comptime!(self.layout);
+        let def = MmaDefinition::<T, T, T>::new(m, n, k);
+        let num_vectors = def.vectors_per_lane(MatrixIdent::A);
+        let vector_size = def.vector_size(MatrixIdent::A);
+        let vector_layout = def.vector_layout(MatrixIdent::A);
+        let width = src.vector_size();
+        let (rows, cols) = comptime!(covered_edges(&src.place.space, MatrixIdent::A, (m, k)));
+        comptime!(assert!(
+            layout == MatrixLayout::RowMajor
+                && vector_layout == layout
+                && vector_size.is_multiple_of(width),
+            "MmaData::load_cast_window: a run of {vector_size} cells along the contraction is read \
+             from whole lines along it, {width} wide here"
+        ));
+        let short = comptime!((rows, cols) != (m, k));
+        let size!(W) = width;
+        let view = src.fragment_matrix_packed::<R, W>(rows, cols);
+        match &mut self.fragment {
+            MmaFragment::Lhs(fragment) => {
+                let fragment = fragment.at_mut::<T>();
+                #[unroll]
+                for i in 0..num_vectors {
+                    let (row, col) = def.position_of_nth(
+                        UNIT_POS_PLANE,
+                        comptime!(i * vector_size) as u32,
+                        MatrixIdent::A,
+                    );
+                    let mut vector = Vector::<T, NL>::cast_from(T::from_int(0));
+                    if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
+                        #[unroll]
+                        for l in 0..comptime!(vector_size / width) {
+                            let line = view.read((
+                                row,
+                                col / comptime!(width as u32) + comptime!(l as u32),
+                            ));
+                            #[unroll]
+                            for e in 0..width {
+                                vector.insert(l * width + e, T::cast_from(line.extract(e)));
+                            }
+                        }
+                    }
+                    fragment[i] = vector;
+                }
+            }
+            MmaFragment::Rhs(_)
+            | MmaFragment::Acc(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::load_cast_window: an `A` fragment is held cast")
+            }
+        }
+    }
+
     /// Each row's max, starting from `seed`'s, over the units that share it.
     pub(crate) fn maxima_along<E: Float>(&self, seed: &Array<E>) -> Array<E> {
         let rows = self.rows_per_unit::<E>();
@@ -1232,7 +1302,6 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
     let (quantized, packing) = (src.quantized(), src.packing());
     let as_stored = comptime!(!quantized && packing == Packing::Plain);
-    let shared = src.is_shared();
     comptime!(assert!(
         !along_lines || vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size),
         "MmaData::load: a {vector_size}-cell register vector neither holds whole {width}-wide \
@@ -1262,10 +1331,6 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
                 }
-            } else if comptime!(width == vector_size && !shared) {
-                // A whole line of global memory, read as the view guards it: a window may run past
-                // the problem's edge there, which a stage never does.
-                vector = Vector::cast_from(view.read((line_row, cell / comptime!(width as u32))));
             } else if comptime!(width >= vector_size) {
                 // A register vector starts at a multiple of its size, so it stays within `width`:
                 // the line read at the register's width holds it whole, one load at the unit's
