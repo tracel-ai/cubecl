@@ -880,7 +880,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
+    for i in (0..rank.saturating_sub(1)).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
@@ -907,5 +907,24 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+#[cfg(test)]
+mod contiguous_strides_tests {
+    use super::contiguous_strides;
+    use cubecl_core::zspace::{shape, strides};
+
+    /// A scalar has no dimensions, so it has no strides.
+    #[test]
+    fn rank_zero_has_no_strides() {
+        assert_eq!(contiguous_strides(&shape![]), strides![]);
+    }
+
+    /// The last dimension is unit stride and each one before it spans the rest.
+    #[test]
+    fn strides_are_row_major() {
+        assert_eq!(contiguous_strides(&shape![7]), strides![1]);
+        assert_eq!(contiguous_strides(&shape![2, 3, 4]), strides![12, 4, 1]);
     }
 }
