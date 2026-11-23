@@ -1,7 +1,7 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
 use super::{ARENA_SLOTS, PageSizing, PoolArena};
-use crate::memory_management::{Cleanup, PinnedPages};
+use crate::memory_management::{AllocationKind, Cleanup};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -9,7 +9,8 @@ use crate::{
         DEDICATED_POOL_POS, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryPoolReport,
         memory_pool::{
-            ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedLayout, SlicedPool,
+            ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping, PinnedRoom,
+            SlicedLayout, SlicedPool,
         },
         relocation::{
             CopyQueue, Move, Relocation, RelocationNeed, RelocationReason, RelocationTrigger,
@@ -75,7 +76,7 @@ pub struct AdaptiveMemory {
     arena: PoolArena,
     /// What outlives a graph capture — its outputs, the metadata its graph
     /// keeps — apart from the arena, whose pages the stream's graphs share
-    /// (see [`PinnedPages::Separate`]), and the work outside a capture that
+    /// (see [`AllocationKind::GraphOutput`]), and the work outside a capture that
     /// finds no unpinned room on the arena once graphs pin it. No graph's
     /// replay writes its free room, so they pack together whatever pages
     /// graphs pinned. Never relocated: what it holds is pinned by the graphs
@@ -184,13 +185,13 @@ impl AdaptiveMemory {
     /// pages when `size` outgrows them.
     ///
     /// A capture's temporaries share the room on pinned pages of the arena or
-    /// of the small pool, by size. What [`PinnedPages::Separate`] asks for,
+    /// of the small pool, by size. What [`AllocationKind::GraphOutput`] asks for,
     /// the metadata a capture's info cache keeps for every graph among it,
     /// goes to the separate arena or the small separate pool, since a buffer
     /// kept past its capture must never sit where another graph's replay
     /// writes.
     ///
-    /// What [`PinnedPages::Avoid`] asks for, work outside a capture, takes the
+    /// What [`AllocationKind::Eager`] asks for, work outside a capture, takes the
     /// unpinned room of the arena or the small pool, and the room kept apart
     /// once graphs pin every page of the arena's current pool or of the small
     /// pool, unless it outgrows the arena's pages, which then grow as they
@@ -209,36 +210,42 @@ impl AdaptiveMemory {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         if self.tiny.accept(size) {
             return self.tiny.reserve(storage, size, mapping, failures);
         }
         if self.small.accept(size) {
-            return match self.small_room(size, pinned, failures) {
+            return match self.small_room(size, kind, failures) {
                 Some(handle) => Ok(handle),
                 None => self
-                    .small_pool_for(pinned)
+                    .small_pool_for(kind)
                     .alloc(storage, size, mapping, failures),
             };
         }
-        match pinned {
+        match kind {
             // What carves the separate arena is never written by a replay, so its
             // pinned pages are its to share.
-            PinnedPages::Separate => {
+            AllocationKind::GraphOutput => {
                 self.separate
-                    .reserve(storage, size, mapping, PinnedPages::Share, failures)
+                    .reserve(storage, size, mapping, PinnedRoom::Share, failures)
             }
-            PinnedPages::Share => self.arena.reserve(storage, size, mapping, pinned, failures),
-            PinnedPages::Avoid => match self.arena.try_reserve(size, pinned, failures) {
-                Some(handle) => Ok(handle),
-                None if self.arena.fits(size) && self.arena.is_pinned() => {
-                    self.separate
-                        .reserve(storage, size, mapping, PinnedPages::Share, failures)
+            AllocationKind::GraphIntermediate => {
+                self.arena
+                    .reserve(storage, size, mapping, PinnedRoom::Share, failures)
+            }
+            AllocationKind::Eager => {
+                match self.arena.try_reserve(size, PinnedRoom::Avoid, failures) {
+                    Some(handle) => Ok(handle),
+                    None if self.arena.fits(size) && self.arena.is_pinned() => self
+                        .separate
+                        .reserve(storage, size, mapping, PinnedRoom::Share, failures),
+                    None => self
+                        .arena
+                        .reserve(storage, size, mapping, PinnedRoom::Avoid, failures),
                 }
-                None => self.arena.reserve(storage, size, mapping, pinned, failures),
-            },
+            }
         }
     }
 
@@ -247,24 +254,26 @@ impl AdaptiveMemory {
     pub fn try_reserve(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         if self.tiny.accept(size) {
             return self.tiny.try_reserve(size, failures);
         }
         if self.small.accept(size) {
-            return self.small_room(size, pinned, failures);
+            return self.small_room(size, kind, failures);
         }
-        match pinned {
-            PinnedPages::Separate => self
-                .separate
-                .try_reserve(size, PinnedPages::Share, failures),
-            PinnedPages::Share => self.arena.try_reserve(size, pinned, failures),
-            PinnedPages::Avoid => self.arena.try_reserve(size, pinned, failures).or_else(|| {
-                self.separate
-                    .try_reserve(size, PinnedPages::Share, failures)
-            }),
+        match kind {
+            AllocationKind::GraphOutput => {
+                self.separate.try_reserve(size, PinnedRoom::Share, failures)
+            }
+            AllocationKind::GraphIntermediate => {
+                self.arena.try_reserve(size, PinnedRoom::Share, failures)
+            }
+            AllocationKind::Eager => self
+                .arena
+                .try_reserve(size, PinnedRoom::Avoid, failures)
+                .or_else(|| self.separate.try_reserve(size, PinnedRoom::Share, failures)),
         }
     }
 
@@ -273,33 +282,36 @@ impl AdaptiveMemory {
     fn small_room(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        match pinned {
-            PinnedPages::Share => self.small.try_reserve_sharing(size, pinned, failures),
-            PinnedPages::Separate => {
-                self.small_separate
-                    .try_reserve_sharing(size, PinnedPages::Share, failures)
+        match kind {
+            AllocationKind::GraphIntermediate => {
+                self.small
+                    .try_reserve_sharing(size, PinnedRoom::Share, failures)
             }
-            PinnedPages::Avoid => self
+            AllocationKind::GraphOutput => {
+                self.small_separate
+                    .try_reserve_sharing(size, PinnedRoom::Share, failures)
+            }
+            AllocationKind::Eager => self
                 .small
-                .try_reserve_sharing(size, pinned, failures)
+                .try_reserve_sharing(size, PinnedRoom::Avoid, failures)
                 .or_else(|| {
                     self.small_separate
-                        .try_reserve_sharing(size, PinnedPages::Share, failures)
+                        .try_reserve_sharing(size, PinnedRoom::Share, failures)
                 }),
         }
     }
 
-    /// The small pool a new page for an allocation `pinned` describes goes to: work outside a
+    /// The small pool a new page for an allocation of `kind` goes to: work outside a
     /// capture takes the separate one once graphs pin every page of the shared one.
-    fn small_pool_for(&mut self, pinned: PinnedPages) -> &mut SlicedPool {
-        match pinned {
-            PinnedPages::Share => &mut self.small,
-            PinnedPages::Separate => &mut self.small_separate,
-            PinnedPages::Avoid if self.small.is_pinned() => &mut self.small_separate,
-            PinnedPages::Avoid => &mut self.small,
+    fn small_pool_for(&mut self, kind: AllocationKind) -> &mut SlicedPool {
+        match kind {
+            AllocationKind::GraphIntermediate => &mut self.small,
+            AllocationKind::GraphOutput => &mut self.small_separate,
+            AllocationKind::Eager if self.small.is_pinned() => &mut self.small_separate,
+            AllocationKind::Eager => &mut self.small,
         }
     }
 
@@ -426,7 +438,7 @@ impl AdaptiveMemory {
             storage,
             size,
             PageMapping::Eager,
-            PinnedPages::Share,
+            PinnedRoom::Share,
             failures,
         )?;
         let copy = match source_storage {
@@ -751,10 +763,10 @@ mod tests {
         for _ in 0..4 {
             // What a recording keeps for its graph: its launches' metadata and its input.
             let metadata = memory
-                .reserve_sharing(
+                .reserve_as(
                     KIB,
                     PageUpdate::Allow,
-                    super::PinnedPages::Separate,
+                    super::AllocationKind::GraphOutput,
                     failures,
                 )
                 .unwrap();

@@ -15,11 +15,11 @@ use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
-use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard,
-    PageUpdate, PinnedPages, StreamMemoryReport,
+    AllocationKind, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
+    PageGuard, PageUpdate, StreamMemoryReport,
 };
+use crate::memory_management::{Cleanup, release_or_leak};
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
 };
@@ -186,20 +186,19 @@ impl<'a, D: Driver> Command<'a, D> {
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let current = self.streams.current;
-        let pinned = self.streams.current().capturing().pinned_pages(current);
-        self.reserve_sharing(size, pinned)
+        let kind = self.streams.current().capturing().allocation_kind(current);
+        self.reserve_as(size, kind)
     }
 
-    /// [`reserve`](Self::reserve), carving the room the stream's graphs pinned only when
-    /// `pinned` shares it.
+    /// [`reserve`](Self::reserve), for an allocation of `kind`.
     ///
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
-    fn reserve_sharing(
+    fn reserve_as(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let update = self.streams.current().capturing().page_update();
         if update == PageUpdate::Allow {
@@ -209,7 +208,7 @@ impl<'a, D: Driver> Command<'a, D> {
         let (stream, failures) = self.streams.current_and_failures();
         match stream
             .device_memory()
-            .reserve_sharing(size, update, pinned, failures)
+            .reserve_as(size, update, kind, failures)
         {
             Ok(handle) => Ok(handle),
             // The recording now misses whatever this memory was for.
@@ -226,31 +225,32 @@ impl<'a, D: Driver> Command<'a, D> {
             // placed otherwise than the plan the recording follows.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                self.make_room(&err, pinned);
+                self.make_room(&err, kind);
                 let (stream, failures) = self.streams.current_and_failures();
                 stream
                     .device_memory()
-                    .reserve_sharing(size, PageUpdate::Allow, pinned, failures)
+                    .reserve_as(size, PageUpdate::Allow, kind, failures)
             }
         }
     }
 
     /// Get back what the reservation that failed with `err` needs: a slot for
-    /// a new page size when the arena it was `pinned` to is full, memory
-    /// otherwise.
-    fn make_room(&mut self, err: &IoError, pinned: PinnedPages) {
-        match (err, pinned) {
+    /// a new page size when the arena an allocation of `kind` goes to is full,
+    /// memory otherwise.
+    fn make_room(&mut self, err: &IoError, kind: AllocationKind) {
+        match (err, kind) {
             // Only a relocation that may allocate empties the outdated pools
             // whatever room the current pages have.
-            (IoError::PageSizesExhausted { .. }, PinnedPages::Avoid | PinnedPages::Share) => {
-                RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
-            }
+            (
+                IoError::PageSizesExhausted { .. },
+                AllocationKind::Eager | AllocationKind::GraphIntermediate,
+            ) => RelocatingStreams::relocate(self, RelocationReason::ArenaFull),
             // Nothing frees a slot of the separate arena: it is never
             // relocated, since its graphs pin what it holds, and every
             // reservation already drained its outdated pools that emptied. The
             // retry reports the exhaustion, rather than placing the output on
             // the shared room.
-            (IoError::PageSizesExhausted { .. }, PinnedPages::Separate) => {}
+            (IoError::PageSizesExhausted { .. }, AllocationKind::GraphOutput) => {}
             // No stream records (the caller checked), which is the only
             // refusal a cleanup has.
             _ => {
@@ -309,7 +309,7 @@ impl<'a, D: Driver> Command<'a, D> {
     fn allocate_separate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let reserved = match self.streams.current().capturing().is_owned_by(current) {
-            true => self.reserve_sharing(size, PinnedPages::Separate)?,
+            true => self.reserve_as(size, AllocationKind::GraphOutput)?,
             false => self.reserve(size)?,
         };
         self.bind(reserved, memory)
@@ -322,7 +322,7 @@ impl<'a, D: Driver> Command<'a, D> {
         placement: Placement,
     ) -> Result<(), IoError> {
         let reserved = match placement {
-            Placement::Output => self.reserve_sharing(size, PinnedPages::Separate)?,
+            Placement::Output => self.reserve_as(size, AllocationKind::GraphOutput)?,
             Placement::Pools => self.reserve(size)?,
         };
         // Safety: the binding runs on the device thread in the stream's order, ahead of any later
