@@ -1,6 +1,8 @@
 //! The decoding copy through a table or scales ([`Tile::lookup`], [`Tile::mul`]).
 
+use cubecl::ir::{ElemType, FloatKind};
 use cubecl::prelude::*;
+use cubecl::quant::scheme::QuantValue;
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
@@ -118,18 +120,46 @@ impl Tile {
                     to.push(coord);
                 }
             }
-            let values = values_at::<S, I, WP, VW>(held, offset, packing);
-            let scale = self
+            // `e2m1` codes into `e4m3` under a power-of-two scale, exactly where every code stays
+            // a normal `e4m3` one: their bytes made of the codes' bits; the general decode
+            // otherwise, and for every other field and element.
+            let into_e4m3 = is_e4m3::<O>();
+            let e2m1_into_e4m3 = comptime!(
+                is_e2m1(stored_as)
+                    && into_e4m3
+                    && vw.is_multiple_of(E2M1_PER_WORD)
+                    && offset.is_multiple_of(E2M1_PER_WORD)
+                    && !mem.codebook.present()
+            );
+            let unlifted = self
                 .factor
-                .at_coords(&at, space.clone(), comptime!(Guard::Checked))
-                * lift;
-            // Multiplied in `f32`, rounded to `S` once: a placed `e2m1` value is a lift short,
-            // which the scale carries, and the lift times a scale is past a half's range where
-            // its product with the value is not.
-            let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
-                * Vector::<f32, VW>::cast_from(scale);
-            let decoded = Vector::<O, VW>::cast_from(scaled);
-            out.write(lands.index(&to, dst), decoded);
+                .at_coords(&at, space.clone(), comptime!(Guard::Checked));
+            let steps =
+                i32::cast_from(u32::reinterpret(unlifted) >> F32_MANTISSA_BITS) - F32_EXPONENT_BIAS;
+            let in_range = steps >= E2M1_LOWEST_STEPS && steps <= E2M1_HIGHEST_STEPS;
+            if comptime!(e2m1_into_e4m3) {
+                if in_range {
+                    let size!(VB) = comptime!(vw / BYTES_PER_WORD);
+                    let mut bytes = Vector::<u32, VB>::empty();
+                    #[unroll]
+                    for w in 0..comptime!(vw / E2M1_PER_WORD) {
+                        let word =
+                            u32::cast_from(held.extract(comptime!(offset / E2M1_PER_WORD + w)));
+                        let (low, high) = e2m1_word_into_e4m3(word, steps);
+                        bytes.insert(comptime!(2 * w), low);
+                        bytes.insert(comptime!(2 * w + 1), high);
+                    }
+                    out.write(lands.index(&to, dst), Vector::<O, VW>::reinterpret(bytes));
+                } else {
+                    let decoded =
+                        decode_line::<S, O, I, WP, VW>(held, offset, packing, mem, unlifted * lift);
+                    out.write(lands.index(&to, dst), decoded);
+                }
+            } else {
+                let decoded =
+                    decode_line::<S, O, I, WP, VW>(held, offset, packing, mem, unlifted * lift);
+                out.write(lands.index(&to, dst), decoded);
+            }
         }
     }
 }
@@ -399,3 +429,80 @@ pub(super) fn check_scaled_copy(
          {along:?} from the scales"
     );
 }
+
+/// The `VW` values of `held` from `offset` decoded and multiplied by `scale` in `f32`, rounded to
+/// `O` once: a placed `e2m1` value is a lift short, which `scale` carries, and the lift times a
+/// scale is past a half's range where its product with the value is not.
+#[cube]
+fn decode_line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
+    held: Vector<I, WP>,
+    #[comptime] offset: usize,
+    #[comptime] packing: Packing,
+    mem: &Memory,
+    scale: f32,
+) -> Vector<O, VW> {
+    let values = values_at::<S, I, WP, VW>(held, offset, packing);
+    let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
+        * Vector::<f32, VW>::cast_from(scale);
+    Vector::<O, VW>::cast_from(scaled)
+}
+
+/// `e2m1` codes a packed word holds.
+const E2M1_PER_WORD: usize = 8;
+/// Bytes, `e4m3` values, a word holds.
+const BYTES_PER_WORD: usize = 4;
+/// `f32`'s mantissa bits and its exponent's bias.
+const F32_MANTISSA_BITS: u32 = 23;
+const F32_EXPONENT_BIAS: i32 = 127;
+/// The scales, as powers of two, under which every `e2m1` code is a normal `e4m3` one: its `0.5`
+/// at `e4m3`'s smallest normal exponent at the lowest, its `6` at `448`'s at the highest.
+const E2M1_LOWEST_STEPS: i32 = -5;
+const E2M1_HIGHEST_STEPS: i32 = 6;
+
+/// Whether `packing` holds `e2m1` codes, however its field reads them.
+fn is_e2m1(packing: Packing) -> bool {
+    match packing {
+        Packing::Packed { field } => field.code() == Some(QuantValue::E2M1),
+        Packing::Plain | Packing::Words { .. } => false,
+    }
+}
+
+/// The eight `e2m1` codes of `word`, the low nibble first, as the `e4m3` bytes of their values
+/// times `2^steps`, codes 0 to 3 in the first word and 4 to 7 in the second, for `steps` from
+/// [`E2M1_LOWEST_STEPS`] to [`E2M1_HIGHEST_STEPS`]. A code's magnitude bits `e1 e0 m` placed two
+/// bits up are its `e4m3` byte at exponent `e`, which the scale's steps, six more, raise to the
+/// value's; `0.5`, `e2m1`'s one subnormal, is that byte's exponent alone, and zero stays zero.
+#[cube]
+pub(crate) fn e2m1_word_into_e4m3(word: u32, steps: i32) -> (u32, u32) {
+    let raised = u32::cast_from(steps + E2M1_SUBNORMAL_EXPONENT) << 3u32;
+    (
+        e2m1_codes_into_e4m3(word & 0xFFFFu32, raised),
+        e2m1_codes_into_e4m3(word >> 16u32, raised),
+    )
+}
+
+/// The four `e2m1` codes in the low half of `codes` as `e4m3` bytes, `raised` the exponent field
+/// a code's `0.5` takes, shifted into place ([`e2m1_word_into_e4m3`]).
+#[cube]
+fn e2m1_codes_into_e4m3(codes: u32, raised: u32) -> u32 {
+    // The four codes a byte each, in the order of `k`.
+    let spread = (codes | (codes << 8u32)) & 0x00FF_00FFu32;
+    let spread = (spread | (spread << 4u32)) & 0x0F0F_0F0Fu32;
+    let placed = (spread & 0x0707_0707u32) << 2u32;
+    let sign = (spread << 4u32) & 0x8080_8080u32;
+    // A byte past zero, and a byte that is `0.5`'s, whose mantissa bit the exponent takes.
+    let nonzero = ((placed + 0x7C7C_7C7Cu32) & 0x8080_8080u32) >> 7u32;
+    let not_half = ((placed ^ 0x0404_0404u32) + 0x7F7F_7F7Fu32) & 0x8080_8080u32;
+    let half = ((not_half ^ 0x8080_8080u32) >> 7u32) << 2u32;
+    (placed + nonzero * raised - half) | sign
+}
+
+/// Whether `O` is `e4m3`.
+#[allow(clippy::extra_unused_type_parameters)] // Read by the expansion.
+#[cube]
+fn is_e4m3<O: Numeric>() -> comptime_type!(bool) {
+    intrinsic!(|scope| O::elem_type(scope) == ElemType::Float(FloatKind::E4M3))
+}
+
+/// The `e4m3` exponent `e2m1`'s smallest nonzero, `0.5`, takes at a scale of one: `2^-1`.
+const E2M1_SUBNORMAL_EXPONENT: i32 = 6;
