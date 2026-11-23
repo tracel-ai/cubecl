@@ -18,7 +18,9 @@ fn a_kernel_without_debug_data_runs() {
     config.compilation.debug_info = Some(DebugInfo::None);
     CubeClRuntimeConfig::set(config);
     assert_eq!(
-        KernelId::new::<()>().debug_info(DebugInfo::Full).debug_info,
+        KernelId::new::<()>()
+            .with_debug_info(DebugInfo::Full)
+            .debug_info(),
         DebugInfo::None
     );
 

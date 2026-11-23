@@ -11,7 +11,7 @@ pub struct MemoryConfig {
     /// Where the memory log goes, and how much it says.
     #[serde(default)]
     pub logger: LoggerConfig<MemoryLogLevel>,
-    /// Which allocations the persistent pool serves.
+    /// How the persistent pool chooses what it serves, `enabled` unless configured.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
 }
@@ -47,7 +47,7 @@ pub enum PersistentMemory {
 /// How much the memory log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum MemoryLogLevel {
-    /// No memory-related logging.
+    /// No memory log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,

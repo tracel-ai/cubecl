@@ -133,10 +133,10 @@ pub fn define_kernel<K: CubeKernel + ?Sized>(
 ) -> Result<KernelDefinition, CompilationError> {
     let definition = expand_kernel(kernel)?;
     debug_assert_eq!(
-        kernel.id().float_contraction,
+        kernel.id().float_contraction(),
         definition.settings.float_contraction,
         "the id of kernel `{}` must name the float contraction its settings ask for, with \
-         `KernelId::float_contraction`",
+         `KernelId::with_float_contraction`",
         kernel.name(),
     );
     Ok(definition)

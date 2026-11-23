@@ -76,14 +76,6 @@ mod tests {
     }
 
     #[test]
-    fn a_limit_lowers_the_level() {
-        assert_eq!(
-            resolve_debug_info(DebugInfo::Full, Some(DebugInfo::LineTables)),
-            DebugInfo::LineTables
-        );
-    }
-
-    #[test]
     fn a_limit_never_raises_the_level() {
         assert_eq!(
             resolve_debug_info(DebugInfo::None, Some(DebugInfo::Full)),

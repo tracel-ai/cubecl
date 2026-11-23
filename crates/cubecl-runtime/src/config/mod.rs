@@ -1,18 +1,18 @@
-/// How autotune benchmarks its candidates and where it reports.
+/// The `[autotune]` section of `cubecl.toml`.
 pub mod autotune;
-/// How kernels compile: bounds checks, debug data, dumps and the compile threads.
+/// The `[compilation]` section of `cubecl.toml`.
 pub mod compilation;
-/// Which named environment the process warms into.
+/// The `[environment]` section of `cubecl.toml`.
 pub mod environment;
-/// Which pools persistent allocations go to, and the memory log.
+/// The `[memory]` section of `cubecl.toml`.
 pub mod memory;
-/// What the profiling log reports.
+/// The `[profiling]` section of `cubecl.toml`.
 pub mod profiling;
-/// How many streams a device runs and how they are chosen.
+/// The `[streaming]` section of `cubecl.toml`.
 pub mod streaming;
-/// Whether throughput measurements are cached.
+/// The `[throughput]` section of `cubecl.toml`.
 pub mod throughput;
-/// How a runtime moves data between its devices.
+/// The `[transport]` section of `cubecl.toml`.
 pub mod transport;
 
 mod base;

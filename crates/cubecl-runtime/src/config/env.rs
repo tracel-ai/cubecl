@@ -12,14 +12,18 @@ const DEBUG_LOG_PATH: &str = "/tmp/cubecl.log";
 ///
 /// An unset variable, or one whose value names nothing, leaves its setting as configured.
 pub fn override_from_env(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
-    let mut config = with_debug_option(with_debug_log(config));
+    let config = with_debug_log(config, std::env::var("CUBECL_DEBUG_LOG").ok().as_deref());
+    let mut config =
+        with_debug_option(config, std::env::var("CUBECL_DEBUG_OPTION").ok().as_deref());
 
     config.autotune.level =
         env_parsed("CUBECL_AUTOTUNE_LEVEL", autotune_level).unwrap_or(config.autotune.level);
-    config.autotune.disable_cache =
-        disabled_by("CUBECL_AUTOTUNE_CACHE", config.autotune.disable_cache);
+    config.autotune.disable_cache = disabled_by(
+        env_bool("CUBECL_AUTOTUNE_CACHE"),
+        config.autotune.disable_cache,
+    );
     config.autotune.disable_short_circuit = disabled_by(
-        "CUBECL_AUTOTUNE_SHORT_CIRCUIT",
+        env_bool("CUBECL_AUTOTUNE_SHORT_CIRCUIT"),
         config.autotune.disable_short_circuit,
     );
     config.autotune.bench.adaptive =
@@ -37,8 +41,10 @@ pub fn override_from_env(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
     config.compilation.source_cache =
         env_path("CUBECL_SOURCE_CACHE").or(config.compilation.source_cache);
 
-    config.throughput.disable_cache =
-        disabled_by("CUBECL_THROUGHPUT_CACHE", config.throughput.disable_cache);
+    config.throughput.disable_cache = disabled_by(
+        env_bool("CUBECL_THROUGHPUT_CACHE"),
+        config.throughput.disable_cache,
+    );
 
     config.environment.name =
         std::env::var("CUBECL_ENVIRONMENT").unwrap_or(config.environment.name);
@@ -54,15 +60,18 @@ pub fn override_from_env(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
 /// The variant of `T` that the environment variable `name` names with its `serde` name, as in
 /// `cubecl.toml`. `None` when the variable is unset or names no variant, as for [`env_bool`].
 fn env_variant<T: serde::de::DeserializeOwned>(name: &str) -> Option<T> {
-    variant(&std::env::var(name).ok()?)
+    env_parsed(name, variant)
 }
 
-/// A boolean environment variable, or `None` when it is unset or unreadable.
-///
-/// An unrecognized value is `None` rather than an error: the variable is an
-/// override, so failing to parse it means leaving the configured value alone.
+/// A boolean environment variable, or `None` when it is unset, unreadable or unrecognized.
 fn env_bool(name: &str) -> Option<bool> {
-    match std::env::var(name).ok()?.as_str() {
+    env_parsed(name, parse_bool)
+}
+
+/// The boolean `value` spells. An unrecognized value is `None` rather than an error: the
+/// variable is an override, so failing to parse it means leaving the configured value alone.
+fn parse_bool(value: &str) -> Option<bool> {
+    match value {
         "true" | "1" | "on" => Some(true),
         "false" | "0" | "off" => Some(false),
         _ => None,
@@ -86,10 +95,10 @@ fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var(name).ok().map(PathBuf::from)
 }
 
-/// Whether a cache stays disabled: the environment variable `name` enables or disables it, and
-/// leaves `disabled` as it is when unset.
-fn disabled_by(name: &str, disabled: bool) -> bool {
-    env_bool(name).map_or(disabled, |enabled| !enabled)
+/// Whether a cache is disabled once a variable `enabled` it or not, or `disabled` when the
+/// variable is unset.
+fn disabled_by(enabled: Option<bool>, disabled: bool) -> bool {
+    enabled.map_or(disabled, |enabled| !enabled)
 }
 
 /// The autotune level `CUBECL_AUTOTUNE_LEVEL` names, by name or by number.
@@ -113,14 +122,14 @@ fn record_level(value: &str) -> Option<RecordLevel> {
     }
 }
 
-/// `config` with what `CUBECL_DEBUG_LOG` asks for: the debug log levels, written to the sink it
-/// names, or every debug log disabled.
-fn with_debug_log(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
-    let Ok(value) = std::env::var("CUBECL_DEBUG_LOG") else {
+/// `config` with what `CUBECL_DEBUG_LOG` set to `value` asks for: the debug log levels, written
+/// to the sink it names, or every debug log disabled.
+fn with_debug_log(config: CubeClRuntimeConfig, value: Option<&str>) -> CubeClRuntimeConfig {
+    let Some(value) = value else {
         return config;
     };
     let config = with_debug_levels(config, DebugLevels::DEBUG);
-    match value.as_str() {
+    match value {
         "stdout" => with_debug_sink(config, &DebugSink::Stdout),
         "stderr" => with_debug_sink(config, &DebugSink::Stderr),
         "1" | "true" => with_debug_sink(config, &DebugSink::File(DEBUG_LOG_PATH.into())),
@@ -129,12 +138,12 @@ fn with_debug_log(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
     }
 }
 
-/// `config` with the log levels `CUBECL_DEBUG_OPTION` names.
-fn with_debug_option(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
-    let Ok(value) = std::env::var("CUBECL_DEBUG_OPTION") else {
+/// `config` with the log levels `CUBECL_DEBUG_OPTION` set to `value` names.
+fn with_debug_option(config: CubeClRuntimeConfig, value: Option<&str>) -> CubeClRuntimeConfig {
+    let Some(value) = value else {
         return config;
     };
-    match value.as_str() {
+    match value {
         "debug" => with_debug_levels(config, DebugLevels::DEBUG),
         "debug-full" => with_debug_levels(config, DebugLevels::DEBUG_FULL),
         "profile" => with_profiling_level(config, ProfilingLogLevel::Basic),
@@ -264,14 +273,53 @@ impl DebugSink {
 mod tests {
     use super::*;
 
+    fn default() -> CubeClRuntimeConfig {
+        CubeClRuntimeConfig::default()
+    }
+
     #[test]
-    fn an_autotune_level_is_named_by_name_or_number() {
+    fn on_spells_true() {
+        assert_eq!(parse_bool("on"), Some(true));
+    }
+
+    #[test]
+    fn off_spells_false() {
+        assert_eq!(parse_bool("off"), Some(false));
+    }
+
+    #[test]
+    fn an_unknown_boolean_is_none() {
+        assert_eq!(parse_bool("maybe"), None);
+    }
+
+    #[test]
+    fn a_variant_is_read_by_its_serde_name() {
+        assert_eq!(variant::<RecordLevel>("full"), Some(RecordLevel::Full));
+    }
+
+    #[test]
+    fn enabling_a_cache_clears_disabled() {
+        assert!(!disabled_by(Some(true), true));
+    }
+
+    #[test]
+    fn an_unset_variable_keeps_disabled() {
+        assert!(disabled_by(None, true));
+    }
+
+    #[test]
+    fn an_autotune_level_is_named_by_name() {
         assert!(matches!(
-            [autotune_level("extensive"), autotune_level("2")],
-            [
-                Some(AutotuneLevel::Extensive),
-                Some(AutotuneLevel::Extensive)
-            ]
+            autotune_level("extensive"),
+            Some(AutotuneLevel::Extensive)
+        ));
+    }
+
+    #[test]
+    fn an_autotune_level_is_named_by_number() {
+        assert!(matches!(
+            autotune_level("2"),
+            Some(AutotuneLevel::Extensive)
         ));
     }
 
@@ -281,16 +329,68 @@ mod tests {
     }
 
     #[test]
-    fn a_record_level_is_named_by_name_or_number() {
+    fn a_record_level_is_named_by_name() {
+        assert_eq!(record_level("full"), Some(RecordLevel::Full));
+    }
+
+    #[test]
+    fn a_record_level_is_named_by_number() {
+        assert_eq!(record_level("2"), Some(RecordLevel::Full));
+    }
+
+    #[test]
+    fn an_unset_debug_log_changes_nothing() {
+        let config = with_debug_log(default(), None);
+
+        assert!(matches!(
+            config.compilation.logger.level,
+            CompilationLogLevel::Disabled
+        ));
+    }
+
+    #[test]
+    fn a_debug_log_turned_off_disables_the_three_logs() {
+        let config = with_debug_log(default(), Some("0"));
+
+        assert!(matches!(
+            config.autotune.logger.level,
+            AutotuneLogLevel::Disabled
+        ));
+    }
+
+    #[test]
+    fn a_debug_log_path_becomes_a_file_sink() {
+        let config = with_debug_log(default(), Some("/var/log/cube.log"));
+
         assert_eq!(
-            [record_level("full"), record_level("2")],
-            [Some(RecordLevel::Full), Some(RecordLevel::Full)]
+            config.compilation.logger.file,
+            Some(PathBuf::from("/var/log/cube.log"))
         );
     }
 
     #[test]
+    fn the_profile_option_sets_the_profiling_level() {
+        let config = with_debug_option(default(), Some("profile"));
+
+        assert!(matches!(
+            config.profiling.logger.level,
+            ProfilingLogLevel::Basic
+        ));
+    }
+
+    #[test]
+    fn an_unknown_debug_option_changes_nothing() {
+        let config = with_debug_option(default(), Some("loud"));
+
+        assert!(matches!(
+            config.profiling.logger.level,
+            ProfilingLogLevel::Disabled
+        ));
+    }
+
+    #[test]
     fn debug_levels_set_the_three_logs() {
-        let config = with_debug_levels(CubeClRuntimeConfig::default(), DebugLevels::DEBUG_FULL);
+        let config = with_debug_levels(default(), DebugLevels::DEBUG_FULL);
 
         assert!(matches!(
             (
@@ -309,7 +409,7 @@ mod tests {
     #[test]
     fn a_profiling_level_leaves_the_other_logs() {
         let config = with_profiling_level(
-            with_debug_levels(CubeClRuntimeConfig::default(), DebugLevels::DISABLED),
+            with_debug_levels(default(), DebugLevels::DISABLED),
             ProfilingLogLevel::Basic,
         );
 
@@ -321,7 +421,7 @@ mod tests {
 
     #[test]
     fn a_debug_sink_is_added_to_the_three_logs() {
-        let config = with_debug_sink(CubeClRuntimeConfig::default(), &DebugSink::Stderr);
+        let config = with_debug_sink(default(), &DebugSink::Stderr);
 
         assert!(
             config.compilation.logger.stderr

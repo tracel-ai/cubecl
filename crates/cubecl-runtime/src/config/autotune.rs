@@ -19,7 +19,7 @@ pub struct AutotuneConfig {
     #[serde(alias = "recorder")]
     pub decisions: LoggerConfig<DecisionLevel>,
 
-    /// Autotune level, controlling the intensity of autotuning.
+    /// How hard autotune tries, `balanced` unless configured.
     #[serde(default)]
     pub level: AutotuneLevel,
 
@@ -116,7 +116,7 @@ impl BenchConfig {
 /// How much the autotune log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AutotuneLogLevel {
-    /// Autotune logging is disabled.
+    /// No autotune log is written.
     #[serde(rename = "disabled")]
     Disabled,
 
@@ -204,14 +204,24 @@ mod tests {
     }
 
     #[test]
-    fn the_sample_range_needs_one_sample_and_never_inverts() {
+    fn the_sample_range_needs_one_sample() {
         let config = BenchConfig {
             min_sample_count: 0,
-            max_sample_count: 0,
             ..Default::default()
         };
 
-        assert_eq!(config.sample_count_range(), (1, 1));
+        assert_eq!(config.sample_count_range().0, 1);
+    }
+
+    #[test]
+    fn the_sample_range_never_inverts() {
+        let config = BenchConfig {
+            min_sample_count: 5,
+            max_sample_count: 2,
+            ..Default::default()
+        };
+
+        assert_eq!(config.sample_count_range(), (5, 5));
     }
 
     #[test]

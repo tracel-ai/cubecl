@@ -78,7 +78,7 @@ pub enum StreamPriority {
 /// How much the streaming log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StreamingLogLevel {
-    /// Streaming logging is disabled.
+    /// No streaming log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,

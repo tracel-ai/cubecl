@@ -1,6 +1,9 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 
+/// What closes a generic argument list, left on a segment by splitting at `, `.
+const GENERIC_CLOSE: char = '>';
+
 /// How much of a type name a report keeps.
 #[derive(Clone, Copy, Debug)]
 pub enum TypeNameFormatLevel {
@@ -42,7 +45,7 @@ fn last_segment(path: &str) -> String {
         .next()
         .unwrap_or(path)
         .trim()
-        .replace('>', "")
+        .replace(GENERIC_CLOSE, "")
 }
 
 /// Each generic argument of `generics`, shortened, after a ` | `.

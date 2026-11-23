@@ -13,7 +13,7 @@ pub struct Info {
 }
 
 impl Info {
-    /// The information `value` holds.
+    /// Comptime arguments compared, hashed and printed as `value` is.
     pub fn new<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(
         value: T,
     ) -> Self {
@@ -96,6 +96,16 @@ mod tests {
     #[test]
     fn values_of_different_types_are_different_infos() {
         assert_ne!(Info::new(1u32), Info::new(1u64));
+    }
+
+    #[test]
+    fn equal_values_hash_equal() {
+        let state = std::collections::hash_map::RandomState::new();
+
+        assert_eq!(
+            core::hash::BuildHasher::hash_one(&state, Info::new(1u32)),
+            core::hash::BuildHasher::hash_one(&state, Info::new(1u32))
+        );
     }
 
     #[test]

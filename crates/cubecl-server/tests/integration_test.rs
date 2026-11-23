@@ -3320,7 +3320,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let id = KernelId::new::<Recorded>().info(3u32);
+    let id = KernelId::new::<Recorded>().with_info(3u32);
     let stored = true;
     CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
     CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);

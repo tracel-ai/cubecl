@@ -50,7 +50,7 @@ struct HandWritten {
 
 impl KernelMetadata for HandWritten {
     fn id(&self) -> KernelId {
-        KernelId::new::<Self>().info(self.lang)
+        KernelId::new::<Self>().with_info(self.lang)
     }
 
     fn address_type(&self) -> ElemType {

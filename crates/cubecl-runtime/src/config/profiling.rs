@@ -11,7 +11,7 @@ pub struct ProfilingConfig {
 /// How much the profiling log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ProfilingLogLevel {
-    /// Profiling logging is disabled.
+    /// No profiling log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,

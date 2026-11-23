@@ -156,7 +156,7 @@ pub enum BoundsCheckMode {
 /// How much the compilation log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CompilationLogLevel {
-    /// Compilation logging is disabled.
+    /// No compilation log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,

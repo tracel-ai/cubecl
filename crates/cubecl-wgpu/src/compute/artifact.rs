@@ -148,9 +148,9 @@ impl<C> WgpuArtifactCompiler<C> {
         let repr = artifact.repr.as_ref().map(|repr| repr.as_ref());
         let module = self.create_module(
             &artifact.entrypoint_name,
-            id.kernel.cube_dim.into(),
+            id.kernel.cube_dim().into(),
             ModuleSource::resolve(repr, artifact.lang, &artifact.source)?,
-            id.kernel.mode,
+            id.kernel.mode(),
         )?;
         let pipeline = self.create_pipeline(&artifact.entrypoint_name, repr, module, id.variant)?;
         Ok(WgpuCompiledKernel {

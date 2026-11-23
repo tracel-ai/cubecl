@@ -1,7 +1,7 @@
 /// Configuration for the transport a runtime moves data between its devices with.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TransportConfig {
-    /// Whether the runtime loads its device transport.
+    /// Whether NCCL or RCCL carries the transfers between devices, `auto` unless configured.
     #[serde(default)]
     pub device: DeviceTransportMode,
 }
