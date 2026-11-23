@@ -814,9 +814,10 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
         )
         .is_some_and(|pick| matches!(pick.instruction, Instruction::Mma { .. }))
     };
-    let Some(n) = [8u32, 16].into_iter().find(|&n| {
-        offered(n, depth as u32) && offered(n, n * run as u32) && kept_in_mma(n)
-    }) else {
+    let Some(n) = [8u32, 16]
+        .into_iter()
+        .find(|&n| offered(n, depth as u32) && offered(n, n * run as u32) && kept_in_mma(n))
+    else {
         ValidationResult::Skipped(format!(
             "no m16n8 or m16n16 {e_ty:?} instructions summing in f32, {depth} deep for a score \
              kept in the manual mma and a run of {run} leaves deep for the value"
