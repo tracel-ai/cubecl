@@ -105,8 +105,9 @@ impl AmdMatrixCore {
         }
     }
 
-    /// Consecutive elements of `matrix` a lane holds in role `ident`, at most a load wide: a
-    /// lane's run of `k` for A and B, one accumulator element at a time.
+    /// Consecutive elements of `matrix` a lane holds in role `ident`: for A and B a lane's run of
+    /// `k`, at most a load wide, and for the accumulator the half of its row RDNA4 gives a lane,
+    /// whole, so a lane keeps one state for the one row it holds, or else one element at a time.
     fn contiguous_elements(
         self,
         ctx: &Context,
@@ -117,7 +118,10 @@ impl AmdMatrixCore {
         let widest = LOAD_WIDTH_BYTES / matrix.elem_ty.size(ctx);
         match ident {
             MatrixIdent::A | MatrixIdent::B => self.frag_ab_elems(matrix.shape.k).min(widest),
-            MatrixIdent::Accumulator => 1,
+            MatrixIdent::Accumulator => match self {
+                AmdMatrixCore::Wmma(AmdWmma::Rdna4) => matrix.shape.n / 2,
+                AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => 1,
+            },
         }
     }
 }
