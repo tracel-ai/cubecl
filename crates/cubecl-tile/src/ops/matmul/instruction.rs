@@ -483,7 +483,8 @@ fn held_run(
     };
     let element = rhs.element(rhs)?;
     let read_as_a = element.size_bits() == 16
-        || (element == ElemType::Float(FloatKind::E4M3) && held_width == MMA_SYNC_8_BIT_WIDTH);
+        || (element == ElemType::Float(FloatKind::E4M3)
+            && [MMA_SYNC_8_BIT_WIDTH, RDNA_WMMA_WIDTH].contains(&held_width));
     if !accumulator_is_a(target) || !read_as_a {
         return None;
     }
