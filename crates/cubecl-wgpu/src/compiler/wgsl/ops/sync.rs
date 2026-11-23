@@ -1,4 +1,6 @@
-use cubecl_ir::dialect::synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope};
+use cubecl_ir::dialect::synchronization::{
+    ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+};
 
 use crate::compiler::wgsl::to_wgsl::{wasm_inventory_root, wgsl_op};
 
@@ -19,3 +21,6 @@ wgsl_op!(SyncOp, |op, ctx| {
 wgsl_op!(SyncPlaneStorageOp, |_, _| {
     "storageBarrier();\nworkgroupBarrier();\n".into()
 });
+
+// WGSL says nothing to the scheduler of the compiler that takes it.
+wgsl_op!(ScheduleBarrierOp, |_, _| String::new());
