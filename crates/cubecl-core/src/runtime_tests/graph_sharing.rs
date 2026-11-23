@@ -365,7 +365,7 @@ pub fn inputs_kept_per_graph_take_no_page_of_their_own<R: Runtime>() {
     const SETTLING: usize = 2;
     const GRAPHS: usize = 6;
     let client = R::client(&Default::default());
-    StreamId { value: 3_100_008 }.executes(|| {
+    StreamId { value: 3_100_010 }.executes(|| {
         let (input, output) = (filled(&client, 0.0), client.empty(BYTES));
         let _first = record_chain(&client, &input, &output, 2);
 
@@ -428,7 +428,7 @@ pub fn small_buffers_kept_per_graph_take_no_page_of_their_own<R: Runtime>() {
     const SETTLING: usize = 2;
     const GRAPHS: usize = 6;
     let client = R::client(&Default::default());
-    StreamId { value: 3_100_009 }.executes(|| {
+    StreamId { value: 3_100_011 }.executes(|| {
         let launch = |from: &Handle, into: &Handle| {
             add_one::launch(
                 &client,
