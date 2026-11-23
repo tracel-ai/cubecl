@@ -8,9 +8,7 @@ use cubecl_core::ir::settings::DebugInfo;
 use cubecl_core::prelude::*;
 use cubecl_core::runtime_tests::offline::nested_calls;
 use cubecl_cpu::{CpuDevice, CpuRuntime};
-use cubecl_server::config::{
-    CubeClRuntimeConfig, RuntimeConfig, compilation::effective_debug_info,
-};
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, effective_debug_info};
 use cubecl_server::runtime::Runtime;
 
 #[test]

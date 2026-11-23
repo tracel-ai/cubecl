@@ -23,8 +23,14 @@ pub mod throughput;
 pub mod transport;
 
 mod base;
+mod debug_info;
+#[cfg(std_io)]
+mod env;
 mod logger;
+mod type_name;
 
 pub use base::*;
 pub use cubecl_environment::config::RuntimeConfig;
+pub use debug_info::effective_debug_info;
 pub use logger::Logger;
+pub use type_name::*;

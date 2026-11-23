@@ -255,7 +255,7 @@ impl KernelId {
     /// configuration lowers it, because that level changes the compiled kernel.
     #[must_use]
     pub fn debug_info(mut self, requested: DebugInfo) -> Self {
-        self.debug_info = crate::config::compilation::effective_debug_info(requested);
+        self.debug_info = crate::config::effective_debug_info(requested);
         self
     }
 

@@ -5,8 +5,6 @@ use super::{
     autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig,
     throughput::ThroughputConfig, transport::TransportConfig,
 };
-use alloc::format;
-use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
@@ -76,6 +74,7 @@ impl RuntimeConfig for CubeClRuntimeConfig {
     #[cfg(std_io)]
     fn override_from_env(mut self) -> Self {
         use super::compilation::{CompilationLogLevel, F16Evaluation};
+        use super::env::{env_bool, env_variant};
         use crate::config::{
             autotune::{AutotuneLevel, AutotuneLogLevel},
             profiling::ProfilingLogLevel,
@@ -230,114 +229,5 @@ impl RuntimeConfig for CubeClRuntimeConfig {
         }
 
         self
-    }
-}
-
-/// The variant of `T` that the environment variable `name` names with its `serde` name, as in
-/// `cubecl.toml`. `None` when the variable is unset or names no variant, as for [`env_bool`].
-#[cfg(std_io)]
-fn env_variant<T: serde::de::DeserializeOwned>(name: &str) -> Option<T> {
-    variant(&std::env::var(name).ok()?)
-}
-
-/// The variant of `T` with the `serde` name `value`.
-#[cfg(std_io)]
-fn variant<T: serde::de::DeserializeOwned>(value: &str) -> Option<T> {
-    use serde::de::{IntoDeserializer, value::Error};
-
-    T::deserialize(IntoDeserializer::<Error>::into_deserializer(value)).ok()
-}
-
-/// A boolean environment variable, or `None` when it is unset or unreadable.
-///
-/// An unrecognized value is `None` rather than an error: the variable is an
-/// override, so failing to parse it means leaving the configured value alone.
-#[cfg(std_io)]
-fn env_bool(name: &str) -> Option<bool> {
-    match std::env::var(name).ok()?.as_str() {
-        "true" | "1" | "on" => Some(true),
-        "false" | "0" | "off" => Some(false),
-        _ => None,
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-/// How to format cubecl type names.
-pub enum TypeNameFormatLevel {
-    /// No formatting apply, full information is included.
-    Full,
-    /// Most information is removed for a small formatted name.
-    Short,
-    /// Balanced info is kept.
-    Balanced,
-}
-
-/// Format a type name with different options.
-pub fn type_name_format(name: &str, level: TypeNameFormatLevel) -> String {
-    match level {
-        TypeNameFormatLevel::Full => name.to_string(),
-        TypeNameFormatLevel::Short => {
-            if let Some(val) = name.split("<").next() {
-                val.split("::").last().unwrap_or(name).to_string()
-            } else {
-                name.to_string()
-            }
-        }
-        TypeNameFormatLevel::Balanced => {
-            let mut split = name.split("<");
-            let before_generic = split.next();
-            let after_generic = split.next();
-
-            let before_generic = match before_generic {
-                None => return name.to_string(),
-                Some(val) => val
-                    .split("::")
-                    .last()
-                    .unwrap_or(val)
-                    .trim()
-                    .replace(">", "")
-                    .to_string(),
-            };
-            let inside_generic = match after_generic {
-                None => return before_generic.to_string(),
-                Some(val) => {
-                    let mut val = val.to_string();
-                    for s in split {
-                        val += "<";
-                        val += s;
-                    }
-                    val
-                }
-            };
-
-            let inside = type_name_list_format(&inside_generic, level);
-
-            format!("{before_generic}{inside}")
-        }
-    }
-}
-
-fn type_name_list_format(name: &str, level: TypeNameFormatLevel) -> String {
-    let mut acc = String::new();
-    let splits = name.split(", ");
-
-    for a in splits {
-        acc += " | ";
-        acc += &type_name_format(a, level);
-    }
-
-    acc
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test_log::test]
-    fn test_format_name() {
-        let full_name = "burn_cubecl::kernel::unary_numeric::unary_numeric::UnaryNumeric<f32, burn_cubecl::tensor::base::CubeTensor<_>::copy::Copy, cubecl_cuda::runtime::CudaRuntime>";
-        let name = type_name_format(full_name, TypeNameFormatLevel::Balanced);
-
-        assert_eq!(name, "UnaryNumeric | f32 | CubeTensor | Copy | CudaRuntime");
     }
 }
