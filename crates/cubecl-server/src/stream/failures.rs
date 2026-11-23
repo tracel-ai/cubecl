@@ -10,7 +10,7 @@
 
 use crate::id::KernelId;
 use crate::logging::ServerLogger;
-use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryHandle, Skipped};
+use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryBinding, Skipped};
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
@@ -164,7 +164,7 @@ pub trait FailureStore {
 
     /// Record `error` as the reason `memory` was never allocated, so reading that memory
     /// reports that error.
-    fn fail_unallocated(&mut self, memory: &ManagedMemoryHandle, error: ServerError) {
+    fn fail_unallocated(&mut self, memory: &ManagedMemoryBinding, error: ServerError) {
         let (_, failures) = self.split();
         failures.graph.fail_unallocated(memory, error);
     }

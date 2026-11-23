@@ -11,7 +11,7 @@ use crate::memory_management::drop_queue::{Fence, PendingDropQueue};
 use crate::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use crate::metadata_cache::MetadataInfoCache;
 use crate::server::{Handle, IoError, LaunchError, ServerError};
-use crate::storage::ComputeStorage;
+use crate::storage::StorageAllocator;
 use crate::stream::{EventStreamBackend, StreamCapture};
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
@@ -28,9 +28,9 @@ pub trait DeviceStream {
     /// queue knows the device is done with what it is holding.
     type Fence: Fence + Send + 'static;
     /// The storage backing the memory this stream's kernels address.
-    type DeviceStorage: ComputeStorage;
+    type DeviceStorage: StorageAllocator;
     /// The storage backing the host buffers that stage transfers to it.
-    type HostStorage: ComputeStorage;
+    type HostStorage: StorageAllocator;
 
     /// The memory this stream's kernels see. Allocations are per stream, so a
     /// buffer resolves to the stream that created it and nowhere else.
@@ -240,8 +240,8 @@ pub trait Driver: Sized {
 
 /// The device allocation a driver's buffers resolve to.
 pub type DeviceResource<D> =
-    <<<D as Driver>::Stream as DeviceStream>::DeviceStorage as ComputeStorage>::Resource;
+    <<<D as Driver>::Stream as DeviceStream>::DeviceStorage as StorageAllocator>::Resource;
 
 /// The host allocation a driver's staging buffers resolve to.
 pub type HostResource<D> =
-    <<<D as Driver>::Stream as DeviceStream>::HostStorage as ComputeStorage>::Resource;
+    <<<D as Driver>::Stream as DeviceStream>::HostStorage as StorageAllocator>::Resource;

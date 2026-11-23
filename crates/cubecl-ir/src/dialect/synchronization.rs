@@ -134,6 +134,24 @@ impl MemoryEffectsOp for SyncPlaneStorageOp {
     }
 }
 
+/// A fence for the compiler's instruction scheduler alone: no instruction moves across it. It
+/// orders no memory and no unit waits at it; what it keeps is the order the kernel issued its
+/// instructions in, which a software pipeline relies on to issue a load ahead of the work that
+/// hides its latency. A target whose scheduler cannot be fenced lowers it to nothing.
+#[cube_op(name = "sync.schedule_barrier")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct ScheduleBarrierOp {}
+
+/// It orders no memory: the optimizer may move, merge and hoist accesses across it as it would
+/// across nothing. Only the backend's instruction scheduler is fenced.
+#[op_interface_impl]
+impl MemoryEffectsOp for ScheduleBarrierOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        vec![]
+    }
+}
+
 /// Fences the async proxy in CUDA, to make shared memory available to it. Does not implement
 /// `Synchronizes`, because it works only as a memory availability barrier with an outside chip.
 /// It does not synchronize the actual threads, and is typically called only by the TMA leader.

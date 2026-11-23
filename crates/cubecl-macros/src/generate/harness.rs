@@ -371,7 +371,7 @@ impl Launch {
         // A truth only crosses back, stored as a `u32`: alone, or as a vector at a named width.
         let returns_truth = |ty: &Type| match vector_args(ty) {
             Some((elem, Type::Path(size))) => {
-                is_bool(elem) && size.path.get_ident().is_some_and(&is_size)
+                is_bool(elem) && size.path.get_ident().is_some_and(is_size)
             }
             Some(_) => false,
             None => is_bool(ty),

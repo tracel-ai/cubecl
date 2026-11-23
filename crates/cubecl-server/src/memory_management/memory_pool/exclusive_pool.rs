@@ -5,7 +5,7 @@ use crate::{
         PageGuard,
     },
     server::IoError,
-    storage::{ComputeStorage, StorageUtilization},
+    storage::{StorageAllocator, StorageUtilization},
 };
 
 use alloc::vec::Vec;
@@ -31,21 +31,21 @@ pub struct ExclusiveMemoryPool {
     location_base: MemoryLocation,
     /// The most pages ever held at once (pages come and go with
     /// `dealloc_period`, so the current count understates the peak).
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 impl core::fmt::Display for ExclusiveMemoryPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
             " - Exclusive Pool max_alloc_size={}\n",
-            BytesFormat::new(self.max_alloc_size)
+            BytesFormat::from_byte_count(self.max_alloc_size)
         ))?;
 
         for page in self.pages.iter() {
             let is_free = page.slice.is_free();
-            let size = BytesFormat::new(page.slice.effective_size());
+            let size = BytesFormat::from_byte_count(page.slice.effective_size());
 
             f.write_fmt(format_args!("   - Page {size} is_free={is_free}\n"))?;
         }
@@ -98,8 +98,8 @@ impl ExclusiveMemoryPool {
             max_alloc_size: layout.max_alloc_size,
             cur_avg_size: layout.max_alloc_size as f64 / 2.0,
             location_base: MemoryLocation::new(layout.pool, 0, 0),
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -110,11 +110,11 @@ impl ExclusiveMemoryPool {
                 max_alloc_size: self.max_alloc_size,
             },
             usage: self.get_memory_usage(),
-            pages: self.pages.len() as u64,
-            pages_peak: self.pages_peak,
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
             // This pool only allocates eagerly.
-            pages_unmapped: 0,
-            largest_alloc: self.largest_alloc,
+            unmapped_page_count: 0,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -128,7 +128,7 @@ impl ExclusiveMemoryPool {
             .min_by_key(|page| page.free_count)
     }
 
-    fn alloc_page<Storage: ComputeStorage>(
+    fn alloc_page<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -137,14 +137,17 @@ impl ExclusiveMemoryPool {
             .max(size)
             .next_multiple_of(self.alignment);
 
-        let storage = storage.alloc(alloc_size)?;
+        let storage = storage.allocate_bytes(alloc_size)?;
 
         let padding = calculate_padding(size, self.alignment);
         let mut slice = Slice::new(storage, padding);
 
         // Return a smaller part of the slice. By construction, we only ever
         // get a page with a big enough size, so this is ok to do.
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
         slice.padding = padding;
 
         self.pages.push(MemoryPage {
@@ -154,7 +157,7 @@ impl ExclusiveMemoryPool {
             // This means allocations start as "suspected as unused" and over time will be kept for longer.
             free_count: ALLOC_AFTER_FREE - 1,
         });
-        self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
+        self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
 
         let idx = self.pages.len() - 1;
         Ok((idx, &mut self.pages[idx]))
@@ -183,14 +186,17 @@ impl MemoryPool for ExclusiveMemoryPool {
         let handle = self.get_free_page(size).map(|page| {
             // Return a smaller part of the slice. By construction, we only ever
             // get a page with a big enough size, so this is ok to do.
-            page.slice.storage.utilization = StorageUtilization { offset: 0, size };
+            page.slice.storage.utilization = StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            };
             page.slice.padding = padding;
             page.free_count = page.free_count.saturating_sub(1);
             page.slice.handle.clone()
         });
 
         if handle.is_some() {
-            self.largest_alloc = self.largest_alloc.max(size);
+            self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         }
 
         handle
@@ -200,7 +206,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, storage))
     )]
-    fn alloc<Storage: ComputeStorage>(
+    fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -223,14 +229,14 @@ impl MemoryPool for ExclusiveMemoryPool {
         let mut location = self.location_base;
         location.page = idx as u16;
         handle.descriptor().update_location(location);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(handle)
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let page = self.pages.get(location.page as usize)?;
-        Some(PageGuard::allocation(page.slice.handle.clone().binding()))
+        Some(PageGuard::allocation(page.slice.handle.to_binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
@@ -241,17 +247,17 @@ impl MemoryPool for ExclusiveMemoryPool {
             .collect();
 
         MemoryUsage {
-            number_allocs: used_slices.len() as u64,
-            bytes_in_use: used_slices
+            allocation_count: used_slices.len() as u64,
+            in_use_bytes: used_slices
                 .iter()
                 .map(|page| page.slice.storage.size())
                 .sum(),
-            bytes_padding: used_slices.iter().map(|page| page.slice.padding).sum(),
-            bytes_reserved: self.pages.iter().map(|page| page.alloc_size).sum(),
+            padding_bytes: used_slices.iter().map(|page| page.slice.padding).sum(),
+            reserved_bytes: self.pages.iter().map(|page| page.alloc_size).sum(),
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(
+    fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
@@ -272,7 +278,7 @@ impl MemoryPool for ExclusiveMemoryPool {
                     // without it being used in the meantime), deallocate it.
                     if page.free_count >= ALLOC_AFTER_FREE || cleanup == Cleanup::Explicit {
                         page.slice.tainted.clear(failures);
-                        storage.dealloc(page.slice.storage.id);
+                        storage.deallocate(page.slice.storage.id);
                         continue;
                     }
                 }
