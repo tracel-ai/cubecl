@@ -1828,7 +1828,10 @@ impl Client {
     /// stream overwrites, so which ones a run allocates is its own business. A recording can
     /// still place a buffer it keeps as a temporary — one allocated just before an output of its
     /// size takes the output's room — and is then refused; it is recorded again, following the
-    /// refused recording's own allocations, up to three recordings in all.
+    /// refused recording's own allocations, up to three recordings in all. A recording can also
+    /// allocate more temporaries than its planning runs did, and find no room for one, since a
+    /// recording adds no memory: the work is then planned again, its planning runs growing the
+    /// room for what it now allocates, and recorded again, within the same three recordings.
     ///
     /// `work` must not read the device either: a planning run's launches never ran. For the same
     /// reason a tune first met in a planning run measures its candidates on inputs nothing wrote,
@@ -1852,19 +1855,25 @@ impl Client {
         /// next, which seals whenever it allocates as the refused one did.
         const RECORDINGS_MAX: usize = 3;
 
+        // The planning runs of a capture just prepared, its first run already started.
+        let plan = |work: &mut dyn FnMut() -> T| -> Result<(), ServerError> {
+            for run in 0..PLANNING_RUNS_MAX {
+                if run > 0 {
+                    self.graph_start_run()?;
+                }
+                let output = work();
+                let stable = self.graph_end_run();
+                core::mem::drop(output);
+                if stable? {
+                    break;
+                }
+            }
+            Ok(())
+        };
+
         self.graph_prepare()?;
         let closer = CaptureCloser { client: self };
-        for run in 0..PLANNING_RUNS_MAX {
-            if run > 0 {
-                self.graph_start_run()?;
-            }
-            let output = work();
-            let stable = self.graph_end_run();
-            core::mem::drop(output);
-            if stable? {
-                break;
-            }
-        }
+        plan(&mut work)?;
         self.start_capture()?;
         let mut output = work();
         let mut graph = self.stop_capture();
@@ -1874,10 +1883,16 @@ impl Client {
             };
             core::mem::drop(output);
             // A capture prepared right after a refused recording follows its allocations, and
-            // records at once. One refused otherwise has no plan, and the window stays shut.
+            // records at once. One refused otherwise has no plan, a recording that found no room
+            // for an allocation say, which only planning runs grow: its window refuses to open
+            // and ends the capture, which is prepared and planned again.
             self.graph_prepare()?;
             if self.start_capture().is_err() {
-                return Err(refusal);
+                self.graph_prepare()?;
+                plan(&mut work)?;
+                if self.start_capture().is_err() {
+                    return Err(refusal);
+                }
             }
             output = work();
             graph = self.stop_capture();

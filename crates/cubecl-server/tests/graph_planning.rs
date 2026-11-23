@@ -352,3 +352,71 @@ fn only_the_owner_ends_a_planning_run() {
     assert!(!server.end_run(OWNER).unwrap(), "the owner's first run");
     drop(output);
 }
+
+/// A recorded run that found no room for an allocation is planned again, not recorded at once:
+/// the room a recording may carve is only what planning runs grew, and none grew for that
+/// allocation, so a recording following the failed one, refused also for keeping a buffer it
+/// placed as a temporary, would find no room again. Planned again, it grows the room, and seals.
+#[test]
+fn a_recording_that_found_no_room_is_planned_again() {
+    let mut server = FakeServer::new();
+    // The work keeps a buffer of `MIB` bytes, and from its recorded run on one of `wide` bytes
+    // before it and one more of `MIB` bytes after it: the plan holds one output, and no room
+    // for the wide buffer.
+    let wide = 16 * MIB;
+    let work = |server: &mut FakeServer, grown: bool| -> Vec<Handle> {
+        let mut kept = Vec::new();
+        if grown {
+            kept.extend(server.work_of(OWNER, wide).ok());
+        }
+        kept.push(server.work(OWNER).unwrap());
+        if grown {
+            kept.push(server.work(OWNER).unwrap());
+        }
+        kept
+    };
+    server.prepare(OWNER);
+    let first = work(&mut server, false);
+    assert!(!server.end_run(OWNER).unwrap(), "a first run");
+    drop(first);
+    server.start_run(OWNER).unwrap();
+    let second = work(&mut server, false);
+    assert!(server.end_run(OWNER).unwrap(), "two runs kept alike");
+    drop(second);
+
+    server.begin(OWNER);
+    let recorded = work(&mut server, true);
+    assert_eq!(recorded.len(), 2, "the wide buffer found no room");
+    assert!(
+        server.seal(OWNER).is_err(),
+        "the recording missed an allocation"
+    );
+    drop(recorded);
+
+    server.prepare(OWNER);
+    assert!(
+        Window::on(&mut server.command(OWNER)).begin().is_err(),
+        "a recording that found no room leaves no plan to record at once"
+    );
+    let planned = work(&mut server, true);
+    assert_eq!(planned.len(), 3, "a planning run grows the room");
+    let mut stable = server.end_run(OWNER).unwrap();
+    drop(planned);
+    while !stable {
+        server.start_run(OWNER).unwrap();
+        let planned = work(&mut server, true);
+        stable = server.end_run(OWNER).unwrap();
+        drop(planned);
+    }
+    server.begin(OWNER);
+    let recorded = work(&mut server, true);
+    assert_eq!(
+        recorded.len(),
+        3,
+        "the recording finds the room planning grew"
+    );
+    assert!(
+        server.seal(OWNER).is_ok(),
+        "planned again, the recording seals"
+    );
+}

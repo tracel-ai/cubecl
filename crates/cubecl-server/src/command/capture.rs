@@ -384,12 +384,15 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         stream.drop_queue().drain(|| D::Stream::fence(signal));
         // A recording that keeps a buffer its planning run did not may have put
         // it on room another graph's replay overwrites.
-        let diverged = stream.capturing().finish_recording().map(|divergence| {
-            ServerError::graph_state(format!(
-                "the recorded run kept a buffer its planning run did not, so the graph cannot \
+        let diverged = stream
+            .capturing()
+            .finish_recording(doomed.is_some())
+            .map(|divergence| {
+                ServerError::graph_state(format!(
+                    "the recorded run kept a buffer its planning run did not, so the graph cannot \
                  seal: {divergence}"
-            ))
-        });
+                ))
+            });
         // The memory the recorded launches write. A recording that becomes a
         // graph answers for it on a failed replay; one that does not is
         // answered for by the caller, since those launches never ran and now

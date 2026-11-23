@@ -290,8 +290,10 @@ impl StreamCapture {
 
     /// End the recorded run, once its deferred frees are reclaimed: the first buffer it keeps
     /// on room the plan left to temporaries, if it does, which means the graph must not seal.
-    pub fn finish_recording(&mut self) -> Option<Divergence> {
-        self.planner.finish_recording()
+    /// An `incomplete` recording, one an operation failed or was skipped in, leaves no plan to
+    /// the capture prepared next (see [`AllocationPlanner::finish_recording`]).
+    pub fn finish_recording(&mut self, incomplete: bool) -> Option<Divergence> {
+        self.planner.finish_recording(incomplete)
     }
 
     /// Hold `staging` until the window opens, when the stream is preparing a

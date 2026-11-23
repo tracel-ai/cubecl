@@ -29,6 +29,11 @@
 //! refused recording's own allocations then become the plan of the capture prepared next on the
 //! stream, which may record at once: a recording that allocates as the refused one did follows
 //! that plan exactly, and seals.
+//!
+//! A recording can also find no room for an allocation: it may not add pages, and the room it
+//! carves is what its planning runs grew. Its log misses that allocation, and following it would
+//! find no room again, so it is no plan: the capture prepared next plans its work again, and its
+//! planning runs grow the room for what the work now allocates.
 
 use crate::memory_management::{ManagedMemoryBinding, WeakMemoryBinding};
 use alloc::vec::Vec;
@@ -211,8 +216,10 @@ impl AllocationPlanner {
     /// its graph holds the room, which every replay still writes.
     ///
     /// A recording that diverges leaves its own allocations as the plan of the capture prepared
-    /// next on the stream.
-    pub fn finish_recording(&mut self) -> Option<Divergence> {
+    /// next on the stream, unless it was `incomplete`: an operation in it failed or was skipped,
+    /// so what it allocated is not what a whole run allocates (an allocation that found no room
+    /// is not in its log), and the capture prepared next plans its work again.
+    pub fn finish_recording(&mut self, incomplete: bool) -> Option<Divergence> {
         self.running = false;
         let divergence = self
             .run
@@ -226,7 +233,7 @@ impl AllocationPlanner {
                 size_bytes: allocation.size_bytes,
             });
         self.end_run_log();
-        self.carried = divergence.is_some();
+        self.carried = divergence.is_some() && !incomplete;
         if self.carried {
             core::mem::swap(&mut self.last, &mut self.ended);
         }
@@ -342,7 +349,7 @@ mod tests {
     ) -> (Vec<Placement>, Option<Divergence>) {
         planner.start_recording();
         let allocated = allocate(planner, sizes, kept);
-        (allocated.placements, planner.finish_recording())
+        (allocated.placements, planner.finish_recording(false))
     }
 
     /// A planning run settles once two runs in a row keep the same buffers: the first never
