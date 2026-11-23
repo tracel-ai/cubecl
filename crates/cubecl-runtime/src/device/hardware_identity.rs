@@ -1,7 +1,10 @@
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::fmt::{Display, Formatter};
 use cubecl_ir::{DeviceIdentity, DeviceProperties};
+
+use crate::client::Client;
 
 /// Which hardware a device is: its [`DeviceIdentity`] without the card it sits in, so what is
 /// measured on one device holds for every device of the same hardware.
@@ -36,6 +39,29 @@ impl HardwareIdentity {
                 .num_cpu_cores
                 .or(hardware.num_streaming_multiprocessors)
                 .unwrap_or(0),
+        }
+    }
+
+    /// The devices of `clients` as one hardware, in order: a lone device's own identity, and for
+    /// several the slot each sits in as well, since what they measure together moves with the
+    /// links between them.
+    ///
+    /// # Panics
+    ///
+    /// Without a client.
+    pub(crate) fn of_devices(clients: &[Client]) -> Self {
+        let lead = clients[0].hardware_identity();
+        let peers = &clients[1..];
+        let slots = clients.iter().map(|client| {
+            Self::name_in_slot(client.name(), client.properties())
+                .unwrap_or_else(|| client.hardware_identity().to_string())
+        });
+        if peers.is_empty() {
+            return lead;
+        }
+        Self {
+            name: segment(&slots.collect::<Vec<_>>().join("+")),
+            ..lead
         }
     }
 

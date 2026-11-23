@@ -2214,6 +2214,20 @@ impl Client {
         Ok(ProfileWindow { stream_id, token })
     }
 
+    /// [`profile_start`](Self::profile_start), its window opened by the next kernel launched on the
+    /// calling stream, so the host preparing that launch stays out of it. Where the backend cannot
+    /// stamp a launch, the window opens at the stream's current position. See
+    /// [`Server::start_profile_at_launch`].
+    pub(crate) fn profile_start_at_launch(&self) -> Result<ProfileWindow, ProfileError> {
+        let stream_id = self.stream_id();
+        let token = self
+            .device
+            .submit_blocking(move |server| server.start_profile_at_launch(stream_id))
+            .closed_as_error()
+            .map_err(|err| ProfileError::from(&err))?;
+        Ok(ProfileWindow { stream_id, token })
+    }
+
     /// Close `window` at the current position of the stream it was opened on.
     pub fn profile_end(&self, window: ProfileWindow) -> Result<ProfileDuration, ProfileError> {
         let ProfileWindow { stream_id, token } = window;
