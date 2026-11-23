@@ -71,9 +71,9 @@ impl PersistentPool {
         MemoryPoolReport {
             kind: MemoryPoolKind::Persistent,
             usage: self.get_memory_usage(),
-            pages: self.slices.len() as u64,
-            peak_pages: self.peak_pages,
-            unmapped_pages: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
+            page_count: self.slices.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
@@ -203,7 +203,7 @@ impl MemoryPool for PersistentPool {
             .collect();
 
         MemoryUsage {
-            allocations: used_slices.len() as u64,
+            allocation_count: used_slices.len() as u64,
             in_use_bytes: used_slices.iter().map(|slice| slice.storage.size()).sum(),
             padding_bytes: used_slices.iter().map(|slice| slice.padding).sum(),
             reserved_bytes: self.slices.iter().map(|slice| slice.effective_size()).sum(),

@@ -73,9 +73,9 @@ impl DirectPool {
         MemoryPoolReport {
             kind: MemoryPoolKind::Direct,
             usage: self.get_memory_usage(),
-            pages: self.live().count() as u64,
-            peak_pages: self.peak_pages,
-            unmapped_pages: self.live().filter(|slice| !slice.mapped).count() as u64,
+            page_count: self.live().count() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self.live().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
@@ -283,7 +283,7 @@ impl MemoryPool for DirectPool {
         let used: Vec<_> = self.live().filter(|slice| !slice.is_free()).collect();
 
         MemoryUsage {
-            allocations: used.len() as u64,
+            allocation_count: used.len() as u64,
             in_use_bytes: used.iter().map(|slice| slice.storage.size()).sum(),
             padding_bytes: used.iter().map(|slice| slice.padding).sum(),
             reserved_bytes: self.live().map(|slice| slice.effective_size()).sum(),
@@ -438,7 +438,7 @@ mod tests {
         let served = alloc(&mut pool, &mut storage, MAX).expect("exactly the limit fits");
 
         assert_eq!(storage.bytes_allocated(), MAX);
-        assert_eq!(pool.get_memory_usage().allocations, 1);
+        assert_eq!(pool.get_memory_usage().allocation_count, 1);
         core::mem::drop(served);
     }
 }

@@ -22,7 +22,7 @@ pub fn a_new_threads_first_allocation_honors_its_allocation_mode<R: Runtime>(cli
             .first()
             .expect("the thread's stream should exist once it allocated");
         assert_eq!(
-            stream.pools.persistent.usage.allocations, 1,
+            stream.pools.persistent.usage.allocation_count, 1,
             "the allocation made inside the window, and only that one, is persistent"
         );
         assert!(
@@ -51,7 +51,7 @@ pub fn nested_windows_on_a_new_stream_keep_the_outer_window<R: Runtime>(client: 
             .first()
             .expect("the thread's stream should exist once it allocated");
         assert_eq!(
-            stream.pools.persistent.usage.allocations, 2,
+            stream.pools.persistent.usage.allocation_count, 2,
             "both allocations made inside the outer window are persistent"
         );
         drop(weights);

@@ -619,7 +619,7 @@ mod tests {
             .expect("the layer carves allocations from adaptive pages");
         Pool {
             page_size: current.0,
-            pages: report.iter().map(|pool| pool.pages).sum(),
+            pages: report.iter().map(|pool| pool.page_count).sum(),
             outdated: current.1,
         }
     }
@@ -1323,7 +1323,7 @@ mod tests {
         let report = memory.memory_report();
         assert_eq!(report.usage().reserved_bytes, 200 * MIB + MIB);
         assert_eq!(
-            (report.dedicated.kind, report.dedicated.pages),
+            (report.dedicated.kind, report.dedicated.page_count),
             (MemoryPoolKind::Direct, 1),
             "the dedicated allocation is reported as its own pool"
         );

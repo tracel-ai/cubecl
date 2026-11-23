@@ -141,7 +141,7 @@ impl MemoryPage {
     /// Gets the [memory usage](MemoryUsage) of the current memory page.
     pub fn memory_usage(&self) -> MemoryUsage {
         let mut usage = MemoryUsage {
-            allocations: 0,
+            allocation_count: 0,
             in_use_bytes: 0,
             padding_bytes: 0,
             reserved_bytes: 0,
@@ -151,7 +151,7 @@ impl MemoryPage {
             usage.reserved_bytes += slice.effective_size();
 
             if !slice.handle.is_free() {
-                usage.allocations += 1;
+                usage.allocation_count += 1;
                 usage.in_use_bytes += slice.storage.size();
                 usage.padding_bytes += slice.padding;
             }

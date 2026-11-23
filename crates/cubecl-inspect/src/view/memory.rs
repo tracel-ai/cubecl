@@ -84,9 +84,9 @@ fn pool_row(name: String, pool: &MemoryPoolReport) -> Vec<String> {
     vec![
         name,
         PoolKind(&pool.kind).to_string(),
-        pool.pages.to_string(),
-        pool.peak_pages.to_string(),
-        pool.unmapped_pages.to_string(),
+        pool.page_count.to_string(),
+        pool.peak_page_count.to_string(),
+        pool.unmapped_page_count.to_string(),
         ByteSize(usage.in_use_bytes).to_string(),
         ByteSize(usage.reserved_bytes).to_string(),
         format!(

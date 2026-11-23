@@ -110,10 +110,10 @@ impl ExclusiveMemoryPool {
                 max_alloc_size: self.max_alloc_size,
             },
             usage: self.get_memory_usage(),
-            pages: self.pages.len() as u64,
-            peak_pages: self.peak_pages,
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
             // This pool only allocates eagerly.
-            unmapped_pages: 0,
+            unmapped_page_count: 0,
             largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
@@ -247,7 +247,7 @@ impl MemoryPool for ExclusiveMemoryPool {
             .collect();
 
         MemoryUsage {
-            allocations: used_slices.len() as u64,
+            allocation_count: used_slices.len() as u64,
             in_use_bytes: used_slices
                 .iter()
                 .map(|page| page.slice.storage.size())

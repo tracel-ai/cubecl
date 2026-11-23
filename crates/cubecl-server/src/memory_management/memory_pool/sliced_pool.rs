@@ -94,9 +94,9 @@ impl SlicedPool {
                 max_slice_size: self.max_slice_size,
             },
             usage: self.get_memory_usage(),
-            pages: self.pages.len() as u64,
-            peak_pages: self.peak_pages,
-            unmapped_pages: self
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self
                 .pages
                 .iter()
                 .filter(|(page, _)| !page.is_mapped())
