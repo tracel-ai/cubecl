@@ -15,7 +15,7 @@ use crate::{
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     throughput::{
         ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
@@ -578,7 +578,7 @@ impl Client {
     pub fn get_resource<S: ServerStorage>(
         &self,
         handle: Handle,
-    ) -> Result<ManagedResource<<S::Storage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<S::Storage as StorageAllocator>::Resource>, ServerError> {
         let stream_id = self.stream_id();
         let binding = handle.binding();
         self.local(&binding)?;

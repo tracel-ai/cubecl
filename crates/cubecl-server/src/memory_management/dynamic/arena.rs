@@ -16,7 +16,7 @@ use crate::{
         },
     },
     server::IoError,
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::backtrace::BackTrace;
@@ -250,7 +250,7 @@ impl PoolArena {
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
     /// [`IoError::PageSizesExhausted`] when it needs a new page size and
     /// every slot is taken, and whatever the device refused.
-    pub fn reserve<Storage: ComputeStorage>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -290,7 +290,7 @@ impl PoolArena {
 
     /// Release what the current pool no longer needs, and drop every outdated
     /// pool that has drained.
-    pub fn cleanup<Storage: ComputeStorage>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
@@ -307,7 +307,11 @@ impl PoolArena {
     ///
     /// An outdated pool returns a page the moment it empties, rather than
     /// waiting for the explicit cleanup the current pool waits for.
-    fn drain<Storage: ComputeStorage>(&mut self, storage: &mut Storage, failures: &mut ErrorGraph) {
+    fn drain<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) {
         let slots = &mut self.slots;
         self.outdated.retain(|&slot| {
             let Some(pool) = slots[slot].as_mut() else {
@@ -343,7 +347,7 @@ impl PoolArena {
     /// `room` says whether a target may take a new page when the room held
     /// runs out. Nothing moves yet: the caller copies the bytes and hands the
     /// [`Landed`] relocation back to [`commit`](Self::commit).
-    pub fn plan<Storage: ComputeStorage>(
+    pub fn plan<Storage: StorageAllocator>(
         &mut self,
         room: TargetRoom,
         storage: &mut Storage,
@@ -372,7 +376,7 @@ impl PoolArena {
 
     /// Hand every allocation of `landed` over to the target reserved for it,
     /// now that its bytes are there, and drop the outdated pools that emptied.
-    pub fn commit<Storage: ComputeStorage>(
+    pub fn commit<Storage: StorageAllocator>(
         &mut self,
         landed: Landed,
         storage: &mut Storage,
@@ -401,7 +405,7 @@ impl PoolArena {
 
     /// Reserve a target for `allocation` on the current pool, and say what has
     /// to be copied into it. `None` when `room` has no place for it.
-    fn plan_move<Storage: ComputeStorage>(
+    fn plan_move<Storage: StorageAllocator>(
         &mut self,
         allocation: LiveAllocation,
         room: TargetRoom,
@@ -441,7 +445,7 @@ impl PoolArena {
     /// Carve `size` bytes from a new pool of `page_size` pages, which takes
     /// over from the current one only once the device gave it its first page:
     /// a refused allocation leaves the page size where it was.
-    fn grow<Storage: ComputeStorage>(
+    fn grow<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -507,18 +511,14 @@ mod tests {
         limit: u64,
     }
 
-    impl ComputeStorage for Bookkeeping {
+    impl StorageAllocator for Bookkeeping {
         type Resource = ();
-
-        fn alignment(&self) -> usize {
-            32
-        }
 
         fn get(&mut self, _handle: &StorageHandle) -> Result<(), IoError> {
             Ok(())
         }
 
-        fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
             if size > self.limit {
                 return Err(IoError::OutOfMemory {
                     size,
@@ -527,11 +527,14 @@ mod tests {
             }
             Ok(StorageHandle::new(
                 StorageId::new(),
-                StorageUtilization { offset: 0, size },
+                StorageUtilization {
+                    offset_bytes: 0,
+                    size_bytes: size,
+                },
             ))
         }
 
-        fn dealloc(&mut self, _id: StorageId) {}
+        fn deallocate(&mut self, _id: StorageId) {}
 
         fn flush(&mut self) {}
 

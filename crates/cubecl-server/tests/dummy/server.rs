@@ -31,7 +31,7 @@ use cubecl_server::{
         Reduction, SendOutcome, SendReport, Server, ServerCommunication, ServerError,
         ServerUtilities, TransportProvider,
     },
-    storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
+    storage::{BytesResource, BytesStorage, ManagedResource, StorageAllocator},
     timestamp_profiler::TimestampProfiler,
 };
 use cubecl_zspace::{Shape, Strides};

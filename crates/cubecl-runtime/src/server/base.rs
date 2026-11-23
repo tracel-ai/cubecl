@@ -13,7 +13,7 @@ use crate::{
     },
     poison::DevicePoison,
     server::{BufferBinding, KernelResource, PeerBinding},
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
@@ -1128,8 +1128,8 @@ pub trait Server:
 /// type is the backend's own, and only a caller that names the backend can
 /// receive one.
 pub trait ServerStorage: Server {
-    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
-    type Storage: ComputeStorage;
+    /// The [storage](StorageAllocator) type defines how data is stored and accessed.
+    type Storage: StorageAllocator;
     /// Given a resource handle, returns the storage resource.
     ///
     /// The same claim check a read makes guards this too: a buffer a failed
@@ -1140,7 +1140,7 @@ pub trait ServerStorage: Server {
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
+    ) -> Result<ManagedResource<<Self::Storage as StorageAllocator>::Resource>, ServerError>;
 }
 
 /// An ID unique to any unordered combination of devices.

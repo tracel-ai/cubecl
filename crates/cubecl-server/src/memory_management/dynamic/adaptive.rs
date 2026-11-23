@@ -18,7 +18,7 @@ use crate::{
         },
     },
     server::{IoError, ServerError},
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::sync::Arc;
@@ -160,7 +160,7 @@ impl AdaptiveMemory {
 
     /// Install real backing behind `binding` when its allocation was carved
     /// lazily.
-    pub fn materialize<Storage: ComputeStorage>(
+    pub fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &ManagedMemoryBinding,
@@ -205,7 +205,7 @@ impl AdaptiveMemory {
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
     /// [`IoError::PageSizesExhausted`] when the arena has no slot left for a
     /// new page size, and whatever the device refused.
-    pub fn reserve<Storage: ComputeStorage>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -276,7 +276,7 @@ impl AdaptiveMemory {
     ///
     /// A plan whose copies fail is abandoned: every allocation stays where it
     /// was. Targets are freed only once the device is known to be done with them.
-    pub fn relocate<Storage: ComputeStorage>(
+    pub fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn CopyQueue<Storage>,
@@ -313,7 +313,7 @@ impl AdaptiveMemory {
     /// # Errors
     ///
     /// When the pools kept apart have no room for one, or a copy fails: nothing moved then.
-    pub fn move_apart<Storage: ComputeStorage>(
+    pub fn move_apart<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         kept: &[ManagedMemoryBinding],
@@ -357,7 +357,7 @@ impl AdaptiveMemory {
 
     /// Release what the pools no longer need, and drop every outdated pool
     /// that has drained.
-    pub fn cleanup<Storage: ComputeStorage>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
@@ -427,7 +427,7 @@ impl AdaptiveMemory {
     /// The move of `memory` to the pools kept apart, when it sits on a page of the small pool
     /// or of the arena a graph guards: `None` anywhere else, where no replay writes the room
     /// around it.
-    fn plan_move_apart<Storage: ComputeStorage>(
+    fn plan_move_apart<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         memory: &ManagedMemoryBinding,

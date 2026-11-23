@@ -1,33 +1,37 @@
 use super::{StorageHandle, StorageId};
 use crate::server::IoError;
 
-/// Storage types are responsible for allocating and deallocating memory.
-pub trait ComputeStorage: Send {
-    /// The resource associated type determines the way data is implemented and how
-    /// it can be accessed by kernels.
+/// What a runtime allocates device memory with: the pools carve their pages
+/// from it and hand its allocations back to it.
+pub trait StorageAllocator: Send {
+    /// What a kernel or a copy is given to reach an allocation, such as a
+    /// device pointer or a buffer.
     type Resource: Send;
 
-    /// The alignment memory is allocated with in this storage.
-    fn alignment(&self) -> usize;
-
-    /// Returns the underlying resource for a specified storage handle.
+    /// The resource of the allocation `handle` names, covering at least the
+    /// part of it the handle covers.
     ///
     /// # Errors
     ///
     /// [`IoError::StorageHandleNotFound`] when this storage holds no
-    /// allocation for the handle's id — a handle that outlived its allocation,
+    /// allocation for the handle's id: a handle that outlived its allocation,
     /// or one whose id a deallocation retired.
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError>;
 
-    /// Allocates `size` units of memory and returns a handle to it
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError>;
-
-    /// Deallocates the memory pointed by the given storage id.
+    /// A new allocation of `size` bytes, held until it is
+    /// [deallocated](Self::deallocate).
     ///
-    /// These deallocations might need to be flushed with [`Self::flush`].
-    fn dealloc(&mut self, id: StorageId);
+    /// # Errors
+    ///
+    /// Every implementation returns an error when the device cannot hold
+    /// `size` more bytes, and may return one for a size it does not accept.
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError>;
 
-    /// Flush deallocations when required.
+    /// Gives the allocation `id` back. An implementation may defer the
+    /// release to the next [`flush`](Self::flush), but never reuses `id`.
+    fn deallocate(&mut self, id: StorageId);
+
+    /// Releases every deallocation still deferred.
     fn flush(&mut self);
 
     /// The bytes this storage holds from the device right now: allocated and

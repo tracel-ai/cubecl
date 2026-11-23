@@ -101,7 +101,7 @@ impl DirectPool {
     ///
     /// Answers whether any slice went back, so a caller knows the storage has
     /// deallocations to flush.
-    fn release_free<Storage: crate::storage::ComputeStorage>(
+    fn release_free<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         headroom: u64,
@@ -125,7 +125,7 @@ impl DirectPool {
                 continue;
             }
             if slice.mapped {
-                storage.dealloc(slice.storage.id);
+                storage.deallocate(slice.storage.id);
             }
             slice.tainted.clear(failures);
             reserved -= slice.effective_size();
@@ -143,7 +143,7 @@ impl DirectPool {
     /// The only place slices go back outside an explicit cleanup: an
     /// allocation never releases one, so a reservation that must keep every
     /// slice where it is can still allocate.
-    pub(crate) fn reclaim<Storage: crate::storage::ComputeStorage>(
+    pub(crate) fn reclaim<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -201,13 +201,16 @@ impl MemoryPool for DirectPool {
         // the slice keeps its old padding while its utilization takes the new
         // size, and the next exact-fit lookup no longer recognizes it.
         slice.padding = padding;
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Some(slice.handle.clone())
     }
 
-    fn alloc<Storage: crate::storage::ComputeStorage>(
+    fn alloc<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -228,7 +231,10 @@ impl MemoryPool for DirectPool {
 
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
 
         let index = match self.vacant.pop() {
             Some(index) => index,
@@ -249,7 +255,7 @@ impl MemoryPool for DirectPool {
         Ok(handle)
     }
 
-    fn materialize<Storage: crate::storage::ComputeStorage>(
+    fn materialize<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &super::ManagedMemoryBinding,
@@ -291,7 +297,7 @@ impl MemoryPool for DirectPool {
     ///
     /// Periodic cleanups are ignored here: the memory calls
     /// [`reclaim`](Self::reclaim) for those, which honours the ceiling.
-    fn cleanup<Storage: crate::storage::ComputeStorage>(
+    fn cleanup<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
@@ -308,7 +314,7 @@ impl MemoryPool for DirectPool {
                 continue;
             }
             if slice.mapped {
-                storage.dealloc(slice.storage.id);
+                storage.deallocate(slice.storage.id);
             }
             slice.tainted.clear(failures);
             *entry = None;
@@ -361,7 +367,7 @@ impl core::fmt::Display for DirectPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{BytesStorage, ComputeStorage};
+    use crate::storage::{BytesStorage, StorageAllocator};
 
     /// The largest allocation the pools under test may make.
     const MAX: u64 = 1024;

@@ -27,3 +27,25 @@ impl Device for AmdDevice {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_device_round_trips_its_id() {
+        let device = AmdDevice::new(3);
+
+        assert_eq!(AmdDevice::from_id(device.to_id()), device);
+    }
+
+    #[test]
+    fn an_index_too_wide_for_the_id_is_kept_at_the_largest() {
+        let too_wide = AmdDevice::new(usize::MAX);
+
+        assert_eq!(
+            AmdDevice::from_id(too_wide.to_id()).index,
+            u16::MAX as usize
+        );
+    }
+}

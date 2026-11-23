@@ -75,7 +75,7 @@ impl ThroughputCache {
     pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
         // A memory ceiling moves with the installed capacity, which the identity leaves out.
         let name = HardwareIdentity::new(runtime, properties)
-            .name_with_memory(properties.memory.max_page_size);
+            .name_with_memory_bytes(properties.memory.max_page_size);
 
         cached(&GLOBAL_CACHE, name)
     }

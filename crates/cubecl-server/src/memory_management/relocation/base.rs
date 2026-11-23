@@ -9,7 +9,7 @@
 use super::CopyQueue;
 use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, release_or_leak};
 use crate::server::ServerError;
-use crate::storage::ComputeStorage;
+use crate::storage::StorageAllocator;
 use crate::storage::StorageHandle;
 use alloc::vec::Vec;
 
@@ -93,7 +93,7 @@ impl Relocation {
     ///
     /// The first copy the device refused, or the fault a wait revealed. The
     /// relocation is abandoned either way.
-    pub fn copy<Storage: ComputeStorage>(
+    pub fn copy<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,
         queue: &mut dyn CopyQueue<Storage>,
@@ -151,8 +151,8 @@ mod tests {
             allocation: source.to_binding(),
             target: target.clone(),
             copy: Some(StorageCopy {
-                source: storage.alloc(4).unwrap(),
-                target: storage.alloc(4).unwrap(),
+                source: storage.allocate_bytes(4).unwrap(),
+                target: storage.allocate_bytes(4).unwrap(),
             }),
         }]);
         assert!(relocation.copy(&mut storage, &mut FailedWait).is_err());

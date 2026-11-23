@@ -40,7 +40,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     stream::{
         ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
         failed_writing,
@@ -670,7 +670,6 @@ impl HipServer {
         ctx: HipContext,
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
-        mem_alignment: usize,
         is_integrated: bool,
         utilities: ServerUtilities,
         captures: DeviceCaptures,
@@ -689,7 +688,6 @@ impl HipServer {
                 HipStreamBackend::new(
                     mem_props,
                     mem_config,
-                    mem_alignment,
                     is_integrated,
                     utilities.logger.clone(),
                     captures,

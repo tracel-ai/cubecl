@@ -9,62 +9,100 @@ impl core::fmt::Display for StorageId {
     }
 }
 
-/// Defines if data uses a full memory chunk or a slice of it.
+/// The part of a storage allocation a [`StorageHandle`] covers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageUtilization {
-    /// The offset in bytes from the chunk start.
-    pub offset: u64,
-    /// The size of the slice in bytes.
-    pub size: u64,
+    /// Where the part starts, from the start of the allocation.
+    pub offset_bytes: u64,
+    /// How long the part is.
+    pub size_bytes: u64,
 }
 
-/// Contains the [storage id](StorageId) of a resource and the way it is used.
+/// A part of one allocation of a [`StorageAllocator`](super::StorageAllocator).
 #[derive(new, Clone, Debug)]
 pub struct StorageHandle {
-    /// Storage id.
+    /// The allocation the part belongs to.
     pub id: StorageId,
-    /// How the storage is used.
+    /// Which part of the allocation.
     pub utilization: StorageUtilization,
 }
 
 impl StorageHandle {
-    /// Returns the size the handle is pointing to in memory.
-    ///
-    /// # Notes
-    ///
-    /// The result considers the offset.
+    /// How long the part is, in bytes.
     pub fn size(&self) -> u64 {
-        self.utilization.size
+        self.utilization.size_bytes
     }
 
-    /// Returns the offset of the handle.
+    /// Where the part starts in its allocation, in bytes.
     pub fn offset(&self) -> u64 {
-        self.utilization.offset
+        self.utilization.offset_bytes
     }
 
-    /// Increase the current offset with the given value in bytes.
-    pub fn offset_start(&self, offset_bytes: u64) -> Self {
-        let utilization = StorageUtilization {
-            offset: self.offset() + offset_bytes,
-            size: self.size() - offset_bytes,
-        };
-
+    /// The same allocation without its first `bytes` bytes.
+    pub fn trim_start_bytes(&self, bytes: u64) -> Self {
         Self {
             id: self.id,
-            utilization,
+            utilization: StorageUtilization {
+                offset_bytes: self.offset() + bytes,
+                size_bytes: self.size() - bytes,
+            },
         }
     }
 
-    /// Reduce the size of the memory handle..
-    pub fn offset_end(&self, offset_bytes: u64) -> Self {
-        let utilization = StorageUtilization {
-            offset: self.offset(),
-            size: self.size() - offset_bytes,
-        };
-
+    /// The same allocation without its last `bytes` bytes.
+    pub fn trim_end_bytes(&self, bytes: u64) -> Self {
         Self {
             id: self.id,
-            utilization,
+            utilization: StorageUtilization {
+                offset_bytes: self.offset(),
+                size_bytes: self.size() - bytes,
+            },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn handle(offset_bytes: u64, size_bytes: u64) -> StorageHandle {
+        StorageHandle::new(
+            StorageId::new(),
+            StorageUtilization {
+                offset_bytes,
+                size_bytes,
+            },
+        )
+    }
+
+    #[test]
+    fn size_reads_the_utilization() {
+        assert_eq!(handle(8, 24).size(), 24);
+    }
+
+    #[test]
+    fn offset_reads_the_utilization() {
+        assert_eq!(handle(8, 24).offset(), 8);
+    }
+
+    #[test]
+    fn trimming_the_start_moves_the_offset_and_shrinks_the_size() {
+        assert_eq!(
+            handle(8, 24).trim_start_bytes(4).utilization,
+            handle(12, 20).utilization
+        );
+    }
+
+    #[test]
+    fn trimming_the_end_keeps_the_offset() {
+        assert_eq!(
+            handle(8, 24).trim_end_bytes(4).utilization,
+            handle(8, 20).utilization
+        );
+    }
+
+    #[test]
+    fn two_storage_ids_differ() {
+        assert_ne!(StorageId::new(), StorageId::new());
     }
 }

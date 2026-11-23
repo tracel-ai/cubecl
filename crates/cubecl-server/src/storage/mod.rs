@@ -1,4 +1,4 @@
-//! Storage implementations. The [`ComputeStorage`] contract is
+//! Storage implementations. The [`StorageAllocator`] contract is
 //! `cubecl-runtime`'s and re-exported here.
 
 pub use cubecl_runtime::storage::*;

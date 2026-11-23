@@ -6,7 +6,7 @@ use crate::{
         memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
-    storage::{ComputeStorage, StorageHandle, StorageId},
+    storage::{StorageAllocator, StorageHandle, StorageId},
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -145,7 +145,7 @@ impl SlicedPool {
 
     /// The storage behind the slice `location` names, giving its page real
     /// device backing first if it was carved lazily.
-    pub(crate) fn mapped_storage_at<Storage: ComputeStorage>(
+    pub(crate) fn mapped_storage_at<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         location: MemoryLocation,
@@ -178,7 +178,7 @@ impl SlicedPool {
 
     /// Reserve `size` bytes as [`try_reserve_sharing`](Self::try_reserve_sharing)
     /// does, allocating a page when the room held has none.
-    pub(crate) fn reserve_sharing<Storage: ComputeStorage>(
+    pub(crate) fn reserve_sharing<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -193,7 +193,7 @@ impl SlicedPool {
     }
 
     /// Allocate a page and reserve `size` bytes on it.
-    fn alloc_page<Storage: ComputeStorage>(
+    fn alloc_page<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -224,7 +224,7 @@ impl SlicedPool {
     /// The virtual carving *is* the layout: the page is allocated for real
     /// and rebound — every slice keeps its offset, the minted id ceases to
     /// exist (it never reached the driver).
-    fn map_page<Storage: ComputeStorage>(
+    fn map_page<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         index: usize,
@@ -235,7 +235,7 @@ impl SlicedPool {
         }
         let size = page.size();
         let real = storage
-            .alloc(size)
+            .allocate_bytes(size)
             .map_err(|err| IoError::StorageMappingFailed {
                 size,
                 source: alloc::boxed::Box::new(err),
@@ -248,7 +248,7 @@ impl SlicedPool {
 
     /// Return every page nothing is live on and nothing guards to the driver,
     /// and renumber the rest.
-    pub(crate) fn release_empty<Storage: ComputeStorage>(
+    pub(crate) fn release_empty<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -263,7 +263,7 @@ impl SlicedPool {
                 // garbage.
                 page.shed(failures);
                 if page.is_mapped() {
-                    storage.dealloc(id);
+                    storage.deallocate(id);
                 }
             } else {
                 page.update_page(self.pages_tmp.len() as u16);
@@ -324,7 +324,7 @@ impl MemoryPool for SlicedPool {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, storage))
     )]
-    fn alloc<Storage: ComputeStorage>(
+    fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -334,7 +334,7 @@ impl MemoryPool for SlicedPool {
         self.alloc_page(storage, size, mapping)
     }
 
-    fn materialize<Storage: ComputeStorage>(
+    fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &ManagedMemoryBinding,
@@ -372,7 +372,7 @@ impl MemoryPool for SlicedPool {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, storage))
     )]
-    fn cleanup<Storage: ComputeStorage>(
+    fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
