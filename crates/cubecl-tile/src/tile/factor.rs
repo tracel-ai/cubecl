@@ -116,6 +116,12 @@ impl Factor {
         unexpanded!()
     }
 
+    /// Whether every scale of the chain is a power of two, stored as `ue8m0`: what a decode that
+    /// moves a code's exponent by the scale's, rather than multiplying, takes exactly.
+    pub(crate) fn powers_of_two(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
     /// Whether a register fetch can hold these scales as words a decode reads later
     /// ([`Tile::fetch_decoded_from`](crate::Tile::fetch_decoded_from)): the innermost packed as
     /// fields of words in memory, and every scale outside it one value across the whole tile,
@@ -423,15 +429,14 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_inner_fp8_method(&self, scope: &Scope) -> Option<Fp8Format> {
-        let scale = self.scale.as_deref()?;
-        match scale.clone().__expand_packing_method(scope) {
-            Packing::Packed { field } => field.fp8(),
-            Packing::Plain => match scale.element {
-                ElemType::Float(kind) => Field::of_float(kind).fp8(),
-                _ => None,
-            },
-            Packing::Words { .. } => None,
-        }
+        fp8_format(scope, self.scale.as_deref()?)
+    }
+
+    pub(crate) fn __expand_powers_of_two_method(&self, scope: &Scope) -> bool {
+        self.scale.is_some()
+            && self
+                .chain()
+                .all(|scale| fp8_format(scope, scale) == Some(Fp8Format::UE8M0))
     }
 
     pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
@@ -743,5 +748,19 @@ impl AsRefExpand for FactorExpand {
 impl AsMutExpand for FactorExpand {
     fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
+    }
+}
+
+/// The 8-bit float format `scale` is stored in, packed as fields in words or read alone as its
+/// element alike: `None` where it is no 8-bit float, or held as whole words a block-scaled
+/// instruction reads.
+fn fp8_format(scope: &Scope, scale: &TileExpand) -> Option<Fp8Format> {
+    match scale.clone().__expand_packing_method(scope) {
+        Packing::Packed { field } => field.fp8(),
+        Packing::Plain => match scale.element {
+            ElemType::Float(kind) => Field::of_float(kind).fp8(),
+            _ => None,
+        },
+        Packing::Words { .. } => None,
     }
 }
