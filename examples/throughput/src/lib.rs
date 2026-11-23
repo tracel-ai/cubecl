@@ -99,7 +99,7 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
     );
 
     for point in curve.points() {
-        let rate = match curve.ceiling_at(point.bytes) {
+        let rate = match curve.ceiling_at_bytes(point.bytes) {
             Some(bytes_per_s) => format!("{:.1} GB/s", bytes_per_s / 1e9),
             None => String::from("N/A"),
         };
@@ -240,7 +240,7 @@ fn compute_cmma_rows(client: &Client) -> Vec<Row> {
 
 /// The largest cooperative matrix the device implements for these operands.
 ///
-/// Read from `cmma` rather than through `select_cmma_tile`, which answers from
+/// Read from `cmma` rather than through `CmmaDims::largest_supported`, which answers from
 /// `mma` as well: a shape only that instruction has does not run here.
 fn largest_cmma(client: &Client, dtype: ElemType, accumulator_type: ElemType) -> Option<CmmaDims> {
     client
@@ -264,7 +264,7 @@ fn memory_row(access: MemoryAccess) -> Row {
         operands: format!(
             "{:<8}{}",
             format!("{access:?}").to_lowercase(),
-            bytes_label(access.default_working_set())
+            bytes_label(access.default_working_set_bytes())
         ),
         key: Some(ThroughputKey {
             mode: ThroughputMode::memory(access),

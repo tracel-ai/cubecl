@@ -17,7 +17,7 @@ use crate::{
     },
     storage::{ManagedResource, StorageAllocator},
     throughput::{
-        ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
+        CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
@@ -2477,7 +2477,7 @@ impl Client {
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
         let cache = ThroughputCache::get_for_device(self.name(), self.properties());
-        let mut throughputs = ThroughputBenchmarker::new(cache);
+        let mut throughputs = CachedThroughput::new(cache);
 
         if let Some(value) = throughputs.cached(key) {
             return Ok(value);
