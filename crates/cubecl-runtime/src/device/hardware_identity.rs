@@ -51,14 +51,13 @@ impl HardwareIdentity {
     /// Without a client.
     pub(crate) fn of_devices(clients: &[Client]) -> Self {
         let lead = clients[0].hardware_identity();
-        let peers = &clients[1..];
+        if clients.len() == 1 {
+            return lead;
+        }
         let slots = clients.iter().map(|client| {
             Self::name_in_slot(client.name(), client.properties())
                 .unwrap_or_else(|| client.hardware_identity().to_string())
         });
-        if peers.is_empty() {
-            return lead;
-        }
         Self {
             name: segment(&slots.collect::<Vec<_>>().join("+")),
             ..lead

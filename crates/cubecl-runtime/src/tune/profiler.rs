@@ -1,5 +1,4 @@
 use crate::client::{Client, ProfileWindow};
-use crate::device::HardwareIdentity;
 use crate::execution::{StreamMode, StreamModeOverride};
 use crate::server::{ProfileError, ServerError};
 use alloc::boxed::Box;
@@ -38,11 +37,6 @@ impl CandidateProfiler {
     /// The client the tune is marked compiled or lost under.
     pub(crate) fn lead(&self) -> &Client {
         &self.clients()[0]
-    }
-
-    /// Which hardware the measurements hold for.
-    pub(crate) fn hardware_identity(&self) -> HardwareIdentity {
-        HardwareIdentity::of_devices(self.clients())
     }
 
     /// Runs `task` with nothing else landing on the device, where one device holds the candidates.

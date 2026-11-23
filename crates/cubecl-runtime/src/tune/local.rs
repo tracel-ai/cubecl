@@ -61,7 +61,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
         &mut self,
         id: &ID,
         name: &str,
-        profiler: &CandidateProfiler,
+        clients: &[Client],
         operations: &TunableSet<AK, I, Out, Id>,
     ) -> Arc<Tuner<AK>> {
         let checksum = operations.checksum();
@@ -69,7 +69,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
             return tuner.clone();
         }
         let identity = TunerIdentity {
-            hardware: profiler.hardware_identity(),
+            hardware: HardwareIdentity::of_devices(clients),
             checksum,
         };
         let tuner = self
@@ -230,12 +230,12 @@ where
         Id: Clone,
     {
         let key = operations.generate_key(inputs);
-        let profiler = CandidateProfiler::new(clients);
         let tuner = self
             .state
             .lock()
             .get_or_insert_with(Tuners::new)
-            .get_or_open(id, self.name, &profiler, operations);
+            .get_or_open(id, self.name, clients, operations);
+        let profiler = CandidateProfiler::new(clients);
         let log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
         match tuner.check_tune_with::<I, Out, Id>(&key, inputs, operations, &profiler, log_context)
         {
@@ -290,13 +290,12 @@ where
         Id: Send + Sync,
     {
         let key = operations.generate_key(&inputs);
-        let profiler = CandidateProfiler::new(core::slice::from_ref(client));
 
         let tuner = self
             .state
             .lock()
             .get_or_insert_with(Tuners::new)
-            .get_or_open(id, self.name, &profiler, &operations);
+            .get_or_open(id, self.name, core::slice::from_ref(client), &operations);
 
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
@@ -324,7 +323,7 @@ where
         log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
 
         let fastest =
-            tuner.check_tune_with::<I, Out, Id>(&key, &inputs, &operations, &profiler, log_context);
+            tuner.check_tune::<I, Out, Id>(&key, &inputs, &operations, client, log_context);
 
         // Run the execution depending on the cache state.
         match fastest {
