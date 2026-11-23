@@ -2,7 +2,7 @@
 
 use super::{AdaptiveMemory, ExclusivePools};
 use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
-use crate::memory_management::{Cleanup, PinnedPages};
+use crate::memory_management::{AllocationKind, Cleanup};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -12,7 +12,7 @@ use crate::{
         memory_pool::{MemoryPool, PageMapping},
     },
     server::{IoError, ServerError},
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use cubecl_environment::sync::Arc;
@@ -76,7 +76,7 @@ impl DynamicMemory {
 
     /// Install real backing behind `binding` when its allocation was carved
     /// lazily. Only the adaptive pages are ever lazy.
-    pub fn materialize<Storage: ComputeStorage>(
+    pub fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &ManagedMemoryBinding,
@@ -93,12 +93,12 @@ impl DynamicMemory {
     ///
     /// [`IoError::BufferTooBig`] when no pool accepts the size, and whatever
     /// the device refused when one does.
-    pub fn reserve<Storage: ComputeStorage>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
@@ -106,7 +106,7 @@ impl DynamicMemory {
             // its pins are never shared.
             DynamicMemory::Exclusive(pools) => pools.reserve(storage, size, mapping, failures),
             DynamicMemory::Adaptive(memory) => {
-                memory.reserve(storage, size, mapping, pinned, failures)
+                memory.reserve(storage, size, mapping, kind, failures)
             }
         }
     }
@@ -116,12 +116,12 @@ impl DynamicMemory {
     pub fn try_reserve(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicMemory::Exclusive(pools) => pools.try_reserve(size, failures),
-            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, pinned, failures),
+            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, kind, failures),
         }
     }
 
@@ -146,7 +146,7 @@ impl DynamicMemory {
     /// Empty what the outdated pools hold into the current pages, so the
     /// pages they held go back to the driver. Nothing to move where pages are
     /// never outdated.
-    pub fn relocate<Storage: ComputeStorage>(
+    pub fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn CopyQueue<Storage>,
@@ -165,7 +165,7 @@ impl DynamicMemory {
     /// # Errors
     ///
     /// As [`AdaptiveMemory::move_apart`].
-    pub fn move_apart<Storage: ComputeStorage>(
+    pub fn move_apart<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         kept: &[ManagedMemoryBinding],
@@ -179,7 +179,7 @@ impl DynamicMemory {
     }
 
     /// Release what the pools no longer need.
-    pub fn cleanup<Storage: ComputeStorage>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,

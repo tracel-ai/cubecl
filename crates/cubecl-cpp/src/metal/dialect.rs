@@ -4,7 +4,7 @@ use cubecl_core::ir::{
     ElemType, FloatKind,
     dialect::{
         general::PrintfOp,
-        synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope},
+        synchronization::{ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope},
     },
     features::MmaConfig,
 };
@@ -76,6 +76,9 @@ metal_op!(SyncOp, |op, ctx| {
 metal_op!(SyncPlaneStorageOp, |_, _| {
     "simdgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n".into()
 });
+
+// MSL has no way to fence its compiler's scheduler.
+metal_op!(ScheduleBarrierOp, |_, _| String::new());
 
 // Coop Matrices dialect
 

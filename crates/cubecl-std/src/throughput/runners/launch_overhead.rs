@@ -5,7 +5,7 @@ pub fn build_kernel(
     client: &cubecl_runtime::client::Client,
     _key: cubecl_runtime::throughput::ThroughputKey,
     _config: super::super::LaunchConfig,
-) -> cubecl_runtime::throughput::KernelConfig {
+) -> crate::throughput::KernelSampler {
     let client = client.clone();
     let sample = alloc::boxed::Box::new(move |iterations: usize| {
         let input = client.empty(core::mem::size_of::<i32>());
@@ -67,11 +67,7 @@ pub fn build_kernel(
         })
     });
 
-    cubecl_runtime::throughput::KernelConfig {
-        sample,
-        ops_count: 1,
-        min_iterations: 1,
-    }
+    crate::throughput::KernelSampler::new(sample, 1, 1)
 }
 
 #[cube(launch_unchecked)]

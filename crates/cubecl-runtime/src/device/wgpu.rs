@@ -62,7 +62,7 @@ pub enum WgpuDeviceKind {
     /// The best available device found with the current graphics API.
     ///
     /// This will prioritize GPUs wgpu recognizes as "high power". Additionally, you can override this using
-    /// the `CUBECL_WGPU_DEFAULT_DEVICE` environment variable. This variable is spelled as if i was a `WgpuDevice`,
+    /// the `CUBECL_WGPU_DEFAULT_DEVICE` environment variable. This variable is spelled as if it was a `WgpuDevice`,
     /// so for example `CUBECL_WGPU_DEFAULT_DEVICE=IntegratedGpu(1)` or `CUBECL_WGPU_DEFAULT_DEVICE=Cpu`
     #[default]
     DefaultDevice,
@@ -71,11 +71,8 @@ pub enum WgpuDeviceKind {
     /// with some existing wgpu setup (eg. egui or bevy), as resources can be transferred in & out of `CubeCL`.
     ///
     /// The graphics API came up with the setup, so pinning one on top of this
-    /// means nothing and is not encoded.
-    ///
-    /// # Notes
-    ///
-    /// This can be initialized with `init_device` in the wgpu runtime.
+    /// means nothing and is not encoded. The wgpu runtime's `init_device`
+    /// registers one.
     Existing(u32),
 
     /// An adapter wgpu recognizes but does not classify — what it reports as
@@ -122,15 +119,6 @@ impl WgpuDeviceKind {
 ///
 /// Which device, and which graphics API to reach it on — two things a machine
 /// answers separately, so they are two fields rather than one flattened list.
-///
-/// # Example
-///
-/// ```ignore
-/// use cubecl_wgpu::{WgpuDevice, WgpuDeviceKind};
-///
-/// let first = WgpuDevice::from(WgpuDeviceKind::DiscreteGpu(0)); // First discrete GPU found.
-/// let vulkan = first.clone().on(WgpuBackend::Vulkan);           // The same one, on Vulkan.
-/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Default)]
 pub struct WgpuDevice {
     /// Which of the machine's devices.
@@ -256,15 +244,30 @@ mod tests {
         );
     }
 
-    /// An external setup spends its whole index on the id it was registered
-    /// with, so pinning an API on it is refused rather than silently truncating.
+    /// An external setup came up on an API of its own, so pinning one on it
+    /// is refused rather than silently ignored.
     #[test]
-    fn an_existing_device_keeps_its_whole_index() {
+    fn pinning_an_existing_device_changes_nothing() {
         let existing = WgpuDevice::new(WgpuDeviceKind::Existing(60_000));
 
         let pinned = existing.clone().on(WgpuBackend::Vulkan);
 
         assert_eq!(pinned, existing);
+    }
+
+    /// An external setup spends its whole index on the id it was registered
+    /// with, rather than silently truncating it.
+    #[test]
+    fn an_existing_device_keeps_its_whole_index() {
+        let existing = WgpuDevice::new(WgpuDeviceKind::Existing(60_000));
+
         assert_eq!(WgpuDevice::from_id(existing.to_id()), existing);
+    }
+
+    #[test]
+    fn a_kind_becomes_a_device_on_whichever_api() {
+        let device = WgpuDevice::from(WgpuDeviceKind::Cpu);
+
+        assert_eq!(device.backend, WgpuBackend::Auto);
     }
 }

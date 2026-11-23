@@ -1,6 +1,6 @@
-use super::logger::{LogLevel, LoggerConfig};
+use super::{LogLevel, LoggerConfig};
 
-/// Configuration for memory settings in `CubeCL`.
+/// Which pools persistent allocations go to, and the memory log.
 ///
 /// Unknown fields are rejected so a leftover `pools` entry — the pools are the
 /// memory management's to lay out, not a setting — or a misspelled option is a
@@ -8,15 +8,15 @@ use super::logger::{LogLevel, LoggerConfig};
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryConfig {
-    /// Logger configuration for memory-related logs, using specific log levels.
+    /// Where the memory log goes, and how much it says.
     #[serde(default)]
     pub logger: LoggerConfig<MemoryLogLevel>,
-    /// Configuration for persistent memory pools.
+    /// How the persistent pool chooses what it serves, `enabled` unless configured.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
 }
 
-/// Configuration options for persistent memory pools in `CubeCL` runtimes.
+/// Which allocations the persistent pool serves.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub enum PersistentMemory {
     /// Persistent memory is enabled but used only when explicitly specified.
@@ -44,10 +44,10 @@ pub enum PersistentMemory {
     Enforced,
 }
 
-/// Log levels for memory-related events in `CubeCL`.
+/// How much the memory log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum MemoryLogLevel {
-    /// No memory-related logging.
+    /// No memory log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,
@@ -70,6 +70,10 @@ mod tests {
         // Pool layouts are a programmatic setting; a leftover `pools` entry in
         // a config file must be a load error, not a silently ignored setting.
         assert!(toml::from_str::<MemoryConfig>("pools = \"sub-slices\"").is_err());
+    }
+
+    #[test]
+    fn pool_tables_rejected_in_config_files() {
         assert!(
             toml::from_str::<MemoryConfig>("[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\n")
                 .is_err()

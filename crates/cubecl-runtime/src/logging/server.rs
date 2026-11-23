@@ -37,16 +37,18 @@ impl Default for ServerLogger {
         let logger = Logger::new();
 
         let disabled = matches!(
-            logger.config.compilation.logger.level,
+            logger.config().compilation.logger.level,
             CompilationLogLevel::Disabled
         ) && matches!(
-            logger.config.profiling.logger.level,
+            logger.config().profiling.logger.level,
             ProfilingLogLevel::Disabled
-        ) && matches!(logger.config.memory.logger.level, MemoryLogLevel::Disabled)
-            && matches!(
-                logger.config.streaming.logger.level,
-                StreamingLogLevel::Disabled
-            );
+        ) && matches!(
+            logger.config().memory.logger.level,
+            MemoryLogLevel::Disabled
+        ) && matches!(
+            logger.config().streaming.logger.level,
+            StreamingLogLevel::Disabled
+        );
 
         if disabled {
             return Self {
@@ -58,7 +60,7 @@ impl Default for ServerLogger {
                 log_memory: MemoryLogLevel::Disabled,
             };
         }
-        let profile_level = match logger.config.profiling.logger.level {
+        let profile_level = match logger.config().profiling.logger.level {
             ProfilingLogLevel::Disabled => None,
             ProfilingLogLevel::Minimal => Some(ProfileLevel::ExecutionOnly),
             ProfilingLogLevel::Basic => Some(ProfileLevel::Basic),
@@ -66,17 +68,17 @@ impl Default for ServerLogger {
             ProfilingLogLevel::Full => Some(ProfileLevel::Full),
         };
 
-        let log_compile_info = match logger.config.compilation.logger.level {
+        let log_compile_info = match logger.config().compilation.logger.level {
             CompilationLogLevel::Disabled => false,
             CompilationLogLevel::Basic => true,
             CompilationLogLevel::Full => true,
         };
         let log_compile_source = matches!(
-            logger.config.compilation.logger.level,
+            logger.config().compilation.logger.level,
             CompilationLogLevel::Full
         );
-        let log_streaming = logger.config.streaming.logger.level;
-        let log_memory = logger.config.memory.logger.level;
+        let log_streaming = logger.config().streaming.logger.level;
+        let log_memory = logger.config().memory.logger.level;
 
         let (send, rec) = cubecl_environment::future::channel::unbounded();
 

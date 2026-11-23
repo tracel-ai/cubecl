@@ -119,7 +119,7 @@ impl CompilationTarget for HipModules {
         Ok(HipCompiledKernel {
             module,
             func,
-            cube_dim: id.kernel.cube_dim.into(),
+            cube_dim: id.kernel.cube_dim().into(),
             shared_mem_bytes: artifact.shared_mem_bytes,
             io: artifact.io.clone().map(Arc::from),
         })

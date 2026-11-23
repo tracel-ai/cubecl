@@ -5,7 +5,7 @@ use cubecl_ir::features::Tma;
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{
     server::{CopyDescriptor, MemoryLayout, ServerStorage},
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use cubecl_zspace::{Shape, shape, strides};
 use std::println;
@@ -191,7 +191,7 @@ fn tensormap_metadata<F: Float, N: Size>(
 
 pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: Client)
 where
-    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as StorageAllocator>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
@@ -234,7 +234,7 @@ where
 
 pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: Client)
 where
-    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as StorageAllocator>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
@@ -290,7 +290,7 @@ where
 
 pub fn test_tensormap_store_pipeline<R: Runtime, F: Float + CubeElement>(client: Client)
 where
-    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as StorageAllocator>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_store_pipeline due to unavailability");
@@ -338,7 +338,7 @@ where
 
 pub fn test_tensormap_load_swizzled<R: Runtime>(client: Client)
 where
-    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as StorageAllocator>::Resource: Debug,
 {
     use crate::wgmma::{Major, Swizzle, WgmmaTileLayout};
 
@@ -407,7 +407,7 @@ where
 
 pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: Client)
 where
-    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as StorageAllocator>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
@@ -497,7 +497,7 @@ where
 
 pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: Client)
 where
-    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as StorageAllocator>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");

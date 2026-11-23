@@ -7,8 +7,10 @@ use super::padded::read_stage_line;
 use super::straight::fill_extent;
 use crate::*;
 
-/// Most scalars of both operands' stages one unit may hold in registers beside an accumulator.
-pub(crate) const MOST_FETCHED_SCALARS: usize = 128;
+/// Most 32-bit registers of both operands' stages one unit may hold beside an accumulator: a
+/// quarter of the 256 a unit addresses on the GPUs this was measured on, the 128 halves a stage
+/// was first held at.
+pub(crate) const MOST_FETCHED_REGISTERS: usize = 64;
 
 #[cube]
 impl Memory {

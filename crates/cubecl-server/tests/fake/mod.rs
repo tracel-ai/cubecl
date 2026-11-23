@@ -17,7 +17,7 @@ use cubecl_server::{
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     server::{BufferBinding, DeviceCaptures, Handle, IoError, LaunchError, ServerError},
-    storage::{BytesStorage, ComputeStorage, StorageHandle, StorageId},
+    storage::{BytesStorage, StorageAllocator, StorageHandle, StorageId},
     stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::cell::Cell;
@@ -38,18 +38,14 @@ pub struct FlakyStorage {
     bytes: BytesStorage,
 }
 
-impl ComputeStorage for FlakyStorage {
-    type Resource = <BytesStorage as ComputeStorage>::Resource;
-
-    fn alignment(&self) -> usize {
-        self.bytes.alignment()
-    }
+impl StorageAllocator for FlakyStorage {
+    type Resource = <BytesStorage as StorageAllocator>::Resource;
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
         self.bytes.get(handle)
     }
 
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let refused = REFUSALS.with(|refusals| refusals.replace(refusals.get().saturating_sub(1)));
         if refused > 0 {
             return Err(IoError::OutOfMemory {
@@ -57,11 +53,11 @@ impl ComputeStorage for FlakyStorage {
                 backtrace: BackTrace::capture(),
             });
         }
-        self.bytes.alloc(size)
+        self.bytes.allocate_bytes(size)
     }
 
-    fn dealloc(&mut self, id: StorageId) {
-        self.bytes.dealloc(id)
+    fn deallocate(&mut self, id: StorageId) {
+        self.bytes.deallocate(id)
     }
 
     fn flush(&mut self) {
@@ -150,7 +146,7 @@ impl DeviceStream for FakeStream {
     }
 }
 
-fn memory<S: ComputeStorage + Default>(name: &'static str) -> MemoryManagement<S> {
+fn memory<S: StorageAllocator + Default>(name: &'static str) -> MemoryManagement<S> {
     MemoryManagement::from_configuration(
         S::default(),
         &MemoryDeviceProperties::new(512 * MIB, 32),

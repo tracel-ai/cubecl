@@ -24,15 +24,15 @@ use std::sync::Mutex;
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Two logical streams that fold onto one pooled stream, since indexing is
-/// `id % max_streams`. The seed is far above the ids [`StreamId::current`]
+/// `id % max_stream_count`. The seed is far above the ids [`StreamId::current`]
 /// hands out per thread, which are small and sequential, so neither collides
 /// with a sibling test's thread.
 fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
-    let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+    let max_stream_count = CubeClRuntimeConfig::get().streaming.max_stream_count as u64;
     (
         StreamId { value: seed },
         StreamId {
-            value: seed + max_streams,
+            value: seed + max_stream_count,
         },
     )
 }

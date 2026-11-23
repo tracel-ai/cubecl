@@ -127,6 +127,14 @@ impl Factor {
         unexpanded!()
     }
 
+    /// Whether a register fetch can hold these scales as words a decode reads later
+    /// ([`Tile::fetch_decoded_from`](crate::Tile::fetch_decoded_from)): the innermost packed as
+    /// fields of words in memory, and every scale outside it one value across the whole tile,
+    /// which [`coarse`](Factor::coarse) reads once.
+    pub(crate) fn fetches_as_words(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
     /// The innermost scales' word at the value at `coords`, read as it is stored.
     pub(crate) fn word_at(&self, _coords: &Coords<u32>, _values: Space) -> u32 {
         unexpanded!()
@@ -404,6 +412,28 @@ impl FactorExpand {
 
     pub(crate) fn __expand_depth_method(&self, _scope: &Scope) -> usize {
         self.depth()
+    }
+
+    pub(crate) fn __expand_fetches_as_words_method(&self, scope: &Scope) -> bool {
+        let Some(inner) = self.scale.as_deref() else {
+            return false;
+        };
+        let in_memory = matches!(inner.kind, TileKindExpand::Memory(_));
+        let packed = matches!(
+            inner.clone().__expand_packing_method(scope),
+            Packing::Packed { .. }
+        );
+        // A scale outside the innermost that addresses a dimension varies across the tile, and
+        // `coarse` would read it at the origin alone.
+        let coarse_is_whole = self.chain().skip(1).all(|scale| {
+            let projection = scale.clone().__expand_projection_method(scope);
+            !scale
+                .place
+                .space
+                .dimensions()
+                .any(|dimension| projection.addresses(dimension))
+        });
+        in_memory && packed && coarse_is_whole
     }
 
     pub(crate) fn __expand_inner_fp8_method(&self, scope: &Scope) -> Option<Fp8Format> {

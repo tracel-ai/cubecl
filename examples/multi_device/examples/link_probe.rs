@@ -59,7 +59,7 @@ fn print_curve(label: &str, members: &[Client], route: LinkRoute, bus_factor: f6
         "algbw", "busbw", "time rsd", "max"
     );
     for point in curve.points() {
-        let rate = curve.ceiling_at(point.bytes).unwrap_or(f64::NAN);
+        let rate = curve.ceiling_at_bytes(point.bytes).unwrap_or(f64::NAN);
         println!(
             "    {:>10}{:>14.2} GB/s{:>7.2} GB/s{:>10}{:>10}",
             bytes_label(point.bytes),
