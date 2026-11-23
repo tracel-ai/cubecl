@@ -537,9 +537,7 @@ mod tests {
         let id = memory.descriptor().id;
 
         graph.fail_unallocated(
-            // Safety: the binding only finds or marks the allocation, and touches none of its
-            // bytes.
-            &unsafe { memory.uncounted_binding() },
+            &memory.to_binding(),
             crate::driver::DevicePoison::new("the device is poisoned").into(),
         );
         let reported = graph
@@ -560,8 +558,7 @@ mod tests {
         );
 
         // An unallocated buffer's sole reference belongs to its caller, not a pool.
-        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
-        graph.fail_unallocated(&unsafe { other.uncounted_binding() }, error("again"));
+        graph.fail_unallocated(&other.to_binding(), error("again"));
         let reported = graph
             .reports([Claim::Unallocated(id)].into_iter())
             .unwrap_err();
@@ -570,8 +567,7 @@ mod tests {
 
         // Released lazily, when the next record is made.
         drop(memory);
-        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
-        graph.fail_unallocated(&unsafe { other.uncounted_binding() }, error("again"));
+        graph.fail_unallocated(&other.to_binding(), error("again"));
         assert_eq!(graph.len(), 1, "the dropped buffer's failure is released");
     }
 }

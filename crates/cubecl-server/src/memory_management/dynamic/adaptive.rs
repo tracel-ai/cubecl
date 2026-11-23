@@ -441,11 +441,7 @@ impl AdaptiveMemory {
             return Ok(None);
         }
         let slice = pool.slice_at(source);
-        // Safety: the binding runs on the device thread in the stream's order, ahead of any later
-        // launch of the buffer's owner.
-        let (size, allocation) = (slice.storage.size(), unsafe {
-            slice.handle.uncounted_binding()
-        });
+        let (size, allocation) = (slice.storage.size(), slice.handle.to_binding());
         let source_storage = pool.storage_at(source);
         // Placed as an output: the small pool's slices go to the small pool kept apart, the
         // arena's to the separate arena.

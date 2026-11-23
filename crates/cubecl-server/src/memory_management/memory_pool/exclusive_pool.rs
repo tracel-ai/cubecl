@@ -230,10 +230,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let page = self.pages.get(location.page as usize)?;
-        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
-        Some(PageGuard::allocation(unsafe {
-            page.slice.handle.uncounted_binding()
-        }))
+        Some(PageGuard::allocation(page.slice.handle.to_binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

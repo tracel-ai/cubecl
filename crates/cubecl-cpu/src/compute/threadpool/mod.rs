@@ -145,9 +145,7 @@ fn reserve_shared_memories(
             .reserve((block.size + padding) as u64, PageUpdate::Allow, failures)
             .expect("Failed to reserve the shared memory of the launch");
         let reserved = memory
-            // Safety: the binding runs on the device thread in the stream's order, ahead of any
-            // later launch of the buffer's owner.
-            .get_resource(unsafe { handle.uncounted_binding() }, None, None)
+            .get_resource(handle.to_binding(), None, None)
             .expect("Failed to resolve the shared memory of the launch");
         handles.push(handle);
 

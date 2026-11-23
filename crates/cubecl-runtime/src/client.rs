@@ -526,8 +526,7 @@ impl Client {
     /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
-        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
-        self.expect_local(&unsafe { source.handle.uncounted_binding() });
+        self.expect_local(&source.handle.to_binding());
         lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
     }
 
@@ -546,9 +545,7 @@ impl Client {
         &self,
         source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        // Safety: the binding goes with the command submitted here, which the device thread runs in
-        // the stream's order, ahead of any launch the owner makes after it.
-        let binding = unsafe { source.handle.uncounted_binding() };
+        let binding = source.handle.to_binding();
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
@@ -621,10 +618,7 @@ impl Client {
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        // Safety: the binding goes with the command submitted here, which the
-                        // device thread runs in the stream's order, ahead of any launch the owner
-                        // makes after it.
-                        unsafe { alloc.memory.uncounted_binding() },
+                        alloc.memory.to_binding(),
                         desc.shape,
                         alloc.strides.clone(),
                         desc.elem_size,
@@ -664,10 +658,7 @@ impl Client {
             .map(|((desc, layout), data)| {
                 (
                     CopyDescriptor::new(
-                        // Safety: the binding goes with the command submitted here, which the
-                        // device thread runs in the stream's order, ahead of any launch the owner
-                        // makes after it.
-                        unsafe { layout.memory.uncounted_binding() },
+                        layout.memory.to_binding(),
                         desc.shape,
                         layout.strides.clone(),
                         desc.elem_size,
@@ -805,9 +796,7 @@ impl Client {
     pub fn write(&self, handle: &Handle, data: Bytes) {
         let stream_id = self.stream_id();
         let descriptor =
-            // Safety: the binding goes with the command submitted here, which the device thread
-            // runs in the stream's order, ahead of any launch the owner makes after it.
-            CopyDescriptor::new(unsafe { handle.uncounted_binding() }, [data.len()].into(), [1].into(), 1);
+            CopyDescriptor::new(handle.to_binding(), [data.len()].into(), [1].into(), 1);
         self.expect_local(&descriptor.handle);
         self.device.submit(move |server| {
             server.write(vec![(descriptor, data)], stream_id);
@@ -1040,9 +1029,7 @@ impl Client {
     /// failure the buffer carries.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
-        // Safety: the binding goes with the command submitted here, which the device thread runs in
-        // the stream's order, ahead of any launch the owner makes after it.
-        let binding = unsafe { handle.uncounted_binding() };
+        let binding = handle.to_binding();
         self.local(&binding)?;
         // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
@@ -1074,8 +1061,7 @@ impl Client {
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
-        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
-        self.expect_local(&unsafe { src.uncounted_binding() });
+        self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
@@ -2085,9 +2071,7 @@ impl Client {
         handles
             .into_iter()
             .map(|handle| {
-                // Safety: the binding goes with the command submitted here, which the device thread
-                // runs in the stream's order, ahead of any launch the owner makes after it.
-                let binding = unsafe { handle.uncounted_binding() };
+                let binding = handle.to_binding();
                 self.local(&binding)?;
                 Ok(binding)
             })
@@ -2431,9 +2415,7 @@ impl Client {
         let alloc = layouts.remove(0);
 
         let desc_descriptor = CopyDescriptor {
-            // Safety: the binding goes with the command submitted here, which the device thread
-            // runs in the stream's order, ahead of any launch the owner makes after it.
-            handle: unsafe { handle_base.uncounted_binding() },
+            handle: handle_base.to_binding(),
             shape,
             strides: alloc.strides.clone(),
             elem_size,

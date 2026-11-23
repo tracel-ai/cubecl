@@ -222,9 +222,7 @@ impl Server for CpuServer {
             Err(err) => {
                 // Nothing to allocate: the buffer carries the error instead.
                 let err = ServerError::from(err);
-                // Safety: the binding only finds or marks the allocation, and touches none of its
-                // bytes.
-                failures.fail_unallocated(&unsafe { memory.uncounted_binding() }, err.clone());
+                failures.fail_unallocated(&memory.to_binding(), err.clone());
                 return Err(err);
             }
         };

@@ -199,33 +199,15 @@ impl Handle {
 
     /// Returns the [`BufferBinding`] corresponding to the current handle.
     pub fn binding(self) -> BufferBinding {
-        BufferBinding {
-            memory: self.memory.binding(),
-            service: self.service,
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            stream: self.stream,
-            size: self.size,
-            peer: self.peer,
-        }
+        self.to_binding()
     }
 
-    /// The [`BufferBinding`] for this handle, which stays where it is: unlike
-    /// `handle.clone().binding()`, it never counts among the handles
-    /// [`can_mut`](Self::can_mut) reads, not even for a moment.
-    ///
-    /// # Safety
-    ///
-    /// The binding claims none of the exclusivity a handle claims: while it is out, [`can_mut`](Self::can_mut)
-    /// can answer `true` to the buffer's owner, who may then write over the buffer in place. The
-    /// caller must make sure every use of the binding is ordered before any such write: it runs
-    /// on the device thread in the stream's order, ahead of the owner's later launches, or it
-    /// only finds or marks the allocation and touches none of its bytes. The binding still keeps
-    /// the slice from being freed and reused.
-    pub unsafe fn uncounted_binding(&self) -> BufferBinding {
+    /// The [`BufferBinding`] for this handle, which stays where it is (see
+    /// [`ManagedMemoryHandle::to_binding`]).
+    #[doc(hidden)]
+    pub fn to_binding(&self) -> BufferBinding {
         BufferBinding {
-            // Safety: the caller keeps the contract this function states.
-            memory: unsafe { self.memory.uncounted_binding() },
+            memory: self.memory.to_binding(),
             service: self.service,
             offset_start: self.offset_start,
             offset_end: self.offset_end,

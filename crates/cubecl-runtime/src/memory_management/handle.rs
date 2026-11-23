@@ -236,25 +236,17 @@ impl ManagedMemoryHandle {
 
     /// Returns the binding for the current handle, which gives up its claim on the buffer.
     pub fn binding(self) -> ManagedMemoryBinding {
-        // Safety: the handle is consumed, so its owner gives up the exclusivity the binding does
-        // not claim; nothing it could still write in place through this handle.
-        unsafe { self.uncounted_binding() }
+        self.to_binding()
     }
 
-    /// A binding of this buffer that leaves the handle where it is and never counts among the
-    /// handles [`can_mut`](Self::can_mut) reads, not even for a moment: what a server takes to
-    /// find or mark an allocation it does not own, so the answer a client gets does not depend
-    /// on what the device thread is doing at that moment.
+    /// A binding of this buffer that leaves the handle where it is.
     ///
-    /// # Safety
-    ///
-    /// The binding claims none of the exclusivity a handle claims: while it is out, [`can_mut`](Self::can_mut)
-    /// can answer `true` to the buffer's owner, who may then write over the buffer in place. The
-    /// caller must make sure every use of the binding is ordered before any such write: it runs
-    /// on the device thread in the stream's order, ahead of the owner's later launches, or it
-    /// only finds or marks the allocation and touches none of its bytes. The binding still keeps
-    /// the slice from being freed and reused.
-    pub unsafe fn uncounted_binding(&self) -> ManagedMemoryBinding {
+    /// The binding keeps the slice from being freed or reused, but it is not a handle:
+    /// [`can_mut`](Self::can_mut) never counts it, not even for a moment, so what a client is
+    /// told does not depend on how far the device thread has got. Like every binding, its uses
+    /// are ordered against the owner's writes by the stream the server runs them on.
+    #[doc(hidden)]
+    pub fn to_binding(&self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             descriptor: self.descriptor.clone(),
         }

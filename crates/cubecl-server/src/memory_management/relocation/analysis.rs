@@ -29,7 +29,7 @@ pub struct MovablePage {
 #[derive(Debug)]
 pub struct LiveAllocation {
     /// The allocation, bound rather than held: a handle of the relocation's own would count
-    /// among its owners' while the move runs (see [`ManagedMemoryHandle::uncounted_binding`]).
+    /// among its owners' while the move runs (see [`ManagedMemoryHandle::to_binding`]).
     pub handle: ManagedMemoryBinding,
     /// Its size in bytes, which the move copies.
     pub size: u64,
@@ -65,9 +65,7 @@ impl MovablePage {
         let live: Vec<_> = page
             .live()
             .map(|slice| LiveAllocation {
-                // Safety: the binding runs on the device thread in the stream's order, ahead of any
-                // later launch of the buffer's owner.
-                handle: unsafe { slice.handle.uncounted_binding() },
+                handle: slice.handle.to_binding(),
                 size: slice.storage.size(),
             })
             .collect();
