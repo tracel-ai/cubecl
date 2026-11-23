@@ -425,7 +425,7 @@ impl Client {
     pub fn read_async(
         &self,
         handles: Vec<Handle>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let shapes = handles
             .iter()
             .map(|it| [it.size_in_used() as usize].into())
@@ -469,7 +469,7 @@ impl Client {
     pub fn read_tensor_async(
         &self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         self.do_read(descriptors)
     }
 
@@ -495,7 +495,7 @@ impl Client {
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         let fut = self.read_tensor_async(vec![descriptor]);
 
         async { Ok(fut.await?.remove(0)) }
@@ -544,7 +544,7 @@ impl Client {
     pub fn read_lazy_async(
         &self,
         source: CopyDescriptor<Handle>,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         let binding = source.handle.to_binding();
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
@@ -570,7 +570,7 @@ impl Client {
     pub fn read_lazy_async(
         &self,
         source: CopyDescriptor<Handle>,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         self.read_one_tensor_async(source.binding())
     }
 
