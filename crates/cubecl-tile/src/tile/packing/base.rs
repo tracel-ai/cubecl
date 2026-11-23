@@ -127,8 +127,8 @@ impl Field {
     /// This field as the device `client` reads it: a float code (`e2m1`, `e4m3`, `e5m2`) decoded
     /// from its bits where the device emulates converting it anyway, so a reader's factor can
     /// carry the decode's lift; an `e2m1` code converted by the device where it converts
-    /// `e2m1x2` itself; every other field as it is. A device's own conversion is the one its
-    /// compiler lowers best, so where it exists a software decode is only ever slower.
+    /// `e2m1x2` itself, and an 8-bit float ([`Field::Fp8`]) where it converts its format itself;
+    /// every other field as it is.
     pub fn read_on(self, client: &Client) -> Field {
         let converted_as = match self {
             Field::Quant(QuantValue::E2M1) => Some(FloatKind::E2M1x2),
@@ -206,7 +206,7 @@ impl Field {
     ///
     /// # Panics
     ///
-    /// For a field no value is quantized to: an index, a whole float, an 8-bit scale code.
+    /// For a field no value is quantized to: an index, a whole float, an 8-bit float.
     pub(crate) fn quantized_value(self) -> QuantValue {
         match self {
             Field::Quant(value) | Field::Placed { value, .. } => value,
@@ -216,7 +216,7 @@ impl Field {
     }
 
     /// The number format a code of this field is written in, however the device reads it: `None`
-    /// for a field that holds no code (an index, a whole float, an 8-bit scale).
+    /// for a field that holds no code (an index, a whole float, an 8-bit float).
     pub(crate) fn code(self) -> Option<QuantValue> {
         match self {
             Field::Quant(value) | Field::Placed { value, .. } => Some(value),
@@ -292,7 +292,7 @@ pub(crate) enum FieldDecode {
     SignExtended,
     /// An index slot: its bits, unsigned.
     Unsigned,
-    /// A 4-bit float code, read back by reinterpreting the byte two of them share.
+    /// A 4-bit float code, decoded in software from the nibbles of its bytes.
     Reinterpreted,
     /// A 4-bit float code the device converts: a word cast as four `e2m1x2`.
     Converted,

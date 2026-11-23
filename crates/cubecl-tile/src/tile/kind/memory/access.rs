@@ -68,6 +68,12 @@ impl Tile {
 
     pub fn view_mut<T: Numeric, W: Size>(&mut self) -> ViewMut<'_, Vector<T, W>, CoordsDyn> {
         let g = self.mem_mut("view_mut");
+        comptime!({
+            if !g.store.packing.as_stored() {
+                panic!("Tile::view_mut: a packed tile's words are not the values a write means")
+            }
+        });
+        g.write_check();
         g.window_view_mut::<T, W>(comptime!(Guard::Checked))
     }
 }
@@ -1017,7 +1023,8 @@ impl Memory {
         )
     }
 
-    /// This window one wide at `coord` on `dimension`, which is not the innermost: what a level
+    /// This window one wide at `coord` on `dimension`, read one value a line where that is the
+    /// innermost: what a level
     /// cutting the dimension to one would hand out at that coordinate, read off data instead. The
     /// dimension is one axis of the buffer, which the storage tiling of the others leaves whole, so
     /// the window moves by its stride.
@@ -1089,6 +1096,12 @@ impl Memory {
         ));
         let rank = proj.physical_rank();
         let at = proj.position(dimension);
+        comptime!(assert!(
+            !moved || at + 1 < rank || self.store.vector_size == 1,
+            "Memory::within: a window moves along {dimension:?} by elements, and this operand is read \
+             {} a line along it",
+            self.store.vector_size
+        ));
 
         let mut origin = Coords::<i32>::new();
         let mut bound = Coords::<u32>::new();

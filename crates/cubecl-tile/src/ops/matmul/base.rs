@@ -145,8 +145,8 @@ impl Tile {
     /// element first, a manual-mma instruction decodes it at its other factor's element, or the
     /// instruction reads its codes as stored.
     ///
-    /// A manual-mma accumulator takes each factor on the side its dimensions give it, whichever
-    /// order they are handed over in: the one carrying the accumulator's rows fills the
+    /// A matrix instruction's accumulator takes each factor on the side its dimensions give it,
+    /// whichever order they are handed over in: the one carrying the accumulator's rows fills the
     /// instruction's `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
     ///
     /// It reaches the IR as one `tile.mma` op.
@@ -163,7 +163,12 @@ impl Tile {
     )]
     fn contract(&mut self, lhs: &Tile, rhs: &Tile) {
         let mma = self.contracts_through_mma();
-        let reversed = comptime!(mma && Side::of(&lhs.place.space, &self.place.space) == Side::Rhs);
+        let cmma = self.contracts_through_cmma();
+        let reversed = comptime!({
+            let lhs_side = Side::of(&lhs.place.space, &self.place.space);
+            let rhs_side = Side::of(&rhs.place.space, &self.place.space);
+            lhs_side == Side::Rhs && (mma || cmma && rhs_side == Side::Lhs)
+        });
         if reversed {
             self.mma_in_order(rhs, lhs)
         } else {
@@ -199,6 +204,24 @@ impl Tile {
         let define!(Lhs) = comptime!(if stored { lhs.element } else { lhs_read });
         let define!(Rhs) = comptime!(if stored { rhs.element } else { rhs_read });
         Descent::contract::<Served, Lhs, Rhs>(self, lhs, rhs)
+    }
+
+    /// Whether this accumulator's fragments contract through the vendor's fragment API.
+    fn contracts_through_cmma(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::PlaneTile(tile) => {
+                let instruction = tile.instruction();
+                comptime!(instruction == Instruction::Cmma)
+            }
+            TileKind::PlanePartition(partition) => {
+                let instruction = partition.at(0usize, 0usize).instruction();
+                comptime!(instruction == Instruction::Cmma)
+            }
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
     }
 
     /// Whether this accumulator's fragments contract through the device's manual MMA.

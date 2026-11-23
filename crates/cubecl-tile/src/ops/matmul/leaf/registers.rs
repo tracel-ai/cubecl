@@ -257,7 +257,7 @@ fn assert_spread(contracted_per_step: usize, spread: usize, accumulator_width: u
     assert!(
         spread == 1 || accumulator_width == 1,
         "{who}: a spread block scatters one unit per sink cell, so the accumulator must be \
-         contracted_per_step scalar (it is {accumulator_width} wide)"
+         scalar (it is {accumulator_width} wide)"
     );
 }
 

@@ -402,17 +402,6 @@ impl PlaneTile {
         }
     }
 
-    /// Add `src`'s block into this one, casting up. Only the register encoding promotes.
-    pub(crate) fn add_cast_from<T: Numeric, S: Numeric>(&mut self, src: &PlaneTile) {
-        match (self, src) {
-            (PlaneTile::Registers(d), PlaneTile::Registers(s)) => d.add_cast_from::<T, S>(s),
-            _ => panic!(
-                "PlaneTile::add_cast_from: a register block promotes into a register block; a \
-                 fragment accumulates in the element its instruction names"
-            ),
-        }
-    }
-
     /// Store this tile into `mem`, casting; `space` is the sink window's.
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,

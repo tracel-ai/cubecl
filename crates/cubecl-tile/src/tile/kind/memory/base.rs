@@ -157,12 +157,12 @@ impl Store {
         }
     }
 
-    /// Whether these values sit at an address, which a slice-shaped write such as a fragment's
-    /// store intrinsic needs; a write call has none.
+    /// Whether these values sit at an address, which a slice-shaped read or write such as a
+    /// fragment's store intrinsic needs; a call has none.
     pub(crate) fn addressed(&self) -> comptime_type!(bool) {
         match &self.backing {
-            Backing::Buffer(_) | Backing::ReadBuffer(_) | Backing::ReadCall(_) => comptime!(true),
-            Backing::WriteCall(_) => comptime!(false),
+            Backing::Buffer(_) | Backing::ReadBuffer(_) => comptime!(true),
+            Backing::WriteCall(_) | Backing::ReadCall(_) => comptime!(false),
         }
     }
 
@@ -191,14 +191,6 @@ impl Store {
         match &self.backing {
             Backing::Buffer(buffer) | Backing::ReadBuffer(buffer) => buffer.free(),
             Backing::WriteCall(_) | Backing::ReadCall(_) => {}
-        }
-    }
-
-    /// Whether the values have an address: a buffer, rather than a call.
-    pub(crate) fn has_address(&self) -> comptime_type!(bool) {
-        match &self.backing {
-            Backing::Buffer(_) | Backing::ReadBuffer(_) => comptime!(true),
-            Backing::WriteCall(_) | Backing::ReadCall(_) => comptime!(false),
         }
     }
 
@@ -343,7 +335,7 @@ pub enum Boundary {
     /// Out-of-bounds reads return the identity of the monoid that combines the operand, so a read
     /// past the problem's edge leaves the combined value unchanged; writes are skipped.
     Identity(Monoid),
-    /// Out-of-bounds reads/writes clamp to the edge cell.
+    /// Out-of-bounds reads clamp to the edge cell; an operand bound so is never written.
     Clamp,
 }
 

@@ -18,7 +18,7 @@
 
 use std::time::Instant;
 
-use crate::support::{HostData, HostDataType, TestInput};
+use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{
     client::Client, ir::FloatKind, ir::types::Fp8Format, prelude::*, quant::scheme::QuantValue,
     zspace::Shape,
@@ -361,6 +361,8 @@ fn launch_f16(
 fn check_repeated_stage(form: ScaleForm) {
     let client = cubecl::test_device().client();
     if !super::block_scaled::offers_nvfp4(&client) {
+        ValidationResult::Skipped("the device offers no NVFP4 matrix instruction".to_string())
+            .enforce();
         return;
     }
     let (m, n, k) = BOX;

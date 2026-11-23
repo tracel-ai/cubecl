@@ -1,4 +1,5 @@
-//! The straight transport: the destination filled in its own physical order, whole lines.
+//! The straight transport: the destination filled whole lines at a time, in its own physical order,
+//! or in the source's where an engine moves them.
 
 use cubecl::prelude::*;
 

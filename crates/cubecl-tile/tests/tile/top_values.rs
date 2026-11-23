@@ -3,6 +3,7 @@
 //! halves reduced apart and combined, a plane's units at once and groups of four units, on
 //! two-lane vectors whose lanes reduce apart.
 
+use crate::support::skip_unless_plane_holds;
 use cubecl::prelude::*;
 use cubecl_tile::space::UnitShare;
 use cubecl_tile::{Carrier, Monoid, TopValues};
@@ -210,10 +211,10 @@ fn inserts_and_a_combine_keep_the_k_best_values() {
 #[test]
 fn a_plane_and_its_groups_keep_the_k_best_values() {
     let client = cubecl::test_device().client();
-    let units = client.properties().hardware.plane_size_max as usize;
-    if units < 4 {
+    if skip_unless_plane_holds(&client, 4) {
         return;
     }
+    let units = client.properties().hardware.plane_size_max as usize;
     for (share, group) in [
         (UnitShare::Plane, units),
         (UnitShare::Group { unit_bits: 0b11 }, 4),
