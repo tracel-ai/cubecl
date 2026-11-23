@@ -277,15 +277,11 @@ impl MmaData {
                             comptime!((i * vector_size + e) as u32),
                             MatrixIdent::Accumulator,
                         );
-                        let (row, col) = match layout {
-                            MatrixLayout::RowMajor => (row, col),
-                            MatrixLayout::ColMajor => (col, row),
-                            MatrixLayout::Undefined => {
-                                panic!("MmaData::scale_cells: a sum is row- or col-major")
-                            }
-                        };
+                        let (row, col) = laid_out(row, col, layout);
+                        // The cell alone: the first value of a run one wide.
+                        let (first, alone) = (0usize, 1usize);
                         let at =
-                            TileMatrix::value_coords(row, col, 0usize, space, dimensions, 1usize);
+                            TileMatrix::value_coords(row, col, first, space, dimensions, alone);
                         let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
                         vector.insert(e, vector.extract(e) * T::cast_from(scale));
                     }
@@ -1372,6 +1368,16 @@ fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (u
     }
 }
 
+/// The cell an instruction names at `(row, col)` where a sum laid out as `layout` holds it.
+#[cube]
+fn laid_out(row: u32, col: u32, #[comptime] layout: MatrixLayout) -> (u32, u32) {
+    match layout {
+        MatrixLayout::RowMajor => (row, col),
+        MatrixLayout::ColMajor => (col, row),
+        MatrixLayout::Undefined => panic!("mma: a sum is laid out row- or col-major"),
+    }
+}
+
 /// Each unit's accumulator cells written through `mem`'s own write: one element at a time, or,
 /// where `mem` is bound as wide as a unit's run of cells along a row of a row-major destination,
 /// a run at a time, as a sink that adds whole lines takes them.
@@ -1398,13 +1404,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
                 let elem_idx = i * vector_size + e;
                 let (row, col) =
                     def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
-                let at = match layout {
-                    MatrixLayout::RowMajor => (row, col),
-                    MatrixLayout::ColMajor => (col, row),
-                    MatrixLayout::Undefined => {
-                        panic!("mma: a stage layout must be row- or col-major")
-                    }
-                };
+                let at = laid_out(row, col, layout);
                 let mut value = Vector::<Out, Const<1>>::empty();
                 value.insert(0usize, Out::cast_from(fragment[i].extract(e)));
                 sink.write(at, value);

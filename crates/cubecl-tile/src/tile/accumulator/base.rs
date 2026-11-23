@@ -266,9 +266,15 @@ impl Tile {
 
     /// Drain this accumulator into `dest`, cast to its element. `self` and `dest` must be
     /// indexed by the same region. A cmma grid opened with no scratch opens one where `dest`
-    /// needs its fragments bounced.
+    /// needs its fragments bounced. Scales the sum carries are applied as it drains: one over
+    /// every cell as one number, ones varying across its cells cell by cell.
     ///
     /// It reaches the IR as one `tile.drained_into` op.
+    ///
+    /// # Panics
+    ///
+    /// As the kernel expands, where scales varying across its cells ride a sum held in the
+    /// fragment API, which hides where its cells lie.
     pub fn drained_into(&self, dest: &Tile) {
         intrinsic!(|scope| DrainOp::trace(scope, |scope| {
             self.__expand_drain_into_method(scope, dest)
@@ -304,38 +310,92 @@ impl Tile {
         let unopened = self.scratch_unopened();
         let in_place = self.casts_in_place_to::<Served, Out>();
         let bounces = dest.fragments_bounce(in_place);
-        if comptime!(unopened && (scaled || bounces)) {
-            let opened = self.clone().with_scratch(Scratch::OneTile);
-            opened.drain_into(dest);
-        } else if scaled && self.factor_varies() {
-            scale_cells_below::<Served>(self, comptime!(self.place.below().to_vec()), 0usize);
-            self.unscaled().drain_into(dest);
-        } else if scaled {
-            let mut sum = self.unscaled();
-            sum.scale_by::<f32>(self.factor.whole());
-            sum.drain_into(dest);
-        } else {
-            self.drain_as_opened::<Served, Out>(dest);
+        let varies = self.factor_varies();
+        let scaling = comptime!(DrainScaling::of(
+            unopened && (scaled || bounces),
+            scaled,
+            varies
+        ));
+        match scaling {
+            DrainScaling::OpensScratch => {
+                self.clone().with_scratch(Scratch::OneTile).drain_into(dest)
+            }
+            DrainScaling::PerCell => self.drain_scaled_per_cell::<Served>(dest),
+            DrainScaling::Whole => self.drain_scaled_whole(dest),
+            DrainScaling::Unscaled => self.drain_as_opened::<Served, Out>(dest),
+        }
+    }
+
+    /// [`drain_into`](Tile::drain_into) of a sum whose scales vary across its cells: each cell
+    /// multiplied by its own where its unit holds it, then drained unscaled.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_scaled_per_cell<Served: Numeric>(&self, dest: &Tile) {
+        scale_cells_below::<Served>(self, comptime!(self.place.below().to_vec()), 0usize);
+        self.unscaled().drain_into(dest);
+    }
+
+    /// [`drain_into`](Tile::drain_into) of a sum under one scale over all its cells.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_scaled_whole(&self, dest: &Tile) {
+        let mut sum = self.unscaled();
+        sum.scale_by::<f32>(self.factor.whole());
+        sum.drain_into(dest);
+    }
+}
+
+/// How a sum's drain applies the scales it carries.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum DrainScaling {
+    /// Through a scratch the drain opens first: a scaled sum, or one bouncing to its destination,
+    /// with none opened.
+    OpensScratch,
+    /// Cell by cell, the scales varying across the sum's cells.
+    PerCell,
+    /// As one number over every cell.
+    Whole,
+    /// None to apply.
+    Unscaled,
+}
+
+impl DrainScaling {
+    /// The drain of a sum that `opens_scratch`, carries scales where `scaled`, which vary across
+    /// its cells where `varies`.
+    fn of(opens_scratch: bool, scaled: bool, varies: bool) -> Self {
+        match (opens_scratch, scaled, varies) {
+            (true, _, _) => Self::OpensScratch,
+            (false, true, true) => Self::PerCell,
+            (false, true, false) => Self::Whole,
+            (false, false, _) => Self::Unscaled,
         }
     }
 }
 
-/// Each fragment of `acc` below `levels[i..]` multiplied cell by cell by its scales, which vary
-/// across the output: a row's and a column's, where a product's inputs carry them per row.
+/// Each fragment of `acc` below `levels[depth..]` multiplied cell by cell by its scales, which
+/// vary across the output: a row's and a column's, where a product's inputs carry them per row.
 #[cube]
-fn scale_cells_below<A: Numeric>(acc: &Tile, #[comptime] levels: Vec<Level>, #[comptime] i: usize) {
-    if i == levels.len() {
+fn scale_cells_below<A: Numeric>(
+    acc: &Tile,
+    #[comptime] levels: Vec<Level>,
+    #[comptime] depth: usize,
+) {
+    if depth == levels.len() {
         let mut fragment = acc.clone();
         fragment.scale_own_cells::<A>();
     } else {
-        let level = comptime!(levels[i].clone());
+        let level = comptime!(levels[depth].clone());
         if comptime!(level.coverage() == Coverage::Walk) {
             for region in acc.over(&level).unrolled() {
-                scale_cells_below::<A>(&acc.at(&region), levels.clone(), i + 1);
+                scale_cells_below::<A>(&acc.at(&region), levels.clone(), depth + 1);
             }
         } else {
             for region in acc.over(&level) {
-                scale_cells_below::<A>(&acc.at(&region), levels.clone(), i + 1);
+                scale_cells_below::<A>(&acc.at(&region), levels.clone(), depth + 1);
             }
         }
     }

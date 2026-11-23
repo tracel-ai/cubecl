@@ -1346,9 +1346,12 @@ impl Tile {
         unexpanded!()
     }
 
-    /// [`factor`](Tile::factor), giving the outer scales up whatever the sum's instruction: what an
-    /// operand decoded into an element with no room for them takes, an 8-bit float, whose range
-    /// its values already fill. The sum then applies them however it is held.
+    /// [`factor`](Tile::factor), giving the outer scales up whatever the sum's instruction would
+    /// have: what an operand decoded into an element with no room for them takes, an 8-bit float,
+    /// whose range its values already fill. The caller knows that element, the stage it decodes
+    /// into, which the values do not. A sum of 8-bit floats is held in the manual MMA
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), whose drain
+    /// applies scales varying across its cells one cell at a time.
     pub fn factor_out(&self, _sum: &Tile) -> (Tile, Factor) {
         unexpanded!()
     }
@@ -1563,19 +1566,14 @@ impl TileExpand {
         scope: &Scope,
         sum: &TileExpand,
     ) -> (TileExpand, FactorExpand) {
-        let space = sum.place.space.clone();
-        let gives_up = !self.looks_up()
-            && (self.factor.staged_beside(scope)
-                || sum
-                    .__expand_sum_instruction_method(scope)
-                    .scales_its_sum_in_place());
-        if !gives_up {
-            return (self.clone(), FactorExpand::default());
+        let gives_up = self.factor.staged_beside(scope)
+            || sum
+                .__expand_sum_instruction_method(scope)
+                .scales_its_sum_in_place();
+        match gives_up {
+            true => self.split_factor_on(scope, &sum.place.space),
+            false => (self.clone(), FactorExpand::default()),
         }
-        let (inner, outer) = self.factor.split_on(scope, &space);
-        let mut values = self.clone();
-        values.factor = inner;
-        (values, outer)
     }
 
     pub fn __expand_factor_out_method(
@@ -1583,20 +1581,20 @@ impl TileExpand {
         scope: &Scope,
         sum: &TileExpand,
     ) -> (TileExpand, FactorExpand) {
-        if self.looks_up() {
-            return (self.clone(), FactorExpand::default());
-        }
-        let (inner, outer) = self.factor.split_on(scope, &sum.place.space);
-        let mut values = self.clone();
-        values.factor = inner;
-        (values, outer)
+        self.split_factor_on(scope, &sum.place.space)
     }
 
     pub fn __expand_factor_whole_method(&self, scope: &Scope) -> (TileExpand, FactorExpand) {
+        self.split_factor_on(scope, &Space::new(&[]))
+    }
+
+    /// These values without their outer scales that vary only along `space`, and those scales
+    /// ([`FactorExpand::split_on`]); a tile that looks its values up keeps every scale.
+    fn split_factor_on(&self, scope: &Scope, space: &Space) -> (TileExpand, FactorExpand) {
         if self.looks_up() {
             return (self.clone(), FactorExpand::default());
         }
-        let (inner, outer) = self.factor.split_on(scope, &Space::new(&[]));
+        let (inner, outer) = self.factor.split_on(scope, space);
         let mut values = self.clone();
         values.factor = inner;
         (values, outer)
