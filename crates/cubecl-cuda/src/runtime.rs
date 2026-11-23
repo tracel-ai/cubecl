@@ -407,10 +407,6 @@ impl DeviceService for CudaServer {
                 ElemType::Float(FloatKind::E3M2),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
-            device_props.register_type_usage(
-                ElemType::Float(FloatKind::UE8M0),
-                TypeUsage::Conversion | TypeUsage::Buffer,
-            );
 
             if CUDA_VERSION >= 12080 {
                 device_props.features.tma.insert(Tma::SwizzleAtomicity);

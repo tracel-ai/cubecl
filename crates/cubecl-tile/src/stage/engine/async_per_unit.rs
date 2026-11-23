@@ -3,7 +3,7 @@
 //! registers, after the fill has returned, on the arrivals the slot's barrier counts.
 //!
 //! A unit takes as many lines as under the straight fill, but walks them in the window's logical
-//! row-major order rather than the stage's: the source's own order where it lays its axes out
+//! row-major order rather than the stage's: the source's own order where it lays its dimensions out
 //! row-major. The copy bypasses L1, so neighbouring lanes must read neighbouring source bytes:
 //! walking a stage blocked into instruction tiles in its own order hands a warp a sliver of each
 //! of many rows, and reads more from DRAM than the stage holds.

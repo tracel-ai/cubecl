@@ -4,13 +4,13 @@
 use crate::support::{HostData, HostDataType, TestInput, TileInput, assert_equals_approx};
 use cubecl::std::tensor::layout::CoordsDyn;
 use cubecl::{prelude::*, zspace::shape};
-use cubecl_tile::{Axis, Partitioning, Space, TileTensor};
+use cubecl_tile::{Dimension, Partitioning, Space, TileTensor};
 
 use super::references;
 use crate::tile::uncut;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
 
 /// An 8×8 tile, two nested levels of 2×2 sub-tiles
 #[test]

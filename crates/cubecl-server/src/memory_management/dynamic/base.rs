@@ -1,8 +1,8 @@
 //! How a stream's dynamic pools are managed.
 
 use super::{AdaptiveMemory, ExclusivePools};
-use crate::memory_management::Cleanup;
 use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
+use crate::memory_management::{Cleanup, PinnedPages};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -11,7 +11,7 @@ use crate::{
         MemoryPoolReport,
         memory_pool::{MemoryPool, PageMapping},
     },
-    server::IoError,
+    server::{IoError, ServerError},
     storage::ComputeStorage,
 };
 use alloc::{boxed::Box, format, string::String, vec::Vec};
@@ -98,11 +98,16 @@ impl DynamicMemory {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
+            // An exclusive pool pins a page by holding its one allocation, so
+            // its pins are never shared.
             DynamicMemory::Exclusive(pools) => pools.reserve(storage, size, mapping, failures),
-            DynamicMemory::Adaptive(memory) => memory.reserve(storage, size, mapping, failures),
+            DynamicMemory::Adaptive(memory) => {
+                memory.reserve(storage, size, mapping, pinned, failures)
+            }
         }
     }
 
@@ -111,11 +116,12 @@ impl DynamicMemory {
     pub fn try_reserve(
         &mut self,
         size: u64,
+        pinned: PinnedPages,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicMemory::Exclusive(pools) => pools.try_reserve(size, failures),
-            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, failures),
+            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, pinned, failures),
         }
     }
 
@@ -150,6 +156,25 @@ impl DynamicMemory {
         match self {
             DynamicMemory::Exclusive(_) => {}
             DynamicMemory::Adaptive(memory) => memory.relocate(storage, copier, reason, failures),
+        }
+    }
+
+    /// Move every allocation of `kept` off the pages graphs guard, onto room no replay writes
+    /// (see [`AdaptiveMemory::move_apart`]). Nothing to move where pages are never shared.
+    ///
+    /// # Errors
+    ///
+    /// As [`AdaptiveMemory::move_apart`].
+    pub fn move_apart<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        kept: &[ManagedMemoryBinding],
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
+        match self {
+            DynamicMemory::Exclusive(_) => Ok(()),
+            DynamicMemory::Adaptive(memory) => memory.move_apart(storage, kept, copier, failures),
         }
     }
 

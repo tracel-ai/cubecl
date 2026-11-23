@@ -1,6 +1,6 @@
 //! An NVFP4 rhs in tile order, `[n / 16][k / 16][16 columns][16 values]`, contracted into a
 //! register block a block of `K` a step: a load is two words along `K` by two columns, the leaf's
-//! step spans one block (an axis of one beside the columns), and its scales are a packed factor
+//! step spans one block (a dimension of one beside the columns), and its scales are a packed factor
 //! one word wide, read between the values' loads. The answer is the host's.
 
 use crate::support::{HostData, HostDataType, TestInput};
@@ -15,11 +15,11 @@ use cubecl_tile::*;
 use super::column_reads::offset;
 use crate::tile::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
 /// `K` as blocks of one scale, and the position inside one.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 
 /// NVFP4's block: sixteen values under one scale, two words of eight.
 const BLOCK: usize = 16;
@@ -52,7 +52,7 @@ fn tile_order_one_row_product<E: Numeric>(
             &x,
             &values,
             comptime!(SoftwareMatmul::new(256)),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in cube {
             let mut acc_s = acc.at(&step);
@@ -68,7 +68,7 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
     let (cols, blocks) = (2 * TILE, 8);
     let client = cubecl::test_device().client();
 
-    let axes = [N, KB, KI];
+    let dimensions = [N, KB, KI];
     let storage = StorageLevels::new(&[(KI, PER_WORD)])
         .tile(&[(KI, BLOCK / PER_WORD), (N, 2)])
         .tile(&[(N, TILE / 2)])
@@ -76,14 +76,14 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
         .unwrap();
-    let labels = geometry.labels(&axes);
+    let labels = geometry.labels(&dimensions);
 
     let code = |n: usize, kb: usize, ki: usize| ((n * 7 + kb * 3 + ki) % 16) as u32;
     let mut words = vec![0u32; cols * blocks * BLOCK / PER_WORD];
     for n in 0..cols {
         for kb in 0..blocks {
             for ki in 0..BLOCK {
-                let at = offset(&geometry, &labels, &axes, &[n, kb, ki]);
+                let at = offset(&geometry, &labels, &dimensions, &[n, kb, ki]);
                 words[at / PER_WORD] |= code(n, kb, ki) << ((at % PER_WORD) * 4);
             }
         }
@@ -128,7 +128,8 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
         Form::Static,
     );
 
-    let mut w_spec = TileSpec::new(Projection::tiled(&axes, &labels)).packed(QuantValue::E2M1);
+    let mut w_spec =
+        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
     w_spec.stored_tiles = storage.tiles().to_vec();
     let s_spec = TileSpec::direct(&[N, KB]).packed(Field::of_scale(ScaleDtype::F32));
     // A load: two words along `K` by two columns, four words.

@@ -8,8 +8,8 @@
 //! Every plane the launch spawns walks one tile, so the planes of a cube all reach a barrier any
 //! of them meets; a plane that walked none would leave the others waiting at it.
 //!
-//! The same cases run with axes reversed ([`Levels::reversed`]), on the planes of the launch and
-//! on the cube level of the control, over static extents and runtime ones.
+//! The same cases run with dimensions reversed ([`Levels::reversed`]), on the planes of the launch
+//! and on the cube level of the control, over static extents and runtime ones.
 #![allow(non_snake_case)]
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -30,11 +30,11 @@ use cubecl_tile::*;
 
 use super::{Form, kernel_form};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 /// A batch the inputs do not span: every batch's output is the same product.
-const B: Axis = Axis(3);
+const B: Dimension = Dimension(3);
 
 /// Rows, columns and depth of the block one unit owns.
 const BLOCK: [usize; 3] = [2, 2, 4];
@@ -100,7 +100,7 @@ fn plane_product<D: ServedDestination>(plane: &Region, a: &Tile, b: &Tile, dest:
             &a_unit,
             &b_unit,
             comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in &unit {
             let mut sum_step = sum.at(&step);
@@ -125,7 +125,7 @@ enum Planes {
 impl Planes {
     /// The levels the planes take a plane's `2 × 4` tile at, the outermost handing out `reversed`
     /// from the last tile to the first.
-    fn levels(&self, reversed: &[Axis]) -> Vec<Level> {
+    fn levels(&self, reversed: &[Dimension]) -> Vec<Level> {
         let [rows, columns, depth] = BLOCK;
         let units = Levels::leaf(&[(M, rows), (N, columns), (K, depth)])
             .walk_every(&[K])
@@ -140,7 +140,7 @@ impl Planes {
         };
         reversed
             .iter()
-            .fold(outermost, |levels, &axis| levels.reversed(axis))
+            .fold(outermost, |levels, &dimension| levels.reversed(dimension))
             .build()
     }
 }
@@ -192,7 +192,7 @@ fn adds_atomically(client: &cubecl::client::Client) -> bool {
 /// How the outermost level hands out its tiles, and which extents the kernel reads at runtime.
 #[derive(Clone, Copy, Debug)]
 struct Dealt<'a> {
-    reversed: &'a [Axis],
+    reversed: &'a [Dimension],
     form: Form<'a>,
 }
 
@@ -260,7 +260,7 @@ fn run(problem: Problem, planes: &Planes, dealt: Dealt<'_>) -> Option<HostData> 
     let policy = BoundaryPolicy::Every(Boundary::Zero);
     let bound = launcher
         .arg(out.clone().binding(), dtype)
-        .axes(&[B, M, N])
+        .dimensions(&[B, M, N])
         .build()
         .unwrap();
 
@@ -411,8 +411,8 @@ fn swizzled_blocks_take_every_tile_once() {
     }
 }
 
-/// A batch axis beside `m` and `n`: the blocks of the two run fastest, a batch's after another's,
-/// and the last cube's planes past the last batch take none.
+/// A batch dimension beside `m` and `n`: the blocks of the two run fastest, a batch's after
+/// another's, and the last cube's planes past the last batch take none.
 #[test]
 fn the_batches_ride_outermost() {
     for order in [
@@ -429,8 +429,8 @@ fn the_batches_ride_outermost() {
     }
 }
 
-/// Axes reversed, alone and together, the batch among them.
-const REVERSALS: [&[Axis]; 4] = [&[M], &[N], &[M, N], &[M, N, B]];
+/// Dimensions reversed, alone and together, the batch among them.
+const REVERSALS: [&[Dimension]; 4] = [&[M], &[N], &[M, N], &[M, N, B]];
 
 /// `planes`, each of [`REVERSALS`] over static extents and runtime ones, takes every tile of
 /// three batches once, on problems whose edges cut the boxes short.
@@ -447,14 +447,14 @@ fn assert_reversed_takes_every_tile_once(planes: Planes) {
     }
 }
 
-/// A cube level reversed along its axes: the cube at the start of an axis takes the box at its
-/// end.
+/// A cube level reversed along its dimensions: the cube at the start of a dimension takes the box
+/// at its end.
 #[test]
 fn reversed_cubes_take_every_tile_once() {
     assert_reversed_takes_every_tile_once(Planes::OfEachCube);
 }
 
-/// The planes of the launch reversed along their axes, one block a cube, swizzled, and three
+/// The planes of the launch reversed along their dimensions, one block a cube, swizzled, and three
 /// planes a cube: the last cube's planes past the last batch stay past it, and take none.
 #[test]
 fn reversed_launch_planes_take_every_tile_once() {
@@ -553,9 +553,9 @@ fn every_plane_of_the_launch_walks_one_tile() {
     }
 }
 
-/// The binding masks an axis where the launch's planes run past its tiles, and no other: along
-/// an axis whose blocks the edge cuts short, and along the axis the blocks past the last land
-/// past, the outermost of three.
+/// The binding masks a dimension where the launch's planes run past its tiles, and no other: along
+/// a dimension whose blocks the edge cuts short, and along the dimension the blocks past the last
+/// land past, the outermost of three.
 #[test]
 fn the_binding_masks_where_the_planes_run_past_the_tiles() {
     let masked = |order: PlaneOrder, (m, n): (usize, usize)| {
@@ -563,7 +563,7 @@ fn the_binding_masks_where_the_planes_run_past_the_tiles() {
             Space::new(&[(B, 1), (M, m), (N, n), (K, 8)]),
             Planes::OfTheLaunch(order).levels(&[]),
         );
-        [M, N, B].map(|axis| partitioning.overhangs(axis))
+        [M, N, B].map(|dimension| partitioning.overhangs(dimension))
     };
     let blocks = || PlaneOrder::new(&[(M, 2), (N, 2)], CubeOrder::RowMajor);
     // Tiles of 2 × 4: 4 × 4 of them fill the 2 × 2 blocks.
@@ -578,10 +578,10 @@ fn the_binding_masks_where_the_planes_run_past_the_tiles() {
     assert_eq!(masked(three_a_cube, (6, 20)), [false, false, false]);
 }
 
-/// A kernel compiled for every batch count asks the static axes alone: the blocks the edge cuts
-/// short decide them, and the batch, which the spare blocks land past, is the launch's.
+/// A kernel compiled for every batch count asks the static dimensions alone: the blocks the edge
+/// cuts short decide them, and the batch, which the spare blocks land past, is the launch's.
 #[test]
-fn a_static_axis_is_answered_beside_a_dynamic_batch() {
+fn a_static_dimension_is_answered_beside_a_dynamic_batch() {
     let partitioning = |n| {
         Partitioning::new(
             Space::new(&[(B, 1), (M, 8), (N, n), (K, 8)]).with_dynamic(&[B]),

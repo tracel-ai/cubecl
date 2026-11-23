@@ -26,11 +26,11 @@ use cubecl_tile::*;
 use super::launch_planes::holds_a_cube;
 use super::{Form, kernel_form};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 /// A batch the inputs do not span: every batch's output is the same product.
-const B: Axis = Axis(3);
+const B: Dimension = Dimension(3);
 
 /// Rows, columns and depth of the block one unit owns.
 const BLOCK: [usize; 3] = [2, 2, 4];
@@ -52,7 +52,7 @@ fn launch_unit_matmul<O: Destination>(
             &a_unit,
             &b_unit,
             comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         for step in &unit {
             let mut sum_step = sum.at(&step);
@@ -76,14 +76,14 @@ fn count_walks(walks: &mut Tensor<f32>, space: Partitioning) {
 
 /// The levels a unit takes its `2 × 2` block at, its units in cubes of `cube`, the units handing
 /// out `reversed` from the last tile to the first.
-fn levels(cube: UnitCube, reversed: &[Axis]) -> Vec<Level> {
+fn levels(cube: UnitCube, reversed: &[Dimension]) -> Vec<Level> {
     let [rows, columns, depth] = BLOCK;
     let outermost = Levels::leaf(&[(M, rows), (N, columns), (K, depth)])
         .walk_every(&[K])
         .launch_units(&[M, N, B], cube);
     reversed
         .iter()
-        .fold(outermost, |levels, &axis| levels.reversed(axis))
+        .fold(outermost, |levels, &dimension| levels.reversed(dimension))
         .build()
 }
 
@@ -148,7 +148,12 @@ fn adds_atomically(client: &cubecl::client::Client) -> bool {
 
 /// `problem`'s product, every unit of the launch a block; `None` where the device cannot add into
 /// the output or hold its cube.
-fn run(problem: Problem, cube: UnitCube, reversed: &[Axis], form: Form<'_>) -> Option<HostData> {
+fn run(
+    problem: Problem,
+    cube: UnitCube,
+    reversed: &[Dimension],
+    form: Form<'_>,
+) -> Option<HostData> {
     let Problem { m, n, k, batches } = problem;
     let client = cubecl::test_device().client();
     if !adds_atomically(&client) {
@@ -187,7 +192,7 @@ fn run(problem: Problem, cube: UnitCube, reversed: &[Axis], form: Form<'_>) -> O
     let policy = BoundaryPolicy::Every(Boundary::Zero);
     let bound = launcher
         .arg(out.clone().binding(), dtype)
-        .axes(&[B, M, N])
+        .dimensions(&[B, M, N])
         .build()
         .unwrap();
     let a_arg = TileTensorLaunch::new(
@@ -249,7 +254,7 @@ fn the_launch_units_take_every_tile_once() {
     }
 }
 
-/// The units reversed along their axes, over static extents and runtime ones.
+/// The units reversed along their dimensions, over static extents and runtime ones.
 #[test]
 fn reversed_launch_units_take_every_tile_once() {
     let cube = CUBES[2];

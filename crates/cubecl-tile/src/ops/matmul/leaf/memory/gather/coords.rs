@@ -5,7 +5,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::*;
 
-use super::base::{GatherProblem, LhsVectorAxis};
+use super::base::{GatherProblem, LhsVectorDimension};
 use crate::ops::contraction::{AccCoords, resolve_nd_coords};
 use crate::ops::matmul::leaf::Side;
 
@@ -41,8 +41,8 @@ pub(super) fn cell_position(
         problem.block.row_extents(),
         problem.block.column_line_extents(),
     );
-    let acc_counts = comptime!(match (side, problem.lhs_vector_axis) {
-        (Side::Lhs, LhsVectorAxis::Rows) => AccCoords::Cells,
+    let acc_counts = comptime!(match (side, problem.lhs_vector_dimension) {
+        (Side::Lhs, LhsVectorDimension::Rows) => AccCoords::Cells,
         _ => AccCoords::Lines,
     });
     resolve_nd_coords(
@@ -71,7 +71,7 @@ pub(super) fn offset_last(coords: &CoordsDyn, #[comptime] rank: usize, delta: u3
     out
 }
 
-/// The accumulator cell coordinate [`resolve_nd_coords`] reads, one entry per axis of the
+/// The accumulator cell coordinate [`resolve_nd_coords`] reads, one entry per dimension of the
 /// accumulator's space in its own order.
 #[cube]
 fn acc_cell_coords(
@@ -101,7 +101,7 @@ fn acc_cell_coords(
     out
 }
 
-/// Contracted coordinates of tap `tap_coords` with the fastest axis at `last`.
+/// Contracted coordinates of tap `tap_coords` with the fastest dimension at `last`.
 #[cube]
 pub(super) fn step_coords(tap_coords: &Coords<u32>, last: u32) -> Coords<u32> {
     let mut out = Coords::<u32>::new();

@@ -499,7 +499,7 @@ impl MmaData {
     }
 
     /// `self[r, c] = self[r, c] · exp(bias[r, c])` over this fragment, which lies at `origin` of a
-    /// tile over `space` ([`AxisSlices::mul_exp`]).
+    /// tile over `space` ([`DimensionSlices::mul_exp`]).
     pub(crate) fn mul_exp_along<E: Float>(
         &mut self,
         bias: &Procedural,
@@ -525,7 +525,10 @@ impl MmaData {
                     col + comptime!(col0 as u32),
                     space,
                 );
-                vector.insert(e, AxisSlices::mul_exp_cell::<E>(vector.extract(e), cell));
+                vector.insert(
+                    e,
+                    DimensionSlices::mul_exp_cell::<E>(vector.extract(e), cell),
+                );
             }
             acc[i] = vector;
         }
@@ -533,7 +536,7 @@ impl MmaData {
 
     /// `self[r, c] = exp(self[r, c] · scale + bias[r, c] − logsumexp[r, c])` over this fragment,
     /// which lies at `origin` of a tile over `space`: each cell reads `logsumexp` where `broadcast`
-    /// puts it, a row's value or a column's ([`AxisSlices::probabilities`]).
+    /// puts it, a row's value or a column's ([`DimensionSlices::probabilities`]).
     pub(crate) fn probabilities_along<E: Float>(
         &mut self,
         scale: E,
@@ -564,7 +567,7 @@ impl MmaData {
                 let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
-                vector.insert(e, AxisSlices::exp_minus_cell::<E>(score, held));
+                vector.insert(e, DimensionSlices::exp_minus_cell::<E>(score, held));
             }
             acc[i] = vector;
         }
@@ -572,7 +575,7 @@ impl MmaData {
 
     /// `self[r, c] = probabilities[r, c] · (self[r, c] − delta[r, c])` over this fragment and
     /// `probabilities`, a fragment laid as this one is, at `origin` of a tile over `space`: each
-    /// cell reads `delta` where `broadcast` puts it ([`AxisSlices::softmax_gradient`]).
+    /// cell reads `delta` where `broadcast` puts it ([`DimensionSlices::softmax_gradient`]).
     pub(crate) fn softmax_gradient_along<E: Float>(
         &mut self,
         probabilities: &MmaData,
@@ -647,6 +650,38 @@ impl MmaData {
         }
     }
 
+    /// `factors[first + r]` for each row `r` this unit holds cells of, in the order
+    /// [`mul_along`](Self::mul_along) reads them, from `factors` holding every row of the
+    /// fragment. Each row is picked among the fragment's rows by comparison rather than read at
+    /// an index the unit computes, so `factors` stays in registers.
+    pub(crate) fn held_rows<E: Numeric>(
+        &self,
+        factors: &Array<E>,
+        #[comptime] first: usize,
+    ) -> Array<E> {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let rows = self.rows_per_unit::<E>();
+        let mut held = Array::<E>::new(rows);
+        #[unroll]
+        for i in 0..rows {
+            let (row, _) = def.position_of_nth(
+                UNIT_POS_PLANE,
+                comptime!((i * vector_size) as u32),
+                MatrixIdent::Accumulator,
+            );
+            let mut factor = factors[first];
+            #[unroll]
+            for r in 1..self.m {
+                if row == comptime!(r as u32) {
+                    factor = factors[first + r];
+                }
+            }
+            held[i] = factor;
+        }
+        held
+    }
+
     /// `slots[first + r]` combined under `monoid` with this unit's cells on its row `r`: the
     /// unit's own part of each row, which [`reduce_across_units`](Self::reduce_across_units)
     /// completes.
@@ -675,8 +710,8 @@ impl MmaData {
     /// row: a butterfly over the lane bits that leave the row in place.
     ///
     /// Whether a lane bit moves a row is read at lane 0, where both positions are constants the
-    /// compiler evaluates, so a bit that moves it costs no shuffle. That holds for a layout whose row
-    /// is a function of some of the lane's bits, as the manual-mma layouts are; the register
+    /// compiler evaluates, so a bit that moves it costs no shuffle. That holds for a layout whose
+    /// row is a function of some of the lane's bits, as the manual-mma layouts are; the register
     /// attention's component test checks it on every lane.
     pub(crate) fn reduce_across_units<E: Numeric>(
         &self,
@@ -782,7 +817,7 @@ impl MmaData {
     }
 
     /// `self[r, c] = 2^(self[r, c] · scale − offsets[first + r])`
-    /// ([`AxisSlices::exp2_scaled_minus_cell`]).
+    /// ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(
         &mut self,
         scale: E,
@@ -799,7 +834,7 @@ impl MmaData {
             for e in 0..vector_size {
                 vector.insert(
                     e,
-                    AxisSlices::exp2_scaled_minus_cell::<E>(
+                    DimensionSlices::exp2_scaled_minus_cell::<E>(
                         vector.extract(e),
                         scale,
                         offsets[first + i],
@@ -1279,7 +1314,10 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
 /// of them, or, where the window is shorter than the fragment off `k`, the rows of an `A` or the
 /// columns of a `B` it has.
 fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (usize, usize) {
-    let cells: usize = space.axes().map(|axis| space.extent(axis)).product();
+    let cells: usize = space
+        .dimensions()
+        .map(|dimension| space.extent(dimension))
+        .product();
     let (rows, cols) = edges;
     match ident {
         MatrixIdent::A if cells.is_multiple_of(cols) && cells / cols < rows => (cells / cols, cols),
@@ -1303,10 +1341,10 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    let axes = comptime!(MatrixAxes::trailing(space));
+    let dimensions = comptime!(MatrixDimensions::trailing(space));
 
     if width == 1 {
-        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, axes, space);
+        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, dimensions, space);
         #[unroll]
         for i in 0..num_vectors {
             #[unroll]
@@ -1333,7 +1371,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
              cells along a row of a row-major destination; its destination is bound {width} wide"
         ));
         let size!(W) = width;
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
+        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
         #[unroll]
         for i in 0..num_vectors {
             // A run starts at a column the width divides: the sink's lines count columns by it.

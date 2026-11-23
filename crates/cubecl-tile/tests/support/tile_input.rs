@@ -14,7 +14,7 @@ use cubecl::{
 };
 use cubecl::{frontend::Scalar, std::tensor::TensorHandle};
 use cubecl_tile::{
-    Axis, Launcher, Space, TileSpec, TileTensorLaunch,
+    Dimension, Launcher, Space, TileSpec, TileTensorLaunch,
     kind::Field,
     launch::{Arg, Labelled},
 };
@@ -22,13 +22,13 @@ use cubecl_tile::{
 use crate::support::{TestInput, TestInputBuilder};
 
 /// A tile-shaped test input: the device buffer plus the logical [`Space`] it's
-/// viewed in. The sub-tile sizes live in the buffer's trailing dims, so the view
+/// viewed in. The sub-tile sizes live in the buffer's trailing axes, so the view
 /// reads them from there.
 pub struct TileInput {
     handle: TensorHandle,
     space: Space,
-    /// The axes the tile spans, in buffer order.
-    axes: Vec<Axis>,
+    /// The dimensions the tile spans, in buffer order.
+    dimensions: Vec<Dimension>,
     levels: usize,
 }
 
@@ -49,18 +49,18 @@ impl TileInput {
 
     /// The tile `handle` holds over `space`, stored `levels` levels deep.
     fn new(handle: TensorHandle, space: Space, levels: usize) -> Self {
-        let axes = (0..space.rank()).map(|i| space.axis_at(i)).collect();
+        let dimensions = (0..space.rank()).map(|i| space.dimension_at(i)).collect();
         TileInput {
             handle,
             space,
-            axes,
+            dimensions,
             levels,
         }
     }
 
     /// Launch arg for this tile's raw global buffer: a plain [`TensorArg`] over the
     /// `[grid…, tile…]` buffer, optionally re-lined by `vector_size` along the inner
-    /// axis (so a kernel reading raw `Vector<E, S>` slices lands on contiguous lines).
+    /// dimension (so a kernel reading raw `Vector<E, S>` slices lands on contiguous lines).
     /// `vector_size == 1` is the plain buffer. For a `TileTensor` pass the plain buffer: the
     /// argument states the width it is bound at and the metadata stays scalar-unit.
     pub fn tensor_arg(&self, vector_size: usize) -> TensorArg {
@@ -91,8 +91,8 @@ impl TileInput {
     }
 
     /// The tile as one operand of `launcher`, served at the element it holds, bound `width` wide.
-    /// The launch derives its spec: the axes its tiles reach past are masked, and a stored tiling
-    /// is read as the buffer lays it out.
+    /// The launch derives its spec: the dimensions its tiles reach past are masked, and a stored
+    /// tiling is read as the buffer lays it out.
     ///
     /// # Panics
     ///
@@ -101,24 +101,27 @@ impl TileInput {
         self.bind(launcher)
             .vectorize(width)
             .build()
-            .unwrap_or_else(|refusal| panic!("TileInput::arg: {refusal}"))
+            .unwrap_or_else(|decline| panic!("TileInput::arg: {decline}"))
             .arg()
     }
 
     /// [`arg`](Self::arg) before it is built: the launch's binding of this tile, labelled with
-    /// its axes, for a caller that states more of it (a delivery, a boundary).
+    /// its dimensions, for a caller that states more of it (a delivery, a boundary).
     pub fn bind<'a>(&'a self, launcher: &'a Launcher) -> Arg<'a, Labelled> {
         let mut binding = self.handle.clone().binding();
         binding.tiling = self.tiling();
-        launcher.arg(binding, self.handle.dtype).axes(&self.axes)
+        launcher
+            .arg(binding, self.handle.dtype)
+            .dimensions(&self.dimensions)
     }
 
-    /// How the buffer stores each axis: once untiled, else once per level and once for the grid.
+    /// How the buffer stores each dimension: once untiled, else once per level and once for the
+    /// grid.
     fn tiling(&self) -> Tiling {
         match self.levels {
             0 => Tiling::UNTILED,
             levels => Tiling::new(&vec![levels + 1; self.space.rank()])
-                .expect("TileInput: a tiling the buffer's dims hold"),
+                .expect("TileInput: a tiling the buffer's axes hold"),
         }
     }
 
@@ -137,9 +140,9 @@ impl TileInput {
 /// [`Tile`](TileLevel::Tile) are duals against the running tile edge: `Tile(e)`
 /// sets the current tile to `e` elements; `Split(n)` divides it into `n`.
 enum TileLevel {
-    /// Divide the current tile into this many sub-tiles per axis.
+    /// Divide the current tile into this many sub-tiles per dimension.
     Split(Vec<usize>),
-    /// Set the current tile to this many elements per axis.
+    /// Set the current tile to this many elements per dimension.
     Tile(Vec<usize>),
 }
 
@@ -153,7 +156,7 @@ pub struct TileInputBuilder {
 }
 
 impl TileInputBuilder {
-    /// Divide the current tile into `counts[axis]` sub-tiles per axis: a finer
+    /// Divide the current tile into `counts[dimension]` sub-tiles per dimension: a finer
     /// level. Chain for recursion: `.split(&[4, 4]).split(&[2, 2])`.
     pub fn split(mut self, counts: &[usize]) -> Self {
         self.levels
@@ -162,7 +165,7 @@ impl TileInputBuilder {
         self
     }
 
-    /// Set the current tile to `edges[axis]` elements per axis: a finer level.
+    /// Set the current tile to `edges[dimension]` elements per dimension: a finer level.
     /// The dual of [`split`](Self::split) (it divides the current edge down to
     /// `edges`), so `.tile(&[16, 16]).tile(&[8, 8])` ≡ `.tile(&[16, 16]).split(&[2, 2])`.
     pub fn tile(mut self, edges: &[usize]) -> Self {
@@ -225,8 +228,8 @@ impl TileInputBuilder {
 
     /// Build the `[grid…, level…, finest…]` device buffer, filled by `fill` (a
     /// `TestInput` finalizer like `arange`/`zeros`) in physical row-major order.
-    /// Walking coarse→fine, each level becomes one block of `rank` dims and the
-    /// leftover edge is the finest block: `(levels + 1) * rank` dims, the layout
+    /// Walking coarse→fine, each level becomes one block of `rank` axes and the
+    /// leftover edge is the finest block: `(levels + 1) * rank` axes, the layout
     /// the `tiled_view` reads back.
     fn build(self, fill: impl FnOnce(TestInputBuilder) -> TestInput) -> TileInput {
         let levels = self
@@ -235,7 +238,7 @@ impl TileInputBuilder {
         let rank = self.space.rank();
 
         let mut current: Vec<usize> = (0..rank)
-            .map(|i| self.space.extent(self.space.axis_at(i)))
+            .map(|i| self.space.extent(self.space.dimension_at(i)))
             .collect();
         let mut blocks: Vec<Vec<usize>> = Vec::with_capacity(levels.len() + 1);
         for level in &levels {
@@ -246,33 +249,33 @@ impl TileInputBuilder {
             assert_eq!(
                 values.len(),
                 rank,
-                "TileInput: a tile level needs one value per axis (rank {rank})"
+                "TileInput: a tile level needs one value per dimension (rank {rank})"
             );
             let block: Vec<usize> = (0..rank)
                 .map(|i| {
                     let (edge, value) = (current[i], values[i]);
                     assert!(
                         value != 0 && edge % value == 0,
-                        "TileInput: tile value {value} does not divide the current edge {edge} on axis {i}"
+                        "TileInput: tile value {value} does not divide the current edge {edge} on dimension {i}"
                     );
-                    let (dim, next) = if is_split {
+                    let (axis, next) = if is_split {
                         (value, edge / value)
                     } else {
                         (edge / value, value)
                     };
                     current[i] = next;
-                    dim
+                    axis
                 })
                 .collect();
             blocks.push(block);
         }
         blocks.push(current);
 
-        let mut dims = Vec::with_capacity(blocks.len() * rank);
+        let mut axes = Vec::with_capacity(blocks.len() * rank);
         for block in &blocks {
-            dims.extend_from_slice(block);
+            axes.extend_from_slice(block);
         }
-        let builder = TestInput::builder(self.client, Shape::from(dims));
+        let builder = TestInput::builder(self.client, Shape::from(axes));
         TileInput::new(
             fill(builder).generate_without_host_data(),
             self.space,
@@ -300,8 +303,8 @@ impl QuantizedTileInputBuilder {
     /// Integer value types only. The walk is over whole numbers packed as two's complement, and
     /// [`q`](QuantizedTileInput::q) is handed to tests as the magnitude each field stands for —
     /// both of which hold only where a format's codes are its magnitudes. Under a minifloat the
-    /// fields would be codes, so a test multiplying `q · scale` would compare the kernel against the
-    /// integer grid the format exists to avoid.
+    /// fields would be codes, so a test multiplying `q · scale` would compare the kernel against
+    /// the integer grid the format exists to avoid.
     pub fn arange(self) -> QuantizedTileInput {
         assert!(
             integer_valued(self.scheme.value),
@@ -313,7 +316,7 @@ impl QuantizedTileInputBuilder {
 
         let rank = self.space.rank();
         let shape: Vec<usize> = (0..rank)
-            .map(|i| self.space.extent(self.space.axis_at(i)))
+            .map(|i| self.space.extent(self.space.dimension_at(i)))
             .collect();
 
         let (lo, hi) = self.scheme.value.range();
@@ -325,7 +328,7 @@ impl QuantizedTileInputBuilder {
         let words = crate::support::stubs::quant::pack_q_values(&q, &self.scheme);
         let handle = self.client.create(Bytes::from_elems(words));
 
-        let block = crate::support::stubs::quant::block_dims(&self.scheme, &shape);
+        let block = crate::support::stubs::quant::block_axes(&self.scheme, &shape);
         let grid = crate::support::stubs::quant::scales_grid(&shape, &block);
         let scale_values: Vec<f32> = (0..grid.iter().product())
             .map(|g| 0.05 * (g + 1) as f32)

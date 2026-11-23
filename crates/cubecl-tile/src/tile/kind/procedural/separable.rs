@@ -1,11 +1,11 @@
-//! A recipe stated as one factor per contracted axis.
+//! A recipe stated as one factor per contracted dimension.
 
 use cubecl::prelude::*;
 
 use super::{FactorReads, Reads, Recipe, RecipeCoords, RecipeExpand, Separable, SeparableExpand};
 
-/// The product of one factor per contracted axis, in contraction order: `K₀ ⊗ K₁ ⊗ … ⊗ Kₙ₋₁`.
-/// Each factor must read a distinct axis; this is not checked.
+/// The product of one factor per contracted dimension, in contraction order: `K₀ ⊗ K₁ ⊗ … ⊗ Kₙ₋₁`.
+/// Each factor must read a distinct dimension; this is not checked.
 #[derive(CubeType, Clone)]
 pub struct Factors<R: CubeType> {
     pub factors: Sequence<R>,
@@ -15,11 +15,11 @@ impl<R: CubeType> FactorReads for FactorsExpand<R>
 where
     R::ExpandType: Reads,
 {
-    fn factor_reads(&self, scope: &Scope, factor: usize, axis: crate::Axis) -> bool {
+    fn factor_reads(&self, scope: &Scope, factor: usize, dimension: crate::Dimension) -> bool {
         let factor = NativeExpand::from_lit(scope, factor);
         self.factors
             .__expand_index_method(scope, factor)
-            .reads(scope, axis)
+            .reads(scope, dimension)
     }
 }
 

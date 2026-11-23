@@ -110,10 +110,10 @@ pub fn nested_index(i: usize, j: usize, extent: usize, edges: &[usize]) -> usize
     }
     let grid = extent / edges.iter().product::<usize>();
     let (di, dj) = (digits(i, edges), digits(j, edges));
-    let dims: Vec<usize> = std::iter::once(grid).chain(edges.iter().copied()).collect();
+    let axes: Vec<usize> = std::iter::once(grid).chain(edges.iter().copied()).collect();
     let mut flat = 0;
-    for (lvl, &dim) in dims.iter().enumerate() {
-        flat = (flat * dim + di[lvl]) * dim + dj[lvl];
+    for (lvl, &axis) in axes.iter().enumerate() {
+        flat = (flat * axis + di[lvl]) * axis + dj[lvl];
     }
     flat
 }

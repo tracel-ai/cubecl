@@ -27,7 +27,7 @@ where
     A::ExpandType: Reads,
     B::ExpandType: Reads,
 {
-    fn reads(&self, scope: &Scope, axis: crate::Axis) -> bool {
-        self.lhs.reads(scope, axis) || self.rhs.reads(scope, axis)
+    fn reads(&self, scope: &Scope, dimension: crate::Dimension) -> bool {
+        self.lhs.reads(scope, dimension) || self.rhs.reads(scope, dimension)
     }
 }

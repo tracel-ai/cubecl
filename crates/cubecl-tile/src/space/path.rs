@@ -1,7 +1,7 @@
 //! The comptime shape of a region's path: the levels taken from a root space ([`Path`]).
 
 use super::{ComputeScope, Level, Partitioning, Space};
-use crate::Axis;
+use crate::Dimension;
 
 /// The comptime shape of a [`Region`](crate::Region)'s path: the levels taken from a root space,
 /// outermost first.
@@ -80,33 +80,36 @@ impl Path {
         self.root.planes_per_cube() as usize
     }
 
-    /// The axes the root's partitioning distributes across a cube's planes that `along` admits,
-    /// each with its count of planes, outermost first: the planes holding the same box of a tile
-    /// that lacks those axes, or splitting the same slices of one that runs along them.
-    pub(crate) fn planes_along(&self, along: impl Fn(Axis) -> bool) -> Vec<(Axis, usize)> {
+    /// The dimensions the root's partitioning distributes across a cube's planes that `along`
+    /// admits, each with its count of planes, outermost first: the planes holding the same box of a
+    /// tile that lacks those dimensions, or splitting the same slices of one that runs along them.
+    pub(crate) fn planes_along(
+        &self,
+        along: impl Fn(Dimension) -> bool,
+    ) -> Vec<(Dimension, usize)> {
         let mut handed = self.root.space().clone();
         let mut planes = Vec::new();
         for level in self.root.levels() {
             let scope = level.coverage().scope();
-            for axis in level.axes() {
+            for dimension in level.dimensions() {
                 if !(scope.and_then(ComputeScope::planes).is_some()
-                    && level.distributes(axis)
-                    && along(axis))
+                    && level.distributes(dimension)
+                    && along(dimension))
                 {
                     continue;
                 }
                 assert!(
                     scope == Some(ComputeScope::Plane),
-                    "{axis:?} is split across the cube's plane groups, and nothing merges what \
+                    "{dimension:?} is split across the cube's plane groups, and nothing merges what \
                      plane groups hold of the same box yet; deal each group a box of its own"
                 );
-                let count = level.instances_along(&handed, axis).unwrap_or_else(|| {
+                let count = level.instances_along(&handed, dimension).unwrap_or_else(|| {
                     panic!(
-                        "{axis:?} is split across the cube's planes at a count only the launch \
+                        "{dimension:?} is split across the cube's planes at a count only the launch \
                          knows, so the planes holding the same box cannot be counted"
                     )
                 });
-                planes.push((axis, count));
+                planes.push((dimension, count));
             }
             handed = level.child(&handed);
         }

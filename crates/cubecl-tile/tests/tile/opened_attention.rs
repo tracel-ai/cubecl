@@ -40,7 +40,7 @@ fn unit_matmul<O: Destination>(
                 let (a_s, b_s) = (a.at(&step), b.at(&step));
                 let mut sum =
                     c.at(&step)
-                        .register_accumulator::<f32>(&a_s, &b_s, config, Semiring::SUM_PROD);
+                        .register_accumulator::<f32>(&a_s, &b_s, config, Semiring::SumProd);
                 sum.mma(&a_s, &b_s);
                 opened.consume(&step, &sum);
             }
@@ -128,7 +128,7 @@ impl ServedDestination for AttendingServed {
             &self.bias.at(owner),
             &self.v.at(owner),
             comptime!(SoftwareMatmul::new(self.cells)),
-            Semiring::SUM_PROD,
+            Semiring::SumProd,
         );
         Attention {
             acc,
@@ -181,12 +181,12 @@ fn attend(causal: bool) {
         .dtype(f32_ty)
         .zeros()
         .generate_without_host_data();
-    let arg = |handle: cubecl::std::tensor::TensorHandle, axes| {
+    let arg = |handle: cubecl::std::tensor::TensorHandle, dimensions| {
         TileTensorLaunch::new(
             handle.binding().into_tensor_arg(),
             f32_ty,
             1,
-            TileSpec::direct(axes),
+            TileSpec::direct(dimensions),
         )
     };
     unit_matmul::launch::<Attending>(

@@ -6,5 +6,7 @@ pub(crate) mod destination;
 pub(crate) mod last_arrival;
 pub(crate) mod output;
 pub(crate) mod relay;
+pub(crate) mod stored_tile_operand;
 pub(crate) mod tensor;
+pub(crate) mod tile_operand;
 pub(crate) mod tma;

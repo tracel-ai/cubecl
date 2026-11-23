@@ -1,4 +1,4 @@
-//! A **coarse** operand: one value per block of an axis, rather than one per element.
+//! A **coarse** operand: one value per block of a dimension, rather than one per element.
 //!
 //! The shape a per-block quantization scale has, `s[m, k / block]` beside `v[m, k]`, and the one
 //! capability the explicit-scales design needs, since there the scales are a real kernel operand.
@@ -18,9 +18,9 @@ use cubecl::{prelude::*, zspace::shape};
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 const ROWS: usize = 4;
 const COLS: usize = 4;
@@ -31,7 +31,7 @@ const BLOCKS: usize = DEPTH / BLOCK;
 /// The software matmul the leaf runs.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
-/// `c = a · b` with `a` coarse along the contracted axis: one value per block of `K`, read by
+/// `c = a · b` with `a` coarse along the contracted dimension: one value per block of `K`, read by
 /// every `k` the block covers.
 #[cube(launch)]
 fn coarse_lhs_matmul(
@@ -48,12 +48,12 @@ fn coarse_lhs_matmul(
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
-            .accumulating(SOFTWARE_MATMUL, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_region.mma(&a.at(&region), &b.at(&region));
     }
 }
 
-/// `⌊k / BLOCK⌋` on the contracted axis, the row addressed as it stands: the coarse operand's
+/// `⌊k / BLOCK⌋` on the contracted dimension, the row addressed as it stands: the coarse operand's
 /// whole declaration.
 fn coarse_spec() -> TileSpec {
     TileSpec::new(Projection::new(
@@ -154,7 +154,7 @@ fn a_coarse_operand_contracts_over_its_block() {
 }
 
 /// A cut finer than the block: several regions in a row read the same coarse value, which is
-/// omission-is-invariance arriving through the floor rather than through a missing axis.
+/// omission-is-invariance arriving through the floor rather than through a missing dimension.
 #[test]
 fn a_cut_finer_than_the_block_reads_the_same_value_across_regions() {
     assert_contracted(&run(space(BLOCK / 2)));

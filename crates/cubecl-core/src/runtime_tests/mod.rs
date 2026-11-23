@@ -26,6 +26,7 @@ pub mod debug;
 pub mod different_rank;
 pub mod enums;
 pub mod file;
+pub mod graph_sharing;
 pub mod harness;
 pub mod index;
 pub mod iter;

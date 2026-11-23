@@ -14,14 +14,14 @@ use super::{ErasedRecipe, FactorReads, RecipeCoords, Separable, SeparableExpand}
 #[expand(derive(Clone))]
 pub struct Procedural {
     origin: Coords<u32>,
-    /// The source's static extent in the parent's coordinates; dynamic axes hold `u32::MAX`.
+    /// The source's static extent in the parent's coordinates; dynamic dimensions hold `u32::MAX`.
     bound: Coords<u32>,
     /// Whether any level can select a partial tile.
     #[cube(comptime)]
     pub(crate) bounds_check: bool,
-    /// The statically overhanging axes.
+    /// The statically overhanging dimensions.
     #[cube(comptime)]
-    bounded_axes: Vec<Axis>,
+    bounded_dimensions: Vec<Dimension>,
     /// Requested factor normalization, consumed by a separable contraction.
     #[cube(comptime)]
     pub(crate) normalization: Option<Normalization>,
@@ -39,20 +39,20 @@ impl Procedural {
         #[unroll]
         for p in 0..space.rank() {
             origin.push(0u32.runtime());
-            let axis = space.axis_at(p);
-            let extent = comptime!(if space.is_dynamic(axis) {
+            let dimension = space.dimension_at(p);
+            let extent = comptime!(if space.is_dynamic(dimension) {
                 u32::MAX.runtime()
             } else {
                 space.runtime_extent_at(p) as u32
             });
             bound.push(extent);
         }
-        let bounded_axes = comptime!(Vec::new());
+        let bounded_dimensions = comptime!(Vec::new());
         Procedural {
             origin,
             bound,
             bounds_check: comptime!(false),
-            bounded_axes,
+            bounded_dimensions,
             normalization: None,
             recipe,
             space,
@@ -63,32 +63,32 @@ impl Procedural {
         let mut origin = Coords::<u32>::new();
         #[unroll]
         for p in 0..space.rank() {
-            let axis = space.axis_at(p);
-            match comptime!(step.level.tile(axis)) {
+            let dimension = space.dimension_at(p);
+            match comptime!(step.level.tile(dimension)) {
                 Some(tile) => {
                     let tile = comptime!(tile as u32);
-                    origin.push(self.origin.at(p) + step.coord(axis).cast::<u32>() * tile);
+                    origin.push(self.origin.at(p) + step.coord(dimension).cast::<u32>() * tile);
                 }
                 None => origin.push(self.origin.at(p)),
             }
         }
-        let bounded_axes = comptime!({
-            let mut axes = self.bounded_axes.clone();
-            for axis in space.axes() {
-                if !space.is_dynamic(axis)
-                    && step.level.overhangs(space, axis)
-                    && !axes.contains(&axis)
+        let bounded_dimensions = comptime!({
+            let mut dimensions = self.bounded_dimensions.clone();
+            for dimension in space.dimensions() {
+                if !space.is_dynamic(dimension)
+                    && step.level.overhangs(space, dimension)
+                    && !dimensions.contains(&dimension)
                 {
-                    axes.push(axis);
+                    dimensions.push(dimension);
                 }
             }
-            axes
+            dimensions
         });
         Procedural {
             origin,
             bound: self.bound.clone(),
-            bounds_check: !bounded_axes.is_empty(),
-            bounded_axes,
+            bounds_check: !bounded_dimensions.is_empty(),
+            bounded_dimensions,
             normalization: comptime!(self.normalization.clone()),
             recipe: self.recipe.clone(),
             space: comptime!(step.level.child(space)),
@@ -100,25 +100,26 @@ impl Procedural {
         self.recipe.evaluate::<T>(&absolute)
     }
 
-    /// This recipe's value at position `position` of slice `slice` of a tile over `space` along
-    /// its innermost axis, windowed to the same region: the slice unravelled over every other axis
-    /// of `space`, the position along the innermost, and an axis `space` does not span at zero.
+    /// This recipe's value at position `position` of slice `slice` of a tile over `space` along its
+    /// innermost dimension, windowed to the same region: the slice unravelled over every other
+    /// dimension of `space`, the position along the innermost, and a dimension `space` does not
+    /// span at zero.
     pub(crate) fn value_at<T: Numeric>(
         &self,
         slice: u32,
         position: u32,
         #[comptime] space: &Space,
     ) -> T {
-        // Where each of this recipe's axes reads its coordinate from: the position, a coordinate of
-        // the slice, or nowhere.
+        // Where each of this recipe's dimensions reads its coordinate from: the position, a
+        // coordinate of the slice, or nowhere.
         let (slice_extents, sources) = comptime!({
             let rank = space.rank();
             let extents: Vec<usize> = (0..rank - 1).map(|p| space.extent_at(p)).collect();
             let sources: Vec<Option<usize>> = self
                 .space
-                .axes()
-                .map(|axis| match space.contains(axis) {
-                    true => Some(space.position(axis)),
+                .dimensions()
+                .map(|dimension| match space.contains(dimension) {
+                    true => Some(space.position(dimension)),
                     false => None,
                 })
                 .collect();
@@ -153,9 +154,9 @@ impl Procedural {
     pub(crate) fn factor_reads(
         &self,
         #[comptime] factor: usize,
-        #[comptime] axis: Axis,
+        #[comptime] dimension: Dimension,
     ) -> comptime_type!(bool) {
-        self.recipe.factor_reads(factor, axis)
+        self.recipe.factor_reads(factor, dimension)
     }
 
     pub(crate) fn read_factor_at<T: Numeric>(
@@ -173,17 +174,22 @@ impl Procedural {
         self.recipe.factor::<T>(&absolute, factor)
     }
 
-    /// Whether `pos` remains inside the original procedural box along `axis`.
-    pub(crate) fn axis_in_bounds(&self, pos: &CoordsDyn, #[comptime] axis: Axis) -> bool {
-        if comptime!(self.bounded_axes.contains(&axis) && self.space.contains(axis)) {
-            let p = comptime!(self.space.position(axis));
+    /// Whether `pos` remains inside the original procedural box along `dimension`.
+    pub(crate) fn dimension_in_bounds(
+        &self,
+        pos: &CoordsDyn,
+        #[comptime] dimension: Dimension,
+    ) -> bool {
+        if comptime!(self.bounded_dimensions.contains(&dimension) && self.space.contains(dimension))
+        {
+            let p = comptime!(self.space.position(dimension));
             self.origin.at(p) + pos[p] < self.bound.at(p)
         } else {
             true.runtime()
         }
     }
 
-    /// Evaluate with the static partial-tile mask; dynamic axes are unmasked.
+    /// Evaluate with the static partial-tile mask; dynamic dimensions are unmasked.
     pub(crate) fn read_masked<T: Numeric>(
         &self,
         pos: &Coords<u32>,
@@ -310,8 +316,8 @@ impl<T: Numeric, W: Size> ViewOperationsExpand<Vector<T, W>, CoordsDyn> for Proc
             let pos = pos.clone();
             let coord = pos.__expand_index_method(scope, index);
             let absolute = origin.__expand_add_method(scope, *coord);
-            let axis_in_bounds = absolute.__expand_lt_method(scope, &bound);
-            in_bounds = in_bounds.__expand_and_method(scope, axis_in_bounds);
+            let dimension_in_bounds = absolute.__expand_lt_method(scope, &bound);
+            in_bounds = in_bounds.__expand_and_method(scope, dimension_in_bounds);
         }
         in_bounds
     }
@@ -339,7 +345,7 @@ impl Procedural {
     }
 
     /// This source as a tile at the root of `partitioning`, windowed by its regions like an
-    /// operand bound to it: its space must be the partitioning's, or some of its axes.
+    /// operand bound to it: its space must be the partitioning's, or some of its dimensions.
     pub fn tile_in<T: Numeric>(self, partitioning: &Partitioning) -> Tile {
         let space = comptime!(self.space.clone());
         let levels = comptime!(partitioning.levels().to_vec());
@@ -384,7 +390,7 @@ impl Procedural {
         )
     }
 
-    /// [`new`](Self::new) keeping the recipe's factorization, one factor per contracted axis.
+    /// [`new`](Self::new) keeping the recipe's factorization, one factor per contracted dimension.
     pub fn separable<T: Numeric, R: Separable<T> + 'static>(_space: Space, _recipe: R) -> Self
     where
         R::ExpandType: FactorReads,
@@ -451,7 +457,7 @@ mod tests {
         let scope = test_scope();
         let source = Procedural::__expand_new::<f32, Constant<f32>>(
             &scope,
-            Space::new(&[(Axis(0), 4)]),
+            Space::new(&[(Dimension(0), 4)]),
             ConstantExpand::<f32> {
                 value: ExpandValue::constant(
                     0u64.into(),

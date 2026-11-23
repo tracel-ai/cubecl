@@ -1,24 +1,24 @@
-//! A score weighted by `exp(bias)` cell by cell instead of softmaxed ([`AxisSlices::mul_exp`]),
+//! A score weighted by `exp(bias)` cell by cell instead of softmaxed ([`DimensionSlices::mul_exp`]),
 //! in a unit's registers and in a plane's manual-mma fragments, against the host. The bias is a
 //! decay `-RATE · (query - key)` where the key is no later than the query, the minimum value
 //! where it is later: those cells weigh zero.
 //!
-//! [`AxisSlices::mul_exp`]: cubecl_tile::AxisSlices::mul_exp
+//! [`DimensionSlices::mul_exp`]: cubecl_tile::DimensionSlices::mul_exp
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
+    Dimension, Levels, Partitioning, Semiring, SoftwareMatmul, Space, StageStorage, Stages, Tile,
     TileSpec, TileTensor, TileTensorLaunch,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
 use super::{Form, implied};
 
-const Q: Axis = Axis(0);
-const S: Axis = Axis(1);
-const D: Axis = Axis(2);
-const V: Axis = Axis(3);
+const Q: Dimension = Dimension(0);
+const S: Dimension = Dimension(1);
+const D: Dimension = Dimension(2);
+const V: Dimension = Dimension(3);
 
 const RATE: f32 = 0.05;
 
@@ -39,8 +39,8 @@ impl Recipe<f32> for Decay {
 }
 
 impl Reads for DecayExpand {
-    fn reads(&self, _scope: &cubecl::ir::Scope, axis: Axis) -> bool {
-        axis == S || axis == Q
+    fn reads(&self, _scope: &cubecl::ir::Scope, dimension: Dimension) -> bool {
+        dimension == S || dimension == Q
     }
 }
 
@@ -72,12 +72,8 @@ fn by_units(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score = bias_s.register_accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    config,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.register_accumulator::<f32>(&query_s, &key_s, config, Semiring::SumProd);
                 score.mma(&query_s, &key_s);
                 score.along(S).mul_exp::<f32>(&bias_s);
                 score.drained_into(&weights_u.at(&step));
@@ -208,13 +204,13 @@ fn zeros(client: &Client, shape: [usize; 2]) -> cubecl::std::tensor::TensorHandl
 fn arg(
     handle: &cubecl::std::tensor::TensorHandle,
     dtype: cubecl::ir::ElemType,
-    axes: &[Axis],
+    dimensions: &[Dimension],
 ) -> TileTensorLaunch {
     TileTensorLaunch::new(
         handle.clone().binding().into_tensor_arg(),
         dtype,
         1,
-        TileSpec::direct(axes),
+        TileSpec::direct(dimensions),
     )
 }
 

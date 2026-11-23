@@ -21,19 +21,19 @@ pub(crate) struct WgmmaData {
     pub(crate) acc: Pending<Accumulator<Held>>,
     #[cube(comptime)]
     pub n: usize,
-    /// The axes the tile's rows and columns lie along, which its cells drain through.
+    /// The dimensions the tile's rows and columns lie along, which its cells drain through.
     #[cube(comptime)]
-    pub axes: MatrixAxes,
+    pub dimensions: MatrixDimensions,
 }
 
 #[cube]
 impl WgmmaData {
     /// A zeroed `m × n` accumulator, `m` the plane group's 64 rows, its rows and columns along
-    /// `axes`.
+    /// `dimensions`.
     pub(crate) fn new<T: Numeric>(
         #[comptime] m: usize,
         #[comptime] n: usize,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
     ) -> WgmmaData {
         comptime!(assert!(
             m == PLANE_GROUP_M,
@@ -47,7 +47,7 @@ impl WgmmaData {
                     .downcast_unchecked::<Held>()
             },
             n,
-            axes,
+            dimensions,
         }
     }
 
@@ -57,7 +57,7 @@ impl WgmmaData {
     }
 
     /// Issue `self += lhs · rhs`, `out` the tile's window, over the whole of the windows' `k`, one
-    /// MMA a step. Both windows lie in shared memory, K-major along their one contracted axis,
+    /// MMA a step. Both windows lie in shared memory, K-major along their one contracted dimension,
     /// their rows one swizzle span long.
     pub(crate) fn mma<T: Numeric, L: Numeric, R: Numeric>(
         &mut self,
@@ -116,7 +116,7 @@ impl WgmmaData {
         ));
         let acc = self.acc.downcast::<T>().wait();
         let unit = ComputeScope::unit(ComputeScope::MMA_PLANE_GROUP) as u32;
-        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, comptime!(self.axes), space);
+        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, comptime!(self.dimensions), space);
         #[unroll]
         for nth in 0..acc.len() {
             let at = acc.position_of_nth(unit, nth as u32);
@@ -128,24 +128,27 @@ impl WgmmaData {
 }
 
 /// Panics unless `lhs` and `rhs` are the windows one plane group MMA tile of `n` columns reads into
-/// `out`: one contracted axis, the trailing one of both, which a descriptor steps along; the
-/// lhs's other axes the plane group's rows, the rhs's its `n` columns. Where a window starts is
-/// known only at run time and is not checked: the descriptor's base address takes it to start a
+/// `out`: one contracted dimension, the trailing one of both, which a descriptor steps along; the
+/// lhs's other dimensions the plane group's rows, the rhs's its `n` columns. Where a window starts
+/// is known only at run time and is not checked: the descriptor's base address takes it to start a
 /// multiple of the eight rows a swizzle pattern repeats over, as a window cut whole out of its
 /// stage does, being a whole number of its own rows in.
 fn assert_operands_fit(lhs: &Space, rhs: &Space, out: &Space, n: usize) {
-    let contracted: Vec<_> = lhs.axes().filter(|&axis| !out.contains(axis)).collect();
-    let k = lhs.axis_at(lhs.rank() - 1);
+    let contracted: Vec<_> = lhs
+        .dimensions()
+        .filter(|&dimension| !out.contains(dimension))
+        .collect();
+    let k = lhs.dimension_at(lhs.rank() - 1);
     assert!(
-        contracted == [k] && rhs.axis_at(rhs.rank() - 1) == k,
-        "WgmmaData::mma: a plane group MMA contracts one axis, the trailing one of both operands; \
+        contracted == [k] && rhs.dimension_at(rhs.rank() - 1) == k,
+        "WgmmaData::mma: a plane group MMA contracts one dimension, the trailing one of both operands; \
          these contract {contracted:?}, the lhs {lhs:?} and the rhs {rhs:?}"
     );
     let rows = |space: &Space| {
         space
-            .axes()
-            .filter(|&axis| axis != k)
-            .map(|axis| space.extent(axis))
+            .dimensions()
+            .filter(|&dimension| dimension != k)
+            .map(|dimension| space.extent(dimension))
             .product::<usize>()
     };
     assert!(
@@ -157,7 +160,7 @@ fn assert_operands_fit(lhs: &Space, rhs: &Space, out: &Space, n: usize) {
     );
 }
 
-/// The extent of `space`'s trailing axis, the contiguous one.
+/// The extent of `space`'s trailing dimension, the contiguous one.
 fn trailing_extent(space: &Space) -> usize {
     space.extent_at(space.rank() - 1)
 }

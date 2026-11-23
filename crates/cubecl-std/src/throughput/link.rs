@@ -5,7 +5,6 @@ use cubecl_runtime::{
     client::{Client, ClientGroup},
     execution::{StreamMode, StreamModeOverride},
     logging::TransferRoute,
-    server::PeerAccess,
     throughput::{
         DEFAULT_WORKING_SET_BYTES, KernelConfig, LinkKey, LinkRoute, MemoryCurve, MemoryPoint,
         ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputValue, Traffic,
@@ -14,7 +13,9 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::{
-    ShapeSweep, link_collective, link_peer, link_peer::MAX_BYTES, link_transfer,
+    ShapeSweep, link_collective,
+    link_peer::{MAX_BYTES, PeerCopier, PeerCopyKind},
+    link_transfer,
 };
 
 /// One link probe at a time in the process. A probe holds several devices, which no device's
@@ -140,8 +141,18 @@ impl<'a> LinkProber<'a> {
         };
         match route {
             LinkRoute::Transfer(_) => link_transfer::build_kernel(source, destination, bytes),
-            LinkRoute::PeerLoad => link_peer::build_load(source, destination, bytes),
-            LinkRoute::PeerStore => link_peer::build_store(source, destination, bytes),
+            LinkRoute::PeerLoad => {
+                PeerCopier::pair(source, destination, PeerCopyKind::Load, bytes)?.into_config()
+            }
+            LinkRoute::PeerStore => {
+                PeerCopier::pair(source, destination, PeerCopyKind::Store, bytes)?.into_config()
+            }
+            LinkRoute::RingPeerStore => {
+                PeerCopier::ring(self.members, PeerCopyKind::Store, bytes)?.into_config()
+            }
+            LinkRoute::RingPeerLoad => {
+                PeerCopier::ring(self.members, PeerCopyKind::Load, bytes)?.into_config()
+            }
             LinkRoute::Collective(kind) => self
                 .group()
                 .ok_or(ThroughputError::Unsupported)
@@ -159,10 +170,16 @@ impl<'a> LinkProber<'a> {
                 transfer_route(source, destination) == taken
             }
             (LinkRoute::PeerLoad, [source, destination]) => {
-                destination.peer_access(source) >= PeerAccess::Memory
+                PeerCopyKind::Load.reaches(source, destination)
             }
             (LinkRoute::PeerStore, [source, destination]) => {
-                source.peer_access(destination) >= PeerAccess::Memory
+                PeerCopyKind::Store.reaches(source, destination)
+            }
+            (LinkRoute::RingPeerStore, _) => {
+                PeerCopier::supports_ring(self.members, PeerCopyKind::Store)
+            }
+            (LinkRoute::RingPeerLoad, _) => {
+                PeerCopier::supports_ring(self.members, PeerCopyKind::Load)
             }
             (LinkRoute::Collective(_), [_, _, ..]) => self.group().is_some(),
             _ => false,
@@ -181,7 +198,7 @@ impl<'a> LinkProber<'a> {
     /// member cannot allocate the buffers it holds at that size.
     fn size_cap(&self, route: LinkRoute) -> u64 {
         let buffers = match route {
-            LinkRoute::Collective(_) => 2,
+            LinkRoute::Collective(_) | LinkRoute::RingPeerStore | LinkRoute::RingPeerLoad => 2,
             LinkRoute::Transfer(_) | LinkRoute::PeerLoad | LinkRoute::PeerStore => 1,
         };
         self.members

@@ -7,8 +7,8 @@
 //! and queue code register their destructors lazily, on each first use, so some are always
 //! registered after any handler of ours and run before it.
 //!
-//! What runs ahead of every exit handler, on Linux with glibc, is the exiting thread's
-//! thread-local destructors. A guard armed on the main thread before `main` closes the
+//! What runs ahead of every exit handler, on Linux with glibc and on macOS, is the exiting
+//! thread's thread-local destructors. A guard armed on the main thread before `main` closes the
 //! services when the main thread exits, which is how a process ends when `main` returns or
 //! calls [`std::process::exit`]. An exit handler covers an exit from another thread and the
 //! other platforms, ahead of whatever teardown was registered before it.
@@ -150,10 +150,11 @@ mod handler {
         }
     }
 
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
     mod main_thread {
         /// Closes the services when the main thread's thread-locals are destroyed, which glibc
-        /// does before it runs any exit handler.
+        /// and macOS do before they run any exit handler: past that point a close can no longer
+        /// reach `std::thread::current()`.
         struct ExitGuard;
 
         impl Drop for ExitGuard {
@@ -170,17 +171,28 @@ mod handler {
         /// when that thread ends, with the process still running. A library loaded later from
         /// another thread has no guard, and relies on the exit handler.
         extern "C" fn arm() {
-            // SAFETY: both only read the calling process's and thread's ids.
-            let main_thread = unsafe { libc::getpid() == libc::gettid() };
-            if main_thread {
+            if is_main_thread() {
                 GUARD.with(|_| ());
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        fn is_main_thread() -> bool {
+            // SAFETY: both only read the calling process's and thread's ids.
+            unsafe { libc::getpid() == libc::gettid() }
+        }
+
+        #[cfg(target_os = "macos")]
+        fn is_main_thread() -> bool {
+            // SAFETY: only reads whether the calling thread is the process's first.
+            unsafe { libc::pthread_main_np() != 0 }
         }
 
         // Before `main`, on the main thread, so the guard is armed whichever thread opens a
         // device later.
         #[used]
-        #[unsafe(link_section = ".init_array")]
+        #[cfg_attr(target_os = "linux", unsafe(link_section = ".init_array"))]
+        #[cfg_attr(target_os = "macos", unsafe(link_section = "__DATA,__mod_init_func"))]
         static ARM: extern "C" fn() = arm;
     }
 }

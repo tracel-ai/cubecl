@@ -12,13 +12,13 @@ pub(crate) type MatrixView<'a, T> = Masked<'a, T, Coords2d>;
 pub(crate) type MatrixViewMut<'a, T> = MaskedMut<'a, T, Coords2d>;
 
 /// A [`Layout`] presenting a tile's logical box as one `(row, col)` matrix: a pinned batch
-/// prefix, then the axes `row` unravels over, then those `col` unravels over (in lines).
+/// prefix, then the dimensions `row` unravels over, then those `col` unravels over (in lines).
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct TileMatrix {
     /// Leading coordinates, already resolved to this matrix.
     batches: Coords<u32>,
-    /// The group `row` unravels over, in the space's axis order.
+    /// The group `row` unravels over, in the space's dimension order.
     row_extents: Coords<u32>,
     /// The group `col` unravels over, the innermost a line count.
     col_extents: Coords<u32>,
@@ -45,49 +45,57 @@ impl TileMatrix {
         }
     }
 
-    /// The `i`-th matrix of a tile whose window is `bound`, over the axes [`MatrixAxes`] names,
-    /// each axis counted in `load`s: a run along the innermost axis for a plain buffer, and for one
-    /// stored in tiles, every axis the load spans ([`VectorTile::counts`]).
+    /// The `i`-th matrix of a tile whose window is `bound`, over the dimensions
+    /// [`MatrixDimensions`] names, each dimension counted in `load`s: a run along the innermost
+    /// dimension for a plain buffer, and for one stored in tiles, every dimension the load spans
+    /// ([`VectorTile::counts`]).
     pub(crate) fn batch(
         bound: &Coords<u32>,
         #[comptime] space: &Space,
         #[comptime] composition: Composition,
         #[comptime] load: &VectorTile,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         i: usize,
     ) -> Self {
         let rank = space.rank();
         // Rounded up like the buffer's own load count, so a checked read covers a partial last
         // load.
         let counts = load.counts(space);
-        // A row, or a column, steps the innermost axis of its group, so a load may reach along that
-        // axis and no other: the loads of a group are then consecutive rows (or columns), in order.
-        // An axis of one inside a group steps nothing, so the innermost is the last one past one.
+        // A row, or a column, steps the innermost dimension of its group, so a load may reach along
+        // that dimension and no other: the loads of a group are then consecutive rows (or columns),
+        // in order. A dimension of one inside a group steps nothing, so the innermost is the last
+        // one past one.
         let row_edge = comptime!(TileMatrix::innermost_past_one(
             space,
-            axes.row_split..axes.col_split
+            dimensions.row_split..dimensions.col_split
         ));
-        let col_edge = comptime!(TileMatrix::innermost_past_one(space, axes.col_split..rank));
+        let col_edge = comptime!(TileMatrix::innermost_past_one(
+            space,
+            dimensions.col_split..rank
+        ));
         comptime!(assert!(
             (0..rank).all(|p| counts[p] == space.extent_at(p)
                 || Some(p) == row_edge
                 || Some(p) == col_edge),
-            "TileMatrix::batch: a load of {:?} over {space:?} reaches along an axis that is neither the \
+            "TileMatrix::batch: a load of {:?} over {space:?} reaches along a dimension that is neither the \
              innermost of the matrix's rows nor of its columns",
             load.extents()
         ));
         let rows = comptime!(
-            counts[axes.row_split..axes.col_split]
+            counts[dimensions.row_split..dimensions.col_split]
                 .iter()
                 .product::<usize>()
         );
-        let cols = comptime!(counts[axes.col_split..rank].iter().product::<usize>());
-        let extents = Self::leading_extents(bound, comptime!(space), composition, axes.row_split);
+        let cols = comptime!(counts[dimensions.col_split..rank].iter().product::<usize>());
+        let extents =
+            Self::leading_extents(bound, comptime!(space), composition, dimensions.row_split);
 
         Self::new(
             extents.unravel(i.cast::<u32>()),
-            Coords::constant(comptime!(counts[axes.row_split..axes.col_split].to_vec())),
-            Coords::constant(comptime!(counts[axes.col_split..rank].to_vec())),
+            Coords::constant(comptime!(
+                counts[dimensions.row_split..dimensions.col_split].to_vec()
+            )),
+            Coords::constant(comptime!(counts[dimensions.col_split..rank].to_vec())),
             rows,
             cols,
         )
@@ -99,13 +107,13 @@ impl TileMatrix {
         col: u32,
         i: usize,
         #[comptime] space: &Space,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         #[comptime] vector_size: usize,
     ) -> Coords<u32> {
         let rank = space.rank();
         let mut coords = Coords::<u32>::new();
         let batches = Coords::constant(comptime!(
-            (0..axes.row_split)
+            (0..dimensions.row_split)
                 .map(|p| space.extent_at(p))
                 .collect::<Vec<_>>()
         ))
@@ -115,7 +123,7 @@ impl TileMatrix {
             coords.push(batches.at(p));
         }
         let rows = Coords::constant(comptime!(
-            (axes.row_split..axes.col_split)
+            (dimensions.row_split..dimensions.col_split)
                 .map(|p| space.extent_at(p))
                 .collect::<Vec<_>>()
         ))
@@ -128,7 +136,7 @@ impl TileMatrix {
         let cols = Coords::constant(comptime!(line_extents(
             space,
             vector_size,
-            axes.col_split,
+            dimensions.col_split,
             rank
         )))
         .unravel(col);
@@ -152,7 +160,7 @@ impl TileMatrix {
         #[comptime] cols: usize,
     ) -> Self {
         let rank = space.rank();
-        let split = comptime!(MatrixAxes::whole(space, rows, cols, vector_size).col_split);
+        let split = comptime!(MatrixDimensions::whole(space, rows, cols, vector_size).col_split);
 
         Self::new(
             Coords::<u32>::new(),
@@ -163,7 +171,7 @@ impl TileMatrix {
         )
     }
 
-    /// The leading (batch) extents a matrix index unravels over, in the space's axis order.
+    /// The leading (batch) extents a matrix index unravels over, in the space's dimension order.
     fn leading_extents(
         bound: &Coords<u32>,
         #[comptime] space: &Space,
@@ -174,7 +182,7 @@ impl TileMatrix {
 
         #[unroll]
         for p in 0..upto {
-            // A partition's windows tile, so the window still sizes every logical axis.
+            // A partition's windows tile, so the window still sizes every dimension.
             if comptime!(composition != Composition::Disjoint) {
                 out.push(comptime!(space.extent_at(p) as u32));
             } else {
@@ -187,8 +195,8 @@ impl TileMatrix {
 }
 
 impl TileMatrix {
-    /// The last position of `group` whose axis reaches past one in `space`: the axis a row (or a
-    /// column) of that group steps.
+    /// The last position of `group` whose dimension reaches past one in `space`: the dimension a
+    /// row (or a column) of that group steps.
     fn innermost_past_one(space: &Space, group: core::ops::Range<usize>) -> Option<usize> {
         group.rev().find(|&p| space.extent_at(p) > 1)
     }
@@ -225,14 +233,14 @@ impl Layout for TileMatrix {
 
 #[cube]
 impl Tile {
-    /// The `i`-th batch matrix over `axes`, unpacked if packed.
+    /// The `i`-th batch matrix over `dimensions`, unpacked if packed.
     pub(crate) fn matrix_packed<T: Numeric, W: Size>(
         &self,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         i: usize,
     ) -> MatrixView<'_, Vector<T, W>> {
         let g = self.mem("matrix");
-        let layout = g.batch_matrix(&self.place.space, axes, i);
+        let layout = g.batch_matrix(&self.place.space, dimensions, i);
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 
