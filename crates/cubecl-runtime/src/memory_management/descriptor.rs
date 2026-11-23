@@ -91,6 +91,12 @@ impl ManagedMemoryDescriptor {
         self.location().init != 0
     }
 
+    /// Whether this is host memory a device [imported](crate::client::Client::import_host).
+    #[doc(hidden)]
+    pub fn is_imported(&self) -> bool {
+        self.location().pool == super::IMPORTED_POOL_POS
+    }
+
     /// The index of the allocation's slice in its page.
     #[doc(hidden)]
     pub fn slice(&self) -> usize {

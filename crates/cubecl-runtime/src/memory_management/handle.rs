@@ -30,9 +30,15 @@ impl ManagedMemoryHandle {
     }
 
     /// Whether this handle and the pool's are the only handles, so the
-    /// allocation can be written in place.
+    /// allocation can be written in place: never for imported host memory, which the host reads
+    /// too.
     pub fn can_mut(&self) -> bool {
-        Arc::strong_count(&self.handle_count) <= 2
+        Arc::strong_count(&self.handle_count) <= 2 && !self.is_imported()
+    }
+
+    /// Whether this is host memory a device [imported](crate::client::Client::import_host).
+    pub fn is_imported(&self) -> bool {
+        self.descriptor.is_imported()
     }
 
     /// Whether a [binding](Self::binding) is out: something holds the

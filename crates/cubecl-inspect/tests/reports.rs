@@ -339,6 +339,7 @@ fn fixture(dir: &Path) -> PathBuf {
                         dynamic: vec![pool.clone()],
                         persistent: pool.clone(),
                         dedicated: pool,
+                        imported: MemoryPoolReport::empty_direct(),
                     },
                     auxiliary: Vec::new(),
                 }],

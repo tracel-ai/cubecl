@@ -9,18 +9,19 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, CommunicationSkips, CommunicationTiming,
-        ComputeWait, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
+        ComputeWait, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, KernelResource,
         MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding,
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{ManagedResource, StorageAllocator},
+    storage::{HOST_MEMORY_ALIGNMENT, HostMemory, ManagedResource, StorageAllocator},
     throughput::{
         CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::any::{Any, TypeId};
+use core::ops::Range;
 
 mod group;
 #[cfg(not(target_family = "wasm"))]
@@ -933,6 +934,76 @@ impl Client {
         self.do_empty(vec![descriptor]).remove(0).memory
     }
 
+    /// A handle to `range` of `host`, which this device's kernels read in place: nothing is copied
+    /// to the device. Kernels only read it, since the host reads the same bytes with nothing
+    /// ordering the two.
+    ///
+    /// Several devices may import the same memory, and one device several ranges of it. Each
+    /// imports it on its own: [sharing](Self::share_with_peers) it and collectives refuse it.
+    ///
+    /// # Assumptions
+    ///
+    /// - No stream records a graph on the thread that drops the last owner of `host`: HIP refuses
+    ///   to unpin then, which fails the recording.
+    /// - No [resource](Self::get_resource) of the handle outlives its device's service, which lets
+    ///   go of the import as it closes.
+    ///
+    /// # Guarantees
+    ///
+    /// - `host` lives until the last work reading the handle completes. Once nothing holds the
+    ///   handle, a binding of it or a graph reading it, an import or
+    ///   [cleanup](Self::memory_cleanup) on the stream that imported it queues the release behind
+    ///   that work, and a later one lets go of `host` once the release completes.
+    /// - The handle is never [mutable in place](Handle::can_mut), and a [write](Self::write) to
+    ///   it, or a launch that may write it, fails the handle.
+    /// - A graph records kernels reading an import made before the recording.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when the device lacks
+    /// [`Features::host_memory_import`], when a stream of the device records a graph, when
+    /// `range` is empty, past the end of `host` or not aligned to [`HOST_MEMORY_ALIGNMENT`], or
+    /// when the driver refuses it, such as past a limit on the memory it pins.
+    pub fn import_host(
+        &self,
+        host: &Arc<HostMemory>,
+        range: Range<u64>,
+    ) -> Result<Handle, ServerError> {
+        let refused = |reason: String| -> ServerError {
+            IoError::HostMemoryRefused {
+                reason: reason.into(),
+                backtrace: BackTrace::capture(),
+            }
+            .into()
+        };
+        if !self.features().host_memory_import {
+            return Err(refused(format!(
+                "{} imports no host memory",
+                self.service_id()
+            )));
+        }
+        let alignment = HOST_MEMORY_ALIGNMENT as u64;
+        if range.is_empty()
+            || range.end > host.len() as u64
+            || !range.start.is_multiple_of(alignment)
+            || !range.end.is_multiple_of(alignment)
+        {
+            return Err(refused(format!(
+                "range {range:?} of {} bytes: it must be non-empty, inside and aligned to {alignment}",
+                host.len()
+            )));
+        }
+
+        let stream_id = self.stream_id();
+        let handle = Handle::new(self.service_id(), stream_id, range.end - range.start);
+        let memory = handle.memory.clone();
+        let host = host.clone();
+        self.device
+            .submit_blocking(move |server| server.import_host(memory, host, range, stream_id))
+            .closed_as_error()?;
+        Ok(handle)
+    }
+
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [`Client::create_tensor`]
     pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
@@ -1024,12 +1095,21 @@ impl Client {
     /// # Errors
     ///
     /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
-    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
+    /// [`ServerError::ForeignHandle`] for a handle of another client,
+    /// [`IoError::HostMemoryRefused`] for [imported](Self::import_host) host memory, and the
     /// failure the buffer carries.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
         let binding = handle.to_binding();
         self.local(&binding)?;
+        // A peer would hold the address without the host memory behind it, and could write it.
+        if handle.memory.is_imported() {
+            return Err(IoError::HostMemoryRefused {
+                reason: "imported host memory is shared by importing it on each device".into(),
+                backtrace: BackTrace::capture(),
+            }
+            .into());
+        }
         // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
             offset_start: None,
@@ -1050,7 +1130,8 @@ impl Client {
     ///
     /// `src` must be this client's. The bytes go device to device when both
     /// clients are of the same runtime and it has a collective transport;
-    /// otherwise, and always across runtimes, they go through the host.
+    /// otherwise, and always across runtimes or from
+    /// [imported](Self::import_host) host memory, they go through the host.
     ///
     /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
     /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
@@ -1058,10 +1139,11 @@ impl Client {
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
         self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
+        let imported = src.memory.is_imported();
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
-        if self.has_device_transport() && same_runtime {
+        if self.has_device_transport() && same_runtime && !imported {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -1226,6 +1308,20 @@ impl Client {
     /// queueing them stops with it. It queues nothing while this client discards communication
     /// ([`discards_communication`](Self::discards_communication)), whatever its peers do, since
     /// reading theirs would load their clients on every call.
+    ///
+    /// # Assumptions
+    ///
+    /// `src` is a whole number of `dtype` elements, and `dst` holds as many bytes.
+    ///
+    /// # Guarantees
+    ///
+    /// A reduction queued with [imported](Self::import_host) host memory fails: `dst` carries
+    /// [`IoError::HostMemoryRefused`].
+    ///
+    /// # Panics
+    ///
+    /// When `src` or `dst` breaks the Assumptions, before anything is queued here; peers already
+    /// queued are left waiting.
     pub fn all_reduce(
         &mut self,
         src: Handle,
@@ -1457,6 +1553,15 @@ impl Client {
     ///
     /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
     /// waits on the source, whose queue may hold a transfer waiting on the destination's.
+    ///
+    /// # Assumptions
+    ///
+    /// The source is not [imported](Self::import_host) host memory, which the destination's
+    /// device imports on its own.
+    ///
+    /// # Panics
+    ///
+    /// When the source is imported host memory, breaking the Assumption.
     pub fn to_client_tensor(
         &mut self,
         src_descriptor: CopyDescriptor,
@@ -1464,6 +1569,10 @@ impl Client {
     ) -> Handle {
         self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
+        assert!(
+            !src_descriptor.handle.memory.descriptor().is_imported(),
+            "a device to device transfer refuses imported host memory"
+        );
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
@@ -2260,6 +2369,9 @@ impl Client {
         let elem_size = src_descriptor.elem_size;
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
+        // A runtime that imports host memory carries a failed import's read onto its copy.
+        let carried = src_descriptor.handle.memory.descriptor().is_imported()
+            && dst_server.service_id().service == self.service_id().service;
         let transfer = crate::logging::issue(|| {
             ExecutionKind::Communication(Communication::Transfer {
                 from: self.service_id(),
@@ -2276,7 +2388,12 @@ impl Client {
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id_src))
             .closed_as_error();
 
-        let mut data = cubecl_environment::future::block_on(read).unwrap();
+        let read = cubecl_environment::future::block_on(read);
+        if let Err(error) = &read
+            && !carried
+        {
+            panic!("a transfer through the host should read its source: {error}");
+        }
         if let Some((transfer, started)) = transfer {
             let read = ProfileDuration::new_system_time(started, Instant::now());
             transfer.deliver_unread(read);
@@ -2306,9 +2423,15 @@ impl Client {
             // buffer and is reported at the next sync point.
             if server
                 .initialize_memory(memory, size, stream_id_dst)
-                .is_ok()
+                .is_err()
             {
-                server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+                return;
+            }
+            match read {
+                Ok(mut data) => {
+                    server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+                }
+                Err(error) => server.peer_wrote(vec![desc_descriptor.handle], Some(error)),
             }
         });
 

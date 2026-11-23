@@ -1,5 +1,9 @@
-use super::{StorageHandle, StorageId};
+use super::{HostMemory, StorageHandle, StorageId};
 use crate::server::IoError;
+use alloc::format;
+use alloc::sync::Arc;
+use core::ops::Range;
+use cubecl_environment::backtrace::BackTrace;
 
 /// What a runtime allocates device memory with: the pools carve their pages
 /// from it and hand its allocations back to it.
@@ -30,6 +34,31 @@ pub trait StorageAllocator: Send {
     /// Every implementation returns an error when the device cannot hold
     /// `size` more bytes, and may return one for a size it does not accept.
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError>;
+
+    /// Make `range` of `memory` readable by this device's kernels in place, and a handle to it.
+    ///
+    /// # Guarantees
+    ///
+    /// Every implementation keeps `memory` until the device's last work on the handle completes,
+    /// which can be after its id is [deallocated](Self::deallocate), and registers it through
+    /// [`HostMemory::register`] when the registration covers every device.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when this storage imports no host memory, which is the
+    /// default, `range` is not an aligned range of `memory`, or the driver refuses the
+    /// registration.
+    fn import_host(
+        &mut self,
+        memory: &Arc<HostMemory>,
+        range: Range<u64>,
+    ) -> Result<StorageHandle, IoError> {
+        let _ = memory;
+        Err(IoError::HostMemoryRefused {
+            reason: format!("this storage imports no host memory (range {range:?})").into(),
+            backtrace: BackTrace::capture(),
+        })
+    }
 
     /// Gives the allocation `id` back. An implementation may defer the
     /// release to the next [`flush`](Self::flush), but never reuses `id`.

@@ -24,6 +24,8 @@ pub(crate) fn is_exiting() -> bool {
 }
 
 #[cfg(multi_threading)]
+pub use handler::OutsideCall;
+#[cfg(multi_threading)]
 pub(crate) use handler::{close_at_exit, forget_device};
 
 #[cfg(multi_threading)]
@@ -54,6 +56,63 @@ mod handler {
     const EXIT_CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
 
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
+
+    /// How many [`OutsideCall`]s are in flight, and the exit's wait for none to be.
+    static OUTSIDE_CALLS: (std::sync::Mutex<usize>, std::sync::Condvar) =
+        (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+    /// A runtime call made on a thread outside every service, such as releasing memory where its
+    /// last owner drops it. The exit waits for those in flight before the runtime's teardown, as
+    /// it does for the services.
+    #[derive(Debug)]
+    pub struct OutsideCall {
+        _private: (),
+    }
+
+    impl OutsideCall {
+        /// Starts one, or returns `None` once the process is exiting, when the runtime may
+        /// already be tearing down and the call must be skipped.
+        pub fn start() -> Option<Self> {
+            let mut calls = lock_outside_calls();
+            // Read under the lock the exit takes after setting it: either this call is counted
+            // before the exit waits, or it sees the exit.
+            if EXITING.load(Ordering::Acquire) {
+                return None;
+            }
+            *calls += 1;
+            Some(Self { _private: () })
+        }
+    }
+
+    impl Drop for OutsideCall {
+        fn drop(&mut self) {
+            let mut calls = lock_outside_calls();
+            *calls -= 1;
+            if *calls == 0 {
+                OUTSIDE_CALLS.1.notify_all();
+            }
+        }
+    }
+
+    fn lock_outside_calls() -> std::sync::MutexGuard<'static, usize> {
+        OUTSIDE_CALLS
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Waits until no [`OutsideCall`] is in flight, or until `deadline`.
+    fn wait_outside_calls(deadline: Instant) {
+        let calls = lock_outside_calls();
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let (calls, _) = OUTSIDE_CALLS
+            .1
+            .wait_timeout_while(calls, timeout, |calls| *calls > 0)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *calls > 0 {
+            log::warn!("{} runtime calls were still running at exit", *calls);
+        }
+    }
 
     #[cfg(not(miri))]
     unsafe extern "C" {
@@ -141,6 +200,7 @@ mod handler {
             let remaining = deadline.saturating_duration_since(Instant::now());
             close_service(service.device_id, service.close, remaining);
         }
+        wait_outside_calls(deadline);
     }
 
     /// Closes one service with `close`, logging a close that failed or ran out of time.

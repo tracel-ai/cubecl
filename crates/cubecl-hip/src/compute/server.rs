@@ -40,13 +40,14 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ManagedResource, StorageAllocator},
+    storage::{HostMemory, ManagedResource},
     stream::{
         ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
         failed_writing,
     },
 };
 use std::collections::HashSet;
+use std::ops::Range;
 use std::sync::Arc;
 
 use crate::compute::status::checked;
@@ -88,6 +89,26 @@ impl Server for HipServer {
             .iter()
             .map(|size| command.reserve_cpu(*size, None))
             .collect())
+    }
+
+    fn import_host(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        host: Arc<HostMemory>,
+        range: Range<u64>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let binding = memory.to_binding();
+        let result = match self.command_no_inputs(stream_id) {
+            Ok(mut command) => command
+                .import_host(memory, &host, range)
+                .map_err(ServerError::from),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = &result {
+            self.streams.fail_unallocated(&binding, error.clone());
+        }
+        result
     }
 
     fn initialize_memory(
@@ -237,6 +258,13 @@ impl Server for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io).cloned());
+        if let Err(error) = bindings.ensure_imports_read(io) {
+            written.extend(bindings.imports_written(io).cloned());
+            let error = ServerError::from(error);
+            peers.failed(&error);
+            failed_writing(self, stream_id, written, error);
+            return;
+        }
         // A peer input that carries a failure stops the launch as a failed
         // input of this device would: nothing runs on its stale bytes.
         if let Some(error) = peers.input_failure() {
@@ -277,7 +305,7 @@ impl Server for HipServer {
         // left unwritten, and a read of one of them is what surfaces it.
         let mut command = self.command_no_inputs(stream_id)?;
         command.flush_drops();
-        command.stream().memory_management_gpu.storage().flush();
+        command.flush_storage();
 
         Ok(())
     }

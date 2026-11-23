@@ -40,6 +40,10 @@ pub struct Features {
     /// Whether vectors can be read from / stored to addresses not aligned
     /// with the `vector_size`
     pub unaligned_io: bool,
+    /// Whether kernels read host memory in place once the device imports it, with no copy to the
+    /// device.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub host_memory_import: bool,
 }
 
 /// Type support for a device

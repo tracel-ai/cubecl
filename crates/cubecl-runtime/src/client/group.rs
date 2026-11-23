@@ -153,16 +153,43 @@ impl ClientGroup {
 
     /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be
     /// its `dst`.
+    ///
+    /// # Assumptions
+    ///
+    /// Every buffer fits the collective: on its member's device, of the size the collective
+    /// takes, and not [imported](Client::import_host) host memory.
+    ///
+    /// # Panics
+    ///
+    /// When a buffer breaks the Assumption, before anything is queued.
     pub fn all_reduce(&self, buffers: Vec<MemberBuffers>, dtype: ElemType, op: ReduceOperation) {
         self.exchange(Exchange::AllReduce(Reduction { dtype, op }), buffers);
     }
 
     /// Every member's `dst` receives every member's `src`, concatenated in member order.
+    ///
+    /// # Assumptions
+    ///
+    /// Every buffer fits the collective: on its member's device, of the size the collective
+    /// takes, and not [imported](Client::import_host) host memory.
+    ///
+    /// # Panics
+    ///
+    /// When a buffer breaks the Assumption, before anything is queued.
     pub fn all_gather(&self, buffers: Vec<MemberBuffers>) {
         self.exchange(Exchange::AllGather, buffers);
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src` reduced by `op`.
+    ///
+    /// # Assumptions
+    ///
+    /// Every buffer fits the collective: on its member's device, of the size the collective
+    /// takes, and not [imported](Client::import_host) host memory.
+    ///
+    /// # Panics
+    ///
+    /// When a buffer breaks the Assumption, before anything is queued.
     pub fn reduce_scatter(
         &self,
         buffers: Vec<MemberBuffers>,
@@ -174,6 +201,15 @@ impl ClientGroup {
 
     /// Every member's `dst` receives `src`, sent by the member whose device holds it. That
     /// member's `dst` may be `src`.
+    ///
+    /// # Assumptions
+    ///
+    /// Every buffer fits the collective: on its member's device, of the size the collective
+    /// takes, and not [imported](Client::import_host) host memory.
+    ///
+    /// # Panics
+    ///
+    /// When a buffer breaks the Assumption, before anything is queued.
     pub fn broadcast(&self, src: Handle, dst: Vec<Handle>) {
         let collective = Collective::Broadcast;
         self.expect_parts(collective, dst.len());
@@ -188,8 +224,10 @@ impl ClientGroup {
                 )
             });
         self.expect_member_buffers(collective, root, &src, &dst[root], InPlace::Allowed);
+        Self::expect_not_imported(collective, root, &src);
         for (member, dst) in dst.iter().enumerate() {
             self.expect_on_member(member, dst);
+            Self::expect_not_imported(collective, member, dst);
         }
         Self::expect_sizes(
             collective,
@@ -208,6 +246,15 @@ impl ClientGroup {
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src`, concatenated in member
     /// order.
+    ///
+    /// # Assumptions
+    ///
+    /// Every buffer fits the collective: on its member's device, of the size the collective
+    /// takes, and not [imported](Client::import_host) host memory.
+    ///
+    /// # Panics
+    ///
+    /// When a buffer breaks the Assumption, before anything is queued.
     pub fn all_to_all(&self, buffers: Vec<MemberBuffers>) {
         self.exchange(Exchange::AllToAll, buffers);
     }
@@ -250,6 +297,8 @@ impl ClientGroup {
         );
         for (rank, buffers) in buffers.iter().enumerate() {
             exchange.expect_part(self, rank, buffers);
+            Self::expect_not_imported(collective, rank, &buffers.src);
+            Self::expect_not_imported(collective, rank, &buffers.dst);
         }
         self.queue(
             collective,
@@ -306,6 +355,15 @@ impl ClientGroup {
                 (Overlap::Disjoint, _) | (Overlap::Same, InPlace::Allowed)
             ),
             "member {member}'s {collective} source and destination overlap ({overlap:?})"
+        );
+    }
+
+    /// The server refuses imported memory too, but only on its own member: the others would wait
+    /// in the collective for it forever.
+    fn expect_not_imported(collective: Collective, member: usize, handle: &Handle) {
+        assert!(
+            !handle.memory.is_imported(),
+            "member {member}'s {collective} buffer is imported host memory, which collectives refuse"
         );
     }
 
@@ -405,6 +463,19 @@ pub struct MemberPart {
 impl MemberPart {
     /// Checks and queues this member's part, then hands it to its device at once: the peers
     /// queueing theirs wait in it on their devices until it arrives.
+    ///
+    /// # Assumptions
+    ///
+    /// Every buffer fits this member's part: on its device, and of the size the part takes.
+    ///
+    /// # Guarantees
+    ///
+    /// A part queued with an [imported](Client::import_host) buffer fails: its destination
+    /// carries [`IoError::HostMemoryRefused`](crate::server::IoError::HostMemoryRefused).
+    ///
+    /// # Panics
+    ///
+    /// When a buffer breaks the Assumption. Peers that queued their parts are left waiting.
     pub fn queue(self, buffers: MemberBuffers) {
         ClientGroup::expect_size(
             self.exchange.collective(),

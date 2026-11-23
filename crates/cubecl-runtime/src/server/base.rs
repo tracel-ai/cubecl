@@ -1,5 +1,6 @@
 use super::{CaptureStatus, DeviceCaptures, Handle};
 use crate::kernel::BufferIOAttr;
+use crate::storage::HostMemory;
 use crate::{
     client::Client,
     compiler::CompilationError,
@@ -17,6 +18,7 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
+use core::ops::Range;
 use core::{
     fmt::{Debug, Display},
     hash::{BuildHasher, Hash},
@@ -857,6 +859,42 @@ pub trait Server:
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
 
+    /// Give `memory` `range` of `host`, which this device's kernels then read in place, on the
+    /// given [stream](StreamId).
+    ///
+    /// # Assumptions
+    ///
+    /// `range` lies in `host` and is aligned to
+    /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT).
+    ///
+    /// # Guarantees
+    ///
+    /// Every implementation keeps `host` until the last work queued on it completes, on any
+    /// stream, refuses every launch that may write it
+    /// ([`ensure_imports_read`](KernelArguments::ensure_imports_read)), and refuses the import
+    /// while a stream records a graph.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when the device imports no host memory, which is the
+    /// default, a stream records a graph, or the driver refuses the range. A runtime that
+    /// imports records the error on the memory, as in
+    /// [`initialize_memory`](Self::initialize_memory).
+    fn import_host(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        host: Arc<HostMemory>,
+        range: Range<u64>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let _ = (memory, host, stream_id);
+        Err(IoError::HostMemoryRefused {
+            reason: alloc::format!("this runtime imports no host memory (range {range:?})").into(),
+            backtrace: BackTrace::capture(),
+        }
+        .into())
+    }
+
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
         &mut self,
@@ -1477,7 +1515,8 @@ pub trait ServerCommunication {
     /// A failure taints them as a failed launch here would, so a read fails
     /// on the cause, and an enqueued write releases a failure they carried.
     /// The default does nothing: a runtime without peer access never shares
-    /// a buffer.
+    /// a buffer. A runtime that [imports](crate::client::Client::import_host)
+    /// host memory taints them, which a host copy of a failed import relies on.
     #[allow(unused_variables)]
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
 }
@@ -1871,6 +1910,18 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// Host memory could not be allocated, or a device could not import it: a pinning or
+    /// registration limit of the driver, a range the device cannot import, or a device that
+    /// imports none ([`Features::host_memory_import`](cubecl_ir::Features::host_memory_import)).
+    #[error("host memory refused: {reason}\n{backtrace}")]
+    HostMemoryRefused {
+        /// What was asked, and what refused it.
+        reason: Reason,
+        /// The backtrace.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// The current IO operation is not supported
     #[error("The current IO operation is not supported\n{backtrace}")]
     UnsupportedIoOperation {
@@ -2103,6 +2154,42 @@ impl KernelArguments {
                     .map(|io| io.is_writable())
                     .unwrap_or(true);
                 written.then_some(binding)
+            })
+    }
+
+    /// Whether the kernel only reads every [imported](crate::client::Client::import_host)
+    /// buffer it was given, per `compiled`, the compiler's own answer.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] for an imported buffer the kernel writes or the compiler
+    /// kept no answer for: the caller's declaration cannot vouch for a kernel it did not compile.
+    pub fn ensure_imports_read(&self, compiled: Option<&[BufferIOAttr]>) -> Result<(), IoError> {
+        match self.imports_written(compiled).next() {
+            Some(_) => Err(IoError::HostMemoryRefused {
+                reason: "a buffer is imported host memory the kernel may write".into(),
+                backtrace: BackTrace::capture(),
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// The [imported](crate::client::Client::import_host) buffers the kernel may write, per
+    /// `compiled`, which [`ensure_imports_read`](Self::ensure_imports_read) refuses: the ones a
+    /// refused launch fails.
+    pub fn imports_written<'a>(
+        &'a self,
+        compiled: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a BufferBinding> {
+        self.resources
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
+                let written = compiled
+                    .and_then(|io| io.get(index))
+                    .is_none_or(|io| io.is_writable());
+                (binding.memory.descriptor().is_imported() && written).then_some(binding)
             })
     }
 

@@ -92,7 +92,7 @@ impl EventStreamBackend for HipStreamBackend {
             checked("hipStreamCreateWithFlags", stream_status)?;
             stream
         };
-        let storage = GpuStorage::new();
+        let storage = GpuStorage::new(stream);
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,

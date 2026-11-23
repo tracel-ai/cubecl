@@ -200,6 +200,7 @@ impl DeviceService for HipServer {
             .features
             .plane
             .insert(Plane::NonUniformControlFlow);
+        device_props.features.host_memory_import = probe.can_map_host_memory;
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);
         register_mma_features(supported_mma_combinations, &mut device_props);
@@ -449,6 +450,7 @@ struct DeviceProbe {
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
     integrated: bool,
+    can_map_host_memory: bool,
     physical: PhysicalDevice,
 }
 
@@ -489,6 +491,7 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
+            can_map_host_memory: props.canMapHostMemory != 0,
             physical,
         }
     }

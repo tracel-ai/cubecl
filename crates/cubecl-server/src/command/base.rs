@@ -25,12 +25,14 @@ use crate::memory_management::{Cleanup, release_or_leak};
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
 };
-use crate::storage::ManagedResource;
+use crate::storage::{HostMemory, ManagedResource, StorageAllocator};
 use crate::stream::ResolvedStreams;
 use crate::stream::{Placement, TouchedPage};
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::ops::Range;
 use cubecl_common::{bytes::Bytes, device::ServiceId};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
@@ -344,6 +346,55 @@ impl<'a, D: Driver> Command<'a, D> {
         Ok(())
     }
 
+    /// Release what the current stream's storage deferred.
+    ///
+    /// # Guarantees
+    ///
+    /// Releases nothing while a stream of the device records: freeing memory, or letting go of an
+    /// import, fails a recording on drivers such as HIP.
+    pub fn flush_storage(&mut self) {
+        if self.streams.current().capturing().device().any_recording() {
+            return;
+        }
+        self.streams.current().device_memory().storage().flush();
+    }
+
+    /// Give `memory` `range` of `host`, which the device's kernels read in place, imported into
+    /// the current stream's memory.
+    ///
+    /// # Guarantees
+    ///
+    /// Reaches no driver while a stream of the device records: pinning memory fails a recording
+    /// on drivers such as HIP.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when a stream of the device records a graph, the device
+    /// imports no host memory, or its driver refuses the range. The caller records it on
+    /// `memory`, as for [`initialize_memory`](Self::initialize_memory).
+    pub fn import_host(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        host: &Arc<HostMemory>,
+        range: Range<u64>,
+    ) -> Result<(), IoError> {
+        // Pinning fails a recording on drivers such as HIP, and so would the releases it retires.
+        if self.streams.current().capturing().device().any_recording() {
+            return Err(IoError::HostMemoryRefused {
+                reason: "a stream is recording a graph: import before recording".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        let (stream, failures) = self.streams.current_and_failures();
+        let device_memory = stream.device_memory();
+        // A reservation is what releases freed imports otherwise, and a loop of imports makes none.
+        device_memory.cleanup(Cleanup::Periodic, failures);
+        let storage = device_memory.storage().import_host(host, range)?;
+        let reserved = device_memory.import(storage);
+        self.bind(reserved, memory);
+        Ok(())
+    }
+
     /// The current stream's cursor.
     pub fn cursor(&self) -> u64 {
         self.streams.cursor
@@ -528,7 +579,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
     /// row-major, [`IoError::BindingOutOfBounds`] for a binding whose offsets reach
-    /// past the end of its memory, and the driver's refusal to copy.
+    /// past the end of its memory, [`IoError::HostMemoryRefused`] for imported host memory,
+    /// and the driver's refusal to copy.
     pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
@@ -537,6 +589,7 @@ impl<'a, D: Driver> Command<'a, D> {
             elem_size,
         } = descriptor;
         let size = data.len();
+        binding.ensure_writable()?;
 
         // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
         // before validating its potentially zero strides or staging: the zero-size

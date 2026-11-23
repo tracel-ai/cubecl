@@ -7,13 +7,15 @@ use crate::{
     memory_management::{
         ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId, WeakMemoryBinding,
     },
-    server::{CopyDescriptor, PeerAccess, Server, ServerError, TensorMapBinding},
+    server::{CopyDescriptor, IoError, PeerAccess, Server, ServerError, TensorMapBinding},
 };
+use cubecl_environment::backtrace::BackTrace;
 
-/// How two handles' bytes relate.
+/// How two handles' bytes relate within one allocation. Handles over different allocations are
+/// [`Disjoint`](Overlap::Disjoint), even two imports of the same host memory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Overlap {
-    /// No byte in common.
+    /// No byte of one allocation in common.
     Disjoint,
     /// The same bytes.
     Same,
@@ -252,7 +254,7 @@ impl Handle {
             handle: self.binding(),
         }
     }
-    /// How this handle's bytes relate to `other`'s.
+    /// How this handle's bytes relate to `other`'s, within one allocation.
     pub fn overlap(&self, other: &Self) -> Overlap {
         let bytes = |handle: &Self| {
             handle.offset_start.unwrap_or(0)..handle.size - handle.offset_end.unwrap_or(0)
@@ -424,6 +426,39 @@ impl WeakBufferBinding {
 }
 
 impl BufferBinding {
+    /// Whether the device may write this memory.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] for [imported](crate::client::Client::import_host) host
+    /// memory, which the device only reads.
+    pub fn ensure_writable(&self) -> Result<(), IoError> {
+        match self.memory.descriptor().is_imported() {
+            true => Err(IoError::HostMemoryRefused {
+                reason: "imported host memory is read-only on the device".into(),
+                backtrace: BackTrace::capture(),
+            }),
+            false => Ok(()),
+        }
+    }
+
+    /// Whether a collective may read or write this memory.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] for [imported](crate::client::Client::import_host) host
+    /// memory: a collective's stream may still read it after the bindings keeping it imported
+    /// are released.
+    pub fn ensure_collective_buffer(&self) -> Result<(), IoError> {
+        match self.memory.descriptor().is_imported() {
+            true => Err(IoError::HostMemoryRefused {
+                reason: "collectives refuse imported host memory".into(),
+                backtrace: BackTrace::capture(),
+            }),
+            false => Ok(()),
+        }
+    }
+
     /// This binding, without keeping its memory reserved.
     pub fn downgrade(&self) -> WeakBufferBinding {
         WeakBufferBinding {
