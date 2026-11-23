@@ -193,8 +193,8 @@ impl AdaptiveMemory {
     ///
     /// What [`AllocationKind::Eager`] asks for takes the unpinned room of the
     /// arena or the small pool, and the room kept apart once graphs pin every
-    /// page of the small pool, or of the arena's current pool when it fits
-    /// their size. A new page of the current size would hold little more than
+    /// page of the small pool, or of the arena's current pool when the pages
+    /// of both arenas fit it. A new page of the current size would hold little more than
     /// that buffer: the arena's pages are sized to the largest temporary, and a
     /// recording's input, kept for its graph's life and read by it, would leave
     /// the page pinned and never empty, a page per graph. One that outgrows the
@@ -408,12 +408,20 @@ impl AdaptiveMemory {
                 (PlacementPool::SmallSeparate, PinnedRoom::Share)
             }
             (AllocationKind::Eager, true) => (PlacementPool::Small, PinnedRoom::Avoid),
-            (AllocationKind::Eager, false) if self.arena.is_pinned() && self.arena.fits(size) => {
+            (AllocationKind::Eager, false) if self.eager_goes_apart(size) => {
                 (PlacementPool::Separate, PinnedRoom::Share)
             }
             (AllocationKind::Eager, false) => (PlacementPool::Arena, PinnedRoom::Avoid),
         };
         Placement { pool, room }
+    }
+
+    /// Whether work outside a capture of `size` bytes, past the small pool, goes to the separate
+    /// arena: once graphs pin every page of the arena's current pool, when both arenas' pages
+    /// fit it. It never grows the separate arena's pages, whose slots nothing frees, since it is
+    /// never relocated: a page size eager work took would be one graphs' outputs could not.
+    fn eager_goes_apart(&self, size: u64) -> bool {
+        self.arena.is_pinned() && self.arena.fits(size) && self.separate.fits(size)
     }
 
     /// The move of `memory` to the pools kept apart, when it sits on a page of the small pool
@@ -874,6 +882,28 @@ mod tests {
         assert_ne!(
             input.descriptor().location().pool,
             metadata.descriptor().location().pool
+        );
+    }
+
+    /// Work outside a capture never grows the separate arena's pages, whose slots nothing frees:
+    /// once graphs pin the arena, a buffer the separate arena's pages do not fit takes an arena
+    /// page, as it would before.
+    #[test]
+    fn eager_work_never_grows_the_separate_arena() {
+        let mut memory = adaptive();
+        // A graph's temporary sizes the arena's pages at 9 MiB, and the graph pins its page. The
+        // separate arena carves at its 2 MiB floor.
+        let temporary = reserve(&mut memory, 8 * MIB);
+        let _graph = memory.guard(temporary.descriptor().location());
+        drop(temporary);
+
+        let input = reserve(&mut memory, 3 * MIB);
+
+        assert!(
+            (super::ARENA_POOLS..super::SEPARATE_POOLS)
+                .contains(&input.descriptor().location().pool),
+            "placed on {:?}",
+            place(&input)
         );
     }
 
