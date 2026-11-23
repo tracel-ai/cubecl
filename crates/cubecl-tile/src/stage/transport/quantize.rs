@@ -183,7 +183,9 @@ impl Tile {
     /// `src`'s lines. Where the units are lanes, they take a block each, and a word's scales meet
     /// in its first unit through the plane, which writes the word; the units take as many turns
     /// as the next, so each meeting is the whole plane's. Otherwise a unit takes a word at a time.
-    /// `two_levels` is whether `coarse` sits over the scales.
+    /// A plane that holds a tile of one scale shares the scan of its reach instead
+    /// ([`calibrate_together`](Self::calibrate_together)). `two_levels` is whether `coarse` sits
+    /// over the scales.
     #[allow(dead_code)] // Reached through its expand, from [`Factor::calibrate_from`].
     pub(crate) fn calibrate<F: Float>(
         &mut self,
@@ -200,9 +202,71 @@ impl Tile {
         let from = comptime!(src.place.space.clone());
         let read = src.nd_packed::<F, LW>(comptime!(Guard::Checked));
         let holder = comptime!(self.place.holder());
+        let blocks = comptime!((load.counts(&space).iter().product::<usize>() * n) as u32);
+        let together = comptime!(scanned_together(&load, &space, &from, &line, holder));
+        if together {
+            self.calibrate_together::<F, LW>(&read, coarse, &from, line.clone(), value, two_levels);
+        } else {
+            self.calibrate_apart::<F, N, LW>(
+                &read,
+                coarse,
+                &from,
+                line.clone(),
+                value,
+                two_levels,
+                blocks,
+            );
+        }
+    }
+
+    /// [`calibrate`](Self::calibrate) of a tile of one scale a plane holds: its lanes share the
+    /// scan of the scale's whole reach, a line each in turn, and meet on its largest magnitude,
+    /// which one of them writes.
+    fn calibrate_together<F: Float, LW: Size>(
+        &mut self,
+        read: &Masked<'_, Vector<F, LW>, CoordsDyn>,
+        coarse: f32,
+        #[comptime] from: &Space,
+        #[comptime] line: VectorTile,
+        #[comptime] value: QuantValue,
+        #[comptime] two_levels: bool,
+    ) {
+        let load = self.vector_tile();
+        let packing = self.packing();
+        let dtype = comptime!(packing.scale_dtype(self.element));
+        let space = comptime!(self.place.space.clone());
+        let lines = comptime!(line.counts(from).iter().product::<usize>() as u32);
+        let mut most = F::new(0.0);
+        for l in range_stepped(UNIT_POS_PLANE, lines.runtime(), PLANE_DIM) {
+            let at = line.start(l, from);
+            most = max(most, largest::<F, LW>(read.read(line.index(&at, from))));
+        }
+        let most = plane_max(most);
+        let scale = f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels));
+        if UNIT_POS_PLANE == 0 {
+            let start = load.start(0u32, &space);
+            self.write_scales::<Const<1>>(&start, Vector::new(scale));
+        }
+    }
+
+    /// [`calibrate`](Self::calibrate) of a tile whose units take its blocks apart.
+    #[allow(clippy::too_many_arguments)]
+    fn calibrate_apart<F: Float, N: Size, LW: Size>(
+        &mut self,
+        read: &Masked<'_, Vector<F, LW>, CoordsDyn>,
+        coarse: f32,
+        #[comptime] from: &Space,
+        #[comptime] line: VectorTile,
+        #[comptime] value: QuantValue,
+        #[comptime] two_levels: bool,
+        #[comptime] blocks: u32,
+    ) {
+        let load = self.vector_tile();
+        let n = comptime!(load.values());
+        let space = comptime!(self.place.space.clone());
+        let holder = comptime!(self.place.holder());
         let fill = self.copy_level();
         let fill = comptime!(fill.held_by(holder));
-        let blocks = comptime!((load.counts(&space).iter().product::<usize>() * n) as u32);
         // Lanes share a word's blocks where the plane is a word wide; a unit alone, or a plane
         // narrower than a word, takes a word at a time. The plane's width is the launch's, the
         // same for every unit, so the shuffles below are the whole plane's.
@@ -229,11 +293,11 @@ impl Tile {
             for k in 0..n {
                 if comptime!(k as u32) < per {
                     let scale = self.calibrate_block::<F, LW>(
-                        &read,
+                        read,
                         &start,
                         c + comptime!(k as u32),
                         coarse,
-                        &from,
+                        from,
                         line.clone(),
                         value,
                         two_levels,
@@ -300,6 +364,22 @@ impl Tile {
         }
         f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels))
     }
+}
+
+/// Whether the lanes of a plane that holds a tile of one scale share the scan of its reach: a tile
+/// of one scale whose reach is more than one line, which a lane alone would scan while the others
+/// wait.
+fn scanned_together(
+    load: &VectorTile,
+    scales: &Space,
+    values: &Space,
+    line: &VectorTile,
+    holder: ComputeScope,
+) -> bool {
+    holder == ComputeScope::Plane
+        && load.values() == 1
+        && load.counts(scales).iter().product::<usize>() == 1
+        && line.counts(values).iter().product::<usize>() > 1
 }
 
 /// The largest magnitude of `line`.

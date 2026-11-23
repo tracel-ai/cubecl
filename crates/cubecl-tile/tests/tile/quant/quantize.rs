@@ -147,8 +147,21 @@ fn check_quantize_as(
     source: Source,
     workers: Workers,
 ) {
+    check_quantize_blocks(value, block, 160, scales, global, source, workers);
+}
+
+/// [`check_quantize_as`], `blocks` blocks a row.
+fn check_quantize_blocks(
+    value: QuantValue,
+    block: usize,
+    blocks: usize,
+    scales: Scales,
+    global: Option<f32>,
+    source: Source,
+    workers: Workers,
+) {
     let client = cubecl::test_device().client();
-    let (rows, blocks) = (4, 160);
+    let rows = 4;
     let cols = block * blocks;
     let bits = value.size_bits();
     let per_word = 32 / bits;
@@ -407,6 +420,23 @@ fn mxfp8_quantizes_four_words_a_load() {
             words: 4,
         },
     );
+}
+
+/// FP8 under one `f32` scale a row, each plane sharing the scan of its own row: a row of zeros, a
+/// row of a width no power of two divides, and the planes of one cube each a row.
+#[test]
+fn fp8_quantizes_one_scale_a_row() {
+    for (width, planes, words) in [(5120, 1, 1), (3076, 1, 1), (17408, 4, 4), (64, 2, 2)] {
+        check_quantize_blocks(
+            QuantValue::E4M3,
+            width,
+            1,
+            Scales::Plain,
+            None,
+            Source::PerDimension,
+            Workers::PlaneARow { planes, words },
+        );
+    }
 }
 
 /// MXFP8: `e4m3` values under `ue8m0` scales, four to a word, a block of thirty-two.
