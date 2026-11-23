@@ -34,23 +34,23 @@ impl ResourceBound {
             None
         }
     }
-}
 
-/// The roofline convention this module uses throughout: a run cannot finish
-/// faster than its slowest resource allows even under perfect overlap
-/// between them, so that resource is the one binding the achievable
-/// duration, whatever the others manage. [`binding_achieved`] applies the
-/// same reduction to a run's actually measured rates.
-///
-/// The resource requiring the most time even at its own peak: the entry with
-/// the largest [`ResourceBound::time_at_peak`].
-///
-/// `None` if every entry's `time_at_peak` is `None`, or `bounds` is empty.
-pub fn binding_resource(bounds: &[ResourceBound]) -> Option<&ResourceBound> {
-    bounds
-        .iter()
-        .filter(|bound| bound.time_at_peak().is_some())
-        .max_by_key(|bound| bound.time_at_peak())
+    /// The roofline convention this module uses throughout: a run cannot finish
+    /// faster than its slowest resource allows even under perfect overlap
+    /// between them, so that resource is the one binding the achievable
+    /// duration, whatever the others manage. [`AchievedThroughput::binding`] applies the
+    /// same reduction to a run's actually measured rates.
+    ///
+    /// The resource requiring the most time even at its own peak: the entry with
+    /// the largest [`ResourceBound::time_at_peak`].
+    ///
+    /// `None` if every entry's `time_at_peak` is `None`, or `bounds` is empty.
+    pub fn binding(bounds: &[Self]) -> Option<&Self> {
+        bounds
+            .iter()
+            .filter(|bound| bound.time_at_peak().is_some())
+            .max_by_key(|bound| bound.time_at_peak())
+    }
 }
 
 /// One resource's achieved rate during a measured run, against its modeled
@@ -65,45 +65,47 @@ pub struct AchievedThroughput {
     pub fraction_of_peak: f64,
 }
 
-/// Scores an actual run against a set of [`ResourceBound`]s, one resource at
-/// a time.
-///
-/// `duration` is the run's actual, measured duration, shared by every bound:
-/// they all describe the same execution, so the same wall time buys each
-/// resource a different achieved rate against its own peak. Results come
-/// back in `bounds` order. A zero duration yields `NaN` achieved rates rather
-/// than dividing by zero.
-pub fn score_resources(duration: Duration, bounds: &[ResourceBound]) -> Vec<AchievedThroughput> {
-    bounds
-        .iter()
-        .map(|bound| {
-            let achieved_per_s = if duration.is_zero() {
-                f64::NAN
-            } else {
-                bound.amount as f64 / duration.as_secs_f64()
-            };
+impl AchievedThroughput {
+    /// Scores an actual run against a set of [`ResourceBound`]s, one resource at
+    /// a time.
+    ///
+    /// `duration` is the run's actual, measured duration, shared by every bound:
+    /// they all describe the same execution, so the same wall time buys each
+    /// resource a different achieved rate against its own peak. Results come
+    /// back in `bounds` order. A zero duration yields `NaN` achieved rates rather
+    /// than dividing by zero.
+    pub fn score(duration: Duration, bounds: &[ResourceBound]) -> Vec<Self> {
+        bounds
+            .iter()
+            .map(|bound| {
+                let achieved_per_s = if duration.is_zero() {
+                    f64::NAN
+                } else {
+                    bound.amount as f64 / duration.as_secs_f64()
+                };
 
-            AchievedThroughput {
-                achieved_per_s,
-                fraction_of_peak: achieved_per_s / bound.peak_per_s,
-            }
-        })
-        .collect()
-}
+                Self {
+                    achieved_per_s,
+                    fraction_of_peak: achieved_per_s / bound.peak_per_s,
+                }
+            })
+            .collect()
+    }
 
-/// The resource that actually governed the run's duration: [`binding_resource`]'s
-/// reduction applied to achieved scores instead of raw bounds. Every entry
-/// here shares one `duration`, so ranking by `fraction_of_peak` gives the
-/// same order ranking the underlying bounds by `time_at_peak` would.
-///
-/// `NaN` entries (a zero duration, or a zero, negative, or non-finite peak)
-/// cannot be compared and are skipped; `None` if every entry is such, or
-/// `scores` is empty.
-pub fn binding_achieved(scores: &[AchievedThroughput]) -> Option<&AchievedThroughput> {
-    scores
-        .iter()
-        .filter(|score| score.fraction_of_peak.is_finite())
-        .max_by(|a, b| a.fraction_of_peak.total_cmp(&b.fraction_of_peak))
+    /// The resource that actually governed the run's duration: [`ResourceBound::binding`]'s
+    /// reduction applied to achieved scores instead of raw bounds. Every entry
+    /// here shares one `duration`, so ranking by `fraction_of_peak` gives the
+    /// same order ranking the underlying bounds by `time_at_peak` would.
+    ///
+    /// `NaN` entries (a zero duration, or a zero, negative, or non-finite peak)
+    /// cannot be compared and are skipped; `None` if every entry is such, or
+    /// `scores` is empty.
+    pub fn binding(scores: &[Self]) -> Option<&Self> {
+        scores
+            .iter()
+            .filter(|score| score.fraction_of_peak.is_finite())
+            .max_by(|a, b| a.fraction_of_peak.total_cmp(&b.fraction_of_peak))
+    }
 }
 
 #[cfg(test)]
@@ -114,6 +116,13 @@ mod tests {
         ResourceBound { amount, peak_per_s }
     }
 
+    fn score(fraction_of_peak: f64) -> AchievedThroughput {
+        AchievedThroughput {
+            achieved_per_s: fraction_of_peak,
+            fraction_of_peak,
+        }
+    }
+
     #[test]
     fn time_at_peak_is_amount_over_peak() {
         assert_eq!(bound(8, 4.0).time_at_peak(), Some(Duration::from_secs(2)));
@@ -121,94 +130,88 @@ mod tests {
 
     #[test]
     fn time_at_peak_is_none_for_a_non_normal_peak() {
-        assert_eq!(bound(8, 0.0).time_at_peak(), None);
-        assert_eq!(bound(8, f64::NAN).time_at_peak(), None);
-        assert_eq!(bound(8, f64::INFINITY).time_at_peak(), None);
+        for peak in [0.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(bound(8, peak).time_at_peak(), None, "at {peak}");
+        }
+    }
+
+    /// 8 ops at 4 ops/s takes 2s at peak; 8 ops at 8 ops/s takes 1s: the first resource is the
+    /// one that would still take longer even running flat out, so it is the one that binds.
+    #[test]
+    fn the_binding_resource_needs_the_most_time_at_peak() {
+        let (slower, faster) = (bound(8, 4.0), bound(8, 8.0));
+
+        assert_eq!(ResourceBound::binding(&[slower, faster]), Some(&slower));
     }
 
     #[test]
-    fn binding_resource_is_the_one_needing_the_most_time_at_peak() {
-        // 8 ops at 4 ops/s takes 2s at peak; 8 ops at 8 ops/s takes 1s: the
-        // first resource is the one that would still take longer even
-        // running flat out, so it is the one that binds.
-        let slower = bound(8, 4.0);
-        let faster = bound(8, 8.0);
+    fn a_non_normal_peak_never_binds() {
+        let (unusable, usable) = (bound(8, 0.0), bound(8, 4.0));
 
-        assert_eq!(binding_resource(&[slower, faster]), Some(&slower));
+        assert_eq!(ResourceBound::binding(&[unusable, usable]), Some(&usable));
     }
 
     #[test]
-    fn binding_resource_skips_non_normal_peaks_and_is_none_if_all_are() {
-        let unusable = bound(8, 0.0);
-        let usable = bound(8, 4.0);
-
-        assert_eq!(binding_resource(&[unusable, usable]), Some(&usable));
-        assert_eq!(binding_resource(&[unusable]), None);
-        assert_eq!(binding_resource(&[]), None);
+    fn nothing_binds_without_a_usable_peak() {
+        assert_eq!(ResourceBound::binding(&[bound(8, 0.0)]), None);
     }
 
     #[test]
-    fn score_resources_reports_achieved_rate_and_fraction_of_peak() {
-        let bounds = [bound(100, 200.0), bound(400, 800.0)];
-
-        let scores = score_resources(Duration::from_secs(1), &bounds);
-
-        assert_eq!(scores[0].achieved_per_s, 100.0);
-        assert_eq!(scores[0].fraction_of_peak, 0.5);
-        assert_eq!(scores[1].achieved_per_s, 400.0);
-        assert_eq!(scores[1].fraction_of_peak, 0.5);
-    }
-
-    #[test]
-    fn a_zero_duration_reports_nan_instead_of_dividing_by_zero() {
-        let scores = score_resources(Duration::ZERO, &[bound(100, 200.0)]);
-
-        assert!(scores[0].achieved_per_s.is_nan());
-        assert!(scores[0].fraction_of_peak.is_nan());
-    }
-
-    /// A matmul-shaped run: large A/B reads against a read peak, a small C
-    /// write against a write peak. The two must score independently, and the
-    /// read, which alone would still need more time even at its own peak
-    /// (0.9s vs the write's 0.5s), must be the one that binds even though it
-    /// moves far more bytes than the write, not fewer.
-    #[test]
-    fn resources_with_different_peaks_score_independently_and_pick_the_slower_one() {
-        let duration = Duration::from_secs(1);
-        let read = bound(900_000, 1_000_000.0); // 0.9s at peak
-        let write = bound(100_000, 200_000.0); // 0.5s at peak
-
-        assert_eq!(binding_resource(&[read, write]), Some(&read));
-
-        let scores = score_resources(duration, &[read, write]);
-
-        assert_eq!(scores[0].achieved_per_s, 900_000.0);
-        assert_eq!(scores[0].fraction_of_peak, 0.9);
-        assert_eq!(scores[1].achieved_per_s, 100_000.0);
-        assert_eq!(scores[1].fraction_of_peak, 0.5);
-
-        let binding = binding_achieved(&scores).unwrap();
-        assert_eq!(binding.fraction_of_peak, 0.9);
-    }
-
-    #[test]
-    fn binding_achieved_skips_non_finite_entries_and_is_none_if_all_are() {
-        let finite = AchievedThroughput {
-            achieved_per_s: 10.0,
-            fraction_of_peak: 0.4,
-        };
-        let non_finite = AchievedThroughput {
-            achieved_per_s: f64::NAN,
-            fraction_of_peak: f64::NAN,
-        };
+    fn a_score_is_the_achieved_rate_and_its_fraction_of_peak() {
+        let scores = AchievedThroughput::score(Duration::from_secs(1), &[bound(100, 200.0)]);
 
         assert_eq!(
-            binding_achieved(&[non_finite, finite])
-                .unwrap()
-                .fraction_of_peak,
-            0.4
+            scores,
+            [AchievedThroughput {
+                achieved_per_s: 100.0,
+                fraction_of_peak: 0.5,
+            }]
         );
-        assert!(binding_achieved(&[non_finite]).is_none());
-        assert!(binding_achieved(&[]).is_none());
+    }
+
+    #[test]
+    fn a_zero_duration_scores_nan_instead_of_dividing_by_zero() {
+        let scores = AchievedThroughput::score(Duration::ZERO, &[bound(100, 200.0)]);
+
+        assert!(scores[0].achieved_per_s.is_nan());
+    }
+
+    /// A matmul-shaped run: large A/B reads against a read peak, a small C write against a write
+    /// peak. Each resource scores against its own peak.
+    #[test]
+    fn resources_with_different_peaks_score_independently() {
+        let read = bound(900_000, 1_000_000.0);
+        let write = bound(100_000, 200_000.0);
+
+        let scores = AchievedThroughput::score(Duration::from_secs(1), &[read, write]);
+
+        assert_eq!(
+            scores
+                .iter()
+                .map(|s| s.fraction_of_peak)
+                .collect::<Vec<_>>(),
+            [0.9, 0.5]
+        );
+    }
+
+    #[test]
+    fn the_binding_score_is_the_highest_fraction_of_peak() {
+        assert_eq!(
+            AchievedThroughput::binding(&[score(0.9), score(0.5)]),
+            Some(&score(0.9))
+        );
+    }
+
+    #[test]
+    fn a_non_finite_score_never_binds() {
+        assert_eq!(
+            AchievedThroughput::binding(&[score(f64::NAN), score(0.4)]),
+            Some(&score(0.4))
+        );
+    }
+
+    #[test]
+    fn nothing_binds_without_a_finite_score() {
+        assert_eq!(AchievedThroughput::binding(&[score(f64::NAN)]), None);
     }
 }

@@ -1,4 +1,4 @@
-use crate::throughput::KernelConfig;
+use crate::throughput::KernelSampler;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, frontend::fma, ir::ElemType};
 use cubecl_runtime::throughput::ThroughputError;
@@ -9,7 +9,7 @@ pub fn build_kernel(
     client: &Client,
     dtype: ElemType,
     config: LaunchConfig,
-) -> Result<KernelConfig, ThroughputError> {
+) -> Result<KernelSampler, ThroughputError> {
     let client = client.clone();
 
     let use_fma = matches!(dtype, ElemType::Float(_));
@@ -44,11 +44,7 @@ pub fn build_kernel(
         * config.cube_dim.num_elems() as usize
         * config.vector_size;
 
-    Ok(KernelConfig {
-        sample,
-        ops_count,
-        min_iterations: 1,
-    })
+    Ok(KernelSampler::new(sample, ops_count, 1))
 }
 
 /// Independent accumulator chains per lane to hide arithmetic latency.

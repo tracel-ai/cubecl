@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use cubecl_common::profile::{Duration, Instant};
 use cubecl_runtime::throughput::ThroughputValue;
 
@@ -18,7 +19,7 @@ const SAMPLE_BUDGET: Duration = Duration::from_millis(200);
 /// Samples that may go by without improving before the peak is accepted. Also
 /// the floor on samples, since the first always improves on infinity and only
 /// the ones after it can go stale.
-const SAMPLE_PATIENCE: usize = 12;
+const SAMPLE_PATIENCE_COUNT: usize = 12;
 
 /// Wall clock one launch of a shape is grown or cut toward, so that a sweep
 /// times every shape over the same span and none of them wears a larger share
@@ -28,21 +29,48 @@ const TARGET_DURATION: Duration = Duration::from_millis(20);
 /// The most iterations one launch of a probe carries: far below `u32::MAX`,
 /// since a probe's kernel takes the count as a `usize`, which its default
 /// 32-bit address type registers as a u32.
-const MAX_ITERATIONS: usize = 1 << 24;
+const MAX_ITERATION_COUNT: usize = 1 << 24;
 
 /// Samples a ranking pass keeps the fastest of. A count and not a wall clock:
 /// under a budget a short pass draws more, and the fastest of more is faster.
-const RANK_SAMPLES: usize = 3;
+const RANK_SAMPLE_COUNT: usize = 3;
 
-/// Configuration and payload for a benchmarkable compute kernel.
-pub struct KernelConfig {
-    /// A closure that executes the kernel for the given number of iterations and returns the duration.
-    pub sample: Box<dyn Fn(usize) -> Duration>,
-    /// The number of operations processed in one iteration.
-    pub ops_count: usize,
-    /// Iterations a launch must carry however quickly they turn out to run,
-    /// which a duration target cannot express.
-    pub min_iterations: usize,
+/// The most launches a warmup takes.
+const MAX_WARMUP_COUNT: usize = 50;
+
+/// The most iterations a warmup grows to while its timer reads zero. A timer reading zero says
+/// nothing about the pass, so doubling against it converges on nothing and stops early. An
+/// iteration is a real launch for the probe that measures launches, which pays for every one.
+const MAX_BLIND_ITERATION_COUNT: usize = 1 << 10;
+
+/// How much faster a pass must be than the best so far to restart a warmup's plateau.
+const PLATEAU_TOLERANCE: f64 = 0.03;
+
+/// Passes at the best rate a warmup's plateau needs before it is accepted.
+const PLATEAU_PATIENCE_COUNT: usize = 3;
+
+/// The most samples a peak is drawn from.
+const MAX_SAMPLE_COUNT: usize = 200;
+
+/// How much faster a sample must be than the best so far to count as an improvement.
+const SAMPLE_TOLERANCE: f64 = 0.01;
+
+/// The shortest pass, in milliseconds, a timer is trusted to have measured.
+const TIMER_RESOLUTION_MS: f64 = 1e-6;
+
+/// Milliseconds in a second.
+const MS_PER_S: f64 = 1000.0;
+
+/// Times one probe kernel, warming the device up to a plateau before it keeps the fastest
+/// sample.
+pub struct KernelSampler {
+    // Runs the kernel for the given number of iterations and returns how long it took.
+    sample: Box<dyn Fn(usize) -> Duration>,
+    // The operations one iteration processes.
+    ops_count: usize,
+    // Iterations a launch must carry however quickly they turn out to run, which a duration
+    // target cannot express.
+    min_iterations: usize,
 }
 
 /// What a ranking pass found: how fast the shape answered, and the iteration
@@ -55,198 +83,287 @@ pub struct Ranked {
     pub iterations: usize,
 }
 
-/// The sampling half of what was the throughput benchmarker.
-pub struct ThroughputSampler;
-
-impl ThroughputSampler {
-    /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
-    pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
-        let sample = kernel_config.sample;
-
-        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let samples =
-            Self::sample_until_settled(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
-
-        ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples)
+impl KernelSampler {
+    /// A sampler of the kernel `sample` runs, `ops_count` operations an iteration, never fewer
+    /// than `min_iterations` iterations a launch.
+    pub fn new(
+        sample: Box<dyn Fn(usize) -> Duration>,
+        ops_count: usize,
+        min_iterations: usize,
+    ) -> Self {
+        Self {
+            sample,
+            ops_count,
+            min_iterations,
+        }
     }
 
-    /// Warms the device on one shape and reports the count a sample should carry.
+    /// Warms the device up to its plateau on this shape, then keeps its fastest sample.
+    pub fn sample(&self) -> ThroughputValue {
+        self.sample_at(self.warm())
+    }
+
+    /// Warms the device on this shape and reports the count a sample should carry.
     /// It is the device that is warmed, not the shape, so a sweep pays once.
-    pub fn warm(kernel_config: &KernelConfig) -> usize {
-        Self::warmup(
-            kernel_config.min_iterations,
-            WARMUP_BUDGET,
-            &kernel_config.sample,
-        )
+    pub fn warm(&self) -> usize {
+        warmup(self.min_iterations, WARMUP_BUDGET, &self.sample)
     }
 
     /// Keeps the fastest sample of a shape the device is already warm on, at the
     /// count [`warm`](Self::warm) settled.
-    pub fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
-        let iterations = iterations.max(kernel_config.min_iterations).max(1);
-        let samples = Self::sample_until_settled(
+    pub fn sample_at(&self, iterations: usize) -> ThroughputValue {
+        let iterations = self.needed(iterations);
+        let samples = sample_until_settled(
             iterations,
-            &kernel_config.sample,
+            &self.sample,
             SAMPLE_BUDGET,
-            SAMPLE_PATIENCE,
+            SAMPLE_PATIENCE_COUNT,
         );
 
-        ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples)
+        ThroughputValue::from_samples(self.ops_count, iterations, &samples)
     }
 
-    /// Times one shape briefly, to order it against the others rather than to
+    /// Times this shape briefly, to order it against the others rather than to
     /// report its peak, and reports the count the next shape starts from.
-    pub fn rank(kernel_config: &KernelConfig, iterations: usize) -> Ranked {
-        let settling = iterations.max(kernel_config.min_iterations).max(1);
+    pub fn rank(&self, iterations: usize) -> Ranked {
+        let settling = self.needed(iterations);
         // A first launch is what compiling and faulting in cost, so it is spent
         // and the count settled from a second.
-        let _ = (kernel_config.sample)(settling);
-        let took = (kernel_config.sample)(settling);
-
-        let iterations = Self::retarget(settling, took)
-            .max(kernel_config.min_iterations)
-            .max(1);
-
-        let samples: alloc::vec::Vec<Duration> = (0..RANK_SAMPLES)
-            .map(|_| (kernel_config.sample)(iterations))
+        let _ = (self.sample)(settling);
+        let iterations = self.needed(retarget(settling, (self.sample)(settling)));
+        let samples: Vec<Duration> = (0..RANK_SAMPLE_COUNT)
+            .map(|_| (self.sample)(iterations))
             .collect();
 
         Ranked {
-            value: ThroughputValue::from_samples(kernel_config.ops_count, iterations, &samples),
+            value: ThroughputValue::from_samples(self.ops_count, iterations, &samples),
             iterations,
         }
     }
+}
 
-    /// The count that would have taken [`TARGET_DURATION`], up to
-    /// [`MAX_ITERATIONS`]. A timer reading zero says nothing to scale by, so the
-    /// count stands.
-    fn retarget(iterations: usize, took: Duration) -> usize {
-        let took = took.as_secs_f64();
+impl KernelSampler {
+    /// `iterations`, raised to what the kernel needs and to one.
+    fn needed(&self, iterations: usize) -> usize {
+        iterations.max(self.min_iterations).max(1)
+    }
+}
 
-        if took <= 0.0 {
-            return iterations;
-        }
+/// The count that would have taken [`TARGET_DURATION`], up to
+/// [`MAX_ITERATION_COUNT`]. A timer reading zero says nothing to scale by, so the
+/// count stands.
+fn retarget(iterations: usize, took: Duration) -> usize {
+    let took = took.as_secs_f64();
 
-        let scaled = iterations as f64 * (TARGET_DURATION.as_secs_f64() / took);
-
-        if scaled.is_finite() {
-            (scaled as usize).clamp(1, MAX_ITERATIONS)
-        } else {
-            iterations
-        }
+    if took <= 0.0 {
+        return iterations;
     }
 
-    /// Warms up the device by running the kernel multiple times
-    /// and estimating the number of iterations needed to reach a stable duration.
-    ///
-    /// Never returns fewer than `min_iterations`, which the kernel needs to be
-    /// measuring what it claims rather than merely to be timed accurately.
-    ///
-    /// `budget` bounds the growing, not the sampling: a timer too coarse to
-    /// ever reach the target reports the same reading at every count, which
-    /// asks for a larger one each round without converging.
-    fn warmup(
-        min_iterations: usize,
-        budget: Duration,
-        sample: impl Fn(usize) -> Duration,
-    ) -> usize {
-        const MAX_WARMUP: usize = 50;
-        // A timer reading zero says nothing about the pass, so doubling against
-        // it converges on nothing and stops early. An iteration is a real launch
-        // for the probe that measures launches, which pays for every one.
-        const MAX_BLIND_ITERATIONS: usize = 1 << 10;
-        const PLATEAU_TOL: f64 = 0.03;
-        const PATIENCE: usize = 3;
-        let target_ms = TARGET_DURATION.as_secs_f64() * 1000.0;
+    let scaled = iterations as f64 * (TARGET_DURATION.as_secs_f64() / took);
 
-        let mut best = f64::INFINITY;
-        let mut stable = 0;
-        let mut iterations = min_iterations.max(1);
-        let start = Instant::now();
-        let mut plateau_start = start;
-
-        for _ in 0..MAX_WARMUP {
-            let duration = sample(iterations).as_secs_f64() * 1000.0;
-            if duration < target_ms {
-                let (extra_iters, ceiling) = if duration > 1e-6 {
-                    let duration_per_iter = duration / iterations as f64;
-                    (
-                        ((target_ms - duration) / duration_per_iter).ceil() as usize,
-                        MAX_ITERATIONS,
-                    )
-                } else {
-                    (iterations, MAX_BLIND_ITERATIONS)
-                };
-
-                let ceiling = ceiling.max(min_iterations);
-                if iterations >= ceiling || start.elapsed() >= budget {
-                    break;
-                }
-                iterations = (iterations + extra_iters.max(1)).min(ceiling);
-                best = f64::INFINITY;
-                stable = 0;
-                continue;
-            }
-
-            let duration_per_iter = duration / iterations as f64;
-            if duration_per_iter < best * (1.0 - PLATEAU_TOL) {
-                best = duration_per_iter;
-                stable = 0;
-                // Growth clears `best`, so the window restarts at the settled count.
-                plateau_start = Instant::now();
-            } else {
-                best = best.min(duration_per_iter);
-                stable += 1;
-                if stable >= PATIENCE && plateau_start.elapsed() >= PLATEAU_FLOOR {
-                    break;
-                }
-            }
-        }
-
+    if scaled.is_finite() {
+        (scaled as usize).clamp(1, MAX_ITERATION_COUNT)
+    } else {
         iterations
     }
+}
 
-    /// Samples the kernel at `iterations` until its fastest sample stops improving or the budget
-    /// runs out, and returns every sample taken.
-    fn sample_until_settled(
-        iterations: usize,
-        sample_once: impl Fn(usize) -> Duration,
-        budget: Duration,
-        patience: usize,
-    ) -> alloc::vec::Vec<Duration> {
-        debug_assert!(
-            iterations > 0,
-            "iterations must be positive to avoid division by zero"
-        );
+/// Whether `candidate` beats `best` by more than `tolerance` of it.
+fn improves(candidate: f64, best: f64, tolerance: f64) -> bool {
+    candidate < best * (1.0 - tolerance)
+}
 
-        const MAX_SAMPLES: usize = 200;
-        const REL_TOL: f64 = 0.01;
+/// Warms up the device by running the kernel multiple times
+/// and estimating the number of iterations needed to reach a stable duration.
+///
+/// Never returns fewer than `min_iterations`, which the kernel needs to be
+/// measuring what it claims rather than merely to be timed accurately.
+///
+/// `budget` bounds the growing, not the sampling: a timer too coarse to
+/// ever reach the target reports the same reading at every count, which
+/// asks for a larger one each round without converging.
+fn warmup(min_iterations: usize, budget: Duration, sample: impl Fn(usize) -> Duration) -> usize {
+    let mut warmup = Warmup::new(min_iterations, budget);
 
-        let mut best = f64::INFINITY;
-        let mut samples = alloc::vec::Vec::new();
-        let mut stale = 0;
-        // Wall clock, not the sum of what the samples report: a probe whose
-        // timer reads zero would otherwise never spend any of the budget.
-        let start = Instant::now();
-
-        for _ in 0..MAX_SAMPLES {
-            let sample = sample_once(iterations);
-            samples.push(sample);
-            let s = sample.as_secs_f64();
-            if s < best * (1.0 - REL_TOL) {
-                best = s;
-                stale = 0;
-            } else {
-                best = best.min(s);
-                stale += 1;
-            }
-            // A deviation needs two samples, however long the first took.
-            if stale >= patience || (start.elapsed() >= budget && samples.len() >= 2) {
-                break;
-            }
+    for _ in 0..MAX_WARMUP_COUNT {
+        let duration_ms = sample(warmup.iterations).as_secs_f64() * MS_PER_S;
+        if warmup.step(duration_ms) == Flow::Done {
+            break;
         }
+    }
 
-        samples
+    warmup.iterations
+}
+
+/// Samples the kernel at `iterations` until its fastest sample stops improving or the budget
+/// runs out, and returns every sample taken.
+fn sample_until_settled(
+    iterations: usize,
+    sample_once: impl Fn(usize) -> Duration,
+    budget: Duration,
+    patience: usize,
+) -> Vec<Duration> {
+    debug_assert!(
+        iterations > 0,
+        "iterations should be positive to avoid division by zero"
+    );
+
+    let mut settling = Settling::new();
+    let mut samples = Vec::new();
+    // Wall clock, not the sum of what the samples report: a probe whose
+    // timer reads zero would otherwise never spend any of the budget.
+    let start = Instant::now();
+
+    for _ in 0..MAX_SAMPLE_COUNT {
+        let sample = sample_once(iterations);
+        samples.push(sample);
+        settling.record(sample.as_secs_f64());
+        // A deviation needs two samples, however long the first took.
+        let out_of_budget = start.elapsed() >= budget && samples.len() >= 2;
+        if settling.stale >= patience || out_of_budget {
+            break;
+        }
+    }
+
+    samples
+}
+
+/// Whether a loop goes on.
+#[derive(PartialEq, Eq, Debug)]
+enum Flow {
+    Continue,
+    Done,
+}
+
+impl Flow {
+    /// [`Done`](Self::Done) when `done`.
+    fn done_when(done: bool) -> Self {
+        match done {
+            true => Self::Done,
+            false => Self::Continue,
+        }
+    }
+}
+
+/// Where a warmup stands: the count it launches at, and the plateau it is waiting on.
+struct Warmup {
+    min_iterations: usize,
+    budget: Duration,
+    start: Instant,
+    iterations: usize,
+    // The fastest milliseconds per iteration seen at the current count.
+    best: f64,
+    // Passes since `best` last improved.
+    stable: usize,
+    plateau_start: Instant,
+}
+
+impl Warmup {
+    fn new(min_iterations: usize, budget: Duration) -> Self {
+        let start = Instant::now();
+        Self {
+            min_iterations,
+            budget,
+            start,
+            iterations: min_iterations.max(1),
+            best: f64::INFINITY,
+            stable: 0,
+            plateau_start: start,
+        }
+    }
+
+    /// Takes in one pass of `duration_ms`: grows the count toward the target while passes fall
+    /// short of it, then waits on the plateau.
+    fn step(&mut self, duration_ms: f64) -> Flow {
+        match duration_ms < TARGET_DURATION.as_secs_f64() * MS_PER_S {
+            true => self.grow(duration_ms),
+            false => self.settle(duration_ms / self.iterations as f64),
+        }
+    }
+
+    /// Grows the count toward the target, or stops where it can grow no further.
+    fn grow(&mut self, duration_ms: f64) -> Flow {
+        let (extra, ceiling) = self.growth(duration_ms);
+        if self.iterations >= ceiling || self.start.elapsed() >= self.budget {
+            return Flow::Done;
+        }
+        self.iterations = (self.iterations + extra.max(1)).min(ceiling);
+        self.best = f64::INFINITY;
+        self.stable = 0;
+        Flow::Continue
+    }
+
+    /// The iterations to add and the count not to grow past, after a pass of `duration_ms`.
+    fn growth(&self, duration_ms: f64) -> (usize, usize) {
+        let (extra, ceiling) = match duration_ms > TIMER_RESOLUTION_MS {
+            true => (self.extra_to_target(duration_ms), MAX_ITERATION_COUNT),
+            false => (self.iterations, MAX_BLIND_ITERATION_COUNT),
+        };
+        (extra, ceiling.max(self.min_iterations))
+    }
+
+    /// The iterations a pass of `duration_ms` needs added to reach the target.
+    fn extra_to_target(&self, duration_ms: f64) -> usize {
+        let per_iteration_ms = duration_ms / self.iterations as f64;
+        ((TARGET_DURATION.as_secs_f64() * MS_PER_S - duration_ms) / per_iteration_ms).ceil()
+            as usize
+    }
+
+    /// Takes in a pass at the target, `per_iteration_ms` an iteration.
+    fn settle(&mut self, per_iteration_ms: f64) -> Flow {
+        match improves(per_iteration_ms, self.best, PLATEAU_TOLERANCE) {
+            true => self.restart_plateau(per_iteration_ms),
+            false => self.hold_plateau(per_iteration_ms),
+        }
+    }
+
+    fn restart_plateau(&mut self, per_iteration_ms: f64) -> Flow {
+        self.best = per_iteration_ms;
+        self.stable = 0;
+        // Growth clears `best`, so the window restarts at the settled count.
+        self.plateau_start = Instant::now();
+        Flow::Continue
+    }
+
+    fn hold_plateau(&mut self, per_iteration_ms: f64) -> Flow {
+        self.best = self.best.min(per_iteration_ms);
+        self.stable += 1;
+        Flow::done_when(
+            self.stable >= PLATEAU_PATIENCE_COUNT && self.plateau_start.elapsed() >= PLATEAU_FLOOR,
+        )
+    }
+}
+
+/// The fastest sample so far, and how many have gone by since it improved.
+struct Settling {
+    best: f64,
+    stale: usize,
+}
+
+impl Settling {
+    fn new() -> Self {
+        Self {
+            best: f64::INFINITY,
+            stale: 0,
+        }
+    }
+
+    /// Takes in a sample of `seconds`.
+    fn record(&mut self, seconds: f64) {
+        match improves(seconds, self.best, SAMPLE_TOLERANCE) {
+            true => self.improve(seconds),
+            false => self.hold(seconds),
+        }
+    }
+
+    fn improve(&mut self, seconds: f64) {
+        self.best = seconds;
+        self.stale = 0;
+    }
+
+    fn hold(&mut self, seconds: f64) {
+        self.best = self.best.min(seconds);
+        self.stale += 1;
     }
 }
 
@@ -270,12 +387,19 @@ mod tests {
         }
     }
 
+    fn sampler(
+        sample: impl Fn(usize) -> Duration + 'static,
+        min_iterations: usize,
+    ) -> KernelSampler {
+        KernelSampler::new(Box::new(sample), 1, min_iterations)
+    }
+
     /// One iteration of the launch probe is a real launch, so a device whose
     /// timer reads zero must not be answered by doubling toward the ceiling the
     /// duration target drives.
     #[test]
     fn a_timer_reading_zero_does_not_climb_to_the_duration_ceiling() {
-        let iterations = ThroughputSampler::warmup(1, WARMUP_BUDGET, |_| Duration::ZERO);
+        let iterations = warmup(1, WARMUP_BUDGET, |_| Duration::ZERO);
 
         assert!(iterations <= 1 << 10, "climbed to {iterations}");
     }
@@ -286,7 +410,7 @@ mod tests {
     fn a_blind_timer_never_cuts_below_the_passes_a_probe_needs() {
         let needed = 1 << 20;
 
-        assert!(ThroughputSampler::warmup(needed, WARMUP_BUDGET, |_| Duration::ZERO) >= needed);
+        assert!(warmup(needed, WARMUP_BUDGET, |_| Duration::ZERO) >= needed);
     }
 
     /// A timer too coarse to resolve the target reports the same reading at
@@ -295,7 +419,7 @@ mod tests {
     /// rounds it takes to reach it, which the probe pays for in real launches.
     #[test]
     fn a_timer_that_never_reaches_the_target_stops_growing_on_the_budget() {
-        let iterations = ThroughputSampler::warmup(1, Duration::from_millis(12), |_| {
+        let iterations = warmup(1, Duration::from_millis(12), |_| {
             spin(Duration::from_millis(5));
 
             Duration::from_millis(1)
@@ -307,14 +431,14 @@ mod tests {
     #[test]
     fn a_timer_reading_zero_still_stops_sampling() {
         let calls = Cell::new(0);
-        let _ = ThroughputSampler::sample_until_settled(
+        let _ = sample_until_settled(
             1,
             |_| {
                 calls.set(calls.get() + 1);
                 Duration::ZERO
             },
             SAMPLE_BUDGET,
-            SAMPLE_PATIENCE,
+            SAMPLE_PATIENCE_COUNT,
         );
 
         assert!(calls.get() < 200, "ran {} samples", calls.get());
@@ -323,7 +447,7 @@ mod tests {
     #[test]
     fn sampling_keeps_the_deviation_of_its_samples() {
         let calls = Cell::new(0u64);
-        let samples = ThroughputSampler::sample_until_settled(
+        let samples = sample_until_settled(
             10,
             |iterations| {
                 calls.set(calls.get() + 1);
@@ -335,7 +459,7 @@ mod tests {
                 Duration::from_nanos(per_iter * iterations as u64)
             },
             SAMPLE_BUDGET,
-            SAMPLE_PATIENCE,
+            SAMPLE_PATIENCE_COUNT,
         );
         let value = ThroughputValue::from_samples(1, 10, &samples);
         let samples = value.samples.expect("more than one sample");
@@ -351,11 +475,11 @@ mod tests {
 
     #[test]
     fn a_sample_past_the_budget_is_followed_by_a_second() {
-        let samples = ThroughputSampler::sample_until_settled(
+        let samples = sample_until_settled(
             1,
             |_| Duration::from_millis(5),
             Duration::ZERO,
-            SAMPLE_PATIENCE,
+            SAMPLE_PATIENCE_COUNT,
         );
 
         assert_eq!(samples.len(), 2);
@@ -370,7 +494,7 @@ mod tests {
         let lifts_once = timed_device(move || if clock.elapsed() < lift { 3000 } else { 1000 });
 
         let start = Instant::now();
-        ThroughputSampler::warmup(1, WARMUP_BUDGET, lifts_once);
+        warmup(1, WARMUP_BUDGET, lifts_once);
 
         assert!(
             start.elapsed() >= lift + PLATEAU_FLOOR,
@@ -390,7 +514,7 @@ mod tests {
         });
 
         let start = Instant::now();
-        ThroughputSampler::warmup(1, WARMUP_BUDGET, steady);
+        warmup(1, WARMUP_BUDGET, steady);
 
         assert!(
             start.elapsed() >= PLATEAU_FLOOR,
@@ -404,11 +528,7 @@ mod tests {
     /// device that is genuinely slow answers the same however long it is held.
     #[test]
     fn a_device_slow_for_the_whole_measurement_reports_its_slow_rate() {
-        let value = ThroughputSampler::sample(KernelConfig {
-            sample: Box::new(timed_device(|| 3000)),
-            ops_count: 1,
-            min_iterations: 1,
-        });
+        let value = sampler(timed_device(|| 3000), 1).sample();
 
         assert!(
             (Duration::from_nanos(2900)..Duration::from_nanos(3100)).contains(&value.duration),
@@ -422,17 +542,13 @@ mod tests {
     /// of each.
     #[test]
     fn ranking_orders_shapes_for_less_than_one_measurement() {
-        let config = |per_iter_nanos: u64| KernelConfig {
-            sample: Box::new(timed_device(move || per_iter_nanos)),
-            ops_count: 1,
-            min_iterations: 1,
-        };
+        let config = |per_iter_nanos: u64| sampler(timed_device(move || per_iter_nanos), 1);
         let (fast, slow) = (config(1000), config(3000));
 
-        let iterations = ThroughputSampler::warm(&fast);
+        let iterations = fast.warm();
         let start = Instant::now();
-        let fast_rate = ThroughputSampler::rank(&fast, iterations).value.ops_per_s();
-        let slow_rate = ThroughputSampler::rank(&slow, iterations).value.ops_per_s();
+        let fast_rate = fast.rank(iterations).value.ops_per_s();
+        let slow_rate = slow.rank(iterations).value.ops_per_s();
 
         assert!(fast_rate > slow_rate, "{fast_rate} against {slow_rate}");
         assert!(
@@ -447,16 +563,15 @@ mod tests {
     /// launch's fixed cost. Each settles its own count toward the target.
     #[test]
     fn ranking_times_each_shape_over_the_same_span() {
-        let config = |per_iter_nanos: u64| KernelConfig {
-            sample: Box::new(move |iterations| {
-                Duration::from_nanos(per_iter_nanos * iterations as u64)
-            }),
-            ops_count: 1,
-            min_iterations: 1,
+        let config = |per_iter_nanos: u64| {
+            sampler(
+                move |iterations| Duration::from_nanos(per_iter_nanos * iterations as u64),
+                1,
+            )
         };
 
-        let slow = ThroughputSampler::rank(&config(1000), 1000);
-        let fast = ThroughputSampler::rank(&config(100), 1000);
+        let slow = config(1000).rank(1000);
+        let fast = config(100).rank(1000);
 
         assert_eq!(slow.iterations, 20_000);
         assert_eq!(fast.iterations, 200_000);
@@ -468,18 +583,17 @@ mod tests {
     #[test]
     fn ranking_settles_its_count_after_the_first_launch() {
         let launches = Cell::new(0);
-        let config = KernelConfig {
-            sample: Box::new(move |iterations| {
+        let config = sampler(
+            move |iterations| {
                 launches.set(launches.get() + 1);
                 let per_iter = if launches.get() == 1 { 100_000 } else { 1_000 };
 
                 Duration::from_nanos(per_iter * iterations as u64)
-            }),
-            ops_count: 1,
-            min_iterations: 1,
-        };
+            },
+            1,
+        );
 
-        let ranked = ThroughputSampler::rank(&config, 1_000);
+        let ranked = config.rank(1_000);
 
         assert_eq!(ranked.iterations, 20_000);
     }
@@ -489,13 +603,9 @@ mod tests {
     #[test]
     fn ranking_never_carries_fewer_passes_than_a_shape_needs() {
         let needed = 64;
-        let config = KernelConfig {
-            sample: Box::new(|iterations| Duration::from_nanos(iterations as u64)),
-            ops_count: 1,
-            min_iterations: needed,
-        };
+        let config = sampler(|iterations| Duration::from_nanos(iterations as u64), needed);
 
-        let ranked = ThroughputSampler::rank(&config, 1);
+        let ranked = config.rank(1);
 
         assert_eq!(ranked.value.duration, Duration::from_nanos(1));
         assert!(ranked.iterations >= needed);
@@ -506,21 +616,17 @@ mod tests {
     /// one no kernel's 32-bit iteration count can hold.
     #[test]
     fn ranking_a_shape_that_reads_as_instant_is_capped_at_the_ceiling() {
-        let config = KernelConfig {
-            sample: Box::new(|_| Duration::from_micros(20)),
-            ops_count: 1,
-            min_iterations: 1,
-        };
+        let config = sampler(|_| Duration::from_micros(20), 1);
 
-        let ranked = ThroughputSampler::rank(&config, MAX_ITERATIONS);
+        let ranked = config.rank(MAX_ITERATION_COUNT);
 
-        assert_eq!(ranked.iterations, MAX_ITERATIONS);
+        assert_eq!(ranked.iterations, MAX_ITERATION_COUNT);
     }
 
     /// A working timer still drives the count to the duration target.
     #[test]
     fn a_pass_far_under_the_target_grows_until_it_reaches_it() {
-        let iterations = ThroughputSampler::warmup(1, WARMUP_BUDGET, |iterations| {
+        let iterations = warmup(1, WARMUP_BUDGET, |iterations| {
             Duration::from_micros(iterations as u64)
         });
 

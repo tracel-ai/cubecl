@@ -1,4 +1,4 @@
-use crate::throughput::KernelConfig;
+use crate::throughput::KernelSampler;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{MemorySpec, ThroughputError, ThroughputKey};
@@ -26,7 +26,7 @@ pub fn build_kernel(
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,
-) -> Result<KernelConfig, ThroughputError> {
+) -> Result<KernelSampler, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
@@ -63,11 +63,11 @@ pub fn build_kernel(
     // Writes only, no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
 
-    Ok(KernelConfig {
+    Ok(KernelSampler::new(
         sample,
         ops_count,
-        min_iterations: probe.min_iterations(),
-    })
+        probe.min_iterations(),
+    ))
 }
 
 #[cube(launch_unchecked)]

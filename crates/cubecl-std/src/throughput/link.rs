@@ -6,14 +6,13 @@ use cubecl_runtime::{
     execution::{StreamMode, StreamModeOverride},
     logging::TransferRoute,
     throughput::{
-        DEFAULT_WORKING_SET_BYTES, LinkKey, LinkRoute, MemoryCurve, MemoryPoint,
-        ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputValue, Traffic,
-        working_set_sweep,
+        CachedThroughput, DEFAULT_WORKING_SET_BYTES, LinkKey, LinkRoute, MemoryCurve, MemoryPoint,
+        ThroughputCache, ThroughputError, ThroughputValue, Traffic,
     },
 };
 
 use crate::throughput::{
-    KernelConfig, ShapeSweep, link_collective,
+    KernelSampler, ShapeSweep, link_collective,
     link_peer::{MAX_BYTES, PeerCopier, PeerCopyKind},
     link_transfer,
 };
@@ -57,7 +56,7 @@ pub fn transfer_route(source: &Client, destination: &Client) -> TransferRoute {
 /// Returns an empty curve on WASM, or where the members cannot move bytes that way.
 pub fn measure_link_curve(members: &[Client], route: LinkRoute) -> MemoryCurve {
     let prober = LinkProber::new(members);
-    let points = working_set_sweep(prober.size_cap(route))
+    let points = MemoryCurve::sweep_up_to_bytes(prober.size_cap(route))
         .into_iter()
         .filter_map(|bytes| {
             let value = prober.measure(LinkKey { route, bytes }).ok()?;
@@ -105,8 +104,8 @@ impl<'a> LinkProber<'a> {
                 .iter()
                 .map(Client::properties)
                 .collect::<Vec<_>>();
-            let benchmarker = ThroughputCache::get_for_link(first.name(), &properties)
-                .map(ThroughputBenchmarker::new);
+            let benchmarker =
+                ThroughputCache::get_for_link(first.name(), &properties).map(CachedThroughput::new);
             if let Some(value) = benchmarker.as_ref().and_then(|cached| cached.cached(key)) {
                 return Ok(value);
             }
@@ -135,7 +134,7 @@ impl<'a> LinkProber<'a> {
             .map(|(value, _)| value)
     }
 
-    fn build(&self, route: LinkRoute, bytes: u64) -> Result<KernelConfig, ThroughputError> {
+    fn build(&self, route: LinkRoute, bytes: u64) -> Result<KernelSampler, ThroughputError> {
         let [source, destination, ..] = self.members else {
             return Err(ThroughputError::Unsupported);
         };

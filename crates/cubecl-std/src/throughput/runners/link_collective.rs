@@ -10,7 +10,7 @@ use cubecl_runtime::{
     throughput::ThroughputError,
 };
 
-use crate::throughput::{KernelConfig, link_peer::MAX_BYTES, memory_probe};
+use crate::throughput::{KernelSampler, link_peer::MAX_BYTES, memory_probe};
 
 const REDUCED: ElemType = ElemType::Float(FloatKind::F32);
 
@@ -27,7 +27,7 @@ pub fn build_kernel(
     group: &ClientGroup,
     kind: Collective,
     bytes: u64,
-) -> Result<KernelConfig, ThroughputError> {
+) -> Result<KernelSampler, ThroughputError> {
     if bytes > MAX_BYTES {
         return Err(ThroughputError::Unsupported);
     }
@@ -81,11 +81,7 @@ pub fn build_kernel(
         block_on(client.sync_buffers([destination])).map_err(|_| ThroughputError::Launch)?;
     }
 
-    Ok(KernelConfig {
-        sample,
-        ops_count: bytes as usize,
-        min_iterations: 1,
-    })
+    Ok(KernelSampler::new(sample, bytes as usize, 1))
 }
 
 fn queue(group: &ClientGroup, kind: Collective, buffers: &[[Handle; 2]]) {
