@@ -199,6 +199,7 @@ fn register_plane_attention<E: Float>(
     #[comptime] ending: Ending,
     #[comptime] unbiased: bool,
     #[comptime] headroom: u32,
+    #[comptime] held: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -228,10 +229,24 @@ fn register_plane_attention<E: Float>(
             let keys_walk = plane.walk();
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
-            let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
-            q_s.copy_from(&q_p);
-            sync_plane();
+            let q_s = match held {
+                true => q_p.clone(),
+                false => {
+                    let mut staged = q_p.stage_for(&walk, StageStorage::Strided, None);
+                    staged.copy_from(&q_p);
+                    sync_plane();
+                    staged
+                }
+            };
             let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            let q_s = match held {
+                true => {
+                    let mut fragments = q_s.held_for(&logits);
+                    fragments.copy_from(&q_s);
+                    fragments
+                }
+                false => q_s,
+            };
             // The value's sum is opened against what it contracts: the score's own fragments,
             // whose instruction it keeps.
             let acc = out
@@ -677,6 +692,9 @@ struct Case {
     /// Octaves the softmax keeps before its max follows a row's scores
     /// ([`OnlineSoftmax::with_headroom`]).
     headroom: u32,
+    /// The query held in the plane's registers across the walk ([`Tile::held_for`]) rather than
+    /// staged ([`register_plane_attention`] alone).
+    held: bool,
 }
 
 impl Case {
@@ -921,6 +939,7 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
         ending,
         case.unbiased(),
         case.headroom,
+        case.held,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -1447,6 +1466,7 @@ const PREFILL: Case = Case {
     over_run: false,
     rescaled: false,
     headroom: 0,
+    held: false,
 };
 
 #[test]
@@ -1586,6 +1606,7 @@ const REGISTER_PREFILL: Case = Case {
     over_run: false,
     rescaled: false,
     headroom: 0,
+    held: false,
 };
 
 #[test]
@@ -1602,6 +1623,25 @@ fn register_plane_attention_rescales_past_a_headroom() {
                 attended: 100,
                 causal: true,
                 headroom,
+                ..REGISTER_PREFILL
+            },
+            Ending::Normalized,
+            1,
+        );
+    }
+}
+
+/// The query read from global memory once, into fragments every block's scores then contract, as
+/// many a plane along the head dim as the contraction takes steps and along the queries as it holds
+/// rows.
+#[test]
+fn register_plane_attention_holds_its_query_in_registers() {
+    for rows in [1, 2] {
+        run_registers::<half::f16>(
+            Case {
+                rows,
+                queries: 32 * rows,
+                held: true,
                 ..REGISTER_PREFILL
             },
             Ending::Normalized,
