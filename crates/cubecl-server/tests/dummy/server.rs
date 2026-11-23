@@ -339,13 +339,14 @@ impl<M: Marker> Server for DummyServer<M> {
         size: u64,
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // Returned, as every backend's reservation does: the client attaches it to the buffer.
         let reserved = self
             .memory_management
             .reserve(size, PageUpdate::Allow, &mut self.failures)
-            .unwrap();
+            .map_err(ServerError::from)?;
         self.memory_management
             .bind(reserved, memory.clone(), 0, &mut self.failures)
-            .unwrap();
+            .map_err(ServerError::from)?;
         Ok(())
     }
 

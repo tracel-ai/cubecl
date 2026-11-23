@@ -94,7 +94,7 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
                 state.act_on(|s| current.executes(|| task(s.as_mut())))
             }))
             .unwrap_or_else(|payload| Err(CallError::from_panic(payload)));
-            let _ = sender.send(result);
+            let _ = sender.send(answer_with_unanswered_panic(result));
         };
         match self.send::<_, SEND_FLUSH>(call) {
             Ok(()) => SpawnedCall::running(receiver),
@@ -190,7 +190,7 @@ impl ChannelDeviceHandle {
                         .unwrap_unchecked()
                 };
                 let result = catch_unwind(AssertUnwindSafe(task)).map_err(CallError::from_panic);
-                let _ = sender.send(result);
+                let _ = sender.send(answer_with_unanswered_panic(result));
             }
         }
 
@@ -245,6 +245,30 @@ std::thread_local! {
 
     /// Heterogeneous map of service states owned by this thread.
     static STATES: RefCell<HashMap<TypeId, ServiceSlot>> = RefCell::new(HashMap::new());
+
+    /// The first panic of a task nobody waits on, held for the next call that does
+    /// ([`answer_with_unanswered_panic`]).
+    static UNANSWERED_PANIC: RefCell<Option<CallError>> = const { RefCell::new(None) };
+}
+
+/// `result` as the answer of a call that waits on this runner, or the panic of a task nobody
+/// waited on, queued before it, which this answer then reports in its place.
+///
+/// A task submitted without waiting, such as a kernel's launch, has no caller to answer: left
+/// in a log, its panic turns the work it was for into a silent no-op, and the next sync or read
+/// reports success. So the first such panic is held on its runner and answers the next call
+/// that waits on it. The call's own panic wins over a held one, which stays for the call after.
+fn answer_with_unanswered_panic<R>(result: Result<R, CallError>) -> Result<R, CallError> {
+    match result {
+        Ok(value) => match UNANSWERED_PANIC.with_borrow_mut(Option::take) {
+            Some(error) => {
+                drop(value);
+                Err(error)
+            }
+            None => Ok(value),
+        },
+        Err(error) => Err(error),
+    }
 }
 
 /// A service's place on its runner thread.
@@ -816,15 +840,30 @@ mod task {
         assert!(core::mem::offset_of!(Task, data) == 0);
     };
 
-    /// Logs the panic of a task nobody waits on, then drops its payload.
+    /// Holds the panic of a task nobody waits on for the next call that waits on this runner
+    /// ([`answer_with_unanswered_panic`](super::answer_with_unanswered_panic)), logged as it
+    /// happens. Where one is already held, this one is logged and dropped: the first is the
+    /// cause the caller needs.
     ///
-    /// The payload is dropped under `catch_unwind` too: a payload whose `Drop` panics would
+    /// A dropped payload is dropped under `catch_unwind` too: a payload whose `Drop` panics would
     /// otherwise unwind out of the runner thread and end it, leaving every task queued behind
     /// it, and every caller waiting on one, waiting forever. A payload that panics again as it
-    /// drops is leaked rather than dropped a second time.
-    fn discard_panic(payload: Box<dyn core::any::Any + Send>) {
+    /// drops is leaked rather than dropped a second time. A held payload drops on the caller's
+    /// thread, as any panic a call answers with does.
+    fn hold_panic(payload: Box<dyn core::any::Any + Send>) {
         let error = CallError::from_panic(payload);
-        log::warn!("{error:?}");
+        log::warn!(
+            "a task nobody waits on panicked; the next call that waits answers with it: {error:?}"
+        );
+        let Some(error) = UNANSWERED_PANIC.with_borrow_mut(|held| match held {
+            None => {
+                *held = Some(error);
+                None
+            }
+            Some(_) => Some(error),
+        }) else {
+            return;
+        };
         if let Err(again) = catch_unwind(AssertUnwindSafe(move || drop(error))) {
             log::warn!("dropping the payload of a task's panic panicked too; leaking it");
             core::mem::forget(again);
@@ -858,7 +897,7 @@ mod task {
                     // SAFETY: Paired with the ptr::write to data above.
                     let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
                     if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
-                        discard_panic(payload);
+                        hold_panic(payload);
                     }
                 };
             } else if fits_arena {
@@ -872,7 +911,7 @@ mod task {
                         std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
                     if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
-                        discard_panic(payload);
+                        hold_panic(payload);
                     }
                 };
             } else {
@@ -2232,35 +2271,97 @@ mod tests {
         }
     }
 
-    /// Submits a task nobody waits on that panics with `payload`, then waits, bounded so a
-    /// runner that died fails the test instead of hanging it, for a call queued behind it.
-    fn call_after_a_panic_of(
+    /// Submits a task nobody waits on that panics with `payload`, then makes two calls queued
+    /// behind it, each bounded so a runner that died fails the test instead of hanging it. A
+    /// held payload is leaked here: these payloads panic as they drop.
+    fn calls_after_a_panic_of(
         payload: fn() -> PanicsAsItDrops,
-    ) -> Result<usize, std::string::String> {
+    ) -> [Result<usize, std::string::String>; 2] {
         let handle = mock_fixture();
         handle.submit(move |_| std::panic::panic_any(payload()));
-        let caller = (*handle).clone();
-        let (answered, answer) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = answered.send(caller.submit_blocking(|state| state.counter + 1));
-        });
-        match answer.recv_timeout(Duration::from_secs(30)) {
-            Ok(result) => result.map_err(|error| std::format!("{error:?}")),
-            Err(_) => Err("the call queued behind the panic was never answered".into()),
-        }
+        let call = || {
+            let caller = (*handle).clone();
+            let (answered, answer) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let answer = caller.submit_blocking(|state| state.counter + 1);
+                let _ = answered.send(answer.map_err(|error| {
+                    let panicked = error.message().is_none() && !error.is_closed();
+                    core::mem::forget(error);
+                    std::format!("panicked: {panicked}")
+                }));
+            });
+            match answer.recv_timeout(Duration::from_secs(30)) {
+                Ok(result) => result,
+                Err(_) => Err("the call queued behind the panic was never answered".into()),
+            }
+        };
+        [call(), call()]
     }
 
-    /// The runner outlives a task whose panic payload panics as the runner drops it, so the
-    /// call queued behind that task is answered.
+    /// The runner outlives a task whose panic payload panics as it drops: the call queued
+    /// behind that task answers with the panic, and the call after it is served.
     #[test]
     fn test_a_payload_that_panics_as_it_drops_leaves_the_runner_serving() {
-        assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(1)), Ok(1));
+        assert_eq!(
+            calls_after_a_panic_of(|| PanicsAsItDrops(1)),
+            [Err("panicked: true".into()), Ok(1)]
+        );
     }
 
-    /// A payload that panics again as its own panic's payload drops is leaked, and the runner
-    /// still answers what is queued behind it.
+    /// A payload that panics again as its own panic's payload drops still answers the next call,
+    /// and the runner serves the call after it.
     #[test]
     fn test_a_payload_that_keeps_panicking_as_it_drops_leaves_the_runner_serving() {
-        assert_eq!(call_after_a_panic_of(|| PanicsAsItDrops(3)), Ok(1));
+        assert_eq!(
+            calls_after_a_panic_of(|| PanicsAsItDrops(3)),
+            [Err("panicked: true".into()), Ok(1)]
+        );
+    }
+
+    /// A task nobody waits on that panics, as a kernel that panics while it expands, answers the
+    /// next call that waits on its device with its own panic, which re-raises at the caller: a
+    /// sync or a read after it never reports success. Only the first is held, and the call after
+    /// is served as usual.
+    #[test]
+    fn test_an_unwaited_panic_answers_the_next_waiting_call() {
+        let handle = mock_fixture();
+        handle.submit(|_| panic!("expansion failed"));
+        handle.submit(|_| panic!("a later failure"));
+
+        let answered = handle.submit_blocking(|state| state.counter + 1);
+        let error = answered.expect_err("the call after an unwaited panic must not succeed");
+        assert_eq!(error.message(), Some("expansion failed"));
+
+        let reraised = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            handle.submit_blocking(|_| ()).unwrap_or_resume();
+        }));
+        assert!(reraised.is_ok(), "only the first unwaited panic is held");
+
+        handle.submit(|_| panic!("expansion failed again"));
+        let reraised = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            handle.submit_blocking(|_| ()).unwrap_or_resume();
+        }))
+        .expect_err("unwrap_or_resume re-raises the held panic at the caller");
+        assert_eq!(
+            reraised.downcast_ref::<&str>(),
+            Some(&"expansion failed again")
+        );
+
+        assert_eq!(
+            handle.submit_blocking(|state| state.counter + 1).ok(),
+            Some(1)
+        );
+    }
+
+    /// A spawned call answers with an unwaited panic queued before it, as a blocking one does.
+    #[test]
+    fn test_an_unwaited_panic_answers_a_spawned_call() {
+        let handle = mock_fixture();
+        handle.submit(|_| panic!("expansion failed"));
+        let error = handle
+            .spawn(|state| state.counter + 1)
+            .join()
+            .expect_err("the spawned call after an unwaited panic must not succeed");
+        assert_eq!(error.message(), Some("expansion failed"));
     }
 }
