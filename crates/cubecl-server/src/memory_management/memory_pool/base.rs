@@ -2,7 +2,7 @@ use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
     memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
     server::IoError,
-    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
+    storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization},
 };
 use cubecl_environment::backtrace::BackTrace;
 
@@ -61,16 +61,19 @@ impl PageMapping {
     /// A storage handle for `size` bytes honoring this mapping: a real device
     /// allocation when [`Eager`](Self::Eager), a minted id awaiting
     /// [`MemoryPool::materialize`] when [`Lazy`](Self::Lazy).
-    pub(crate) fn storage_handle<Storage: ComputeStorage>(
+    pub(crate) fn storage_handle<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,
         size: u64,
     ) -> Result<StorageHandle, IoError> {
         match self {
-            PageMapping::Eager => storage.alloc(size),
+            PageMapping::Eager => storage.allocate_bytes(size),
             PageMapping::Lazy => Ok(StorageHandle::new(
                 StorageId::new(),
-                StorageUtilization { offset: 0, size },
+                StorageUtilization {
+                    offset_bytes: 0,
+                    size_bytes: size,
+                },
             )),
         }
     }
@@ -135,7 +138,7 @@ pub trait MemoryPool {
     ///
     /// # Notes
     ///
-    /// The function uses a [`ComputeStorage`] to perform the allocation. It might return an error
+    /// The function uses a [`StorageAllocator`] to perform the allocation. It might return an error
     /// if the allocation fails or if the requested size is bigger than the memory pool is
     /// configured to handle.
     ///
@@ -143,7 +146,7 @@ pub trait MemoryPool {
     /// resolution (`Lazy`). A pool without lazy support may treat `Lazy` as
     /// `Eager`: the request is an opportunity to allocate less, never a
     /// promise the caller may rely on.
-    fn alloc<Storage: ComputeStorage>(
+    fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -155,7 +158,7 @@ pub trait MemoryPool {
 
     /// Reserve `size` bytes in the room the pool holds, and allocate a page
     /// for them when it holds none.
-    fn reserve<Storage: ComputeStorage>(
+    fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -174,10 +177,10 @@ pub trait MemoryPool {
     /// Ensure the allocation behind `binding` has real device backing,
     /// installing it now if the allocation was made [`PageMapping::Lazy`].
     /// Must be called before the binding's storage handle reaches
-    /// [`ComputeStorage::get`]. A no-op for pools that only allocate eagerly
+    /// [`StorageAllocator::get`]. A no-op for pools that only allocate eagerly
     /// and for bindings this pool does not hold (lookup errors surface from
     /// [`find`](Self::find), not from here).
-    fn materialize<Storage: ComputeStorage>(
+    fn materialize<Storage: StorageAllocator>(
         &mut self,
         _storage: &mut Storage,
         _binding: &ManagedMemoryBinding,
@@ -195,8 +198,8 @@ pub trait MemoryPool {
     /// (see [`PageGuard`]). `None` when the pool holds no such page.
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard>;
 
-    /// Cleanup the memory pool, maybe freeing some memory using the [`ComputeStorage`].
-    fn cleanup<Storage: ComputeStorage>(
+    /// Cleanup the memory pool, maybe freeing some memory using the [`StorageAllocator`].
+    fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
@@ -290,18 +293,18 @@ impl Slice {
     /// and was allocated [`PageMapping::Lazy`]: allocate for real and retire
     /// the minted id, which never reached the driver. The caller checks the
     /// slice is unmapped and that the binding has a claim on it.
-    pub(crate) fn materialize<Storage: ComputeStorage>(
+    pub(crate) fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
     ) -> Result<(), IoError> {
         let effective_size = self.effective_size();
-        let real = storage
-            .alloc(effective_size)
-            .map_err(|err| IoError::StorageMappingFailed {
+        let real = storage.allocate_bytes(effective_size).map_err(|err| {
+            IoError::StorageMappingFailed {
                 size: effective_size,
                 source: alloc::boxed::Box::new(err),
                 backtrace: BackTrace::capture(),
-            })?;
+            }
+        })?;
         self.storage.id = real.id;
         self.mapped = true;
         Ok(())

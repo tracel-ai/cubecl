@@ -32,7 +32,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     stream::{
         ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
         failed_writing,
@@ -748,7 +748,6 @@ impl CudaServer {
         ctx: CudaContext,
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
-        mem_alignment: usize,
         device_id: DeviceId,
         utilities: ServerUtilities,
         captures: DeviceCaptures,
@@ -768,7 +767,6 @@ impl CudaServer {
                 CudaStreamBackend::new(
                     mem_props,
                     mem_config,
-                    mem_alignment,
                     utilities.logger.clone(),
                     stream_priority,
                     captures,

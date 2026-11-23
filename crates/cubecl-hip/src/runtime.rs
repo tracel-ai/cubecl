@@ -248,7 +248,6 @@ impl DeviceService for HipServer {
             hip_ctx,
             mem_properties,
             options.memory_config,
-            probe.alignment,
             probe.integrated,
             utilities,
             captures,

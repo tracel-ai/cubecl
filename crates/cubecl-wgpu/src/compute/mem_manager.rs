@@ -11,7 +11,7 @@ use cubecl_server::{
         AuxiliaryMemoryReport, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, PageUpdate,
     },
-    storage::ComputeStorage,
+    storage::StorageAllocator,
 };
 use wgpu::BufferUsages;
 
@@ -29,7 +29,6 @@ pub(crate) fn main_memory(
 ) -> MemoryManagement<WgpuStorage> {
     MemoryManagement::from_configuration(
         WgpuStorage::new(
-            properties.alignment as usize,
             device.clone(),
             BufferUsages::STORAGE
                 | BufferUsages::COPY_SRC
@@ -74,7 +73,6 @@ impl AuxiliaryMemory {
     ) -> Self {
         let staging = MemoryManagement::from_configuration(
             WgpuStorage::new(
-                wgpu::COPY_BUFFER_ALIGNMENT as usize,
                 device.clone(),
                 BufferUsages::MAP_READ | BufferUsages::COPY_DST,
                 false,
@@ -90,7 +88,6 @@ impl AuxiliaryMemory {
         // uniforms as having <uniform> usage.
         let uniforms = MemoryManagement::from_configuration(
             WgpuStorage::new(
-                properties.alignment as usize,
                 device.clone(),
                 BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 use_vulkan_compiler,

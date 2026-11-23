@@ -11,7 +11,7 @@ pub struct MemoryUsage {
     ///
     /// This is not the number of times an actual allocation happens to create a new memory page,
     /// but really the number of active slices.
-    pub allocations: u64,
+    pub allocation_count: u64,
     /// The number of bytes that are currently actually in use.
     ///
     /// This doesn't include any padding or other memory that needs to be
@@ -32,7 +32,7 @@ impl MemoryUsage {
     /// Both usages together, field by field.
     pub fn combine(&self, other: MemoryUsage) -> MemoryUsage {
         MemoryUsage {
-            allocations: self.allocations + other.allocations,
+            allocation_count: self.allocation_count + other.allocation_count,
             in_use_bytes: self.in_use_bytes + other.in_use_bytes,
             padding_bytes: self.padding_bytes + other.padding_bytes,
             reserved_bytes: self.reserved_bytes + other.reserved_bytes,
@@ -47,7 +47,7 @@ impl core::fmt::Display for MemoryUsage {
         let usage_percentage = (self.in_use_bytes as f32 / self.reserved_bytes as f32) * 100.0;
         let padding_percentage = (self.padding_bytes as f32 / self.in_use_bytes as f32) * 100.0;
         writeln!(f, "Memory Usage Report:")?;
-        writeln!(f, "  Number of allocations: {}", self.allocations)?;
+        writeln!(f, "  Number of allocations: {}", self.allocation_count)?;
         writeln!(
             f,
             "  Bytes in use: {}",
@@ -110,16 +110,16 @@ pub struct MemoryPoolReport {
     /// The pool's current usage.
     pub usage: MemoryUsage,
     /// Device allocations (pages) currently held.
-    pub pages: u64,
+    pub page_count: u64,
     /// The most device allocations ever held at once: for a sliced pool, the
     /// pages the workload needed at its peak.
-    pub peak_pages: u64,
+    pub peak_page_count: u64,
     /// How many of the current pages have no device backing yet — carved
     /// while launches were discarded, and never resolved into anything that
-    /// executes. They count toward `pages`/`peak_pages` (the plan is the
-    /// *reserved* stream) while costing no device memory; `pages -
-    /// unmapped_pages` is what this pool's pages cost the device.
-    pub unmapped_pages: u64,
+    /// executes. They count toward `page_count`/`peak_page_count` (the plan is the
+    /// *reserved* stream) while costing no device memory; `page_count -
+    /// unmapped_page_count` is what this pool's pages cost the device.
+    pub unmapped_page_count: u64,
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.
     pub largest_alloc_bytes: u64,
@@ -241,14 +241,14 @@ mod tests {
         MemoryPoolReport {
             kind: MemoryPoolKind::Direct,
             usage: MemoryUsage {
-                allocations: 1,
+                allocation_count: 1,
                 in_use_bytes,
                 padding_bytes: 0,
                 reserved_bytes: in_use_bytes,
             },
-            pages: 1,
-            peak_pages: 1,
-            unmapped_pages: 0,
+            page_count: 1,
+            peak_page_count: 1,
+            unmapped_page_count: 0,
             largest_alloc_bytes: in_use_bytes,
         }
     }
@@ -267,7 +267,7 @@ mod tests {
 
     fn usage(allocations: u64, bytes: u64) -> MemoryUsage {
         MemoryUsage {
-            allocations: allocations,
+            allocation_count: allocations,
             in_use_bytes: bytes,
             padding_bytes: bytes,
             reserved_bytes: bytes,

@@ -316,14 +316,14 @@ fn fixture(dir: &Path) -> PathBuf {
     let pool = MemoryPoolReport {
         kind: MemoryPoolKind::Persistent,
         usage: MemoryUsage {
-            allocations: 2,
+            allocation_count: 2,
             in_use_bytes: 1000,
             padding_bytes: 100,
             reserved_bytes: 4096,
         },
-        pages: 1,
-        peak_pages: 2,
-        unmapped_pages: 0,
+        page_count: 1,
+        peak_page_count: 2,
+        unmapped_page_count: 0,
         largest_alloc_bytes: 800,
     };
     insert_record(
@@ -1098,7 +1098,10 @@ fn memory_snapshots_read_back_in_order() {
     assert_eq!(memory.snapshots.len(), 1);
     let snapshot = &memory.snapshots[0].record;
     assert_eq!(snapshot.label, "walked");
-    assert_eq!(snapshot.report.streams[0].pools.persistent.peak_pages, 2);
+    assert_eq!(
+        snapshot.report.streams[0].pools.persistent.peak_page_count,
+        2
+    );
 }
 
 /// A second environment beside the fixture: the m=128 key answered by the other

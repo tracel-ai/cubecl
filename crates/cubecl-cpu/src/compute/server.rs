@@ -27,7 +27,7 @@ use cubecl_server::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
-    storage::{BytesStorage, ComputeStorage, ManagedResource},
+    storage::{BytesStorage, ManagedResource, StorageAllocator},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
 };
@@ -586,7 +586,7 @@ impl ServerStorage for CpuServer {
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<Self::Storage as StorageAllocator>::Resource>, ServerError> {
         // The same claim check a read makes: a buffer a failed launch never
         // filled reports the failure rather than handing back a pointer to
         // whatever was there before.

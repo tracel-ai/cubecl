@@ -141,7 +141,7 @@ impl MemoryPage {
     /// Gets the [memory usage](MemoryUsage) of the current memory page.
     pub fn memory_usage(&self) -> MemoryUsage {
         let mut usage = MemoryUsage {
-            allocations: 0,
+            allocation_count: 0,
             in_use_bytes: 0,
             padding_bytes: 0,
             reserved_bytes: 0,
@@ -151,7 +151,7 @@ impl MemoryPage {
             usage.reserved_bytes += slice.effective_size();
 
             if !slice.handle.is_free() {
-                usage.allocations += 1;
+                usage.allocation_count += 1;
                 usage.in_use_bytes += slice.storage.size();
                 usage.padding_bytes += slice.padding;
             }
@@ -203,22 +203,22 @@ impl MemoryPage {
 
         for (index, slice) in self.slices.iter_mut().enumerate() {
             let can_use_slice =
-                slice.storage.utilization.size >= effective_size && slice.handle.is_free();
+                slice.storage.utilization.size_bytes >= effective_size && slice.handle.is_free();
 
             if !can_use_slice {
                 continue;
             }
 
-            let can_be_split = slice.storage.utilization.size > effective_size;
+            let can_be_split = slice.storage.utilization.size_bytes > effective_size;
             let handle = slice.handle.clone();
             let storage_old = slice.storage.clone();
 
             // Updates the current storage utilization.
-            slice.storage.utilization.size = size;
+            slice.storage.utilization.size_bytes = size;
             slice.padding = padding;
 
             if can_be_split {
-                let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);
+                let new_slice = Slice::new(storage_old.trim_start_bytes(effective_size), 0);
                 self.add_new_slice(index, size, new_slice);
             }
 
@@ -303,7 +303,7 @@ impl MemoryPage {
 
             match status {
                 MemoryTaskStatus::StartMerging => {
-                    offset = slice.storage.utilization.offset;
+                    offset = slice.storage.utilization.offset_bytes;
                     size = slice.effective_size();
                     slice.tainted.clear(failures);
                 }
@@ -328,7 +328,10 @@ impl MemoryPage {
                     slice.tainted.clear(failures);
 
                     let mut storage = self.storage.clone();
-                    storage.utilization = StorageUtilization { offset, size };
+                    storage.utilization = StorageUtilization {
+                        offset_bytes: offset,
+                        size_bytes: size,
+                    };
                     let page = Slice::new(storage, 0);
                     let mut location = self.location_base;
                     location.slice = slice_pos_updated as u32;
@@ -352,7 +355,7 @@ impl MemoryPage {
         reserved_size_previous: u64,
         new_slice: Slice,
     ) {
-        self.slices[index_previous].storage.utilization.size = reserved_size_previous;
+        self.slices[index_previous].storage.utilization.size_bytes = reserved_size_previous;
 
         let index_new = index_previous + 1;
         let mut location = self.location_base;
@@ -570,8 +573,8 @@ mod tests {
         assert_eq!(
             storage.utilization,
             StorageUtilization {
-                offset: 0,
-                size: 16 * MB
+                offset_bytes: 0,
+                size_bytes: 16 * MB
             },
             "Utilization to be correct"
         );
@@ -751,8 +754,8 @@ mod tests {
                 .storage
                 .utilization,
             StorageUtilization {
-                offset: 27 * MB,
-                size: 4 * MB
+                offset_bytes: 27 * MB,
+                size_bytes: 4 * MB
             },
             "Utilization to be correct"
         );
@@ -770,8 +773,8 @@ mod tests {
                 .storage
                 .utilization,
             StorageUtilization {
-                offset: 13 * MB,
-                size: 9 * MB
+                offset_bytes: 13 * MB,
+                size_bytes: 9 * MB
             },
             "Utilization to be correct"
         );
@@ -808,7 +811,13 @@ mod tests {
     }
 
     fn new_memory_page(size: u64) -> MemoryPage {
-        let storage = StorageHandle::new(StorageId::new(), StorageUtilization { offset: 0, size });
+        let storage = StorageHandle::new(
+            StorageId::new(),
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
+        );
 
         MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Eager)
     }

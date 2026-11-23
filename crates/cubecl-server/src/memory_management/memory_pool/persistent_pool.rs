@@ -71,9 +71,9 @@ impl PersistentPool {
         MemoryPoolReport {
             kind: MemoryPoolKind::Persistent,
             usage: self.get_memory_usage(),
-            pages: self.slices.len() as u64,
-            peak_pages: self.peak_pages,
-            unmapped_pages: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
+            page_count: self.slices.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
@@ -125,8 +125,8 @@ impl MemoryPool for PersistentPool {
                 let slice = &mut self.slices[*pos];
 
                 if slice.is_free() {
-                    slice.storage.utilization.size = size;
-                    slice.storage.utilization.offset = 0;
+                    slice.storage.utilization.size_bytes = size;
+                    slice.storage.utilization.offset_bytes = 0;
                     self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
                     return Some(slice.handle.clone());
                 }
@@ -136,7 +136,7 @@ impl MemoryPool for PersistentPool {
         None
     }
 
-    fn alloc<Storage: crate::storage::ComputeStorage>(
+    fn alloc<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -163,7 +163,10 @@ impl MemoryPool for PersistentPool {
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
         let mut location = self.location_base;
@@ -200,14 +203,14 @@ impl MemoryPool for PersistentPool {
             .collect();
 
         MemoryUsage {
-            allocations: used_slices.len() as u64,
+            allocation_count: used_slices.len() as u64,
             in_use_bytes: used_slices.iter().map(|slice| slice.storage.size()).sum(),
             padding_bytes: used_slices.iter().map(|slice| slice.padding).sum(),
             reserved_bytes: self.slices.iter().map(|slice| slice.effective_size()).sum(),
         }
     }
 
-    fn cleanup<Storage: crate::storage::ComputeStorage>(
+    fn cleanup<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
@@ -226,7 +229,7 @@ impl MemoryPool for PersistentPool {
                     // it for the driver to free.
                     slice.tainted.clear(failures);
                     if slice.mapped {
-                        storage.dealloc(slice.storage.id);
+                        storage.deallocate(slice.storage.id);
                     }
                 } else {
                     let slice_pos = slices.len();
@@ -267,7 +270,7 @@ impl MemoryPool for PersistentPool {
         Ok(())
     }
 
-    fn materialize<Storage: crate::storage::ComputeStorage>(
+    fn materialize<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &super::ManagedMemoryBinding,
@@ -300,7 +303,7 @@ mod tests {
     /// serves the next one that fits.
     #[test_log::test]
     fn an_allocation_past_the_limit_is_refused_before_the_storage() {
-        use crate::storage::ComputeStorage;
+        use crate::storage::StorageAllocator;
 
         let mut storage = BytesStorage::default();
         let mut pool = PersistentPool::new(1024, 16, 0);

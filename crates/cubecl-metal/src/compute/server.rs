@@ -36,7 +36,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
     timestamp_profiler::TimestampProfiler,
 };
@@ -639,7 +639,7 @@ impl ServerStorage for MetalServer {
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
-    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<MetalStorage as StorageAllocator>::Resource>, ServerError> {
         // The same claim check a read makes: a buffer a failed launch never
         // filled reports the failure rather than handing back a pointer to
         // whatever was there before.

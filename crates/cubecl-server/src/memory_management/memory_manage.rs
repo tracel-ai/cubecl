@@ -12,7 +12,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
     server::{IoError, ServerError},
-    storage::{ComputeStorage, ManagedResource, StorageHandle},
+    storage::{ManagedResource, StorageAllocator, StorageHandle},
 };
 
 use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
@@ -147,7 +147,7 @@ enum MemoryAllocationOption {
     Provided(MemoryAllocationMode),
 }
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
+impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
         storage: Storage,
@@ -426,11 +426,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let handle = self.get_storage(binding)?;
 
         let handle = match offset_start {
-            Some(offset) => handle.offset_start(offset),
+            Some(offset) => handle.trim_start_bytes(offset),
             None => handle,
         };
         let handle = match offset_end {
-            Some(offset) => handle.offset_end(offset),
+            Some(offset) => handle.trim_end_bytes(offset),
             None => handle,
         };
         self.storage().get(&handle)
@@ -605,7 +605,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ///
     /// The storage should probably not be used for allocations since the handles won't be
     /// compatible with the ones provided by the current trait. Prefer using the
-    /// [alloc](ComputeStorage::alloc) and [dealloc](ComputeStorage::dealloc) functions.
+    /// [alloc](StorageAllocator::alloc) and [dealloc](StorageAllocator::dealloc) functions.
     ///
     /// This is useful if you need to time the deallocations based on async computation, or to
     /// change the mode of storage for different reasons.
@@ -712,7 +712,7 @@ fn owned_by(slice: &Slice, binding: &ManagedMemoryBinding) -> Result<(), IoError
     Ok(())
 }
 
-impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
+impl<Storage: StorageAllocator> core::fmt::Display for MemoryManagement<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("\n# MemoryManagement\n\n")?;
         f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
@@ -959,7 +959,7 @@ mod tests {
             report
                 .dynamic
                 .iter()
-                .map(|pool| pool.peak_pages)
+                .map(|pool| pool.peak_page_count)
                 .sum::<u64>(),
             0,
             "nothing leaked into the dynamic pools"
@@ -975,7 +975,7 @@ mod tests {
                 .memory_report()
                 .dynamic
                 .iter()
-                .map(|pool| pool.peak_pages)
+                .map(|pool| pool.peak_page_count)
                 .sum::<u64>(),
             1
         );
@@ -1001,7 +1001,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         // One page, not two: both slices were carved from the same one.
         assert_eq!(usage.reserved_bytes, METADATA_PAGE);
@@ -1027,7 +1027,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocations, 1);
+        assert_eq!(usage.allocation_count, 1);
         assert_eq!(usage.in_use_bytes, alloc_size);
         assert_eq!(usage.reserved_bytes, METADATA_PAGE);
     }
@@ -1053,7 +1053,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         assert_eq!(usage.reserved_bytes, page_size * 2);
     }
@@ -1141,7 +1141,7 @@ mod tests {
             2 * MIB,
             "both sizes must share a single arena page"
         );
-        assert_eq!(usage.allocations, 1);
+        assert_eq!(usage.allocation_count, 1);
         drop(large);
     }
 
@@ -1179,7 +1179,7 @@ mod tests {
             })
             .collect();
         let usage_after = memory_management.memory_report().usage();
-        assert_eq!(usage_before.allocations, usage_after.allocations);
+        assert_eq!(usage_before.allocation_count, usage_after.allocation_count);
         assert_eq!(usage_before.in_use_bytes, usage_after.in_use_bytes);
         // Usage after can actually be _less_ because of defragging.
         assert!(usage_before.reserved_bytes >= usage_after.reserved_bytes);
@@ -1257,7 +1257,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         assert!(usage.reserved_bytes >= alloc_size * 2);
     }
@@ -1281,7 +1281,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocations, 1);
+        assert_eq!(usage.allocation_count, 1);
         assert_eq!(usage.in_use_bytes, alloc_size);
         assert!(usage.reserved_bytes >= alloc_size);
     }
@@ -1302,7 +1302,7 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocations, 2);
+        assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         assert!(usage.reserved_bytes >= alloc_size * 2);
     }
@@ -1487,7 +1487,7 @@ mod tests {
             })
             .collect();
         let usage_after = memory_management.memory_report().usage();
-        assert_eq!(usage_before.allocations, usage_after.allocations);
+        assert_eq!(usage_before.allocation_count, usage_after.allocation_count);
         assert_eq!(usage_before.in_use_bytes, usage_after.in_use_bytes);
         assert_eq!(usage_before.reserved_bytes, usage_after.reserved_bytes);
     }

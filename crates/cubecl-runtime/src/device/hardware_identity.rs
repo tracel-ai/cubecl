@@ -38,10 +38,12 @@ impl HardwareIdentity {
                 .unwrap_or(0),
         }
     }
+}
 
-    /// This identity written with `memory` installed, laid out as the throughput cache names its tables:
-    /// another layout would orphan every peak measured.
-    pub(crate) fn name_with_memory(&self, memory: u64) -> String {
+impl HardwareIdentity {
+    /// This identity written with `memory` bytes installed, laid out as the throughput cache names
+    /// its tables: another layout would orphan every peak measured.
+    pub(crate) fn name_with_memory_bytes(&self, memory: u64) -> String {
         format!(
             "{}_{}_{}_mem{memory}_par{}",
             self.runtime, self.fingerprint, self.name, self.parallelism
@@ -145,7 +147,7 @@ mod tests {
     #[test]
     fn the_name_with_memory_keeps_the_throughput_layout() {
         assert_eq!(
-            HardwareIdentity::new("cuda", &l4()).name_with_memory(5 << 30),
+            HardwareIdentity::new("cuda", &l4()).name_with_memory_bytes(5 << 30),
             "cuda_ptx-sm89_NVIDIA-L4_mem5368709120_par58"
         );
     }
