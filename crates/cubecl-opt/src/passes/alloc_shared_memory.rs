@@ -53,7 +53,11 @@ impl Pass for AllocateSharedMemoryBlockPass {
         let mut rewriter = IRRewriter::<DummyListener>::default();
         let op = op.dyn_op(ctx).downcast::<FuncOp>().unwrap();
 
-        let allocs = analysis.allocations.values().copied().collect::<Vec<_>>();
+        let allocs = analysis
+            .declared
+            .iter()
+            .map(|value| analysis.allocations[value])
+            .collect::<Vec<_>>();
 
         if !analysis.allocations.is_empty() {
             let size = allocs.iter().map(|it| it.end(ctx)).max().unwrap();
