@@ -67,11 +67,11 @@ pub fn rejected_with_input(input: &[u32], out: &mut [u32], #[comptime] reason: S
 /// with whichever sibling test's thread was assigned the same number, and then
 /// legitimately drains that sibling's errors.
 fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
-    let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+    let max_stream_count = CubeClRuntimeConfig::get().streaming.max_stream_count as u64;
     (
         StreamId { value: seed },
         StreamId {
-            value: seed + max_streams,
+            value: seed + max_stream_count,
         },
     )
 }
@@ -246,7 +246,7 @@ pub fn test_a_buffer_the_failure_never_touched_reads_normally<R: Runtime>(client
 /// last word.
 pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime>(client: Client) {
     // Two ids far enough apart to land on different pooled streams for any
-    // `max_streams`: one queue has to be aligned against the other for the
+    // `max_stream_count`: one queue has to be aligned against the other for the
     // ordering to mean anything.
     let owner = StreamId { value: 2_000_001 };
     let writer = StreamId { value: 2_000_002 };

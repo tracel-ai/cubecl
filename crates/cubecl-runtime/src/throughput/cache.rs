@@ -24,17 +24,18 @@ static GLOBAL_CACHE: Caches<ThroughputKey> = Mutex::new(None);
 
 static LINK_CACHE: Caches<LinkKey> = Mutex::new(None);
 
-/// What a [`ThroughputCache`] can be keyed by.
+/// What can key a [`ThroughputCache`]: stored where the cache persists, hashed where it lives in
+/// memory.
 #[cfg(persistence)]
-pub trait ThroughputCacheKey: cubecl_environment::persistence::StoreKey + core::fmt::Debug {}
+pub trait ThroughputKeyable: cubecl_environment::persistence::StoreKey + core::fmt::Debug {}
 #[cfg(persistence)]
-impl<K: cubecl_environment::persistence::StoreKey + core::fmt::Debug> ThroughputCacheKey for K {}
+impl<K: cubecl_environment::persistence::StoreKey + core::fmt::Debug> ThroughputKeyable for K {}
 
-/// What a [`ThroughputCache`] can be keyed by.
+/// What can key a [`ThroughputCache`]: hashed, since this build keeps the cache in memory.
 #[cfg(not(persistence))]
-pub trait ThroughputCacheKey: core::hash::Hash + Eq + core::fmt::Debug {}
+pub trait ThroughputKeyable: core::hash::Hash + Eq + core::fmt::Debug {}
 #[cfg(not(persistence))]
-impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
+impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputKeyable for K {}
 
 /// Caches the [`ThroughputValue`] for a given key: a [`ThroughputKey`] for one device, a
 /// [`LinkKey`] for the devices a link joins.
@@ -42,8 +43,10 @@ impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
 /// This cache is used to avoid recomputing throughput values for the same key.
 /// Stores on disk when std is available, otherwise stores in memory.
 pub struct ThroughputCache<K = ThroughputKey> {
+    /// Each measured value, read and written by its key.
     #[cfg(not(persistence))]
     cache: HashMap<K, ThroughputValue>,
+    /// Each measured value, read and written by its key.
     #[cfg(persistence)]
     cache: Store<K, ThroughputValue>,
 }
@@ -56,13 +59,20 @@ impl ThroughputCache<LinkKey> {
     /// named by its PCI address too. That address is local to the host, and a stored cache can
     /// travel to another, so a stored one is also named for the host.
     pub fn get_for_link(runtime: &str, members: &[&DeviceProperties]) -> Option<Arc<Mutex<Self>>> {
-        let places = members
-            .iter()
-            .map(|properties| HardwareIdentity::name_in_slot(runtime, properties))
-            .collect::<Option<Vec<_>>>()?;
-
-        Some(cached(&LINK_CACHE, link_name(&host_id()?, &places)))
+        link_cache(runtime, members)
     }
+}
+
+fn link_cache(
+    runtime: &str,
+    members: &[&DeviceProperties],
+) -> Option<Arc<Mutex<ThroughputCache<LinkKey>>>> {
+    let places = members
+        .iter()
+        .map(|properties| HardwareIdentity::name_in_slot(runtime, properties))
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(cached(&LINK_CACHE, link_name(&host_id()?, &places)))
 }
 
 /// The name of the cache on `host` for the link between cards named `places`, in order.
@@ -71,17 +81,20 @@ fn link_name(host: &str, places: &[String]) -> String {
 }
 
 impl ThroughputCache {
-    /// Gets or creates the global `ThroughputCache` for one device.
+    /// The process's cache for devices of `runtime` with the hardware `properties` describes.
     pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
-        // A memory ceiling moves with the installed capacity, which the identity leaves out.
-        let name = HardwareIdentity::new(runtime, properties)
-            .name_with_memory_bytes(properties.memory.max_page_size);
-
-        cached(&GLOBAL_CACHE, name)
+        cached(&GLOBAL_CACHE, device_name(runtime, properties))
     }
 }
 
-fn cached<K: ThroughputCacheKey>(
+/// The name of the cache of a device of `runtime` reporting `properties`.
+fn device_name(runtime: &str, properties: &DeviceProperties) -> String {
+    // A memory ceiling moves with the installed capacity, which the identity leaves out.
+    HardwareIdentity::new(runtime, properties)
+        .name_with_memory_bytes(properties.memory.max_page_size)
+}
+
+fn cached<K: ThroughputKeyable>(
     caches: &Caches<K>,
     name: String,
 ) -> Arc<Mutex<ThroughputCache<K>>> {
@@ -117,8 +130,8 @@ fn host_id() -> Option<String> {
     Some("local".into())
 }
 
-impl<K: ThroughputCacheKey> ThroughputCache<K> {
-    /// Creates a new `ThroughputCache` with the given name.
+impl<K: ThroughputKeyable> ThroughputCache<K> {
+    /// The cache named `name`, empty or as an earlier run stored it.
     pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
         #[cfg(not(persistence))]
         {
@@ -143,24 +156,26 @@ impl<K: ThroughputCacheKey> ThroughputCache<K> {
     /// refuses to write is still kept for the rest of the run.
     pub fn insert(&mut self, key: K, value: ThroughputValue) {
         #[cfg(persistence)]
-        if let Err(err) = self.cache.insert(key, value) {
-            match err {
-                StoreError::Backend { key, error } => log::warn!(
-                    "Throughput measurement for key {key:?} could not be stored, it will be measured again next run: {error}"
-                ),
-                err => log::warn!(
-                    "Concurrent throughput measurement, keeping the existing value: {err}"
-                ),
-            }
-        }
+        self.cache.insert(key, value).unwrap_or_else(warn_unstored);
 
         #[cfg(not(persistence))]
         self.cache.insert(key, value);
     }
 
-    /// Returns the [`ThroughputValue`] for the given key, if it exists in the cache.
+    /// The value measured for `key`, if the cache holds one.
     pub fn get(&self, key: &K) -> Option<&ThroughputValue> {
         self.cache.get(key)
+    }
+}
+
+/// Logs a value the storage refused, which stays in memory for the rest of the run.
+#[cfg(persistence)]
+fn warn_unstored<K: core::fmt::Debug>(err: StoreError<K, ThroughputValue>) {
+    match err {
+        StoreError::Backend { key, error } => log::warn!(
+            "Throughput measurement for key {key:?} could not be stored, it will be measured again next run: {error}"
+        ),
+        err => log::warn!("Concurrent throughput measurement, keeping the existing value: {err}"),
     }
 }
 

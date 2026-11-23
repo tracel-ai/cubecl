@@ -71,13 +71,13 @@ impl CpuServer {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let scheduler = SchedulerMultiStream::new(
             utilities.logger.clone(),
             backend,
             SchedulerMultiStreamOptions {
-                max_streams,
+                max_stream_count,
                 max_tasks: 8,
                 strategy: SchedulerStrategy::Interleave,
             },

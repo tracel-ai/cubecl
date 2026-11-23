@@ -1,7 +1,28 @@
-use crate::storage_id_type;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
-// This ID is used to map a handle to its actual data.
-storage_id_type!(StorageId);
+/// The id of one allocation of a [`StorageAllocator`](super::StorageAllocator), never given to
+/// another.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub struct StorageId {
+    value: usize,
+}
+
+impl StorageId {
+    /// An id no other allocation of this process has.
+    pub fn new() -> Self {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+        let value = COUNTER.fetch_add(1, Ordering::Relaxed);
+        assert!(value != usize::MAX, "Storage ids should not run out");
+        Self { value }
+    }
+}
+
+impl Default for StorageId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl core::fmt::Display for StorageId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

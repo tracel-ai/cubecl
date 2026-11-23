@@ -82,11 +82,11 @@ impl MetalServer {
             use cubecl_server::config::RuntimeConfig;
             cubecl_server::config::CubeClRuntimeConfig::get()
         };
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         Self {
             context,
-            streams: MultiStream::new(logger, backend, max_streams),
+            streams: MultiStream::new(logger, backend, max_stream_count),
             utilities,
             timestamps: TimestampProfiler::default(),
             graphs: Captures::default(),

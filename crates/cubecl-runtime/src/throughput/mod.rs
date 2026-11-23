@@ -1,13 +1,13 @@
 mod base;
-mod benchmarker;
 mod cache;
+mod cached;
 mod cmma;
 mod curve;
 mod link;
 mod roofline;
 pub use base::*;
-pub use benchmarker::*;
 pub use cache::*;
+pub use cached::*;
 pub use cmma::*;
 pub use curve::*;
 pub use link::*;

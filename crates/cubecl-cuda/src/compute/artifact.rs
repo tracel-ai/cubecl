@@ -178,7 +178,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             }
         };
 
-        let cubin = self.assemble(&ptx, id.kernel.debug_info != DebugInfo::None)?;
+        let cubin = self.assemble(&ptx, id.kernel.debug_info() != DebugInfo::None)?;
         Ok(CudaArtifact {
             entrypoint_name: lowered.entrypoint_name,
             shared_mem_bytes,

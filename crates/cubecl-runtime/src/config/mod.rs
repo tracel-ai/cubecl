@@ -1,30 +1,35 @@
-/// Autotune config module.
+/// The `[autotune]` section of `cubecl.toml`.
 pub mod autotune;
-/// Cache config module, re-exported from `cubecl-environment`.
-#[cfg(std_io)]
-pub mod cache {
-    pub use cubecl_environment::persistence::CacheConfig;
-}
-/// Compilation config module.
+/// The `[compilation]` section of `cubecl.toml`.
 pub mod compilation;
-/// Which named environment the process warms into.
+/// The `[environment]` section of `cubecl.toml`.
 pub mod environment;
-/// Memory config module.
+/// The `[memory]` section of `cubecl.toml`.
 pub mod memory;
-/// Profiling config module.
+/// The `[profiling]` section of `cubecl.toml`.
 pub mod profiling;
-/// Human-readable byte sizes for config files.
-pub mod size;
-/// Streaming config module.
+/// The `[streaming]` section of `cubecl.toml`.
 pub mod streaming;
-/// Throughput config module.
+/// The `[throughput]` section of `cubecl.toml`.
 pub mod throughput;
-/// Device transport config module.
+/// The `[transport]` section of `cubecl.toml`.
 pub mod transport;
 
 mod base;
+mod debug_info;
+#[cfg(std_io)]
+mod env;
 mod logger;
+mod type_name;
 
-pub use base::*;
+pub use base::CubeClRuntimeConfig;
 pub use cubecl_environment::config::RuntimeConfig;
-pub use logger::Logger;
+#[cfg(std_io)]
+pub use cubecl_environment::persistence::CacheConfig;
+pub use cubecl_environment::stream::StreamPolicy;
+pub use type_name::TypeNameFormatLevel;
+
+pub(crate) use cubecl_environment::config::logger::{LogLevel, LoggerConfig};
+pub(crate) use debug_info::effective_debug_info;
+pub(crate) use logger::Logger;
+pub(crate) use type_name::short_type_name;

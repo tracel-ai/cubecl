@@ -1,5 +1,5 @@
 use crate::{
-    config::{TypeNameFormatLevel, type_name_format},
+    config::TypeNameFormatLevel,
     device::HardwareIdentity,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
@@ -17,7 +17,7 @@ use crate::{
     },
     storage::{ManagedResource, StorageAllocator},
     throughput::{
-        ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
+        CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
@@ -2491,7 +2491,7 @@ impl Client {
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
         let cache = ThroughputCache::get_for_device(self.name(), self.properties());
-        let mut throughputs = ThroughputBenchmarker::new(cache);
+        let mut throughputs = CachedThroughput::new(cache);
 
         if let Some(value) = throughputs.cached(key) {
             return Ok(value);
@@ -2507,7 +2507,7 @@ impl Client {
 }
 
 fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
-    let base = type_name_format(name, TypeNameFormatLevel::Balanced);
+    let base = TypeNameFormatLevel::Balanced.format(name);
     kernel_id.entrypoint_name(&base)
 }
 
