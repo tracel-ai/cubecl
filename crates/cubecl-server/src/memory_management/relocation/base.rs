@@ -148,7 +148,9 @@ mod tests {
         let source = ManagedMemoryHandle::new();
         let target = ManagedMemoryHandle::new();
         let relocation = Relocation::new(alloc::vec![Move {
-            allocation: source.to_binding(),
+            // Safety: the binding runs on the device thread in the stream's order, ahead of any
+            // later launch of the buffer's owner.
+            allocation: unsafe { source.uncounted_binding() },
             target: target.clone(),
             copy: Some(StorageCopy {
                 source: storage.alloc(4).unwrap(),

@@ -234,18 +234,27 @@ impl ManagedMemoryHandle {
         Arc::strong_count(&self.descriptor) <= 1
     }
 
-    /// Returns the binding for the current handle.
+    /// Returns the binding for the current handle, which gives up its claim on the buffer.
     pub fn binding(self) -> ManagedMemoryBinding {
-        self.to_binding()
+        // Safety: the handle is consumed, so its owner gives up the exclusivity the binding does
+        // not claim; nothing it could still write in place through this handle.
+        unsafe { self.uncounted_binding() }
     }
 
-    /// The binding for this handle, which stays where it is.
+    /// A binding of this buffer that leaves the handle where it is and never counts among the
+    /// handles [`can_mut`](Self::can_mut) reads, not even for a moment: what a server takes to
+    /// find or mark an allocation it does not own, so the answer a client gets does not depend
+    /// on what the device thread is doing at that moment.
     ///
-    /// What a server takes to find or mark an allocation it does not own: unlike a clone of the
-    /// handle, even one turned into a binding right away, it never counts among the handles
-    /// [`can_mut`](Self::can_mut) reads, so the answer a client gets does not depend on what the
-    /// device thread is doing at that moment.
-    pub fn to_binding(&self) -> ManagedMemoryBinding {
+    /// # Safety
+    ///
+    /// The binding claims none of the exclusivity a handle claims: while it is out, [`can_mut`](Self::can_mut)
+    /// can answer `true` to the buffer's owner, who may then write over the buffer in place. The
+    /// caller must make sure every use of the binding is ordered before any such write: it runs
+    /// on the device thread in the stream's order, ahead of the owner's later launches, or it
+    /// only finds or marks the allocation and touches none of its bytes. The binding still keeps
+    /// the slice from being freed and reused.
+    pub unsafe fn uncounted_binding(&self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             descriptor: self.descriptor.clone(),
         }

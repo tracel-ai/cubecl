@@ -340,7 +340,11 @@ impl AdaptiveMemory {
             return Ok(None);
         }
         let slice = pool.slice_at(source);
-        let (size, allocation) = (slice.storage.size(), slice.handle.to_binding());
+        // Safety: the binding runs on the device thread in the stream's order, ahead of any later
+        // launch of the buffer's owner.
+        let (size, allocation) = (slice.storage.size(), unsafe {
+            slice.handle.uncounted_binding()
+        });
         let source_storage = pool.storage_at(source);
         let target = self.separate.reserve(
             storage,

@@ -98,7 +98,8 @@ impl Server for HipServer {
     ) -> Result<(), ServerError> {
         // Taken before the handle moves into the pool, for a failure to land on: a binding,
         // which no `can_mut` counts, rather than a clone of the handle.
-        let binding = memory.to_binding();
+        // Safety: the binding only finds or marks the allocation, and touches none of its bytes.
+        let binding = unsafe { memory.uncounted_binding() };
         let result = match self.command_no_inputs(stream_id) {
             Ok(mut command) => command
                 .initialize_memory(memory, size)
