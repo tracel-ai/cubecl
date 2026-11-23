@@ -158,7 +158,12 @@ impl Space {
             .partition(|&dimension| held.contains(dimension));
         let spanned = shared.len() == held.rank() && left_out.iter().all(one_wide);
         match spanned {
-            true => self.subspace(&left_out.into_iter().chain(held.dimensions()).collect::<Vec<_>>()),
+            true => self.subspace(
+                &left_out
+                    .into_iter()
+                    .chain(held.dimensions())
+                    .collect::<Vec<_>>(),
+            ),
             false => self.clone(),
         }
     }
