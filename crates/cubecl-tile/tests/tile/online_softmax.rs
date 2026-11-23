@@ -76,6 +76,7 @@ fn plane_attention<E: Float>(
     #[comptime] unbiased: bool,
     #[comptime] over_run: bool,
     #[comptime] rescaled: bool,
+    #[comptime] headroom: u32,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -128,7 +129,7 @@ fn plane_attention<E: Float>(
                     .accumulator::<f32>(&p, &v_p, Semiring::SumProd)
                     .with_scratch(Scratch::OneTile),
             };
-            let mut softmax = OnlineSoftmax::<f32>::along(&score, S);
+            let mut softmax = OnlineSoftmax::<f32>::along(&score, S).with_headroom(headroom);
             // The query spans no key: staged once, before the walk, where the keys are staged.
             let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
             q_s.copy_from(&q_p);
@@ -197,6 +198,7 @@ fn register_plane_attention<E: Float>(
     #[comptime] plane_rows: usize,
     #[comptime] ending: Ending,
     #[comptime] unbiased: bool,
+    #[comptime] headroom: u32,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -235,7 +237,7 @@ fn register_plane_attention<E: Float>(
             let acc = out
                 .at(&plane)
                 .accumulator::<f32>(&logits, &v_p, Semiring::SumProd);
-            let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
+            let mut softmax = OnlineSoftmax::<f32>::along(&logits, S).with_headroom(headroom);
             let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
@@ -672,6 +674,9 @@ struct Case {
     /// The value's sum opened as a rescaled accumulator ([`Tile::rescaled_accumulator`]), scaled
     /// by every row's factor ([`DimensionSlices::mul_every_slice`]) ([`plane_attention`] alone).
     rescaled: bool,
+    /// Octaves the softmax keeps before its max follows a row's scores
+    /// ([`OnlineSoftmax::with_headroom`]).
+    headroom: u32,
 }
 
 impl Case {
@@ -768,6 +773,7 @@ fn run<E: Float + CubeElement>(case: Case) {
         case.unbiased(),
         case.over_run,
         case.rescaled,
+        case.headroom,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -914,6 +920,7 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
         m * rows,
         ending,
         case.unbiased(),
+        case.headroom,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -1439,6 +1446,7 @@ const PREFILL: Case = Case {
     unbiased: false,
     over_run: false,
     rescaled: false,
+    headroom: 0,
 };
 
 #[test]
@@ -1518,6 +1526,24 @@ fn plane_attention_steps_unbiased_blocks() {
     }
 }
 
+/// A softmax rescaling past a headroom computes what one rescaling after every block does: at 1
+/// octave, which rows' scores rise past in some blocks and not in others, and at 14, which most
+/// stay within, with a bias and without one.
+#[test]
+fn plane_attention_rescales_past_a_headroom() {
+    for headroom in [1, 14] {
+        for (attended, unbiased, rescaled) in [(64, true, false), (50, false, true)] {
+            run::<half::f16>(Case {
+                attended,
+                unbiased,
+                rescaled,
+                headroom,
+                ..PREFILL
+            });
+        }
+    }
+}
+
 /// A walk over the attended keys' run fills every block but its last unchecked; the last, which
 /// runs past the attended keys into poisoned ones, still reads zero there.
 #[test]
@@ -1559,11 +1585,29 @@ const REGISTER_PREFILL: Case = Case {
     unbiased: false,
     over_run: false,
     rescaled: false,
+    headroom: 0,
 };
 
 #[test]
 fn register_plane_attention_matches_the_reference() {
     run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized, 1);
+}
+
+/// Each unit's rows rescaled past a headroom, the keys masked causally.
+#[test]
+fn register_plane_attention_rescales_past_a_headroom() {
+    for headroom in [1, 14] {
+        run_registers::<half::f16>(
+            Case {
+                attended: 100,
+                causal: true,
+                headroom,
+                ..REGISTER_PREFILL
+            },
+            Ending::Normalized,
+            1,
+        );
+    }
 }
 
 #[test]
