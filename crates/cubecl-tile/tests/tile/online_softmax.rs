@@ -155,8 +155,8 @@ fn plane_attention<E: Float>(
                     sync_plane();
                     // The window's state holds every row in every unit.
                     match rescaled {
-                        true => acc.along(V).mul_every_slice(&correction),
-                        false => acc.along(V).mul(&correction),
+                        true => acc.along(V).rescale_every_slice(&correction),
+                        false => acc.along(V).rescale(&correction),
                     }
                     for fragment in stage.walk().routed(D, 0).unrolled() {
                         let mut cell = acc.at(&fragment);
@@ -251,7 +251,7 @@ fn register_plane_attention<E: Float>(
                         false => softmax.step(&logits, &bias_s, scale),
                     };
                     let p = logits.cast::<E>();
-                    acc.along(V).mul(&correction);
+                    acc.along(V).rescale(&correction);
                     for fragment in stage.walk().routed(D, 0).unrolled() {
                         let mut cell = acc.at(&fragment);
                         cell.mma(&p.at(&fragment), &v_s.at(&fragment));
@@ -347,7 +347,7 @@ fn cut_plane_attention<E: Float>(
                     logits.mma(&q_s, k_s);
                     let correction = softmax.step(&logits, &bias_s, scale);
                     let p = logits.cast::<E>();
-                    acc.along(V).mul(&correction);
+                    acc.along(V).rescale(&correction);
                     // The output's sum sits at the plane, above the walk over the blocks: this
                     // block's product adds into it at the stage.
                     let mut sum = acc.at(stage);
@@ -535,7 +535,7 @@ fn unit_attention(
                 );
                 score.mma(&q_s, &k_s);
                 let correction = softmax.step(&score, &bias_s, scale);
-                acc.along(V).mul(&correction);
+                acc.along(V).rescale(&correction);
                 acc.mma(&score, &v_s);
             }
             match ending {
@@ -620,7 +620,7 @@ fn unit_attention_over_scaled_keys(
                 let (k_s, k_scale) = k_s.factor(&score);
                 score.mma(&q_s, &k_s);
                 let correction = softmax.step(&score.scaled(&k_scale), &bias_s, scale);
-                acc.along(V).mul(&correction);
+                acc.along(V).rescale(&correction);
                 acc.mma(&score, &v_s);
             }
             acc.along(V).mul(&softmax.recip_l());

@@ -1,7 +1,7 @@
 //! The online softmax as a tile op: a score taken in along one dimension, one block of it at a
 //! time, into each slice's running max and sum, where its holder already keeps the score.
 
-use core::f64::consts::LOG2_E;
+use core::f64::consts::{LN_2, LOG2_E};
 
 use cubecl::prelude::*;
 
@@ -24,6 +24,22 @@ pub struct OnlineSoftmax<E: Float> {
     dimension: Dimension,
     #[cube(comptime)]
     slots: SliceSlots,
+    /// Octaves a slice's max may rise above its `m` before `m` follows it
+    /// ([`with_headroom`](Self::with_headroom)).
+    #[cube(comptime)]
+    headroom: u32,
+}
+
+/// What everything summed against a softmax's earlier blocks is multiplied by once a block is taken
+/// in ([`OnlineSoftmax::step`]), each slice by its own factor ([`DimensionSlices::rescale`]).
+#[derive(CubeType)]
+pub struct Rescale<E: Float> {
+    pub(crate) factors: Array<E>,
+    /// Whether any slice's factor is not 1.
+    pub(crate) moved: bool,
+    /// Whether `moved` is worth a branch: the softmax rescales only past a headroom.
+    #[cube(comptime)]
+    pub(crate) lazy: bool,
 }
 
 /// Which slice slot `i` of an [`OnlineSoftmax`]'s state keeps.
@@ -68,10 +84,28 @@ impl<E: Float> OnlineSoftmax<E> {
         OnlineSoftmax::<E>::empty(slices, dimension, SliceSlots::Every)
     }
 
+    /// This state, before any block is taken in, letting a slice's scores rise `octaves` above its
+    /// `max` before `max` follows them: where they stay within it the block's rescale costs
+    /// nothing, and each probability is at most `2^octaves`, which the element they are read in
+    /// must hold. The result is the same to rounding, `max` and every sum standing under one factor
+    /// either way. At 0, as a state opens, `max` is the slice's max after every block.
+    pub fn with_headroom(self, #[comptime] octaves: u32) -> OnlineSoftmax<E> {
+        OnlineSoftmax::<E> {
+            m: self.m,
+            l: self.l,
+            slices: self.slices,
+            dimension: self.dimension,
+            slots: self.slots,
+            headroom: octaves,
+        }
+    }
+
     /// Take one block of `score` into the slices. The block becomes `score · scale + bias`, the
     /// slices' max and sum move on, and `score` is left holding `exp(score − max)`: the block's
     /// probabilities, unnormalized. Returns each slice's `exp(max before − max after)`, what
-    /// anything summed against the earlier blocks is multiplied by ([`DimensionSlices::mul`]).
+    /// anything summed against the earlier blocks is multiplied by ([`DimensionSlices::rescale`]).
+    /// Under a headroom, `max` is at or below the scores' max
+    /// ([`with_headroom`](Self::with_headroom)).
     ///
     /// A `score` that carries a per-tensor factor, taken out of an operand it was summed over
     /// ([`Tile::factor`]) and put back on it ([`Tile::scaled`]), is read under it: the factor,
@@ -87,7 +121,7 @@ impl<E: Float> OnlineSoftmax<E> {
     /// multiply-add and one exponential, `score · scale` never stored. On a plane's window every
     /// unit of the plane calls it, and the caller meets the plane before it and before the
     /// probabilities are read.
-    pub fn step(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
+    pub fn step(&mut self, score: &Tile, bias: &Tile, scale: E) -> Rescale<E> {
         let scale = scale * E::cast_from(score.factor.whole());
         let unbiased = bias.is_zero();
         match comptime!(unbiased) {
@@ -97,17 +131,17 @@ impl<E: Float> OnlineSoftmax<E> {
     }
 
     /// [`step`](OnlineSoftmax::step) with a bias read at each cell.
-    fn step_biased(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
+    fn step_biased(&mut self, score: &Tile, bias: &Tile, scale: E) -> Rescale<E> {
         let mut slices = score.along(self.dimension);
         slices.scale_add::<E>(scale, bias);
-        let max = slices.maxima::<E>(&self.m);
+        let max = self.followed(&slices.maxima::<E>(&self.m));
         self.exp_minus(&mut slices, E::from_int(1), &max);
         self.take_in(&slices, &max)
     }
 
     /// [`step`](OnlineSoftmax::step) with no bias. `scale` is positive, so the raw scores' max
     /// scales to the scaled scores' max.
-    fn step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
+    fn step_unbiased(&mut self, score: &Tile, scale: E) -> Rescale<E> {
         let mut slices = score.along(self.dimension);
         let mut floor = Array::<E>::new(self.slices);
         #[unroll]
@@ -120,6 +154,7 @@ impl<E: Float> OnlineSoftmax<E> {
         for i in 0..self.slices {
             max[i] = self.m[i].max(raw[i] * scale);
         }
+        let max = self.followed(&max);
         self.exp_minus(&mut slices, scale, &max);
         self.take_in(&slices, &max)
     }
@@ -312,18 +347,52 @@ impl<E: Float> OnlineSoftmax<E> {
         slices.exp2_scaled_minus::<E>(scale * log2_e, &offsets);
     }
 
-    /// Move the slices' sum and max on past a block whose probabilities `slices` holds, under the
-    /// block's new `max`. Returns each slice's `exp(max before − max after)`.
-    fn take_in(&mut self, slices: &DimensionSlices, max: &Array<E>) -> Array<E> {
-        let sum = slices.sums::<E>();
-        let mut correction = Array::<E>::new(self.slices);
+    /// The max each slice moves on to, `max` its scores': `m` where `max` is within the headroom
+    /// of it.
+    fn followed(&self, max: &Array<E>) -> Array<E> {
+        let mut followed = Array::<E>::new(self.slices);
+        let headroom = E::new(comptime!(self.headroom as f64 * LN_2));
         #[unroll]
         for i in 0..self.slices {
-            correction[i] = (self.m[i] - max[i]).exp();
-            self.l[i] = correction[i] * self.l[i] + sum[i];
-            self.m[i] = max[i];
+            followed[i] = match comptime!(self.headroom) {
+                0 => max[i],
+                _ => select(max[i] - self.m[i] > headroom, max[i], self.m[i]),
+            };
         }
-        correction
+        followed
+    }
+
+    /// Move the slices' sum and max on past a block whose probabilities `slices` holds, under the
+    /// block's new `max`. Returns each slice's `exp(max before − max after)`.
+    fn take_in(&mut self, slices: &DimensionSlices, max: &Array<E>) -> Rescale<E> {
+        let sum = slices.sums::<E>();
+        let lazy = comptime!(self.headroom > 0);
+        let mut factors = Array::<E>::new(self.slices);
+        let mut moved = false;
+        if comptime!(lazy) {
+            #[unroll]
+            for i in 0..self.slices {
+                moved = moved || max[i] > self.m[i];
+                factors[i] = E::from_int(1);
+            }
+        }
+        if comptime!(!lazy) || moved {
+            #[unroll]
+            for i in 0..self.slices {
+                factors[i] = (self.m[i] - max[i]).exp();
+                self.l[i] *= factors[i];
+                self.m[i] = max[i];
+            }
+        }
+        #[unroll]
+        for i in 0..self.slices {
+            self.l[i] += sum[i];
+        }
+        Rescale::<E> {
+            factors,
+            moved,
+            lazy,
+        }
     }
 
     /// The state of `slices` slices before any block is taken in, its slots keeping `slots`.
@@ -345,6 +414,7 @@ impl<E: Float> OnlineSoftmax<E> {
             slices,
             dimension,
             slots,
+            headroom: 0u32,
         }
     }
 
