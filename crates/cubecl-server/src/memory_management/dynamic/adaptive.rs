@@ -306,13 +306,13 @@ impl AdaptiveMemory {
         }
     }
 
-    /// Move every allocation of `kept` that sits on a page a graph guards to the separate
-    /// arena, with its bytes. Nothing recorded its address, so it may leave a page whose other
-    /// slices keep theirs; on the separate arena no replay writes the room around it.
+    /// Move every allocation of `kept` that sits on a page a graph guards to the pools kept
+    /// apart, with its bytes. Nothing recorded its address, so it may leave a page whose other
+    /// slices keep theirs; kept apart, no replay writes the room around it.
     ///
     /// # Errors
     ///
-    /// When the separate arena has no room for one, or a copy fails: nothing moved then.
+    /// When the pools kept apart have no room for one, or a copy fails: nothing moved then.
     pub fn move_apart<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -340,8 +340,12 @@ impl AdaptiveMemory {
             drop(target);
             drop(allocation);
             let (Some(from), Some(into)) = (
-                self.arena.pool_mut(source.pool),
-                self.separate.pool_mut(destination.pool),
+                Self::shared_pool(&mut self.small, &mut self.arena, source.pool),
+                Self::apart_pool(
+                    &mut self.small_separate,
+                    &mut self.separate,
+                    destination.pool,
+                ),
             ) else {
                 continue;
             };
@@ -349,55 +353,6 @@ impl AdaptiveMemory {
                 .hand_over(into.slice_at(destination), failures);
         }
         Ok(())
-    }
-
-    /// The move of `memory` to the separate arena, when it sits on a page of the arena a graph
-    /// guards: `None` anywhere else, where no replay writes the room around it.
-    fn plan_move_apart<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        memory: &ManagedMemoryBinding,
-        failures: &mut ErrorGraph,
-    ) -> Result<Option<Move>, IoError> {
-        let source = memory.descriptor().location();
-        let Some(pool) = self.arena.pool_mut(source.pool) else {
-            return Ok(None);
-        };
-        if !pool.is_guarded_at(source) {
-            return Ok(None);
-        }
-        let slice = pool.slice_at(source);
-        // Safety: the binding runs on the device thread in the stream's order, ahead of any later
-        // launch of the buffer's owner.
-        let (size, allocation) = (slice.storage.size(), unsafe {
-            slice.handle.uncounted_binding()
-        });
-        let source_storage = pool.storage_at(source);
-        let target = self.separate.reserve(
-            storage,
-            size,
-            PageMapping::Eager,
-            PinnedRoom::Share,
-            failures,
-        )?;
-        let copy = match source_storage {
-            Some(source) => {
-                let location = target.descriptor().location();
-                let Some(pool) = self.separate.pool_mut(location.pool) else {
-                    return Ok(None);
-                };
-                Some(StorageCopy {
-                    source,
-                    target: pool.mapped_storage_at(storage, location)?,
-                })
-            }
-            None => None,
-        };
-        Ok(Some(Move {
-            allocation,
-            target,
-            copy,
-        }))
     }
 
     /// Release what the pools no longer need, and drop every outdated pool
@@ -431,13 +386,6 @@ impl AdaptiveMemory {
         .chain(self.separate.report())
         .collect()
     }
-
-    fn log_layout(&self) {
-        self.logger.log_memory(
-            |level| !matches!(level, MemoryLogLevel::Disabled),
-            || format!("[{}] Using memory pools:\n{self}", self.name),
-        );
-    }
 }
 
 impl AdaptiveMemory {
@@ -466,6 +414,95 @@ impl AdaptiveMemory {
             (AllocationKind::Eager, false) => (PlacementPool::Arena, PinnedRoom::Avoid),
         };
         Placement { pool, room }
+    }
+
+    /// The move of `memory` to the pools kept apart, when it sits on a page of the small pool
+    /// or of the arena a graph guards: `None` anywhere else, where no replay writes the room
+    /// around it.
+    fn plan_move_apart<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        memory: &ManagedMemoryBinding,
+        failures: &mut ErrorGraph,
+    ) -> Result<Option<Move>, IoError> {
+        let source = memory.descriptor().location();
+        let Some(pool) = Self::shared_pool(&mut self.small, &mut self.arena, source.pool) else {
+            return Ok(None);
+        };
+        if !pool.is_guarded_at(source) {
+            return Ok(None);
+        }
+        let slice = pool.slice_at(source);
+        // Safety: the binding runs on the device thread in the stream's order, ahead of any later
+        // launch of the buffer's owner.
+        let (size, allocation) = (slice.storage.size(), unsafe {
+            slice.handle.uncounted_binding()
+        });
+        let source_storage = pool.storage_at(source);
+        // Placed as an output: the small pool's slices go to the small pool kept apart, the
+        // arena's to the separate arena.
+        let target = self.reserve(
+            storage,
+            size,
+            PageMapping::Eager,
+            AllocationKind::GraphOutput,
+            failures,
+        )?;
+        let copy = match source_storage {
+            Some(source) => {
+                let location = target.descriptor().location();
+                let Some(pool) =
+                    Self::apart_pool(&mut self.small_separate, &mut self.separate, location.pool)
+                else {
+                    return Ok(None);
+                };
+                Some(StorageCopy {
+                    source,
+                    target: pool.mapped_storage_at(storage, location)?,
+                })
+            }
+            None => None,
+        };
+        Ok(Some(Move {
+            allocation,
+            target,
+            copy,
+        }))
+    }
+
+    /// The pool of the stream's shared pages, the small pool or one of the arena's, that the
+    /// pool `index` names.
+    fn shared_pool<'a>(
+        small: &'a mut SlicedPool,
+        arena: &'a mut PoolArena,
+        index: u8,
+    ) -> Option<&'a mut SlicedPool> {
+        match index {
+            SMALL_POOL => Some(small),
+            ARENA_POOLS..SEPARATE_POOLS => arena.pool_mut(index),
+            _ => None,
+        }
+    }
+
+    /// The pool kept apart, the small one or one of the separate arena's, that the pool
+    /// `index` names.
+    fn apart_pool<'a>(
+        small_separate: &'a mut SlicedPool,
+        separate: &'a mut PoolArena,
+        index: u8,
+    ) -> Option<&'a mut SlicedPool> {
+        match index {
+            SMALL_SEPARATE_POOL => Some(small_separate),
+            SEPARATE_POOLS..SMALL_SEPARATE_POOL => separate.pool_mut(index),
+            _ => None,
+        }
+    }
+
+    fn log_layout(&self) {
+        self.logger.log_memory(
+            |level| !matches!(level, MemoryLogLevel::Disabled),
+            || format!("[{}] Using memory pools:\n{self}", self.name),
+        );
     }
 }
 
@@ -837,6 +874,47 @@ mod tests {
         assert_ne!(
             input.descriptor().location().pool,
             metadata.descriptor().location().pool
+        );
+    }
+
+    /// A small buffer a planning run carved on the room a graph pinned, and that the work kept,
+    /// moves to the small pool kept apart with its bytes, as an arena buffer moves to the
+    /// separate arena: left there, the graph's next replay would write over it.
+    #[test]
+    fn a_kept_small_buffer_on_a_pinned_page_moves_apart() {
+        let mut memory = adaptive();
+        let temporary = reserve_kind(
+            &mut memory,
+            KIB,
+            PageUpdate::Allow,
+            AllocationKind::GraphIntermediate,
+        )
+        .unwrap();
+        let _graph = memory.guard(temporary.descriptor().location());
+        drop(temporary);
+        let kept = reserve_kind(
+            &mut memory,
+            4 * KIB,
+            PageUpdate::Allow,
+            AllocationKind::GraphIntermediate,
+        )
+        .unwrap();
+        fill(&mut memory, &kept, 7);
+
+        memory
+            .move_apart(
+                &[kept.clone().binding()],
+                &mut HostCopies,
+                &mut ErrorGraph::default(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            (
+                kept.descriptor().location().pool,
+                contents(&mut memory, &kept)
+            ),
+            (super::SMALL_SEPARATE_POOL, 7)
         );
     }
 
