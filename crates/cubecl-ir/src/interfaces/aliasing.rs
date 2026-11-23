@@ -1,12 +1,13 @@
 use pliron::{basic_block::BasicBlock, value::DefiningEntity};
+use smallvec::SmallVec;
 
 use crate::prelude::*;
 
 #[op_interface]
 pub trait AliasingOp: OneResultInterface {
     verify_op_succ!();
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value>;
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value>;
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]>;
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]>;
 }
 
 pub trait PointerExt {

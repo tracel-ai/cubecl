@@ -10,6 +10,7 @@ use pliron::{
     derive::pliron_attr,
     r#type::type_cast,
 };
+use smallvec::{SmallVec, smallvec};
 use thiserror::Error;
 
 use crate::{
@@ -52,12 +53,12 @@ simplify!(CopyOp, {
 
 #[op_interface_impl]
 impl AliasingOp for CopyOp {
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.value(ctx)]
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.value(ctx)]
     }
 
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.get_result(ctx)]
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.get_result(ctx)]
     }
 }
 
@@ -203,12 +204,12 @@ simplify!(ReinterpretCastOp, {
 
 #[op_interface_impl]
 impl AliasingOp for ReinterpretCastOp {
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.input(ctx)]
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.input(ctx)]
     }
 
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.get_result(ctx)]
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.get_result(ctx)]
     }
 }
 

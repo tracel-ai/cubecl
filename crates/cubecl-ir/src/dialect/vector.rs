@@ -10,6 +10,7 @@ use pliron::{
     utils::table::{HMap, SmallSet},
     verify_err,
 };
+use smallvec::{SmallVec, smallvec};
 use thiserror::Error;
 
 use crate::{
@@ -133,28 +134,28 @@ pub enum CompositeConstructError {
 
 #[op_interface_impl]
 impl AliasingOp for CompositeExtractOp {
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
         let aggregate = self.composite(ctx);
         let field = self.index(ctx).0;
         let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
         let destruct = try_cast_ty!(aggregate_ty, ctx, dyn DestructurableTypeInterface);
         if destruct.type_at_index(ctx, &index_attr(field)).is_ptr(ctx) {
             let construct = aggregate.defining_op().expect("Should be construct");
-            vec![construct.operand(ctx, field)]
+            smallvec![construct.operand(ctx, field)]
         } else {
-            vec![]
+            smallvec![]
         }
     }
 
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
         let aggregate = self.composite(ctx);
         let field = self.index(ctx).0;
         let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
         let destruct = try_cast_ty!(aggregate_ty, ctx, dyn DestructurableTypeInterface);
         if destruct.type_at_index(ctx, &index_attr(field)).is_ptr(ctx) {
-            vec![self.get_result(ctx)]
+            smallvec![self.get_result(ctx)]
         } else {
-            vec![]
+            smallvec![]
         }
     }
 }
@@ -192,17 +193,17 @@ impl Verify for CompositeConstructOp {
 
 #[op_interface_impl]
 impl AliasingOp for CompositeConstructOp {
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
         let ptrs = self.values(ctx).into_iter().filter(|it| it.is_ptr(ctx));
         ptrs.collect()
     }
 
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
         let res = self.get_result(ctx);
-        let mut out = vec![];
+        let mut out = smallvec![];
         for r#use in res.uses(ctx) {
             let Some(aliasing) = r#use.user_op().cast::<dyn AliasingOp>(ctx) else {
-                return vec![res];
+                return smallvec![res];
             };
             out.extend(aliasing.dest_ptr(ctx));
         }

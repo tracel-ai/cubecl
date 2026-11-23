@@ -478,7 +478,6 @@ fn lower(
     analyses.set_config(KernelDump::new(&kernel.name).pass_config());
 
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
-    func_passes.add_pass(RemoveStackMoves);
     func_passes.add_pass(LowerOpsPass::default());
     target.prologue(&mut func_passes);
     func_passes.add_pass(BranchToSCFPass::default());

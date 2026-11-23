@@ -32,6 +32,7 @@ use pliron::{
     utils::table::{HMap, SmallSet},
     verify_err,
 };
+use smallvec::{SmallVec, smallvec};
 use thiserror::Error;
 
 use crate::{
@@ -287,12 +288,12 @@ pub struct IndexOp {
 
 #[op_interface_impl]
 impl AliasingOp for IndexOp {
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.base(ctx)]
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.base(ctx)]
     }
 
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.get_result(ctx)]
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.get_result(ctx)]
     }
 }
 
@@ -382,12 +383,12 @@ pub struct StructFieldOp {
 
 #[op_interface_impl]
 impl AliasingOp for StructFieldOp {
-    fn source_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.base(ctx)]
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.base(ctx)]
     }
 
-    fn dest_ptr(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.get_result(ctx)]
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.get_result(ctx)]
     }
 }
 
