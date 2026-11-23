@@ -1863,6 +1863,8 @@ fn a_plane_stating_its_tile_holds_a_score_the_tile_cuts() {
         unbiased: false,
         over_run: false,
         rescaled: false,
+        headroom: 0,
+        held: false,
     };
     run_cut::<half::f16>(case);
     run_cut::<half::f16>(Case {

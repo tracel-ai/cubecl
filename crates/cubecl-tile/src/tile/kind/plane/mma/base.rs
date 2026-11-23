@@ -826,7 +826,8 @@ impl MmaData {
         let num_vectors = def.vectors_per_lane(MatrixIdent::A);
         let vector_size = def.vector_size(MatrixIdent::A);
         let vector_layout = def.vector_layout(MatrixIdent::A);
-        let width = src.vector_size();
+        let served = src.vector_size();
+        let width = comptime!(served);
         let (rows, cols) = comptime!(covered_edges(&src.place.space, MatrixIdent::A, (m, k)));
         comptime!(assert!(
             layout == MatrixLayout::RowMajor
@@ -836,7 +837,7 @@ impl MmaData {
              from whole lines along it, {width} wide here"
         ));
         let short = comptime!((rows, cols) != (m, k));
-        let size!(W) = width;
+        let size!(W) = served;
         let view = src.fragment_matrix_packed::<R, W>(rows, cols);
         match &mut self.fragment {
             MmaFragment::Lhs(fragment) => {
