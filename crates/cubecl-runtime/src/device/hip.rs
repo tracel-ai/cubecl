@@ -23,7 +23,7 @@ impl Device for AmdDevice {
     fn to_id(&self) -> DeviceId {
         DeviceId {
             type_id: 0,
-            index_id: super::index_id(self.index),
+            index_id: super::index::index_id(self.index),
         }
     }
 }
