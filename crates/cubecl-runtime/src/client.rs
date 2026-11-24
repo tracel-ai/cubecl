@@ -544,12 +544,10 @@ impl Client {
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
         self.expect_local(&source.handle.to_binding());
         let read = Arc::new(crate::server::LazyRead::new(source.clone()));
-        let keep = self.keep_lazy_read(read.clone());
-        let refused = read.clone();
+        // Weak while queued, so bytes dropped before the device takes it let go of the source.
+        let keep = self.keep_lazy_read(Arc::downgrade(&read));
         self.device.submit(move |server| {
-            if let Err(error) = keep(server) {
-                refused.refuse(error);
-            }
+            let _ = keep(server);
         });
         lazy::LazyDeviceController::new(self.clone(), source, read).into_bytes()
     }
@@ -576,7 +574,7 @@ impl Client {
             return core::future::ready(Err(err));
         }
         let read = Arc::new(crate::server::LazyRead::new(source.clone()));
-        let keep = self.keep_lazy_read(read.clone());
+        let keep = self.keep_lazy_read(Arc::downgrade(&read));
         let kept = self
             .device
             .submit_blocking(move |server| keep(server))
@@ -588,15 +586,22 @@ impl Client {
         core::future::ready(Ok(controller.into_bytes()))
     }
 
-    /// What has the server keep `read`, or start it at once on memory shared with peers.
+    /// What has the server keep `read`, or start it at once on memory shared with peers, and
+    /// has `read` answer a refusal on first access. Nothing, once its bytes are gone.
     #[cfg(not(target_family = "wasm"))]
     fn keep_lazy_read(
         &self,
-        read: Arc<crate::server::LazyRead>,
+        read: alloc::sync::Weak<crate::server::LazyRead>,
     ) -> impl FnOnce(&mut dyn Server) -> Result<(), ServerError> + Send + use<> {
         let stream_id = self.stream_id();
         move |server| {
-            server.read_lazy(read.clone(), stream_id)?;
+            let Some(read) = read.upgrade() else {
+                return Ok(());
+            };
+            if let Err(error) = server.read_lazy(read.clone(), stream_id) {
+                read.refuse(error.clone());
+                return Err(error);
+            }
             let source = read.to_source();
             if source.handle.memory.descriptor().is_shared_with_peers() {
                 read.start(server.read(vec![source], stream_id));

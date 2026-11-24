@@ -85,7 +85,10 @@ impl LazyReads {
             .kept
             .entry(read.to_source().handle.memory.id())
             .or_default();
-        reads.retain(|kept| kept.read.upgrade().is_some_and(|read| is_held(&read)));
+        // Pruned at each doubling, so repeated reads of one buffer stay bounded at linear cost.
+        if reads.len() >= 8 && reads.len().is_power_of_two() {
+            reads.retain(|kept| kept.read.upgrade().is_some_and(|read| is_held(&read)));
+        }
         reads.push(KeptRead {
             read: Arc::downgrade(read),
             stream,
