@@ -220,7 +220,11 @@ impl SampleStats {
             count: samples.len(),
             mean: duration(mean),
             std_dev: duration(num_traits::Float::sqrt(squares / (count - 1.0))),
-            max: samples.iter().copied().max().unwrap_or_default(),
+            max: samples
+                .iter()
+                .copied()
+                .max()
+                .expect("two samples should have a slowest"),
         })
     }
 
@@ -269,9 +273,21 @@ impl ThroughputValue {
 
     /// The value of samples each `iterations` long: the fastest per iteration, and the statistics
     /// of all of them.
+    ///
+    /// # Assumptions
+    ///
+    /// `iterations` is at least one, and `samples` holds at least one sample.
+    ///
+    /// # Panics
+    ///
+    /// When either Assumption is broken: no sample, or no iteration.
     pub fn from_samples(ops_count: usize, iterations: usize, samples: &[Duration]) -> Self {
-        let fastest = samples.iter().copied().min().unwrap_or(Duration::MAX);
-        let iterations = iterations.max(1) as u128;
+        let fastest = samples
+            .iter()
+            .copied()
+            .min()
+            .expect("a throughput should be measured from at least one sample");
+        let iterations = iterations as u128;
         // To the nearest nanosecond: a kernel under half a nanosecond a pass would otherwise read
         // as taking no time.
         let nanos = (fastest.as_nanos() + iterations / 2) / iterations;

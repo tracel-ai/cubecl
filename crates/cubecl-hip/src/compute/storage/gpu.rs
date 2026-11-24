@@ -1,6 +1,5 @@
 use crate::compute::status::checked;
 use cubecl_core::server::IoError;
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
 
@@ -111,26 +110,22 @@ impl PtrBindings {
 impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
 
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
-        let (ptr, _) =
-            *self
-                .memory
-                .get(&handle.id)
-                .ok_or_else(|| IoError::StorageHandleNotFound {
-                    reason: format!("{} in the HIP gpu storage", handle.id).into(),
-                    backtrace: BackTrace::capture(),
-                })?;
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let (ptr, _) = *self
+            .memory
+            .get(&handle.id)
+            .expect("the handle should name a live allocation of this storage");
         let ptr = ptr as u64;
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        Ok(GpuResource::new(
+        GpuResource::new(
             *ptr as cubecl_hip_sys::hipDeviceptr_t,
             std::ptr::from_ref(ptr) as *mut std::ffi::c_void,
             size,
-        ))
+        )
     }
 
     #[cfg_attr(

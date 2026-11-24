@@ -107,15 +107,18 @@ impl WgpuStorage {
 impl StorageAllocator for WgpuStorage {
     type Resource = WgpuResource;
 
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let memory = self
             .memory
             .get(&handle.id)
-            .ok_or_else(|| IoError::StorageHandleNotFound {
-                reason: format!("{} in the wgpu buffer storage", handle.id).into(),
-                backtrace: BackTrace::capture(),
-            })?;
-        Ok(WgpuResource {
+            .expect("the handle should name a live allocation of this storage");
+        // A mapped write offsets the host pointer by the handle, so this is
+        // checked rather than assumed.
+        assert!(
+            handle.offset() + handle.size() <= memory.buffer.size(),
+            "the handle should lie within its allocation"
+        );
+        WgpuResource {
             host_ptr: memory.host_ptr,
             ..WgpuResource::new(
                 memory.buffer.clone(),
@@ -123,7 +126,7 @@ impl StorageAllocator for WgpuStorage {
                 handle.offset(),
                 handle.size(),
             )
-        })
+        }
     }
 
     #[cfg_attr(

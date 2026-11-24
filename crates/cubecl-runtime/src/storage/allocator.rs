@@ -11,12 +11,16 @@ pub trait StorageAllocator: Send {
     /// The resource of the allocation `handle` names, covering at least the
     /// part of it the handle covers.
     ///
-    /// # Errors
+    /// # Assumptions
     ///
-    /// [`IoError::StorageHandleNotFound`] when this storage holds no
-    /// allocation for the handle's id: a handle that outlived its allocation,
-    /// or one whose id a deallocation retired.
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError>;
+    /// `handle` names an allocation of this storage that has not been
+    /// [deallocated](Self::deallocate), and lies within it.
+    ///
+    /// # Panics
+    ///
+    /// An implementation may panic when `handle` names no live allocation, or
+    /// reaches past the end of the one it names.
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
 
     /// A new allocation of `size` bytes, held until it is
     /// [deallocated](Self::deallocate).
