@@ -213,6 +213,20 @@ The `[transport]` section sets whether a runtime loads its transport between dev
 device = "off"
 ```
 
+The `[transport.provider]` section sets how NCCL or RCCL sets up a communicator.
+
+- `min_channels` (default `16`): the fewest channels a communicator runs a collective on. The
+  provider may pick more; this only raises a low pick, as its topology search makes over PCI
+  Express. `NCCL_MIN_CTAS` overrides it. Each channel holds its own buffers. Read by RCCL 2.17
+  and later; NCCL does not read it yet.
+
+**Example:**
+
+```toml
+[transport.provider]
+min_channels = 1
+```
+
 ## Environment Variable Overrides
 
 CubeCL supports several environment variables to override configuration at runtime:

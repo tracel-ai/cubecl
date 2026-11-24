@@ -17,6 +17,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
 use cubecl_server::command::{CollectiveDriver, Elements, StreamSignal};
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
 
 use crate::compute::driver::Hip;
 use crate::compute::events::Fence;
@@ -161,7 +162,12 @@ impl CollectiveDriver for Hip {
     ) -> Result<Self::Communicator, ServerError> {
         let rccl = rccl()?;
         let comm = rccl
-            .comm_init_rank(ranks as c_int, id, rank as c_int)
+            .comm_init_rank(
+                ranks as c_int,
+                id,
+                rank as c_int,
+                CubeClRuntimeConfig::get().transport.provider.min_channels,
+            )
             .map_err(rccl_error)?;
         Ok(RcclComm { rccl, comm })
     }
