@@ -8,7 +8,7 @@ use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_runtime::execution::{
     KernelHandling, KernelOutcome, KernelRegistration, LaunchPurpose, SettledKernel,
-    WorkCompilationFailure,
+    StatisticsRecorder,
 };
 use cubecl_runtime::id::KernelId;
 
@@ -157,8 +157,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
                 // it, to the collector the launch counts to: the batch listed
                 // it only when it compiled the kernel for the work, and only
                 // to the collector that queued it.
-                if LaunchPurpose::running() == LaunchPurpose::Work {
-                    WorkCompilationFailure::record(&id.kernel, &err);
+                if LaunchPurpose::running() == LaunchPurpose::Work
+                    && let Some(recorder) = StatisticsRecorder::current()
+                {
+                    recorder.fail_work(&id.kernel, &err);
                 }
                 return Err(err);
             }
@@ -950,6 +952,7 @@ mod tests {
     use crate::id::KernelId;
     use crate::kernel::{KernelDefinition, KernelMetadata};
     use alloc::collections::BTreeSet;
+    use cubecl_runtime::execution::IssuedLaunch;
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
     // bring in itself.
     use alloc::vec;
@@ -1006,17 +1009,21 @@ mod tests {
         loader.enqueue(Box::new(Numbered(0)), ());
         core::mem::drop(compile);
         let queued = collector.statistics().compilation;
-        assert_eq!((queued.registered, queued.settled()), (5, 0));
+        assert_eq!((queued.registered_count, queued.settled_count()), (5, 0));
 
         let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
         let batch = collector.statistics().compilation;
         assert_eq!(
-            (batch.registered, batch.settled(), batch.failed),
+            (
+                batch.registered_count,
+                batch.settled_count(),
+                batch.failed_count
+            ),
             (6, 6, 0),
             "the kernel queued with no override open counts nowhere"
         );
-        assert_eq!(batch.compiled + batch.loaded, 6);
+        assert_eq!(batch.compiled_count + batch.loaded_count, 6);
 
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
         assert_eq!(
@@ -1034,11 +1041,11 @@ mod tests {
     ) -> (usize, usize, usize, usize, usize) {
         let statistics = collector.statistics().compilation;
         (
-            statistics.registered,
-            statistics.compiled,
-            statistics.loaded,
-            statistics.failed,
-            statistics.refused,
+            statistics.registered_count,
+            statistics.compiled_count,
+            statistics.loaded_count,
+            statistics.failed_count,
+            statistics.refused_count,
         )
     }
 
@@ -1094,7 +1101,7 @@ mod tests {
             assert_eq!(counted(&collector), expected, "refusing: {refusing}");
             // What the store keeps is what it is given by source: every kernel
             // of a source that finalized, none of one that failed.
-            let stored = collector.statistics().compilation.stored;
+            let stored = collector.statistics().compilation.stored_count;
             assert_eq!(stored, if refusing { 0 } else { 4 }, "refusing: {refusing}");
             core::mem::drop(tune);
         }
@@ -1119,7 +1126,7 @@ mod tests {
         assert_eq!(loader.get(&id(1)), None);
         assert_eq!(counted(&collector), (4, 4, 0, 0, 1));
         assert_eq!(
-            collector.statistics().compilation.stored,
+            collector.statistics().compilation.stored_count,
             0,
             "a store keeps by source, and these kernels have none"
         );
@@ -1143,10 +1150,10 @@ mod tests {
         }
         loader.load(&Numbered(4), &id(4), &logger).unwrap();
         let statistics = collector.statistics().compilation;
-        assert_eq!(statistics.registered, 5);
-        assert_eq!(statistics.settled(), 5);
-        assert_eq!(statistics.failed, 1, "only the kernel that panicked");
-        assert_eq!(statistics.abandoned, 0);
+        assert_eq!(statistics.registered_count, 5);
+        assert_eq!(statistics.settled_count(), 5);
+        assert_eq!(statistics.failed_count, 1, "only the kernel that panicked");
+        assert_eq!(statistics.abandoned_count, 0);
         core::mem::drop(tune);
     }
 
@@ -1475,13 +1482,13 @@ mod tests {
         let logger = ServerLogger::default();
         let kernel = Numbered(0).id();
 
-        LaunchPurpose::Race
-            .apply(|| loader.load(&Numbered(0), &id(0), &logger))
+        IssuedLaunch::new(LaunchPurpose::Race)
+            .run(|| loader.load(&Numbered(0), &id(0), &logger))
             .unwrap();
         assert!(!loader.work.as_mut().unwrap().holds(&kernel), "raced only");
 
-        LaunchPurpose::Work
-            .apply(|| loader.load(&Numbered(0), &id(0), &logger))
+        IssuedLaunch::new(LaunchPurpose::Work)
+            .run(|| loader.load(&Numbered(0), &id(0), &logger))
             .unwrap();
         assert!(loader.work.as_mut().unwrap().holds(&kernel));
     }
@@ -1493,8 +1500,8 @@ mod tests {
     fn a_kernel_queued_is_recorded_for_the_work_only() {
         let mut loader = loader(1);
 
-        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
-        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(2)), ()));
+        IssuedLaunch::new(LaunchPurpose::Race).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Work).run(|| loader.enqueue(Box::new(Numbered(2)), ()));
 
         let work = loader.work.as_mut().unwrap();
         assert!(!work.holds(&Numbered(1).id()), "queued for a race");
@@ -1514,15 +1521,15 @@ mod tests {
         let mut loader = loader(2);
         loader.target.compiler.panicking = Some(1);
         let logger = ServerLogger::default();
-        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Race).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         loader.compile_queued(&logger);
-        assert_eq!(collector.statistics().compilation.failed, 1);
+        assert_eq!(collector.statistics().compilation.failed_count, 1);
         assert!(
             collector.work_failures().is_empty(),
             "a race's failure is its own"
         );
 
-        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Work).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         loader.compile_queued(&logger);
         let failures = collector.work_failures();
         assert_eq!(failures.len(), 1, "the work's failure is listed");
@@ -1547,8 +1554,8 @@ mod tests {
         let mut loader = loader(2);
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
-        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
-        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Race).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Work).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         loader.compile_queued(&logger);
         assert_eq!(collector.work_failures().len(), 1);
         core::mem::drop(compile);
@@ -1566,10 +1573,12 @@ mod tests {
         let mut loader = loader(1);
         loader.target.compiler.failing = Some(0);
         let logger = ServerLogger::default();
-        let raced = LaunchPurpose::Race.apply(|| loader.load(&Numbered(0), &id(0), &logger));
+        let raced = IssuedLaunch::new(LaunchPurpose::Race)
+            .run(|| loader.load(&Numbered(0), &id(0), &logger));
         assert!(raced.is_err());
         assert!(collector.work_failures().is_empty());
-        let worked = LaunchPurpose::Work.apply(|| loader.load(&Numbered(0), &id(0), &logger));
+        let worked = IssuedLaunch::new(LaunchPurpose::Work)
+            .run(|| loader.load(&Numbered(0), &id(0), &logger));
         assert!(worked.is_err());
         assert_eq!(collector.work_failures().len(), 1);
         core::mem::drop(tune);
@@ -1588,24 +1597,25 @@ mod tests {
         let mut loader = loader(2);
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
-        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Race).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         loader.compile_queued(&logger);
-        let provisional =
-            LaunchPurpose::Provisional.apply(|| loader.load(&Numbered(1), &id(1), &logger));
+        let provisional = IssuedLaunch::new(LaunchPurpose::Provisional)
+            .run(|| loader.load(&Numbered(1), &id(1), &logger));
         assert!(provisional.is_err());
         assert!(collector.work_failures().is_empty(), "a provisional run's");
 
-        LaunchPurpose::Race.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Race).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         loader.compile_queued(&logger);
-        let worked = LaunchPurpose::Work.apply(|| loader.load(&Numbered(1), &id(1), &logger));
+        let worked = IssuedLaunch::new(LaunchPurpose::Work)
+            .run(|| loader.load(&Numbered(1), &id(1), &logger));
         assert!(worked.is_err());
         assert_eq!(
-            collector.statistics().compilation.failed,
+            collector.statistics().compilation.failed_count,
             2,
             "reported, not tried"
         );
         assert_eq!(collector.work_failures().len(), 1);
-        LaunchPurpose::Work.apply(|| loader.enqueue(Box::new(Numbered(1)), ()));
+        IssuedLaunch::new(LaunchPurpose::Work).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         loader.compile_queued(&logger);
         assert_eq!(
             collector.work_failures().len(),

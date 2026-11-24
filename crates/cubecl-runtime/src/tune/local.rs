@@ -322,7 +322,7 @@ where
     for &index in order {
         // Run as the work, but before the tune decided: a candidate whose
         // kernel fails to compile is the tune's to drop, not the work's failure.
-        let output = crate::execution::LaunchPurpose::provisionally(|| {
+        let output = crate::execution::run_provisionally(|| {
             operations.fastest(index).execute(inputs.clone())
         });
         match output {

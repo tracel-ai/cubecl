@@ -99,7 +99,7 @@ pub fn run(device: &Device) {
     let mut gathering = Duration::ZERO;
     let mut tuning_started = Instant::now();
     let mut tuning = Duration::ZERO;
-    let watched = watching(build.reader(), || {
+    let watched = watching(build.to_reader(), || {
         // Drained under each override, which `timed` does: a launch issued
         // after it closes runs for real.
         let gather = ProcessModeOverride::new(ProcessMode::CompileOnly, &build);
@@ -115,8 +115,8 @@ pub fn run(device: &Device) {
     println!(
         "CompileOnly pass: {}, gathering {} kernels and {} tunes",
         Millis(gathering),
-        built.compilation.registered,
-        built.autotune.registered
+        built.compilation.registered_count,
+        built.autotune.registered_count
     );
     // The gathered kernels compile in one batch, at the pass's first launch;
     // the tunes measure once they have.
@@ -126,9 +126,9 @@ pub fn run(device: &Device) {
     println!(
         "CompileAndAutotune pass: {}: compiling {} kernels together in {}, then measuring {} tunes in {}",
         Millis(tuning),
-        built.compilation.settled(),
+        built.compilation.settled_count(),
         Millis(compiling),
-        built.autotune.settled(),
+        built.autotune.settled_count(),
         Millis(tuning.saturating_sub(compiling))
     );
     println!("Built: {}", Summary(built));
@@ -252,8 +252,8 @@ fn watching(reader: StatisticsReader, build: impl FnOnce()) -> Watched {
                 let now = reader.statistics();
                 let compilation = now.compilation;
                 if compiled_at.is_none()
-                    && compilation.registered > 0
-                    && compilation.settled() == compilation.registered
+                    && compilation.registered_count > 0
+                    && compilation.settled_count() == compilation.registered_count
                 {
                     compiled_at = Some(Instant::now());
                 }
@@ -320,16 +320,16 @@ impl std::fmt::Display for Summary {
         write!(
             f,
             "kernels {}/{} ({} compiled, {} loaded, {} failed) · tunes {}/{} ({} measured, {} loaded, {} failed)",
-            compilation.settled(),
-            compilation.registered,
-            compilation.compiled,
-            compilation.loaded,
-            compilation.failed,
-            autotune.settled(),
-            autotune.registered,
-            autotune.measured,
-            autotune.loaded,
-            autotune.failed,
+            compilation.settled_count(),
+            compilation.registered_count,
+            compilation.compiled_count,
+            compilation.loaded_count,
+            compilation.failed_count,
+            autotune.settled_count(),
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count,
+            autotune.failed_count,
         )
     }
 }
