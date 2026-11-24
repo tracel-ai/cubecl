@@ -393,8 +393,8 @@ impl Bytes {
     }
 
     #[cfg(feature = "std")]
-    /// The `size` bytes of `file` that start `offset` bytes in, read from the
-    /// file held open when first used, whatever is at its path by then.
+    /// The `size` bytes of `file` that start `offset` bytes in, read when
+    /// first used.
     ///
     /// # Assumptions
     ///

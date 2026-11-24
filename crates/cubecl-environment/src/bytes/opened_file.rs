@@ -1,24 +1,19 @@
-use super::file::{FileSource, HeldFile};
+use super::{file::FileSource, held_file::HeldFile};
 use std::{fs::File, path::PathBuf, sync::Arc};
 
 /// A file opened once, which any number of [`Bytes`](super::Bytes) read
 /// windows of through [`Bytes::from_opened_file`](super::Bytes::from_opened_file).
 ///
 /// Cloning it shares the one open file. The file stays open as long as the
-/// opened file or any bytes made from it are alive.
-///
-/// # Assumptions
-///
-/// - `file` was opened for reading at `path`.
+/// opened file or any bytes made from it are alive. A file written over in
+/// place is read as it is then: only a file renamed over the path, or the
+/// path removed, leaves the bytes reading the file that was opened.
 ///
 /// # Guarantees
 ///
-/// - Every read is of the file held, never of whatever is at `path` then: a
-///   file renamed over `path`, or `path` removed, leaves the bytes reading
-///   the file that was opened. A file written over in place is not
-///   protected.
-/// - Windows read on several threads at once each read their own bytes.
-/// - The reads are counted under `path` by a
+/// - Every read is of the file held, never of whatever is at its path then.
+/// - Bytes read on several threads at once each read their own window.
+/// - The reads are counted under the path the file was opened at by a
 ///   [`FileReadCounter`](super::FileReadCounter) of it.
 ///
 /// # Examples
@@ -43,7 +38,11 @@ pub struct OpenedFile {
 }
 
 impl OpenedFile {
-    /// Hold `file`, opened at `path`, to read windows of it.
+    /// Hold `file` to read windows of it.
+    ///
+    /// # Assumptions
+    ///
+    /// - `file` was opened for reading at `path`.
     pub fn new(file: File, path: impl Into<PathBuf>) -> Self {
         let source = FileSource::Opened {
             path: path.into(),

@@ -1,4 +1,4 @@
-use super::{Bytes, OpenedFile};
+use super::{Bytes, FileReadCounter, OpenedFile, Reader};
 use std::{fs::File, io::Write, path::PathBuf, sync::Barrier, vec::Vec};
 use tempfile::TempDir;
 
@@ -18,18 +18,23 @@ fn opened_with(bytes: &[u8]) -> (TempDir, PathBuf, OpenedFile) {
 }
 
 #[test]
-fn windows_of_one_opened_file_read_their_bytes() {
+fn window_of_an_opened_file_reads_its_bytes() {
     let expected = content(300);
     let (_dir, _path, opened) = opened_with(&expected);
+    let window = Bytes::from_opened_file(&opened, 50, 100);
 
-    let windows = [(0, 100), (100, 50), (150, 150)]
-        .map(|(offset, size)| Bytes::from_opened_file(&opened, size, offset));
+    assert_eq!(&window[..], &expected[100..150]);
+}
 
-    let read: Vec<&[u8]> = windows.iter().map(|bytes| &bytes[..]).collect();
-    assert_eq!(
-        read,
-        [&expected[..100], &expected[100..150], &expected[150..]]
-    );
+#[test]
+fn reads_of_an_opened_file_are_counted_under_its_path() {
+    let (_dir, path, opened) = opened_with(&content(200));
+    let counter = FileReadCounter::new(&path);
+    let window = Bytes::from_opened_file(&opened, 80, 40);
+
+    window.read(Reader::new()).unwrap();
+
+    assert_eq!(counter.read(), 80);
 }
 
 #[cfg(unix)]
