@@ -29,10 +29,11 @@ pub trait StageEnterer<K, I: TuneInputs>: Send + Sync + 'static {
     /// Enter `stage` of the tune of `key`, with the reference inputs the tune was called with.
     ///
     /// Every implementation hands back a guard whose `Drop` undoes exactly what `enter` did, so
-    /// stages nest in any combination. A measuring stage is entered while the tuned device is held
-    /// exclusively, on the thread that holds it: an implementation never waits on that device's
-    /// exclusive access. Kernels a gathering stage leaves queued on other devices are compiled by
-    /// the guard's `Drop`, as the tuner compiles the tuned device's.
+    /// stages nest in any combination. A measuring stage is entered where the set's
+    /// [`TuneDeviceAccess`](super::TuneDeviceAccess) holds the tuned device, on the thread that
+    /// runs the candidates: an implementation never waits on that device's exclusive access.
+    /// Kernels a gathering stage leaves queued on other devices are compiled by the guard's
+    /// `Drop`, as the tuner compiles the tuned device's.
     fn enter<'a>(&self, stage: TuneStage, key: &K, inputs: &I::At<'a>) -> Box<dyn Any>;
 }
 
