@@ -309,6 +309,17 @@ impl Server for CudaServer {
         cubecl_server::stream::keep_lazy_read(self, read, stream_id)
     }
 
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        let accessed = source.handle.range();
+        let copy = Server::read(self, vec![source], stream_id);
+        cubecl_server::stream::lazy_read_accessed(self, &read, accessed, stream_id, copy)
+    }
+
     fn compile_queued(&mut self) {
         self.ctx.compile_queued(&self.streams.logger);
     }
@@ -773,9 +784,13 @@ impl WriteScoped for CudaServer {
             .streams
             .stream_or_create(&writer)
             .and_then(|stream| Ok(event.wait_async(stream.sys)?));
-        // Its own fault, which the read reports as well.
         if let Err(error) = waited {
-            log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
+            log::warn!(
+                "a write could not be ordered after the lazy read it overwrites on the device, \
+                 waiting on the host: {error}"
+            );
+            // A failed copy is the read's own fault, which its bytes report.
+            let _ = event.wait();
         }
     }
 

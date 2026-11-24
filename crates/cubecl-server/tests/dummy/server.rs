@@ -527,6 +527,15 @@ impl<M: Marker> Server for DummyServer<M> {
         self.ensure_written(core::iter::once(&read.to_source().handle))
     }
 
+    fn read_lazy_bytes(
+        &mut self,
+        _read: Arc<cubecl_server::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        self.read(vec![source], stream_id)
+    }
+
     fn memory_report(
         &mut self,
         stream_id: StreamId,

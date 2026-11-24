@@ -899,6 +899,16 @@ pub trait Server:
     /// a stream recording a graph, where its copy would be recorded rather than run.
     fn read_lazy(&mut self, read: Arc<LazyRead>, stream_id: StreamId) -> Result<(), ServerError>;
 
+    /// Read `source`, bytes of `read` accessed before any write started it, as
+    /// [`read`](Self::read) does. While this server keeps `read`, work it queues to write
+    /// those bytes afterwards waits for this copy too.
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>>;
+
     /// Executes the `kernel` over the given memory `handles`.
     ///
     /// Kernels have mutable access to every resource they are given

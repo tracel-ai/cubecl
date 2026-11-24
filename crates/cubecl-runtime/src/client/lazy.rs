@@ -5,11 +5,10 @@ use crate::server::{CopyDescriptor, Handle, LazyRead, LazyReadHold, ServerError}
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
-use alloc::vec;
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use cubecl_common::bytes::{
-    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
+    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, Writer,
 };
 use cubecl_environment::sync::{Mutex, Once};
 use cubecl_zspace::striding::has_contiguous_row_major_strides;
@@ -196,7 +195,11 @@ impl AllocationController for LazyDeviceController {
             .materialized
             .get_mut()
             .expect("materialized must be set after init");
-        let slice: &mut [u8] = bytes;
+        let writer = match policy.copy_allowed() {
+            true => Writer::new(),
+            false => Writer::new().no_copy(),
+        };
+        let slice = bytes.write(writer)?;
         let (ptr, len) = (slice.as_mut_ptr(), slice.len());
         if !bytes.may_alias_mutable_storage() {
             self.source.lock().take();
@@ -217,7 +220,7 @@ impl AllocationController for LazyDeviceController {
 
 impl Client {
     /// The bytes `source` names, taken from `range` of what a write started `read` for when one
-    /// did, or else read now.
+    /// did, or else read now, with work writing them afterwards waiting for that copy.
     ///
     /// Asked on the device thread, so a write queued before this access has started the read.
     ///
@@ -237,7 +240,7 @@ impl Client {
             .submit_blocking(move |server| -> Result<_, ServerError> {
                 Ok(match started.is_started()? {
                     true => None,
-                    false => Some(server.read(vec![source], stream_id)),
+                    false => Some(server.read_lazy_bytes(started, source, stream_id)),
                 })
             })
             .closed_as_error()?;

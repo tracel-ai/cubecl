@@ -15,7 +15,7 @@ use cubecl_server::server::{
 use cubecl_server::storage::BytesStorage;
 use cubecl_server::stream::{
     CopyFence, ExecuteScope, FailureStore, Failures, StreamCapture, StreamFactory, StreamMemory,
-    StreamPool, WriteScoped, failed_writing, keep_lazy_read,
+    StreamPool, WriteScoped, failed_writing, keep_lazy_read, lazy_read_accessed,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -209,6 +209,17 @@ fn lazy_read(handle: &Handle) -> LazyReadHold {
         1,
     )))
     .hold(0..SIZE as usize)
+}
+
+/// An access's copy of the first four bytes of `read` on `stream`, in flight until dropped.
+fn access(
+    device: &mut Device,
+    read: &Arc<LazyRead>,
+    binding: &BufferBinding,
+    stream: StreamId,
+) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+    let copy: DynFut<Result<Vec<Bytes>, ServerError>> = Box::pin(async { Ok(Vec::new()) });
+    lazy_read_accessed(device, read, bytes(0..4, binding).range(), stream, copy)
 }
 
 fn bytes(range: core::ops::Range<u64>, binding: &BufferBinding) -> BufferBinding {
@@ -407,4 +418,104 @@ fn a_view_that_outlived_its_read_copies_only_its_bytes() {
     device.write(stream, binding);
 
     assert_eq!(device.copied, vec![4..8]);
+}
+
+#[test]
+fn a_write_after_an_access_from_another_stream_waits_on_its_copy() {
+    let mut device = Device::new();
+    let (reader, accessor) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(reader);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    let _copy = access(&mut device, &read, &binding, accessor);
+
+    device.write(reader, binding);
+
+    assert_eq!(device.waits, vec![(reader, accessor)]);
+}
+
+#[test]
+fn an_access_leaves_the_rest_of_its_read_kept() {
+    let mut device = Device::new();
+    let (reader, accessor) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(reader);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+
+    let _copy = access(&mut device, &read, &binding, accessor);
+
+    assert!(device.started.is_empty() && read.is_kept());
+}
+
+#[test]
+fn a_write_beside_an_access_waits_on_nothing() {
+    let mut device = Device::new();
+    let (reader, accessor) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(reader);
+    let mut front = handle.clone();
+    front.offset_end = Some(SIZE / 2);
+    let read = Arc::new(LazyRead::new(CopyDescriptor::new(
+        front,
+        [SIZE as usize / 2].into(),
+        [1].into(),
+        1,
+    )));
+    let _held = read.hold(0..SIZE as usize / 2);
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    let _copy = access(&mut device, &read, &binding, accessor);
+
+    device.write(reader, bytes(SIZE / 2..SIZE, &binding));
+
+    assert!(device.waits.is_empty());
+}
+
+#[test]
+fn a_write_after_a_shared_read_copied_waits_on_nothing() {
+    let mut device = Device::new();
+    let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(writer);
+    handle.memory.descriptor().share_with_peers();
+    let held = lazy_read(&handle);
+    keep_lazy_read(&mut device, held.read().clone(), reader)
+        .expect("clean memory should be readable");
+    device.fences[0].reached.store(true, Ordering::Relaxed);
+
+    device.write(writer, binding);
+
+    assert!(device.waits.is_empty() && device.stream_waits.is_empty());
+}
+
+#[test]
+fn a_write_after_an_access_has_its_bytes_waits_on_nothing() {
+    let mut device = Device::new();
+    let (reader, accessor) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(reader);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    let copy = access(&mut device, &read, &binding, accessor);
+    cubecl_environment::future::block_on(copy).expect("the fake copy should succeed");
+
+    device.write(reader, binding);
+
+    assert!(device.waits.is_empty() && device.stream_waits.is_empty());
+}
+
+#[test]
+fn an_access_in_flight_is_found_after_its_read_lets_go() {
+    let mut device = Device::new();
+    let (reader, accessor) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(reader);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    let _copy = access(&mut device, &read, &binding, accessor);
+    // As the read resolving through another holder lets go of its count.
+    read.descriptor().lazy_read_let_go();
+
+    device.write(reader, binding);
+
+    assert_eq!(device.waits, vec![(reader, accessor)]);
 }

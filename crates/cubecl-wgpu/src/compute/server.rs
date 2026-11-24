@@ -444,6 +444,17 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         cubecl_server::stream::keep_lazy_read(self, read, stream_id)
     }
 
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        let accessed = source.handle.range();
+        let copy = Server::read(self, vec![source], stream_id);
+        cubecl_server::stream::lazy_read_accessed(self, &read, accessed, stream_id, copy)
+    }
+
     unsafe fn launch(
         &mut self,
         kernel: Box<dyn CubeKernel>,

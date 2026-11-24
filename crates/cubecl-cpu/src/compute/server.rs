@@ -522,6 +522,15 @@ impl Server for CpuServer {
             .ensure_written(core::iter::once(&read.to_source().handle))
     }
 
+    fn read_lazy_bytes(
+        &mut self,
+        _read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        self.read(vec![source], stream_id)
+    }
+
     fn compile_queued(&mut self) {
         self.kernels.compile_queued(&self.scheduler.logger);
     }

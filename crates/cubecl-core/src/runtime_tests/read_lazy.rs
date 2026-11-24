@@ -264,6 +264,23 @@ pub fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write<R: Runti
     assert_eq!(f32::from_bytes(&view), &BEFORE[1..3]);
 }
 
+/// A view between four-byte boundaries that outlives its lazy read copies the aligned bytes
+/// around it, which every backend can copy.
+pub fn test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_write<R: Runtime>(
+    client: Client,
+) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+    let view = read
+        .view(1, 5)
+        .expect("a contiguous device buffer supports views");
+    drop(read);
+
+    add_one_to(&client, &buffer);
+
+    assert_eq!(&view[..], &f32::as_bytes(&BEFORE)[1..5]);
+}
+
 /// A write on another stream than the read's waits for the read it overwrites.
 pub fn test_a_lazy_read_is_its_buffer_before_a_write_on_another_stream<R: Runtime>(client: Client) {
     let (reader, writer) = (StreamId { value: 3_300_001 }, StreamId { value: 3_300_002 });
@@ -436,6 +453,12 @@ macro_rules! testgen_read_lazy_before_write {
         fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::read_lazy::test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_write() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
         }
 
         #[$crate::runtime_tests::test_log::test]

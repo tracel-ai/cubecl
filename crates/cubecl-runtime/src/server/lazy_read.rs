@@ -1,3 +1,4 @@
+use crate::memory_management::ManagedMemoryDescriptor;
 use crate::server::{BufferBinding, CopyDescriptor, Handle, ServerError};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -160,8 +161,8 @@ impl LazyRead {
         }
     }
 
-    /// The bytes in `range` of what the started read returned, copied out so every holder takes
-    /// its own.
+    /// The bytes in `range` of what the started read returned: the result itself, shared, for
+    /// the whole of it, and an aligned copy for less.
     ///
     /// # Assumptions
     ///
@@ -179,17 +180,28 @@ impl LazyRead {
             };
             let read = read.expect("a started read should be resolved once");
             let bytes = cubecl_environment::future::reader::read_sync(read)
-                .map(|mut bytes| (offset, bytes.remove(0)));
+                .map(|mut bytes| (offset, bytes.remove(0).shared()));
             *self.state.lock() = LazyReadState::Resolved;
             self.source.handle.memory.descriptor().lazy_read_let_go();
             bytes
         });
         match started {
-            Ok((offset, bytes)) => Ok(Bytes::from_bytes_vec(
-                bytes[range.start - offset..range.end - offset].to_vec(),
-            )),
+            Ok((offset, bytes)) => {
+                let (start, end) = (range.start - offset, range.end - offset);
+                // A window that starts inside the copy loses the alignment typed reads rely on.
+                let whole = start == 0 && end == bytes.len();
+                Ok(match whole.then(|| bytes.view(start, end).ok()).flatten() {
+                    Some(window) => window,
+                    None => Bytes::from_bytes_vec(bytes[start..end].to_vec()),
+                })
+            }
             Err(error) => Err(error.clone()),
         }
+    }
+
+    /// The descriptor of the memory it reads.
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+        self.source.handle.memory.descriptor()
     }
 
     /// How many bytes the whole read returns.

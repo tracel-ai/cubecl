@@ -457,6 +457,17 @@ impl Server for MetalServer {
         cubecl_server::stream::keep_lazy_read(self, read, stream_id)
     }
 
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        let accessed = source.handle.range();
+        let copy = Server::read(self, vec![source], stream_id);
+        cubecl_server::stream::lazy_read_accessed(self, &read, accessed, stream_id, copy)
+    }
+
     fn compile_queued(&mut self) {
         self.context.compile_queued(&self.utilities.logger);
     }
