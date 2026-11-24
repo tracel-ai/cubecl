@@ -872,13 +872,25 @@ impl Tile {
         #[comptime] dimensions: Vec<Dimension>,
         #[comptime] storage: StageStorage,
     ) -> Tile {
+        Tile::scratch_in_lines::<T>(walk, dimensions, storage, 1usize)
+    }
+
+    /// [`scratch`](Self::scratch), served `vector_size` values a line: what a kernel fills a line at
+    /// a time, and a fragment whose registers hold whole lines loads a line at a time.
+    pub fn scratch_in_lines<T: Numeric>(
+        walk: &Walk,
+        #[comptime] dimensions: Vec<Dimension>,
+        #[comptime] storage: StageStorage,
+        #[comptime] vector_size: usize,
+    ) -> Tile {
         let owner = walk.stage_owner();
         let place = comptime!(Placement::new(
             walk.level.child(&walk.space).subspace(&dimensions),
             walk.depth(),
             walk.parent.path.root_levels(),
         ));
-        let tile = Memory::smem_owned::<T>(&place.space, 1usize, storage, 0usize, 0usize, owner);
+        let tile =
+            Memory::smem_owned::<T>(&place.space, vector_size, storage, 0usize, 0usize, owner);
         Tile::new::<T>(tile.kind, place.clone())
     }
 
