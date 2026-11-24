@@ -1455,7 +1455,7 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
     // rows in ([`key_row`]), are the `mma.sync` layouts': two accumulator vectors a unit, a row
     // each, and four `A` vectors, rows alternating.
     let side_by_side = comptime!(a_width / acc_width);
-    let in_order = comptime!(side_by_side == 1 || bytes == 2);
+    let in_order = side_by_side == 1 || bytes == 2;
     comptime!(assert!(
         in_order || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
         "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \

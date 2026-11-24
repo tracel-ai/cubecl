@@ -515,9 +515,9 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     #[unroll]
     for held_row in 0..run.rows_per_unit() {
         let at = LaneRun::window_row(run, held_row);
-        let mut scales = Array::<T>::new(comptime!(run.len / scale_read));
+        let mut scales = Array::<T>::new(run.len / scale_read);
         #[unroll]
-        for b in 0..comptime!(run.len / scale_read) {
+        for b in 0..(run.len / scale_read) {
             let col = first + comptime!((b * scale_read) as u32);
             let coords = TileMatrix::value_coords(at, col, 0usize, &space, dimensions, 1usize);
             scales[b] =
@@ -535,8 +535,7 @@ fn load_e2m1_run<T: Numeric, N: Size>(
                     Vector::new(line.extract(w)),
                     comptime!(field),
                 );
-                let decoded =
-                    codes * Vector::<T, Const<8>>::new(scales[comptime!(word / scale_read)]);
+                let decoded = codes * Vector::<T, Const<8>>::new(scales[word / scale_read]);
                 #[unroll]
                 for p in 0..comptime!(E2M1_PER_WORD / run.cells_per_register) {
                     let mut vector = Vector::<T, N>::empty();
