@@ -5,12 +5,11 @@ use core::time::Duration;
 
 use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 
+use crate::client::Client;
 use crate::config::autotune::BenchConfig;
-use crate::execution::StreamMode;
 use crate::server::ServerError;
 use crate::tune::Evictor;
 use crate::tune::patience::PatienceTable;
-use crate::tune::profiler::CandidateProfiler;
 use crate::tune::sampler::{SampleSet, measured};
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
@@ -72,26 +71,29 @@ impl Schedule<'_> {
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let fallback = batch.indices();
         let run = || {
-            let measuring = profiler.stream_modes(StreamMode::Execute);
+            let measuring = crate::execution::StreamModeOverride::new(
+                crate::execution::StreamMode::Execute,
+                client,
+            );
 
             let outcome = cubecl_environment::future::block_on(self.drive(
                 batch,
                 autotunables,
                 inputs,
-                profiler,
+                client,
             ));
             core::mem::drop(measuring);
             outcome
         };
 
-        match profiler.exclusive(run) {
+        match client.clone().exclusive(run) {
             Ok(outcome) => outcome,
             Err(err) => BatchOutcome {
                 results: fallback
@@ -118,7 +120,7 @@ impl Schedule<'_> {
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
@@ -154,13 +156,13 @@ impl Schedule<'_> {
                     .enumerate()
                     .filter(|(offset, _)| !patience.skips(slot + offset))
                     .map(|(_, candidate)| candidate);
-                compile_together(ahead, autotunables, &inputs, profiler);
+                compile_together(ahead, autotunables, &inputs, client);
             }
             // A candidate that rejected the problem while compiling is out of the round already.
             let operation = autotunables[candidates[slot].index];
             let hit = candidates[slot].live
                 && self
-                    .first_pass(operation, &inputs, profiler, &mut candidates[slot])
+                    .first_pass(operation, &inputs, client, &mut candidates[slot])
                     .await;
 
             if let Some(launched) = launched {
@@ -206,7 +208,7 @@ impl Schedule<'_> {
 
                 match autotunables[candidate.index].sample_once(
                     inputs.clone(),
-                    profiler,
+                    client,
                     self.evictor.as_deref_mut(),
                 ) {
                     Ok(profile) => {
@@ -347,21 +349,18 @@ impl Schedule<'_> {
         &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
         candidate: &mut Candidate,
     ) -> bool
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        if let Err(err) = operation.warmup_once(inputs.clone(), profiler) {
+        if let Err(err) = operation.warmup_once(inputs.clone(), client) {
             candidate.fail(err);
             return false;
         }
 
-        if !self
-            .take_sample(operation, inputs, profiler, candidate)
-            .await
-        {
+        if !self.take_sample(operation, inputs, client, candidate).await {
             return false;
         }
 
@@ -375,10 +374,7 @@ impl Schedule<'_> {
 
         let required = self.config.clamped_short_circuit_sample_count();
         while candidate.samples.len() < required {
-            if !self
-                .take_sample(operation, inputs, profiler, candidate)
-                .await
-            {
+            if !self.take_sample(operation, inputs, client, candidate).await {
                 return false;
             }
         }
@@ -391,13 +387,13 @@ impl Schedule<'_> {
         &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
         candidate: &mut Candidate,
     ) -> bool
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match operation.sample_once(inputs.clone(), profiler, self.evictor.as_deref_mut()) {
+        match operation.sample_once(inputs.clone(), client, self.evictor.as_deref_mut()) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
                 match measured(profile.resolve().await) {
@@ -484,7 +480,7 @@ impl Schedule<'_> {
         plan: &mut TunePlan,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
         results: &mut [AutotuneResult],
     ) -> Result<PlanOutcome, ServerError>
     where
@@ -500,7 +496,11 @@ impl Schedule<'_> {
             let batch = retry.take().unwrap_or_else(|| plan.next());
 
             if batch.is_empty() {
-                profiler.expect_devices()?;
+                if let Err(err) = cubecl_environment::future::block_on(client.sync())
+                    && err.is_device_poisoned()
+                {
+                    return Err(err);
+                }
 
                 // Every candidate failed. A candidate that *executed* but
                 // could not be *measured* — `Unknown` wraps benchmark-harness
@@ -541,7 +541,7 @@ impl Schedule<'_> {
                 );
             }
 
-            let outcome = self.run_batch(batch, autotunables, inputs.clone(), profiler);
+            let outcome = self.run_batch(batch, autotunables, inputs.clone(), client);
 
             for (index, result) in outcome.results {
                 results[index] = result;
@@ -644,11 +644,12 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     candidates: impl Iterator<Item = &'c mut Candidate>,
     autotunables: &[&TuneFn<F, Out>],
     inputs: &<F as TuneInputs>::At<'a>,
-    profiler: &CandidateProfiler,
+    client: &Client,
 ) where
     <F as TuneInputs>::At<'a>: Clone,
 {
-    let queuing = profiler.stream_modes(StreamMode::Discard);
+    let queuing =
+        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
     let gathering = super::gathering::CandidateGathering::new();
     for candidate in candidates {
         if let Err(rejection @ AutotuneError::Rejected { .. }) =
@@ -659,7 +660,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     }
     core::mem::drop(gathering);
     core::mem::drop(queuing);
-    profiler.compile_queued();
+    client.compile_queued();
 }
 
 #[cfg(test)]

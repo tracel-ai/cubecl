@@ -1,6 +1,5 @@
-use super::profiler::CandidateProfiler;
 use super::{AutotuneError, Evictor, TuneFn, TuneInputs};
-use crate::execution::StreamMode;
+use crate::client::Client;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
@@ -24,16 +23,17 @@ impl AutotuneOutput for () {
 /// Benchmark how long this operation takes for a number of samples.
 ///
 /// Returns at least one duration, otherwise an error is returned.
-pub(crate) fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
+pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    profiler: &CandidateProfiler,
+    client: Client,
     evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // `scoped` holds exclusive device access for the whole benchmark loop and
     // accepts non-`'static` closures.
-    profiler
-        .exclusive(|| profile_exclusive(operation, inputs, profiler, evictor))
+    client
+        .clone()
+        .exclusive(move || profile_exclusive(operation, inputs, client, evictor))
         .map_err(|err| AutotuneError::Unknown {
             name: operation.name.to_string(),
             err: err.to_string(),
@@ -48,15 +48,15 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     pub(crate) fn warmup_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
     ) -> Result<(), AutotuneError> {
         // We make sure the server is in a correct state.
-        profiler.flush();
+        let _errs = client.flush();
 
         // The profile is dropped without being resolved: a warmup only exists to surface a
         // failure to compile or launch, which is what the error carries — so nothing is
         // evicted for it, either.
-        self.sample_once(inputs, profiler, None).map(|_| ())
+        self.sample_once(inputs, client, None).map(|_| ())
     }
 
     /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
@@ -70,7 +70,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     pub(crate) fn sample_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
-        profiler: &CandidateProfiler,
+        client: &Client,
         evictor: Option<&mut Evictor<'_>>,
     ) -> Result<ProfileDuration, AutotuneError> {
         if let Some(evict) = evictor
@@ -82,7 +82,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
             );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = profiler.profile(move || self.race(inputs), &self.name);
+        let profiled = client.profile(move || self.race(inputs), &self.name);
 
         match profiled {
             Ok((Ok(_), duration)) => Ok(duration),
@@ -98,7 +98,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
 fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    profiler: &CandidateProfiler,
+    client: Client,
     mut evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so their stream executes whatever
@@ -110,9 +110,10 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     // while this measurement holds the device. `exclusive` runs the body
     // under the issuing thread's stream, so the client resolves the same
     // stream here as there.
-    let measuring = profiler.stream_modes(StreamMode::Execute);
+    let measuring =
+        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
 
-    warmup(operation, inputs.clone(), profiler)?;
+    warmup(operation, inputs.clone(), client.clone())?;
 
     // The same budget the adaptive scheduler reads. This pass takes the ceiling: with no
     // elimination, there is nothing for a smaller budget to buy, and a candidate that stops early
@@ -128,7 +129,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // go, so the loop stops on the first error and hands it back untouched. Sampling on
         // would only pay more device round trips to reach the same verdict, with the reason
         // for the failure replaced by `InvalidSamples`.
-        durations.push(operation.sample_once(inputs.clone(), profiler, evictor.as_deref_mut())?);
+        durations.push(operation.sample_once(inputs.clone(), &client, evictor.as_deref_mut())?);
     }
     core::mem::drop(measuring);
 
@@ -144,17 +145,17 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
 fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    profiler: &CandidateProfiler,
+    client: Client,
 ) -> Result<(), AutotuneError> {
     let num_warmup = 3;
 
     let mut errors = Vec::with_capacity(num_warmup);
     // We make sure the server is in a correct state.
-    profiler.flush();
+    let _errs = client.flush();
 
     for _ in 0..num_warmup {
         let inputs = inputs.clone();
-        let profiled = profiler.profile(move || operation.race(inputs), &operation.name);
+        let profiled = client.profile(move || operation.race(inputs), &operation.name);
 
         match profiled {
             // The tunable rejected its own configuration, which it will do identically on
