@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn every_e2m1_code_becomes_its_exact_e4m3_byte_under_every_normal_scale() {
         const MAGNITUDES: [f32; 8] = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
-        let words = [0x7654_3210u32, 0xFEDC_BA98u32];
+        let words = [0x76543210u32, 0xFEDCBA98u32];
         for exponent in E2M1_LOWEST_NORMAL_EXPONENT..=E2M1_HIGHEST_NORMAL_EXPONENT {
             for (w, &word) in words.iter().enumerate() {
                 let (low, high) = e2m1_word_into_e4m3::harness::<TestRuntime>(word, exponent);
