@@ -48,27 +48,29 @@ unsafe impl Send for PinnedMemoryStorage {}
 impl StorageAllocator for PinnedMemoryStorage {
     type Resource = PinnedMemoryResource;
 
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let memory = self
             .memory
             .get(&handle.id)
-            .ok_or_else(|| IoError::StorageHandleNotFound {
-                reason: format!("{} in the CUDA pinned storage", handle.id).into(),
-                backtrace: BackTrace::capture(),
-            })?;
+            .expect("the handle should name a live allocation of this storage");
 
-        let offset = handle.offset() as usize;
-        let size = handle.size() as usize;
+        let offset = handle.offset();
+        let size = handle.size();
+        // The pointer arithmetic below is sound only inside the allocation,
+        // so this is checked rather than assumed.
+        assert!(
+            offset + size <= memory.size,
+            "the handle should lie within its allocation"
+        );
 
-        // SAFETY: `memory.ptr` was allocated by `cuMemAllocHost_v2` with at least
-        // `offset + size` bytes. The `add(offset)` produces a pointer within the allocation
-        // bounds as guaranteed by the storage handle's offset/size validation.
-        Ok(unsafe {
+        // SAFETY: `memory.ptr` was allocated by `cuMemAllocHost_v2` with `memory.size`
+        // bytes, and the assert above keeps `offset + size` within them.
+        unsafe {
             PinnedMemoryResource {
-                ptr: memory.ptr.cast::<u8>().add(offset),
-                size,
+                ptr: memory.ptr.cast::<u8>().add(offset as usize),
+                size: size as usize,
             }
-        })
+        }
     }
 
     #[cfg_attr(

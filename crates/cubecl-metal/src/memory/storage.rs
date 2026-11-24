@@ -101,21 +101,16 @@ impl MetalStorage {
 impl StorageAllocator for MetalStorage {
     type Resource = MetalResource;
 
-    fn get(
-        &mut self,
-        handle: &StorageHandle,
-    ) -> Result<Self::Resource, cubecl_core::server::IoError> {
-        let buffer = self.buffers.get(&handle.id).ok_or_else(|| {
-            cubecl_core::server::IoError::StorageHandleNotFound {
-                reason: format!("{} in the Metal buffer storage", handle.id).into(),
-                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-            }
-        })?;
-        Ok(MetalResource {
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let buffer = self
+            .buffers
+            .get(&handle.id)
+            .expect("the handle should name a live allocation of this storage");
+        MetalResource {
             buffer: buffer.clone(),
             offset: handle.offset(),
             size: handle.size(),
-        })
+        }
     }
 
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, cubecl_core::server::IoError> {

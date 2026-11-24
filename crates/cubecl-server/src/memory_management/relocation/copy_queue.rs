@@ -58,8 +58,8 @@ impl CopyQueue<BytesStorage> for HostCopies {
     }
 
     fn copy(&mut self, storage: &mut BytesStorage, copy: &StorageCopy) -> Result<(), IoError> {
-        let source = storage.get(&copy.source)?;
-        let mut target = storage.get(&copy.target)?;
+        let source = storage.get(&copy.source);
+        let mut target = storage.get(&copy.target);
         target.write().copy_from_slice(source.read());
         Ok(())
     }

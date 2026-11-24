@@ -514,9 +514,7 @@ mod tests {
     impl StorageAllocator for Bookkeeping {
         type Resource = ();
 
-        fn get(&mut self, _handle: &StorageHandle) -> Result<(), IoError> {
-            Ok(())
-        }
+        fn get(&mut self, _handle: &StorageHandle) {}
 
         fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
             if size > self.limit {

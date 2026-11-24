@@ -54,8 +54,8 @@ impl CopyQueue<WgpuStorage> for WgpuCopies {
     }
 
     fn copy(&mut self, storage: &mut WgpuStorage, copy: &StorageCopy) -> Result<(), IoError> {
-        let source = storage.get(&copy.source)?;
-        let target = storage.get(&copy.target)?;
+        let source = storage.get(&copy.source);
+        let target = storage.get(&copy.target);
 
         let device = &self.device;
         let batch = self.batch.get_or_insert_with(|| Batch {

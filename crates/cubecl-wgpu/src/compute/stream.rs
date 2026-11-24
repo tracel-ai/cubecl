@@ -767,7 +767,8 @@ impl WgpuStream {
             }
         }
 
-        // SAFETY: The range is in bounds and the queue is idle.
+        // SAFETY: `data` fits the resource, which `WgpuStorage::get` checks lies within
+        // its mapped buffer, and the queue is idle.
         unsafe {
             let dst = host_ptr.0.as_ptr().add(resource.offset as usize);
             core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
