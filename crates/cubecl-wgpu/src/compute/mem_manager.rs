@@ -154,11 +154,7 @@ impl AuxiliaryMemory {
             .uniforms
             .get_storage(slice.binding())
             .expect("Failed to find storage!");
-        let resource = self
-            .uniforms
-            .storage()
-            .get(&handle)
-            .expect("Failed to get the uniform's storage!");
+        let resource = self.uniforms.storage().get(&handle);
         (retained, resource)
     }
 

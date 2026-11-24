@@ -78,7 +78,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// # Errors
     ///
-    /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
+    /// [`IoError::BindingOutOfBounds`] when the binding's offsets reach past
+    /// the end of its memory.
     pub fn resource(&mut self, binding: BufferBinding) -> Result<DeviceResource<D>, IoError> {
         self.streams
             .current()
@@ -96,7 +97,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// # Errors
     ///
-    /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
+    /// [`IoError::BindingOutOfBounds`] when the binding's offsets reach past
+    /// the end of its memory.
     pub fn managed_resource(
         &mut self,
         binding: BufferBinding,
@@ -488,8 +490,8 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
-    /// row-major, [`IoError::StorageHandleNotFound`] for a binding that names no live
-    /// allocation, and the driver's refusal to copy.
+    /// row-major, [`IoError::BindingOutOfBounds`] for a binding whose offsets reach
+    /// past the end of its memory, and the driver's refusal to copy.
     pub fn write_to_cpu(
         &mut self,
         descriptor: CopyDescriptor,
@@ -527,8 +529,8 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
-    /// row-major, [`IoError::StorageHandleNotFound`] for a binding that names no live
-    /// allocation, and the driver's refusal to copy.
+    /// row-major, [`IoError::BindingOutOfBounds`] for a binding whose offsets reach
+    /// past the end of its memory, and the driver's refusal to copy.
     pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,

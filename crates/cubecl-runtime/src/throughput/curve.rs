@@ -8,7 +8,7 @@
 //!
 //! So the probes measure a *curve*: the same kernel at a range of sizes, from a
 //! few kilobytes to hundreds of megabytes, every point on data no earlier pass
-//! left in cache. [`MemoryCurve::ceiling_at`] answers the question a consumer
+//! left in cache. [`MemoryCurve::ceiling_at_bytes`] answers the question a consumer
 //! actually has — what can a kernel moving this many bytes reach.
 
 use alloc::vec::Vec;
@@ -49,12 +49,13 @@ impl From<MemoryAccess> for Traffic {
 
 /// Memory throughput measured across a range of working sets, on one device or between several.
 ///
-/// Built by sweeping one probe over [`working_set_sweep`]; ask it for the
-/// ceiling of a given working set with [`ceiling_at`](Self::ceiling_at).
+/// Built by sweeping one probe over [`sweep_up_to_bytes`](Self::sweep_up_to_bytes); ask it for the
+/// ceiling of a given working set with [`ceiling_at_bytes`](Self::ceiling_at_bytes).
 #[derive(PartialEq, Clone, Debug)]
 pub struct MemoryCurve {
     traffic: Traffic,
-    /// Ascending by `bytes`, deduplicated, and every rate finite and positive.
+    /// Every rate finite and positive, read in order of `bytes` to find the
+    /// two that bracket a working set.
     points: Vec<MemoryPoint>,
 }
 
@@ -63,16 +64,18 @@ impl MemoryCurve {
     ///
     /// A point with an empty working set, or a rate that isn't finite and
     /// positive (an unsupported or failed probe), describes nothing and is
-    /// dropped; duplicated working sets keep the first point.
+    /// dropped.
+    ///
+    /// # Assumptions
+    ///
+    /// `points` arrive in strictly increasing working sets, as a
+    /// [sweep](Self::sweep_up_to_bytes) yields them.
     pub fn new(traffic: impl Into<Traffic>, points: impl IntoIterator<Item = MemoryPoint>) -> Self {
         let traffic = traffic.into();
-        let mut points: Vec<MemoryPoint> = points
+        let points = points
             .into_iter()
             .filter(|point| describes_something(traffic, point))
             .collect();
-
-        points.sort_unstable_by_key(|point| point.bytes);
-        points.dedup_by_key(|point| point.bytes);
 
         Self { traffic, points }
     }
@@ -190,8 +193,13 @@ fn rate(traffic: Traffic, point: &MemoryPoint) -> f64 {
 /// from the bit width and the mantissa is interpolated linearly. Exact on
 /// powers of two — which is every point the sweep measures — and monotonic
 /// everywhere, which is all the interpolation needs.
+/// `log2(bytes)`, linear between powers of two.
+///
+/// # Assumptions
+///
+/// `bytes` is not zero: a curve holds no empty working set, and the ceiling
+/// interpolates only above its smallest one.
 fn log2(bytes: u64) -> f64 {
-    let bytes = bytes.max(1);
     let exponent = 63 - bytes.leading_zeros();
     let mantissa = bytes as f64 / (1u64 << exponent) as f64;
 
@@ -344,21 +352,8 @@ mod tests {
     }
 
     #[test]
-    fn points_come_back_ascending() {
-        let curve = curve(&[(4 * MB, 200.0), (MB, 100.0)]);
-
-        assert_eq!(curve.points()[0].bytes, MB);
-    }
-
-    #[test]
     fn log2_is_exact_on_powers_of_two() {
         assert_eq!([log2(1), log2(MB), log2(1 << 63)], [0.0, 20.0, 63.0]);
-    }
-
-    /// Zero has no logarithm; the floor keeps the interpolation finite.
-    #[test]
-    fn log2_of_zero_is_floored() {
-        assert_eq!(log2(0), 0.0);
     }
 
     #[test]

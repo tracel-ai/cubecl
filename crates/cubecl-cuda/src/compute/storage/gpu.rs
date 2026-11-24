@@ -142,24 +142,21 @@ impl PtrBindings {
 impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
 
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
-        let (ptr, _, _) =
-            self.memory
-                .get(&handle.id)
-                .ok_or_else(|| IoError::StorageHandleNotFound {
-                    reason: format!("{} in the CUDA gpu storage", handle.id).into(),
-                    backtrace: BackTrace::capture(),
-                })?;
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let (ptr, _, _) = self
+            .memory
+            .get(&handle.id)
+            .expect("the handle should name a live allocation of this storage");
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        Ok(GpuResource::new(
+        GpuResource::new(
             *ptr,
             ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
             size,
-        ))
+        )
     }
 
     #[cfg_attr(
@@ -241,7 +238,7 @@ mod tests {
         let mut storage = GpuStorage::new();
         for size in [0, 16] {
             let handle = storage.allocate_bytes(size).unwrap();
-            let resource = storage.get(&handle).unwrap();
+            let resource = storage.get(&handle);
             assert_eq!(handle.size(), size);
             assert_eq!(resource.size, size);
             assert_eq!(resource.ptr == 0, size == 0);

@@ -41,7 +41,7 @@ pub struct FlakyStorage {
 impl StorageAllocator for FlakyStorage {
     type Resource = <BytesStorage as StorageAllocator>::Resource;
 
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         self.bytes.get(handle)
     }
 

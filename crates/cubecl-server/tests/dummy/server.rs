@@ -394,7 +394,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 .memory_management
                 .get_storage(descriptor.handle.memory)
                 .unwrap();
-            let mut bytes = self.memory_management.storage().get(&storage_h).unwrap();
+            let mut bytes = self.memory_management.storage().get(&storage_h);
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
     }
