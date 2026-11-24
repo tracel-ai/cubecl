@@ -34,24 +34,50 @@
 //! out on, and handed to the server as a [`LaunchMode`].
 
 mod base;
+mod collector;
+mod countable;
+mod counter;
 mod issued;
+mod open_mode;
 mod process_mode;
+mod process_mode_setter;
 mod purpose;
+mod reader;
+mod recorder;
+mod registration;
+mod scoped;
+mod settled;
 mod statistics;
 mod stream_mode;
+mod stream_mode_setter;
 
 pub use base::LaunchMode;
+pub use collector::StatisticsCollector;
+pub use countable::{KernelHandling, KernelOutcome};
+pub use issued::IssuedLaunch;
 pub use process_mode::{ProcessMode, ProcessModeOverride};
 pub use purpose::LaunchPurpose;
+pub use reader::StatisticsReader;
+pub use recorder::StatisticsRecorder;
+pub use registration::{KernelRegistration, Registration};
+pub use settled::SettledKernel;
 pub use statistics::{
-    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelHandling, KernelOutcome,
-    KernelRegistration, Registration, SettledKernel, StatisticsCollector, StatisticsReader,
-    WorkCompilationFailure,
+    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, WorkCompilationFailure,
 };
-pub(crate) use statistics::{StatisticsRecorder, TuneOutcome, TuneRegistration};
-// Only a persisted pick names it.
-pub(crate) use issued::IssuedRecorder;
-#[cfg_attr(not(persistence), allow(unused_imports))]
-pub(crate) use statistics::TunePick;
-pub(crate) use stream_mode::{STREAM_MODES, ServiceStream};
 pub use stream_mode::{StreamMode, StreamModeOverride};
+
+pub(crate) use countable::TuneOutcome;
+// Only a persisted pick names it.
+#[cfg_attr(not(persistence), allow(unused_imports))]
+pub(crate) use countable::TunePick;
+pub(crate) use purpose::{race, run_provisionally};
+pub(crate) use registration::TuneRegistration;
+pub(crate) use stream_mode::ServiceStream;
+pub(crate) use stream_mode_setter::STREAM_MODES;
+
+use countable::{Countable, CountedWork};
+use counter::StatisticsCounter;
+use open_mode::OPEN_MODE;
+use process_mode_setter::PROCESS_MODES;
+use scoped::with_value;
+use settled::Settled;

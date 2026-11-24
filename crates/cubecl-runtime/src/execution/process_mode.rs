@@ -1,5 +1,4 @@
-use super::{StatisticsCollector, StatisticsRecorder, StreamMode};
-use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
+use super::{OPEN_MODE, PROCESS_MODES, StatisticsCollector, StreamMode};
 
 /// What the process does with the work it is asked to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +17,7 @@ pub enum ProcessMode {
 impl ProcessMode {
     /// The process mode now.
     pub fn current() -> Self {
-        OpenState::load().mode()
+        OPEN_MODE.load().unwrap_or(Self::Execute)
     }
 
     /// The mode every stream has under it, unless a
@@ -54,7 +53,7 @@ impl ProcessMode {
 /// core::mem::drop(tune);
 ///
 /// let statistics = collector.statistics();
-/// assert_eq!(statistics.compilation.settled(), statistics.compilation.registered);
+/// assert_eq!(statistics.compilation.settled_count(), statistics.compilation.registered_count);
 /// ```
 ///
 /// Overlapping overrides of one process mode and one collector compose, so one
@@ -77,30 +76,15 @@ pub struct ProcessModeOverride {
 }
 
 impl ProcessModeOverride {
+    /// Applies `mode` to the whole process until the override drops, counting
+    /// what it triggers into `collector`. Opened while an override of the
+    /// same mode and collector is, it joins that one.
+    ///
     /// # Panics
     ///
     /// If an override of another process mode, or of another collector, is open.
     pub fn new(mode: ProcessMode, collector: &StatisticsCollector) -> Self {
-        let mut active = ACTIVE.lock();
-        let open = OpenState::load();
-        match Opening::new(open, active.as_ref(), mode, collector) {
-            Opening::First => {
-                *active = Some(collector.recorder());
-                OpenState::first(mode).store();
-            }
-            Opening::Joins => open.joined().store(),
-            Opening::OtherCollector => {
-                drop(active);
-                panic!("an override cannot open while one of another collector is")
-            }
-            Opening::OtherMode => {
-                drop(active);
-                panic!(
-                    "an override of {mode:?} cannot open while one of {:?} is",
-                    open.mode()
-                )
-            }
-        }
+        PROCESS_MODES.set(mode, collector);
         Self { mode }
     }
 
@@ -108,133 +92,26 @@ impl ProcessModeOverride {
     pub fn mode(&self) -> ProcessMode {
         self.mode
     }
-
-    /// Where the work the open override triggers is tallied, or `None` when
-    /// none is open: what a [`Registration`](super::Registration) holds.
-    ///
-    /// A launch reads it where it is issued and carries it to the thread that
-    /// runs it ([`IssuedRecorder`](super::IssuedRecorder)), so its kernels
-    /// count to the override open then. Read without a lock first, then under
-    /// [`ACTIVE`]'s: a launch issued as one override closes while another
-    /// collector's opens on another thread counts to the one opening.
-    pub(crate) fn active_recorder() -> Option<StatisticsRecorder> {
-        if !OpenState::load().is_open() {
-            return None;
-        }
-        ACTIVE.lock().clone()
-    }
 }
 
 impl Drop for ProcessModeOverride {
     fn drop(&mut self) {
-        // The last guard out closes the override, its process mode and its
-        // collector with it.
-        let mut active = ACTIVE.lock();
-        let left = OpenState::load().left();
-        if !left.is_open() {
-            *active = None;
-        }
-        left.store();
+        PROCESS_MODES.unset();
     }
 }
 
-/// What opening an override meets.
-enum Opening {
-    /// Nothing open: it opens.
-    First,
-    /// One of its process mode and its collector: it joins.
-    Joins,
-    /// One of another collector.
-    OtherCollector,
-    /// One of its collector, of another process mode.
-    OtherMode,
-}
+#[cfg(test)]
+mod small_tests {
+    use super::*;
 
-impl Opening {
-    fn new(
-        open: OpenState,
-        active: Option<&StatisticsRecorder>,
-        mode: ProcessMode,
-        collector: &StatisticsCollector,
-    ) -> Self {
-        let Some(active) = active.filter(|_| open.is_open()) else {
-            return Self::First;
-        };
-        if !active.tallies_into(collector) {
-            Self::OtherCollector
-        } else if open.mode() != mode {
-            Self::OtherMode
-        } else {
-            Self::Joins
-        }
-    }
-}
-
-/// The open override as the process holds it: its process mode's level in the low
-/// [`LEVEL_BITS`](Self::LEVEL_BITS), and above them how many guards hold it
-/// open. Written only under [`ACTIVE`]'s lock, and read without it on every
-/// launch.
-#[derive(Debug, Clone, Copy)]
-struct OpenState(usize);
-
-/// [`OpenState`] as the process holds it.
-static OPEN: AtomicUsize = AtomicUsize::new(0);
-/// Where the open override tallies, while one is.
-static ACTIVE: Mutex<Option<StatisticsRecorder>> = Mutex::new(None);
-
-impl OpenState {
-    /// The bits that hold the process mode's level.
-    const LEVEL_BITS: u32 = 2;
-    /// Masks the state down to the process mode's level.
-    const LEVEL_MASK: usize = (1 << Self::LEVEL_BITS) - 1;
-    /// One guard, in the state's count.
-    const GUARD: usize = 1 << Self::LEVEL_BITS;
-
-    fn load() -> Self {
-        Self(OPEN.load(Ordering::Relaxed))
+    #[test]
+    fn a_process_mode_that_discards_discards_on_every_stream() {
+        assert_eq!(ProcessMode::CompileOnly.stream_mode(), StreamMode::Discard);
     }
 
-    fn store(self) {
-        OPEN.store(self.0, Ordering::Relaxed);
-    }
-
-    /// One guard holding `mode` open. Every process mode has a level of its own,
-    /// [`Execute`](ProcessMode::Execute) included, so an override of it
-    /// is told apart from none: it tallies what a real run compiles and
-    /// tunes.
-    fn first(mode: ProcessMode) -> Self {
-        let level = match mode {
-            ProcessMode::CompileOnly => 1,
-            ProcessMode::CompileAndAutotune => 2,
-            ProcessMode::Execute => 3,
-        };
-        Self(Self::GUARD | level)
-    }
-
-    fn is_open(self) -> bool {
-        self.0 != 0
-    }
-
-    /// The open process mode; none open executes.
-    fn mode(self) -> ProcessMode {
-        match self.0 & Self::LEVEL_MASK {
-            1 => ProcessMode::CompileOnly,
-            2 => ProcessMode::CompileAndAutotune,
-            _ => ProcessMode::Execute,
-        }
-    }
-
-    /// One more guard.
-    fn joined(self) -> Self {
-        Self(self.0 + Self::GUARD)
-    }
-
-    /// One guard fewer, closed with the last.
-    fn left(self) -> Self {
-        match self.0 - Self::GUARD {
-            rest if rest < Self::GUARD => Self(0),
-            rest => Self(rest),
-        }
+    #[test]
+    fn the_execute_process_mode_runs_every_stream() {
+        assert_eq!(ProcessMode::Execute.stream_mode(), StreamMode::Execute);
     }
 }
 

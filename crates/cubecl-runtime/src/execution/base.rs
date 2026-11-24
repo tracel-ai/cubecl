@@ -35,6 +35,13 @@ pub enum LaunchMode {
 }
 
 impl LaunchMode {
+    /// Whether the launch is discarded rather than run.
+    pub fn discards_launch(self) -> bool {
+        matches!(self, Self::Compile | Self::Queue | Self::Resolve)
+    }
+}
+
+impl LaunchMode {
     /// What a launch issued on `stream` does now.
     pub(crate) fn new(stream: ServiceStream) -> Self {
         let mode = ProcessMode::current();
@@ -64,10 +71,20 @@ impl LaunchMode {
             (StreamMode::Discard, ProcessMode::CompileAndAutotune) => Self::Compile,
         }
     }
+}
 
-    /// Whether the launch is discarded rather than run.
-    pub fn discards_launch(self) -> bool {
-        matches!(self, Self::Compile | Self::Queue | Self::Resolve)
+#[cfg(test)]
+mod small_tests {
+    use super::*;
+
+    #[test]
+    fn a_resolving_launch_is_discarded() {
+        assert!(LaunchMode::Resolve.discards_launch());
+    }
+
+    #[test]
+    fn a_running_launch_is_not_discarded() {
+        assert!(!LaunchMode::Execute.discards_launch());
     }
 }
 

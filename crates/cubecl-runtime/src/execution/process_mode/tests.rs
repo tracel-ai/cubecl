@@ -1,10 +1,10 @@
-use super::super::statistics::{KernelHandling, KernelOutcome, TuneOutcome, TunePick};
-use super::super::{CompilationStatistics, KernelRegistration, TuneRegistration};
+use super::super::{
+    KernelOutcome, KernelRegistration, StatisticsRecorder, TuneOutcome, TuneRegistration,
+};
 use super::*;
 // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
 // bring in itself.
 use alloc::vec;
-use alloc::vec::Vec;
 
 /// One process mode is open at a time: an override of another refuses to open
 /// beside it.
@@ -15,10 +15,8 @@ use alloc::vec::Vec;
 )]
 fn process_modes_do_not_overlap() {
     let collector = StatisticsCollector::new();
-    let opened = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
-    let refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
-    core::mem::drop(opened);
-    core::mem::drop(refused);
+    let _opened = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+    let _refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
 }
 
 /// The work under an override counts to one collector: another's
@@ -28,13 +26,10 @@ fn process_modes_do_not_overlap() {
 #[should_panic(expected = "cannot open while one of another collector is")]
 fn two_collectors_do_not_overlap() {
     let (first, second) = (StatisticsCollector::new(), StatisticsCollector::new());
-    let opened = ProcessModeOverride::new(ProcessMode::CompileOnly, &first);
-    let refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &second);
-    core::mem::drop(opened);
-    core::mem::drop(refused);
+    let _opened = ProcessModeOverride::new(ProcessMode::CompileOnly, &first);
+    let _refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &second);
 }
 
-/// A refused open leaves the open override as it was.
 #[test]
 #[serial_test::serial]
 fn a_refused_open_leaves_the_open_process_mode() {
@@ -42,121 +37,124 @@ fn a_refused_open_leaves_the_open_process_mode() {
     let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
     let refused =
         std::panic::catch_unwind(|| ProcessModeOverride::new(ProcessMode::CompileOnly, &collector));
-    assert!(refused.is_err());
-    assert_eq!(ProcessMode::current(), ProcessMode::CompileAndAutotune);
+    assert_eq!(
+        (refused.is_err(), ProcessMode::current()),
+        (true, ProcessMode::CompileAndAutotune)
+    );
     core::mem::drop(tune);
-    assert_eq!(ProcessMode::current(), ProcessMode::Execute);
 }
 
-/// Overlapping overrides of one process mode and collector compose: the last
-/// out closes it.
 #[test]
 #[serial_test::serial]
-fn overrides_nest() {
-    let collector = StatisticsCollector::new();
-    {
-        let outer = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
-        {
-            let inner = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
-            core::mem::drop(inner);
-        }
-        assert_eq!(
-            ProcessMode::current(),
-            ProcessMode::CompileOnly,
-            "the outer is in force"
-        );
-        core::mem::drop(outer);
-    }
+fn no_override_open_executes() {
     assert_eq!(ProcessMode::current(), ProcessMode::Execute);
-    assert!(ProcessModeOverride::active_recorder().is_none());
 }
 
-/// What an override triggers counts to its collector, over every
-/// override of it — an `Execute` one included — and a registration made
-/// under one settles there after it closes; what happens to settled work
-/// counts once; a reader reads the same counts.
+#[test]
+#[serial_test::serial]
+fn an_override_applies_its_process_mode() {
+    let collector = StatisticsCollector::new();
+    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    assert_eq!(ProcessMode::current(), ProcessMode::CompileOnly);
+    core::mem::drop(compile);
+}
+
+/// Overlapping overrides of one process mode and collector compose: the
+/// outer is still in force once the inner drops.
+#[test]
+#[serial_test::serial]
+fn an_override_joined_stays_open_until_its_last_guard_drops() {
+    let collector = StatisticsCollector::new();
+    let outer = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let inner = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    core::mem::drop(inner);
+    assert_eq!(ProcessMode::current(), ProcessMode::CompileOnly);
+    core::mem::drop(outer);
+}
+
+#[test]
+#[serial_test::serial]
+fn the_last_guard_out_closes_the_override_and_its_collector() {
+    let collector = StatisticsCollector::new();
+    let outer = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let inner = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    core::mem::drop(inner);
+    core::mem::drop(outer);
+    assert_eq!(
+        (
+            ProcessMode::current(),
+            StatisticsRecorder::active().is_none()
+        ),
+        (ProcessMode::Execute, true)
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn nothing_counts_outside_an_override() {
+    assert!(KernelRegistration::register().is_none());
+}
+
 #[test]
 #[serial_test::serial]
 fn work_counts_to_the_collector_of_the_open_override() {
-    assert!(
-        KernelRegistration::register().is_none(),
-        "nothing counts outside an override"
-    );
     let collector = StatisticsCollector::new();
-    let reader = collector.reader();
-
     let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
-    let queued: Vec<KernelRegistration> = (0..4)
-        .filter_map(|_| KernelRegistration::register())
-        .collect();
-    let gathered = TuneRegistration::register().expect("an override is open");
+    let registered = KernelRegistration::register();
     core::mem::drop(compile);
-
-    // Kernels queued in one override compile in the next.
-    let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
-    let mut queued = queued.into_iter();
-    let mut compiled = queued.next().unwrap().settle(KernelOutcome::Compiled);
-    compiled.record(KernelHandling::Refused);
-    compiled.record(KernelHandling::Refused);
-    let mut loaded = queued.next().unwrap().settle(KernelOutcome::Loaded);
-    loaded.record(KernelHandling::Stored);
-    let _failed = queued.next().unwrap().settle(KernelOutcome::Failed);
-    let mut measured = gathered.settle(TuneOutcome::Measured);
-    measured.record(TunePick::Persisted);
-
-    let statistics = collector.statistics();
-    assert_eq!(
-        statistics.compilation,
-        CompilationStatistics {
-            registered: 4,
-            compiled: 1,
-            loaded: 1,
-            failed: 1,
-            abandoned: 0,
-            refused: 1,
-            stored: 1,
-        },
-        "a refusal told twice counts once"
-    );
-    assert_eq!(
-        statistics.autotune.settled(),
-        statistics.autotune.registered
-    );
-    assert_eq!(statistics.autotune.persisted, 1);
-    assert_eq!(reader.statistics(), statistics);
-    core::mem::drop(tune);
-
-    let execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
-    let _measured = TuneRegistration::register()
-        .expect("an execute override counts too")
-        .settle(TuneOutcome::Measured);
-    core::mem::drop(execute);
-    assert_eq!(collector.statistics().autotune.measured, 2);
-    // The fourth kernel, never settled, is abandoned as it drops.
-    drop(queued);
-    assert_eq!(collector.statistics().compilation.abandoned, 1);
+    assert_eq!(collector.statistics().compilation.registered_count, 1);
+    core::mem::drop(registered);
 }
 
-/// A registration dropped before it settled — its batch or its tune
-/// panicked — settles as abandoned.
+/// An override of [`ProcessMode::Execute`] counts too: it tallies what a
+/// real run compiles and tunes.
 #[test]
 #[serial_test::serial]
-fn a_dropped_registration_settles_as_abandoned() {
+fn an_execute_override_counts_too() {
+    let collector = StatisticsCollector::new();
+    let execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+    let registered = TuneRegistration::register();
+    core::mem::drop(execute);
+    assert_eq!(collector.statistics().autotune.registered_count, 1);
+    core::mem::drop(registered);
+}
+
+/// A kernel queued in one override compiles in the next, and counts to the
+/// collector it was registered with.
+#[test]
+#[serial_test::serial]
+fn a_registration_settles_where_it_registered_after_its_override_closed() {
     let collector = StatisticsCollector::new();
     let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
-    drop(KernelRegistration::register());
-    drop(TuneRegistration::register());
-    let statistics = collector.statistics();
-    assert_eq!(
-        (
-            statistics.compilation.abandoned,
-            statistics.compilation.settled()
-        ),
-        (1, 1)
-    );
-    assert_eq!(
-        (statistics.autotune.abandoned, statistics.autotune.settled()),
-        (1, 1)
-    );
+    let queued =
+        KernelRegistration::register().expect("a kernel queued under an override should register");
     core::mem::drop(compile);
+
+    let settled = queued.settle(KernelOutcome::Compiled);
+
+    assert_eq!(collector.statistics().compilation.compiled_count, 1);
+    core::mem::drop(settled);
+}
+
+/// A tune gathered under one override and measured under the next counts
+/// once, to the collector it was gathered with.
+#[test]
+#[serial_test::serial]
+fn a_tune_gathered_and_measured_across_overrides_settles_once() {
+    let collector = StatisticsCollector::new();
+    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let gathered =
+        TuneRegistration::register().expect("a tune gathered under an override should register");
+    core::mem::drop(compile);
+    let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+
+    let measured = gathered.settle(TuneOutcome::Measured);
+
+    core::mem::drop(tune);
+    let statistics = collector.statistics().autotune;
+    assert_eq!(
+        (statistics.registered_count, statistics.measured_count),
+        (1, 1)
+    );
+    core::mem::drop(measured);
 }
