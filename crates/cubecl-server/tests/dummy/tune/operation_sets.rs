@@ -10,9 +10,10 @@ use cubecl_server::{
     server::Handle,
     tune::{
         AutotuneBound, Bounds, CloneInputGenerator, OrderedSettings, Patience, ResourceBound,
-        Tunable, TunableSet, TuneGroup,
+        Tunable, TunableSet, TuneGroup, TuneStage,
     },
 };
+use std::sync::Mutex;
 
 use crate::dummy::{
     DummyClient, DummyElementwiseAddition, DummyElementwiseMultiplication,
@@ -502,4 +503,85 @@ pub fn addition_set_with_failing_compilation_first(
         op_broken.run(inputs)
     }))
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}
+
+/// What the stages of a tune of [`addition_set_with_stage_enterer`] did.
+#[derive(Debug, Default)]
+pub struct StageTrace {
+    /// The stages open now, the innermost last.
+    pub open: Vec<TuneStage>,
+    /// The innermost stage open each time a candidate ran, `None` outside every stage.
+    pub ran_in: Vec<Option<TuneStage>>,
+    /// How many stages ended while a stage they opened around was still open.
+    pub misordered_count: usize,
+}
+
+/// Addition set whose stage enterer opens each stage in `trace` and closes it as its guard drops,
+/// and whose candidates record in `trace` the innermost stage open as they run.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
+pub fn addition_set_with_stage_enterer(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    trace: Arc<Mutex<StageTrace>>,
+) -> TestSet {
+    /// Closes its stage as the stage ends.
+    struct StageCloser {
+        trace: Arc<Mutex<StageTrace>>,
+        stage: TuneStage,
+    }
+
+    impl StageCloser {
+        fn close(&self) {
+            let mut trace = self.trace.lock().unwrap();
+            if trace.open.pop() != Some(self.stage) {
+                trace.misordered_count += 1;
+            }
+        }
+    }
+
+    impl Drop for StageCloser {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let record = {
+        let trace = trace.clone();
+        move || {
+            let mut trace = trace.lock().unwrap();
+            let stage = trace.open.last().copied();
+            trace.ran_in.push(stage);
+        }
+    };
+    let record_slow = record.clone();
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_staged-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        record_slow();
+        op_add_slow.run(inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| {
+        record();
+        op_add.run(inputs)
+    }))
+    .with_stage_enterer(Arc::new(
+        move |stage: TuneStage, _key: &String, _inputs: &Vec<Handle>| {
+            trace.lock().unwrap().open.push(stage);
+            StageCloser {
+                trace: trace.clone(),
+                stage,
+            }
+        },
+    ))
 }
