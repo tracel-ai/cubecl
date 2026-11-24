@@ -608,15 +608,10 @@ fn kept_accumulator<EA: Numeric>(
     #[comptime] levels: Vec<Level>,
     lhs: &Tile,
     #[comptime] source: FragmentSource,
+    #[comptime] opened_by: OpenedBy,
 ) -> Tile {
     let place = comptime!(Placement::new(space, depth, levels));
-    let call = plane_call_on::<EA>(
-        &place,
-        &lhs.place.space,
-        source,
-        source,
-        comptime!(OpenedBy::StageAccumulator),
-    );
+    let call = plane_call_on::<EA>(&place, &lhs.place.space, source, source, opened_by);
     let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
     let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
     let grid = comptime!(GridShape::new(&place, &lhs.place.space));
@@ -833,10 +828,11 @@ impl Tile {
         )
     }
 
-    /// [`stage_accumulator`](Tile::stage_accumulator) of products whose factors are read in `E`,
-    /// whatever element `lhs` is stored in: what a factor held in registers is cast to as it loads
-    /// ([`held_for`](Tile::held_for)).
-    pub fn stage_accumulator_in<EA: Numeric, E: Numeric>(
+    /// [`stage_accumulator`](Tile::stage_accumulator) of products whose first factor the planes hold
+    /// in registers ([`held_for`](Tile::held_for)), both read in `E`, whatever element `lhs`, the
+    /// factor where it lies, is stored in: it is cast as it loads. It is the crate's own transport's
+    /// ([`Instruction::for_held_factor_accumulator`](crate::Instruction::for_held_factor_accumulator)).
+    pub fn held_factor_accumulator<EA: Numeric, E: Numeric>(
         walk: &Walk,
         #[comptime] dimensions: Vec<Dimension>,
         lhs: &Tile,
@@ -848,6 +844,7 @@ impl Tile {
             comptime!(walk.parent.path.root_levels()),
             lhs,
             comptime!(FragmentSource::Values(element)),
+            comptime!(OpenedBy::HeldFactorAccumulator),
         )
     }
 
@@ -920,7 +917,14 @@ impl Tile {
         lhs: &Tile,
     ) -> Tile {
         let source = lhs.fragment_source();
-        kept_accumulator::<EA>(space, depth, levels, lhs, source)
+        kept_accumulator::<EA>(
+            space,
+            depth,
+            levels,
+            lhs,
+            source,
+            comptime!(OpenedBy::StageAccumulator),
+        )
     }
 }
 

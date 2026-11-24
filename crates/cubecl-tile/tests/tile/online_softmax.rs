@@ -238,7 +238,10 @@ fn register_plane_attention<E: Float>(
                     staged
                 }
             };
-            let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            let logits = match held {
+                true => Tile::held_factor_accumulator::<f32, E>(&walk, comptime!(vec![Q, S]), &q_s),
+                false => Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s),
+            };
             let q_s = match held {
                 true => {
                     let mut fragments = q_s.held_for::<E>(&logits);
@@ -827,8 +830,12 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
     let depth = 32 / e_ty.size();
     // The score is held where the value rereads it only where the tile keeps it in the manual
     // mma; a device whose fragment API offers the same calls keeps it there instead.
+    let pick = match case.held {
+        true => Instruction::for_held_factor_accumulator,
+        false => Instruction::for_stage_accumulator,
+    };
     let kept_in_mma = |n: u32| {
-        Instruction::for_stage_accumulator(
+        pick(
             client.properties(),
             client.target_properties(),
             FragmentSource::Values(e_ty),
@@ -1641,6 +1648,26 @@ fn register_plane_attention_holds_its_query_in_registers() {
             Case {
                 rows,
                 queries: 32 * rows,
+                held: true,
+                ..REGISTER_PREFILL
+            },
+            Ending::Normalized,
+            1,
+        );
+    }
+}
+
+/// The same at `e4m3`, whose head dim the score walks in several steps of its instruction.
+#[test]
+fn register_plane_attention_holds_an_fp8_query_in_registers() {
+    let e4m3 = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    for head in [32, 128] {
+        run_registers_at(
+            e4m3,
+            Case {
+                rows: 1,
+                queries: 32,
+                head,
                 held: true,
                 ..REGISTER_PREFILL
             },

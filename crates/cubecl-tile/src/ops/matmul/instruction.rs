@@ -206,6 +206,10 @@ pub(crate) enum OpenedBy {
     /// [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator): a sum drained into an
     /// output whose rows are scaled between its products, as an online softmax's output is.
     RescaledAccumulator,
+    /// [`Tile::held_factor_accumulator`](crate::Tile::held_factor_accumulator): a
+    /// [`StageAccumulator`](Self::StageAccumulator) of products whose first factor the planes hold
+    /// in registers.
+    HeldFactorAccumulator,
 }
 
 impl Instruction {
@@ -262,6 +266,30 @@ impl Instruction {
         )
     }
 
+    /// What the sum [`Tile::held_factor_accumulator`](crate::Tile::held_factor_accumulator) opens
+    /// contracts through: [`for_stage_accumulator`](Self::for_stage_accumulator)'s rule through this
+    /// crate's transport alone, which is what loads a factor once for every product. `None` where
+    /// the device offers no call of it.
+    pub fn for_held_factor_accumulator(
+        device: &DeviceProperties,
+        target: &TargetProperties,
+        lhs: FragmentSource,
+        rhs: FragmentSource,
+        sum: ElemType,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
+        Self::for_plane(
+            device,
+            target,
+            ComputeScope::Plane,
+            lhs,
+            rhs,
+            sum,
+            shape,
+            OpenedBy::HeldFactorAccumulator,
+        )
+    }
+
     /// What the sum [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator) opens
     /// contracts through, a sum whose rows are scaled between its products:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
@@ -289,7 +317,8 @@ impl Instruction {
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator),
-    /// [`for_stage_accumulator`](Self::for_stage_accumulator) and
+    /// [`for_stage_accumulator`](Self::for_stage_accumulator),
+    /// [`for_held_factor_accumulator`](Self::for_held_factor_accumulator) and
     /// [`for_rescaled_accumulator`](Self::for_rescaled_accumulator):
     /// - held by a plane group (`holder`): the plane group MMA;
     /// - an operand already held in fragments: their instruction, which reads them as they lie;
@@ -298,6 +327,7 @@ impl Instruction {
     /// - an operand the TMA engine lands, codes kept beside their scales, which this crate's
     ///   transport decodes in lane runs as it loads, or a sum contracted again where the target
     ///   lays a fragment's `A` like its accumulator: this crate's transport first;
+    /// - a sum of products of a factor held in registers: this crate's transport alone;
     /// - a sum whose rows are scaled between its products, where this crate's transport offers the
     ///   call the fragment API would take: this crate's transport, the same call;
     /// - otherwise the fragment API first.
@@ -388,7 +418,9 @@ impl Instruction {
         let pick = |calls: [Option<Call>; 2]| {
             let [cmma_call, mma_call] = calls;
             let picks = [
-                cmma_call.map(|call| call.picked(Instruction::Cmma)),
+                cmma_call
+                    .filter(|_| opened_by != OpenedBy::HeldFactorAccumulator)
+                    .map(|call| call.picked(Instruction::Cmma)),
                 mma_call.map(|call| call.picked(mma)),
             ];
             let ordered = match mma_first || scaled_in_place(calls) {
@@ -948,6 +980,31 @@ pub(crate) mod tests {
         };
         assert_eq!(pick(cuda(), [16, 8, 16]), Some(mma()));
         assert_eq!(pick(metal(), [8, 8, 8]), Some(Instruction::Cmma));
+    }
+
+    /// A sum of a factor held in registers goes through the crate's transport where the fragment
+    /// API offers the same calls too, and nowhere else.
+    #[test]
+    fn a_held_factors_sum_goes_through_mma_alone() {
+        let pick = |device: &DeviceProperties, shape| {
+            Instruction::for_held_factor_accumulator(
+                device,
+                &sum_is_next_a(),
+                HALF,
+                HALF,
+                F32,
+                shape,
+            )
+            .map(|pick| pick.instruction)
+        };
+        assert_eq!(pick(&metal(), [8, 8, 8]), Some(mma()));
+        let mut fragment_api_alone = plain();
+        fragment_api_alone
+            .features
+            .matmul
+            .cmma
+            .insert(shape(16, 16, 16));
+        assert_eq!(pick(&fragment_api_alone, [16, 16, 16]), None);
     }
 
     /// Where the accumulator is not the next `A`, keeping the sum in registers buys nothing.
