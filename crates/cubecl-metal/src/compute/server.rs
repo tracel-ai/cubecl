@@ -263,17 +263,11 @@ impl WriteScoped for MetalServer {
 
     fn read_before_write(
         &mut self,
-        source: CopyDescriptor,
+        sources: Vec<CopyDescriptor>,
         stream: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
-        Some(Server::read(self, vec![source], stream))
-    }
-
-    fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {
-        // Its own fault, which the read reports as well.
-        if let Err(error) = self.streams.wait_for(writer, reader) {
-            log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
-        }
+        // The copy reaches host memory before this returns, so no write has to wait for it.
+        Some(Server::read(self, sources, stream))
     }
 }
 

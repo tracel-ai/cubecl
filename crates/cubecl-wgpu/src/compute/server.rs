@@ -119,11 +119,11 @@ impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
 
     fn read_before_write(
         &mut self,
-        source: CopyDescriptor,
+        sources: Vec<CopyDescriptor>,
         stream: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         // Submitted at once to the one queue, ahead of everything the writer encodes after it.
-        Some(Server::read(self, vec![source], stream))
+        Some(Server::read(self, sources, stream))
     }
 }
 

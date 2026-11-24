@@ -457,7 +457,8 @@ impl WgpuStream {
             }
         }
 
-        let poll = self.poll.start_polling();
+        // Each map polls until its callback, so a future left pending, as a lazy read's is,
+        // keeps no poll running once the copies are mapped.
         let poison = self.poison.clone();
 
         Box::pin(async move {
@@ -481,9 +482,6 @@ impl WgpuStream {
                     }
                 }
             }
-
-            // Can stop polling now.
-            core::mem::drop(poll);
 
             let result = staged
                 .into_iter()

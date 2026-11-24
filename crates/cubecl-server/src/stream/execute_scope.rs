@@ -31,7 +31,7 @@
 use crate::id::KernelId;
 use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, CopyDescriptor, ServerError};
-use crate::stream::{CopyFence, FailureStore, StreamCapture, start_overwritten_reads};
+use crate::stream::{FailureStore, StreamCapture, StreamFence, start_overwritten_reads};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
@@ -95,35 +95,36 @@ pub trait WriteScoped: Sized {
         self.write_streams().write_set()
     }
 
-    /// The server's read of `source`, queued on `stream`, for a lazy read the server keeps of
+    /// The server's read of `sources`, queued on `stream`, for a lazy read the server keeps of
     /// memory work is about to write.
     ///
     /// Defaults to `None`, for a server that keeps no lazy read.
     #[allow(unused_variables)]
     fn read_before_write(
         &mut self,
-        source: CopyDescriptor,
+        sources: Vec<CopyDescriptor>,
         stream: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         None
     }
 
-    /// A fence on `stream` past the work queued there so far, which ends with a lazy read's
-    /// copy.
+    /// A fence on `stream` past the work queued there so far: where a lazy read was made, or
+    /// the end of its copy.
     ///
-    /// Defaults to `None`, and work writing the memory from another stream then waits through
+    /// Defaults to `None`: a read's copy then runs on the stream it was made on, and work
+    /// writing the memory from another stream waits through
     /// [`wait_before_write`](Self::wait_before_write).
     #[allow(unused_variables)]
-    fn fence_copy(&mut self, stream: StreamId) -> Option<Arc<dyn CopyFence>> {
+    fn fence_stream(&mut self, stream: StreamId) -> Option<Arc<dyn StreamFence>> {
         None
     }
 
-    /// Order work queued on `writer` from now on after the copy `fence` follows, which a
-    /// [`fence_copy`](Self::fence_copy) of this server gave.
+    /// Order work queued on `writer` from now on after the work `fence` follows, which a
+    /// [`fence_stream`](Self::fence_stream) of this server gave.
     ///
     /// Defaults to nothing, for a server that gives no fence.
     #[allow(unused_variables)]
-    fn wait_for_copy(&mut self, writer: StreamId, fence: &dyn CopyFence) {}
+    fn wait_for_fence(&mut self, writer: StreamId, fence: &dyn StreamFence) {}
 
     /// Order work queued on `writer` from now on after the work queued on `reader` so far,
     /// which holds the copy of a lazy read that work is about to overwrite.

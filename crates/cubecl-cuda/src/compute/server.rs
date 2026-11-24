@@ -35,7 +35,7 @@ use cubecl_server::{
     server::Server,
     storage::{ManagedResource, StorageAllocator},
     stream::{
-        CopyFence, ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture,
+        ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, StreamFence,
         WriteScoped, failed_writing,
     },
 };
@@ -763,20 +763,20 @@ impl WriteScoped for CudaServer {
 
     fn read_before_write(
         &mut self,
-        source: CopyDescriptor,
+        sources: Vec<CopyDescriptor>,
         stream: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
-        Some(Server::read(self, vec![source], stream))
+        Some(Server::read(self, sources, stream))
     }
 
-    fn fence_copy(&mut self, stream: StreamId) -> Option<Arc<dyn CopyFence>> {
-        let sys = self.streams.try_stream_mut(&stream)?.sys;
+    fn fence_stream(&mut self, stream: StreamId) -> Option<Arc<dyn StreamFence>> {
+        let sys = self.streams.stream_or_create(&stream).ok()?.sys;
         let event = Event::<crate::compute::events::Cuda>::new().ok()?;
         event.record(sys).ok()?;
         Some(Arc::new(event))
     }
 
-    fn wait_for_copy(&mut self, writer: StreamId, fence: &dyn CopyFence) {
+    fn wait_for_fence(&mut self, writer: StreamId, fence: &dyn StreamFence) {
         let event = (fence as &dyn core::any::Any)
             .downcast_ref::<Event<crate::compute::events::Cuda>>()
             .expect("a copy fence of this server should be one of its events");

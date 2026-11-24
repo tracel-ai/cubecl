@@ -1,11 +1,17 @@
 use crate::memory_management::ManagedMemoryDescriptor;
 use crate::server::{BufferBinding, CopyDescriptor, Handle, ServerError};
+use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::sync::{Mutex, Once};
+use cubecl_zspace::striding::has_contiguous_row_major_strides;
+
+/// What takes a started read's copy when nothing will resolve it.
+pub type RetireCopy = Box<dyn FnOnce(DynFut<Result<Vec<Bytes>, ServerError>>) + Send>;
 
 /// A read of device memory whose copy waits for the first access to its bytes, shared by those
 /// bytes, their views, and the server that keeps it.
@@ -21,11 +27,11 @@ pub struct LazyRead {
     source: CopyDescriptor<Handle>,
     state: Mutex<LazyReadState>,
     /// Arrival usage: the byte ranges of the read its live bytes and views hold, so a write
-    /// beside all of them leaves it be and a start copies only their span.
+    /// beside every one of them leaves it be and a start copies only them.
     held: Mutex<Vec<Range<usize>>>,
-    /// What the started read returned and its offset in the read, resolved once for every
-    /// holder.
-    started: Once<Result<(usize, Bytes), ServerError>>,
+    /// What the started read returned, each piece with its offset in the read, resolved once
+    /// for every holder.
+    started: Once<Result<Vec<(usize, Bytes)>, ServerError>>,
 }
 
 enum LazyReadState {
@@ -35,12 +41,12 @@ enum LazyReadState {
     Kept,
     /// Its server refused to keep it, for this error.
     Refused(ServerError),
-    /// Work was about to write the memory, so its server started the read of the bytes from
-    /// `offset` on first. `read` is `None` once taken to be resolved into
-    /// [`LazyRead::started`].
+    /// Work was about to write the memory, so its server started the read of the pieces at
+    /// `offsets` first. `read` is `None` once taken to be resolved into [`LazyRead::started`].
     Started {
-        offset: usize,
+        offsets: Vec<usize>,
         read: Option<DynFut<Result<Vec<Bytes>, ServerError>>>,
+        retire: Option<RetireCopy>,
     },
     /// The started read resolved into [`LazyRead::started`]: no copy of it is in flight.
     Resolved,
@@ -71,38 +77,41 @@ impl LazyRead {
         }
     }
 
-    /// Whether `written` overlaps the bytes it still holds.
+    /// Whether `written` overlaps any of the bytes it still holds.
     pub fn is_overwritten_by(&self, written: &BufferBinding) -> bool {
-        let Some(span) = self.held_span() else {
-            return false;
-        };
-        let read = self.source.handle.to_binding().range();
-        let read = match span == (0..self.len()) {
-            true => read,
-            false => read.start + span.start as u64..read.start + span.end as u64,
-        };
         let written = written.range();
-        read.start < written.end && written.start < read.end
+        self.held_pieces()
+            .into_iter()
+            .any(|held| held.start < written.end && written.start < held.end)
     }
 
-    /// The bytes it still holds, bound for the server to read them, and their offset in it.
+    /// The bytes it still holds, as the pieces of memory the server reads them from and their
+    /// offsets in it, none once nothing holds any.
     ///
     /// # Assumptions
     ///
-    /// - A span narrower than the whole read is held only through a view, which only a
+    /// - Bytes narrower than the whole read are held only through a view, which only a
     ///   contiguous source gives.
-    pub fn to_held_source(&self) -> (CopyDescriptor, usize) {
-        let source = self.to_source();
-        let span = self.held_span().unwrap_or(0..self.len());
-        if span == (0..self.len()) {
-            return (source, 0);
+    pub fn to_held_sources(&self) -> (Vec<CopyDescriptor>, Vec<usize>) {
+        let held = self.held_ranges();
+        if held.is_empty() {
+            return (Vec::new(), Vec::new());
         }
-        let mut handle = source.handle;
-        let base = handle.offset_start.unwrap_or(0);
-        handle.offset_end = Some(handle.size - (base + span.end as u64));
-        handle.offset_start = Some(base + span.start as u64);
-        let narrowed = CopyDescriptor::new(handle, [span.len()].into(), [1].into(), 1);
-        (narrowed, span.start)
+        if self.is_whole(&held) {
+            return (vec![self.to_source()], vec![0]);
+        }
+        let whole = self.to_source().handle;
+        let sources = held
+            .iter()
+            .map(|range| {
+                let mut handle = whole.clone();
+                let base = handle.offset_start.unwrap_or(0);
+                handle.offset_end = Some(handle.size - (base + range.end as u64));
+                handle.offset_start = Some(base + range.start as u64);
+                CopyDescriptor::new(handle, [range.len()].into(), [1].into(), 1)
+            })
+            .collect();
+        (sources, held.into_iter().map(|range| range.start).collect())
     }
 
     /// Its server keeps it from now on: work writing the memory starts it first.
@@ -129,17 +138,26 @@ impl LazyRead {
         matches!(*self.state.lock(), LazyReadState::Started { .. })
     }
 
-    /// `read` is the server's read of the bytes from `offset` on that
-    /// [`to_held_source`](Self::to_held_source) named, queued ahead of any work that writes the
-    /// memory after it, which the first access takes its bytes from.
+    /// `read` is the server's read of the pieces at `offsets` that
+    /// [`to_held_sources`](Self::to_held_sources) named, queued ahead of any work that writes
+    /// the memory after it, which the first access takes its bytes from.
     ///
     /// # Assumptions
     ///
     /// - Its server keeps it.
-    pub fn start(&self, offset: usize, read: DynFut<Result<Vec<Bytes>, ServerError>>) {
+    ///
+    /// `retire` takes `read` if the read drops before an access resolves it, so its copy is
+    /// let go of where waiting for it blocks nothing.
+    pub fn start(
+        &self,
+        offsets: Vec<usize>,
+        read: DynFut<Result<Vec<Bytes>, ServerError>>,
+        retire: RetireCopy,
+    ) {
         *self.state.lock() = LazyReadState::Started {
-            offset,
+            offsets,
             read: Some(read),
+            retire: Some(retire),
         };
     }
 
@@ -174,29 +192,35 @@ impl LazyRead {
     /// The started read's.
     pub(crate) fn started_bytes(&self, range: Range<usize>) -> Result<Bytes, ServerError> {
         let started = self.started.call_once(|| {
-            let (offset, read) = match &mut *self.state.lock() {
-                LazyReadState::Started { offset, read } => (*offset, read.take()),
-                _ => (0, None),
+            let (offsets, read) = match &mut *self.state.lock() {
+                LazyReadState::Started { offsets, read, .. } => {
+                    (core::mem::take(offsets), read.take())
+                }
+                _ => (Vec::new(), None),
             };
             let read = read.expect("a started read should be resolved once");
-            let bytes = cubecl_environment::future::reader::read_sync(read)
-                .map(|mut bytes| (offset, bytes.remove(0).shared()));
+            let pieces = cubecl_environment::future::reader::read_sync(read).map(|pieces| {
+                offsets
+                    .into_iter()
+                    .zip(pieces.into_iter().map(Bytes::shared))
+                    .collect()
+            });
             *self.state.lock() = LazyReadState::Resolved;
             self.source.handle.memory.descriptor().lazy_read_let_go();
-            bytes
+            pieces
         });
-        match started {
-            Ok((offset, bytes)) => {
-                let (start, end) = (range.start - offset, range.end - offset);
-                // A window that starts inside the copy loses the alignment typed reads rely on.
-                let whole = start == 0 && end == bytes.len();
-                Ok(match whole.then(|| bytes.view(start, end).ok()).flatten() {
-                    Some(window) => window,
-                    None => Bytes::from_bytes_vec(bytes[start..end].to_vec()),
-                })
-            }
-            Err(error) => Err(error.clone()),
-        }
+        let pieces = started.as_ref().map_err(Clone::clone)?;
+        let (offset, bytes) = pieces
+            .iter()
+            .find(|(offset, bytes)| *offset <= range.start && range.end <= offset + bytes.len())
+            .expect("a held range should lie in one started piece");
+        let (start, end) = (range.start - offset, range.end - offset);
+        // A window that starts inside a piece loses the alignment typed reads rely on.
+        let whole = start == 0 && end == bytes.len();
+        Ok(match whole.then(|| bytes.view(start, end).ok()).flatten() {
+            Some(window) => window,
+            None => Bytes::from_bytes_vec(bytes[start..end].to_vec()),
+        })
     }
 
     /// The descriptor of the memory it reads.
@@ -209,12 +233,36 @@ impl LazyRead {
         self.source.shape.iter().product::<usize>() * self.source.elem_size
     }
 
-    /// The span of the bytes still held, `None` once nothing holds any.
-    fn held_span(&self) -> Option<Range<usize>> {
-        let held = self.held.lock();
-        let start = held.iter().map(|range| range.start).min()?;
-        let end = held.iter().map(|range| range.end).max()?;
-        Some(start..end)
+    /// The ranges of the bytes still held, sorted, with overlapping and touching ones merged.
+    fn held_ranges(&self) -> Vec<Range<usize>> {
+        let mut held = self.held.lock().clone();
+        held.sort_by_key(|range| range.start);
+        let mut merged: Vec<Range<usize>> = Vec::with_capacity(held.len());
+        for range in held {
+            match merged.last_mut() {
+                Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+                _ => merged.push(range),
+            }
+        }
+        merged
+    }
+
+    fn is_whole(&self, held: &[Range<usize>]) -> bool {
+        matches!(held, [range] if *range == (0..self.len()))
+    }
+
+    /// The memory the bytes still held lie in, the whole binding's for a strided read held
+    /// whole.
+    fn held_pieces(&self) -> Vec<Range<u64>> {
+        let read = self.source.handle.to_binding().range();
+        let held = self.held_ranges();
+        let contiguous = has_contiguous_row_major_strides(&self.source.shape, &self.source.strides);
+        if self.is_whole(&held) && !contiguous {
+            return vec![read];
+        }
+        held.into_iter()
+            .map(|range| read.start + range.start as u64..read.start + range.end as u64)
+            .collect()
     }
 
     fn let_go(&self, range: &Range<usize>) {
@@ -265,8 +313,17 @@ impl core::fmt::Debug for LazyReadHold {
 
 impl Drop for LazyRead {
     fn drop(&mut self) {
-        if let LazyReadState::Kept | LazyReadState::Started { .. } = *self.state.lock() {
+        let mut state = self.state.lock();
+        if let LazyReadState::Kept | LazyReadState::Started { .. } = *state {
             self.source.handle.memory.descriptor().lazy_read_let_go();
+        }
+        let unread = match &mut *state {
+            LazyReadState::Started { read, retire, .. } => read.take().zip(retire.take()),
+            _ => None,
+        };
+        core::mem::drop(state);
+        if let Some((read, retire)) = unread {
+            retire(read);
         }
     }
 }
