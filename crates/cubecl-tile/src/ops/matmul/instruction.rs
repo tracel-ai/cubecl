@@ -498,9 +498,10 @@ struct Offered {
 /// whose `A` lays its cells otherwise (`accumulators_as_a`); and for 8-bit values other than
 /// `e4m3`. The held cells are cast to the values' element, and `e5m2`'s two bits of mantissa are
 /// too coarse for an attention's probabilities. An 8-bit `A` is placed as `mma.sync` lays it,
-/// held calls 8 wide, and its `B` reads its rows in that order
-/// ([`KeyOrder::AccumulatorRun`](super::KeyOrder::AccumulatorRun)): wider held calls (RDNA4's 16)
-/// are none. A run of RDNA4's held cells is one cell deep ([`deepest_run`]).
+/// held calls 8 wide, its `B` reading its rows in that order
+/// ([`KeyOrder::AccumulatorRun`](super::KeyOrder::AccumulatorRun)), or as RDNA4's WMMA does, held
+/// calls 16 wide, its `B` reading them as they lie. A run of RDNA4's held cells is one cell deep
+/// ([`deepest_run`]).
 fn held_run(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -1179,14 +1180,14 @@ pub(crate) mod tests {
         assert_eq!(pick, Some(16));
     }
 
-    /// Held cells 16 wide, as RDNA4's, are not reread as an `e4m3` `A`: its placement is the one
-    /// of `mma.sync`'s 8 wide calls.
+    /// Held cells 16 wide, as RDNA4's, are reread as an `e4m3` `A`, a cell a call.
     #[test]
-    fn held_cells_16_wide_meet_no_e4m3_values() {
+    fn held_cells_16_wide_meet_e4m3_values() {
         let mut device = rdna();
+        let fp8 = ElemType::Float(FloatKind::E4M3);
         device.features.matmul.mma.insert(MmaConfig {
-            a_type: ElemType::Float(FloatKind::E4M3),
-            b_type: ElemType::Float(FloatKind::E4M3),
+            a_type: fp8,
+            b_type: fp8,
             ..shape(16, 16, 16)
         });
         let held = FragmentSource::Fragments {
@@ -1199,12 +1200,13 @@ pub(crate) mod tests {
             &sum_is_next_a(),
             ComputeScope::Plane,
             held,
-            FragmentSource::Values(ElemType::Float(FloatKind::E4M3)),
+            FragmentSource::Values(fp8),
             F32,
             [16, 32, 64],
-        );
+        )
+        .map(|p| (p.instruction, p.cell(), p.depth()));
 
-        assert!(pick.is_none());
+        assert_eq!(pick, Some((mma(), [16, 16], 16)));
     }
 
     /// Plane groups of four issue the plane group MMA.
