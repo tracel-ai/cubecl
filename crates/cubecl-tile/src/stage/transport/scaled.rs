@@ -192,7 +192,7 @@ fn write_decoded_line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
 ) {
     let into_e4m3 = is_e4m3::<O>();
     let through_bits = comptime!(line.e2m1_into_e4m3(into_e4m3, mem.codebook.present()));
-    if comptime!(through_bits) {
+    if through_bits {
         write_e2m1_line_into_e4m3::<S, O, I, WP, VW>(held, line, mem, scale, out, index);
     } else {
         out.write(
@@ -247,8 +247,8 @@ fn e2m1_line_as_e4m3<I: Numeric, O: Numeric, WP: Size, VW: Size>(
     for w in 0..comptime!(width / E2M1_CODES_PER_WORD) {
         let word = u32::cast_from(held.extract(comptime!(offset / E2M1_CODES_PER_WORD + w)));
         let (low, high) = e2m1_word_into_e4m3(word, scale_exponent);
-        bytes.insert(comptime!(2 * w), low);
-        bytes.insert(comptime!(2 * w + 1), high);
+        bytes.insert(2 * w, low);
+        bytes.insert(2 * w + 1, high);
     }
     Vector::<O, VW>::reinterpret(bytes)
 }
@@ -530,7 +530,7 @@ fn decode_line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
     mem: &Memory,
     scale: f32,
 ) -> Vector<O, VW> {
-    let packing = comptime!(line.stored_as.placed());
+    let packing = line.stored_as.placed();
     let lift = comptime!(packing.lift() as f32);
     let values = values_at::<S, I, WP, VW>(held, line.offset, packing);
     let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
