@@ -1175,15 +1175,19 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
             panic!("MmaData::load: a manual fragment load reads a row- or col-major window")
         }
     });
-    // A register vector along the lines starts at a multiple of its size, and so does every row
-    // where the lines hold whole vectors: it is then one load.
-    // Rows read in a run's order are not consecutive: each is read on its own.
-    let whole_vectors = comptime!(
-        vector_layout == layout && served.is_multiple_of(vector_size) && keys == KeyOrder::AsLaid
-    );
     match &src.kind {
         TileKind::Memory(m) => {
             let stride = m.row_stride_at(rank - 2);
+            let row_cells = stride.constant();
+            // A register vector along the lines starts at a multiple of its size: it is one load
+            // where every row does too. Rows read in a run's order are not consecutive, so each is
+            // read on its own.
+            let whole_vectors = comptime!({
+                let rows_start_whole = served.is_multiple_of(vector_size)
+                    || vector_size.is_multiple_of(served)
+                        && row_cells.is_some_and(|row| row.is_multiple_of(vector_size as u64));
+                vector_layout == layout && keys == KeyOrder::AsLaid && rows_start_whole
+            });
             let view = if transposed {
                 src.fragment_matrix_packed::<T, W>(cols, rows)
             } else {
