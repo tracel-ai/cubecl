@@ -45,8 +45,7 @@ pub type SpeculatableAnalysis = DenseBackward<SpeculatableBackward>;
 pub type NotSpeculatable = DenseLattice<NotSpeculatableSet>;
 
 pub struct SpeculatableBackward {
-    /// The expressions transitively using each expression, from
-    /// [`collect_expression_dependents`](super::pre::collect_expression_dependents).
+    /// From [`collect_expression_dependents`](super::pre::collect_expression_dependents).
     expression_dependents: HMap<u64, SparseBitSet>,
 }
 
@@ -58,8 +57,8 @@ impl SpeculatableBackward {
     }
 
     /// The expressions using a value equal to one of `values`. The set holds expressions, not
-    /// values, so an expression must leave it with every expression using it, whichever value
-    /// that use reads.
+    /// values, so an expression enters it with every expression using it, whichever value that
+    /// use reads.
     fn expression_kill_set(
         &self,
         solver: &DataflowSolver,
