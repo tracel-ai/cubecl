@@ -248,12 +248,13 @@ impl SpirvCompiler {
         // Polyfills such as powi can introduce loops after the initial branch conversion.
         func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(RemoveStackMoves);
+        func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
 
         func_passes.add_pass(Mem2RegPass);
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(DCEPass);
-        func_passes.add_pass(RemoveStackMoves);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(SSCMPre);

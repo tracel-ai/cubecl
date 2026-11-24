@@ -92,6 +92,10 @@ impl DenseBackwardDataflowAnalysis for PointerLiveness {
         after: &ReadRef<DenseLattice<Self::LatticeValue>>,
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
+        if op.deref(ctx).num_regions() > 0 {
+            let used = this.all.clone();
+            solver.update_state(ctx, before, |it| it.meet(&used.into()));
+        }
         let op_ = op.deref(ctx);
         let uses = op_.operands().filter_map(|opd| {
             let ty = opd.get_type(ctx).deref(ctx);

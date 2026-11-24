@@ -498,6 +498,8 @@ fn lower(
     func_passes.add_pass(BranchToSCFPass::default());
     func_passes.add_pass(DCEPass);
     func_passes.add_pass(Mem2RegPass);
+    func_passes.add_pass(RemoveStackMoves);
+    func_passes.add_pass(DCEPass);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(DCEPass);
 

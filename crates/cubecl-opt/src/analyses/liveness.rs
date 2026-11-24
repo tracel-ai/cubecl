@@ -1,3 +1,5 @@
+use core::any::TypeId;
+
 use cubecl_ir::{
     interfaces::aliasing::PointerExt,
     prelude::{AnalysisManager, Context, Operation, Ptr, Result, pass_name},
@@ -353,11 +355,22 @@ impl PointerLiveness {
         liveness.deref().value().contains(root_id)
     }
 
-    pub fn update_in_place(&mut self, ctx: &Context) {
+    pub fn update_in_place(
+        &mut self,
+        ctx: &Context,
+        changed_ops: impl IntoIterator<Item = Ptr<Operation>>,
+    ) {
         self.solver
-            .initialize_filtered_and_run(ctx, self.root, |analysis| {
-                analysis.is::<PointerLivenessAnalysis>()
-            })
+            .recompute_from_program_points(
+                ctx,
+                self.root,
+                changed_ops.into_iter().map(|op| {
+                    (
+                        ProgramPoint::after_op(ctx, op),
+                        TypeId::of::<PointerLivenessAnalysis>(),
+                    )
+                }),
+            )
             .expect("Failed to recompute");
     }
 }

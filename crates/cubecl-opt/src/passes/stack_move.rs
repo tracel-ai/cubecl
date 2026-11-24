@@ -28,6 +28,7 @@ use pliron::{
 use crate::analyses::{
     alias_analysis::{self, AliasAnalysisStack, AliasResult},
     liveness::PointerLiveness,
+    slices::get_value_transitive_users,
 };
 
 /// Eliminates moves between stack variables. A move requires the following:
@@ -87,8 +88,9 @@ impl Pass for RemoveStackMoves {
                             return;
                         }
                     }
+                    let affected = get_value_transitive_users(ctx, to);
                     to.replace_all_uses_with(ctx, &from);
-                    liveness.update_in_place(ctx);
+                    liveness.update_in_place(ctx, affected);
                     to_erase.push(op);
                 }
             },
@@ -148,4 +150,47 @@ fn op_as_copy(
 fn is_from_promotable_alloc(ctx: &Context, ptr: Value) -> bool {
     ptr.defining_op()
         .is_some_and(|op| op.impls::<dyn PromotableAllocationInterface>(ctx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pliron::{
+        irfmt::parsers::spaced, linked_list::ContainsLinkedList, operation::verify_operation,
+        parsable::parse_from_str, pass::Analysis, result::ExpectOk,
+    };
+
+    #[test]
+    fn refreshing_a_replaced_pointer_updates_uses_of_its_alias() -> Result<()> {
+        let input = r#"
+          builtin.func @f: builtin.function <() -> (cube.index)> [] {
+            ^entry():
+              a = memory.declare_variable cube.index Local, align = 4, init = cube.index 7;
+              b = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
+              alias = cube.copy (b) [] []: <(cube.ptr <cube.index, Local>) -> (cube.ptr <cube.index, Local>)>;
+              value = memory.load (alias) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
+              branch.return value
+          }
+        "#;
+
+        let ctx = &mut Context::new();
+        let root = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
+        verify_operation(root, ctx)?;
+        let entry = root.deref(ctx).get_region(0).deref(ctx).get_head().unwrap();
+        let entry = entry.deref(ctx);
+        let mut ops = entry.iter(ctx);
+        let from = ops.next().unwrap().deref(ctx).get_result(0);
+        let to = ops.next().unwrap().deref(ctx).get_result(0);
+        let alias = ops.next().unwrap();
+        drop(entry);
+
+        let mut liveness = PointerLiveness::compute(root, ctx, &mut AnalysisManager::default())?;
+        assert!(!liveness.is_live_after(ctx, alias, from));
+
+        let affected = get_value_transitive_users(ctx, to);
+        to.replace_all_uses_with(ctx, &from);
+        liveness.update_in_place(ctx, affected);
+        assert!(liveness.is_live_after(ctx, alias, from));
+        Ok(())
+    }
 }

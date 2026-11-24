@@ -361,12 +361,50 @@ mod solver {
             Ok(())
         }
 
+        fn adjust_interprocedural(&mut self, ctx: &Context, root: Ptr<Operation>) -> bool {
+            let is_interprocedural = self.config.is_interprocedural;
+            if is_interprocedural && !root.impls::<dyn SymbolTableInterface>(ctx) {
+                self.config.is_interprocedural = false;
+            }
+            is_interprocedural
+        }
+
+        fn run_worklist(&mut self, ctx: &Context) -> Result<()> {
+            while let Some((point, analysis)) = {
+                let mut worklist = self.worklist.borrow_mut();
+                worklist.pop_front()
+            } {
+                if self.unloaded_analyses.contains(&analysis) {
+                    continue;
+                }
+                let analysis = self.child_analyses.get(&analysis).expect("Should exist");
+                analysis.visit(self, ctx, point)?;
+            }
+            Ok(())
+        }
+
         pub fn analyses(&self) -> RefMut<'_, AnalysisManager> {
             self.analysis_cache.borrow_mut()
         }
 
         pub fn enqueue(&self, work_item: SolverWorkItem) {
             self.worklist.borrow_mut().push_back(work_item);
+        }
+
+        /// Recompute starting from a set of program points, can be used for incremental updates
+        pub fn recompute_from_program_points(
+            &mut self,
+            ctx: &Context,
+            root: Ptr<Operation>,
+            work_item: impl IntoIterator<Item = SolverWorkItem>,
+        ) -> Result<()> {
+            let is_interprocedural = self.adjust_interprocedural(ctx, root);
+            self.root = Some(root);
+            self.worklist.borrow_mut().extend(work_item);
+            let res = self.run_worklist(ctx);
+            self.root = None;
+            self.config.is_interprocedural = is_interprocedural;
+            res
         }
 
         pub fn config(&self) -> &SolverConfig {

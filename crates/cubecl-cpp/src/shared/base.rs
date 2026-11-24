@@ -296,6 +296,8 @@ where
         func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(RemoveStackMoves);
+        func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
 
         // SCCP/DCE may unlock more mem2reg opportunities, and vice versa. So we do a sandwich.
@@ -309,7 +311,6 @@ where
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
-        func_passes.add_pass(RemoveStackMoves);
 
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(PromoteUnsupportedTypesPass::default());
