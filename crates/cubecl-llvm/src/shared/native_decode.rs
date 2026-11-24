@@ -7,7 +7,7 @@ use cubecl_core::{
         dialect::general::CastOp,
         types::{
             Fp8Format,
-            scalar::{Float4E2M1x2Type, Float8E4M3Type, Float8E5M2Type},
+            scalar::{Float4E2M1x2Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type},
         },
     },
     post_processing::{
@@ -24,6 +24,8 @@ pub enum NativeDecode {
     E2M1x2,
     E4M3,
     E5M2,
+    /// Decoded only: an encode rounds up to a power of two, which is the software codec's.
+    UE8M0,
 }
 
 impl NativeDecode {
@@ -37,6 +39,8 @@ impl NativeDecode {
             Some(NativeDecode::E4M3)
         } else if scalar.is::<Float8E5M2Type>() {
             Some(NativeDecode::E5M2)
+        } else if scalar.is::<Float8E8M0Type>() {
+            Some(NativeDecode::UE8M0)
         } else {
             None
         }
@@ -54,20 +58,20 @@ impl NativeDecode {
 
     /// The fp8 format a cast from `input` to `result` encodes, where the target's own conversion
     /// can: from `f32` to `e4m3` or `e5m2`, two values an instruction. Every other encode, from
-    /// another float or to `e2m1x2`, is the software codec's.
+    /// another float or to `e2m1x2` or `ue8m0`, is the software codec's.
     pub(crate) fn encoded_by(ctx: &Context, input: TypeHandle, result: TypeHandle) -> Option<Self> {
         // `f32` as the cube IR states it, or as the LLVM dialect does once its operand is lowered.
         let scalar = input.scalar_ty(ctx);
         let from_f32 = scalar.is_float32(ctx) || scalar.deref(ctx).is::<FP32Type>();
         Self::of_type(ctx, result)
-            .filter(|format| *format != NativeDecode::E2M1x2)
+            .filter(|format| matches!(format, NativeDecode::E4M3 | NativeDecode::E5M2))
             .filter(|_| from_f32)
     }
 
     /// Adds the passes lowering the minifloat casts a target decoding `native` itself does not.
     pub(crate) fn add_codec_passes(native: &'static [Self], passes: &mut OpPass<FuncOp, Passes>) {
         let fp8 = LowerMinifloatCast::new(Default::default(), Fp8Container::Bytes);
-        let fp8_native = [NativeDecode::E4M3, NativeDecode::E5M2]
+        let fp8_native = [NativeDecode::E4M3, NativeDecode::E5M2, NativeDecode::UE8M0]
             .iter()
             .any(|format| native.contains(format));
         match fp8_native {
