@@ -2336,6 +2336,122 @@ fn autotune_evicts_before_every_measured_sample() {
     );
 }
 
+/// What the stages of one tune of a fresh key did, the tune run as `execute` runs it.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn staged_tune() -> dummy::StageTrace {
+    use std::sync::{Arc, Mutex};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_stages");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let handles = vec![lhs, rhs, client.empty(3)];
+
+    let trace = Arc::new(Mutex::new(dummy::StageTrace::default()));
+    let uid = fresh_tune_key_uid();
+    // Its own tuner id too: a set is built once per id, and each call wants a set of its own.
+    let id = uid.clone();
+    let test_set = {
+        let trace = trace.clone();
+        TUNER.init(&id, move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_stage_enterer(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                trace.clone(),
+            )
+        })
+    };
+
+    TUNER.execute(&id, &client, test_set, handles);
+
+    std::mem::take(&mut *trace.lock().unwrap())
+}
+
+/// The winner of a tune runs as the call's work, in no stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_its_winner_outside_every_stage() {
+    let trace = staged_tune();
+
+    assert_eq!(trace.ran_in.last(), Some(&None));
+}
+
+/// Every run of a tune's candidates is inside a stage its set's enterer entered.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_every_candidate_inside_a_stage() {
+    let trace = staged_tune();
+
+    let (_winner, tuning) = trace
+        .ran_in
+        .split_last()
+        .expect("the candidates should have run");
+    assert!(tuning.iter().all(Option::is_some), "{tuning:?}");
+}
+
+/// The adaptive scheduler gathers each candidate's kernels inside a gathering stage before it
+/// measures it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_gathers_its_candidates_inside_a_gathering_stage() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    if !CubeClRuntimeConfig::get().autotune.bench.adaptive {
+        return;
+    }
+
+    let trace = staged_tune();
+
+    assert_eq!(
+        trace.ran_in.first(),
+        Some(&Some(cubecl_server::tune::TuneStage::Gathering))
+    );
+}
+
+/// A tune under a `CompileOnly` override runs every candidate inside a gathering stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_gathers_under_compile_only() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::TuneStage;
+
+    let collector = StatisticsCollector::new();
+    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let trace = staged_tune();
+    core::mem::drop(compile);
+
+    let (_work, gathered) = trace
+        .ran_in
+        .split_last()
+        .expect("the candidates should have run");
+    assert!(
+        gathered
+            .iter()
+            .all(|stage| *stage == Some(TuneStage::Gathering)),
+        "{gathered:?}"
+    );
+}
+
+/// A tune's stages end in the order they nest, and none is left open.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_ends_its_stages_in_nesting_order() {
+    let trace = staged_tune();
+
+    assert_eq!(
+        (trace.misordered_count, trace.open.len()),
+        (0, 0),
+        "{trace:?}"
+    );
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]
