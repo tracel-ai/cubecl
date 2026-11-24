@@ -6,15 +6,18 @@ use super::{Communication, ExecutionId, ExecutionKind, OBSERVERS};
 ///
 /// For a communication made of other executions, such as a collective emulated by transfers and
 /// kernels on the calling thread: each of them names it as its parent, so an observer can charge
-/// their cost to it. Scopes nest, and dropping one puts back the parent it replaced.
-///
-/// Inert when nothing observes: the communication is never built, and nothing is issued. Without
-/// `std` there is no thread-local to hold the parent, so a scope issues its communication and
-/// parents nothing: attribution is missing there rather than crossing threads.
+/// their cost to it. Without `std` there is no thread-local to hold the parent, so a scope issues
+/// its communication and parents nothing: attribution is missing there rather than crossing
+/// threads.
 ///
 /// # Assumptions
 ///
 /// Scopes drop in the reverse order they were opened.
+///
+/// # Guarantees
+///
+/// Scopes nest: dropping one puts back the parent it replaced. While nothing observes a scope is
+/// inert: its communication is never built, and nothing is issued.
 #[derive(Debug)]
 #[must_use = "a scope parents nothing once it is dropped"]
 pub struct ExecutionScope {
@@ -99,24 +102,33 @@ mod tests {
     #[test]
     fn a_scope_under_a_parent_parents_what_is_issued_inside_it() {
         let parent = ExecutionId::mint();
-        let scope = ExecutionScope::under(Some(parent));
-        assert_eq!(ExecutionScope::current(), Some(parent));
-        drop(scope);
+        let _scope = ExecutionScope::under(Some(parent));
+        assert_eq!(parent::get(), Some(parent));
     }
 
     #[test]
     fn a_scope_under_no_parent_leaves_the_open_one() {
         let parent = ExecutionId::mint();
-        let _outer = ExecutionScope::under(Some(parent));
+        let replaced = parent::replace(Some(parent));
         let _inert = ExecutionScope::under(None);
-        assert_eq!(ExecutionScope::current(), Some(parent));
+        assert_eq!(parent::get(), Some(parent));
+        parent::replace(replaced);
     }
 
     #[test]
     fn a_dropped_scope_puts_back_the_parent_it_replaced() {
         let outer = ExecutionId::mint();
-        let _outer = ExecutionScope::under(Some(outer));
+        let replaced = parent::replace(Some(outer));
         drop(ExecutionScope::under(Some(ExecutionId::mint())));
-        assert_eq!(ExecutionScope::current(), Some(outer));
+        assert_eq!(parent::get(), Some(outer));
+        parent::replace(replaced);
+    }
+
+    #[test]
+    fn the_current_parent_is_the_open_scopes() {
+        let parent = ExecutionId::mint();
+        let replaced = parent::replace(Some(parent));
+        assert_eq!(ExecutionScope::current(), Some(parent));
+        parent::replace(replaced);
     }
 }

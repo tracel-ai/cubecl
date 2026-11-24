@@ -176,10 +176,20 @@ impl Display for ProfileAggregator {
 mod tests {
     use super::*;
 
+    /// An aggregator holding `launches` of `name`, which took `total` together.
+    fn holding(name: &str, total: Duration, launches: usize) -> ProfileAggregator {
+        let launches = ProfiledLaunches {
+            total_duration: total,
+            launch_count: launches,
+        };
+        ProfileAggregator {
+            launches: HashMap::from_iter([(name.to_string(), launches)]),
+        }
+    }
+
     #[test]
-    fn a_name_aggregates_its_launches() {
-        let mut aggregator = ProfileAggregator::default();
-        aggregator.aggregate("kernel", Duration::from_micros(3));
+    fn a_launch_of_a_known_name_adds_to_its_total() {
+        let mut aggregator = holding("kernel", Duration::from_micros(3), 1);
         aggregator.aggregate("kernel", Duration::from_micros(4));
         assert_eq!(
             aggregator.launches["kernel"].total_duration,
@@ -195,11 +205,15 @@ mod tests {
     }
 
     #[test]
-    fn a_cleared_aggregator_is_empty() {
-        let mut aggregator = ProfileAggregator::default();
-        aggregator.aggregate("kernel", Duration::from_micros(3));
+    fn a_cleared_aggregator_holds_nothing() {
+        let mut aggregator = holding("kernel", Duration::from_micros(3), 1);
         aggregator.clear();
-        assert!(aggregator.is_empty());
+        assert!(aggregator.launches.is_empty());
+    }
+
+    #[test]
+    fn an_aggregator_holding_a_launch_is_not_empty() {
+        assert!(!holding("kernel", Duration::from_micros(3), 1).is_empty());
     }
 
     #[test]
@@ -210,9 +224,7 @@ mod tests {
 
     #[test]
     fn the_summary_names_every_launch_and_the_total() {
-        let mut aggregator = ProfileAggregator::default();
-        aggregator.aggregate("kernel", Duration::from_micros(3));
-        let summary = aggregator.to_string();
+        let summary = holding("kernel", Duration::from_micros(3), 1).to_string();
         assert!(summary.contains("kernel") && summary.contains("Total"));
     }
 }

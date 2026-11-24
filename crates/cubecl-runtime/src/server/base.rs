@@ -1491,7 +1491,7 @@ impl SendOutcome {
 
 /// Where a server sends the device windows of one communication part and of a compute stream's
 /// wait, for an observer that times communications
-/// ([`KernelsAndCommunications`](crate::logging::Timed::KernelsAndCommunications)).
+/// ([`KernelsAndCommunications`](crate::logging::TimedExecutions::KernelsAndCommunications)).
 ///
 /// The observer holds each window unread from the moment it is issued. One the server never
 /// sends, for a part refused before it ran or recorded inside a graph capture, reads back empty.

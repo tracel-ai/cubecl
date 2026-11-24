@@ -1,7 +1,8 @@
 use alloc::sync::Arc;
 
 use super::{
-    Execution, ExecutionId, ExecutionObserver, OBSERVERS, ProfileDuration, Timed, TimingRequest,
+    Execution, ExecutionId, ExecutionObserver, Measurement, OBSERVERS, ProfileDuration,
+    TimingRequest,
 };
 
 /// An execution as it was reported: what it was, the observer it was
@@ -9,9 +10,8 @@ use super::{
 ///
 /// # Guarantees
 ///
-/// The observer is asked how to time the execution once, when it is issued,
-/// and that answer decides how its measurement is delivered, whatever the
-/// observer answers afterwards.
+/// The answer its observer gave when it was issued decides how its
+/// measurement is delivered, whatever the observer answers afterwards.
 #[derive(Clone)]
 pub struct ReportedExecution {
     execution: Execution,
@@ -50,13 +50,13 @@ impl ReportedExecution {
 
     /// Whether its observer asked for launches to be timed.
     pub fn wants_timing(&self) -> bool {
-        self.timing != TimingRequest::None
+        self.timing.times_launches()
     }
 
     /// Whether its observer times communications, and so is told of their
     /// waits.
     pub fn times_communications(&self) -> bool {
-        self.timing == TimingRequest::Deferred(Timed::KernelsAndCommunications)
+        self.timing.times_communications()
     }
 
     /// Whether it was reported to `observer`.
@@ -77,11 +77,11 @@ impl ReportedExecution {
     ///
     /// Its observer [times communications](Self::times_communications).
     pub fn deliver_unread(&self, measurement: ProfileDuration) {
-        OBSERVERS.deliver(self, super::Measurement::Unread(measurement));
+        OBSERVERS.deliver(self, Measurement::Unread(measurement));
     }
 
-    /// Delivers a launch's measurement the way its observer asked for it:
-    /// [`ObserverInstaller::deliver_profile`](super::installer::ObserverInstaller::deliver_profile).
+    /// [`ObserverInstaller::deliver_profile`](super::installer::ObserverInstaller::deliver_profile)
+    /// on the process's observer.
     ///
     /// # Assumptions
     ///
@@ -90,10 +90,79 @@ impl ReportedExecution {
         OBSERVERS.deliver_profile(self, profile);
     }
 
-    /// Reads a launch's measurement for its observer and hands the reading
-    /// back for the profiling logger:
-    /// [`ObserverInstaller::read_for_logger`](super::installer::ObserverInstaller::read_for_logger).
+    /// [`ObserverInstaller::read_for_logger`](super::installer::ObserverInstaller::read_for_logger)
+    /// on the process's observer.
     pub fn read_for_logger(&self, profile: ProfileDuration) -> ProfileDuration {
         OBSERVERS.read_for_logger(self, profile)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logging::{ExecutionKind, ExecutionPlace, StreamRole, TimedExecutions};
+    use cubecl_common::device::{DeviceId, ServiceId};
+    use cubecl_environment::stream::StreamId;
+
+    struct Silent;
+
+    impl ExecutionObserver for Silent {
+        fn observe(&self, _execution: &Execution) {}
+    }
+
+    fn reported(timing: TimingRequest) -> ReportedExecution {
+        let execution = Execution {
+            id: ExecutionId::mint(),
+            parent: None,
+            kind: ExecutionKind::Kernel {
+                place: ExecutionPlace {
+                    service: ServiceId::of::<()>(DeviceId::new(0, 0)),
+                    stream: StreamRole::Compute(StreamId { value: 0 }),
+                },
+                name: "a_kernel",
+            },
+        };
+        ReportedExecution::new(execution, Arc::new(Silent), timing)
+    }
+
+    #[test]
+    fn an_untimed_execution_wants_no_timing() {
+        assert!(!reported(TimingRequest::None).wants_timing());
+    }
+
+    #[test]
+    fn a_resolved_execution_wants_timing() {
+        assert!(reported(TimingRequest::Resolved).wants_timing());
+    }
+
+    #[test]
+    fn an_execution_timing_kernels_only_times_no_communication() {
+        let reported = reported(TimingRequest::Deferred(TimedExecutions::Kernels));
+        assert!(!reported.times_communications());
+    }
+
+    #[test]
+    fn an_execution_timing_communications_times_them() {
+        let reported = reported(TimingRequest::Deferred(
+            TimedExecutions::KernelsAndCommunications,
+        ));
+        assert!(reported.times_communications());
+    }
+
+    #[test]
+    fn an_execution_is_reported_to_its_own_observer() {
+        let observer: Arc<dyn ExecutionObserver> = Arc::new(Silent);
+        let reported = ReportedExecution::new(
+            reported(TimingRequest::None).execution().clone(),
+            observer.clone(),
+            TimingRequest::None,
+        );
+        assert!(reported.is_reported_to(&observer));
+    }
+
+    #[test]
+    fn an_execution_is_not_reported_to_another_observer() {
+        let other: Arc<dyn ExecutionObserver> = Arc::new(Silent);
+        assert!(!reported(TimingRequest::None).is_reported_to(&other));
     }
 }

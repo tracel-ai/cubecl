@@ -18,7 +18,7 @@ pub enum TimingRequest {
     /// each kernel's own cost, wrong for measuring a pipeline.
     Resolved,
     /// Time each launch and hand its measurement over **unread**, as
-    /// [`Measurement::Unread`], for the executions [`Timed`] names.
+    /// [`Measurement::Unread`], for the executions [`TimedExecutions`] names.
     ///
     /// Nothing waits, so the kernels around it keep running back to back and
     /// the observer reads them once the pass is over. Right for measuring where
@@ -30,7 +30,19 @@ pub enum TimingRequest {
     /// [`Measurement::Read`] instead, which runs the kernels one at a time. An
     /// observer whose figures only mean something on a pipelined pass should
     /// say so when timings arrive that way.
-    Deferred(Timed),
+    Deferred(TimedExecutions),
+}
+
+impl TimingRequest {
+    /// Whether launches are timed.
+    pub fn times_launches(self) -> bool {
+        self != Self::None
+    }
+
+    /// Whether communications are timed too, and so their waits issued.
+    pub fn times_communications(self) -> bool {
+        self == Self::Deferred(TimedExecutions::KernelsAndCommunications)
+    }
 }
 
 /// Which executions a [`Deferred`](TimingRequest::Deferred) request times.
@@ -38,7 +50,7 @@ pub enum TimingRequest {
 /// Only a deferred request can time a communication: reading a part back blocks until its peers
 /// have run theirs, so a thread that queues several would wait forever on the first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Timed {
+pub enum TimedExecutions {
     /// Kernels only.
     Kernels,
     /// Kernels, and each communication: its parts, and the compute streams' waits on them,
@@ -74,7 +86,7 @@ pub enum Measurement {
     ///
     /// Reading it, [`ProfileDuration::resolve`], blocks until the device has
     /// reached both events: doing that inside
-    /// [`measured`](super::ExecutionObserver::measured) would hold the observer's lock
+    /// [`observe_measurement`](super::ExecutionObserver::observe_measurement) would hold the observer's lock
     /// for the length of the kernel, which is the thing
     /// [`Deferred`](TimingRequest::Deferred) exists to avoid.
     Unread(ProfileDuration),

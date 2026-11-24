@@ -21,9 +21,9 @@ pub use observer::ExecutionObserver;
 pub use profiling::ProfileLevel;
 pub use scope::ExecutionScope;
 pub use server::ServerLogger;
-pub use timing::{Measurement, Timed, TimingRequest};
+pub use timing::{Measurement, TimedExecutions, TimingRequest};
 
-pub(crate) use installer::{issue, times_communications, timing_requested};
+pub(crate) use installer::{issue, timing_requested};
 
 pub(crate) use reported::ReportedExecution;
 

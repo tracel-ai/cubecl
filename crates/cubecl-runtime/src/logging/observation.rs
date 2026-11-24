@@ -24,7 +24,7 @@
 //! struct CountThem(Mutex<HashMap<&'static str, usize>>);
 //!
 //! impl ExecutionObserver for CountThem {
-//!     fn issued(&self, execution: &Execution) {
+//!     fn observe(&self, execution: &Execution) {
 //!         if let ExecutionKind::Kernel { name, .. } = execution.kind {
 //!             *self.0.lock().unwrap().entry(name).or_default() += 1;
 //!         }
@@ -46,15 +46,15 @@
 //!
 //! One relaxed atomic load per execution when nothing is installed, which is
 //! every ordinary run: no [`ExecutionId`](super::ExecutionId) is minted and nothing is allocated. An observer that asks for timing is the
-//! expensive case, and pays per launch → [`timing`](ExecutionObserver::timing).
+//! expensive case, and pays per launch → [`timing`](super::ExecutionObserver::timing).
 //!
 //! # What it reports
 //!
-//! An execution that was **issued**, not one that finished: [`issued`] arrives
+//! An execution that was **issued**, not one that finished: [`observe`] is called
 //! before it reaches the server, and a measurement, when one was asked for,
-//! arrives afterwards through [`measured`]. Kernels are measured, and so are
+//! arrives afterwards through [`observe_measurement`]. Kernels are measured, and so are
 //! communication parts and the waits on them when the observer
-//! [times them too](super::Timed::KernelsAndCommunications).
+//! [times them too](super::TimedExecutions::KernelsAndCommunications).
 //!
 //! Issued is not the same as executed. A launch whose
 //! [mode](crate::execution::LaunchMode) discards it is still compiled and
@@ -69,15 +69,14 @@
 //! observed benchmark of a graph-replayed pass reports the capture run and
 //! nothing per replay.
 //!
-//! [`issued`]: ExecutionObserver::issued
-//! [`measured`]: ExecutionObserver::measured
+//! [`observe`]: ExecutionObserver::observe
+//! [`observe_measurement`]: ExecutionObserver::observe_measurement
 
 use alloc::sync::Arc;
 
 use super::{ExecutionObserver, OBSERVERS};
 
-/// Watches every execution the process issues for as long as it lives, then
-/// puts back whatever it replaced.
+/// Watches every execution the process issues for as long as it lives.
 ///
 /// Process-wide rather than per client: a caller attributing executions wants
 /// every one its work causes, and work reaches several clients on several
@@ -85,41 +84,32 @@ use super::{ExecutionObserver, OBSERVERS};
 /// attributing to.
 ///
 /// A guard rather than an install/stop pair so the scope being attributed is
-/// the scope the observer is installed for, with no restore step a caller can
-/// skip on an early return. There is one slot, so a second observation replaces
-/// the first for its lifetime.
+/// the scope the observer is installed for, with no stop step a caller can
+/// skip on an early return.
 ///
 /// # Assumptions
 ///
-/// Observations drop in the reverse order they were taken.
+/// No other observation is live while it is: the process has one slot.
 ///
 /// # Guarantees
 ///
-/// Once it drops, its observer is told of nothing more, and the observer it
-/// replaced is installed again.
+/// Once it drops, its observer is told of nothing more.
+#[derive(Debug)]
 #[must_use = "an observation stops as soon as it is dropped"]
 pub struct ExecutionObservation {
-    previous: Option<Arc<dyn ExecutionObserver>>,
+    _installed: (),
 }
 
 impl ExecutionObservation {
     /// Installs `observer` until the guard drops.
     pub fn new(observer: Arc<dyn ExecutionObserver>) -> Self {
-        Self {
-            previous: OBSERVERS.install(observer),
-        }
+        OBSERVERS.install(observer);
+        Self { _installed: () }
     }
 }
 
 impl Drop for ExecutionObservation {
     fn drop(&mut self) {
-        OBSERVERS.restore(self.previous.take());
-    }
-}
-
-impl core::fmt::Debug for ExecutionObservation {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ExecutionObservation")
-            .finish_non_exhaustive()
+        OBSERVERS.uninstall();
     }
 }

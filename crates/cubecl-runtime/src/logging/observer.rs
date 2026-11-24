@@ -3,18 +3,24 @@ use super::{Execution, Measurement, TimingRequest};
 /// Notified of every execution the process issues, on the thread that issued it.
 ///
 /// One trait for every kind of [`Execution`]: an implementer matches the kinds
-/// it cares about.
+/// it cares about. Every method runs inside the launch path, before the work
+/// reaches the server, under the lock that guards the installed observer, so
+/// each must be cheap.
 ///
-/// Implementations must be cheap, must not launch, and must not install or drop
-/// an [`ExecutionObservation`](super::ExecutionObservation) or open an [`ExecutionScope`](super::ExecutionScope): this runs inside
-/// the launch path, before the work reaches the server, and holds the lock that
-/// guards the installed observer.
+/// # Assumptions
+///
+/// No method launches, installs or drops an
+/// [`ExecutionObservation`](super::ExecutionObservation), or opens an
+/// [`ExecutionScope`](super::ExecutionScope).
 pub trait ExecutionObserver: Send + Sync {
-    /// An execution was issued.
-    fn issued(&self, execution: &Execution);
+    /// Observes an execution as it is issued, before it is submitted: the
+    /// moment to pair it with whatever the issuing thread is doing.
+    fn observe(&self, execution: &Execution);
 
     /// Whether each launch should be timed, and how its measurement reaches
-    /// [`measured`](Self::measured).
+    /// [`observe_measurement`](Self::observe_measurement). Asked as each
+    /// execution is issued, so an observer may answer differently from one
+    /// execution to the next.
     ///
     /// **[`None`](TimingRequest::None) by default, because timing is not free.**
     /// Bracketing a launch with profile markers costs the issuing thread a round
@@ -25,45 +31,37 @@ pub trait ExecutionObserver: Send + Sync {
     /// [`Deferred`](TimingRequest::Deferred).
     ///
     /// Communications are issued at every level, and timed only under
-    /// [`Timed::KernelsAndCommunications`](super::Timed::KernelsAndCommunications).
+    /// [`TimedExecutions::KernelsAndCommunications`](super::TimedExecutions::KernelsAndCommunications).
     ///
-    /// # Guarantees
+    /// A profile the server cannot take, as a graph capture window refuses
+    /// them, skips the measurement and not the launch: the kernel is still
+    /// observed, and the log says so.
     ///
-    /// Asked once per execution, right after [`issued`](Self::issued), and
-    /// that answer decides how the execution's measurement is delivered,
-    /// whatever the observer answers by the time it arrives.
-    ///
-    /// Two situations refuse the measurement without refusing the launch:
-    ///
-    /// * A profile the server cannot take: a graph capture window refuses
-    ///   them on the spot. The kernel is still launched, still reported to
-    ///   [`issued`](Self::issued), and the measurement is skipped for it, with
-    ///   a warning in the log.
-    /// * Don't ask for [`Resolved`](TimingRequest::Resolved) around **collective**
-    ///   kernels. Reading blocks until the kernel completes, and a collective
-    ///   completes only when its peers launch: a thread that issues more than
-    ///   one side of a collective deadlocks waiting for the first.
+    /// Don't ask for [`Resolved`](TimingRequest::Resolved) around
+    /// **collective** kernels. Reading blocks until the kernel completes, and a
+    /// collective completes only when its peers launch: a thread that issues
+    /// more than one side of a collective deadlocks waiting for the first.
     fn timing(&self) -> TimingRequest {
         TimingRequest::None
     }
 
-    /// An execution reported to [`issued`](Self::issued) was measured.
+    /// Observes the measurement of an execution [observed](Self::observe)
+    /// before, delivered as the answer [`timing`](Self::timing) gave when it
+    /// was issued.
     ///
     /// Called on the thread that issued it, after the launch, or right after
-    /// [`issued`](Self::issued) for a communication part or wait, under the
-    /// same lock as every other method here, so keeping the measurement must be
-    /// cheap. **An observer that asked to keep measurements unread still
-    /// receives [`Measurement::Read`]** whenever the profiling logger is on.
+    /// [`observe`](Self::observe) for a communication part or wait. **An
+    /// observer that asked to keep measurements unread still receives
+    /// [`Measurement::Read`]** whenever the profiling logger is on.
     ///
     /// It arrives *after* the launch rather than before it, so an observer
     /// pairing executions with its own state should do that in
-    /// [`issued`](Self::issued) and match the [`ExecutionId`](super::ExecutionId) here. A
-    /// measurement goes to the observer the execution was reported to, and only
-    /// while it is still installed: an observation that ends mid-read is not
-    /// told.
+    /// [`observe`](Self::observe) and match the
+    /// [`ExecutionId`](super::ExecutionId) here. An observation that ends
+    /// mid-read is not told.
     ///
     /// The default drops it: an observer asking for timing owes an
     /// implementation.
     #[allow(unused_variables)]
-    fn measured(&self, execution: &Execution, measurement: Measurement) {}
+    fn observe_measurement(&self, execution: &Execution, measurement: Measurement) {}
 }

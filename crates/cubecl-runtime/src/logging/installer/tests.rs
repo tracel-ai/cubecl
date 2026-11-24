@@ -1,7 +1,7 @@
 use super::*;
 use crate::logging::{
     Communication, Duration, ExecutionObservation, ExecutionPlace, ProfileTicks, StreamRole,
-    TimingMethod, TransferRoute,
+    TimedExecutions, TimingMethod, TransferRoute,
 };
 use alloc::vec::Vec;
 // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
@@ -72,21 +72,11 @@ fn a_scope_builds_nothing_while_nothing_observes() {
 
 #[test]
 #[serial_test::serial]
-fn ids_increase_in_issue_order() {
-    let watching = ExecutionObservation::new(Arc::new(Recorder::default()));
-    let first = launch("first").expect("an observer is installed");
-    let second = launch("second").expect("an observer is installed");
-    drop(watching);
-    assert!(first.id() < second.id());
-}
-
-#[test]
-#[serial_test::serial]
 #[cfg(feature = "std")]
 fn a_scope_parents_what_is_issued_inside_it() {
     let watching = ExecutionObservation::new(Arc::new(Recorder::default()));
     let scope = ExecutionScope::communication(transfer);
-    let inside = launch("inside").expect("an observer is installed");
+    let inside = launch("inside").expect("an observer should be installed");
     drop(scope);
     drop(watching);
     assert!(inside.execution().parent.is_some());
@@ -104,44 +94,9 @@ fn nothing_installed_asks_for_no_timing() {
 #[serial_test::serial]
 fn an_observer_asks_for_no_timing_by_default() {
     let watching = ExecutionObservation::new(Arc::new(Recorder::default()));
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     drop(watching);
     assert!(!reported.wants_timing());
-}
-
-#[test]
-#[serial_test::serial]
-fn an_execution_reported_to_an_observer_timing_kernels_only_times_no_communication() {
-    let watching = ExecutionObservation::new(Kept::asking(TimingRequest::Deferred(Timed::Kernels)));
-    let reported = launch("a_kernel").expect("an observer is installed");
-    drop(watching);
-    assert!(!reported.times_communications());
-}
-
-/// A nested observation puts back the one it replaced, so a caller that
-/// watches a sub-pass does not silently take the process's only slot from
-/// whoever was already watching.
-#[test]
-#[serial_test::serial]
-fn an_observation_restores_the_one_it_replaced() {
-    let outer = Arc::new(Recorder::default());
-    let watching_outer = ExecutionObservation::new(outer.clone());
-    drop(ExecutionObservation::new(Arc::new(Recorder::default())));
-    launch("after_the_inner_pass");
-    drop(watching_outer);
-    assert_eq!(outer.kernels(), ["after_the_inner_pass"]);
-}
-
-#[test]
-#[serial_test::serial]
-fn a_nested_observation_takes_what_is_issued_while_it_lives() {
-    let outer = Arc::new(Recorder::default());
-    let watching_outer = ExecutionObservation::new(outer.clone());
-    let watching_inner = ExecutionObservation::new(Arc::new(Recorder::default()));
-    launch("during_the_inner_pass");
-    drop(watching_inner);
-    drop(watching_outer);
-    assert!(outer.kernels().is_empty());
 }
 
 /// A measurement of `micros`, as a backend without device timestamps
@@ -183,7 +138,7 @@ fn measured_while(micros: u64, during_the_read: impl FnOnce() + Send + 'static) 
 fn a_measurement_is_read_back_for_an_observer_that_asked_for_it_resolved() {
     let timed = Arc::new(ReadBack::default());
     let watching = ExecutionObservation::new(timed.clone());
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     reported.deliver_profile(measured(7));
     drop(watching);
     assert_eq!(
@@ -204,7 +159,7 @@ fn a_measurement_is_read_back_for_an_observer_that_asked_for_it_resolved() {
 fn a_reading_for_the_logger_tells_the_observer_how_it_was_measured() {
     let timed = Arc::new(ReadBack::default());
     let watching = ExecutionObservation::new(timed.clone());
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     let _for_the_logger = reported.read_for_logger(measured_on_device(7));
     drop(watching);
     assert_eq!(
@@ -224,7 +179,7 @@ fn a_reading_for_the_logger_tells_the_observer_how_it_was_measured() {
 fn an_observation_that_ended_mid_read_is_not_told_the_duration() {
     let timed = Arc::new(ReadBack::default());
     let watching = Arc::new(Mutex::new(Some(ExecutionObservation::new(timed.clone()))));
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     let ends_the_observation = watching.clone();
 
     reported.deliver_profile(measured_while(7, move || {
@@ -239,7 +194,7 @@ fn an_observation_that_ended_mid_read_is_not_told_the_duration() {
 fn an_observation_that_ended_mid_read_is_not_told_the_loggers_reading() {
     let timed = Arc::new(ReadBack::default());
     let watching = Arc::new(Mutex::new(Some(ExecutionObservation::new(timed.clone()))));
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     let ends_the_observation = watching.clone();
 
     let _for_the_logger = reported.read_for_logger(measured_while(7, move || {
@@ -255,7 +210,7 @@ fn an_observation_that_ended_mid_read_is_not_told_the_loggers_reading() {
 #[serial_test::serial]
 fn the_logger_gets_the_reading_its_observer_was_told() {
     let watching = ExecutionObservation::new(Arc::new(ReadBack::default()));
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     let for_the_logger = reported.read_for_logger(measured(7));
     drop(watching);
     let ticks = cubecl_environment::future::block_on(for_the_logger.resolve())
@@ -267,9 +222,9 @@ fn the_logger_gets_the_reading_its_observer_was_told() {
 #[test]
 #[serial_test::serial]
 fn an_observer_can_keep_a_measurement_unread() {
-    let kept = Kept::asking(TimingRequest::Deferred(Timed::Kernels));
+    let kept = Kept::asking(TimingRequest::Deferred(TimedExecutions::Kernels));
     let watching = ExecutionObservation::new(kept.clone());
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     reported.deliver_profile(measured(3));
     drop(watching);
     let kept: Vec<_> = kept.0.lock().iter().map(|(id, _)| *id).collect();
@@ -277,19 +232,21 @@ fn an_observer_can_keep_a_measurement_unread() {
 }
 
 /// A measurement belongs to the observer the execution was reported to: one
-/// that replaced it never saw the execution.
+/// installed after it never saw the execution.
 #[test]
 #[serial_test::serial]
 fn a_measurement_does_not_reach_an_observer_that_never_saw_its_execution() {
-    let watching = ExecutionObservation::new(Kept::asking(TimingRequest::Deferred(Timed::Kernels)));
-    let reported = launch("a_kernel").expect("an observer is installed");
-    let replacement = Kept::asking(TimingRequest::Deferred(Timed::Kernels));
+    let watching = ExecutionObservation::new(Kept::asking(TimingRequest::Deferred(
+        TimedExecutions::Kernels,
+    )));
+    let reported = launch("a_kernel").expect("an observer should be installed");
+    drop(watching);
+    let replacement = Kept::asking(TimingRequest::Deferred(TimedExecutions::Kernels));
     let replacing = ExecutionObservation::new(replacement.clone());
 
     reported.deliver_profile(measured(3));
 
     drop(replacing);
-    drop(watching);
     assert!(replacement.0.lock().is_empty());
 }
 
@@ -298,9 +255,9 @@ fn a_measurement_does_not_reach_an_observer_that_never_saw_its_execution() {
 #[test]
 #[serial_test::serial]
 fn a_measurement_is_delivered_as_its_observer_asked_when_it_was_issued() {
-    let kept = Kept::asking(TimingRequest::Deferred(Timed::Kernels));
+    let kept = Kept::asking(TimingRequest::Deferred(TimedExecutions::Kernels));
     let watching = ExecutionObservation::new(kept.clone());
-    let reported = launch("a_kernel").expect("an observer is installed");
+    let reported = launch("a_kernel").expect("an observer should be installed");
     *kept.1.lock() = TimingRequest::None;
 
     reported.deliver_profile(measured(3));
@@ -312,9 +269,11 @@ fn a_measurement_is_delivered_as_its_observer_asked_when_it_was_issued() {
 #[test]
 #[serial_test::serial]
 fn a_communication_part_is_handed_over_unread() {
-    let every = Kept::asking(TimingRequest::Deferred(Timed::KernelsAndCommunications));
+    let every = Kept::asking(TimingRequest::Deferred(
+        TimedExecutions::KernelsAndCommunications,
+    ));
     let watching = ExecutionObservation::new(every.clone());
-    let part = launch("standing_in_for_a_part").expect("an observer is installed");
+    let part = launch("standing_in_for_a_part").expect("an observer should be installed");
     part.deliver_unread(measured(3));
     drop(watching);
     let kept: Vec<_> = every.0.lock().iter().map(|(id, _)| *id).collect();
@@ -334,11 +293,11 @@ impl Kept {
 }
 
 impl ExecutionObserver for Kept {
-    fn issued(&self, _execution: &Execution) {}
+    fn observe(&self, _execution: &Execution) {}
     fn timing(&self) -> TimingRequest {
         *self.1.lock()
     }
-    fn measured(&self, execution: &Execution, measurement: Measurement) {
+    fn observe_measurement(&self, execution: &Execution, measurement: Measurement) {
         let Measurement::Unread(profile) = measurement else {
             panic!("asked to keep its measurements unread, with no logger reading them");
         };
@@ -363,7 +322,7 @@ impl Recorder {
 }
 
 impl ExecutionObserver for Recorder {
-    fn issued(&self, execution: &Execution) {
+    fn observe(&self, execution: &Execution) {
         self.0.lock().push(execution.clone());
     }
 }
@@ -372,11 +331,11 @@ impl ExecutionObserver for Recorder {
 struct ReadBack(Mutex<Vec<(ExecutionId, Duration, TimingMethod)>>);
 
 impl ExecutionObserver for ReadBack {
-    fn issued(&self, _execution: &Execution) {}
+    fn observe(&self, _execution: &Execution) {}
     fn timing(&self) -> TimingRequest {
         TimingRequest::Resolved
     }
-    fn measured(&self, execution: &Execution, measurement: Measurement) {
+    fn observe_measurement(&self, execution: &Execution, measurement: Measurement) {
         let Measurement::Read { duration, method } = measurement else {
             panic!("asked for its measurements read back");
         };

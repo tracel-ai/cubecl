@@ -11,7 +11,8 @@ use crate::server::{Collective, TransportProvider};
 ///
 /// # Guarantees
 ///
-/// Unique for the process's lifetime, and increasing in the order executions were issued.
+/// Unique for the process's lifetime, and increasing in the order they were minted, which is
+/// the order executions were issued on each thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ExecutionId(u64);
 
@@ -153,4 +154,15 @@ pub enum WaitTarget {
     /// Every collective queued on the device so far, so its time belongs to the last part issued
     /// on that device.
     QueuedCollectives,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_id_is_greater_than_every_one_minted_before_it() {
+        let before = ExecutionId::mint();
+        assert!(ExecutionId::mint() > before);
+    }
 }

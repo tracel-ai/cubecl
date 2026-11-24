@@ -1184,11 +1184,13 @@ impl Client {
             return;
         }
         let stream_id = self.stream_id();
-        let timing = crate::logging::times_communications().then(|| {
-            let mut timing = CommunicationTiming::default();
-            self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
-            timing
-        });
+        let timing = crate::logging::timing_requested()
+            .times_communications()
+            .then(|| {
+                let mut timing = CommunicationTiming::default();
+                self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
+                timing
+            });
 
         self.device.submit(move |server| {
             // Logged rather than unwrapped: a panic on the server thread is
@@ -1321,7 +1323,9 @@ impl Client {
             },
             awaits,
         });
-        if let Some(wait) = wait {
+        // The wait's own answer decides, which may not be the one the caller
+        // checked before issuing it.
+        if let Some(wait) = wait.filter(crate::logging::ReportedExecution::times_communications) {
             wait.deliver_unread(timing.wait_window());
         }
     }
