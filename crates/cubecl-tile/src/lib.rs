@@ -70,6 +70,8 @@ pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use ops::matmul::step::{ProductStep, StepCost};
 pub use space::base::Space;
 pub use space::dimension::Dimension;
+pub use space::macro_region::MacroRegion;
+pub use space::micro_region::MicroRegion;
 pub use space::partition::base::Partitioning;
 pub use space::partition::level::Level;
 pub use space::partition::levels::Levels;
