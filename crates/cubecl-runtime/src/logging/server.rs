@@ -10,7 +10,7 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_environment::future::channel::{Receiver, Sender};
 use cubecl_environment::future::spawn_detached;
 
-use super::{ProfileLevel, Profiled};
+use super::{ProfileAggregator, ProfileLevel};
 
 enum LogMessage {
     Execution(String),
@@ -21,7 +21,9 @@ enum LogMessage {
     ProfileSummary,
 }
 
-/// Server logger.
+/// What a server logs through: the compilation, streaming, memory and
+/// profiling logs, written by a task of their own so a launch never waits on a
+/// sink.
 #[derive(Debug)]
 pub struct ServerLogger {
     profile_level: Option<ProfileLevel>,
@@ -35,69 +37,49 @@ pub struct ServerLogger {
 impl Default for ServerLogger {
     fn default() -> Self {
         let logger = Logger::new();
+        let config = logger.config();
 
-        let disabled = matches!(
-            logger.config().compilation.logger.level,
-            CompilationLogLevel::Disabled
-        ) && matches!(
-            logger.config().profiling.logger.level,
-            ProfilingLogLevel::Disabled
-        ) && matches!(
-            logger.config().memory.logger.level,
-            MemoryLogLevel::Disabled
-        ) && matches!(
-            logger.config().streaming.logger.level,
-            StreamingLogLevel::Disabled
-        );
-
-        if disabled {
-            return Self {
-                profile_level: None,
-                log_compile_info: false,
-                log_compile_source: false,
-                log_streaming: StreamingLogLevel::Disabled,
-                log_channel: None,
-                log_memory: MemoryLogLevel::Disabled,
-            };
-        }
-        let profile_level = match logger.config().profiling.logger.level {
+        let profile_level = match config.profiling.logger.level {
             ProfilingLogLevel::Disabled => None,
             ProfilingLogLevel::Minimal => Some(ProfileLevel::ExecutionOnly),
             ProfilingLogLevel::Basic => Some(ProfileLevel::Basic),
             ProfilingLogLevel::Medium => Some(ProfileLevel::Medium),
             ProfilingLogLevel::Full => Some(ProfileLevel::Full),
         };
-
-        let log_compile_info = match logger.config().compilation.logger.level {
-            CompilationLogLevel::Disabled => false,
-            CompilationLogLevel::Basic => true,
-            CompilationLogLevel::Full => true,
-        };
-        let log_compile_source = matches!(
-            logger.config().compilation.logger.level,
-            CompilationLogLevel::Full
+        let log_compile_info = !matches!(
+            config.compilation.logger.level,
+            CompilationLogLevel::Disabled
         );
-        let log_streaming = logger.config().streaming.logger.level;
-        let log_memory = logger.config().memory.logger.level;
+        let log_compile_source =
+            matches!(config.compilation.logger.level, CompilationLogLevel::Full);
+        let log_streaming = config.streaming.logger.level;
+        let log_memory = config.memory.logger.level;
 
-        let (send, rec) = cubecl_environment::future::channel::unbounded();
-
-        // Spawn the logger as a detached task.
-        let async_logger = AsyncLogger {
-            message: rec,
-            logger,
-            profiled: Default::default(),
-        };
-        // Spawn the future in the background to logs messages / durations.
-        spawn_detached(async_logger.process());
+        // Nothing is spawned while every log is off: no message would reach it.
+        let enabled = profile_level.is_some()
+            || log_compile_info
+            || !matches!(log_streaming, StreamingLogLevel::Disabled)
+            || !matches!(log_memory, MemoryLogLevel::Disabled);
+        let log_channel = enabled.then(|| {
+            let (send, receive) = cubecl_environment::future::channel::unbounded();
+            spawn_detached(
+                AsyncLogger {
+                    messages: receive,
+                    logger,
+                    aggregator: ProfileAggregator::default(),
+                }
+                .log_messages(),
+            );
+            send
+        });
 
         Self {
             profile_level,
             log_compile_info,
             log_compile_source,
             log_streaming,
+            log_channel,
             log_memory,
-            log_channel: Some(send),
         }
     }
 }
@@ -127,12 +109,9 @@ impl ServerLogger {
     where
         I: Display,
     {
-        if let Some(channel) = &self.log_channel
-            && self.log_compile_info
-        {
-            // Channel will never be full, don't care if it's closed.
-            let _ = channel.try_send(LogMessage::Compilation(arg.to_string()));
-        }
+        self.send(self.log_compile_info, || {
+            LogMessage::Compilation(arg.to_string())
+        });
     }
 
     /// Log the argument to the logger when the streaming logger is activated.
@@ -141,12 +120,7 @@ impl ServerLogger {
         cond: C,
         format: I,
     ) {
-        if let Some(channel) = &self.log_channel
-            && cond(self.log_streaming)
-        {
-            // Channel will never be full, don't care if it's closed.
-            let _ = channel.try_send(LogMessage::Streaming(format()));
-        }
+        self.send(cond(self.log_streaming), || LogMessage::Streaming(format()));
     }
 
     /// Log the argument to the logger when the memory logger is activated.
@@ -155,12 +129,7 @@ impl ServerLogger {
         cond: C,
         format: I,
     ) {
-        if let Some(channel) = &self.log_channel
-            && cond(self.log_memory)
-        {
-            // Channel will never be full, don't care if it's closed.
-            let _ = channel.try_send(LogMessage::Memory(format()));
-        }
+        self.send(cond(self.log_memory), || LogMessage::Memory(format()));
     }
 
     /// Log a failure at the moment it happens — the backstop of the lazy
@@ -177,78 +146,86 @@ impl ServerLogger {
 
     /// Register a profiled task without timing.
     pub fn register_execution(&self, name: impl Display) {
-        if let Some(channel) = &self.log_channel
-            && matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly))
-        {
-            // Channel will never be full, don't care if it's closed.
-            let _ = channel.try_send(LogMessage::Execution(name.to_string()));
-        }
+        self.send(
+            matches!(self.profile_level, Some(ProfileLevel::ExecutionOnly)),
+            || LogMessage::Execution(name.to_string()),
+        );
     }
 
     /// Register a profiled task.
     pub fn register_profiled(&self, name: impl Display, duration: ProfileDuration) {
-        if let Some(channel) = &self.log_channel
-            && self.profile_level.is_some()
-        {
-            // Channel will never be full, don't care if it's closed.
-            let _ = channel.try_send(LogMessage::Profile(name.to_string(), duration));
-        }
+        self.send(self.profile_level.is_some(), || {
+            LogMessage::Profile(name.to_string(), duration)
+        });
     }
 
     /// Show the profiling summary if activated and reset its state.
     pub fn profile_summary(&self) {
-        if let Some(channel) = &self.log_channel
-            && self.profile_level.is_some()
-        {
-            // Channel will never be full, don't care if it's closed.
-            let _ = channel.try_send(LogMessage::ProfileSummary);
-        }
+        self.send(self.profile_level.is_some(), || LogMessage::ProfileSummary);
     }
 }
 
+impl ServerLogger {
+    /// Sends the message `message` builds to the logging task, when `enabled`
+    /// and a task runs: building it costs nothing otherwise.
+    fn send(&self, enabled: bool, message: impl FnOnce() -> LogMessage) {
+        let Some(channel) = self.log_channel.as_ref().filter(|_| enabled) else {
+            return;
+        };
+        // Unbounded, so never full. A closed channel means the task is gone,
+        // and the message with it.
+        let _ = channel.try_send(message());
+    }
+}
+
+/// Writes the messages a [`ServerLogger`] sends, off the thread that sends
+/// them.
 struct AsyncLogger {
-    message: Receiver<LogMessage>,
+    messages: Receiver<LogMessage>,
     logger: Logger,
-    profiled: Profiled,
+    aggregator: ProfileAggregator,
 }
 
 impl AsyncLogger {
-    async fn process(mut self) {
-        while let Ok(msg) = self.message.recv().await {
-            match msg {
-                LogMessage::Compilation(msg) => {
-                    self.logger.log_compilation(&msg);
-                }
-                LogMessage::Streaming(msg) => {
-                    self.logger.log_streaming(&msg);
-                }
-                LogMessage::Memory(msg) => {
-                    self.logger.log_memory(&msg);
-                }
-                LogMessage::Profile(name, profile) => match profile.resolve().await {
-                    Some(ticks) => {
-                        let duration = ticks.duration();
-                        self.profiled.update(&name, duration);
-                        self.logger
-                            .log_profiling(&format!("| {duration:<10?} | {name}"));
-                    }
-                    // Named but not counted. Folding an absence into the
-                    // summary as a zero would drag every average it joins down
-                    // towards a speed nothing achieved.
-                    None => self
-                        .logger
-                        .log_profiling(&format!("| {:<10} | {name}", "not measured")),
-                },
+    /// Writes every message until the last sender drops.
+    async fn log_messages(mut self) {
+        while let Ok(message) = self.messages.recv().await {
+            match message {
+                LogMessage::Compilation(message) => self.logger.log_compilation(&message),
+                LogMessage::Streaming(message) => self.logger.log_streaming(&message),
+                LogMessage::Memory(message) => self.logger.log_memory(&message),
+                LogMessage::Profile(name, profile) => self.log_profile(&name, profile).await,
                 LogMessage::Execution(name) => {
-                    self.logger.log_profiling(&format!("Executing {name}"));
+                    self.logger.log_profiling(&format!("Executing {name}"))
                 }
-                LogMessage::ProfileSummary => {
-                    if !self.profiled.is_empty() {
-                        self.logger.log_profiling(&self.profiled);
-                        self.profiled = Profiled::default();
-                    }
-                }
+                LogMessage::ProfileSummary => self.log_summary(),
             }
         }
+    }
+
+    /// Writes one profiled launch, and aggregates it for the summary.
+    async fn log_profile(&mut self, name: &str, profile: ProfileDuration) {
+        // Named but not counted. Folding an absence into the summary as a
+        // zero would drag every average it joins down towards a speed nothing
+        // achieved.
+        let Some(ticks) = profile.resolve().await else {
+            self.logger
+                .log_profiling(&format!("| {:<10} | {name}", "not measured"));
+            return;
+        };
+        let duration = ticks.duration();
+        self.aggregator.aggregate(name, duration);
+        self.logger
+            .log_profiling(&format!("| {duration:<10?} | {name}"));
+    }
+
+    /// Writes the summary of what was profiled since the last one, if
+    /// anything was.
+    fn log_summary(&mut self) {
+        if self.aggregator.is_empty() {
+            return;
+        }
+        self.logger.log_profiling(&self.aggregator);
+        self.aggregator.clear();
     }
 }

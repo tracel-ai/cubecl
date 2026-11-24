@@ -6,7 +6,7 @@ use super::{Execution, Measurement, TimingRequest};
 /// it cares about.
 ///
 /// Implementations must be cheap, must not launch, and must not install or drop
-/// an [`ExecutionObservation`] or open an [`ExecutionScope`]: this runs inside
+/// an [`ExecutionObservation`](super::ExecutionObservation) or open an [`ExecutionScope`](super::ExecutionScope): this runs inside
 /// the launch path, before the work reaches the server, and holds the lock that
 /// guards the installed observer.
 pub trait ExecutionObserver: Send + Sync {
@@ -25,7 +25,13 @@ pub trait ExecutionObserver: Send + Sync {
     /// [`Deferred`](TimingRequest::Deferred).
     ///
     /// Communications are issued at every level, and timed only under
-    /// [`Timed::KernelsAndCommunications`].
+    /// [`Timed::KernelsAndCommunications`](super::Timed::KernelsAndCommunications).
+    ///
+    /// # Guarantees
+    ///
+    /// Asked once per execution, right after [`issued`](Self::issued), and
+    /// that answer decides how the execution's measurement is delivered,
+    /// whatever the observer answers by the time it arrives.
     ///
     /// Two situations refuse the measurement without refusing the launch:
     ///
@@ -51,7 +57,7 @@ pub trait ExecutionObserver: Send + Sync {
     ///
     /// It arrives *after* the launch rather than before it, so an observer
     /// pairing executions with its own state should do that in
-    /// [`issued`](Self::issued) and match the [`ExecutionId`] here. A
+    /// [`issued`](Self::issued) and match the [`ExecutionId`](super::ExecutionId) here. A
     /// measurement goes to the observer the execution was reported to, and only
     /// while it is still installed: an observation that ends mid-read is not
     /// told.

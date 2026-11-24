@@ -7,12 +7,16 @@ use crate::server::{Collective, TransportProvider};
 
 /// Names one [`Execution`] among those issued while the process was observed.
 ///
-/// Minted only while an observer is installed, so an unobserved run pays nothing for it. Unique
-/// for the process's lifetime, and increasing in the order executions were issued.
+/// Minted only while an observer is installed, so an unobserved run pays nothing for it.
+///
+/// # Guarantees
+///
+/// Unique for the process's lifetime, and increasing in the order executions were issued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ExecutionId(pub(super) u64);
+pub struct ExecutionId(u64);
 
 impl ExecutionId {
+    /// An id greater than every one minted before it.
     pub(crate) fn mint() -> Self {
         use core::sync::atomic::{AtomicU64, Ordering};
 

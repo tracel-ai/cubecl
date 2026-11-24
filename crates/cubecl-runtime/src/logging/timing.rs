@@ -2,13 +2,9 @@ use super::{Duration, ProfileDuration, TimingMethod};
 
 /// What an observer asks be done with each launch's measurement.
 ///
-/// Declared once, by [`timing`](ExecutionObserver::timing): the launch path has
-/// to know where a measurement will go *before* it takes one.
-///
-/// **It must not change while an observation is installed.** A launch bracketed
-/// under one answer and delivered under another loses a measurement that has
-/// already been paid for. An observer that measures only part of a run keeps
-/// that region in its own state, rather than changing its answer here.
+/// Answered by [`timing`](super::ExecutionObserver::timing) as each execution
+/// is issued: the launch path has to know where a measurement will go *before*
+/// it takes one.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TimingRequest {
     /// Don't time launches. The default, because timing is not free.
@@ -69,7 +65,7 @@ pub enum Measurement {
     ///
     /// Where the backend times on the device without waiting (CUDA, HIP, and
     /// wgpu's timestamp queries) the measurement is two events in the stream
-    /// that nothing has waited for, and the resolved [`ProfileTicks`] carry the
+    /// that nothing has waited for, and the resolved [`ProfileTicks`](super::ProfileTicks) carry the
     /// window's start and end on one clock, so an observer can also say where
     /// the device sat idle between kernels. Metal waits for the window and
     /// places it at the moment it was read: its lengths are device time, its
@@ -78,7 +74,7 @@ pub enum Measurement {
     ///
     /// Reading it, [`ProfileDuration::resolve`], blocks until the device has
     /// reached both events: doing that inside
-    /// [`measured`](ExecutionObserver::measured) would hold the observer's lock
+    /// [`measured`](super::ExecutionObserver::measured) would hold the observer's lock
     /// for the length of the kernel, which is the thing
     /// [`Deferred`](TimingRequest::Deferred) exists to avoid.
     Unread(ProfileDuration),
