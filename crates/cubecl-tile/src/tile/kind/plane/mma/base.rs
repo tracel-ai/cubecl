@@ -867,7 +867,7 @@ impl MmaData {
                                 let start = cell % comptime!(width as u32);
                                 #[unroll]
                                 for e in 0..run {
-                                    let value = match comptime!(width > run) {
+                                    let value = match width > run {
                                         true => {
                                             line.extract_dynamic((start + e as u32).cast::<usize>())
                                         }
