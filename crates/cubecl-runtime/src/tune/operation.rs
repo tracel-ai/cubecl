@@ -11,7 +11,7 @@ use cubecl_environment::sync::Mutex;
 use alloc::format;
 
 use crate::tune::stage::BoundStageEnterer;
-use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer};
+use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer, TuneDeviceAccess};
 
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
@@ -64,6 +64,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
     stage_enterer: Option<Arc<dyn StageEnterer<K, F> + Send + Sync>>,
+    device_access: TuneDeviceAccess,
     short_circuit: bool,
     /// Planned once a key: ranking candidates can build every one's blueprint, which costs
     /// more than the launch, and an untuned key is reached at every layer of a compile pass.
@@ -81,6 +82,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             bounds_gen: None,
             eviction: None,
             stage_enterer: None,
+            device_access: TuneDeviceAccess::Exclusive,
             short_circuit: true,
             run_orders: Mutex::new(HashMap::new()),
         };
@@ -133,6 +135,17 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     ) -> Self {
         self.stage_enterer = Some(enterer);
         self
+    }
+
+    /// Sets how a tune of this set holds the device it measures. See [`TuneDeviceAccess`].
+    pub fn with_device_access(mut self, access: TuneDeviceAccess) -> Self {
+        self.device_access = access;
+        self
+    }
+
+    /// How a tune of this set holds the device it measures.
+    pub fn device_access(&self) -> TuneDeviceAccess {
+        self.device_access
     }
 
     /// Set whether bounds-based short-circuiting is enabled.
