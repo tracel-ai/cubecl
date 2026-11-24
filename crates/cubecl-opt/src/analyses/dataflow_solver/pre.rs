@@ -54,7 +54,7 @@ use crate::{
                 DenseBackwardDataflowAnalysis, DenseForwardDataflowAnalysis, DenseLattice,
                 LatticeValue,
             },
-            speculatability::{NotSpeculatable, SpeculatableAnalysis},
+            speculatability::{NotSpeculatable, SpeculatableBackward},
             value_dependents::{DependentsLattice, ValueDependentsAnalysis},
             value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
             value_uniformity::{DynamicUniformityAnalysis, DynamicUniformityLattice},
@@ -114,7 +114,9 @@ pub fn compute_lcm_analyses(
         |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
 
     if mode == AnticipatedMode::Speculative {
-        solver.load(SpeculatableAnalysis::default());
+        solver.load(SpeculatableBackward::new(collect_expression_dependents(
+            &solver,
+        )));
         solver.load(DynamicUniformityAnalysis::default());
     }
 
@@ -132,10 +134,7 @@ pub fn compute_lcm_analyses(
         // and then become speculatively available on another edge.
         let mut n_iters = 0;
         let rerun_antic = |analysis: &dyn DataflowAnalysis| analysis.is::<AnticipatedAnalysis>();
-        let expression_dependents = collect_expression_dependents(&solver);
-        while seed_speculative(ctx, &solver, op, &memory_kill_sets, &expression_dependents)?
-            == ChangeResult::Changed
-        {
+        while seed_speculative(ctx, &solver, op, &memory_kill_sets)? == ChangeResult::Changed {
             solver.clear_states_of_type::<Anticipated>();
             solver.initialize_filtered_and_run(ctx, op, rerun_antic)?;
             // Safety shutoff because I don't have a mathematical proof of convergence
@@ -594,14 +593,15 @@ pub(crate) fn collect_memory_kill_sets(
     out
 }
 
-/// The expressions that transitively use each expression, over every value numbered by it.
-///
-/// Equal values can have different users, so an expression's dependents are the union of its
-/// values' dependents.
-fn collect_expression_dependents(solver: &DataflowSolver) -> HMap<u64, SparseBitSet> {
+/// The expressions that transitively use each expression. Equal values can have different
+/// users, so this is the union over every value the expression numbers.
+pub(super) fn collect_expression_dependents(solver: &DataflowSolver) -> HMap<u64, SparseBitSet> {
     let mut out = HMap::<u64, SparseBitSet>::new();
     for dependents in solver.states_of_type::<DependentsLattice>() {
         let dependents = dependents.deref();
+        if dependents.value().0.is_empty() {
+            continue;
+        }
         let Some(number) = solver
             .lookup_state::<ValueNumberLattice>(dependents.anchor())
             .and_then(|it| it.deref().value().value())
@@ -613,7 +613,7 @@ fn collect_expression_dependents(solver: &DataflowSolver) -> HMap<u64, SparseBit
     out
 }
 
-pub(super) fn op_transitive_kill_set(
+fn op_transitive_kill_set(
     solver: &DataflowSolver,
     computes: &ReadRef<Computes>,
     values: impl Iterator<Item = Value>,
@@ -623,7 +623,7 @@ pub(super) fn op_transitive_kill_set(
     res
 }
 
-pub(super) fn values_transitive_kill_set(
+fn values_transitive_kill_set(
     solver: &DataflowSolver,
     values: impl Iterator<Item = Value>,
 ) -> SparseBitSet {
@@ -809,12 +809,10 @@ fn seed_speculative(
     solver: &DataflowSolver,
     op: Ptr<Operation>,
     memory_kill_sets: &HMap<MemoryValue, SparseBitSet>,
-    expression_dependents: &HMap<u64, SparseBitSet>,
 ) -> Result<ChangeResult> {
     struct Updater<'a> {
         memory_ssa: Ref<'a, MemorySSA>,
         memory_kill_sets: &'a HMap<MemoryValue, SparseBitSet>,
-        expression_dependents: &'a HMap<u64, SparseBitSet>,
     }
 
     impl Updater<'_> {
@@ -827,11 +825,13 @@ fn seed_speculative(
         ) -> ChangeResult {
             let not_speculatable = solver.lookup_state::<NotSpeculatable>(succ_point).unwrap();
             let arg_kills = successor_args_kill(ctx, solver, succ_point);
-            let not_speculatable = self.with_dependents(&not_speculatable.deref().value().0);
+            let not_speculatable = not_speculatable.deref();
             let antic = solver.lookup_state::<Anticipated>(succ_point).unwrap();
             let antic = antic.deref();
             let antic = antic.value().0.unwrap();
-            let spec_antic_succ = antic.difference(&not_speculatable).difference(&arg_kills);
+            let spec_antic_succ = antic
+                .difference(&not_speculatable.value().0)
+                .difference(&arg_kills);
 
             let def = match succ_point.is_block_start(ctx) {
                 true => self
@@ -856,18 +856,6 @@ fn seed_speculative(
             });
             changed
         }
-
-        /// An expression is speculated only with its operands, so one that is not speculatable
-        /// holds back every expression using it.
-        fn with_dependents(&self, not_speculatable: &SparseBitSet) -> SparseBitSet {
-            let mut out = not_speculatable.clone();
-            for expression in not_speculatable.iter() {
-                if let Some(dependents) = self.expression_dependents.get(&(expression as u64)) {
-                    out.unite(dependents);
-                }
-            }
-            out
-        }
     }
 
     let mut analyses = solver.analyses();
@@ -875,7 +863,6 @@ fn seed_speculative(
     let updater = Updater {
         memory_ssa,
         memory_kill_sets,
-        expression_dependents,
     };
 
     let mut changed = ChangeResult::Unchanged;

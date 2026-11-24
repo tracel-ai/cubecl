@@ -11,6 +11,7 @@ use derive_more::{Deref, DerefMut};
 use pliron::{
     opts::dce::SideEffects,
     printable::{self, Printable},
+    utils::table::HMap,
 };
 
 use crate::{
@@ -18,7 +19,8 @@ use crate::{
     analyses::dataflow_solver::{
         ChangeResult, DataflowSolver, ProgramPoint, ReadRef, WriteRef,
         dense::{DenseBackward, DenseBackwardDataflowAnalysis, DenseLattice, LatticeValue},
-        pre::{Computes, op_transitive_kill_set, values_transitive_kill_set},
+        pre::Computes,
+        value_numbering::ValueNumberLattice,
     },
 };
 
@@ -42,8 +44,40 @@ impl LatticeValue for NotSpeculatableSet {
 pub type SpeculatableAnalysis = DenseBackward<SpeculatableBackward>;
 pub type NotSpeculatable = DenseLattice<NotSpeculatableSet>;
 
-#[derive(Default)]
-pub struct SpeculatableBackward;
+pub struct SpeculatableBackward {
+    /// The expressions transitively using each expression, from
+    /// [`collect_expression_dependents`](super::pre::collect_expression_dependents).
+    expression_dependents: HMap<u64, SparseBitSet>,
+}
+
+impl SpeculatableBackward {
+    pub fn new(expression_dependents: HMap<u64, SparseBitSet>) -> SpeculatableAnalysis {
+        DenseBackward::new(Self {
+            expression_dependents,
+        })
+    }
+
+    /// The expressions using a value equal to one of `values`. The set holds expressions, not
+    /// values, so an expression must leave it with every expression using it, whichever value
+    /// that use reads.
+    fn expression_kill_set(
+        &self,
+        solver: &DataflowSolver,
+        values: impl Iterator<Item = Value>,
+    ) -> SparseBitSet {
+        let mut out = SparseBitSet::new();
+        for value in values {
+            let dependents = solver
+                .lookup_state::<ValueNumberLattice>(value)
+                .and_then(|it| it.deref().value().value())
+                .and_then(|number| self.expression_dependents.get(&number));
+            if let Some(dependents) = dependents {
+                out.unite(dependents);
+            }
+        }
+        out
+    }
+}
 
 impl DenseBackwardDataflowAnalysis for SpeculatableBackward {
     type LatticeValue = NotSpeculatableSet;
@@ -77,7 +111,7 @@ impl DenseBackwardDataflowAnalysis for SpeculatableBackward {
         let before_set = if is_speculatable {
             after.difference(&computes.deref().value().0).into()
         } else {
-            let dependents = op_transitive_kill_set(solver, &computes, op.deref(ctx).results());
+            let dependents = this.expression_kill_set(solver, op.deref(ctx).results());
             after
                 .union(&computes.deref().value().0)
                 .union(&dependents)
@@ -90,7 +124,7 @@ impl DenseBackwardDataflowAnalysis for SpeculatableBackward {
     }
 
     fn visit_control_flow_transfer(
-        _: &DenseBackward<Self>,
+        this: &DenseBackward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
         _: ProgramPoint,
@@ -103,7 +137,7 @@ impl DenseBackwardDataflowAnalysis for SpeculatableBackward {
             if anchor.is_block_start(ctx) {
                 let block = anchor.block().unwrap().deref(ctx);
                 let args = block.arguments();
-                succ_not_speculatable.unite(&values_transitive_kill_set(solver, args));
+                succ_not_speculatable.unite(&this.expression_kill_set(solver, args));
             }
             solver.update_state(ctx, before, |it| {
                 it.meet(&NotSpeculatableSet(succ_not_speculatable))

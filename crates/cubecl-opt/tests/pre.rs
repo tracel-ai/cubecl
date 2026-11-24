@@ -1060,7 +1060,7 @@ fn pre_aliasing_write_preserves_reads_and_dependents() -> Result<()> {
 fn pre_speculates_an_expression_only_with_its_operands() -> Result<()> {
     // `index_again` equals `index` but uses a division computed after the inner branch, which
     // makes `index` not speculatable above the outer branch. `offset` uses `index`, so it must
-    // not be speculated there either.
+    // not be hoisted there either, where `index` would have no leader.
     let input = r#"
   builtin.module @module {
     ^module_block():
@@ -1105,7 +1105,7 @@ fn pre_speculates_an_expression_only_with_its_operands() -> Result<()> {
     assert_sscm_result(input, IRStatus::Changed, |ctx, op| {
         let quotient = find_single_op_in(ctx, op, "entry", "math.u_div").result(ctx);
         let index = find_single_op_in(ctx, op, "outer_then", "math.i_add");
-        let offset = find_single_op_in(ctx, op, "inner_then", "math.i_mul");
+        let offset = find_single_op_in(ctx, op, "outer_then", "math.i_mul");
 
         assert_eq!(find_ops(ctx, op, "math.u_div").len(), 1);
         assert_eq!(find_ops(ctx, op, "math.i_add").len(), 1);
