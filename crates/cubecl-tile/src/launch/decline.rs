@@ -26,9 +26,9 @@ pub enum Decline {
     WidthNotServed { width: usize, why: LineMisfit },
     /// The innermost dimension is served in vector lines but is not provably in bounds.
     UncheckableVectorEdge,
-    /// A storage-tiled operand whose storage tile is the tile of `level`, and which this launch
-    /// overhangs: a window inside one storage tile is read as one unmasked run, so the windows
-    /// past the tensor's end would read storage tiles it does not have.
+    /// A storage-tiled operand whose storage tile is the tile of `level`, and which is checked: the
+    /// launch overhangs a dimension it addresses, so its windows mask, while a window inside its
+    /// storage tile is read as one unmasked run.
     CheckedInsideStorageTile { level: usize },
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
     /// operand's last dimension at coefficient 1.
@@ -240,9 +240,9 @@ impl Display for Decline {
             Decline::CheckedInsideStorageTile { level } => write!(
                 f,
                 "Arg: this storage-tiled operand's storage tile is the tile of level {level}, \
-                 where a window is read as one unmasked run, and the launch overhangs it, so a \
-                 window past the tensor's end would read storage tiles it does not have; tile \
-                 the launch so it divides the operand, or tile it coarser than the storage tile"
+                 where a window is read as one unmasked run, but the launch overhangs a \
+                 dimension the operand addresses, so its windows mask; tile the launch so it \
+                 divides the operand, or tile it coarser than the storage tile"
             ),
             Decline::DimensionsOutOfAxisOrder { stated, by_axis } => write!(
                 f,
