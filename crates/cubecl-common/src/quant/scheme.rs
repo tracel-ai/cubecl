@@ -8,7 +8,8 @@ use crate::{e2m1, ue8m0};
 /// Describes a quantization scheme/configuration.
 ///
 /// Scales come at up to two levels, each an optional field set through
-/// [`per_tensor`](Self::per_tensor) and [`per_block`](Self::per_block) in any order:
+/// [`per_tensor`](Self::per_tensor) or [`per_row`](Self::per_row), the outer level, and
+/// [`per_block`](Self::per_block), the inner one, in any order:
 ///
 /// ```
 /// # use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
@@ -22,6 +23,9 @@ use crate::{e2m1, ue8m0};
 /// QuantScheme::default()
 ///     .per_block([16], ScaleDtype::UE4M3)
 ///     .per_tensor(ScaleDtype::F32);
+///
+/// // One scale per row, over the whole last axis, however long it is.
+/// QuantScheme::default().per_row(ScaleDtype::F32);
 /// ```
 ///
 /// A two-level scheme exists so block scales can live in a narrow type: the global per-tensor scale
@@ -30,7 +34,10 @@ use crate::{e2m1, ue8m0};
 /// block dtype can express is stored at that dtype's smallest value, far too coarse for it, and
 /// every value in the block quantizes to zero. [`ScaleDtype::UE4M3`] spans about 2^18 this way, so
 /// a tensor holding a genuine outlier can lose its ordinary values.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+// `Debug` and `Hash` are written out so a scheme with no per-row level reads and hashes as it did
+// before the level existed: an autotune's saved keys are looked up by both, and the serialized
+// field defaults to none, so a key saved before it reads back.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
     /// The logical data type of quantized input values (e.g., [`QuantValue::Q8F`]).
     ///
@@ -43,8 +50,41 @@ pub struct QuantScheme {
     /// The per-tensor scale level. Private with [`tensor_scale`](Self::tensor_scale) as the
     /// reader, which resolves a scheme storing no level at all to a per-tensor f32 scale.
     tensor: Option<ScaleDtype>,
+    /// The per-row scale level: one scale for every index of the leading axes, over the whole
+    /// last axis. The outer level in place of the per-tensor one: a scheme holds one or the other.
+    /// Absent from a scheme serialized before the level existed, which reads back as one without.
+    #[serde(default)]
+    row: Option<ScaleDtype>,
     /// The per-block scale level, the innermost when both levels are present.
     block: Option<BlockScale>,
+}
+
+impl core::fmt::Debug for QuantScheme {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut scheme = f.debug_struct("QuantScheme");
+        scheme
+            .field("value", &self.value)
+            .field("store", &self.store)
+            .field("mode", &self.mode)
+            .field("tensor", &self.tensor);
+        if let Some(row) = &self.row {
+            scheme.field("row", row);
+        }
+        scheme.field("block", &self.block).finish()
+    }
+}
+
+impl core::hash::Hash for QuantScheme {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+        self.store.hash(state);
+        self.mode.hash(state);
+        self.tensor.hash(state);
+        if let Some(row) = &self.row {
+            row.hash(state);
+        }
+        self.block.hash(state);
+    }
 }
 
 impl Default for QuantScheme {
@@ -54,6 +94,7 @@ impl Default for QuantScheme {
             store: QuantStore::PackedU32(0),
             mode: QuantMode::Symmetric,
             tensor: None,
+            row: None,
             block: None,
         }
     }
@@ -78,9 +119,19 @@ impl QuantScheme {
         self
     }
 
-    /// Set the per-tensor scale level, stored as `dtype`.
+    /// Set the per-tensor scale level, stored as `dtype`, in place of a per-row one.
     pub fn per_tensor(mut self, dtype: ScaleDtype) -> Self {
         self.tensor = Some(dtype);
+        self.row = None;
+        self
+    }
+
+    /// Set the per-row scale level, stored as `dtype`, in place of a per-tensor one: one scale for
+    /// every index of the leading axes, constant along the whole last axis, so a row of any length
+    /// takes one.
+    pub fn per_row(mut self, dtype: ScaleDtype) -> Self {
+        self.row = Some(dtype);
+        self.tensor = None;
         self
     }
 
@@ -99,10 +150,15 @@ impl QuantScheme {
     /// is not stored, so such a scheme compares equal to [`Default`], not to an explicit
     /// `per_tensor(F32)`.
     pub fn tensor_scale(&self) -> Option<ScaleDtype> {
-        if self.tensor.is_none() && self.block.is_none() {
+        if self.tensor.is_none() && self.row.is_none() && self.block.is_none() {
             return Some(ScaleDtype::F32);
         }
         self.tensor
+    }
+
+    /// The per-row scale level, the outer level when a block level is present.
+    pub fn row_scale(&self) -> Option<ScaleDtype> {
+        self.row
     }
 
     /// The per-block scale level, the innermost when both levels are present.
@@ -112,13 +168,16 @@ impl QuantScheme {
 
     /// The number of scale levels: as many scale tensors ride along with the values.
     pub fn num_levels(&self) -> usize {
-        self.block_scale().is_some() as usize + self.tensor_scale().is_some() as usize
+        self.block_scale().is_some() as usize
+            + self.tensor_scale().is_some() as usize
+            + self.row_scale().is_some() as usize
     }
 
     /// The innermost level's scale dtype, the type the per-position scales are stored in.
     pub fn scale_dtype(&self) -> ScaleDtype {
         self.block
             .map(|block| block.dtype)
+            .or(self.row)
             .or(self.tensor)
             .unwrap_or(ScaleDtype::F32)
     }
@@ -140,7 +199,17 @@ impl QuantScheme {
 
     /// Permute the block level, mirroring a permutation of the tensor's axes. The per-tensor
     /// level is unaffected.
+    ///
+    /// # Panics
+    ///
+    /// Where the scheme has a per-row level and the permutation moves the last axis, which the
+    /// level's scales are constant along.
     pub fn permute_block_dims(&mut self, rank: usize, axes: &[usize]) {
+        assert!(
+            self.row.is_none() || axes.last().is_none_or(|&last| last + 1 == rank),
+            "a per-row scale level should keep its last axis in place: its scales are constant \
+             along it"
+        );
         if let Some(block) = &mut self.block {
             let dims = block.size.to_dim_vec(rank);
             let permuted: Vec<u8> = axes.iter().map(|&axis| dims[axis]).collect();
@@ -210,6 +279,10 @@ impl QuantScheme {
     }
 
     /// Permute the block level and the packing dim, mirroring a permutation of the tensor's axes.
+    ///
+    /// # Panics
+    ///
+    /// As [`permute_block_dims`](Self::permute_block_dims).
     pub fn permute_dims(&mut self, axes: &[usize]) {
         self.permute_block_dims(axes.len(), axes);
         self.permute_packing_dim(axes);
@@ -703,6 +776,11 @@ codes!(QuantMode {
     Lookup => 1,
 });
 
+/// The bit of a scheme's code that states its outer level per row ([`QuantScheme::to_code`]).
+const ROW_LEVEL_BIT: u32 = 63;
+/// The block sizes, a byte each from bit 23, stop below the per-row bit.
+const _: () = assert!(23 + 8 * MAX_DIMS <= ROW_LEVEL_BIT as usize);
+
 // `0` is no code: a level's bits read `0` when the scheme has no such level.
 codes!(ScaleDtype {
     F32 => 1,
@@ -716,14 +794,18 @@ codes!(ScaleDtype {
 /// backend's custom operation crosses the wire as tensors and scalars only.
 ///
 /// The layout, from the low bits: the value (4), the store's kind (2) and packing axis (6), the
-/// mode (2), the per-tensor level (3), the block level's dtype (3), its rank (3) and its sizes
-/// (8 each, up to [`BlockSize::MAX_DIMS`]). A level's 3 bits are `0` for none, else its dtype's
-/// code.
+/// mode (2), the outer level (3), the block level's dtype (3), its rank (3), its sizes (8 each, up
+/// to [`BlockSize::MAX_DIMS`]), and in the top bit whether the outer level is per row rather than
+/// per tensor. A level's 3 bits are `0` for none, else its dtype's code.
 impl QuantScheme {
     /// This scheme as one `u64`; [`from_code`](Self::from_code) reads it back. `None` for a scheme
-    /// no code holds: a packing axis past 63, or a block dimension of zero, which covers no
-    /// element.
+    /// no code holds: a packing axis past 63, a block dimension of zero, which covers no element,
+    /// or both a per-tensor and a per-row level, which a deserialized scheme can state and no
+    /// builder makes.
     pub fn to_code(&self) -> Option<u64> {
+        if self.tensor.is_some() && self.row.is_some() {
+            return None;
+        }
         let (store, axis) = match self.store {
             QuantStore::Native => (0, 0),
             QuantStore::PackedNative(axis) => (1, axis),
@@ -751,10 +833,11 @@ impl QuantScheme {
                 | (store << 4)
                 | ((axis as u64) << 6)
                 | (self.mode.to_code() << 12)
-                | (level(self.tensor) << 14)
+                | (level(self.tensor.or(self.row)) << 14)
                 | (level(self.block.map(|block| block.dtype)) << 17)
                 | ((sizes.len() as u64) << 20)
-                | (packed_sizes << 23),
+                | (packed_sizes << 23)
+                | (u64::from(self.row.is_some()) << ROW_LEVEL_BIT),
         )
     }
 
@@ -775,7 +858,12 @@ impl QuantScheme {
             0 => Some(None),
             bits => ScaleDtype::from_code(bits).map(Some),
         };
-        let tensor = level(field(14, 3))?;
+        let outer = level(field(14, 3))?;
+        let per_row = field(ROW_LEVEL_BIT, 1) == 1;
+        let (tensor, row) = match per_row {
+            true => (None, Some(outer?)),
+            false => (outer, None),
+        };
         let rank = field(20, 3) as usize;
         if rank > MAX_DIMS {
             return None;
@@ -796,6 +884,7 @@ impl QuantScheme {
             store,
             mode,
             tensor,
+            row,
             block,
         })
         .filter(|scheme| scheme.to_code() == Some(code))
@@ -1164,7 +1253,7 @@ mod tests {
     }
 
     /// Every scheme packs into a code that reads back as itself, its private per-tensor level
-    /// included: every value, store (at both ends of the axis), mode, per-tensor level, and block
+    /// included: every value, store (at both ends of the axis), mode, per-tensor or per-row level, and block
     /// level at ranks one to five with sizes at both ends. The variants come from the code
     /// tables, which the build holds to every variant.
     #[test]
@@ -1190,7 +1279,8 @@ mod tests {
                         .with_store(store)
                         .with_mode(mode);
                     let tensors = core::iter::once(base)
-                        .chain(dtypes.iter().map(|dtype| base.per_tensor(*dtype)));
+                        .chain(dtypes.iter().map(|dtype| base.per_tensor(*dtype)))
+                        .chain(dtypes.iter().map(|dtype| base.per_row(*dtype)));
                     for scheme in tensors {
                         let blocks =
                             core::iter::once(scheme).chain(dtypes.iter().flat_map(|dtype| {
@@ -1209,6 +1299,163 @@ mod tests {
             }
         }
         assert_eq!(codes.len(), count, "two schemes share a code");
+    }
+
+    /// A per-row level alone is the scheme's one level, over no per-tensor one.
+    #[test]
+    fn a_per_row_level_alone_is_the_only_level() {
+        let row = QuantScheme::default().per_row(ScaleDtype::F32);
+        assert_eq!(
+            (row.row_scale(), row.tensor_scale(), row.num_levels()),
+            (Some(ScaleDtype::F32), None, 1)
+        );
+    }
+
+    /// A per-row level replaces a per-tensor one above a block level.
+    #[test]
+    fn a_per_row_level_replaces_the_per_tensor_one() {
+        let nested = QuantScheme::default()
+            .per_block([32], ScaleDtype::UE8M0)
+            .per_tensor(ScaleDtype::F32)
+            .per_row(ScaleDtype::F32);
+        assert_eq!(
+            (
+                nested.row_scale(),
+                nested.tensor_scale(),
+                nested.num_levels()
+            ),
+            (Some(ScaleDtype::F32), None, 2)
+        );
+    }
+
+    /// A per-tensor level replaces a per-row one.
+    #[test]
+    fn a_per_tensor_level_replaces_the_per_row_one() {
+        let scheme = QuantScheme::default()
+            .per_row(ScaleDtype::F32)
+            .per_tensor(ScaleDtype::F32);
+        assert_eq!(scheme.row_scale(), None);
+    }
+
+    /// The scheme blocks under a per-row level store their scales in is the blocks' dtype.
+    #[test]
+    fn the_innermost_dtype_is_the_blocks_under_a_per_row_level() {
+        let scheme = QuantScheme::default()
+            .per_block([32], ScaleDtype::UE8M0)
+            .per_row(ScaleDtype::F32);
+        assert_eq!(scheme.scale_dtype(), ScaleDtype::UE8M0);
+    }
+
+    /// FP8-row: `e4m3` values under one `f32` scale a row, its only level.
+    #[test]
+    fn fp8_per_row_is_e4m3_under_a_row_scale_alone() {
+        let scheme = QuantScheme::fp8_per_row();
+        assert_eq!(
+            (scheme.value, scheme.row_scale(), scheme.num_levels()),
+            (QuantValue::E4M3, Some(ScaleDtype::F32), 1)
+        );
+    }
+
+    /// MXFP4 with row-factored scales: MXFP4's `ue8m0` blocks of 32 under an `f32` scale a row.
+    #[test]
+    fn mxfp4_row_factored_is_mxfp4_under_a_row_scale() {
+        let scheme = QuantScheme::mxfp4_row_factored();
+        assert_eq!(
+            (
+                scheme.value,
+                scheme.block_scale().map(|block| block.dtype),
+                scheme.row_scale(),
+            ),
+            (
+                QuantValue::E2M1,
+                Some(ScaleDtype::UE8M0),
+                Some(ScaleDtype::F32)
+            )
+        );
+    }
+
+    /// A scheme with no per-row level prints as it did before the level existed: the tune keys
+    /// an autotune saved are written with it.
+    #[test]
+    fn a_scheme_without_a_per_row_level_prints_as_before() {
+        let scheme = QuantScheme::default()
+            .with_value(QuantValue::Q4S)
+            .per_block([32, 1], ScaleDtype::F16)
+            .with_store(QuantStore::PackedU32(1));
+        assert_eq!(
+            alloc::format!("{scheme:?}"),
+            "QuantScheme { value: Q4S, store: PackedU32(1), mode: Symmetric, tensor: None, \
+             block: Some(BlockScale { size: BlockSize([32, 1]), dtype: F16 }) }"
+        );
+    }
+
+    /// A scheme with no per-row level hashes as the fields it held before the level existed did,
+    /// in their order: the tune keys an autotune looks up are hashed with it.
+    #[test]
+    fn a_scheme_without_a_per_row_level_hashes_as_before() {
+        use core::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        #[derive(Hash)]
+        struct Before {
+            value: QuantValue,
+            store: QuantStore,
+            mode: QuantMode,
+            tensor: Option<ScaleDtype>,
+            block: Option<BlockScale>,
+        }
+        let scheme = QuantScheme::default().per_block([32], ScaleDtype::UE8M0);
+        let before = Before {
+            value: scheme.value,
+            store: scheme.store,
+            mode: scheme.mode,
+            tensor: scheme.tensor,
+            block: scheme.block,
+        };
+        fn hash(value: &impl Hash) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+        assert_eq!(hash(&scheme), hash(&before));
+    }
+
+    /// A scheme serialized before the per-row level existed reads back as the same scheme.
+    #[test]
+    fn a_scheme_serialized_before_the_per_row_level_reads_back() {
+        let scheme = QuantScheme::default().per_block([32], ScaleDtype::UE8M0);
+        let mut json: serde_json::Value = serde_json::to_value(scheme).unwrap();
+        json.as_object_mut().unwrap().remove("row");
+        assert_eq!(serde_json::from_value::<QuantScheme>(json).unwrap(), scheme);
+    }
+
+    /// A scheme stating both a per-tensor and a per-row level, which only a deserialized one can,
+    /// has no code.
+    #[test]
+    fn a_scheme_with_both_outer_levels_has_no_code() {
+        let scheme = QuantScheme::default().per_row(ScaleDtype::F32);
+        let mut json: serde_json::Value = serde_json::to_value(scheme).unwrap();
+        json["tensor"] = serde_json::to_value(Some(ScaleDtype::F32)).unwrap();
+        let both: QuantScheme = serde_json::from_value(json).unwrap();
+        assert_eq!(both.to_code(), None);
+    }
+
+    /// A permutation moving the last axis of a per-row scheme is refused: its scales are constant
+    /// along that axis.
+    #[test]
+    #[should_panic(expected = "keep its last axis in place")]
+    fn a_per_row_scheme_refuses_to_move_its_last_axis() {
+        let mut scheme = QuantScheme::fp8_per_row();
+        scheme.permute_dims(&[1, 0]);
+    }
+
+    /// A code stating its outer level per row with no outer level reads back as no scheme.
+    #[test]
+    fn a_per_row_bit_without_an_outer_level_is_refused() {
+        let code = QuantScheme::default()
+            .per_block([32], ScaleDtype::UE8M0)
+            .to_code()
+            .unwrap();
+        assert_eq!(QuantScheme::from_code(code | (1 << ROW_LEVEL_BIT)), None);
     }
 
     /// A code no scheme packs to reads back as no scheme: a reserved value in any field, and a

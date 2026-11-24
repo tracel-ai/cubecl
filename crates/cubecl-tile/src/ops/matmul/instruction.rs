@@ -300,6 +300,8 @@ impl Instruction {
     ///   lays a fragment's `A` like its accumulator: this crate's transport first;
     /// - a sum whose rows are scaled between its products, where this crate's transport offers the
     ///   call the fragment API would take: this crate's transport, the same call;
+    /// - a product of 8-bit floats, whose scales its sum applies cell by cell: this crate's
+    ///   transport alone, and `None` where it offers no call;
     /// - otherwise the fragment API first.
     ///
     /// A packed operand decoded on the way contracts at the other operand's element.
@@ -369,6 +371,13 @@ impl Instruction {
                 .filter(product)
                 .any(|shape| !matmul.cmma.iter().filter(product).any(|c| c == shape))
         };
+        // An 8-bit float product carries its range in scales outside its values, a row's and a
+        // column's, which its sum applies cell by cell as it drains: only this crate's transport
+        // holds each unit's cells where it can read them, the fragment API where only it knows.
+        let is_8_bit_float = |element: ElemType| {
+            matches!(element, ElemType::Float(_)) && element.size_bits() == u8::BITS as usize
+        };
+        let cells_scaled = is_8_bit_float(lhs_element) && is_8_bit_float(rhs_element);
         let mma_first = mma_reads
             || (opened_by == OpenedBy::StageAccumulator
                 && accumulator_is_a(target)
@@ -388,7 +397,9 @@ impl Instruction {
         let pick = |calls: [Option<Call>; 2]| {
             let [cmma_call, mma_call] = calls;
             let picks = [
-                cmma_call.map(|call| call.picked(Instruction::Cmma)),
+                cmma_call
+                    .filter(|_| !cells_scaled)
+                    .map(|call| call.picked(Instruction::Cmma)),
                 mma_call.map(|call| call.picked(mma)),
             ];
             let ordered = match mma_first || scaled_in_place(calls) {
@@ -810,6 +821,59 @@ pub(crate) mod tests {
     #[test]
     fn a_rescaled_sum_stays_in_cmma_where_the_manual_mma_cuts_another_call() {
         assert_eq!(rescaled(&cuda(), [16, 16, 16]), Some(Instruction::Cmma));
+    }
+
+    const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
+    const FP8: FragmentSource = FragmentSource::Values(E4M3);
+
+    /// An RDNA4-like device offering `e4m3` products at `16 × 16 × 16` through the manual mma, and
+    /// through the fragment API where `cmma` says.
+    fn fp8_device(cmma: bool) -> DeviceProperties {
+        let mut device = plain();
+        let fp8 = MmaConfig {
+            a_type: E4M3,
+            b_type: E4M3,
+            ..shape(16, 16, 16)
+        };
+        device.features.matmul.mma.insert(fp8);
+        if cmma {
+            device.features.matmul.cmma.insert(fp8);
+        }
+        device
+    }
+
+    /// What a drained `e4m3` sum over `shape` contracts through on `device`.
+    fn fp8_sum(device: &DeviceProperties, shape: [usize; 3]) -> Option<Instruction> {
+        Instruction::for_accumulator(
+            device,
+            &sum_is_next_a(),
+            ComputeScope::Plane,
+            FP8,
+            FP8,
+            F32,
+            shape,
+        )
+        .map(|call| call.instruction)
+    }
+
+    /// An `e4m3` sum, whose scales its drain applies cell by cell, is held in the manual mma, even
+    /// where the fragment API's call fills the leaf as well.
+    #[test]
+    fn an_8_bit_float_sum_takes_the_manual_mma_over_a_whole_leaf_cmma_call() {
+        assert_eq!(fp8_sum(&fp8_device(true), [16, 16, 16]), Some(mma()));
+    }
+
+    /// Where only the fragment API multiplies `e4m3`, an `e4m3` sum has no instruction: its cells
+    /// would lie where the drain cannot scale them.
+    #[test]
+    fn an_8_bit_float_sum_has_no_instruction_without_the_manual_mma() {
+        let mut device = plain();
+        device.features.matmul.cmma.insert(MmaConfig {
+            a_type: E4M3,
+            b_type: E4M3,
+            ..shape(16, 16, 16)
+        });
+        assert_eq!(fp8_sum(&device, [16, 16, 16]), None);
     }
 
     /// What a drained sum over `shape` contracts through, at the shape of one call.
