@@ -231,7 +231,12 @@ where
     }
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
-    /// the first call for a given key.
+    /// the first call for a given key. A call the fastest rejects runs the next one that serves it.
+    ///
+    /// # Panics
+    ///
+    /// No operation serves `inputs`, or the fastest rejects them and they have no
+    /// [spare](TuneInputs::spare).
     pub fn execute<'a, I: TuneInputs, Out, Id>(
         &self,
         id: &ID,
@@ -264,10 +269,7 @@ where
                     crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
                 log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
             }
-            return operations
-                .fastest(fastest_index)
-                .execute(inputs)
-                .expect("Should run when selected by autotune.");
+            return execute_elected(&operations, &key, fastest_index, inputs);
         }
 
         // Built after the fast path: a hit logs nothing, so it takes no logger lock.
@@ -282,10 +284,9 @@ where
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => operations
-                .fastest(fastest_index)
-                .execute(inputs)
-                .expect("Should run when selected by autotune."),
+            TuneCacheResult::Hit { fastest_index } => {
+                execute_elected(&operations, &key, fastest_index, inputs)
+            }
             TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
@@ -318,19 +319,57 @@ fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
 where
     <I as TuneInputs>::At<'a>: Clone,
 {
-    let mut failures = Vec::new();
-    for &index in order {
+    first_served(order.iter().copied(), |index| {
         // Run as the work, but before the tune decided: a candidate whose
         // kernel fails to compile is the tune's to drop, not the work's failure.
-        let output = crate::execution::LaunchPurpose::provisionally(|| {
+        crate::execution::LaunchPurpose::provisionally(|| {
             operations.fastest(index).execute(inputs.clone())
-        });
-        match output {
+        })
+    })
+}
+
+/// The first output `run` gives over `order`, or every candidate's error when none gives one.
+fn first_served<Out>(
+    order: impl Iterator<Item = usize>,
+    run: impl Fn(usize) -> Result<Out, AutotuneError>,
+) -> Result<Out, Vec<AutotuneError>> {
+    let mut failures = Vec::new();
+    for index in order {
+        match run(index) {
             Ok(output) => return Ok(output),
             Err(err) => failures.push(err),
         }
     }
     Err(failures)
+}
+
+/// Runs `elected`, the candidate the tune elected for `key`, or the next one in the key's
+/// [run order](TunableSet::run_order) that serves `inputs` when it rejects them: a key groups
+/// calls, and the elected candidate may serve only some of them.
+fn execute_elected<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
+    operations: &TunableSet<AK, I, Out, Id>,
+    key: &AK,
+    elected: usize,
+    inputs: <I as TuneInputs>::At<'a>,
+) -> Out {
+    let spare = I::spare(&inputs);
+    let rejection = match operations.fastest(elected).execute(inputs) {
+        Ok(output) => return output,
+        Err(rejection) => rejection,
+    };
+    log::debug!("The candidate elected for {key} rejected a call of it: {rejection}");
+
+    let spare = spare.unwrap_or_else(|| {
+        panic!("The candidate elected for {key} should serve every call of it.\n{rejection}")
+    });
+    let order = operations.run_order(key);
+    let others = order.iter().copied().filter(|&index| index != elected);
+    first_served(others, |index| {
+        operations.fastest(index).execute(spare.clone())
+    })
+    .unwrap_or_else(|failures| {
+        panic!("No autotune candidate for {key} serves this call.\n{rejection}\n{failures:?}")
+    })
 }
 
 #[cfg(test)]
@@ -425,6 +464,23 @@ mod tests {
         );
         let nothing = set().with(Tunable::<FakeAutotuneKey, (), usize>::new("fails", fails));
         assert!(execute_in_plan_order(&nothing, &nothing.run_order(&FakeAutotuneKey), ()).is_err());
+    }
+
+    #[test]
+    fn a_rejected_call_is_served_by_the_next_candidate_in_the_plan() {
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+        let operations = set()
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("planned_last", answers(0))
+                    .group(&group, |_| 0),
+            )
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new("elected", fails).group(&group, |_| 2))
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("planned_second", answers(2))
+                    .group(&group, |_| 1),
+            );
+
+        assert_eq!(execute_elected(&operations, &FakeAutotuneKey, 1, ()), 2);
     }
 
     #[test]

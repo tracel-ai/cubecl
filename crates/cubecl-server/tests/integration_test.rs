@@ -1550,6 +1550,102 @@ fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
     );
 }
 
+/// A candidate that panics is dropped alone: the others are still measured, and the fastest wins.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_candidate_that_panics_is_dropped_alone() {
+    use cubecl_server::tune::Tunable;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_candidate_that_panics_is_dropped_alone");
+
+    let client = test_client(&DummyDevice);
+    let key = fresh_tune_key_uid();
+    let id = key.clone();
+    let set = TUNER.init(&id, move || {
+        let client = test_client(&DummyDevice);
+        let key = key.clone();
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_: &Vec<Handle>| key.clone(),
+            |_: &String, inputs: &Vec<Handle>| inputs.clone(),
+        )
+        .with(Tunable::new("add_slow_wrong", move |inputs| {
+            slow.run(inputs)
+        }))
+        .with(Tunable::new(
+            "panics",
+            |_: Vec<Handle>| -> Result<(), String> { panic!("the block divides the vector") },
+        ))
+        .with(Tunable::new("add", move |inputs| add.run(inputs)))
+    });
+    let (handles, _) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+
+    TUNER.execute(&id, &client, set, handles);
+
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// The elected candidate may reject another call of its key: the next candidate serves it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_call_the_elected_candidate_rejects_is_served_by_another() {
+    use cubecl_server::tune::Tunable;
+    use std::sync::atomic::AtomicBool;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_call_the_elected_candidate_rejects_is_served_by_another");
+    static REJECTS: AtomicBool = AtomicBool::new(false);
+
+    let client = test_client(&DummyDevice);
+    let key = fresh_tune_key_uid();
+    let id = key.clone();
+    let set = TUNER.init(&id, move || {
+        let client = test_client(&DummyDevice);
+        let key = key.clone();
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_: &Vec<Handle>| key.clone(),
+            |_: &String, inputs: &Vec<Handle>| inputs.clone(),
+        )
+        .with(Tunable::new("add_slow_wrong", move |inputs| {
+            slow.run(inputs)
+        }))
+        .with(Tunable::new("add", move |inputs| {
+            match REJECTS.load(Ordering::Relaxed) {
+                true => Err("no line of this shape".to_string()),
+                false => add.run(inputs),
+            }
+        }))
+    });
+    let (handles, _) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set.clone(), handles);
+
+    REJECTS.store(true, Ordering::Relaxed);
+    let (handles, _) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+    TUNER.execute(&id, &client, set, handles);
+
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        vec![0, 1, 2],
+        "served by the slow, wrong candidate"
+    );
+}
+
 /// Candidate lists whose names join into the same string are two lists, and never share a tuner.
 #[test_log::test]
 #[cfg(feature = "std")]

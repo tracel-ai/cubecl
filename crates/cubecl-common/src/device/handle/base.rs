@@ -58,6 +58,11 @@ impl CallError {
         matches!(self.failure, Failure::Closed)
     }
 
+    /// Whether the task panicked.
+    pub fn is_panic(&self) -> bool {
+        matches!(self.failure, Failure::Panicked(_))
+    }
+
     /// Returns the panic message if the failure was a panic whose payload is a
     /// string (the common case for `panic!`, indexing, `unwrap`, ...).
     pub fn message(&self) -> Option<&str> {

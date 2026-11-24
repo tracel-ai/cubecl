@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
@@ -10,6 +10,8 @@ use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
+use crate::client::Client;
+use crate::server::ProfileError;
 use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor};
 
 use super::{
@@ -45,6 +47,49 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     /// the work's.
     pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
         crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
+    }
+
+    /// [`race`](Self::race) on the device's own thread, a panic in the function answered as its
+    /// [error](AutotuneError::Panicked), so it costs no other candidate its measurement.
+    pub(crate) fn race_contained<'a>(
+        &self,
+        inputs: <I as TuneInputs>::At<'a>,
+        client: &Client,
+    ) -> Result<Out, AutotuneError>
+    where
+        Out: Send,
+    {
+        match client.exclusive_call(|| self.race(inputs)) {
+            Ok(raced) => raced,
+            Err(err) if err.is_panic() => Err(self.panicked(format!("{err:?}"))),
+            Err(err) => Err(AutotuneError::Unknown {
+                name: self.name.clone(),
+                err: format!("{err:?}"),
+            }),
+        }
+    }
+
+    /// What a failed profile of this tunable says of it.
+    pub(crate) fn unprofiled(&self, error: ProfileError) -> AutotuneError {
+        match error.is_expansion_panic() {
+            true => self.panicked(error.to_string()),
+            false => AutotuneError::Unknown {
+                name: self.name.clone(),
+                err: error.to_string(),
+            },
+        }
+    }
+
+    /// The error of a panic of this tunable's, logged as the defect it is.
+    fn panicked(&self, message: String) -> AutotuneError {
+        log::error!(
+            "The autotune candidate `{}` panicked and is dropped from its race: {message}",
+            self.name
+        );
+        AutotuneError::Panicked {
+            name: self.name.clone(),
+            message,
+        }
     }
 }
 

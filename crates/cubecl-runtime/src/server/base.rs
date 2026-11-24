@@ -88,6 +88,17 @@ pub enum ProfileError {
     Server(#[from] Box<ServerError>),
 }
 
+impl ProfileError {
+    /// Whether a kernel of the window panicked while it expanded.
+    pub fn is_expansion_panic(&self) -> bool {
+        match self {
+            Self::Launch(error) => error.is_expansion_panic(),
+            Self::Server(error) => error.is_expansion_panic(),
+            Self::Unknown { .. } | Self::NotRegistered { .. } | Self::NotMeasured { .. } => false,
+        }
+    }
+}
+
 /// A failure during a profiling window invalidates the measurement, whatever
 /// the failure was. Every backend answers a launch, write or replay failure
 /// this way, so the conversion lives here rather than five times over.
@@ -473,6 +484,14 @@ impl LaunchError {
             _ => false,
         }
     }
+
+    /// Whether this is the kernel panicking while it expanded.
+    pub fn is_expansion_panic(&self) -> bool {
+        matches!(
+            self,
+            Self::CompilationError(CompilationError::ExpansionPanicked { .. })
+        )
+    }
 }
 
 impl core::fmt::Debug for LaunchError {
@@ -762,6 +781,19 @@ impl ServerError {
             Self::Several { errors, .. } => {
                 !errors.is_empty() && errors.iter().all(Self::is_refusal)
             }
+            _ => false,
+        }
+    }
+
+    /// Whether this is a kernel that panicked while it expanded.
+    ///
+    /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
+    /// the roots, and answers yes when *any* root is one.
+    pub fn is_expansion_panic(&self) -> bool {
+        match self {
+            Self::Launch(error) => error.is_expansion_panic(),
+            Self::Unwritten { root, .. } => root.is_expansion_panic(),
+            Self::Several { errors, .. } => errors.iter().any(Self::is_expansion_panic),
             _ => false,
         }
     }
@@ -2620,6 +2652,31 @@ mod tests {
             !group(Vec::new()).is_refusal(),
             "an empty group refuses nothing"
         );
+    }
+
+    /// A panic while expanding is found under the read that reports it and among other failures.
+    #[test_log::test]
+    fn an_expansion_panic_is_found_at_the_root() {
+        let panicked = ServerError::Launch(LaunchError::CompilationError(
+            CompilationError::ExpansionPanicked {
+                kernel: "kernel".into(),
+                message: "an assertion failed".into(),
+                backtrace: Default::default(),
+            },
+        ));
+        let unwritten = ServerError::Unwritten {
+            failure: 1,
+            claimed: 1,
+            chain: Vec::new(),
+            root: alloc::boxed::Box::new(panicked),
+            backtrace: Default::default(),
+        };
+        let several = ServerError::Several {
+            errors: vec![ServerError::TornDown, unwritten],
+            backtrace: Default::default(),
+        };
+
+        assert!(several.is_expansion_panic());
     }
 
     /// Every fallback over-names: a kernel the compiler kept no answer for,

@@ -720,6 +720,15 @@ impl Client {
             })
     }
 
+    /// [`exclusive`](Self::exclusive), answering with what stopped the task, so a panic in it
+    /// reads apart from a device that could not be taken.
+    pub(crate) fn exclusive_call<Re: Send, F: FnOnce() -> Re + Send>(
+        &self,
+        task: F,
+    ) -> Result<Re, CallError> {
+        self.device.exclusive(task)
+    }
+
     /// Run `task` with every allocation it makes routed to the persistent
     /// pool, then restore the previous mode.
     ///

@@ -82,15 +82,12 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
             );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = client.profile(move || self.race(inputs), &self.name);
+        let profiled = client.profile(move || self.race_contained(inputs, client), &self.name);
 
         match profiled {
             Ok((Ok(_), duration)) => Ok(duration),
             Ok((Err(err), _)) => Err(err),
-            Err(err) => Err(AutotuneError::Unknown {
-                name: self.name.to_string(),
-                err: err.to_string(),
-            }),
+            Err(err) => Err(self.unprofiled(err)),
         }
     }
 }
@@ -155,7 +152,10 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
 
     for _ in 0..num_warmup {
         let inputs = inputs.clone();
-        let profiled = client.profile(move || operation.race(inputs), &operation.name);
+        let profiled = client.profile(
+            || operation.race_contained(inputs, &client),
+            &operation.name,
+        );
 
         match profiled {
             // The tunable rejected its own configuration, which it will do identically on
@@ -170,10 +170,6 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
     if errors.len() < num_warmup {
         Ok(())
     } else {
-        let msg = alloc::format!("{:?}", errors.remove(num_warmup - 1));
-        Err(AutotuneError::Unknown {
-            name: operation.name.to_string(),
-            err: msg,
-        })
+        Err(operation.unprofiled(errors.remove(num_warmup - 1)))
     }
 }
