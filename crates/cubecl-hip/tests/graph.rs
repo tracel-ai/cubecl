@@ -5,7 +5,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::runtime_tests::{capture_status, graph_sharing};
+use cubecl_core::runtime_tests::{capture_status, graph_sharing, read_lazy};
 use cubecl_core::server::Handle;
 use cubecl_hip::HipRuntime;
 use cubecl_server::runtime::Runtime;
@@ -423,4 +423,25 @@ fn hip_graph_recording_allocating_a_temporary_its_plan_did_not_seals() {
 fn hip_graph_recording_skipping_a_temporary_its_plan_made_seals() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::a_recording_skipping_a_temporary_its_plan_made_seals::<HipRuntime>();
+}
+
+/// See [`read_lazy::a_lazy_read_is_its_buffer_before_a_replay`].
+#[test]
+fn hip_graph_lazy_read_is_its_buffer_before_a_replay() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    read_lazy::a_lazy_read_is_its_buffer_before_a_replay::<HipRuntime>();
+}
+
+/// See [`read_lazy::a_lazy_read_inside_a_capture_window_is_refused`].
+#[test]
+fn hip_graph_lazy_read_inside_a_capture_window_is_refused() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    read_lazy::a_lazy_read_inside_a_capture_window_is_refused::<HipRuntime>();
+}
+
+/// See [`read_lazy::a_lazy_read_is_its_buffer_before_a_replayed_collective`].
+#[test]
+fn hip_graph_lazy_read_is_its_buffer_before_a_replayed_collective() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    read_lazy::a_lazy_read_is_its_buffer_before_a_replayed_collective::<HipRuntime>();
 }

@@ -268,6 +268,14 @@ impl Server for HipServer {
         self.streams.ensure_written(handles.iter())
     }
 
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        cubecl_server::stream::keep_lazy_read(self, read, stream_id)
+    }
+
     fn compile_queued(&mut self) {
         self.ctx.compile_queued(&self.streams.logger);
     }
@@ -563,7 +571,11 @@ impl ServerCommunication for HipServer {
         // The same claim check a read makes: a peer reads these bytes with
         // nothing ordering it behind a failed write here.
         let stream = binding.stream;
-        Ok(self.get_resource(binding, stream)?.resource().ptr as u64)
+        let address = self.get_resource(binding.clone(), stream)?.resource().ptr as u64;
+        // A peer writes it with nothing this device can run first.
+        binding.memory.descriptor().share_with_peers();
+        cubecl_server::stream::start_overwritten_reads(self, stream, &[binding]);
+        Ok(address)
     }
 
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {
@@ -659,6 +671,20 @@ impl WriteScoped for HipServer {
         self.streams
             .try_stream_mut(&stream)
             .map(|stream| &mut stream.capturing)
+    }
+
+    fn read_before_write(
+        &mut self,
+        source: CopyDescriptor,
+        stream: StreamId,
+        writer: StreamId,
+    ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
+        let started = Server::read(self, vec![source], stream);
+        // Its own fault, which the read reports as well.
+        if let Err(error) = self.streams.wait_for(writer, stream) {
+            log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
+        }
+        Some(started)
     }
 }
 

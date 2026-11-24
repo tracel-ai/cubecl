@@ -12,7 +12,7 @@ use crate::id::KernelId;
 use crate::logging::ServerLogger;
 use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryBinding, Skipped};
 use crate::server::{BufferBinding, ServerError};
-use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
+use crate::stream::{LazyReads, ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -33,6 +33,9 @@ pub struct Failures {
     /// The vector a write scope stages its write set in, pooled here so a
     /// launch allocates nothing for it.
     scratch: Vec<BufferBinding>,
+    /// The lazy reads a write scope starts before the work it is about to run writes their
+    /// memory.
+    lazy_reads: LazyReads,
     logger: Arc<ServerLogger>,
 }
 
@@ -42,6 +45,7 @@ impl Failures {
         Self {
             graph: ErrorGraph::default(),
             scratch: Vec::new(),
+            lazy_reads: LazyReads::default(),
             logger,
         }
     }
@@ -199,6 +203,12 @@ pub trait FailureStore {
         tell_peers(written.iter(), Some(&found.error));
         written.clear();
         failures.scratch = written;
+    }
+
+    /// The lazy reads the device keeps.
+    fn lazy_reads(&mut self) -> &mut LazyReads {
+        let (_, failures) = self.split();
+        &mut failures.lazy_reads
     }
 
     /// An empty write set, pooled here so a launch allocates nothing for it.

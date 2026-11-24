@@ -260,6 +260,20 @@ impl WriteScoped for MetalServer {
             .try_stream_mut(&stream)
             .map(|stream| &mut stream.capturing)
     }
+
+    fn read_before_write(
+        &mut self,
+        source: CopyDescriptor,
+        stream: StreamId,
+        writer: StreamId,
+    ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
+        let started = Server::read(self, vec![source], stream);
+        // Its own fault, which the read reports as well.
+        if let Err(error) = self.streams.wait_for(writer, stream) {
+            log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
+        }
+        Some(started)
+    }
 }
 
 impl Server for MetalServer {
@@ -432,6 +446,14 @@ impl Server for MetalServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        cubecl_server::stream::keep_lazy_read(self, read, stream_id)
     }
 
     fn compile_queued(&mut self) {

@@ -521,25 +521,49 @@ impl Client {
     /// holding them all alive.
     ///
     /// Until that first access the [`Bytes`] hold `source`'s handle, so [`Handle::can_mut`] is
-    /// false for it and a caller that honours it does not write the buffer in place: the data
-    /// read is the data as it was at this call.
+    /// false for it and a caller that honours it does not write the buffer in place.
     /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
+    ///
+    /// # Assumptions
+    ///
+    /// - Nothing writes the buffer through a pointer [`get_resource`](Self::get_resource)
+    ///   handed out.
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes are the buffer as it was at this call, under every write the server queues
+    ///   before the first access, except on the CPU, whose reads alias its memory: a write
+    ///   starts the copy before it runs. Memory [shared with peers](Self::share_with_peers) is
+    ///   copied at the call, since a peer writes it with nothing this device can run first.
+    /// - The first access answers with the error this call's
+    ///   [`read_lazy_async`](Self::read_lazy_async) would have, a stream recording a graph
+    ///   included.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
         self.expect_local(&source.handle.to_binding());
-        lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
+        let read = Arc::new(crate::server::LazyRead::new(source.clone().binding()));
+        let keep = self.keep_lazy_read(read.clone());
+        let refused = read.clone();
+        self.device.submit(move |server| {
+            if let Err(error) = keep(server) {
+                refused.refuse(error);
+            }
+        });
+        lazy::LazyDeviceController::new(self.clone(), source, read).into_bytes()
     }
 
     /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
-    /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy),
+    /// whose Assumptions and Guarantees it shares).
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read.
-    /// A device fault is not detected here: the copy is deferred, so it surfaces as an error on
-    /// first access to the returned [`Bytes`].
+    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read,
+    /// and when this client's stream is recording a graph, where the copy would be recorded
+    /// rather than run. A device fault is not detected here: the copy is deferred, so it surfaces
+    /// as an error on first access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
@@ -549,16 +573,39 @@ impl Client {
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
-        let stream_id = self.stream_id();
-        let checked = self
+        let read = Arc::new(crate::server::LazyRead::new(source.clone().binding()));
+        let keep = self.keep_lazy_read(read.clone());
+        let kept = self
             .device
-            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .submit_blocking(move |server| keep(server))
             .closed_as_error();
-        if let Err(err) = checked {
+        if let Err(err) = kept {
             return core::future::ready(Err(err));
         }
-        let controller = lazy::LazyDeviceController::new(self.clone(), source);
+        let controller = lazy::LazyDeviceController::new(self.clone(), source, read);
         core::future::ready(Ok(controller.into_bytes()))
+    }
+
+    /// What has the server keep `read`, or start it at once on memory shared with peers.
+    #[cfg(not(target_family = "wasm"))]
+    fn keep_lazy_read(
+        &self,
+        read: Arc<crate::server::LazyRead>,
+    ) -> impl FnOnce(&mut dyn Server) -> Result<(), ServerError> + Send + use<> {
+        let stream_id = self.stream_id();
+        move |server| {
+            server.read_lazy(read.clone(), stream_id)?;
+            if read
+                .source()
+                .handle
+                .memory
+                .descriptor()
+                .is_shared_with_peers()
+            {
+                read.start(server.read(vec![read.source().clone()], stream_id));
+            }
+            Ok(())
+        }
     }
 
     /// Reads the buffer `source` describes lazily, async variant.

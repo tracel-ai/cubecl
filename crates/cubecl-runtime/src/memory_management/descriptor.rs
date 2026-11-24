@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 /// Which memory a [`ManagedMemoryHandle`](super::ManagedMemoryHandle) names,
 /// and where in the pools that memory currently lives.
@@ -8,7 +8,10 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 /// relocation), so the location is updated through a shared reference.
 ///
 /// All mutation happens on the device thread, so `Relaxed` is all the ordering
-/// it needs, and on the targets that matter that is a plain load and store.
+/// it needs, and on the targets that matter that is a plain load and store. The
+/// one exception is a lazy read let go from the thread that drops it: the count
+/// only rises on the device thread, so a value it reads late costs that thread
+/// a lookup and never misses a read.
 /// Being atomic rather than a `Cell` is what makes the descriptor `Sync` by
 /// construction: these methods are public so the pools in `cubecl-server` can
 /// reach them, and anything public can be called from any thread.
@@ -16,6 +19,12 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 pub struct ManagedMemoryDescriptor {
     id: ManagedMemoryId,
     location: AtomicU64,
+    /// The lazy reads of the memory a write must start before it runs: how many its device
+    /// keeps, which spares every write to memory without one the device's own lookup.
+    lazy_reads: AtomicU32,
+    /// Whether kernels on other devices may bind the memory, which write it with nothing this
+    /// device can run first.
+    shared_with_peers: AtomicBool,
 }
 
 /// The id of one allocation, never given to another.
@@ -47,6 +56,8 @@ impl ManagedMemoryDescriptor {
         Self {
             id: next_id(),
             location: AtomicU64::new(MemoryLocation::uninit().to_bits()),
+            lazy_reads: AtomicU32::new(0),
+            shared_with_peers: AtomicBool::new(false),
         }
     }
 
@@ -101,6 +112,36 @@ impl ManagedMemoryDescriptor {
     #[doc(hidden)]
     pub fn page(&self) -> usize {
         self.location().page as usize
+    }
+
+    /// Whether its device keeps a lazy read of the memory that a write must start first.
+    #[doc(hidden)]
+    pub fn has_lazy_reads(&self) -> bool {
+        self.lazy_reads.load(Ordering::Relaxed) != 0
+    }
+
+    /// Its device keeps one more lazy read of the memory.
+    #[doc(hidden)]
+    pub fn lazy_read_kept(&self) {
+        self.lazy_reads.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Its device keeps one lazy read of the memory fewer.
+    #[doc(hidden)]
+    pub fn lazy_read_let_go(&self) {
+        self.lazy_reads.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Kernels on other devices may bind the memory from now on.
+    #[doc(hidden)]
+    pub fn share_with_peers(&self) {
+        self.shared_with_peers.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether kernels on other devices may bind the memory.
+    #[doc(hidden)]
+    pub fn is_shared_with_peers(&self) -> bool {
+        self.shared_with_peers.load(Ordering::Relaxed)
     }
 }
 

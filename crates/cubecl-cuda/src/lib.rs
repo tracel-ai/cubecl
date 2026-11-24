@@ -81,6 +81,7 @@ mod tests {
 
     cubecl_core::testgen_launch_dynamic_count!();
     cubecl_std::testgen!();
+    cubecl_core::testgen_read_lazy_before_write!();
 
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
 

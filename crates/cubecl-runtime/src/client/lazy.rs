@@ -1,10 +1,13 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
-use super::Client;
-use crate::server::{CopyDescriptor, Handle};
+use super::{Client, ClosedAsError};
+use crate::server::{CopyDescriptor, Handle, LazyRead, ServerError};
 use alloc::boxed::Box;
 use alloc::format;
+use alloc::sync::Arc;
+use alloc::vec;
 use core::mem::MaybeUninit;
+use core::ops::Range;
 use cubecl_common::bytes::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
 };
@@ -21,19 +24,32 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 /// This lets a large number of device tensors be serialized without materializing them all in
 /// host memory at once: each [`Bytes`] is read just-in-time and dropped right after.
 ///
-/// # Semantics
-///
 /// Until the first access the controller holds the source's [`Handle`], so
 /// [`Handle::can_mut`] is false for it and a caller that honours it does not write the buffer in
-/// place: the data read is the data as it was at [`read_lazy`]. The source is let go once the
-/// host bytes are independent of it. A zero-copy host read retains the handle until dropped
-/// or copied for mutation.
+/// place, which spares the server a copy. The source is let go once the host bytes are
+/// independent of it. A zero-copy host read retains the handle until dropped or copied for
+/// mutation.
+///
+/// # Assumptions
+///
+/// - Nothing writes the buffer through a pointer [`Client::get_resource`] handed out: the server
+///   never sees such a write.
+///
+/// # Guarantees
+///
+/// - On a server whose reads copy, the bytes are the buffer as it was at [`read_lazy`], under
+///   every write that server queues before the first access: a kernel, a host write, a graph's
+///   replay or a collective starts the read first. On one whose reads alias its memory, the CPU,
+///   they are as live as an eager read's.
 ///
 /// [`read_lazy`]: Client::read_lazy
 pub struct LazyDeviceController {
     client: Client,
     /// The source until the host bytes no longer alias it.
     source: Mutex<Option<CopyDescriptor<Handle>>>,
+    /// The read the server keeps, shared with every view of the same bytes, and the bytes of
+    /// what it reads these are. Let go once the host bytes are read.
+    read: Mutex<Option<(Arc<LazyRead>, Range<usize>)>>,
     /// The host byte length, known without the source.
     len: usize,
     /// Host bytes, materialized from the device on first access.
@@ -41,11 +57,22 @@ pub struct LazyDeviceController {
 }
 
 impl LazyDeviceController {
-    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>) -> Self {
+    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>, read: Arc<LazyRead>) -> Self {
+        let len = source.shape.iter().product::<usize>() * source.elem_size;
+        Self::reading(client, source, read, 0..len)
+    }
+
+    fn reading(
+        client: Client,
+        source: CopyDescriptor<Handle>,
+        read: Arc<LazyRead>,
+        range: Range<usize>,
+    ) -> Self {
         Self {
             client,
-            len: source.shape.iter().product::<usize>() * source.elem_size,
+            len: range.len(),
             source: Mutex::new(Some(source)),
+            read: Mutex::new(Some((read, range))),
             materialized: Once::new(),
         }
     }
@@ -78,12 +105,17 @@ impl LazyDeviceController {
                     .source
                     .lock()
                     .clone()
-                    .expect("The source is held until its bytes are on the host");
-                cubecl_environment::future::reader::read_sync(
-                    self.client.read_one_tensor_async(source.binding()),
-                )
-                .map_err(|err| AccessError::Read(format!("{err:?}")))
+                    .expect("The source should be held until its bytes are on the host");
+                let (read, range) = self
+                    .read
+                    .lock()
+                    .clone()
+                    .expect("The read should be held until its bytes are on the host");
+                self.client
+                    .read_lazily(source.binding(), &read, range)
+                    .map_err(|err| AccessError::Read(format!("{err:?}")))
             })?;
+        self.read.lock().take();
         if !bytes.may_alias_mutable_storage() {
             self.source.lock().take();
         }
@@ -128,6 +160,7 @@ impl AllocationController for LazyDeviceController {
             return None;
         }
         let source = self.source.lock().clone()?;
+        let (read, range) = self.read.lock().clone()?;
         if start > end || end > self.len {
             return None;
         }
@@ -146,9 +179,12 @@ impl AllocationController for LazyDeviceController {
 
         // Flat byte descriptor over the sub-range; materializing reads only these bytes.
         let descriptor = CopyDescriptor::new(handle, [end - start].into(), [1].into(), 1);
-        Some(Box::new(LazyDeviceController::new(
+        let range = range.start + start..range.start + end;
+        Some(Box::new(LazyDeviceController::reading(
             self.client.clone(),
             descriptor,
+            read,
+            range,
         )))
     }
 
@@ -187,5 +223,38 @@ impl AllocationController for LazyDeviceController {
             .expect("device: host access failed");
         let len = buf.len().min(bytes.len());
         buf[..len].copy_from_slice(&bytes[..len]);
+    }
+}
+
+impl Client {
+    /// The bytes `source` names, taken from `range` of what a write started `read` for when one
+    /// did, or else read now.
+    ///
+    /// Asked on the device thread, so a write queued before this access has started the read.
+    ///
+    /// # Errors
+    ///
+    /// The server's refusal to keep `read`, and the read's own errors.
+    fn read_lazily(
+        &self,
+        source: CopyDescriptor,
+        read: &Arc<LazyRead>,
+        range: Range<usize>,
+    ) -> Result<Bytes, ServerError> {
+        let stream_id = self.stream_id();
+        let started = read.clone();
+        let now = self
+            .device
+            .submit_blocking(move |server| -> Result<_, ServerError> {
+                Ok(match started.is_started()? {
+                    true => None,
+                    false => Some(server.read(vec![source], stream_id)),
+                })
+            })
+            .closed_as_error()?;
+        match now {
+            Some(now) => Ok(cubecl_environment::future::reader::read_sync(now)?.remove(0)),
+            None => read.started_bytes(range),
+        }
     }
 }
