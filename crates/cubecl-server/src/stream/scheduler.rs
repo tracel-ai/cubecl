@@ -148,7 +148,7 @@ impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
 #[derive(Debug)]
 pub struct SchedulerMultiStreamOptions {
     /// Maximum number of streams allowed in the pool.
-    pub max_streams: u8,
+    pub max_stream_count: u8,
     /// Maximum number of tasks per stream before execution is triggered.
     pub max_tasks: usize,
     /// The scheduling strategy to use.
@@ -226,7 +226,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         options: SchedulerMultiStreamOptions,
     ) -> Self {
         Self {
-            pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
+            pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_stream_count, 0),
             failures: Failures::new(logger.clone()),
             max_tasks: options.max_tasks,
             strategy: options.strategy,

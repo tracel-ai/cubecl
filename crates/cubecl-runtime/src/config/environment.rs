@@ -1,7 +1,7 @@
 use alloc::string::{String, ToString};
 
 #[cfg(std_io)]
-use super::cache::CacheConfig;
+use super::CacheConfig;
 
 /// Which named environment the process warms into, and where environments are
 /// kept.

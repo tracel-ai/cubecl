@@ -4,7 +4,7 @@ use cubecl_runtime::{
     runtime::Runtime,
     throughput::{
         MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec, ThroughputError, ThroughputKey,
-        ThroughputMode, ThroughputValue, sweep_size, working_set_sweep,
+        ThroughputMode, ThroughputValue,
     },
     tune::{AutotuneBound, Bounds, ResourceBound, Thresholds, Work},
 };
@@ -58,7 +58,7 @@ fn sweep(
 ) -> (alloc::vec::Vec<MemoryPoint>, bool) {
     let mut probed = false;
 
-    let points = working_set_sweep(working_set_cap(client, access))
+    let points = MemoryCurve::sweep_up_to_bytes(working_set_cap(client, access))
         .into_iter()
         .filter_map(|bytes| {
             let key = ThroughputKey { mode: mode(bytes) };
@@ -80,7 +80,7 @@ fn sweep(
 fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
     let max_alloc = client.properties().memory.max_page_size;
 
-    memory_probe::window_cap(max_alloc) * access.buffers()
+    memory_probe::window_cap(max_alloc) * access.buffer_count()
 }
 
 /// Computes the peak throughput for a given runtime and key.
@@ -281,7 +281,10 @@ pub fn memory_bound(
     // so capping the ask keeps one cache entry rather than one per kernel.
     let footprint = (work.bytes as u64).min(working_set_cap(client, access));
     let memory_key = ThroughputKey {
-        mode: ThroughputMode::Memory(MemorySpec::new(access, sweep_size(footprint))),
+        mode: ThroughputMode::Memory(MemorySpec::new(
+            access,
+            MemoryCurve::sweep_point_for_bytes(footprint),
+        )),
     };
     let peak = measure_peak_throughput(client, memory_key).unwrap_or(ThroughputValue::ZERO);
     AutotuneBound {

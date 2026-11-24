@@ -1,6 +1,5 @@
-use cubecl_runtime::throughput::{
-    KernelConfig, ThroughputBenchmarker, ThroughputError, ThroughputValue,
-};
+use crate::throughput::KernelSampler;
+use cubecl_runtime::throughput::{ThroughputError, ThroughputValue};
 
 /// The shapes a probe can be launched in, ranked against each other so that
 /// only the winner is measured in full.
@@ -24,7 +23,7 @@ impl<S: Copy> ShapeSweep<S> {
     /// shape ran.
     pub(super) fn fastest(
         &self,
-        build: impl Fn(S) -> Result<KernelConfig, ThroughputError>,
+        build: impl Fn(S) -> Result<KernelSampler, ThroughputError>,
     ) -> Result<(ThroughputValue, S), ThroughputError> {
         let (fastest, warmed) = match self.shapes.len() {
             0 => return Err(ThroughputError::NoTiming),
@@ -38,8 +37,8 @@ impl<S: Copy> ShapeSweep<S> {
 
         let config = build(fastest)?;
         let value = match warmed {
-            Some(iterations) => ThroughputBenchmarker::sample_at(&config, iterations),
-            None => ThroughputBenchmarker::sample(config),
+            Some(iterations) => config.sample_at(iterations),
+            None => config.sample(),
         };
 
         value
@@ -54,15 +53,15 @@ impl<S: Copy> ShapeSweep<S> {
     /// are ordered on what they do rather than on which was warmed.
     fn ranked(
         &self,
-        build: impl Fn(S) -> Result<KernelConfig, ThroughputError>,
+        build: impl Fn(S) -> Result<KernelSampler, ThroughputError>,
     ) -> Result<(S, usize), ThroughputError> {
         let mut warmed = None;
         let mut fastest: Option<(f64, S)> = None;
 
         for shape in &self.shapes {
             let config = build(*shape)?;
-            let start = *warmed.get_or_insert_with(|| ThroughputBenchmarker::warm(&config));
-            let ranked = ThroughputBenchmarker::rank(&config, start);
+            let start = *warmed.get_or_insert_with(|| config.warm());
+            let ranked = config.rank(start);
             let rate = ranked.value.ops_per_s();
 
             // The next shape starts from what this one settled on, so a sweep
@@ -91,13 +90,13 @@ mod tests {
     fn the_shape_that_ranks_fastest_is_the_one_measured() {
         // A shape here is its rate: the faster it is, the less time a pass takes.
         let build = |rate: u64| {
-            Ok(KernelConfig {
-                sample: alloc::boxed::Box::new(move |iterations| {
+            Ok(KernelSampler::new(
+                alloc::boxed::Box::new(move |iterations| {
                     core::time::Duration::from_nanos(iterations as u64 * 1000 / rate)
                 }),
-                ops_count: 1,
-                min_iterations: 1,
-            })
+                1,
+                1,
+            ))
         };
 
         let (value, fastest) = ShapeSweep::new(alloc::vec![1, 4, 2])

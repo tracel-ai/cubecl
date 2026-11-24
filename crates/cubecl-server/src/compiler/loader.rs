@@ -1642,7 +1642,7 @@ mod tests {
 
     impl KernelMetadata for Numbered {
         fn id(&self) -> KernelId {
-            KernelId::new::<Self>().info(self.0)
+            KernelId::new::<Self>().with_info(self.0)
         }
 
         fn address_type(&self) -> cubecl_ir::ElemType {
