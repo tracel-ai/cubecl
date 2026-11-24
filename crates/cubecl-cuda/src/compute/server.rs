@@ -32,7 +32,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     stream::{
         ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
         failed_writing,
@@ -149,16 +149,19 @@ impl Server for CudaServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // Taken before the handle moves into the pool, for a failure to land on: a binding,
+        // which no `can_mut` counts, rather than a clone of the handle.
+        let binding = memory.to_binding();
         let result = match self.command_no_inputs(stream_id) {
             Ok(mut command) => command
-                .initialize_memory(memory.clone(), size)
+                .initialize_memory(memory, size)
                 .map_err(ServerError::from),
             Err(error) => Err(error),
         };
         // No stream to allocate on, or no memory to allocate: the buffer carries the
         // error instead.
         if let Err(error) = &result {
-            self.streams.fail_unallocated(&memory, error.clone());
+            self.streams.fail_unallocated(&binding, error.clone());
         }
         result
     }
@@ -314,6 +317,11 @@ impl Server for CudaServer {
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn graph_prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).prepare_retry(stream_id)
     }
 
     fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
@@ -740,13 +748,12 @@ impl CudaServer {
         ctx: CudaContext,
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
-        mem_alignment: usize,
         device_id: DeviceId,
         utilities: ServerUtilities,
         captures: DeviceCaptures,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
         let stream_priority = config.streaming.priority;
 
         ctx.unsafe_set_current().unwrap();
@@ -760,12 +767,11 @@ impl CudaServer {
                 CudaStreamBackend::new(
                     mem_props,
                     mem_config,
-                    mem_alignment,
                     utilities.logger.clone(),
                     stream_priority,
                     captures,
                 ),
-                max_streams,
+                max_stream_count,
             ),
             utilities: Arc::new(utilities),
             collectives: Collectives::new(device_id),
@@ -932,7 +938,7 @@ impl CudaServer {
         // Arguments refused while they were registered never run: the scope
         // leaves the outputs carrying why.
         bindings.check_arguments()?;
-        let address_type = kernel_id.address_type;
+        let address_type = kernel_id.address_type();
         let grid_constants = self
             .ctx
             .compilation_options()

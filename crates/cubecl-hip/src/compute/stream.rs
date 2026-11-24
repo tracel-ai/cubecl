@@ -69,7 +69,6 @@ impl StreamMemory for Stream {
 pub struct HipStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
-    mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
     /// The device's captures, which every stream this creates takes its capture state from.
@@ -93,7 +92,7 @@ impl EventStreamBackend for HipStreamBackend {
             checked("hipStreamCreateWithFlags", stream_status)?;
             stream
         };
-        let storage = GpuStorage::new(self.mem_alignment);
+        let storage = GpuStorage::new();
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,

@@ -9,4 +9,4 @@ pub(crate) mod scanned;
 pub(crate) mod straight;
 
 pub(crate) use padded::Padding;
-pub(crate) use prefetch::MOST_FETCHED_SCALARS;
+pub(crate) use prefetch::MOST_FETCHED_REGISTERS;

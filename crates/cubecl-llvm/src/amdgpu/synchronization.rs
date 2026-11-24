@@ -6,6 +6,18 @@ const S_BARRIER: &str = "llvm.amdgcn.s.barrier";
 
 const WAVE_BARRIER: &str = "llvm.amdgcn.wave.barrier";
 
+const SCHED_BARRIER: &str = "llvm.amdgcn.sched.barrier";
+
+/// The scheduling barrier with mask `0`: the backend's schedulers move no instruction across it.
+pub fn lower_schedule_barrier(scope: &Scope) {
+    let nothing_crosses = i32_const_op(scope.ctx_mut(), 0);
+    scope.register(&nothing_crosses);
+    let void_ty = VoidType::get(scope.ctx_mut()).into();
+    let mask = nothing_crosses.get_result(scope.ctx());
+    let op = call_op(scope.ctx_mut(), SCHED_BARRIER, void_ty, vec![mask]);
+    scope.register(&op);
+}
+
 fn fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
     fence_at(
         scope,

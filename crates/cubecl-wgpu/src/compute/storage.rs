@@ -1,7 +1,7 @@
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
 use std::{num::NonZeroU64, ptr::NonNull};
 use wgpu::BufferUsages;
 
@@ -17,7 +17,6 @@ pub struct WgpuStorage {
     allocated: u64,
     device: wgpu::Device,
     buffer_usages: BufferUsages,
-    mem_alignment: usize,
     #[allow(unused, reason = "keep it simple")]
     vk_storage: bool,
 }
@@ -94,29 +93,19 @@ impl WgpuResource {
 /// Keeps actual wgpu buffer references in a hashmap with ids as key.
 impl WgpuStorage {
     /// Create a new storage on the given [device](wgpu::Device).
-    pub fn new(
-        mem_alignment: usize,
-        device: wgpu::Device,
-        usages: BufferUsages,
-        vk_storage: bool,
-    ) -> Self {
+    pub fn new(device: wgpu::Device, usages: BufferUsages, vk_storage: bool) -> Self {
         Self {
             memory: HashMap::new(),
             allocated: 0,
             device,
             buffer_usages: usages,
-            mem_alignment,
             vk_storage,
         }
     }
 }
 
-impl ComputeStorage for WgpuStorage {
+impl StorageAllocator for WgpuStorage {
     type Resource = WgpuResource;
-
-    fn alignment(&self) -> usize {
-        self.mem_alignment
-    }
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
         let memory = self
@@ -141,7 +130,7 @@ impl ComputeStorage for WgpuStorage {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, size))
     )]
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
 
         let alloc_size = size.max(MIN_BUFFER_SIZE);
@@ -157,12 +146,15 @@ impl ComputeStorage for WgpuStorage {
         self.allocated += alloc_size;
         Ok(StorageHandle::new(
             id,
-            StorageUtilization { offset: 0, size },
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
         ))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn dealloc(&mut self, id: StorageId) {
+    fn deallocate(&mut self, id: StorageId) {
         if let Some(memory) = self.memory.remove(&id) {
             self.allocated -= memory.buffer.size();
         }

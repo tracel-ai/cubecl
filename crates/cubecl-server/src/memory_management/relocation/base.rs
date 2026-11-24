@@ -7,9 +7,9 @@
 //! before its bytes are where it moves to.
 
 use super::CopyQueue;
-use crate::memory_management::{ManagedMemoryHandle, release_or_leak};
+use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, release_or_leak};
 use crate::server::ServerError;
-use crate::storage::ComputeStorage;
+use crate::storage::StorageAllocator;
 use crate::storage::StorageHandle;
 use alloc::vec::Vec;
 
@@ -55,8 +55,9 @@ pub struct StorageCopy {
 /// handed over to the target once `copy` has landed.
 #[derive(Debug)]
 pub(crate) struct Move {
-    /// The allocation being moved, as its owners hold it.
-    pub allocation: ManagedMemoryHandle,
+    /// The allocation being moved, bound rather than held, so the move does not count among
+    /// its owners' handles while it runs.
+    pub allocation: ManagedMemoryBinding,
     /// The slice reserved to receive it.
     pub target: ManagedMemoryHandle,
     /// The bytes to copy, or `None` when the source was carved under a process mode
@@ -92,7 +93,7 @@ impl Relocation {
     ///
     /// The first copy the device refused, or the fault a wait revealed. The
     /// relocation is abandoned either way.
-    pub fn copy<Storage: ComputeStorage>(
+    pub fn copy<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,
         queue: &mut dyn CopyQueue<Storage>,
@@ -147,11 +148,11 @@ mod tests {
         let source = ManagedMemoryHandle::new();
         let target = ManagedMemoryHandle::new();
         let relocation = Relocation::new(alloc::vec![Move {
-            allocation: source.clone(),
+            allocation: source.to_binding(),
             target: target.clone(),
             copy: Some(StorageCopy {
-                source: storage.alloc(4).unwrap(),
-                target: storage.alloc(4).unwrap(),
+                source: storage.allocate_bytes(4).unwrap(),
+                target: storage.allocate_bytes(4).unwrap(),
             }),
         }]);
         assert!(relocation.copy(&mut storage, &mut FailedWait).is_err());

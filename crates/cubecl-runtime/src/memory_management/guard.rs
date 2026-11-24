@@ -53,3 +53,27 @@ impl PageGuard {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory_management::ManagedMemoryHandle;
+
+    #[test]
+    fn a_page_guard_counts_on_its_token() {
+        let token = Arc::new(());
+
+        let _guard = PageGuard::page(&token);
+
+        assert_eq!(Arc::strong_count(&token), 2);
+    }
+
+    #[test]
+    fn an_allocation_guard_keeps_the_allocation_reserved() {
+        let handle = ManagedMemoryHandle::new();
+
+        let _guard = PageGuard::allocation(handle.clone().binding());
+
+        assert!(!handle.is_free());
+    }
+}

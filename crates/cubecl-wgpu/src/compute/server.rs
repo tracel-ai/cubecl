@@ -149,7 +149,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         );
 
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let compiler = WgpuArtifactCompiler::new(
             device,
@@ -176,13 +176,13 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 utilities.logger.clone(),
                 backend_scheduler,
                 SchedulerMultiStreamOptions {
-                    max_streams,
+                    max_stream_count,
                     max_tasks: tasks_max,
                     strategy: SchedulerStrategy::Interleave,
                 },
             ),
             utilities: Arc::new(utilities),
-            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
+            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_stream_count as usize),
             graphs: HashMap::new(),
             _compiler: PhantomData,
         }
@@ -268,13 +268,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             Err(err) => {
                 // Nothing to allocate: the buffer carries the error instead.
                 let err = ServerError::from(err);
-                failures.fail_unallocated(&memory, err.clone());
+                failures.fail_unallocated(&memory.to_binding(), err.clone());
                 return Err(err);
             }
         };
-        if let Err(err) = stream.memory.bind(reserved, memory.clone(), 0, failures) {
+        // The handle moves into the pool rather than a clone of it: see
+        // `Command::initialize_memory`. A binding stays for a failure to land on.
+        let binding = memory.to_binding();
+        if let Err(err) = stream.memory.bind(reserved, memory, 0, failures) {
             let err = ServerError::from(err);
-            failures.fail_unallocated(&memory, err.clone());
+            failures.fail_unallocated(&binding, err.clone());
             return Err(err);
         }
         Ok(())
@@ -877,7 +880,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
+    for i in (0..rank.saturating_sub(1)).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
@@ -904,5 +907,24 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+#[cfg(test)]
+mod contiguous_strides_tests {
+    use super::contiguous_strides;
+    use cubecl_core::zspace::{shape, strides};
+
+    /// A scalar has no dimensions, so it has no strides.
+    #[test]
+    fn rank_zero_has_no_strides() {
+        assert_eq!(contiguous_strides(&shape![]), strides![]);
+    }
+
+    /// The last dimension is unit stride and each one before it spans the rest.
+    #[test]
+    fn strides_are_row_major() {
+        assert_eq!(contiguous_strides(&shape![7]), strides![1]);
+        assert_eq!(contiguous_strides(&shape![2, 3, 4]), strides![12, 4, 1]);
     }
 }

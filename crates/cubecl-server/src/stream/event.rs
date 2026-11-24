@@ -71,7 +71,7 @@ pub struct MultiStream<B: EventStreamBackend> {
     failures: Failures,
     /// The logger used by the server.
     pub logger: Arc<ServerLogger>,
-    max_streams: usize,
+    max_stream_count: usize,
     shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
 }
 
@@ -209,8 +209,8 @@ impl<B: EventStreamBackend> Drop for GcThread<B> {
     }
 }
 
-fn stream_index(stream_id: &StreamId, max_streams: usize) -> usize {
-    stream_id.value as usize % max_streams
+fn stream_index(stream_id: &StreamId, max_stream_count: usize) -> usize {
+    stream_id.value as usize % max_stream_count
 }
 
 impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
@@ -307,14 +307,14 @@ impl<B: EventStreamBackend> MultiStream<B> {
     }
 
     /// Creates an empty multi-stream.
-    pub fn new(logger: Arc<ServerLogger>, backend: B, max_streams: u8) -> Self {
+    pub fn new(logger: Arc<ServerLogger>, backend: B, max_stream_count: u8) -> Self {
         let wrapper = EventStreamBackendWrapper { backend };
         Self {
             gc: GcThread::new(),
-            streams: StreamPool::new(wrapper, max_streams, 1),
+            streams: StreamPool::new(wrapper, max_stream_count, 1),
             failures: Failures::new(logger.clone()),
             logger,
-            max_streams: max_streams as usize,
+            max_stream_count: max_stream_count as usize,
             shared_bindings_pool: Vec::new(),
         }
     }
@@ -406,13 +406,13 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
         // We only consider handles whose stream is different from the current stream.
         for handle in handles.filter(|handle| handle.stream != stream_id) {
-            let index = stream_index(&handle.stream, self.max_streams);
+            let index = stream_index(&handle.stream, self.max_stream_count);
             // SAFETY: `stream_index` keeps the index within the regular streams.
             let stream = unsafe { self.streams.get_or_create_index(index) }?;
             let cursor_handle = B::handle_cursor(&stream.stream, handle);
 
             self.shared_bindings_pool.push((
-                handle.memory.descriptor().id,
+                handle.memory.descriptor().id(),
                 handle.stream,
                 cursor_handle,
             ));
@@ -426,7 +426,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let current = self.streams.get_mut(&stream_id);
 
         for (handle_id, stream, cursor) in self.shared_bindings_pool.iter() {
-            let index = stream_index(stream, self.max_streams);
+            let index = stream_index(stream, self.max_stream_count);
 
             if let Some(last_synced) = current.last_synced.get(&index) {
                 if last_synced < cursor {
@@ -586,7 +586,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            binding_2.memory.descriptor().id,
+            binding_2.memory.descriptor().id(),
             ms.streams.stream_index(&binding_2.stream),
         );
 
@@ -613,7 +613,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            binding_2.memory.descriptor().id,
+            binding_2.memory.descriptor().id(),
             ms.streams.stream_index(&binding_2.stream),
         );
 

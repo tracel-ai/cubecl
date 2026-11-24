@@ -41,7 +41,7 @@ pub(crate) struct BatchOutcome {
 /// resolving per sample would serialize a device round trip per measurement, which for short
 /// kernels costs more than the samples it saves.
 ///
-/// The sample cap bounds the work at `max_samples` per candidate, so the sampling itself can never
+/// The sample cap bounds the work at `max_sample_count` per candidate, so the sampling itself can never
 /// cost more than a fixed-count pass. The batch still can: the short circuit exits on the first
 /// candidate confirmed under the limit, and eliminating cheap candidates early can push that exit
 /// past kernels a fixed pass would have accepted and stopped at. Measured at +13.6% total tuning
@@ -123,7 +123,7 @@ impl Schedule<'_> {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        let (min_samples, max_samples) = self.config.samples();
+        let (min_sample_count, max_sample_count) = self.config.sample_count_range();
 
         let patient = !batch.patience.is_empty();
         let mut patience = PatienceTable::new(&batch);
@@ -183,13 +183,13 @@ impl Schedule<'_> {
         // Later rounds resolve the whole round at once: a profile only submits its readback
         // when first polled, so resolving one at a time would serialize a device round trip
         // per measurement, which for short kernels costs more than the samples it saves.
-        for round in 1..max_samples {
+        for round in 1..max_sample_count {
             if short_circuit.is_some() {
                 break;
             }
 
             let live = candidates.iter().filter(|c| c.live).count();
-            if live == 0 || (live == 1 && round >= min_samples) {
+            if live == 0 || (live == 1 && round >= min_sample_count) {
                 break;
             }
 
@@ -198,7 +198,7 @@ impl Schedule<'_> {
             for (slot, candidate) in candidates.iter_mut().enumerate() {
                 // A candidate that took confirmation samples in the first pass is ahead of the
                 // others, so the ceiling is enforced per candidate rather than by round count.
-                if !candidate.live || candidate.samples.len() >= max_samples {
+                if !candidate.live || candidate.samples.len() >= max_sample_count {
                     continue;
                 }
 
@@ -259,8 +259,8 @@ impl Schedule<'_> {
                 break;
             }
 
-            if round + 1 >= min_samples {
-                self.eliminate(&mut candidates, min_samples);
+            if round + 1 >= min_sample_count {
+                self.eliminate(&mut candidates, min_sample_count);
 
                 let mut live = candidates.iter().filter(|c| c.live).peekable();
                 if live.peek().is_some() && live.all(|c| c.samples.converged()) {
@@ -276,7 +276,7 @@ impl Schedule<'_> {
     ///
     /// The winner is picked here rather than left to the caller's comparison of the results,
     /// because by this point the candidates no longer hold comparable evidence: an eliminated one
-    /// stopped at `min_samples` while a survivor kept sampling, and `BenchmarkComputations::score`
+    /// stopped at `min_sample_count` while a survivor kept sampling, and `BenchmarkComputations::score`
     /// inflates with observed spread, which grows with the sample count. Scoring them against each
     /// other would hand a candidate an advantage for having been dropped early. Elimination
     /// decides who is eligible; the score only ranks the survivors.
@@ -373,7 +373,7 @@ impl Schedule<'_> {
             return false;
         }
 
-        let required = self.config.short_circuit_samples();
+        let required = self.config.clamped_short_circuit_sample_count();
         while candidate.samples.len() < required {
             if !self
                 .take_sample(operation, inputs, profiler, candidate)
@@ -429,7 +429,7 @@ impl Schedule<'_> {
             return None;
         }
 
-        let required = self.config.short_circuit_samples();
+        let required = self.config.clamped_short_circuit_sample_count();
         let hit = candidates
             .iter()
             .find(|c| c.live && c.samples.confirmed_under(limit, required))?;
@@ -441,7 +441,7 @@ impl Schedule<'_> {
     ///
     /// Comparing minima is already outlier resistant: a slow sample cannot lower a candidate's
     /// best, so nothing is eliminated on the strength of one bad measurement.
-    fn eliminate(&self, candidates: &mut [Candidate], min_samples: usize) {
+    fn eliminate(&self, candidates: &mut [Candidate], min_sample_count: usize) {
         let Some(best) = candidates
             .iter()
             .filter(|c| c.live)
@@ -451,7 +451,7 @@ impl Schedule<'_> {
             return;
         };
 
-        let threshold = best.mul_f64(self.config.speed_factor());
+        let threshold = best.mul_f64(self.config.clamped_speed_factor());
         let live = candidates.iter().filter(|c| c.live).count();
         let budget = live.saturating_sub(MIN_SURVIVORS);
         if budget == 0 {
@@ -461,7 +461,7 @@ impl Schedule<'_> {
         let mut eliminable: Vec<(usize, Duration)> = candidates
             .iter()
             .enumerate()
-            .filter(|(_, c)| c.live && c.samples.len() >= min_samples)
+            .filter(|(_, c)| c.live && c.samples.len() >= min_sample_count)
             .filter_map(|(slot, c)| c.samples.best().map(|best| (slot, best)))
             .filter(|(_, best)| *best > threshold)
             .collect();

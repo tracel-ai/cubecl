@@ -531,10 +531,12 @@ mod tests {
     #[test]
     fn queued_cpu_kernel_keeps_buffer_bindings_alive_until_execution() {
         let client = TestRuntime::client(&Default::default());
-        let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+        let max_stream_count = CubeClRuntimeConfig::get().streaming.max_stream_count as u64;
 
         let stream_a = StreamId { value: 0 };
-        let stream_b = StreamId { value: max_streams };
+        let stream_b = StreamId {
+            value: max_stream_count,
+        };
 
         let client_a = unsafe {
             let mut client = client.clone();

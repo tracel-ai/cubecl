@@ -2833,7 +2833,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     if !bench.adaptive {
         return;
     }
-    let (min_samples, max_samples) = bench.samples();
+    let (min_sample_count, max_sample_count) = bench.sample_count_range();
 
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_eliminated_candidate");
 
@@ -2870,13 +2870,13 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     // Every candidate is warmed up once and sampled at least to the elimination floor, so the
     // slow one cannot have been dropped before it had the evidence against it.
     assert!(
-        slow > min_samples,
+        slow > min_sample_count,
         "the slow candidate was dropped before it earned it: {slow} calls"
     );
     // A full pass is one warmup plus the ceiling. The slow candidate must fall short of that,
     // and short of what the survivors spent, or nothing was eliminated at all.
     assert!(
-        slow < max_samples + 1,
+        slow < max_sample_count + 1,
         "the slow candidate was sampled to the ceiling: {slow} calls"
     );
     assert!(
@@ -3312,7 +3312,7 @@ fn an_override_reserves_without_mapping() {
             .streams
             .iter()
             .flat_map(|stream| stream.pools.dynamic.iter())
-            .find(|pool| pool.largest_alloc == SIZE)
+            .find(|pool| pool.largest_alloc_bytes == SIZE)
             .expect("some pool served the buffer")
             .clone()
     }
@@ -3333,17 +3333,17 @@ fn an_override_reserves_without_mapping() {
     let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
-        pool.pages_unmapped, pool.pages,
+        pool.unmapped_page_count, pool.page_count,
         "the reservation must have no device backing: {report:?}"
     );
-    assert!(pool.pages >= 1, "{report:?}");
+    assert!(pool.page_count >= 1, "{report:?}");
 
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
     let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
-        arena(&report).pages_unmapped,
+        arena(&report).unmapped_page_count,
         0,
         "resolution installed the backing: {report:?}"
     );
@@ -3435,7 +3435,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let id = KernelId::new::<Recorded>().info(3u32);
+    let id = KernelId::new::<Recorded>().with_info(3u32);
     let stored = true;
     CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
     CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);

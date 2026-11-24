@@ -124,7 +124,7 @@ impl ArtifactCompiler for HipArtifactCompiler {
                 compile_to_binary(
                     &lowered.source,
                     &self.options.target,
-                    id.kernel.debug_info != DebugInfo::None,
+                    id.kernel.debug_info() != DebugInfo::None,
                 )?,
                 repr.as_ref()
                     .map(|repr| repr.shared_memory_size())

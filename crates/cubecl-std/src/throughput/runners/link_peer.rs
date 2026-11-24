@@ -6,10 +6,10 @@ use cubecl_core as cubecl;
 use cubecl_core::ir::{ElemType, UIntKind};
 use cubecl_runtime::{
     server::{Handle, PeerAccess},
-    throughput::{KernelConfig, ThroughputError},
+    throughput::ThroughputError,
 };
 
-use crate::throughput::{LaunchConfig, memory_probe};
+use crate::throughput::{KernelSampler, LaunchConfig, memory_probe};
 
 /// `u32`s per vector a peer kernel moves: 16 bytes, the widest load every runtime issues.
 const VECTOR_WIDTH: usize = 4;
@@ -105,7 +105,7 @@ impl PeerCopier {
 
     /// Runs one pass, confirms every copy's output was written, then hands the copies over to be
     /// timed.
-    pub(crate) fn into_config(self) -> Result<KernelConfig, ThroughputError> {
+    pub(crate) fn into_config(self) -> Result<KernelSampler, ThroughputError> {
         // `verify`'s check, on every copy's output, which a pass stopped early never wrote.
         if self.time_iterations(1).is_zero() {
             return Err(ThroughputError::Unsupported);
@@ -115,11 +115,11 @@ impl PeerCopier {
                 .map_err(|_| ThroughputError::Launch)?;
         }
         let ops_count = self.bytes as usize;
-        Ok(KernelConfig {
-            sample: Box::new(move |iterations| self.time_iterations(iterations)),
+        Ok(KernelSampler::new(
+            Box::new(move |iterations| self.time_iterations(iterations)),
             ops_count,
-            min_iterations: 1,
-        })
+            1,
+        ))
     }
 
     fn new<'a>(

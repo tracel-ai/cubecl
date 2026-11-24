@@ -1,16 +1,18 @@
-use super::logger::{LogLevel, LoggerConfig};
+use super::{LogLevel, LoggerConfig};
+use cubecl_environment::stream::StreamPolicy;
 
-pub use cubecl_environment::stream::StreamPolicy;
+/// How many streams a device runs at most, unless configured.
+const DEFAULT_MAX_STREAM_COUNT: u8 = 128;
 
-/// Configuration for streaming settings in `CubeCL`.
+/// How many streams a device runs, at which priority, and how the current one is chosen.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StreamingConfig {
-    /// Logger configuration for streaming logs, using binary log levels.
+    /// Where the streaming log goes, and how much it says.
     #[serde(default)]
     pub logger: LoggerConfig<StreamingLogLevel>,
-    /// The maximum number of streams to be used.
-    #[serde(default = "default_max_streams")]
-    pub max_streams: u8,
+    /// The most streams a device runs at once.
+    #[serde(default = "default_max_stream_count")]
+    pub max_stream_count: u8,
     /// Backend stream priority hint.
     ///
     /// Backends that expose stream priorities (e.g. CUDA via
@@ -33,15 +35,15 @@ impl Default for StreamingConfig {
     fn default() -> Self {
         Self {
             logger: Default::default(),
-            max_streams: default_max_streams(),
+            max_stream_count: DEFAULT_MAX_STREAM_COUNT,
             priority: StreamPriority::default(),
             policy: StreamPolicy::default(),
         }
     }
 }
 
-fn default_max_streams() -> u8 {
-    128
+fn default_max_stream_count() -> u8 {
+    DEFAULT_MAX_STREAM_COUNT
 }
 
 /// Stream priority hint, mapped to the backend's native priority range.
@@ -73,10 +75,10 @@ pub enum StreamPriority {
     High,
 }
 
-/// Log levels for streaming in `CubeCL`.
+/// How much the streaming log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StreamingLogLevel {
-    /// Compilation logging is disabled.
+    /// No streaming log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,
@@ -104,11 +106,17 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn priority_omitted_in_toml_falls_back_to_default() {
-        // Existing config files written before this field was added must
-        // continue to deserialize unchanged.
-        let cfg: StreamingConfig = toml::from_str("max_streams = 64").unwrap();
+        let cfg: StreamingConfig = toml::from_str("max_stream_count = 64").unwrap();
+
         assert_eq!(cfg.priority, StreamPriority::Default);
-        assert_eq!(cfg.max_streams, 64);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn max_stream_count_is_read_from_toml() {
+        let cfg: StreamingConfig = toml::from_str("max_stream_count = 64").unwrap();
+
+        assert_eq!(cfg.max_stream_count, 64);
     }
 
     #[test]
@@ -124,20 +132,15 @@ mod tests {
         }
     }
 
+    /// Stable on-disk representation: don't break user configs by accident.
     #[test]
     fn priority_serde_uses_lowercase_names() {
-        // Stable on-disk representation — don't break user configs by accident.
-        assert_eq!(
-            serde_json::to_string(&StreamPriority::Low).unwrap(),
-            "\"low\""
-        );
-        assert_eq!(
-            serde_json::to_string(&StreamPriority::High).unwrap(),
-            "\"high\""
-        );
-        assert_eq!(
-            serde_json::to_string(&StreamPriority::Default).unwrap(),
-            "\"default\""
-        );
+        for (priority, name) in [
+            (StreamPriority::Low, "\"low\""),
+            (StreamPriority::High, "\"high\""),
+            (StreamPriority::Default, "\"default\""),
+        ] {
+            assert_eq!(serde_json::to_string(&priority).unwrap(), name);
+        }
     }
 }

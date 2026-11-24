@@ -1,7 +1,7 @@
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::command::CopyLayout;
 use cubecl_server::server::IoError;
-use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
@@ -98,12 +98,8 @@ impl MetalStorage {
     }
 }
 
-impl ComputeStorage for MetalStorage {
+impl StorageAllocator for MetalStorage {
     type Resource = MetalResource;
-
-    fn alignment(&self) -> usize {
-        256 // Metal standard alignment
-    }
 
     fn get(
         &mut self,
@@ -122,7 +118,7 @@ impl ComputeStorage for MetalStorage {
         })
     }
 
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, cubecl_core::server::IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, cubecl_core::server::IoError> {
         use objc2_metal::MTLDevice;
 
         let id = StorageId::new();
@@ -143,11 +139,14 @@ impl ComputeStorage for MetalStorage {
 
         Ok(StorageHandle::new(
             id,
-            StorageUtilization { offset: 0, size },
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
         ))
     }
 
-    fn dealloc(&mut self, id: StorageId) {
+    fn deallocate(&mut self, id: StorageId) {
         if let Some(buffer) = self.buffers.remove(&id) {
             self.allocated -= buffer.length() as u64;
         }

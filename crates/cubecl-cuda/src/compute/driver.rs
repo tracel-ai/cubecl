@@ -16,7 +16,7 @@ use cubecl_server::memory_management::drop_queue::PendingDropQueue;
 use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use cubecl_server::metadata_cache::MetadataInfoCache;
 use cubecl_server::server::{Handle, IoError, LaunchError, ServerError};
-use cubecl_server::storage::{ComputeStorage, PinnedMemoryAllocController};
+use cubecl_server::storage::{PinnedMemoryAllocController, StorageAllocator};
 use cubecl_server::stream::StreamCapture;
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
 use std::ffi::c_void;
@@ -70,7 +70,7 @@ impl Driver for Cuda {
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
-        resource: <PinnedMemoryStorage as ComputeStorage>::Resource,
+        resource: <PinnedMemoryStorage as StorageAllocator>::Resource,
         size: usize,
     ) -> Bytes {
         let controller = Box::new(PinnedMemoryAllocController::init(binding, resource));

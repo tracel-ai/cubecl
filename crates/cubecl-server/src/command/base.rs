@@ -15,11 +15,11 @@ use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
-use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard,
-    PageUpdate, PinnedPages, StreamMemoryReport,
+    AllocationKind, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, PageGuard,
+    PageUpdate, StreamMemoryReport,
 };
+use crate::memory_management::{Cleanup, release_or_leak};
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
 };
@@ -186,20 +186,19 @@ impl<'a, D: Driver> Command<'a, D> {
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let current = self.streams.current;
-        let pinned = self.streams.current().capturing().pinned_pages(current);
-        self.reserve_sharing(size, pinned)
+        let kind = self.streams.current().capturing().allocation_kind(current);
+        self.reserve_as(size, kind)
     }
 
-    /// [`reserve`](Self::reserve), carving the room the stream's graphs pinned only when
-    /// `pinned` shares it.
+    /// [`reserve`](Self::reserve), for an allocation of `kind`.
     ///
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
-    fn reserve_sharing(
+    fn reserve_as(
         &mut self,
         size: u64,
-        pinned: PinnedPages,
+        kind: AllocationKind,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let update = self.streams.current().capturing().page_update();
         if update == PageUpdate::Allow {
@@ -209,7 +208,7 @@ impl<'a, D: Driver> Command<'a, D> {
         let (stream, failures) = self.streams.current_and_failures();
         match stream
             .device_memory()
-            .reserve_sharing(size, update, pinned, failures)
+            .reserve_as(size, update, kind, failures)
         {
             Ok(handle) => Ok(handle),
             // The recording now misses whatever this memory was for.
@@ -226,31 +225,32 @@ impl<'a, D: Driver> Command<'a, D> {
             // placed otherwise than the plan the recording follows.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                self.make_room(&err, pinned);
+                self.make_room(&err, kind);
                 let (stream, failures) = self.streams.current_and_failures();
                 stream
                     .device_memory()
-                    .reserve_sharing(size, PageUpdate::Allow, pinned, failures)
+                    .reserve_as(size, PageUpdate::Allow, kind, failures)
             }
         }
     }
 
     /// Get back what the reservation that failed with `err` needs: a slot for
-    /// a new page size when the arena it was `pinned` to is full, memory
-    /// otherwise.
-    fn make_room(&mut self, err: &IoError, pinned: PinnedPages) {
-        match (err, pinned) {
+    /// a new page size when the arena an allocation of `kind` goes to is full,
+    /// memory otherwise.
+    fn make_room(&mut self, err: &IoError, kind: AllocationKind) {
+        match (err, kind) {
             // Only a relocation that may allocate empties the outdated pools
             // whatever room the current pages have.
-            (IoError::PageSizesExhausted { .. }, PinnedPages::Avoid | PinnedPages::Share) => {
-                RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
-            }
+            (
+                IoError::PageSizesExhausted { .. },
+                AllocationKind::Eager | AllocationKind::GraphIntermediate,
+            ) => RelocatingStreams::relocate(self, RelocationReason::ArenaFull),
             // Nothing frees a slot of the separate arena: it is never
             // relocated, since its graphs pin what it holds, and every
             // reservation already drained its outdated pools that emptied. The
             // retry reports the exhaustion, rather than placing the output on
             // the shared room.
-            (IoError::PageSizesExhausted { .. }, PinnedPages::Separate) => {}
+            (IoError::PageSizesExhausted { .. }, AllocationKind::GraphOutput) => {}
             // No stream records (the caller checked), which is the only
             // refusal a cleanup has.
             _ => {
@@ -261,16 +261,22 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `memory` `size` bytes of device memory on the current stream.
     ///
+    /// `memory` is the handle the task that asked for it owns, and it ends in the pool, moved
+    /// rather than cloned: from the ask to the pool, the buffer has exactly one handle besides
+    /// its users', so what [`can_mut`](ManagedMemoryHandle::can_mut) answers them never depends
+    /// on how far the device thread has got.
+    ///
     /// # Errors
     ///
     /// Returns an [`IoError`] when the memory cannot be reserved or bound, e.g. when the device
-    /// is out of memory. The caller records it on `memory`, which has no binding to carry it.
+    /// is out of memory. The caller records it on `memory`, which has no binding to carry it:
+    /// it takes `memory`'s [binding](ManagedMemoryHandle::to_binding) before handing it over.
     pub fn initialize_memory(
         &mut self,
         memory: ManagedMemoryHandle,
         size: u64,
     ) -> Result<(), IoError> {
-        match self.allocate(size, &memory) {
+        match self.allocate(size, memory) {
             Ok(()) => Ok(()),
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
@@ -287,8 +293,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// # Errors
     ///
-    /// Whatever the reservation or the bind reports.
-    pub fn allocate(&mut self, size: u64, memory: &ManagedMemoryHandle) -> Result<(), IoError> {
+    /// Whatever the reservation or the bind reports. `memory` is dropped then.
+    pub fn allocate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let placement = self.streams.current().capturing().place(current, size);
         self.allocate_at(size, memory, placement)
@@ -300,35 +306,34 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Left out of the run's sequence: its placement never depends on the plan, and a launch's
     /// metadata is built only where the cache misses, which the planning runs and the recording
     /// need not agree on — a scalar that changes between runs misses once more.
-    fn allocate_separate(
-        &mut self,
-        size: u64,
-        memory: &ManagedMemoryHandle,
-    ) -> Result<(), IoError> {
+    fn allocate_separate(&mut self, size: u64, memory: ManagedMemoryHandle) -> Result<(), IoError> {
         let current = self.streams.current;
         let reserved = match self.streams.current().capturing().is_owned_by(current) {
-            true => self.reserve_sharing(size, PinnedPages::Separate)?,
+            true => self.reserve_as(size, AllocationKind::GraphOutput)?,
             false => self.reserve(size)?,
         };
-        self.bind(reserved, memory.clone())
+        self.bind(reserved, memory)
     }
 
     fn allocate_at(
         &mut self,
         size: u64,
-        memory: &ManagedMemoryHandle,
+        memory: ManagedMemoryHandle,
         placement: Placement,
     ) -> Result<(), IoError> {
         let reserved = match placement {
-            Placement::Output => self.reserve_sharing(size, PinnedPages::Separate)?,
+            Placement::Output => self.reserve_as(size, AllocationKind::GraphOutput)?,
             Placement::Pools => self.reserve(size)?,
         };
-        self.bind(reserved, memory.clone())?;
+        // Taken before the handle moves into the pool. A recorded output's binding outlives this
+        // command: the graph it seals into writes the buffer on every replay, in stream order.
+        let binding = memory.to_binding();
+        self.bind(reserved, memory)?;
         let current = self.streams.current;
         self.streams
             .current()
             .capturing()
-            .allocated(current, size, memory, placement);
+            .allocated(current, size, binding, placement);
         Ok(())
     }
 
@@ -344,7 +349,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Whatever the allocation or the bind reports.
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = Handle::new(self.service, self.streams.current, size);
-        self.allocate(size, &handle.memory)?;
+        self.allocate(size, handle.memory.clone())?;
 
         Ok(handle)
     }
@@ -390,7 +395,7 @@ impl<'a, D: Driver> Command<'a, D> {
             .reserve(size as u64, update, failures)
             .ok()?;
 
-        let binding = MemoryHandle::binding(handle);
+        let binding = handle.binding();
         stream.capturing().prime(&binding);
         let resource = stream
             .host_memory()
@@ -420,17 +425,18 @@ impl<'a, D: Driver> Command<'a, D> {
             .iter()
             .map(|descriptor| descriptor.handle.clone())
             .collect::<Vec<_>>();
+        let copies_any = descriptors
+            .iter()
+            .any(|descriptor| num_bytes(descriptor) != 0);
         let result = self.copies_to_bytes(descriptors);
         let fence = D::Stream::fence(self.streams.current().signal());
+        let copies = match copies_any && result.is_ok() {
+            false => InFlight::unguarded(fence, (held, result)),
+            true => InFlight::new(fence, (held, result)),
+        };
 
         async move {
-            if let Err(err) = fence.wait() {
-                // Both the device sources and host destinations may still be in use.
-                release_or_leak((held, result), &err);
-                return Err(err);
-            }
-            // The bindings kept the source allocations alive across the copies;
-            // the fence above is what says they are done being read.
+            let (held, result) = copies.wait()?;
             core::mem::drop(held);
 
             result.map_err(Into::into)
@@ -471,8 +477,7 @@ impl<'a, D: Driver> Command<'a, D> {
         descriptor: CopyDescriptor,
         stream_id: Option<StreamId>,
     ) -> Result<Bytes, IoError> {
-        let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let mut bytes = self.reserve_cpu(num_bytes, stream_id);
+        let mut bytes = self.reserve_cpu(num_bytes(&descriptor), stream_id);
         self.write_to_cpu(descriptor, &mut bytes, stream_id)?;
 
         Ok(bytes)
@@ -620,13 +625,13 @@ impl<'a, D: Driver> Command<'a, D> {
         let size = staging.len() as u64;
         let handle = Handle::new(self.service, self.streams.current, size);
         match room {
-            Room::Planned => self.allocate(size, &handle.memory)?,
-            Room::Separate => self.allocate_separate(size, &handle.memory)?,
+            Room::Planned => self.allocate(size, handle.memory.clone())?,
+            Room::Separate => self.allocate_separate(size, handle.memory.clone())?,
         }
 
         self.write_to_gpu(
             CopyDescriptor {
-                handle: handle.clone().binding(),
+                handle: handle.to_binding(),
                 shape: [data.len()].into(),
                 strides: [1].into(),
                 elem_size: 1,
@@ -797,4 +802,125 @@ enum Room {
     Planned,
     /// Apart from the room the stream's graphs share, while a capture is under way.
     Separate,
+}
+
+/// How many bytes reading `descriptor` copies to the host.
+fn num_bytes(descriptor: &CopyDescriptor) -> usize {
+    descriptor.shape.iter().product::<usize>() * descriptor.elem_size
+}
+
+/// Memory a stream's copies may still be using until `fence` is reached: their
+/// device sources and host destinations. Dropped before [`wait`](Self::wait),
+/// it waits for the fence itself, so a read abandoned unawaited never hands a
+/// buffer back to its pool mid-copy.
+struct InFlight<F: Fence, M> {
+    fence_and_memory: Option<(F, M)>,
+    waits_on_drop: bool,
+}
+
+impl<F: Fence, M> InFlight<F, M> {
+    fn new(fence: F, memory: M) -> Self {
+        Self {
+            fence_and_memory: Some((fence, memory)),
+            waits_on_drop: true,
+        }
+    }
+
+    /// For memory no copy is using, as when nothing was enqueued: dropped, it
+    /// does not wait.
+    fn unguarded(fence: F, memory: M) -> Self {
+        Self {
+            fence_and_memory: Some((fence, memory)),
+            waits_on_drop: false,
+        }
+    }
+
+    /// The memory, once the device is done with it.
+    ///
+    /// # Errors
+    ///
+    /// The fault the fence reports; the memory is then released or leaked.
+    fn wait(mut self) -> Result<M, ServerError> {
+        let (fence, memory) = self.fence_and_memory.take().expect("waited once");
+        match fence.wait() {
+            Ok(()) => Ok(memory),
+            Err(err) => {
+                release_or_leak(memory, &err);
+                Err(err)
+            }
+        }
+    }
+}
+
+impl<F: Fence, M> Drop for InFlight<F, M> {
+    fn drop(&mut self) {
+        if let Some((fence, memory)) = self.fence_and_memory.take()
+            && self.waits_on_drop
+            && let Err(err) = fence.wait()
+        {
+            release_or_leak(memory, &err);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingFence(Arc<AtomicUsize>);
+
+    impl Fence for CountingFence {
+        fn wait(self) -> Result<(), ServerError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Records, when dropped, how many times the fence had been waited on.
+    struct Buffer {
+        waits: Arc<AtomicUsize>,
+        waits_at_release: Arc<AtomicUsize>,
+    }
+
+    impl Drop for Buffer {
+        fn drop(&mut self) {
+            let waits = self.waits.load(Ordering::SeqCst);
+            self.waits_at_release.store(waits, Ordering::SeqCst);
+        }
+    }
+
+    fn copies(guarded: bool) -> (InFlight<CountingFence, Buffer>, Arc<AtomicUsize>) {
+        let waits = Arc::new(AtomicUsize::new(0));
+        let waits_at_release = Arc::new(AtomicUsize::new(usize::MAX));
+        let buffer = Buffer {
+            waits: waits.clone(),
+            waits_at_release: waits_at_release.clone(),
+        };
+        let fence = CountingFence(waits);
+        let copies = match guarded {
+            true => InFlight::new(fence, buffer),
+            false => InFlight::unguarded(fence, buffer),
+        };
+        (copies, waits_at_release)
+    }
+
+    #[test]
+    fn copies_dropped_unawaited_release_their_memory_after_the_fence() {
+        let (copies, waits_at_release) = copies(true);
+
+        drop(copies);
+
+        assert_eq!(waits_at_release.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn memory_no_copy_uses_is_released_without_waiting() {
+        let (copies, waits_at_release) = copies(false);
+
+        drop(copies);
+
+        assert_eq!(waits_at_release.load(Ordering::SeqCst), 0);
+    }
 }

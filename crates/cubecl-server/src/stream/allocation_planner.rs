@@ -3,7 +3,7 @@
 //! A graph on a stream replays its temporaries over the room the stream's other graphs
 //! replay theirs on: that is what lets a stream hold about the largest graph's working set
 //! rather than the sum of all of them (see
-//! [`PinnedPages`](crate::memory_management::PinnedPages)). A buffer the graph's work leaves
+//! [`AllocationKind`](crate::memory_management::AllocationKind)). A buffer the graph's work leaves
 //! behind — an output the caller reads — must never sit on that room, or another graph's
 //! replay overwrites it. Whether an allocation is a temporary or an output is only known once
 //! the work is over, by which time a recording has baked its address.
@@ -26,9 +26,9 @@
 //! The recording refuses to seal only when it keeps a buffer it placed as a temporary, since that
 //! buffer may sit on room another graph's replay writes. A run can always place a buffer that way:
 //! a temporary of the size of the output after it looks like that output when it comes. The
-//! refused recording's own allocations then become the plan of the capture prepared next on the
-//! stream, which may record at once: a recording that allocates as the refused one did follows
-//! that plan exactly, and seals.
+//! refused recording's allocations then place the first planning run of a retry, which grows
+//! the room apart for every buffer that recording kept, since the window that follows adds no
+//! page. A capture prepared afresh forgets them.
 
 use crate::memory_management::{ManagedMemoryBinding, WeakMemoryBinding};
 use alloc::vec::Vec;
@@ -62,6 +62,19 @@ pub struct RunAllocation {
     pub placement: Placement,
 }
 
+/// The run a plan was taken from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum PlanOrigin {
+    /// No run: every allocation goes to the pools.
+    #[default]
+    Nothing,
+    /// A recording refused for keeping a buffer it placed as a temporary. Only a retry's
+    /// planning run follows it: the room apart it needs was never grown.
+    RefusedRecording,
+    /// A planning run of the capture under way, which its recording may follow.
+    PlanningRun,
+}
+
 /// The planning run of one capture and the plan the recording follows.
 ///
 /// Built and cleared with the capture's lifecycle by
@@ -71,10 +84,13 @@ pub struct AllocationPlanner {
     /// The current run's allocations, in order. Arrival usage: pushed per allocation, drained
     /// in order when the run ends.
     run: Vec<RunAllocation>,
-    /// The plan the next run follows, in allocation order: the last finished planning run, or
-    /// the last refused recording. Position usage: a run reads the entry at its cursor and
-    /// looks for the next output from there.
+    /// The plan the next run follows, in allocation order, taken from the run `origin` names.
+    /// Position usage: a run reads the entry at its cursor, and the one `next_outputs` names.
     last: Vec<PlannedAllocation>,
+    /// For each position in `last`, the position of the first output at or after it, or the
+    /// length of `last` when there is none. Position usage: read at the cursor when the entry
+    /// there does not match, rebuilt whenever `last` changes.
+    next_outputs: Vec<usize>,
     /// The run that just ended, before it becomes `last`. Scratch usage: filled as a run ends,
     /// compared with `last`, then swapped with it.
     ended: Vec<PlannedAllocation>,
@@ -86,12 +102,8 @@ pub struct AllocationPlanner {
     /// [`start_run`](Self::start_run) to [`finish_run`](Self::finish_run), or the recorded run.
     /// What the capture's owner allocates otherwise is not the work's.
     running: bool,
-    /// Whether `last` holds a plan.
-    planned: bool,
-    /// Whether a planning run of this capture finished, so `last` is this capture's own.
-    ran: bool,
-    /// Whether `last` is a refused recording's, for the capture prepared next to follow.
-    carried: bool,
+    /// The run `last` was taken from.
+    origin: PlanOrigin,
     /// The position in `last` after the current run's last matched allocation.
     cursor: usize,
 }
@@ -123,8 +135,8 @@ impl AllocationPlanner {
     }
 
     /// End a planning run, once its deferred frees are reclaimed, and answer whether it kept
-    /// the buffers the run before it of this capture kept, the same sizes in the same order:
-    /// what the recording's seal depends on has settled, and the recording can follow it.
+    /// the buffers the planning run before it kept, the same sizes in the same order: what the
+    /// recording's seal depends on has settled, and the recording can follow it.
     pub fn finish_run(&mut self) -> bool {
         self.kept.extend(
             self.run
@@ -134,23 +146,21 @@ impl AllocationPlanner {
         );
         self.end_run_log();
         self.running = false;
-        let outputs = |run: &[PlannedAllocation]| {
-            run.iter()
-                .filter(|planned| planned.outlived)
-                .map(|planned| planned.size_bytes)
-                .collect::<Vec<_>>()
-        };
-        let stable = self.ran && outputs(&self.ended) == outputs(&self.last);
-        core::mem::swap(&mut self.last, &mut self.ended);
-        self.planned = true;
-        self.ran = true;
+        let stable = self.origin == PlanOrigin::PlanningRun
+            && output_sizes(&self.ended).eq(output_sizes(&self.last));
+        self.adopt_ended(PlanOrigin::PlanningRun);
         stable
     }
 
-    /// Whether a recording has a plan to follow: a planning run finished, or the capture
-    /// carries a refused recording's allocations.
+    /// Whether a recording has a plan to follow: a planning run of this capture finished.
     pub fn has_plan(&self) -> bool {
-        self.planned
+        self.origin == PlanOrigin::PlanningRun
+    }
+
+    /// Whether the last recording was refused, and its allocations wait for a retry
+    /// ([`retry`](Self::retry)).
+    pub fn has_refused_recording(&self) -> bool {
+        self.origin == PlanOrigin::RefusedRecording
     }
 
     /// Start a planning run: what the work allocates from here is logged, and placed by the
@@ -182,24 +192,20 @@ impl AllocationPlanner {
     /// that size, past the temporaries before it; either moves the cursor past the entry. One
     /// that matches neither goes to the pools, and leaves the cursor where it was.
     pub fn place_bytes(&mut self, size_bytes: u64) -> Placement {
-        let at_cursor = self
-            .last
-            .get(self.cursor)
-            .filter(|planned| planned.size_bytes == size_bytes)
-            .map(|planned| (self.cursor, planned));
-        let next_output = || {
+        let fits = |position: &usize| {
             self.last
-                .iter()
-                .enumerate()
-                .skip(self.cursor)
-                .find(|(_, planned)| planned.outlived)
-                .filter(|(_, planned)| planned.size_bytes == size_bytes)
+                .get(*position)
+                .is_some_and(|planned| planned.size_bytes == size_bytes)
         };
-        let Some((position, planned)) = at_cursor.or_else(next_output) else {
+        let next_output = self.next_outputs.get(self.cursor).copied();
+        let Some(position) = Some(self.cursor)
+            .filter(fits)
+            .or_else(|| next_output.filter(fits))
+        else {
             return Placement::Pools;
         };
         self.cursor = position + 1;
-        match planned.outlived {
+        match self.last[position].outlived {
             true => Placement::Output,
             false => Placement::Pools,
         }
@@ -210,8 +216,7 @@ impl AllocationPlanner {
     /// temporary allocated otherwise than planned is no divergence, nor is an output it let go:
     /// its graph holds the room, which every replay still writes.
     ///
-    /// A recording that diverges leaves its own allocations as the plan of the capture prepared
-    /// next on the stream.
+    /// A recording that diverges leaves its own allocations for a [`retry`](Self::retry).
     pub fn finish_recording(&mut self) -> Option<Divergence> {
         self.running = false;
         let divergence = self
@@ -226,36 +231,43 @@ impl AllocationPlanner {
                 size_bytes: allocation.size_bytes,
             });
         self.end_run_log();
-        self.carried = divergence.is_some();
-        if self.carried {
-            core::mem::swap(&mut self.last, &mut self.ended);
+        if divergence.is_some() {
+            self.adopt_ended(PlanOrigin::RefusedRecording);
         }
         divergence
     }
 
-    /// Start over for a capture being prepared: every run is forgotten, and so is the plan,
-    /// unless the last recording on the stream was refused, whose allocations the new capture
-    /// follows until a planning run of its own finishes.
-    pub fn restart(&mut self) {
-        let carried = core::mem::take(&mut self.carried);
-        let plan = core::mem::take(&mut self.last);
-        self.clear();
-        if carried {
-            self.last = plan;
-            self.planned = true;
-        }
+    /// Start over for a retry of the refused recording: every run is forgotten but that
+    /// recording, whose allocations place the retry's first planning run. That run, not the
+    /// refused recording, is what the retry's recording may follow.
+    ///
+    /// # Panics
+    ///
+    /// When no recording was refused ([`has_refused_recording`](Self::has_refused_recording)).
+    pub fn retry(&mut self) {
+        assert!(
+            self.has_refused_recording(),
+            "a retry follows a refused recording"
+        );
+        self.forget_runs();
     }
 
     /// Forget every run and the plan.
     pub fn clear(&mut self) {
-        self.run.clear();
+        self.forget_runs();
         self.last.clear();
+        self.next_outputs.clear();
+        self.origin = PlanOrigin::Nothing;
+    }
+}
+
+impl AllocationPlanner {
+    /// Forget the runs under way and the buffers they left alive, and keep the plan.
+    fn forget_runs(&mut self) {
+        self.run.clear();
         self.ended.clear();
         self.kept.clear();
         self.running = false;
-        self.planned = false;
-        self.ran = false;
-        self.carried = false;
         self.cursor = 0;
     }
 
@@ -270,6 +282,34 @@ impl AllocationPlanner {
                 outlived: allocation.memory.upgrade().is_some(),
             }));
     }
+
+    /// Make the run that just ended the plan, taken from `origin`.
+    fn adopt_ended(&mut self, origin: PlanOrigin) {
+        core::mem::swap(&mut self.last, &mut self.ended);
+        self.origin = origin;
+        let mut next = self.last.len();
+        self.next_outputs.clear();
+        self.next_outputs.extend(
+            self.last
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(position, planned)| {
+                    if planned.outlived {
+                        next = position;
+                    }
+                    next
+                }),
+        );
+        self.next_outputs.reverse();
+    }
+}
+
+/// The sizes of the outputs of `run`, in order.
+fn output_sizes(run: &[PlannedAllocation]) -> impl Iterator<Item = u64> + '_ {
+    run.iter()
+        .filter(|planned| planned.outlived)
+        .map(|planned| planned.size_bytes)
 }
 
 impl core::fmt::Display for Divergence {
@@ -277,8 +317,7 @@ impl core::fmt::Display for Divergence {
         write!(
             f,
             "a buffer of {} B, allocated after {} others, is still held but was placed as a \
-             temporary, on room other graphs' replays write; a capture prepared next on this \
-             stream follows the refused recording's allocations, and may record at once",
+             temporary, on room other graphs' replays write",
             self.size_bytes, self.position
         )
     }
@@ -446,10 +485,10 @@ mod tests {
     }
 
     /// A recorded run that writes in place where the plan wrote a temporary and then a fresh
-    /// output of its size keeps a buffer it placed as that temporary, and is refused. The next
-    /// capture follows the refused recording, and a recording allocating as it did seals.
+    /// output of its size keeps a buffer it placed as that temporary, and is refused. A retry's
+    /// planning run follows the refused recording, and a recording allocating as it did seals.
     #[test]
-    fn an_output_planned_after_a_temporary_of_its_size_seals_on_the_next_recording() {
+    fn an_output_planned_after_a_temporary_of_its_size_seals_on_a_retry() {
         let mut planner = AllocationPlanner::default();
         let _planned = run(&mut planner, &[8, 8], &[false, true]);
 
@@ -463,8 +502,9 @@ mod tests {
             })
         );
 
-        planner.restart();
-        assert!(planner.has_plan(), "the refused recording is the plan");
+        planner.retry();
+        let (_, retried) = run(&mut planner, &[8], &[true]);
+        assert_eq!(retried.placements, [Output]);
         let (placements, divergence) = record(&mut planner, &[8], &[true]);
         assert_eq!(placements, [Output]);
         assert_eq!(divergence, None);
@@ -472,10 +512,10 @@ mod tests {
 
     /// A recorded run that allocates a temporary before an output of the same size, where the
     /// plan wrote that output in place, gives the temporary the output's room and is refused.
-    /// The next capture follows the refused recording, and a recording allocating as it did
-    /// seals.
+    /// A retry's planning run follows the refused recording, and a recording allocating as it
+    /// did seals.
     #[test]
-    fn a_temporary_before_an_output_of_its_size_seals_on_the_next_recording() {
+    fn a_temporary_before_an_output_of_its_size_seals_on_a_retry() {
         let mut planner = AllocationPlanner::default();
         let _planned = run(&mut planner, &[8], &[true]);
 
@@ -489,22 +529,55 @@ mod tests {
             })
         );
 
-        planner.restart();
+        planner.retry();
+        let (_, retried) = run(&mut planner, &[8, 8], &[false, true]);
+        assert_eq!(retried.placements, [Pools, Output]);
         let (placements, divergence) = record(&mut planner, &[8, 8], &[false, true]);
         assert_eq!(placements, [Pools, Output]);
         assert_eq!(divergence, None);
     }
 
-    /// A capture prepared after one that sealed, or after a planning run, starts with no plan.
+    /// A refused recording is no plan a recording may follow: the room apart its kept buffers
+    /// need was never grown, so a retry plans once first.
     #[test]
-    fn only_a_refused_recording_carries_its_plan() {
+    fn a_refused_recording_is_no_plan_to_record_on() {
+        let mut planner = AllocationPlanner::default();
+        let _planned = run(&mut planner, &[8], &[true]);
+        let _refused = record(&mut planner, &[8, 8], &[true, true]);
+
+        planner.retry();
+        assert!(!planner.has_plan());
+    }
+
+    /// Only a refused recording waits for a retry: one that sealed does not.
+    #[test]
+    fn a_sealed_recording_waits_for_no_retry() {
         let mut planner = AllocationPlanner::default();
         let _planned = run(&mut planner, &[8], &[true]);
         let (_, divergence) = record(&mut planner, &[8], &[true]);
         assert_eq!(divergence, None);
 
-        planner.restart();
-        assert!(!planner.has_plan());
+        assert!(!planner.has_refused_recording());
+    }
+
+    /// A capture prepared afresh forgets a refused recording: nothing places its first run.
+    #[test]
+    fn a_fresh_capture_forgets_a_refused_recording() {
+        let mut planner = AllocationPlanner::default();
+        let _planned = run(&mut planner, &[8], &[true]);
+        let _refused = record(&mut planner, &[8, 8], &[true, true]);
+
+        planner.clear();
+        assert!(!planner.has_refused_recording());
+        assert_eq!(planner.place_bytes(8), Pools);
+    }
+
+    /// A retry of no refused recording is a caller's mistake.
+    #[test]
+    #[should_panic(expected = "a retry follows a refused recording")]
+    fn a_retry_without_a_refused_recording_panics() {
+        let mut planner = AllocationPlanner::default();
+        planner.retry();
     }
 
     /// A recorded run that keeps a planned temporary diverges there: that buffer sits on the

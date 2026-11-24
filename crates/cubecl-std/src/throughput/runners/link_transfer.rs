@@ -1,7 +1,8 @@
+use crate::throughput::KernelSampler;
 use alloc::boxed::Box;
 use cubecl_common::profile::Instant;
 use cubecl_core::{future::block_on, prelude::*};
-use cubecl_runtime::throughput::{KernelConfig, ThroughputError};
+use cubecl_runtime::throughput::ThroughputError;
 
 use crate::throughput::{link_peer::MAX_BYTES, memory_probe};
 
@@ -17,7 +18,7 @@ pub fn build_kernel(
     source: &Client,
     destination: &Client,
     bytes: u64,
-) -> Result<KernelConfig, ThroughputError> {
+) -> Result<KernelSampler, ThroughputError> {
     if bytes > MAX_BYTES {
         return Err(ThroughputError::Unsupported);
     }
@@ -40,9 +41,5 @@ pub fn build_kernel(
         start.elapsed()
     });
 
-    Ok(KernelConfig {
-        sample,
-        ops_count: bytes as usize,
-        min_iterations: 1,
-    })
+    Ok(KernelSampler::new(sample, bytes as usize, 1))
 }

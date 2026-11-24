@@ -5,7 +5,7 @@ use crate::compute::storage::WgpuStorage;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::memory_management::relocation::{CopyQueue, StorageCopy};
 use cubecl_server::server::{IoError, ServerError};
-use cubecl_server::storage::ComputeStorage;
+use cubecl_server::storage::StorageAllocator;
 
 /// wgpu's device-to-device copy: buffer-to-buffer copies recorded on an
 /// encoder of their own, submitted together and waited on outside the stream's

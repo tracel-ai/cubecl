@@ -1866,6 +1866,68 @@ impl Tile {
         own
     }
 
+    /// Where the value at `coords` sits in the load holding it: its place counted across every
+    /// axis the load spans ([`value_in_line`](Tile::value_in_line)).
+    fn position_in_load(&self, coords: &Coords<u32>) -> u32 {
+        let space = comptime!(self.place.space.clone());
+        let rank = space.rank();
+        let load = self.vector_tile();
+        let mut position = 0u32.runtime();
+        #[unroll]
+        for p in 0..rank {
+            let axis = space.dimension_at(p);
+            let extent = comptime!(load.extent_along(axis) as u32);
+            if extent > 1 {
+                let step = comptime!(load.step_along(axis) as u32);
+                position += coords.at(p).remainder(extent).times(step);
+            }
+        }
+        position
+    }
+
+    /// The word of a packed tile holding the value at `coords`, as stored: the read half of
+    /// [`value_in_line`](Tile::value_in_line), which a register fetch issues ahead of the work
+    /// that hides it, leaving the field to [`scale_in_word`](Tile::scale_in_word).
+    #[allow(dead_code)] // Reached through its expand, from `Tile::fetch_decoded_from`.
+    pub(crate) fn scale_word_at(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> u32 {
+        let space = comptime!(self.place.space.clone());
+        let load = self.vector_tile();
+        let width = comptime!(load.values());
+        let packing = self.packing();
+        let per_word = comptime!(match packing {
+            Packing::Packed { field } => field.per_word() as u32,
+            Packing::Plain | Packing::Words { .. } => {
+                panic!("Tile::scale_word_at: only a packed tile holds its values in words")
+            }
+        });
+        let words_wide = comptime!(packing.physical(width));
+        let size!(WP) = words_wide;
+        let words = self.nd_words::<WP>(guard).read(load.index(coords, &space));
+        if words_wide > 1 {
+            let position = self.position_in_load(coords);
+            words.extract_dynamic((position / per_word).cast::<usize>())
+        } else {
+            words.extract(0usize)
+        }
+    }
+
+    /// The value at `coords` out of `word`, the word [`scale_word_at`](Tile::scale_word_at) read
+    /// for it: the decode half of [`value_in_line`](Tile::value_in_line).
+    #[allow(dead_code)] // Reached through its expand, from `Tile::store_decoded`.
+    pub(crate) fn scale_in_word<S: Numeric>(&self, word: u32, coords: &Coords<u32>) -> S {
+        let packing = self.packing();
+        let field = comptime!(match packing {
+            Packing::Packed { field } => field,
+            Packing::Plain | Packing::Words { .. } => {
+                panic!("Tile::scale_in_word: only a packed tile holds its values in words")
+            }
+        });
+        let (bits, per_word) = comptime!((field.size_bits() as u32, field.per_word() as u32));
+        let position = self.position_in_load(coords);
+        let shifted = word >> ((position % per_word) * bits);
+        unpack_line::<S, Const<1>, Const<1>>(Vector::new(shifted), field).extract(0usize)
+    }
+
     /// The one value at `coords` of a tile that serves lines: the load holding it, read whole, and
     /// the value's place in it, whatever dimensions the load spans. A packed load decodes only the
     /// field that value is, not the whole line.
@@ -1873,20 +1935,10 @@ impl Tile {
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
-        let rank = space.rank();
         let load = self.vector_tile();
         let width = comptime!(load.values());
         let packing = self.packing();
-        let mut position = 0u32.runtime();
-        #[unroll]
-        for p in 0..rank {
-            let dimension = space.dimension_at(p);
-            let extent = comptime!(load.extent_along(dimension) as u32);
-            if extent > 1 {
-                let step = comptime!(load.step_along(dimension) as u32);
-                position += coords.at(p).remainder(extent).times(step);
-            }
-        }
+        let position = self.position_in_load(coords);
         match comptime!(packing) {
             Packing::Plain | Packing::Words { .. } => {
                 let size!(W) = width;
