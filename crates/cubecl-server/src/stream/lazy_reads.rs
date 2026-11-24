@@ -63,7 +63,7 @@ impl LazyReads {
                 let Some(read) = kept.read.upgrade().filter(|read| is_held(read)) else {
                     return false;
                 };
-                if !overlaps(&read.source().handle, binding) {
+                if !overlaps(&read.to_source().handle, binding) {
                     return true;
                 }
                 let is_kept = read.is_kept();
@@ -83,7 +83,7 @@ impl LazyReads {
     fn hold(&mut self, read: &Arc<LazyRead>, stream: StreamId) {
         let reads = self
             .kept
-            .entry(read.source().handle.memory.id())
+            .entry(read.to_source().handle.memory.id())
             .or_default();
         reads.retain(|kept| kept.read.upgrade().is_some_and(|read| is_held(&read)));
         reads.push(KeptRead {
@@ -132,7 +132,7 @@ pub fn keep_lazy_read<S: WriteScoped>(
         ));
     }
     let streams = server.write_streams();
-    streams.ensure_written(core::iter::once(&read.source().handle))?;
+    streams.ensure_written(core::iter::once(&read.to_source().handle))?;
     streams.lazy_reads().keep(&read, stream);
     Ok(())
 }
@@ -166,7 +166,7 @@ pub fn start_overwritten_reads<S: WriteScoped>(
             true => writer,
             false => made_on,
         };
-        let Some(started) = server.read_before_write(read.source().clone(), stream) else {
+        let Some(started) = server.read_before_write(read.to_source(), stream) else {
             continue;
         };
         read.start(started);

@@ -524,7 +524,7 @@ impl<M: Marker> Server for DummyServer<M> {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         // No test of this server writes what it reads lazily.
-        self.ensure_written(core::iter::once(&read.source().handle))
+        self.ensure_written(core::iter::once(&read.to_source().handle))
     }
 
     fn memory_report(

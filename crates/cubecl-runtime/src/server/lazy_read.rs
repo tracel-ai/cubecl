@@ -1,4 +1,4 @@
-use crate::server::{CopyDescriptor, ServerError};
+use crate::server::{CopyDescriptor, Handle, ServerError};
 use alloc::vec::Vec;
 use core::ops::Range;
 use cubecl_common::bytes::Bytes;
@@ -15,7 +15,8 @@ use cubecl_environment::sync::{Mutex, Once};
 /// - It counts on its memory's descriptor from when its server keeps it until its bytes are
 ///   resolved or it is dropped, so work writing the memory meanwhile finds it.
 pub struct LazyRead {
-    source: CopyDescriptor,
+    /// A handle rather than a binding, so the memory stays free to move until a copy reads it.
+    source: CopyDescriptor<Handle>,
     state: Mutex<LazyReadState>,
     /// What the started read returned, resolved once for every holder.
     started: Once<Result<Bytes, ServerError>>,
@@ -37,7 +38,7 @@ enum LazyReadState {
 
 impl LazyRead {
     /// A read of `source` no server keeps yet.
-    pub fn new(source: CopyDescriptor) -> Self {
+    pub fn new(source: CopyDescriptor<Handle>) -> Self {
         Self {
             source,
             state: Mutex::new(LazyReadState::Unkept),
@@ -45,9 +46,9 @@ impl LazyRead {
         }
     }
 
-    /// What it reads.
-    pub fn source(&self) -> &CopyDescriptor {
-        &self.source
+    /// What it reads, bound for the server to read it.
+    pub fn to_source(&self) -> CopyDescriptor {
+        self.source.clone().binding()
     }
 
     /// Its server keeps it from now on: work writing the memory starts it first.

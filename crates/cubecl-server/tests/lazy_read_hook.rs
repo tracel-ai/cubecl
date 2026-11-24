@@ -161,9 +161,9 @@ impl Device {
     }
 }
 
-fn lazy_read(binding: &BufferBinding) -> Arc<LazyRead> {
+fn lazy_read(handle: &Handle) -> Arc<LazyRead> {
     Arc::new(LazyRead::new(CopyDescriptor::new(
-        binding.clone(),
+        handle.clone(),
         [SIZE as usize].into(),
         [1].into(),
         1,
@@ -192,8 +192,8 @@ fn a_write_over_memory_no_lazy_read_holds_starts_no_read() {
 fn a_write_over_a_kept_lazy_read_starts_it_once() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
-    let (_handle, binding) = device.buffer(stream);
-    let read = lazy_read(&binding);
+    let (handle, binding) = device.buffer(stream);
+    let read = lazy_read(&handle);
     keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
 
     device.write(stream, binding.clone());
@@ -206,8 +206,8 @@ fn a_write_over_a_kept_lazy_read_starts_it_once() {
 fn a_write_on_another_stream_starts_the_read_on_its_own() {
     let mut device = Device::new();
     let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
-    let (_handle, binding) = device.buffer(reader);
-    let read = lazy_read(&binding);
+    let (handle, binding) = device.buffer(reader);
+    let read = lazy_read(&handle);
     keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
 
     device.write(writer, binding);
@@ -222,9 +222,11 @@ fn a_write_on_another_stream_starts_the_read_on_its_own() {
 fn a_write_beside_a_kept_lazy_read_leaves_it_kept() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
-    let (_handle, binding) = device.buffer(stream);
+    let (handle, binding) = device.buffer(stream);
+    let mut front = handle.clone();
+    front.offset_end = Some(SIZE / 2);
     let read = Arc::new(LazyRead::new(CopyDescriptor::new(
-        bytes(0..SIZE / 2, &binding),
+        front,
         [SIZE as usize / 2].into(),
         [1].into(),
         1,
@@ -240,8 +242,8 @@ fn a_write_beside_a_kept_lazy_read_leaves_it_kept() {
 fn a_dropped_lazy_read_is_not_started() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
-    let (_handle, binding) = device.buffer(stream);
-    keep_lazy_read(&mut device, lazy_read(&binding), stream)
+    let (handle, binding) = device.buffer(stream);
+    keep_lazy_read(&mut device, lazy_read(&handle), stream)
         .expect("clean memory should be readable");
 
     device.write(stream, binding);
@@ -253,8 +255,8 @@ fn a_dropped_lazy_read_is_not_started() {
 fn a_write_from_another_stream_waits_for_a_copy_in_flight() {
     let mut device = Device::new();
     let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
-    let (_handle, binding) = device.buffer(writer);
-    let read = lazy_read(&binding);
+    let (handle, binding) = device.buffer(writer);
+    let read = lazy_read(&handle);
     keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
     device.write(reader, bytes(0..SIZE / 2, &binding));
 
@@ -267,8 +269,8 @@ fn a_write_from_another_stream_waits_for_a_copy_in_flight() {
 fn a_failed_write_starts_the_read_its_claim_would_fail() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
-    let (_handle, binding) = device.buffer(stream);
-    let read = lazy_read(&binding);
+    let (handle, binding) = device.buffer(stream);
+    let read = lazy_read(&handle);
     keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
 
     failed_writing(
@@ -282,4 +284,17 @@ fn a_failed_write_starts_the_read_its_claim_would_fail() {
     );
 
     assert_eq!(device.started, vec![stream]);
+}
+
+#[test]
+fn a_kept_lazy_read_leaves_its_memory_free_to_move() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (handle, binding) = device.buffer(stream);
+    drop(binding);
+    let read = lazy_read(&handle);
+
+    keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
+
+    assert!(!handle.memory.is_bound());
 }

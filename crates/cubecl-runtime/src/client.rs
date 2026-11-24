@@ -543,7 +543,7 @@ impl Client {
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
         self.expect_local(&source.handle.to_binding());
-        let read = Arc::new(crate::server::LazyRead::new(source.clone().binding()));
+        let read = Arc::new(crate::server::LazyRead::new(source.clone()));
         let keep = self.keep_lazy_read(read.clone());
         let refused = read.clone();
         self.device.submit(move |server| {
@@ -575,7 +575,7 @@ impl Client {
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
-        let read = Arc::new(crate::server::LazyRead::new(source.clone().binding()));
+        let read = Arc::new(crate::server::LazyRead::new(source.clone()));
         let keep = self.keep_lazy_read(read.clone());
         let kept = self
             .device
@@ -597,14 +597,9 @@ impl Client {
         let stream_id = self.stream_id();
         move |server| {
             server.read_lazy(read.clone(), stream_id)?;
-            if read
-                .source()
-                .handle
-                .memory
-                .descriptor()
-                .is_shared_with_peers()
-            {
-                read.start(server.read(vec![read.source().clone()], stream_id));
+            let source = read.to_source();
+            if source.handle.memory.descriptor().is_shared_with_peers() {
+                read.start(server.read(vec![source], stream_id));
             }
             Ok(())
         }

@@ -519,7 +519,7 @@ impl Server for CpuServer {
     ) -> Result<(), ServerError> {
         // A read aliases host memory, so a lazy one is as live as an eager one.
         self.scheduler
-            .ensure_written(core::iter::once(&read.source().handle))
+            .ensure_written(core::iter::once(&read.to_source().handle))
     }
 
     fn compile_queued(&mut self) {
