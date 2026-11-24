@@ -7,10 +7,9 @@ use spin::Once;
 use std::{
     boxed::Box,
     fs::File,
-    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     string::ToString,
-    sync::{Arc, Mutex, PoisonError},
+    sync::Arc,
     vec,
 };
 
@@ -66,8 +65,8 @@ pub enum FileSource {
     Opened {
         /// Where the file was opened, which the reads are counted under.
         path: PathBuf,
-        /// Locked for each read, since a read seeks it.
-        file: Mutex<File>,
+        /// Read at positions, so the windows sharing it read concurrently.
+        file: HeldFile,
     },
 }
 
@@ -93,13 +92,70 @@ impl FileSource {
     /// Fills `buf` from the file, starting `offset` bytes in.
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
         match self {
-            Self::Path(path) => read_at(&mut File::open(path)?, offset, buf),
-            Self::Opened { file, .. } => read_at(
-                &mut file.lock().unwrap_or_else(PoisonError::into_inner),
-                offset,
-                buf,
-            ),
+            Self::Path(path) => HeldFile::new(File::open(path)?).read_exact_at(offset, buf),
+            Self::Opened { file, .. } => file.read_exact_at(offset, buf),
         }
+    }
+}
+
+/// A file held open and read at positions: reads of it on several threads
+/// at once each fill their own buffer from their own offset.
+///
+/// Public only to appear in [`FileSource`], for the same reason.
+#[derive(Debug)]
+pub struct HeldFile {
+    /// Read with positioned reads, which move no position shared by the
+    /// readers.
+    #[cfg(any(unix, windows))]
+    file: File,
+    /// Locked for each read, since a read on a platform without positioned
+    /// reads seeks it.
+    #[cfg(not(any(unix, windows)))]
+    file: std::sync::Mutex<File>,
+}
+
+impl HeldFile {
+    /// Hold `file` to read it at positions.
+    pub(crate) fn new(file: File) -> Self {
+        Self {
+            #[cfg(any(unix, windows))]
+            file,
+            #[cfg(not(any(unix, windows)))]
+            file: std::sync::Mutex::new(file),
+        }
+    }
+
+    /// Fills `buf` from the file, starting `offset` bytes in.
+    ///
+    /// # Errors
+    ///
+    /// The file does not read, or ends before `buf` is full.
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        #[cfg(any(unix, windows))]
+        return read_exact_at(&self.file, offset, buf);
+        #[cfg(not(any(unix, windows)))]
+        return read_exact_at(
+            &mut self
+                .file
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            offset,
+            buf,
+        );
+    }
+
+    /// The held file's metadata.
+    // Read only by the bundle readers, which the native cache builds.
+    #[cfg_attr(not(native_cache), allow(dead_code))]
+    fn metadata(&self) -> std::io::Result<std::fs::Metadata> {
+        #[cfg(any(unix, windows))]
+        return self.file.metadata();
+        #[cfg(not(any(unix, windows)))]
+        return self
+            .file
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .metadata();
     }
 }
 
@@ -125,19 +181,9 @@ impl FileAllocationController {
         Self::from_source(Arc::new(FileSource::Path(file.into())), size, offset)
     }
 
-    /// The `size` bytes of `file`, opened at `path`, from its start; read
-    /// from the open file, whatever is at `path` by then.
-    // Read only by the bundle readers, which the native cache builds.
-    #[cfg_attr(not(native_cache), allow(dead_code))]
-    pub fn opened(file: File, path: PathBuf, size: u64) -> Self {
-        let source = FileSource::Opened {
-            path,
-            file: Mutex::new(file),
-        };
-        Self::from_source(Arc::new(source), size, 0)
-    }
-
-    fn from_source(source: Arc<FileSource>, size: u64, offset: u64) -> Self {
+    /// The `size` bytes of `source` that start `offset` bytes in, read from
+    /// it when first used.
+    pub(crate) fn from_source(source: Arc<FileSource>, size: u64, offset: u64) -> Self {
         Self {
             source,
             size,
@@ -291,8 +337,37 @@ impl AllocationController for FileAllocationController {
     }
 }
 
-/// Fills `buf` from `file`, starting `offset` bytes in.
-fn read_at(file: &mut File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+/// Fills `buf` from `file`, starting `offset` bytes in, without moving a
+/// position other readers of `file` share.
+#[cfg(unix)]
+fn read_exact_at(file: &File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+    std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
+}
+
+/// Fills `buf` from `file`, starting `offset` bytes in, each read naming
+/// its own offset. A positioned read on Windows still moves the file's
+/// position, which no read here relies on.
+#[cfg(windows)]
+fn read_exact_at(file: &File, mut offset: u64, mut buf: &mut [u8]) -> std::io::Result<()> {
+    use std::os::windows::fs::FileExt;
+    while !buf.is_empty() {
+        match file.seek_read(buf, offset) {
+            Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
+            Ok(read) => {
+                buf = &mut buf[read..];
+                offset += read as u64;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+/// Fills `buf` from `file`, starting `offset` bytes in, by seeking it.
+#[cfg(not(any(unix, windows)))]
+fn read_exact_at(file: &mut File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
     file.seek(SeekFrom::Start(offset))?;
     file.read_exact(buf)
 }
@@ -301,12 +376,8 @@ fn read_at(file: &mut File, offset: u64, buf: &mut [u8]) -> std::io::Result<()> 
 /// describes; `None` when its metadata does not read.
 // Read only by the bundle readers, which the native cache builds.
 #[cfg_attr(not(native_cache), allow(dead_code))]
-fn is_held_file(file: &Mutex<File>, len: u64, at_path: &std::fs::Metadata) -> Option<bool> {
-    let held = file
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .metadata()
-        .ok()?;
+fn is_held_file(file: &HeldFile, len: u64, at_path: &std::fs::Metadata) -> Option<bool> {
+    let held = file.metadata().ok()?;
     Some(held.len() == len && same_file(&held, at_path))
 }
 

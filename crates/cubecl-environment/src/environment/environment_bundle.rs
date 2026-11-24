@@ -7,7 +7,7 @@ use alloc::string::String;
 use crate::bundle::SqliteBundle;
 use crate::bytes::Bytes;
 #[cfg(native_cache)]
-use crate::bytes::Reader;
+use crate::bytes::{OpenedFile, Reader};
 #[cfg(native_cache)]
 use crate::environment::scratch_file::ScratchFile;
 #[cfg(native_cache)]
@@ -91,7 +91,7 @@ impl EnvironmentBundle {
         let file = std::fs::File::open(path).map_err(EnvironmentError::storage)?;
         let size = file.metadata().map_err(EnvironmentError::storage)?.len();
         Ok(Self {
-            bytes: Bytes::from_opened_file(file, path.to_path_buf(), size),
+            bytes: Bytes::from_opened_file(&OpenedFile::new(file, path), size, 0),
         })
     }
 
