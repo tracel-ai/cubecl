@@ -209,6 +209,12 @@ pub enum Expression {
     AssertConstant {
         inner: Box<Expression>,
     },
+    /// Another copy of a `match` scrutinee, re-matched when a guard fails (see `parse::desugar`).
+    /// Comptime values use `Clone`; expand values use `ExpandTypeClone::clone_unchecked`, which is
+    /// sound because each copy is only matched in a mutually exclusive branch.
+    CloneUnchecked {
+        inner: Box<Expression>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -240,6 +246,7 @@ impl Expression {
             Expression::CompilerIntrinsic { .. } => true,
             Expression::Match { arms, .. } => arms.iter().all(|it| it.expr.is_const()),
             Expression::AssertConstant { .. } => true,
+            Expression::CloneUnchecked { inner } => inner.is_const(),
             _ => false,
         }
     }
@@ -308,6 +315,9 @@ impl Expression {
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::Match { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::AssertConstant { inner } => Some(inner.to_tokens(context)),
+            Expression::CloneUnchecked { inner } => inner
+                .as_const(context)
+                .map(|inner| quote![::core::clone::Clone::clone(&#inner)]),
             _ => None,
         }
     }
