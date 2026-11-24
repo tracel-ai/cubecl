@@ -62,7 +62,7 @@ pub use log::*;
 pub use operation::*;
 #[cfg(persistence)]
 pub use record::{PlannedCandidate, Trial, TuneRecord};
-pub use stage::{StageHook, TuneStage};
+pub use stage::{StageEnterer, TuneStage};
 pub use tune_benchmark::*;
 pub use tune_cache::*;
 pub use tune_inputs::*;

@@ -505,29 +505,45 @@ pub fn addition_set_with_failing_compilation_first(
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }
 
-/// The stages a tune of [`addition_set_with_stage_hook`] is in, the innermost last.
-pub type OpenStages = Arc<Mutex<Vec<TuneStage>>>;
+/// What the stages of a tune of [`addition_set_with_stage_enterer`] did.
+#[derive(Debug, Default)]
+pub struct StageTrace {
+    /// The stages open now, the innermost last.
+    pub open: Vec<TuneStage>,
+    /// The innermost stage open each time a candidate ran, `None` outside every stage.
+    pub ran_in: Vec<Option<TuneStage>>,
+    /// How many stages ended while a stage they opened around was still open.
+    pub misordered_count: usize,
+}
 
-/// The innermost stage open each time a candidate ran, `None` outside every stage.
-pub type StagesRanIn = Arc<Mutex<Vec<Option<TuneStage>>>>;
-
-/// Addition set whose stage hook pushes each stage on `open` as it enters and pops it as its
-/// guard drops, and whose candidates record in `ran_in` the innermost stage open as they run.
+/// Addition set whose stage enterer opens each stage in `trace` and closes it as its guard drops,
+/// and whose candidates record in `trace` the innermost stage open as they run.
 ///
 /// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
-pub fn addition_set_with_stage_hook(
+pub fn addition_set_with_stage_enterer(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
     uid: String,
-    open: OpenStages,
-    ran_in: StagesRanIn,
+    trace: Arc<Mutex<StageTrace>>,
 ) -> TestSet {
-    /// Pops its stage as the stage ends.
-    struct Closing(OpenStages);
+    /// Closes its stage as the stage ends.
+    struct StageCloser {
+        trace: Arc<Mutex<StageTrace>>,
+        stage: TuneStage,
+    }
 
-    impl Drop for Closing {
+    impl StageCloser {
+        fn close(&self) {
+            let mut trace = self.trace.lock().unwrap();
+            if trace.open.pop() != Some(self.stage) {
+                trace.misordered_count += 1;
+            }
+        }
+    }
+
+    impl Drop for StageCloser {
         fn drop(&mut self) {
-            self.0.lock().unwrap().pop();
+            self.close();
         }
     }
 
@@ -538,10 +554,11 @@ pub fn addition_set_with_stage_hook(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
     let record = {
-        let open = open.clone();
+        let trace = trace.clone();
         move || {
-            let stage = open.lock().unwrap().last().copied();
-            ran_in.lock().unwrap().push(stage);
+            let mut trace = trace.lock().unwrap();
+            let stage = trace.open.last().copied();
+            trace.ran_in.push(stage);
         }
     };
     let record_slow = record.clone();
@@ -558,10 +575,13 @@ pub fn addition_set_with_stage_hook(
         record();
         op_add.run(inputs)
     }))
-    .with_stage_hook(Arc::new(
+    .with_stage_enterer(Arc::new(
         move |stage: TuneStage, _key: &String, _inputs: &Vec<Handle>| {
-            open.lock().unwrap().push(stage);
-            Closing(open.clone())
+            trace.lock().unwrap().open.push(stage);
+            StageCloser {
+                trace: trace.clone(),
+                stage,
+            }
         },
     ))
 }

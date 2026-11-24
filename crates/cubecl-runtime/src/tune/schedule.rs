@@ -12,7 +12,7 @@ use crate::tune::Evictor;
 use crate::tune::TuneStage;
 use crate::tune::patience::PatienceTable;
 use crate::tune::sampler::{SampleSet, measured};
-use crate::tune::stage::{StageEnterer, enter_stage};
+use crate::tune::stage::{BoundStageEnterer, enter_stage};
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
     TunePlan,
@@ -60,8 +60,7 @@ pub(crate) struct Schedule<'i> {
     pub(crate) compile_parallelism: usize,
     /// What runs before every measured sample, when the set registered one.
     pub(crate) evictor: Option<Box<Evictor<'i>>>,
-    /// What runs around every stage of the tune, when the set registered a hook.
-    pub(crate) stage_enterer: Option<Box<StageEnterer<'i>>>,
+    pub(crate) stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
 }
 
 impl Schedule<'_> {

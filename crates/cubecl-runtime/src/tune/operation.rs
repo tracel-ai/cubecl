@@ -10,8 +10,8 @@ use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
-use crate::tune::stage::StageEnterer;
-use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageHook};
+use crate::tune::stage::BoundStageEnterer;
+use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer};
 
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
@@ -63,7 +63,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
-    stage_hook: Option<Arc<dyn StageHook<K, F> + Send + Sync>>,
+    stage_enterer: Option<Arc<dyn StageEnterer<K, F> + Send + Sync>>,
     short_circuit: bool,
     /// Planned once a key: ranking candidates can build every one's blueprint, which costs
     /// more than the launch, and an untuned key is reached at every layer of a compile pass.
@@ -80,7 +80,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             key_gen: Arc::new(key_gen),
             bounds_gen: None,
             eviction: None,
-            stage_hook: None,
+            stage_enterer: None,
             short_circuit: true,
             run_orders: Mutex::new(HashMap::new()),
         };
@@ -125,10 +125,13 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         self
     }
 
-    /// Sets what runs around every stage of a tune of this set, so candidates that launch where the
-    /// tuner does not see are kept in step with it. See [`StageHook`].
-    pub fn with_stage_hook(mut self, hook: Arc<dyn StageHook<K, F> + Send + Sync>) -> Self {
-        self.stage_hook = Some(hook);
+    /// Sets what enters every stage of a tune of this set, so candidates that launch where the tuner
+    /// does not see are kept in step with it. See [`StageEnterer`].
+    pub fn with_stage_enterer(
+        mut self,
+        enterer: Arc<dyn StageEnterer<K, F> + Send + Sync>,
+    ) -> Self {
+        self.stage_enterer = Some(enterer);
         self
     }
 
@@ -222,17 +225,16 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         Some(Box::new(move || eviction.evict(&key, &inputs)))
     }
 
-    /// The stage hook registered on this set, bound to `key` and the reference `inputs`, if any:
-    /// what a tune enters at each of its stages.
-    pub(crate) fn stage_enterer<'i>(
+    /// The stage enterer registered on this set, bound to `key` and the reference `inputs`, if any.
+    pub(crate) fn bound_stage_enterer<'i>(
         &self,
         key: &K,
         inputs: &F::At<'i>,
-    ) -> Option<Box<StageEnterer<'i>>> {
-        let hook = self.stage_hook.clone()?;
+    ) -> Option<Box<BoundStageEnterer<'i>>> {
+        let enterer = self.stage_enterer.clone()?;
         let key = key.clone();
         let inputs = inputs.clone();
-        Some(Box::new(move |stage| hook.enter(stage, &key, &inputs)))
+        Some(Box::new(move |stage| enterer.enter(stage, &key, &inputs)))
     }
 
     /// The throughput bounds registered on this set, if any.

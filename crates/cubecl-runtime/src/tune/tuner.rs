@@ -154,8 +154,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     test_inputs: <F as TuneInputs>::At<'i>,
     /// What runs before every measured sample, bound to the key and the reference inputs.
     evictor: Option<Box<crate::tune::Evictor<'i>>>,
-    /// What runs around every stage of the tune, bound to the key and the reference inputs.
-    stage_enterer: Option<Box<crate::tune::stage::StageEnterer<'i>>>,
+    stage_enterer: Option<Box<crate::tune::stage::BoundStageEnterer<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
     #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -440,7 +439,7 @@ impl<K: AutotuneKey> Tuner<K> {
             autotunables,
             test_inputs,
             evictor: tunables.evictor(key, inputs),
-            stage_enterer: tunables.stage_enterer(key, inputs),
+            stage_enterer: tunables.bound_stage_enterer(key, inputs),
             plan,
             results,
             #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -489,7 +488,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
         let gathering = tunables
-            .stage_enterer(key, inputs)
+            .bound_stage_enterer(key, inputs)
             .map(|mut enter| enter(crate::tune::TuneStage::Gathering));
         loop {
             let batch = plan.next();
@@ -614,18 +613,13 @@ impl<K: AutotuneKey> Tuner<K> {
                     .is_some()
                     .then(cubecl_common::profile::Instant::now);
 
-                let measuring = crate::tune::stage::enter_stage(
-                    job.stage_enterer.as_deref_mut(),
-                    crate::tune::TuneStage::Measuring,
-                );
-                let measured = tune_benchmark(
+                match tune_benchmark(
                     op,
                     job.test_inputs.clone(),
                     client.clone(),
                     job.evictor.as_deref_mut(),
-                );
-                core::mem::drop(measuring);
-                match measured {
+                    job.stage_enterer.as_deref_mut(),
+                ) {
                     Ok(profiles) => {
                         let bench = PendingBench {
                             index,
