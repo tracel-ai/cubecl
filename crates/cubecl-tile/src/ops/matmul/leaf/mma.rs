@@ -23,8 +23,13 @@ impl MmaData {
         let (lhs_layout, rhs_layout) =
             comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
         let load = deep_load(lhs, rhs);
+        let keys = lhs.rhs_keys();
+        let rhs_io = comptime!(MmaIo {
+            rhs_keys: keys,
+            ..io
+        });
         let a = lhs.mma_operand::<L>(MatrixIdent::A, m, n, k, lhs_layout, io, operands, load);
-        let b = rhs.mma_operand::<R>(MatrixIdent::B, m, n, k, rhs_layout, io, operands, load);
+        let b = rhs.mma_operand::<R>(MatrixIdent::B, m, n, k, rhs_layout, rhs_io, operands, load);
 
         match &mut self.fragment {
             MmaFragment::Acc(acc) => match (&a.fragment, &b.fragment) {
@@ -40,9 +45,9 @@ impl MmaData {
                     bf,
                     b_scales,
                     acc.at_mut::<A>(),
-                    comptime!(operands.block_scaled().expect(
-                        "MmaData::mma: block-scaled fragments are contracted under their form"
-                    )),
+                    operands.block_scaled().expect(
+                        "MmaData::mma: block-scaled fragments are contracted under their form",
+                    ),
                     m,
                     n,
                     k,
@@ -148,10 +153,10 @@ pub(crate) fn deep_load(lhs: &Tile, rhs: &Tile) -> comptime_type!(DeepLoad) {
     })
 }
 
-/// Each factor's window layout: `A` row-major and `B` col-major when its trailing axis is
+/// Each factor's window layout: `A` row-major and `B` col-major when its trailing dimension is
 /// contracted, the opposite otherwise.
 pub(crate) fn window_layouts(lhs: &Space, rhs: &Space) -> (MatrixLayout, MatrixLayout) {
-    let trailing = |space: &Space| space.axis_at(space.rank() - 1);
+    let trailing = |space: &Space| space.dimension_at(space.rank() - 1);
     let lhs_layout = match rhs.contains(trailing(lhs)) {
         true => MatrixLayout::RowMajor,
         false => MatrixLayout::ColMajor,
@@ -167,15 +172,15 @@ pub(crate) fn window_layouts(lhs: &Space, rhs: &Space) -> (MatrixLayout, MatrixL
 mod tests {
     use super::*;
 
-    const B: Axis = Axis(0);
-    const M: Axis = Axis(1);
-    const N: Axis = Axis(2);
-    const K: Axis = Axis(3);
-    const TAPS: Axis = Axis(4);
+    const B: Dimension = Dimension(0);
+    const M: Dimension = Dimension(1);
+    const N: Dimension = Dimension(2);
+    const K: Dimension = Dimension(3);
+    const TAPS: Dimension = Dimension(4);
 
-    /// Layout follows whether each factor's trailing axis is contracted.
+    /// Layout follows whether each factor's trailing dimension is contracted.
     #[test]
-    fn a_window_reads_in_its_trailing_axis_order() {
+    fn a_window_reads_in_its_trailing_dimension_order() {
         let lhs = Space::new(&[(B, 2), (M, 16), (K, 16)]);
         let row_weight = Space::new(&[(B, 2), (K, 16), (N, 16)]);
         let col_weight = Space::new(&[(B, 2), (N, 16), (K, 16)]);
@@ -195,9 +200,9 @@ mod tests {
         ));
     }
 
-    /// Two contracted trailing axes read the same as one.
+    /// Two contracted trailing dimensions read the same as one.
     #[test]
-    fn a_window_contracted_over_two_axes_reads_as_over_one() {
+    fn a_window_contracted_over_two_dimensions_reads_as_over_one() {
         let lhs = Space::new(&[(M, 16), (TAPS, 3), (K, 16)]);
         let weight = Space::new(&[(N, 16), (TAPS, 3), (K, 16)]);
         use MatrixLayout::{ColMajor, RowMajor};

@@ -1,6 +1,9 @@
 pub mod compute_cmma;
 pub mod compute_direct;
 pub mod launch_overhead;
+pub mod link_collective;
+pub mod link_peer;
+pub mod link_transfer;
 pub mod memory_direct;
 pub mod memory_probe;
 pub mod memory_read;

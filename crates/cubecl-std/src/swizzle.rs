@@ -55,7 +55,7 @@ impl Swizzle {
         }];
         Swizzle {
             yyy_mask,
-            shift: comptime![shift.unsigned_abs()],
+            shift: shift.unsigned_abs(),
             invert_shift,
             repeats_after,
         }

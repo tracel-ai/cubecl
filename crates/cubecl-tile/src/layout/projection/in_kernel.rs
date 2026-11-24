@@ -7,11 +7,11 @@ use cubecl_std::tensor::layout::{CoordsDyn, Layout, LayoutExpand};
 use crate::*;
 
 /// A [`Layout`] mapping a tile's logical coordinate to its window's physical one:
-/// `phys[pa] = (Σ logical[axis] * scale + residue) / divisor`, constant offsets excluded.
+/// `phys[pa] = (Σ logical[dimension] * scale + residue) / divisor`, constant offsets excluded.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct ProjectionInKernel {
-    /// Per-logical-axis extents in space order, the innermost in lines.
+    /// Per-logical-dimension extents in space order, the innermost in lines.
     shape: Coords<u32>,
     /// The runtime coefficients and division residues.
     map: RuntimeMap,
@@ -36,7 +36,7 @@ impl ProjectionInKernel {
         let rank = shape.len();
         comptime!(assert!(
             rank == space.rank(),
-            "ProjectionInKernel: shape has {rank} entries but the space spans {} logical axes",
+            "ProjectionInKernel: shape has {rank} entries but the space spans {} dimensions",
             space.rank()
         ));
         let given = map.coefficients.len();
@@ -63,54 +63,55 @@ impl ProjectionInKernel {
 }
 
 /// A term's coefficient in its physical axis's units: lines on the innermost, which must divide.
+/// A backward coefficient is its two's complement, so a wrapping product and sum subtract it.
 fn line_scale(
     space: &Space,
     projection: &Projection,
     width: usize,
     pa: usize,
-    axis: Axis,
-    scale: usize,
-) -> usize {
-    let innermost = space.axis_at(space.rank() - 1);
-    if pa != projection.physical_rank() - 1 || width == 1 || axis == innermost {
-        return scale;
+    dimension: Dimension,
+    scale: isize,
+) -> u32 {
+    let innermost = space.dimension_at(space.rank() - 1);
+    if pa != projection.physical_rank() - 1 || width == 1 || dimension == innermost {
+        return scale as u32;
     }
     assert!(
-        scale.is_multiple_of(width),
-        "ProjectionInKernel: {axis:?} steps {scale} values of a physical axis read {width} at a time, \
-         so one line spans more than one {axis:?}; serve narrower lines, or give {axis:?} a \
+        scale.unsigned_abs().is_multiple_of(width),
+        "ProjectionInKernel: {dimension:?} steps {scale} values of a physical axis read {width} at a time, \
+         so one line spans more than one {dimension:?}; serve narrower lines, or give {dimension:?} a \
          physical axis of its own"
     );
-    scale / width
+    (scale / width as isize) as u32
 }
 
 #[cube]
 impl ProjectionInKernel {
-    /// The source coordinate of `pos` with every axis in `moving` held at zero.
-    pub(crate) fn anchor(&self, pos: CoordsDyn, #[comptime] moving: Vec<Axis>) -> CoordsDyn {
+    /// The source coordinate of `pos` with every dimension in `moving` held at zero.
+    pub(crate) fn anchor(&self, pos: CoordsDyn, #[comptime] moving: Vec<Dimension>) -> CoordsDyn {
         let mut out = CoordsDyn::new();
 
         #[unroll]
         for pa in 0..comptime!(self.projection.physical_rank()) {
-            out.push(self.project_axis(&pos, pa, comptime!(moving.clone())));
+            out.push(self.project_dimension(&pos, pa, moving.clone()));
         }
 
         out
     }
 
     /// [`anchor`](Self::anchor) for one physical axis.
-    fn project_axis(
+    fn project_dimension(
         &self,
         pos: &CoordsDyn,
         #[comptime] pa: usize,
-        #[comptime] moving: Vec<Axis>,
+        #[comptime] moving: Vec<Dimension>,
     ) -> u32 {
         let axis_map = comptime!(self.projection.physical_axis(pa));
-        let n = comptime!(axis_map.terms().len());
+        let n = axis_map.terms().len();
 
         // Per-term products kept in the numerator; under a division the sum starts at the residue.
         let mut terms = Coords::<u32>::new();
-        if comptime!(axis_map.is_rational()) {
+        if axis_map.is_rational() {
             terms.push(self.map.residues.at(pa));
         }
         // Exact steps stay outside the numerator, added after the floor.
@@ -118,20 +119,19 @@ impl ProjectionInKernel {
         #[unroll]
         for t in 0..n {
             let term = comptime!(axis_map.terms()[t]);
-            if comptime!(!moving.contains(&term.axis)) {
-                let p = comptime!(self.space.position(term.axis));
-                match comptime!(axis_map.static_offset_step(t)) {
+            if !moving.contains(&term.dimension) {
+                let p = comptime!(self.space.position(term.dimension));
+                match axis_map.static_offset_step(t) {
                     Some(step) => offsets.push(pos[p].times(comptime!(step as u32))),
-                    None => match comptime!(term.scale) {
+                    None => match term.scale {
                         Scale::Static(s) => terms.push(pos[p].times(comptime!(line_scale(
                             &self.space,
                             &self.projection,
                             self.width,
                             pa,
-                            term.axis,
+                            term.dimension,
                             s
-                        )
-                            as u32))),
+                        )))),
                         Scale::Dynamic { .. } => {
                             terms.push(pos[p].times(self.map.coefficients.at(comptime!(
                                 self.projection.dynamic_scale_index(pa, t).unwrap()
@@ -145,8 +145,8 @@ impl ProjectionInKernel {
         let n_exact = offsets.len();
         let sum = terms.sum(comptime!((0..n_kept).collect::<Vec<_>>()));
 
-        if comptime!(axis_map.is_rational()) {
-            match comptime!(axis_map.divisor()) {
+        if axis_map.is_rational() {
+            match axis_map.divisor() {
                 Divisor::Static(d) => {
                     let offset = offsets.sum(comptime!((0..n_exact).collect::<Vec<_>>()));
                     sum.divided_by(comptime!(d as u32)).plus(offset)
@@ -163,38 +163,37 @@ impl ProjectionInKernel {
         }
     }
 
-    /// `anchor` moved to where `pos` places the `moving` axes it was anchored against.
+    /// `anchor` moved to where `pos` places the `moving` dimensions it was anchored against.
     pub(crate) fn advance(
         &self,
         anchor: &CoordsDyn,
         pos: CoordsDyn,
-        #[comptime] moving: Vec<Axis>,
+        #[comptime] moving: Vec<Dimension>,
     ) -> CoordsDyn {
         let mut out = CoordsDyn::new();
 
         #[unroll]
         for pa in 0..comptime!(self.projection.physical_rank()) {
             let axis_map = comptime!(self.projection.physical_axis(pa));
-            let n = comptime!(axis_map.terms().len());
+            let n = axis_map.terms().len();
 
             let mut steps = Coords::<u32>::new();
             steps.push(anchor[pa]);
             #[unroll]
             for t in 0..n {
                 let term = comptime!(axis_map.terms()[t]);
-                if comptime!(moving.contains(&term.axis)) {
-                    let p = comptime!(self.space.position(term.axis));
-                    match comptime!(axis_map.additive_step(t)) {
+                if moving.contains(&term.dimension) {
+                    let p = comptime!(self.space.position(term.dimension));
+                    match axis_map.additive_step(t) {
                         // Same units as `anchor`'s offset, since the two are added.
                         Some(step) => steps.push(pos[p].times(comptime!(line_scale(
                             &self.space,
                             &self.projection,
                             self.width,
                             pa,
-                            term.axis,
+                            term.dimension,
                             step
-                        )
-                            as u32))),
+                        )))),
                         None => steps.push(pos[p].times(self.map.coefficients.at(comptime!(
                             self.projection.dynamic_scale_index(pa, t).unwrap()
                         )))),

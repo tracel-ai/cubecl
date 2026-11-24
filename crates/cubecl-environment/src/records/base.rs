@@ -6,12 +6,25 @@ use alloc::string::String;
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
 
+/// The first segment of every records namespace, spelled once for the
+/// constants below, which `concat!` needs as a literal.
+macro_rules! every_layout {
+    () => {
+        "records"
+    };
+}
+
+/// The first segment every layout of the records shares: what removes them
+/// all, or leaves them all out of an export, whichever layout this build
+/// reads.
+pub const EVERY_LAYOUT: &str = every_layout!();
+
 /// The namespace root of every record, versioned so a reader selects the
 /// layout it knows and an export can drop them all by one prefix.
-pub const ROOT: &str = "records/v1";
+pub const ROOT: &str = concat!(every_layout!(), "/v1");
 
 /// The namespace sessions are written to.
-pub const SESSIONS: &str = "records/v1/sessions";
+pub const SESSIONS: &str = concat!(every_layout!(), "/v1/sessions");
 
 /// How much an environment records.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

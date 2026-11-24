@@ -159,7 +159,7 @@ The `[streaming]` section manages logging and stream configurations.
 ```toml
 [streaming]
 logger = { level = "basic", file = "cubecl.log", append = true }
-max_streams: 4
+max_stream_count = 4
 ```
 
 ### Memory
@@ -184,32 +184,48 @@ such as model weights.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
 
-**CUDA allocator** (`[memory.cuda] allocator`): selects how the CUDA backend obtains backing memory
-for CubeCL's pools. Other backends ignore this setting.
-
-- `sync` (default): uses synchronous CUDA allocation/free, avoiding the additional CUDA
-  async memory pool. Allocating or releasing pages may synchronize GPU work.
-- `async`: uses CUDA's stream-ordered allocation/free, which can preserve concurrency
-  when pages change but may reserve additional backing memory. If async allocation
-  fails, that allocation falls back to synchronous allocation/free.
-
-Both modes reuse CubeCL's existing pools.
-
 **Example:**
 
 ```toml
 [memory]
 logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
-
-[memory.cuda]
-allocator = "sync" # or "async"
 ```
 
 The memory pools have no entry in the config file.
 The memory management lays them out from the allocations it serves, see
 [Memory pools](#memory-pools) below.
 A leftover `pools` entry in `[memory]` is a load error.
+
+### Transport
+
+The `[transport]` section sets whether a runtime loads its transport between devices.
+
+- `auto` (default): NCCL on CUDA or RCCL on HIP, where it is installed.
+- `off`: none. Transfers between devices go through the host, and no collective group forms, so
+  a caller such as Burn emulates its collectives. Use it to rule out or work around a fault in
+  NCCL or RCCL.
+
+**Example:**
+
+```toml
+[transport]
+device = "off"
+```
+
+The `[transport.provider]` section sets how NCCL or RCCL sets up a communicator.
+
+- `min_channels` (default `16`): the fewest channels a communicator runs a collective on. The
+  provider may pick more; this only raises a low pick, as its topology search makes over PCI
+  Express. `NCCL_MIN_CTAS` overrides it. Each channel holds its own buffers. Read by RCCL 2.17
+  and later; NCCL does not read it yet.
+
+**Example:**
+
+```toml
+[transport.provider]
+min_channels = 1
+```
 
 ## Environment Variable Overrides
 
@@ -252,6 +268,8 @@ CubeCL supports several environment variables to override configuration at runti
   - `"off"`/`"0"`
   - `"basic"`/`"1"`
   - `"full"`/`"2"`: also each compiled kernel's IR and source.
+- `CUBECL_DEVICE_TRANSPORT`: Sets `transport.device`.
+  - `"auto"`, `"off"`
 
 **Example (Linux/macOS):**
 

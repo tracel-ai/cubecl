@@ -3,7 +3,14 @@ use derive_more::From;
 use derive_new::new;
 use pliron::derive::{format, op_interface_impl, pliron_attr};
 
-use crate::{CanMaterialize, HasSideEffects, interfaces::Synchronizes, prelude::*};
+use crate::{
+    CanMaterialize, EnumSet, HasSideEffects,
+    interfaces::{
+        Synchronizes,
+        side_effects::{MemoryEffect, MemoryEffectsOp, MemoryScope},
+    },
+    prelude::*,
+};
 
 /// Scope that the synchronization should apply to. This is a *minimum*, when fine-grained control
 /// is not available it should synchronize at the smallest scope that includes this scope
@@ -17,6 +24,12 @@ use crate::{CanMaterialize, HasSideEffects, interfaces::Synchronizes, prelude::*
 /// afterwards. Only a runtime whose
 /// [`device_memory_scope`](crate::Features::device_memory_scope) is set promises that second
 /// half; the others give the cube barrier alone.
+///
+/// [`System`](SyncScope::System) reaches past the device: what a cube wrote before it is visible to
+/// the host and to kernels on other devices that bind this memory, and what they published before
+/// it is visible here after it. That is what kernels on different devices hand each other data
+/// through. A runtime that shares no memory between devices gives it the meaning of
+/// [`Device`](SyncScope::Device), since nothing outside the device can see its memory.
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum SyncScope {
@@ -24,6 +37,7 @@ pub enum SyncScope {
     Plane,
     Cube,
     Device,
+    System,
 }
 
 #[pliron_attr(name = "cube.sync_scope", format = "$0", verifier = "succ")]
@@ -47,6 +61,49 @@ impl Synchronizes for SyncOp {
     }
 }
 
+#[op_interface_impl]
+impl MemoryEffectsOp for SyncOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let scope = match self.scope(ctx).0 {
+            SyncScope::Unit => return vec![],
+            SyncScope::Plane | SyncScope::Cube => MemoryScope::Shared.into(),
+            SyncScope::Device | SyncScope::System => MemoryScope::Global | MemoryScope::Shared,
+        };
+        vec![
+            MemoryEffect::MakeAvailable(scope.into()),
+            MemoryEffect::MakeVisible(scope.into()),
+        ]
+    }
+}
+
+/// Which accesses a [`FenceOp`] orders.
+#[format]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum MemoryOrder {
+    /// Later accesses of this unit see what another unit released before the store this unit's
+    /// earlier load read.
+    Acquire,
+    /// Every earlier access of this unit is ordered before any later store of it.
+    Release,
+    /// Both.
+    AcqRel,
+}
+
+#[pliron_attr(name = "cube.memory_order", format = "$0", verifier = "succ")]
+#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash)]
+pub struct MemoryOrderAttr(pub MemoryOrder);
+
+/// A memory fence of one unit at `scope`, with no barrier: unlike a [`SyncOp`], no unit waits for
+/// another, so it orders only this unit's own accesses and is valid in divergent code. It never
+/// carries [`SyncScope::Unit`]: the `fence` function drops it at expansion.
+#[cube_op(name = "sync.fence")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct FenceOp {
+    pub order: MemoryOrderAttr,
+    pub scope: SyncScopeAttr,
+}
+
 /// A plane barrier that also orders storage memory: the units of the plane meet, as at a
 /// [`SyncOp`] at [`Plane`](SyncScope::Plane) scope, and every write one of them made to storage
 /// before it is visible to the others after it. A plane barrier alone orders shared memory only.
@@ -66,6 +123,35 @@ impl Synchronizes for SyncPlaneStorageOp {
     }
 }
 
+#[op_interface_impl]
+impl MemoryEffectsOp for SyncPlaneStorageOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        let scope = MemoryScope::Global | MemoryScope::Shared;
+        vec![
+            MemoryEffect::MakeAvailable(scope.into()),
+            MemoryEffect::MakeVisible(scope.into()),
+        ]
+    }
+}
+
+/// A fence for the compiler's instruction scheduler alone: no instruction moves across it. It
+/// orders no memory and no unit waits at it; what it keeps is the order the kernel issued its
+/// instructions in, which a software pipeline relies on to issue a load ahead of the work that
+/// hides its latency. A target whose scheduler cannot be fenced lowers it to nothing.
+#[cube_op(name = "sync.schedule_barrier")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct ScheduleBarrierOp {}
+
+/// It orders no memory: the optimizer may move, merge and hoist accesses across it as it would
+/// across nothing. Only the backend's instruction scheduler is fenced.
+#[op_interface_impl]
+impl MemoryEffectsOp for ScheduleBarrierOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        vec![]
+    }
+}
+
 /// Fences the async proxy in CUDA, to make shared memory available to it. Does not implement
 /// `Synchronizes`, because it works only as a memory availability barrier with an outside chip.
 /// It does not synchronize the actual threads, and is typically called only by the TMA leader.
@@ -73,3 +159,14 @@ impl Synchronizes for SyncPlaneStorageOp {
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct SyncAsyncProxyOp {}
+
+#[op_interface_impl]
+impl MemoryEffectsOp for SyncAsyncProxyOp {
+    fn memory_effects(&self, _: &Context) -> Vec<MemoryEffect> {
+        let scope = EnumSet::from(MemoryScope::Shared);
+        vec![
+            MemoryEffect::MakeAvailable(scope.into()),
+            MemoryEffect::MakeVisible(scope.into()),
+        ]
+    }
+}

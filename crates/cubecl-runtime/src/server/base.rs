@@ -12,8 +12,8 @@ use crate::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
     poison::DevicePoison,
-    server::{BufferBinding, KernelResource},
-    storage::{ComputeStorage, ManagedResource},
+    server::{BufferBinding, KernelResource, PeerBinding},
+    storage::{ManagedResource, StorageAllocator},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
@@ -27,10 +27,12 @@ use cubecl_common::{
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashSet;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::future::DynFut;
+use cubecl_environment::future::block_on;
+use cubecl_environment::future::channel::{Receiver, Sender, bounded};
 use cubecl_environment::stream::StreamId;
-use cubecl_environment::sync::RwLock;
+use cubecl_environment::sync::{AtomicUsize, Ordering, RwLock};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
@@ -107,6 +109,17 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// What kernels on one device can do with another device's memory, ordered by what it allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PeerAccess {
+    /// The peer's memory cannot be bound.
+    None,
+    /// Loads and stores without native atomics.
+    Memory,
+    /// Loads, stores and native atomics.
+    MemoryAndAtomics,
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
@@ -144,16 +157,93 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold the device.
+    pub communication_skips: CommunicationSkips,
+    /// Access to each peer's memory, queried once per device pair.
+    pub peer_access: RwLock<HashMap<DeviceId, PeerAccess>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
 }
 
+/// How many [`CommunicationSkipGuard`](crate::benchmark::CommunicationSkipGuard)s hold a device, so that
+/// nested ones compose.
+#[derive(Debug, Default)]
+pub struct CommunicationSkips {
+    held: AtomicUsize,
+}
+
+impl CommunicationSkips {
+    /// Whether any holds the device.
+    pub fn any(&self) -> bool {
+        self.held.load(Ordering::Acquire) > 0
+    }
+
+    pub(crate) fn enter(&self) {
+        self.held.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn leave(&self) {
+        self.held.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// A runtime's transport between its devices, which moves any buffer as bytes.
 #[derive(Debug, Clone)]
 pub struct DeviceTransport {
+    /// What runs it.
+    pub provider: TransportProvider,
     /// The element types it reduces.
     pub reduces: BTreeSet<ElemType>,
+}
+
+/// What runs a [`DeviceTransport`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportProvider {
+    /// NVIDIA's collective library, on CUDA.
+    Nccl,
+    /// AMD's collective library, on HIP.
+    Rccl,
+}
+
+impl DeviceTransport {
+    /// The transport `load` gives, or none without calling it when the configuration turns the
+    /// device transport off.
+    pub fn configured(load: impl FnOnce() -> Option<Self>) -> Option<Self> {
+        use crate::config::transport::DeviceTransportMode;
+
+        match CubeClRuntimeConfig::get().transport.device {
+            DeviceTransportMode::Auto => load(),
+            DeviceTransportMode::Off => {
+                static LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    log::info!(
+                        "The device transport is off by configuration (`transport.device` or \
+                         `CUBECL_DEVICE_TRANSPORT`): transfers between devices go through the \
+                         host, and cubecl runs no collective between them"
+                    );
+                }
+                None
+            }
+        }
+    }
+}
+
+impl TransportProvider {
+    /// The provider's name, as logs and refusals show it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nccl => "NCCL",
+            Self::Rccl => "RCCL",
+        }
+    }
+}
+
+impl Display for TransportProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Defines how the memory layout is determined.
@@ -224,6 +314,8 @@ impl ServerUtilities {
             device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            communication_skips: CommunicationSkips::default(),
+            peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
 
@@ -259,6 +351,12 @@ pub enum LaunchError {
     /// sticky (an illegal address, a trap, a hardware fault, etc.)
     #[error("The device was poisoned during launch\nCaused by:\n  {0}")]
     DevicePoisoned(#[from] DevicePoison),
+
+    /// A value registered for the launch does not fit the kernel's address
+    /// type, so the kernel would read it truncated and address the wrong
+    /// memory. Boxed, so the error a launch carries stays small.
+    #[error("A launch argument does not fit the kernel's address type\n{0}")]
+    ArgumentOverflow(Box<ArgumentOverflow>),
 
     /// Unknown launch error.
     #[error(
@@ -318,6 +416,45 @@ pub enum ResourceLimitError {
     },
 }
 
+/// A value registered for a launch that the integer type the kernel reads it
+/// as cannot hold: a tensor's shape, stride or buffer length, or a `usize` or
+/// `isize` scalar, all read as the kernel's address type.
+///
+/// Converting it anyway would hand the kernel the value truncated, and the
+/// kernel would address memory other than the argument's with no error, so
+/// the launch is refused instead and its outputs carry this error.
+#[derive(Error, Clone, PartialEq, Eq)]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
+#[error(
+    "Kernel `{kernel}` cannot launch: argument `{argument}` has {quantity} {value}, outside the \
+     range of `{ty}`, the type its address type reads it as. Launch the kernel with a wider \
+     address type (`AddressType::U64`)."
+)]
+pub struct ArgumentOverflow {
+    /// The name of the kernel the argument was registered for.
+    pub kernel: String,
+    /// The name of the argument, as the kernel's signature spells it.
+    pub argument: String,
+    /// Which of the argument's values overflowed, such as `stride 1`.
+    pub quantity: String,
+    /// The value that does not fit.
+    pub value: i128,
+    /// The integer type the kernel reads the value as, such as `u32`.
+    pub ty: String,
+}
+
+impl From<ArgumentOverflow> for LaunchError {
+    fn from(overflow: ArgumentOverflow) -> Self {
+        Self::ArgumentOverflow(Box::new(overflow))
+    }
+}
+
+impl core::fmt::Debug for ArgumentOverflow {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
+}
+
 impl LaunchError {
     /// Whether the device that emitted the error is poisoned.
     pub fn is_device_poisoned(&self) -> bool {
@@ -351,7 +488,7 @@ impl core::fmt::Debug for ResourceLimitError {
 }
 
 /// A collective operation between the devices of one runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum Collective {
     /// Setting up the communication between a group of devices.
@@ -372,6 +509,8 @@ pub enum Collective {
     Recv,
     /// Waiting for queued collectives to finish.
     SyncCollective,
+    /// Letting kernels on other devices bind a device's memory.
+    PeerAccess,
 }
 
 impl Display for Collective {
@@ -386,6 +525,7 @@ impl Display for Collective {
             Self::Send => "send",
             Self::Recv => "recv",
             Self::SyncCollective => "sync_collective",
+            Self::PeerAccess => "peer_access",
         })
     }
 }
@@ -787,13 +927,10 @@ pub trait Server:
     /// queues nothing.
     fn compile_queued(&mut self) {}
 
-    /// Prepare `stream_id` for an upcoming graph capture. Call this
-    /// **before** the warmup run: the capture window allocates nothing, so it
-    /// reuses what the warmup run left in the pools, and every page the
+    /// Prepare `stream_id` for an upcoming graph capture, before the work is
+    /// planned: each planning run grows the pools to what the recorded run
+    /// asks for, since the capture window allocates nothing, and every page the
     /// recording touches is guarded for the graph's lifetime.
-    ///
-    /// Prefer having kernels already **autotuned before** this call, so the
-    /// warmup run allocates what the recorded run asks for and nothing else.
     ///
     /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -801,15 +938,74 @@ pub trait Server:
         Ok(())
     }
 
+    /// [`graph_prepare`](Server::graph_prepare) a retry of the recording just
+    /// refused on `stream_id` for keeping a buffer it placed as a temporary,
+    /// and answer whether there was one: nothing is prepared otherwise.
+    ///
+    /// The refused recording's allocations place the retry's first planning
+    /// run, so that run grows the room apart for every buffer the recording
+    /// kept. A recording follows that run, never the refused one: its window
+    /// adds no page. A capture prepared with `graph_prepare` forgets them.
+    ///
+    /// `false` by default, for a backend that refuses no recording that way.
+    ///
+    /// # Errors
+    ///
+    /// As [`graph_prepare`](Server::graph_prepare).
+    fn graph_prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let _ = stream_id;
+        Ok(false)
+    }
+
+    /// End a planning run of the work a capture on `stream_id` is about to
+    /// record, and answer whether it kept the buffers the run before it kept.
+    ///
+    /// The last run is the recording's plan: what it left allocated is the
+    /// work's output, which the recorded run places on room no other graph's
+    /// replay writes, and a recorded run that keeps a buffer the plan does
+    /// not does not seal. The run's launches are the client's to discard (see
+    /// [`Client::capture`](crate::client::Client::capture)).
+    ///
+    /// `true` by default, for a backend whose graphs share no room and so
+    /// need no plan.
+    ///
+    /// # Errors
+    ///
+    /// When `stream_id` has no prepared capture whose window is still closed, or another
+    /// logical stream on the same backend stream prepared it.
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let _ = stream_id;
+        Ok(true)
+    }
+
+    /// Start the next planning run of the work a capture on `stream_id` is
+    /// about to record, once the last one ended with
+    /// [`graph_end_run`](Server::graph_end_run). The first run starts with
+    /// [`graph_prepare`](Server::graph_prepare). Between two runs, what the
+    /// stream allocates is not the work's: it is left out of the plan, and
+    /// kept off the room other graphs' replays write.
+    ///
+    /// A no-op by default, for a backend whose graphs share no room.
+    ///
+    /// # Errors
+    ///
+    /// When `stream_id` has no prepared capture whose window is still closed,
+    /// another logical stream on the same backend stream prepared it, or a
+    /// run is already under way.
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let _ = stream_id;
+        Ok(())
+    }
+
     /// Begin recording the launches issued on `stream_id` into a graph instead
     /// of executing them, so the sequence can later be
     /// [replayed](Server::replay) without paying the launch path again.
-    /// Call [`graph_prepare`](Server::graph_prepare) and warm up first.
+    /// Call [`graph_prepare`](Server::graph_prepare) and plan first.
     ///
     /// Between this call and [`end_capture`](Server::end_capture) the
     /// stream must not synchronize — a read, a sync or a profile either aborts
     /// the capture or is refused — and should not allocate fresh device memory,
-    /// which `graph_prepare` plus a warmup run is what avoids. Whether an
+    /// which `graph_prepare` plus a planning run is what avoids. Whether an
     /// operation the window cannot record fails the call or fails
     /// `end_capture`, and whether a mid-window allocation is fatal, is the
     /// backend's to say; see `StreamCapture` in `cubecl-server`.
@@ -932,8 +1128,8 @@ pub trait Server:
 /// type is the backend's own, and only a caller that names the backend can
 /// receive one.
 pub trait ServerStorage: Server {
-    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
-    type Storage: ComputeStorage;
+    /// The [storage](StorageAllocator) type defines how data is stored and accessed.
+    type Storage: StorageAllocator;
     /// Given a resource handle, returns the storage resource.
     ///
     /// The same claim check a read makes guards this too: a buffer a failed
@@ -944,7 +1140,7 @@ pub trait ServerStorage: Server {
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
+    ) -> Result<ManagedResource<<Self::Storage as StorageAllocator>::Resource>, ServerError>;
 }
 
 /// An ID unique to any unordered combination of devices.
@@ -1032,6 +1228,16 @@ pub trait ServerCommunication {
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::SyncCollective))
     }
+
+    /// Times the next collective part, [`send`](Self::send), [`recv`](Self::recv) or
+    /// [`sync_collective`](Self::sync_collective) called on this server, which the caller calls
+    /// right after this in the same submitted task.
+    ///
+    /// Whichever comes next takes `timing`, timed or refused, so a timing it cannot use is
+    /// dropped rather than attached to a later one. The default drops it: a runtime with no
+    /// transport between its devices has nothing to time.
+    #[allow(unused_variables)]
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {}
 
     /// Initialize the communication between the devices in `device_ids`.
     ///
@@ -1159,20 +1365,15 @@ pub trait ServerCommunication {
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
+    /// * `report` - Tells the peer's [`recv`](Self::recv) whether to post.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     ///
-    /// # Known limitation
-    ///
-    /// Send and recv are posted fire-and-forget on two devices and block for
-    /// each other, so a send that refuses — a source whose writer failed,
-    /// above all — leaves the peer's already-posted recv waiting on its
-    /// communication stream with no way to recall it from here. The refusal
-    /// is still right: completing the send would launder stale bytes onto a
-    /// handle that carries no claim on the other device. Cross-device
-    /// failure propagation needs a design pass of its own.
+    /// An implementation must call [`SendReport::will_post`] before posting: the
+    /// first transfer of a pair connects it, and that waits for the peer's recv.
+    /// One that refuses calls [`SendReport::refused`] and posts nothing.
     ///
     /// # Errors
     ///
@@ -1183,6 +1384,7 @@ pub trait ServerCommunication {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1194,6 +1396,7 @@ pub trait ServerCommunication {
     /// * `handle` - The handle in which the received data is written.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
+    /// * `outcome` - The result of the paired [`send`](Self::send), waited for before anything is posted.
     ///
     /// # Returns
     ///
@@ -1201,15 +1404,164 @@ pub trait ServerCommunication {
     ///
     /// # Errors
     ///
-    /// The default returns [`ServerError::NoDeviceTransport`].
+    /// The send's refusal, which `handle` carries too. The default returns
+    /// [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn recv(
         &mut self,
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
+    }
+
+    /// Access to memory of `peer` in this runtime, defaulting to [`PeerAccess::None`].
+    #[allow(unused_variables)]
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
+        PeerAccess::None
+    }
+
+    /// The device address of the first byte of the allocation `binding`
+    /// names, for kernels on other devices to bind.
+    ///
+    /// The caller keeps the allocation bound for as long as it hands the
+    /// address out, which keeps it in place.
+    ///
+    /// # Errors
+    ///
+    /// The failure the buffer carries, so a peer never reads bytes a failed
+    /// launch left unwritten, and a binding that names no live allocation.
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
+        Err(ServerError::no_device_transport(Collective::PeerAccess))
+    }
+
+    /// A kernel on another device finished enqueuing the writes it makes to
+    /// `written`, buffers of this device: the failure that stopped it, or
+    /// `None` when it was enqueued.
+    ///
+    /// A failure taints them as a failed launch here would, so a read fails
+    /// on the cause, and an enqueued write releases a failure they carried.
+    /// The default does nothing: a runtime without peer access never shares
+    /// a buffer.
+    #[allow(unused_variables)]
+    fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
+}
+
+/// The result of a [`send`](ServerCommunication::send), for the
+/// [`recv`](ServerCommunication::recv) it is paired with.
+///
+/// A recv posted for a send that refused waits on its device forever, so the
+/// receiving server learns the result before it posts anything.
+#[derive(Debug)]
+pub struct SendOutcome {
+    result: Receiver<Result<(), ServerError>>,
+}
+
+/// The source's side of a [`SendOutcome`].
+#[derive(Debug)]
+pub struct SendReport {
+    result: Sender<Result<(), ServerError>>,
+}
+
+impl SendOutcome {
+    /// A report for the server that sends, and the outcome for the one that receives.
+    pub fn channel() -> (SendReport, Self) {
+        let (sender, receiver) = bounded(1);
+        (SendReport { result: sender }, Self { result: receiver })
+    }
+
+    /// Block until the source's server has reached the send.
+    ///
+    /// # Errors
+    ///
+    /// The send's refusal, or a send dropped before it reported.
+    pub fn wait(self) -> Result<(), ServerError> {
+        block_on(self.result.recv()).unwrap_or_else(|_| {
+            Err(ServerError::Generic {
+                reason: "the paired send was dropped before it reported".into(),
+                backtrace: BackTrace::capture(),
+            })
+        })
+    }
+}
+
+/// Where a server sends the device windows of one communication part and of a compute stream's
+/// wait, for an observer that times communications
+/// ([`KernelsAndCommunications`](crate::logging::Timed::KernelsAndCommunications)).
+///
+/// The observer holds each window unread from the moment it is issued. One the server never
+/// sends, for a part refused before it ran or recorded inside a graph capture, reads back empty.
+#[derive(Debug, Default)]
+pub struct CommunicationTiming {
+    part: Option<Sender<ProfileDuration>>,
+    wait: Option<Sender<ProfileDuration>>,
+}
+
+impl CommunicationTiming {
+    /// Asks for the part's window, which reads back once the server has sent it.
+    pub fn part_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.part)
+    }
+
+    /// Asks for the wait's window, which reads back once the server has sent it.
+    pub fn wait_window(&mut self) -> ProfileDuration {
+        Self::window(&mut self.wait)
+    }
+
+    fn window(sender: &mut Option<Sender<ProfileDuration>>) -> ProfileDuration {
+        let (sent, received) = bounded(1);
+        *sender = Some(sent);
+        ProfileDuration::new_device_time_maybe(async move {
+            received.recv().await.ok()?.resolve().await
+        })
+    }
+
+    /// Whether the part's window is asked for.
+    pub fn times_part(&self) -> bool {
+        self.part.is_some()
+    }
+
+    /// Whether the wait's window is asked for.
+    pub fn times_wait(&self) -> bool {
+        self.wait.is_some()
+    }
+
+    /// Sends the part's window, if it is asked for.
+    pub fn part_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.part.take(), window);
+    }
+
+    /// Sends the wait's window, if it is asked for.
+    pub fn wait_measured(&mut self, window: ProfileDuration) {
+        Self::send(self.wait.take(), window);
+    }
+
+    fn send(sender: Option<Sender<ProfileDuration>>, window: ProfileDuration) {
+        // An observer that dropped the window unread has no use for it.
+        if let Some(sender) = sender {
+            let _ = sender.try_send(window);
+        }
+    }
+}
+
+impl SendReport {
+    /// The send is about to be posted, so its recv can be too.
+    pub fn will_post(&self) {
+        self.deliver(Ok(()));
+    }
+
+    /// The send will not be posted, so its recv must not be.
+    pub fn refused(&self, error: ServerError) {
+        self.deliver(Err(error));
+    }
+
+    fn deliver(&self, result: Result<(), ServerError>) {
+        // The channel holds one report, so the first stands.
+        let _ = self.result.try_send(result);
     }
 }
 
@@ -1392,10 +1744,10 @@ pub enum IoError {
     ///
     /// A stream recording a graph reserves this way: an allocation would
     /// become part of the recording, and a hardware graph holding one cannot
-    /// be relaunched. The warmup before a capture is what leaves the pools
+    /// be relaunched. The planning run before a capture is what leaves the pools
     /// holding what the recorded run asks for.
     #[error(
-        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: warm up with the same workload first)\n{backtrace}"
+        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: plan the same work first)\n{backtrace}"
     )]
     PageUpdateForbidden {
         /// The size of the allocation in bytes.
@@ -1559,6 +1911,13 @@ pub struct KernelArguments {
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
+    /// Why the arguments cannot be launched, found while they were
+    /// registered: a value `info` would have held truncated, above all.
+    ///
+    /// `info` still has the layout the kernel expects, so the launch compiles
+    /// as any other would; a server refuses to run it with this error, which
+    /// its outputs then carry to whoever reads them.
+    pub argument_error: Option<LaunchError>,
 }
 
 impl core::fmt::Display for KernelArguments {
@@ -1576,6 +1935,20 @@ impl KernelArguments {
     /// Create a new bindings struct
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether these arguments can be launched: a server checks it where its
+    /// launch would start running, so the error claims the launch's outputs.
+    ///
+    /// # Errors
+    ///
+    /// The [`argument_error`](Self::argument_error) found while the arguments
+    /// were registered.
+    pub fn check_arguments(&self) -> Result<(), LaunchError> {
+        match &self.argument_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 
     /// Add a buffer binding
@@ -1620,12 +1993,56 @@ impl KernelArguments {
         self
     }
 
-    /// The buffers this launch was given.
+    /// The buffers of this device this launch was given. Memory of other
+    /// devices is left out: no stream here orders it, and no failure here
+    /// taints it.
     pub fn buffers(&self) -> impl Iterator<Item = &BufferBinding> {
-        self.resources.iter().map(|resource| match resource {
-            KernelResource::Buffer(binding) => binding,
-            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        self.resources
+            .iter()
+            .filter_map(KernelResource::local_binding)
+    }
+
+    /// The memory of other devices this launch binds.
+    pub fn peers(&self) -> impl Iterator<Item = &PeerBinding> {
+        self.resources.iter().filter_map(|resource| match resource {
+            KernelResource::Peer(peer) => Some(peer),
+            _ => None,
         })
+    }
+
+    /// The memory of other devices this launch reads, by the same fallback
+    /// chain as [`buffers_read`](Self::buffers_read).
+    pub fn peers_read<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.peers_where(io, BufferIOAttr::is_readable)
+    }
+
+    /// The memory of other devices this launch writes, by the same fallback
+    /// chain as [`buffers_written`](Self::buffers_written).
+    pub fn peers_written<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.peers_where(io, BufferIOAttr::is_writable)
+    }
+
+    fn peers_where<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+        mode: fn(&BufferIOAttr) -> bool,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.resources
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, resource)| {
+                let KernelResource::Peer(peer) = resource else {
+                    return None;
+                };
+                let used = self.io_attr(io, index).as_ref().map(mode).unwrap_or(true);
+                used.then_some(peer)
+            })
     }
 
     /// The memory this launch was given.
@@ -1650,9 +2067,11 @@ impl KernelArguments {
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
-        self.buffers()
+        self.resources
+            .iter()
             .enumerate()
-            .filter_map(move |(index, binding)| {
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
                 let written = self
                     .io_attr(io, index)
                     .map(|io| io.is_writable())
@@ -1674,9 +2093,11 @@ impl KernelArguments {
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
-        self.buffers()
+        self.resources
+            .iter()
             .enumerate()
-            .filter_map(move |(index, binding)| {
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
                 let read = self
                     .io_attr(io, index)
                     .map(|io| io.is_readable())

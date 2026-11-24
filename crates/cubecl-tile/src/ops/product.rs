@@ -1,5 +1,5 @@
-//! `dst.product(&a, &b)`: the elementwise product of two tiles, each broadcasting over the axes it
-//! omits.
+//! `dst.product(&a, &b)`: the elementwise product of two tiles, each broadcasting over the
+//! dimensions it omits.
 
 use cubecl::prelude::*;
 
@@ -29,20 +29,20 @@ impl Tile {
         let a_reader = a.nd_split::<A, W>();
         let b_reader = b.nd_split::<B, F>();
 
-        let a_step_at = comptime!(a.place.space.position(split.axis));
-        let extents = Coords::constant(comptime!(split.groups.clone()));
-        let total = comptime!(split.groups.iter().product::<usize>());
+        let a_step_at = comptime!(a.place.space.position(split.dimension));
+        let extents = Coords::constant(split.groups.clone());
+        let total = split.groups.iter().product::<usize>();
 
         let mut dst = self.nd_mut::<D, W>();
         let workers = CUBE_DIM as usize;
         let mut i = UNIT_POS as usize;
         while i < total {
-            let group = group_line(&extents.unravel(i.cast::<u32>()), comptime!(split.clone()));
+            let group = group_line(&extents.unravel(i.cast::<u32>()), split.clone());
             let (a_base, b_base) = bases(
                 &group,
-                comptime!(space.clone()),
-                comptime!(a.place.space.clone()),
-                comptime!(b.place.space.clone()),
+                &space,
+                &a.place.space,
+                &b.place.space,
                 width,
                 per_read,
             );
@@ -51,33 +51,33 @@ impl Tile {
             let scales = b_reader
                 .view
                 .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
-            // `a`'s address moves with the step: its map is evaluated once here, each step an addition.
-            let moving = comptime!(vec![split.axis]);
-            let a_anchor = a_reader
-                .map
-                .anchor(a_base.clone(), comptime!(moving.clone()));
+            // `a`'s address moves with the step: its map is evaluated once here, each step an
+            // addition.
+            let moving = comptime!(vec![split.dimension]);
+            let a_anchor = a_reader.map.anchor(a_base.clone(), moving.clone());
 
             #[unroll]
-            for f in 0..comptime!(split.per_read) {
+            for f in 0..split.per_read {
                 let value = a_reader.view.read(a_reader.map.advance(
                     &a_anchor,
                     stepped(&a_base, comptime!(a_step_at), f),
-                    comptime!(moving.clone()),
+                    moving.clone(),
                 ));
                 let left = Vector::<D, W>::cast_from(value);
                 let right = Vector::<D, W>::cast_from(scales.extract(f));
-                dst.write(stepped(&group, comptime!(split.at), f), left * right);
+                dst.write(stepped(&group, split.at, f), left * right);
             }
             i += workers;
         }
     }
 }
 
-/// How a product's walk divides: one broadcast-operand read per group, its values stepped inside it.
+/// How a product's walk divides: one broadcast-operand read per group, its values stepped inside
+/// it.
 #[derive(Clone, Debug)]
 struct GroupWalk {
-    /// The axis a read's values step: the one the broadcast operand's own lines run along.
-    axis: Axis,
+    /// The dimension a read's values step: the one the broadcast operand's own lines run along.
+    dimension: Dimension,
     /// Its position in the destination's box.
     at: usize,
     /// Values one read of that operand serves.
@@ -90,22 +90,22 @@ impl GroupWalk {
     /// How `dst` divides against `b`, read `width` lines wide with `per_read` values a read.
     fn of(dst: &Space, b: &Space, width: usize, per_read: usize) -> Self {
         let rank = dst.rank();
-        let axis = b.axis_at(b.rank() - 1);
-        let at = dst.position(axis);
+        let dimension = b.dimension_at(b.rank() - 1);
+        let at = dst.position(dimension);
         assert!(
             per_read == 1 || at != rank - 1,
-            "Tile::mul: {per_read} of `b` arrive per read along {axis:?}, which is also the axis the \
+            "Tile::mul: {per_read} of `b` arrive per read along {dimension:?}, which is also the dimension the \
              destination's own lines run along, so one line would straddle two of them"
         );
         let mut groups = line_extents(dst, width, 0, rank);
         assert!(
             groups[at].is_multiple_of(per_read),
-            "Tile::mul: {} positions of {axis:?} do not divide into reads of {per_read}",
+            "Tile::mul: {} positions of {dimension:?} do not divide into reads of {per_read}",
             groups[at]
         );
         groups[at] /= per_read;
         GroupWalk {
-            axis,
+            dimension,
             at,
             per_read,
             groups,
@@ -118,8 +118,8 @@ impl GroupWalk {
 fn group_line(at: &Coords<u32>, #[comptime] split: GroupWalk) -> CoordsDyn {
     let mut out = CoordsDyn::new();
     #[unroll]
-    for p in 0..comptime!(split.groups.len()) {
-        let coord = match comptime!(p == split.at) {
+    for p in 0..split.groups.len() {
+        let coord = match p == split.at {
             true => at.at(p).times(comptime!(split.per_read as u32)),
             false => at.at(p),
         };
@@ -128,39 +128,31 @@ fn group_line(at: &Coords<u32>, #[comptime] split: GroupWalk) -> CoordsDyn {
     out
 }
 
-/// Each operand's own coordinate for a group; an axis it does not span drops out.
+/// Each operand's own coordinate for a group; a dimension it does not span drops out.
 #[cube]
 fn bases(
     group: &CoordsDyn,
-    #[comptime] dst: Space,
-    #[comptime] a: Space,
-    #[comptime] b: Space,
+    #[comptime] dst: &Space,
+    #[comptime] a: &Space,
+    #[comptime] b: &Space,
     #[comptime] width: usize,
     #[comptime] per_read: usize,
 ) -> (CoordsDyn, CoordsDyn) {
     let mut cells = Coords::<u32>::new();
     #[unroll]
-    for p in 0..comptime!(dst.rank()) {
+    for p in 0..dst.rank() {
         cells.push(group[p].times(comptime!(match p == dst.rank() - 1 {
             true => width as u32,
             false => 1u32,
         })));
     }
     let empty = Coords::<u32>::new();
-    let no_reduce = comptime!(Vec::<Axis>::new());
+    let no_reduce = comptime!(Vec::<Dimension>::new());
     (
+        resolve_nd_coords(a, dst, &no_reduce, &cells, &empty, width, AccCoords::Cells),
         resolve_nd_coords(
-            &a,
-            &dst,
-            &no_reduce,
-            &cells,
-            &empty,
-            width,
-            AccCoords::Cells,
-        ),
-        resolve_nd_coords(
-            &b,
-            &dst,
+            b,
+            dst,
             &no_reduce,
             &cells,
             &empty,
@@ -170,13 +162,13 @@ fn bases(
     )
 }
 
-/// `base` with the stepped axis advanced by `f`: the one component a step moves.
+/// `base` with the stepped dimension advanced by `f`: the one component a step moves.
 #[cube]
 fn stepped(base: &CoordsDyn, #[comptime] at: usize, #[comptime] f: usize) -> CoordsDyn {
     let mut out = CoordsDyn::new();
     #[unroll]
     for p in 0..comptime!(base.len()) {
-        let coord = match comptime!(p == at) {
+        let coord = match p == at {
             true => base[p] + comptime!(f as u32),
             false => base[p],
         };

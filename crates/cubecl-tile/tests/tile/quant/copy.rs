@@ -6,17 +6,17 @@ use crate::tile::{Form, implied, uncut};
 use cubecl::quant::scheme::{QuantScheme, QuantStore, QuantValue, ScaleDtype};
 use cubecl::{bytes::Bytes, ir::ElemType, prelude::*, std::tensor::TensorHandle, zspace::Shape};
 use cubecl_tile::{
-    Axis, Levels, Partitioning, Projection, Space, StageStorage, Tile, TileSpec, TileTensor,
+    Dimension, Levels, Partitioning, Projection, Space, StageStorage, Tile, TileSpec, TileTensor,
     TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
 /// `M` and `N` as blocks make them: which block, and where inside it.
-const MB: Axis = Axis(2);
-const MI: Axis = Axis(3);
-const NB: Axis = Axis(4);
-const NI: Axis = Axis(5);
+const MB: Dimension = Dimension(2);
+const MI: Dimension = Dimension(3);
+const NB: Dimension = Dimension(4);
+const NI: Dimension = Dimension(5);
 
 /// Base sanity: a plain (non-quantized) tile copies through unchanged.
 #[test]
@@ -86,9 +86,9 @@ fn copy_spread_across_cubes_and_planes_matches_reference() {
 
 #[cube(launch)]
 /// A plain (non-quantized) copy: both tiles serve their element straight from their tensors.
-pub fn plain_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
+pub fn plain_copy(input: &TileTensor<'_>, output: &mut TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.copy_from(&input);
 }
 
@@ -97,21 +97,25 @@ pub fn plain_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partit
 fn block_scaled_copy(
     values: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let values = values.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&values.mul(&scales));
 }
 
 /// `out = values ⊗ scales ⊗ global`: two levels, innermost first, bound as one operand whose
 /// values carry their block scales, which carry the global one.
 #[cube(launch)]
-fn two_level_scaled_copy(values: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
+fn two_level_scaled_copy(
+    values: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
+    space: Partitioning,
+) {
     let values = values.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&values);
 }
 
@@ -215,7 +219,7 @@ fn check_block_scaled_copy(m: usize, n: usize, bm: usize, bn: usize, global: Opt
     assert_equals_approx(&got, &expected, 1e-6).enforce();
 }
 
-/// One scale per block, over grids of blocks along either axis or both.
+/// One scale per block, over grids of blocks along either dimension or both.
 #[test]
 fn a_copy_of_block_scaled_values_decodes_them() {
     check_block_scaled_copy(8, 8, 4, 4, None); // a 2×2 grid of blocks
@@ -241,7 +245,7 @@ fn a_zero_global_scale_zeroes_the_copy() {
 }
 
 /// The batch a cube stands in, one wide in each cube's region.
-const B: Axis = Axis(6);
+const B: Dimension = Dimension(6);
 
 /// `stage = values ⊗ scales` over a cube's region, then the stage out: the decode stated where the
 /// stage is filled, as a kernel staging a packed cache block by block does.
@@ -249,14 +253,14 @@ const B: Axis = Axis(6);
 fn batched_scaled_stage<O: Numeric>(
     values: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: usize,
     #[comptime] cols: usize,
     #[define(O)] _dtype: ElemType,
 ) {
     let decoded = values.tile(&space).mul(&scales.tile(&space));
-    let output = output.tile(&space);
+    let output = output.tile_mut(&space);
     for cube in &space {
         let mut stage = Tile::smem::<O>(
             comptime!(Space::new(&[(M, rows), (N, cols)])),
@@ -272,7 +276,7 @@ fn batched_scaled_stage<O: Numeric>(
 }
 
 /// A cube's region of a batched operand spans the batch one wide, and its stage spans only the
-/// matrix: the decoding copy drops the one-wide axis rather than refusing the two boxes as
+/// matrix: the decoding copy drops the one-wide dimension rather than refusing the two boxes as
 /// different, even with the batch dynamic.
 #[test]
 fn a_scaled_region_decodes_into_a_stage_without_its_one_wide_batch() {

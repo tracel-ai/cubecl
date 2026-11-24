@@ -3,7 +3,7 @@
 //! The driver's rules are what shapes this. A stream in capture mode records
 //! every launch issued on it, so a window that opened has to be closed even
 //! when what it recorded is worthless. Nothing may allocate inside the window,
-//! so a warmup run leaves the pools holding what the recording asks for, and
+//! so a planning run leaves the pools holding what the recording asks for, and
 //! the pages the recording touched are guarded once it closes. And a host
 //! sync would abort the recording, so the fenced flushes the execution path
 //! would otherwise run are deferred across it.
@@ -14,8 +14,8 @@
 
 use super::{Command, DeviceStream, Driver};
 use crate::id::GraphId;
-use crate::memory_management::PageGuard;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationReason};
+use crate::memory_management::{ManagedMemoryBinding, PageGuard};
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
@@ -94,6 +94,14 @@ pub struct Graph<D: GraphDriver> {
     /// lifetime for the same reason: a memcpy node keeps the raw host
     /// pointer, and every replay reads through it again.
     _retained_host: Vec<Bytes>,
+    /// The memory of other devices the recorded launches bind, kept in place on
+    /// its owner for the graph's lifetime: every replay dereferences the same
+    /// addresses.
+    _retained_peers: Vec<BufferBinding>,
+    /// The memory the recorded run placed as outputs, held for the graph's lifetime: every
+    /// replay writes it, so it is never handed to another allocation, even once the work let
+    /// it go.
+    _retained_outputs: Vec<ManagedMemoryBinding>,
     /// The buffers the recorded launches write, deduplicated. A replay that
     /// fails to enqueue runs none of those launches, so it leaves every one of
     /// these as it was — claiming them is what makes a later read of one fail,
@@ -220,7 +228,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         self.command.stream()
     }
 
-    /// Start the warmup run, before the window opens.
+    /// Start the planning run, before the window opens.
     ///
     /// The outdated pools of every stream are emptied first: the recording may
     /// touch memory any stream owns, every page it touches is guarded for the
@@ -235,6 +243,51 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         Ok(())
     }
 
+    /// [`prepare`](Self::prepare) a retry of the recording just refused on this stream for
+    /// keeping a buffer it placed as a temporary, and answer whether there was one (see
+    /// [`StreamCapture::prepare_retry`](crate::stream::StreamCapture::prepare_retry)).
+    ///
+    /// # Errors
+    ///
+    /// As [`prepare`](Self::prepare).
+    pub fn prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        if !self.stream().capturing().prepare_retry(stream_id)? {
+            return Ok(false);
+        }
+        RelocatingStreams::relocate_device(self.command, RelocationReason::Capture);
+        Ok(true)
+    }
+
+    /// End a planning run of the work about to be recorded, and answer whether it allocated
+    /// what the run before it did (see [`StreamCapture::end_run`](crate::stream::StreamCapture::end_run)).
+    ///
+    /// The run's deferred frees are reclaimed first, so a temporary whose free waited on the
+    /// device is not taken for an output.
+    ///
+    /// # Errors
+    ///
+    /// When the stream has no prepared capture whose window is still closed, or `caller` is not
+    /// the logical stream that prepared it.
+    pub fn end_run(&mut self, caller: StreamId) -> Result<bool, ServerError> {
+        let stream = self.stream();
+        // Refused before the drain: its fence, on a stream that records, would
+        // abort the live capture, and a refused call has no run to reclaim.
+        stream.capturing().ensure_planned_by(caller)?;
+        let signal = stream.signal();
+        stream.drop_queue().drain(|| D::Stream::fence(signal));
+        stream.capturing().end_run(caller)
+    }
+
+    /// Start the next planning run of the work about to be recorded, on the logical stream
+    /// `caller`, once the last one ended (see [`StreamCapture::start_run`](crate::stream::StreamCapture::start_run)).
+    ///
+    /// # Errors
+    ///
+    /// As [`StreamCapture::start_run`](crate::stream::StreamCapture::start_run).
+    pub fn start_run(&mut self, caller: StreamId) -> Result<(), ServerError> {
+        self.stream().capturing().start_run(caller)
+    }
+
     /// Open the window: from here the driver records every launch issued on
     /// this stream until the window closes.
     ///
@@ -244,11 +297,24 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     /// found — capture state back to none — so the whole prepare-then-open
     /// sequence can be retried.
     pub fn begin(&mut self) -> Result<(), ServerError> {
+        // A recording with no plan could put an output on room another graph's
+        // replay writes.
+        if !self.stream().capturing().has_plan() {
+            return Err(ServerError::graph_state(
+                "a capture records only after its work was planned: run it once or more \
+                 after `graph_prepare`, each run ended by `graph_end_run`",
+            ));
+        }
+        // Planning carves the room other graphs' replays write as the recording
+        // does, so a buffer the work kept from a planning run (a cache's, say)
+        // may sit there. Nothing recorded its address yet: move it apart.
+        let kept: Vec<_> = self.stream().capturing().drain_planned_kept().collect();
+        self.command.move_apart(&kept)?;
         // Rejected before the reclaim below runs: a drop-queue flush issued on
         // a stream that is already recording would abort its live capture.
-        // Opening releases the staging the warmup run primed.
+        // Opening releases the staging the planning run primed.
         self.stream().capturing().begin()?;
-        // Reclaim deferred frees before the window opens: warmup's pinned
+        // Reclaim deferred frees before the window opens: the planning run's pinned
         // staging buffers (and any other drop-queued slices) sit in the drop
         // queue until drained, so without this the recorded run finds no free
         // staging slice to reuse.
@@ -294,7 +360,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                 let written = stream.capturing().take_recorded();
                 // A capture prepared but never opened still holds the stream,
                 // and a `graph_prepare` retry is refused while it does.
-                // Closing is the only call the caller has left — a warmup that
+                // Closing is the only call the caller has left — a planning run that
                 // failed never reaches `begin` — so a close from `Prepare`
                 // unwinds it, as `begin` does when the driver refuses to open.
                 if stream.capturing().is_active() {
@@ -325,10 +391,20 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // raw pointers, so they live with the graph; on a window that seals
         // no graph they drop here, since its copies never ran and never will.
         let retained_host = stream.capturing().take_retained_host();
+        let retained_peers = stream.capturing().take_retained_peers();
+        let retained_outputs: Vec<_> = stream.capturing().drain_retained_outputs().collect();
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
+        // A recording that keeps a buffer its planning run did not may have put
+        // it on room another graph's replay overwrites.
+        let diverged = stream.capturing().finish_recording().map(|divergence| {
+            ServerError::graph_state(format!(
+                "the recorded run kept a buffer its planning run did not, so the graph cannot \
+                 seal: {divergence}"
+            ))
+        });
         // The memory the recorded launches write. A recording that becomes a
         // graph answers for it on a failed replay; one that does not is
         // answered for by the caller, since those launches never ran and now
@@ -337,9 +413,10 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // An abandoned window has no graph to hand back: whatever was
         // instantiated drops here, and the report carries along whatever had
         // already doomed the recording so the caller sees both reasons.
-        let exec = match outcome.is_abandoned() {
-            false => exec,
-            true => Err(outcome.abandoned_error(stream_id, doomed)),
+        let exec = match (outcome.is_abandoned(), diverged) {
+            (true, _) => Err(outcome.abandoned_error(stream_id, doomed)),
+            (false, Some(diverged)) => exec.and(Err(diverged)),
+            (false, None) => exec,
         };
         match exec {
             Ok(exec) => {
@@ -351,6 +428,8 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                     exec,
                     _guards: guards,
                     _retained_host: retained_host,
+                    _retained_peers: retained_peers,
+                    _retained_outputs: retained_outputs,
                     written,
                 })
             }

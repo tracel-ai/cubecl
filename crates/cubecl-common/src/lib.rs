@@ -25,6 +25,8 @@ pub mod device;
 
 /// Device handle module.
 pub mod device_handle {
+    #[cfg(feature = "std")]
+    pub use super::device::handle::ProcessCpus;
     pub use super::device::handle::{
         CallError, CallResultExt, DeviceHandle, ServiceCreationError, SpawnedCall,
     };

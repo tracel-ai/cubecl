@@ -4,16 +4,20 @@
 //! The bookkeeping around them is the shared [`Collectives`](cubecl_server::command::Collectives),
 //! and the server's half the shared [`CollectiveServer`](cubecl_server::command::CollectiveServer).
 
-use core::ffi::c_int;
-use std::{collections::HashMap, sync::OnceLock};
+use core::{ffi::c_int, fmt::Display};
+use std::{
+    collections::HashMap,
+    sync::{Once, OnceLock},
+};
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError},
+    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError, TransportProvider},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
 use cubecl_server::command::{CollectiveDriver, Elements, StreamSignal};
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
 
 use crate::compute::driver::Hip;
 use crate::compute::events::Fence;
@@ -29,7 +33,7 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
     let rccl = match Rccl::get() {
         Ok(rccl) => rccl,
         Err(reason) => {
-            log::debug!("no RCCL, so transfers between HIP devices go through the host: {reason}");
+            log_host_fallback(reason);
             return None;
         }
     };
@@ -37,17 +41,30 @@ pub fn transport(types: impl Iterator<Item = ElemType>) -> Option<DeviceTranspor
         Ok(version) => {
             log::debug!("RCCL {version} runs collectives and transfers between HIP devices");
             Some(DeviceTransport {
+                provider: TransportProvider::Rccl,
                 reduces: types.filter(|dtype| rccl_dtype(*dtype).is_some()).collect(),
             })
         }
         Err(err) => {
-            log::warn!(
-                "RCCL loaded but gave no version, so transfers between HIP devices go through \
-                 the host: {err}"
-            );
+            log_host_fallback(format_args!("RCCL loaded but gave no version: {err}"));
             None
         }
     }
+}
+
+/// Logs once per process, rather than once per device, that `cause` sends transfers between
+/// HIP devices through the host and runs no collective between them.
+fn log_host_fallback(cause: impl Display) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        const FALLBACK: &str = "Transfers between HIP devices go through the host, which is much \
+                                slower, and cubecl runs no collective between them";
+        match cfg!(windows) {
+            // RCCL does not ship for Windows, where nobody can act on the fallback.
+            true => log::info!("{FALLBACK}: RCCL does not run on Windows."),
+            false => log::warn!("{FALLBACK}: {cause}. Installing RCCL fixes both."),
+        }
+    });
 }
 
 /// The RCCL data type for `dtype`.
@@ -117,7 +134,7 @@ impl CollectiveDriver for Hip {
     type UniqueId = UniqueId;
     type DataType = DataType;
 
-    const LIBRARY: &'static str = "RCCL";
+    const LIBRARY: &'static str = TransportProvider::Rccl.name();
 
     fn wait_for(
         stream: StreamSignal<Self>,
@@ -145,7 +162,12 @@ impl CollectiveDriver for Hip {
     ) -> Result<Self::Communicator, ServerError> {
         let rccl = rccl()?;
         let comm = rccl
-            .comm_init_rank(ranks as c_int, id, rank as c_int)
+            .comm_init_rank(
+                ranks as c_int,
+                id,
+                rank as c_int,
+                CubeClRuntimeConfig::get().transport.provider.min_channels,
+            )
             .map_err(rccl_error)?;
         Ok(RcclComm { rccl, comm })
     }
@@ -154,6 +176,7 @@ impl CollectiveDriver for Hip {
         rccl_dtype(dtype)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_reduce(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -177,6 +200,7 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_gather(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -193,6 +217,7 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn reduce_scatter(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -216,6 +241,7 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn broadcast(
         comm: &Self::Communicator,
         src: Option<&GpuResource>,
@@ -235,6 +261,7 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_to_all(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -283,6 +310,7 @@ impl CollectiveDriver for Hip {
         queued.and(closed).map_err(rccl_error)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn send(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -299,6 +327,7 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn recv(
         comm: &Self::Communicator,
         dst: &GpuResource,

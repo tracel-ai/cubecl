@@ -1,13 +1,15 @@
 //! The manual-mma encoding of a plane tile ([`MmaData`]) and its fragment↔memory transports.
 
 use cubecl::{
-    cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
+    cmma::{LdMatrixForm, MatrixIdent, MatrixLayout, MmaDefinition},
     prelude::*,
 };
 
 use super::block_scaled::*;
 use super::widths::*;
-use crate::tile::kind::plane::load_matrix::{LDMATRIX_ROW_BYTES, along_k, load_ldmatrix};
+use crate::tile::kind::plane::load_matrix::{
+    LDMATRIX_ROW_BYTES, PairAxis, along_k, load_ldmatrix, load_ldmatrix_b8_pair, load_ldmatrix_pair,
+};
 use crate::*;
 
 /// One manual-mma fragment: a role's registers plus the shape and transport it dispatches on.
@@ -186,13 +188,13 @@ impl MmaData {
         #[comptime] io: MmaIo,
         #[comptime] operands: MmaOperands,
     ) -> MmaData {
-        let form = comptime!(operands.block_scaled().expect(
-            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form"
-        ));
-        register_block_scaled_elements(form);
+        let form = operands.block_scaled().expect(
+            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form",
+        );
+        register_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
-        register_block_scaled_sizes(&def, ident);
-        let fragment = match comptime!(ident) {
+        register_scaled_sizes(&def, ident);
+        let fragment = match ident {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
                 Raw::<Registers<NLB>>::of::<LhsCodes>(Array::new(
                     def.vectors_per_lane(MatrixIdent::A),
@@ -249,6 +251,48 @@ impl MmaData {
             | MmaFragment::LhsBlockScaled(..)
             | MmaFragment::RhsBlockScaled(..) => {
                 panic!("MmaData::scale: an operand fragment is contracted, not scaled")
+            }
+        }
+    }
+
+    /// Multiply each cell of this (accumulator) fragment by `factor` at the cell's place in
+    /// `space`, the fragment's window: scales varying across the output, a row's and a column's,
+    /// read where each unit holds its cells.
+    #[allow(dead_code)] // Reached through its expand, from `Tile::scale_own_cells`.
+    pub(crate) fn scale_cells<T: Numeric>(&mut self, factor: &Factor, #[comptime] space: &Space) {
+        let def = MmaDefinition::<T, T, T>::new(self.m, self.n, self.k);
+        let layout = comptime!(self.layout);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let dimensions = comptime!(MatrixDimensions::trailing(space));
+        match &mut self.fragment {
+            MmaFragment::Acc(f) => {
+                let acc = f.at_mut::<T>();
+                #[unroll]
+                for i in 0..acc.len() {
+                    let mut vector = acc[i];
+                    #[unroll]
+                    for e in 0..vector_size {
+                        let (row, col) = def.position_of_nth(
+                            UNIT_POS_PLANE,
+                            comptime!((i * vector_size + e) as u32),
+                            MatrixIdent::Accumulator,
+                        );
+                        let (row, col) = laid_out(row, col, layout);
+                        // The cell alone: the first value of a run one wide.
+                        let (first, alone) = (0usize, 1usize);
+                        let at =
+                            TileMatrix::value_coords(row, col, first, space, dimensions, alone);
+                        let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
+                        vector.insert(e, vector.extract(e) * T::cast_from(scale));
+                    }
+                    acc[i] = vector;
+                }
+            }
+            MmaFragment::Lhs(_)
+            | MmaFragment::Rhs(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::scale_cells: an operand fragment is contracted, not scaled")
             }
         }
     }
@@ -321,7 +365,7 @@ impl MmaData {
                 src,
                 values.at_mut::<LhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                comptime!(form.expect("a block-scaled fragment is held under its form")),
+                form.expect("a block-scaled fragment is held under its form"),
                 MatrixIdent::A,
                 layout,
                 io,
@@ -331,7 +375,7 @@ impl MmaData {
                 src,
                 values.at_mut::<RhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                comptime!(form.expect("a block-scaled fragment is held under its form")),
+                form.expect("a block-scaled fragment is held under its form"),
                 MatrixIdent::B,
                 layout,
                 io,
@@ -340,8 +384,88 @@ impl MmaData {
         }
     }
 
+    /// Whether this fragment loads out of `src`, its window, beside its neighbour along `along`
+    /// in one `ldmatrix` ([`load_pair_window`](Self::load_pair_window)): a plain `B` one
+    /// instruction deep, which the instruction loads by `ldmatrix`, holds two of the four
+    /// matrices one reads. An 8-bit `B` pairs only along its columns.
+    pub(crate) fn pairs_from<T: Numeric>(
+        &self,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) -> comptime_type!(bool) {
+        let (m, n, k) = comptime!((self.m, self.n, self.k));
+        let io = comptime!(self.io);
+        let steps = lane_run_steps::<T>(m, n, k);
+        let layout = comptime!(self.layout);
+        let serves_16 = ldmatrix_serves::<T>(src, MatrixIdent::B, (k, n));
+        let serves_8 = transposing_ldmatrix_b8_serves::<T>(src, (k, n), layout);
+        let serves = comptime!(serves_16 || (serves_8 && along == PairAxis::Cols));
+        let rhs = match &self.fragment {
+            MmaFragment::Rhs(_) => comptime!(true),
+            MmaFragment::Lhs(_)
+            | MmaFragment::Acc(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+        };
+        comptime!(
+            rhs && steps == 1 && serves && io.load_method(MatrixIdent::B) == LoadMethod::LoadMatrix
+        )
+    }
+
+    /// This fragment and `second`, its neighbour along `along` in `src`, a window over both,
+    /// loaded by one `ldmatrix` ([`load_ldmatrix_pair`]), where [`pairs_from`](Self::pairs_from)
+    /// admits them.
+    pub(crate) fn load_pair_window<T: Numeric>(
+        &mut self,
+        second: &mut MmaData,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) {
+        let (m, n, k) = comptime!((self.m, self.n, self.k));
+        let layout = comptime!(self.layout);
+        let keys = comptime!(self.io.rhs_keys);
+        let def = MmaDefinition::<T, T, T>::new(m, n, k);
+        let size!(W) = src.vector_size();
+        let bytes = T::size().comptime();
+        let (first, other) = (
+            self.rhs_registers_mut::<T>(),
+            second.rhs_registers_mut::<T>(),
+        );
+        if bytes == 1 {
+            comptime!(assert!(
+                along == PairAxis::Cols,
+                "MmaData::load_pair_window: 8-bit `B`s pair along their columns"
+            ));
+            load_ldmatrix_b8_pair::<T, W, NR, T, T, T>(src, first, other, &def, (k, n), keys)
+        } else {
+            load_ldmatrix_pair::<T, W, NR, T, T, T>(
+                src,
+                first,
+                other,
+                &def,
+                MatrixIdent::B,
+                layout,
+                (k, n),
+                along,
+            )
+        }
+    }
+
+    /// A `B` fragment's registers, which only a `B` holds.
+    fn rhs_registers_mut<T: Numeric>(&mut self) -> &mut Array<Vector<T, NR>> {
+        match &mut self.fragment {
+            MmaFragment::Rhs(fragment) => fragment.at_mut::<T>(),
+            MmaFragment::Lhs(_)
+            | MmaFragment::Acc(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::load_pair_window: only a `B` loads in pairs, beside a `B`")
+            }
+        }
+    }
+
     /// Drain this (accumulator) fragment into `mem`'s window, `space` being the window's.
-    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: Space) {
+    pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] space: &Space) {
         self.store_cast_window::<T, T>(mem, space)
     }
 
@@ -349,7 +473,7 @@ impl MmaData {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let m = comptime!(self.m);
         let n = comptime!(self.n);
@@ -388,7 +512,7 @@ impl MmaData {
         &mut self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] origin: (usize, usize),
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
@@ -408,7 +532,7 @@ impl MmaData {
                 let cell = bias.value_at::<E>(
                     row + comptime!(row0 as u32),
                     col + comptime!(col0 as u32),
-                    comptime!(space.clone()),
+                    space,
                 );
                 vector.insert(e, vector.extract(e) * scale + cell);
             }
@@ -416,22 +540,58 @@ impl MmaData {
         }
     }
 
+    /// `self[r, c] = self[r, c] · exp(bias[r, c])` over this fragment, which lies at `origin` of a
+    /// tile over `space` ([`DimensionSlices::mul_exp`]).
+    pub(crate) fn mul_exp_along<E: Float>(
+        &mut self,
+        bias: &Procedural,
+        #[comptime] space: &Space,
+        #[comptime] origin: (usize, usize),
+    ) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let (row0, col0) = comptime!(origin);
+        let acc = self.acc_registers_mut::<E>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut vector = acc[i];
+            #[unroll]
+            for e in 0..vector_size {
+                let (row, col) = def.position_of_nth(
+                    UNIT_POS_PLANE,
+                    comptime!((i * vector_size + e) as u32),
+                    MatrixIdent::Accumulator,
+                );
+                let cell = bias.value_at::<E>(
+                    row + comptime!(row0 as u32),
+                    col + comptime!(col0 as u32),
+                    space,
+                );
+                vector.insert(
+                    e,
+                    DimensionSlices::mul_exp_cell::<E>(vector.extract(e), cell),
+                );
+            }
+            acc[i] = vector;
+        }
+    }
+
     /// `self[r, c] = exp(self[r, c] · scale + bias[r, c] − logsumexp[r, c])` over this fragment,
     /// which lies at `origin` of a tile over `space`: each cell reads `logsumexp` where `broadcast`
-    /// puts it, a row's value or a column's ([`AxisSlices::probabilities`]).
+    /// puts it, a row's value or a column's ([`DimensionSlices::probabilities`]).
     pub(crate) fn probabilities_along<E: Float>(
         &mut self,
         scale: E,
         bias: &Procedural,
         logsumexp: &Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
         #[comptime] origin: (usize, usize),
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
         let (row0, col0) = comptime!(origin);
-        let (first, per_row, per_col) = comptime!(broadcast.strides());
+        let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = logsumexp.flat::<E, W>();
         let acc = self.acc_registers_mut::<E>();
@@ -446,11 +606,10 @@ impl MmaData {
                     MatrixIdent::Accumulator,
                 );
                 let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
-                let score = vector.extract(e) * scale
-                    + bias.value_at::<E>(row, col, comptime!(space.clone()));
+                let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
-                vector.insert(e, AxisSlices::exp_minus_cell::<E>(score, held));
+                vector.insert(e, DimensionSlices::exp_minus_cell::<E>(score, held));
             }
             acc[i] = vector;
         }
@@ -458,7 +617,7 @@ impl MmaData {
 
     /// `self[r, c] = probabilities[r, c] · (self[r, c] − delta[r, c])` over this fragment and
     /// `probabilities`, a fragment laid as this one is, at `origin` of a tile over `space`: each
-    /// cell reads `delta` where `broadcast` puts it ([`AxisSlices::softmax_gradient`]).
+    /// cell reads `delta` where `broadcast` puts it ([`DimensionSlices::softmax_gradient`]).
     pub(crate) fn softmax_gradient_along<E: Float>(
         &mut self,
         probabilities: &MmaData,
@@ -469,7 +628,7 @@ impl MmaData {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
         let (row0, col0) = comptime!(origin);
-        let (first, per_row, per_col) = comptime!(broadcast.strides());
+        let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = delta.flat::<E, W>();
         let held = probabilities.acc_registers::<E>();
@@ -533,6 +692,38 @@ impl MmaData {
         }
     }
 
+    /// `factors[first + r]` for each row `r` this unit holds cells of, in the order
+    /// [`mul_along`](Self::mul_along) reads them, from `factors` holding every row of the
+    /// fragment. Each row is picked among the fragment's rows by comparison rather than read at
+    /// an index the unit computes, so `factors` stays in registers.
+    pub(crate) fn held_rows<E: Numeric>(
+        &self,
+        factors: &Array<E>,
+        #[comptime] first: usize,
+    ) -> Array<E> {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let rows = self.rows_per_unit::<E>();
+        let mut held = Array::<E>::new(rows);
+        #[unroll]
+        for i in 0..rows {
+            let (row, _) = def.position_of_nth(
+                UNIT_POS_PLANE,
+                comptime!((i * vector_size) as u32),
+                MatrixIdent::Accumulator,
+            );
+            let mut factor = factors[first];
+            #[unroll]
+            for r in 1..self.m {
+                if row == comptime!(r as u32) {
+                    factor = factors[first + r];
+                }
+            }
+            held[i] = factor;
+        }
+        held
+    }
+
     /// `slots[first + r]` combined under `monoid` with this unit's cells on its row `r`: the
     /// unit's own part of each row, which [`reduce_across_units`](Self::reduce_across_units)
     /// completes.
@@ -561,8 +752,8 @@ impl MmaData {
     /// row: a butterfly over the lane bits that leave the row in place.
     ///
     /// Whether a lane bit moves a row is read at lane 0, where both positions are constants the
-    /// compiler evaluates, so a bit that moves it costs no shuffle. That holds for a layout whose row
-    /// is a function of some of the lane's bits, as the manual-mma layouts are; the register
+    /// compiler evaluates, so a bit that moves it costs no shuffle. That holds for a layout whose
+    /// row is a function of some of the lane's bits, as the manual-mma layouts are; the register
     /// attention's component test checks it on every lane.
     pub(crate) fn reduce_across_units<E: Numeric>(
         &self,
@@ -582,7 +773,7 @@ impl MmaData {
             let mut value = slots[first + i];
             #[unroll]
             for bit in 0..lane_bits {
-                let mask = comptime!(1u32 << bit);
+                let mask = 1u32 << bit;
                 let (other_row, _) = def.position_of_nth(mask, nth, MatrixIdent::Accumulator);
                 if other_row == row {
                     value = monoid.combine::<E>(value, plane_shuffle_xor(value, mask));
@@ -668,7 +859,7 @@ impl MmaData {
     }
 
     /// `self[r, c] = 2^(self[r, c] · scale − offsets[first + r])`
-    /// ([`AxisSlices::exp2_scaled_minus_cell`]).
+    /// ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(
         &mut self,
         scale: E,
@@ -685,7 +876,7 @@ impl MmaData {
             for e in 0..vector_size {
                 vector.insert(
                     e,
-                    AxisSlices::exp2_scaled_minus_cell::<E>(
+                    DimensionSlices::exp2_scaled_minus_cell::<E>(
                         vector.extract(e),
                         scale,
                         offsets[first + i],
@@ -750,8 +941,55 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
 ) {
-    // `ldmatrix` reads 16-byte rows of 16-bit served cells from shared memory, on a device that
-    // offers it for the element; any other window, or device, takes the manual load.
+    // Any window `ldmatrix` does not read, or device that lacks it, takes the manual load.
+    let ldmatrix_serves = ldmatrix_serves::<T>(src, ident, edges);
+    let method = comptime!(match ldmatrix_serves {
+        true => io.load_method(ident),
+        false => LoadMethod::Manual,
+    });
+    // A whole stage window whose rows step by one stride reads its cells at offsets the unit
+    // finds once; any other window reads each cell through its view.
+    let gathered = src.gathered();
+    let shared = src.is_shared();
+    let element = src.stage_element();
+    let holds_served_values = comptime!(element.holds_values());
+    let whole = comptime!(covered_edges(&src.place.space, ident, edges) == edges);
+    let stepped = src.rows_step_by_stride();
+    let strided = comptime!(shared && !gathered && holds_served_values && whole && stepped);
+    // Only a `B` reads its rows in another order than they lie.
+    let keys = comptime!(match ident {
+        MatrixIdent::B => io.rhs_keys,
+        MatrixIdent::A | MatrixIdent::Accumulator => KeyOrder::AsLaid,
+    });
+    match method {
+        LoadMethod::Manual => {
+            let size!(W) = src.vector_size();
+            if strided {
+                load_strided::<T, W, N, A, B, CD>(
+                    src, fragment, def, ident, layout, edges, k_offset, keys,
+                )
+            } else {
+                load_manual::<T, W, N, A, B, CD>(
+                    src, fragment, def, ident, layout, edges, k_offset, keys,
+                )
+            }
+        }
+        LoadMethod::LoadMatrix => {
+            let size!(W) = src.vector_size();
+            load_ldmatrix::<T, W, N, A, B, CD>(src, fragment, def, ident, layout, edges, k_offset)
+        }
+    }
+}
+
+/// Whether `ldmatrix` reads an `ident` fragment of `edges` out of `src`: 16-byte rows of 16-bit
+/// served cells from shared memory, on a device that offers it for the element, the window
+/// covering every row of the fragment's matrices.
+#[cube]
+fn ldmatrix_serves<T: Numeric>(
+    src: &Tile,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] edges: (usize, usize),
+) -> comptime_type!(bool) {
     let offered = loads_matrix::<T>();
     let gathered = src.gathered();
     let shared = src.is_shared();
@@ -764,7 +1002,7 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     let row_cells = comptime!(LDMATRIX_ROW_BYTES / elem_size);
     // `ldmatrix` reads every row of its matrices: a window covering fewer has none to give it.
     let whole = comptime!(covered_edges(&src.place.space, ident, edges) == edges);
-    let ldmatrix_serves = comptime!(
+    comptime!(
         offered
             && shared
             && !gathered
@@ -773,31 +1011,54 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
             && ident != MatrixIdent::Accumulator
             && row_cells.is_multiple_of(served)
             && whole
-    );
-    let method = comptime!(match ldmatrix_serves {
-        true => io.load_method(ident),
-        false => LoadMethod::Manual,
-    });
-    // A whole stage window whose rows step by one stride reads its cells at offsets the unit
-    // finds once; any other window reads each cell through its view.
-    let stepped = src.rows_step_by_stride();
-    let strided = comptime!(shared && !gathered && holds_served_values && whole && stepped);
-    match method {
-        LoadMethod::Manual => {
-            let size!(W) = src.vector_size();
-            if comptime!(strided) {
-                load_strided::<T, W, N, A, B, CD>(
-                    src, fragment, def, ident, layout, edges, k_offset,
-                )
-            } else {
-                load_manual::<T, W, N, A, B, CD>(src, fragment, def, ident, layout, edges, k_offset)
-            }
-        }
-        LoadMethod::LoadMatrix => {
-            let size!(W) = src.vector_size();
-            load_ldmatrix::<T, W, N, A, B, CD>(src, fragment, def, ident, layout, edges, k_offset)
-        }
-    }
+    )
+}
+
+/// Whether the transposing 8-bit `ldmatrix` (`m16n16.trans.b8`) reads a `B` fragment of `edges`
+/// out of `src`, a window over its rows of `k` each holding its columns: a 32 by 8 fragment, one
+/// instruction of `m16n8k32` deep, of 16-byte rows of 8-bit values from shared memory, the window
+/// covering every row, on a device that offers the form.
+/// Each of its 16×16 matrices lands transposed, a unit's four cells a register running along `k`
+/// as the `B` holds them.
+#[cube]
+fn transposing_ldmatrix_b8_serves<T: Numeric>(
+    src: &Tile,
+    #[comptime] edges: (usize, usize),
+    #[comptime] layout: MatrixLayout,
+) -> comptime_type!(bool) {
+    let offered = offers_ldmatrix_form(LdMatrixForm::M16N16B8);
+    let gathered = src.gathered();
+    let shared = src.is_shared();
+    let element = src.stage_element();
+    let holds_served_values = comptime!(element.holds_values());
+    let served = src.vector_size();
+    let elem_size = T::size().comptime();
+    let whole = comptime!(covered_edges(&src.place.space, MatrixIdent::B, edges) == edges);
+    let (k, n) = comptime!(edges);
+    comptime!(
+        offered
+            && shared
+            && !gathered
+            && holds_served_values
+            && elem_size == 1
+            && layout == MatrixLayout::RowMajor
+            && k == 32
+            && n == 8
+            && LDMATRIX_ROW_BYTES.is_multiple_of(served)
+            && whole
+    )
+}
+
+/// Whether the device offers `ldmatrix` in `form`, read off its properties at expansion.
+#[cube]
+fn offers_ldmatrix_form(#[comptime] form: LdMatrixForm) -> comptime_type!(bool) {
+    intrinsic!(|scope| {
+        scope
+            .state()
+            .device_properties
+            .as_ref()
+            .is_some_and(|properties| properties.features.matmul.ldmatrix_forms.contains(&form))
+    })
 }
 
 /// Whether the device offers `ldmatrix` for `T`, read off its properties at expansion.
@@ -827,7 +1088,7 @@ fn load_deep<T: Numeric, N: Size>(
     #[comptime] shape: (usize, usize, usize),
     #[comptime] load: DeepLoad,
 ) {
-    match comptime!(load) {
+    match load {
         DeepLoad::Steps => load_in_steps(src, fragment, ident, layout, io, shape),
         DeepLoad::LaneRuns => load_lane_runs(src, fragment, ident, layout, shape),
     }
@@ -847,6 +1108,7 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     #[comptime] layout: MatrixLayout,
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
+    #[comptime] keys: KeyOrder,
 ) {
     let num_vectors = def.vectors_per_lane(ident);
     let vector_size = def.vector_size(ident);
@@ -865,17 +1127,20 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     });
     // A register vector along the lines starts at a multiple of its size, and so does every row
     // where the lines hold whole vectors: it is then one load.
-    let whole_vectors = comptime!(vector_layout == layout && served.is_multiple_of(vector_size));
+    // Rows read in a run's order are not consecutive: each is read on its own.
+    let whole_vectors = comptime!(
+        vector_layout == layout && served.is_multiple_of(vector_size) && keys == KeyOrder::AsLaid
+    );
     match &src.kind {
         TileKind::Memory(m) => {
-            let stride = m.row_stride_at(comptime!(rank - 2));
-            let view = if comptime!(transposed) {
+            let stride = m.row_stride_at(rank - 2);
+            let view = if transposed {
                 src.fragment_matrix_packed::<T, W>(cols, rows)
             } else {
                 src.fragment_matrix_packed::<T, W>(rows, cols)
             };
             let (first_row, first_col) = along_k(0u32, 0u32, ident, k_offset);
-            let (first_line_row, first_cell) = if comptime!(transposed) {
+            let (first_line_row, first_cell) = if transposed {
                 (first_col, first_row)
             } else {
                 (first_row, first_col)
@@ -888,15 +1153,11 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
             #[unroll]
             for i in 0..num_vectors {
                 let mut vector = Vector::empty();
-                if comptime!(whole_vectors) {
+                if whole_vectors {
                     let vectors = step.with_vector_size::<N>();
                     let (row, col) =
                         def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
-                    let (line_row, cell) = if comptime!(transposed) {
-                        (col, row)
-                    } else {
-                        (row, col)
-                    };
+                    let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                     vector = vectors
                         [((line_row * stride + cell) / comptime!(vector_size as u32)) as usize];
                 } else {
@@ -908,11 +1169,8 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
                             comptime!((i * vector_size + e) as u32),
                             ident,
                         );
-                        let (line_row, cell) = if comptime!(transposed) {
-                            (col, row)
-                        } else {
-                            (row, col)
-                        };
+                        let row = key_row(row, keys);
+                        let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                         vector.insert(
                             e,
                             cells[(line_row * stride + cell) as usize].extract(0usize),
@@ -932,6 +1190,25 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
     }
 }
 
+/// The row a `B` fragment reads for its cell at `row` under `keys`: the row itself, or, where its
+/// `A` is a run of 8-bit accumulators ([`accumulators_as_a`]), the accumulator column the `A` holds
+/// at that `k`. Each `A` vector there holds two accumulators' vectors side by side, so `k` within a
+/// 16-wide half reads as `(unit's group) · 4 + (accumulator parity) · 2 + cell`, and the column is
+/// `accumulator · 8 + group · 2 + cell`.
+#[cube]
+pub(crate) fn key_row(row: u32, #[comptime] keys: KeyOrder) -> u32 {
+    match keys {
+        KeyOrder::AsLaid => row,
+        KeyOrder::AccumulatorRun => {
+            let within = row % 16u32;
+            (row - within)
+                + ((within >> 1u32) & 1u32) * 8u32
+                + (within >> 2u32) * 2u32
+                + (within & 1u32)
+        }
+    }
+}
+
 /// Manual load: each unit reads its own cells of `src` through the matrix view, `k_offset` along
 /// `k` into a window deeper than one instruction.
 #[cube]
@@ -943,6 +1220,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     #[comptime] layout: MatrixLayout,
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
+    #[comptime] keys: KeyOrder,
 ) {
     let num_vectors = def.vectors_per_lane(ident);
     let vector_size = def.vector_size(ident);
@@ -970,12 +1248,18 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
          it, which a manual fragment load cannot read from inside the line; serve the operand at \
          most {line_edge} wide"
     ));
-    let view = if comptime!(transposed) {
+    let view = if transposed {
         src.fragment_matrix_packed::<T, W>(cols, rows)
     } else {
         src.fragment_matrix_packed::<T, W>(rows, cols)
     };
-    let along_lines = comptime!(vector_layout == layout);
+    // Rows read in a run's order are not consecutive: each cell is read on its own.
+    let along_lines = comptime!(vector_layout == layout && keys == KeyOrder::AsLaid);
+    // A window that serves its cells as they lie is read where they lie, at the register's width
+    // or a lone cell; one that decodes them as it reads them (packed words, or values under
+    // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
+    let (quantized, packing) = (src.quantized(), src.packing());
+    let as_stored = comptime!(!quantized && packing == Packing::Plain);
     comptime!(assert!(
         !along_lines || vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size),
         "MmaData::load: a {vector_size}-cell register vector neither holds whole {width}-wide \
@@ -985,14 +1269,10 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     #[unroll]
     for i in 0..num_vectors {
         let mut vector = Vector::empty();
-        if comptime!(along_lines) {
+        if along_lines {
             let (row, col) = def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
             let (row, col) = along_k(row, col, ident, k_offset);
-            let (line_row, cell) = if comptime!(transposed) {
-                (col, row)
-            } else {
-                (row, col)
-            };
+            let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
             // A register vector lies along the lines, so its cells share the row or column a
             // short window cuts.
             let covered = !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
@@ -1001,7 +1281,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, T::from_int(0));
                 }
-            } else if comptime!(width >= vector_size) {
+            } else if comptime!(width >= vector_size && !as_stored) {
                 // A register vector starts at a multiple of its size, so it stays within `width`.
                 let line = view.read((line_row, cell / comptime!(width as u32)));
                 let start = cell % comptime!(width as u32);
@@ -1009,6 +1289,20 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
                 }
+            } else if comptime!(width >= vector_size) {
+                // A register vector starts at a multiple of its size, so it stays within `width`:
+                // the line read at the register's width holds it whole, one load at the unit's
+                // offset. Picking its cells out of the whole line instead indexes the line's
+                // cells by the unit, which a register vector cannot be, and lowers to a store of
+                // the line to local memory and a load of every cell back.
+                let line = view
+                    .line_slice(
+                        (line_row, cell / comptime!(width as u32)),
+                        (1u32.runtime(), 1u32.runtime()),
+                    )
+                    .with_vector_size::<N>();
+                vector = line
+                    [((cell % comptime!(width as u32)) / comptime!(vector_size as u32)) as usize];
             } else {
                 #[unroll]
                 for l in 0..comptime!(vector_size / width) {
@@ -1018,7 +1312,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                     ));
                     #[unroll]
                     for e in 0..width {
-                        vector.insert(comptime!(l * width + e), line.extract(e));
+                        vector.insert(l * width + e, line.extract(e));
                     }
                 }
             }
@@ -1027,18 +1321,29 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
             for e in 0..vector_size {
                 let elem_idx = i * vector_size + e;
                 let (row, col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
-                let (row, col) = along_k(row, col, ident, k_offset);
-                let (line_row, cell) = if comptime!(transposed) {
-                    (col, row)
-                } else {
-                    (row, col)
-                };
+                let (row, col) = along_k(key_row(row, keys), col, ident, k_offset);
+                let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
-                if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32)) {
+                let covered =
+                    !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
+                if covered && !as_stored {
                     let line = view.read((line_row, cell / comptime!(width as u32)));
                     vector.insert(
                         e,
                         line.extract_dynamic((cell % comptime!(width as u32)).cast::<usize>()),
+                    );
+                } else if covered {
+                    // The cell read alone, at its offset in its line, rather than picked out of
+                    // the whole line by the unit's index, which lowers through local memory.
+                    let cells = view
+                        .line_slice(
+                            (line_row, cell / comptime!(width as u32)),
+                            (1u32.runtime(), 1u32.runtime()),
+                        )
+                        .with_vector_size::<Const<1>>();
+                    vector.insert(
+                        e,
+                        cells[(cell % comptime!(width as u32)) as usize].extract(0usize),
                     );
                 }
             }
@@ -1051,12 +1356,25 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
 /// of them, or, where the window is shorter than the fragment off `k`, the rows of an `A` or the
 /// columns of a `B` it has.
 fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (usize, usize) {
-    let cells: usize = space.axes().map(|axis| space.extent(axis)).product();
+    let cells: usize = space
+        .dimensions()
+        .map(|dimension| space.extent(dimension))
+        .product();
     let (rows, cols) = edges;
     match ident {
         MatrixIdent::A if cells.is_multiple_of(cols) && cells / cols < rows => (cells / cols, cols),
         MatrixIdent::B if cells.is_multiple_of(rows) && cells / rows < cols => (rows, cells / rows),
         MatrixIdent::A | MatrixIdent::B | MatrixIdent::Accumulator => edges,
+    }
+}
+
+/// The cell an instruction names at `(row, col)` where a sum laid out as `layout` holds it.
+#[cube]
+fn laid_out(row: u32, col: u32, #[comptime] layout: MatrixLayout) -> (u32, u32) {
+    match layout {
+        MatrixLayout::RowMajor => (row, col),
+        MatrixLayout::ColMajor => (col, row),
+        MatrixLayout::Undefined => panic!("mma: a sum is laid out row- or col-major"),
     }
 }
 
@@ -1069,16 +1387,16 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     fragment: &Array<Vector<T, NA>>,
     def: &MmaDefinition<A, B, CD>,
     #[comptime] layout: MatrixLayout,
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
 ) {
     let width = comptime!(mem.store.vector_size);
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    let axes = comptime!(MatrixAxes::trailing(&space));
+    let dimensions = comptime!(MatrixDimensions::trailing(space));
 
-    if comptime!(width == 1) {
-        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, axes, space);
+    if width == 1 {
+        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, dimensions, space);
         #[unroll]
         for i in 0..num_vectors {
             #[unroll]
@@ -1086,13 +1404,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
                 let elem_idx = i * vector_size + e;
                 let (row, col) =
                     def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
-                let at = match comptime!(layout) {
-                    MatrixLayout::RowMajor => (row, col),
-                    MatrixLayout::ColMajor => (col, row),
-                    MatrixLayout::Undefined => {
-                        panic!("mma: a stage layout must be row- or col-major")
-                    }
-                };
+                let at = laid_out(row, col, layout);
                 let mut value = Vector::<Out, Const<1>>::empty();
                 value.insert(0usize, Out::cast_from(fragment[i].extract(e)));
                 sink.write(at, value);
@@ -1105,7 +1417,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
              cells along a row of a row-major destination; its destination is bound {width} wide"
         ));
         let size!(W) = width;
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, axes, space);
+        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
         #[unroll]
         for i in 0..num_vectors {
             // A run starts at a column the width divides: the sink's lines count columns by it.
@@ -1127,8 +1439,14 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
 /// columns is, and the operand holds its columns' shares one after another, so a product
 /// contracting its own output reads it without moving a cell between units. A run of one is an
 /// accumulator as deep as it is wide; a longer run is what lets the product contract on an
-/// instruction deeper than the accumulators are wide. A wider operand's `A` lays its cells
-/// otherwise (a `tf32` one along the columns first), and is refused.
+/// instruction deeper than the accumulators are wide.
+///
+/// An 8-bit `A` holds twice an accumulator vector's cells in each of its vectors, along one row
+/// as the accumulator's are: each holds two accumulators' vectors of the same row side by side,
+/// so no cell moves between units, but the columns it holds at each `k` are not the instruction's.
+/// The `B` it is contracted with reads its rows in that order ([`KeyOrder::AccumulatorRun`]). A
+/// wider operand's `A` lays its cells otherwise (a `tf32` one along the columns first), and is
+/// refused.
 #[cube]
 pub(crate) fn accumulators_as_a<L: Numeric>(
     accs: &Sequence<PlaneTile>,
@@ -1149,7 +1467,7 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         k.is_multiple_of(count),
         "accumulators_as_a: {count} accumulators share the {k} columns of the A operand unevenly"
     ));
-    let width = comptime!(k / count);
+    let width = k / count;
     let acc_def = MmaDefinition::<L, L, L>::new(m, width, width);
     let a_def = MmaDefinition::<L, L, L>::new(m, n, k);
     register_lhs_size::<L>(&a_def);
@@ -1159,9 +1477,19 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
     let a_width = a_def.vector_size(MatrixIdent::A);
     let bytes = L::size().comptime();
     comptime!(assert!(
-        bytes == 2,
-        "accumulators_as_a: an accumulator's cells sit where the A operand's do for 16-bit \
-         operands; a {bytes}-byte operand's A lays them otherwise"
+        bytes <= 2 && a_width.is_multiple_of(acc_width),
+        "accumulators_as_a: an accumulator's cells sit along the A operand's rows for 16- and \
+         8-bit operands; a {bytes}-byte operand's A lays them otherwise"
+    ));
+    // Accumulator vectors one `A` vector holds side by side, on the same row. The 8-bit placement,
+    // and the order its `B` reads its rows in ([`key_row`]), are the `mma.sync` layouts': two
+    // accumulator vectors a unit, a row each, and four `A` vectors, rows alternating.
+    let side_by_side = comptime!(a_width / acc_width);
+    comptime!(assert!(
+        side_by_side == 1 || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
+        "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \
+         {acc_regs} vectors of {acc_width} is laid out unlike the `mma.sync` layouts its rows \
+         are placed for"
     ));
     let acc_cells = comptime!(acc_regs * acc_width);
     comptime!(assert!(
@@ -1192,8 +1520,10 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         for i in 0..acc_regs {
             #[unroll]
             for e in 0..acc_width {
-                let cell = comptime!(j * acc_cells + i * acc_width + e);
-                let (register, slot) = comptime!((cell / a_width, cell % a_width));
+                let (register, slot) = comptime!((
+                    i + acc_regs * (j / side_by_side),
+                    acc_width * (j % side_by_side) + e
+                ));
                 let mut vector = registers[register];
                 vector.insert(slot, acc[i].extract(e));
                 registers[register] = vector;

@@ -28,6 +28,11 @@ impl CubePrimitive for flex32 {
         flex32::from_f64(value)
     }
 }
+impl HostShareable for flex32 {
+    fn __expand_runtime_place(_: &Scope, field_ptr: ExpandValue) -> NativeExpand<Self> {
+        field_ptr.into()
+    }
+}
 impl ConstantTyped for flex32 {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         FloatFlex32Type::get(scope.ctx()).into()

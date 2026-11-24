@@ -3,7 +3,6 @@
 
 use std::marker::PhantomData;
 
-use cubecl::e2m1x2;
 use cubecl::ir::FloatKind;
 use cubecl::ir::VectorSize;
 use cubecl::ir::types::Fp8Format;
@@ -14,6 +13,7 @@ use cubecl::post_processing::minifloat::{
 };
 use cubecl::prelude::barrier::Barrier;
 use cubecl::quant::scheme::QuantValue;
+use cubecl::{e2m1x2, e4m3, e5m2};
 use cubecl_std::quant::fp4::{e2m1_packed_bits_to_float, float_to_e2m1_bits};
 
 use crate::{Field, FieldDecode, Packing};
@@ -29,7 +29,7 @@ pub fn unpack_line<F: Numeric, NQ: Size, NF: Size>(
     words: Vector<u32, NQ>,
     #[comptime] field: Field,
 ) -> Vector<F, NF> {
-    match comptime!(field.decode()) {
+    match field.decode() {
         FieldDecode::SignExtended => unpack_int_line::<F, NQ, NF>(words, field),
         FieldDecode::Unsigned => unpack_index_line::<F, NQ, NF>(words, field),
         FieldDecode::Reinterpreted => unpack_fp4_line::<F, NQ, NF>(words),
@@ -40,6 +40,9 @@ pub fn unpack_line<F: Numeric, NQ: Size, NF: Size>(
             unpack_e2m1_line::<F, NQ, NF>(words, comptime!(FieldDecode::Placed { lifted }))
         }
         FieldDecode::Byte(format) => unpack_byte_line::<F, NQ, NF>(words, format),
+        FieldDecode::ConvertedByte(format) => {
+            unpack_converted_byte_line::<F, NQ, NF>(words, format)
+        }
         FieldDecode::PlacedByte { format, lifted } => {
             unpack_placed_byte_line::<F, NQ, NF>(words, format, lifted)
         }
@@ -56,7 +59,7 @@ pub(crate) fn values_at<F: Numeric, I: Numeric, WP: Size, NF: Size>(
 ) -> Vector<F, NF> {
     let nf = NF::value();
     let wp = WP::value();
-    match comptime!(packing) {
+    match packing {
         Packing::Plain | Packing::Words { .. } if comptime!(offset == 0 && wp == nf) => {
             Vector::<F, NF>::cast_from(line)
         }
@@ -94,7 +97,7 @@ pub fn pack_line<NQ: Size, NF: Size>(
     values: Vector<f32, NF>,
     #[comptime] field: Field,
 ) -> Vector<u32, NQ> {
-    let bits = comptime!(field.size_bits());
+    let bits = field.size_bits();
     let nq = NQ::value();
     let nf = NF::value();
     let fields = comptime!(fields_per_word(nq, nf, bits));
@@ -125,7 +128,7 @@ pub(crate) fn place_at<I: Numeric, WP: Size, NF: Size>(
 ) -> Vector<I, WP> {
     let nf = NF::value();
     let mut line = line;
-    match comptime!(packing) {
+    match packing {
         Packing::Plain | Packing::Words { .. } =>
         {
             #[unroll]
@@ -153,7 +156,7 @@ pub(crate) fn place_at<I: Numeric, WP: Size, NF: Size>(
 /// Each of `values` as the code `field` stores it, in the low bits: what [`pack_line`] packs.
 #[cube]
 fn codes_of<NF: Size>(values: Vector<f32, NF>, #[comptime] field: Field) -> Vector<u32, NF> {
-    match comptime!(field.decode()) {
+    match field.decode() {
         // Two's complement; the field keeps the low bits.
         FieldDecode::SignExtended => {
             Vector::<u32, NF>::reinterpret(Vector::<i32, NF>::cast_from(values))
@@ -163,9 +166,9 @@ fn codes_of<NF: Size>(values: Vector<f32, NF>, #[comptime] field: Field) -> Vect
             float_to_e2m1_bits::<f32, NF>(values)
         }
         FieldDecode::Byte(Fp8Format::UE8M0) => f32_to_ue8m0_bits::<NF>(values),
-        FieldDecode::Byte(format) | FieldDecode::PlacedByte { format, .. } => {
-            f32_to_fp8_bits::<NF>(values, format)
-        }
+        FieldDecode::Byte(format)
+        | FieldDecode::PlacedByte { format, .. }
+        | FieldDecode::ConvertedByte(format) => f32_to_fp8_bits::<NF>(values, format),
         FieldDecode::Bits(kind) => {
             let bits = Vector::<u32, NF>::reinterpret(values);
             match comptime!(kind) {
@@ -202,12 +205,12 @@ fn unpack_int_line<F: Numeric, NQ: Size, NF: Size>(
     words: Vector<u32, NQ>,
     #[comptime] field: Field,
 ) -> Vector<F, NF> {
-    let bits = comptime!(field.size_bits());
+    let bits = field.size_bits();
     let nq = NQ::value();
     let nf = NF::value();
     let factor = comptime!(fields_per_word(nq, nf, bits));
     let mask = comptime!(((1u64 << bits) - 1) as u32);
-    let sign = comptime!(1u32 << (bits - 1));
+    let sign = 1u32 << (bits - 1);
 
     let mut out = Vector::<F, NF>::empty();
     #[unroll]
@@ -231,7 +234,7 @@ fn unpack_index_line<F: Numeric, NQ: Size, NF: Size>(
     words: Vector<u32, NQ>,
     #[comptime] field: Field,
 ) -> Vector<F, NF> {
-    let bits = comptime!(field.size_bits());
+    let bits = field.size_bits();
     let nq = NQ::value();
     let nf = NF::value();
     let factor = comptime!(fields_per_word(nq, nf, bits));
@@ -261,7 +264,7 @@ fn unpack_fp4_line<F: Numeric, NQ: Size, NF: Size>(words: Vector<u32, NQ>) -> Ve
     let nq = NQ::value();
     let nf = NF::value();
     let fields = comptime!(fields_per_word(nq, nf, QuantValue::E2M1.size_bits()));
-    let bytes = comptime!(fields.div_ceil(pair));
+    let bytes = fields.div_ceil(pair);
 
     let mut out = Vector::<F, NF>::empty();
     #[unroll]
@@ -273,7 +276,7 @@ fn unpack_fp4_line<F: Numeric, NQ: Size, NF: Size>(words: Vector<u32, NQ>) -> Ve
             let byte = (word >> comptime!((j * 8) as u32)) & 0xff;
             let values = e2m1_packed_bits_to_float::<F, Const<2>>(byte);
             out.insert(base + j * pair, values.extract(0usize));
-            if comptime!(j * pair + 1 < fields) {
+            if j * pair + 1 < fields {
                 out.insert(base + j * pair + 1, values.extract(1usize));
             }
         }
@@ -317,6 +320,40 @@ fn unpack_e2m1_line<F: Numeric, NQ: Size, NF: Size>(
     out
 }
 
+/// The 8-bit float codes, four a word, cast by the device: each word reinterpreted as four of
+/// them, which the compiler lowers to the device's conversion.
+#[cube]
+fn unpack_converted_byte_line<F: Numeric, NQ: Size, NF: Size>(
+    words: Vector<u32, NQ>,
+    #[comptime] format: Fp8Format,
+) -> Vector<F, NF> {
+    let nq = NQ::value();
+    let nf = NF::value();
+    let fields = comptime!(fields_per_word(nq, nf, 8));
+
+    let mut out = Vector::<F, NF>::empty();
+    #[unroll]
+    for w in 0..words.vector_size() {
+        let word = words.extract(w);
+        let values = match format {
+            Fp8Format::E4M3 => {
+                Vector::<F, Const<4>>::cast_from(Vector::<e4m3, Const<4>>::reinterpret(word))
+            }
+            Fp8Format::E5M2 => {
+                Vector::<F, Const<4>>::cast_from(Vector::<e5m2, Const<4>>::reinterpret(word))
+            }
+            other => {
+                panic!("unpack_converted_byte_line: {other:?} is not a value a device converts")
+            }
+        };
+        #[unroll]
+        for j in 0..fields {
+            out.insert(w * fields + j, values.extract(j));
+        }
+    }
+    out
+}
+
 /// The 8-bit float codes, one byte each, through the format's decoder on `u32` patterns.
 #[cube]
 fn unpack_byte_line<F: Numeric, NQ: Size, NF: Size>(
@@ -335,7 +372,7 @@ fn unpack_byte_line<F: Numeric, NQ: Size, NF: Size>(
         #[unroll]
         for j in 0..fields {
             let byte = Vector::<u32, Const<1>>::new((word >> comptime!((j * 8) as u32)) & 0xff);
-            let value = match comptime!(format) {
+            let value = match format {
                 Fp8Format::UE8M0 => ue8m0_bits_to_f32::<Const<1>>(byte),
                 _ => fp8_bits_to_f32::<Const<1>>(byte, format),
             };
@@ -364,7 +401,7 @@ fn unpack_placed_byte_line<F: Numeric, NQ: Size, NF: Size>(
     #[unroll]
     for w in 0..words.vector_size() {
         let word = Vector::<u32, Const<1>>::new(words.extract(w));
-        let values = if comptime!(lifted) {
+        let values = if lifted {
             Vector::<F, Const<4>>::cast_from(fp8_words_to_f16::<Const<1>, Const<4>>(word, format))
         } else {
             Vector::<F, Const<4>>::cast_from(fp8_words_to_f16_placed::<Const<1>, Const<4>>(
@@ -433,7 +470,7 @@ fn unpack_float_line<F: Numeric, NQ: Size, NF: Size>(
         for j in 0..fields {
             let slot = word >> comptime!((j * bits) as u32);
             // `bf16` is a truncated `f32`, so shifting it back is the decode.
-            let value = match comptime!(kind) {
+            let value = match kind {
                 FloatKind::F32 => F::cast_from(f32::reinterpret(slot)),
                 FloatKind::F16 => F::cast_from(f16_bits_to_f32(slot)),
                 _ => F::cast_from(f32::reinterpret((slot & 0xffffu32) << 16u32)),

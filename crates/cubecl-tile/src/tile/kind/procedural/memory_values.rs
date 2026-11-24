@@ -7,10 +7,11 @@ use cubecl::prelude::*;
 use super::{Reads, Recipe, RecipeCoords};
 use crate::*;
 
-/// A memory tile's values, read one at a time at the coordinates they are asked at. An axis a
+/// A memory tile's values, read one at a time at the coordinates they are asked at. A dimension a
 /// read does not name is read where the tile's window sits on it, so a tile cut to one owner's
 /// batch and head reads that batch and head; a coordinate past the buffer reads zero. A recipe
-/// itself, evaluated at its own coordinates, so it composes with any other ([`Sum`](crate::procedural::Sum)).
+/// itself, evaluated at its own coordinates, so it composes with any other
+/// ([`Sum`](crate::procedural::Sum)).
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub struct MemoryValues {
@@ -45,24 +46,28 @@ impl Tile {
 
 #[cube]
 impl MemoryValues {
-    /// The value at `coordinates`, one along each of `axes` in order, as `T`.
-    pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Sequence<u32>) -> T {
+    /// The value at `coordinates`, one along each of `dimensions` in order, as `T`.
+    pub fn read<T: Numeric>(
+        &self,
+        #[comptime] dimensions: Vec<Dimension>,
+        coordinates: &Sequence<u32>,
+    ) -> T {
         let mut at = Coords::<u32>::new();
         #[unroll]
-        for p in 0..comptime!(axes.len()) {
+        for p in 0..dimensions.len() {
             at.push(*coordinates.index(p));
         }
-        self.read_at::<T>(axes, &at)
+        self.read_at::<T>(dimensions, &at)
     }
 
     /// [`read`](Self::read) at coordinates that keep their constness.
     pub(crate) fn read_at<T: Numeric>(
         &self,
-        #[comptime] axes: Vec<Axis>,
+        #[comptime] dimensions: Vec<Dimension>,
         coordinates: &Coords<u32>,
     ) -> T {
         let define!(Stored) = self.element;
-        let logical = comptime!(self.memory.projection.logical_axes().to_vec());
+        let logical = comptime!(self.memory.projection.dimensions().to_vec());
         let mut position = Coords::<u32>::new();
         #[allow(
             clippy::needless_range_loop,
@@ -70,8 +75,8 @@ impl MemoryValues {
         )]
         #[unroll]
         for p in 0..logical.len() {
-            let axis = comptime!(logical[p]);
-            match comptime!(axes.iter().position(|&named| named == axis)) {
+            let dimension = comptime!(logical[p]);
+            match comptime!(dimensions.iter().position(|&named| named == dimension)) {
                 Some(named) => position.push(coordinates.at(named)),
                 None => position.push(u32::cast_from(self.memory.window.origin.at(p))),
             }
@@ -85,18 +90,18 @@ impl MemoryValues {
 #[cube]
 impl<T: Numeric> Recipe<T> for MemoryValues {
     fn evaluate(&self, coordinates: &RecipeCoords) -> T {
-        let axes = comptime!(coordinates.space.axes().collect::<Vec<_>>());
+        let dimensions = comptime!(coordinates.space.dimensions().collect::<Vec<_>>());
         let mut at = Coords::<u32>::new();
         #[unroll]
-        for p in 0..axes.len() {
+        for p in 0..dimensions.len() {
             at.push(coordinates.at(p));
         }
-        self.read_at::<T>(axes, &at)
+        self.read_at::<T>(dimensions, &at)
     }
 }
 
 impl Reads for MemoryValuesExpand {
-    fn reads(&self, _scope: &Scope, axis: Axis) -> bool {
-        self.memory.projection.logical_axes().contains(&axis)
+    fn reads(&self, _scope: &Scope, dimension: Dimension) -> bool {
+        self.memory.projection.dimensions().contains(&dimension)
     }
 }

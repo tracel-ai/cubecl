@@ -1,24 +1,39 @@
-//! `c.reduce_axis(input, monoid)` and its accumulating twin at a final tile.
+//! `c.reduce_dimension(input, monoid)` and its accumulating twin at a final tile.
 
 use cubecl::prelude::*;
 
 use super::leaf as reduce;
+use crate::dialect::ReduceOp;
 use crate::*;
 
 #[cube]
 impl Tile {
-    /// `c = reduce(input)`: reduce `input` into `self` across the contracted axes.
-    pub fn reduce_axis(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
-        let define!(Served) = self.element;
-        self.init_identity::<Served>(monoid);
-        self.reduce_axis_accumulate(input, monoid);
+    /// `c = reduce(input)`: reduce `input` into `self` across the contracted dimensions.
+    ///
+    /// It reaches the IR as one `tile.reduce` op.
+    pub fn reduce_dimension(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
+        intrinsic!(|scope| ReduceOp::trace(scope, |scope| {
+            self.__expand_reduce_from_identity_method(scope, input, monoid)
+        }))
     }
 
-    /// `self[c] = Σ_r lhs[c, r] · rhs[c, r]`, `r` the axes `lhs` and `rhs` span beyond `self`'s:
-    /// each cell the dot product of its run of both, as attention's backward pass sums its output
-    /// against the output's gradient along the value dim. `self` is a window of memory a unit or a
-    /// plane holds ([`Tile::set_cells`]), every unit of the holder summing every cell; `lhs` and
-    /// `rhs` span one space, bound at one width.
+    /// [`reduce_dimension`](Tile::reduce_dimension)'s reduction, as tracing writes it inside the
+    /// op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn reduce_from_identity(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
+        let define!(Served) = self.element;
+        self.init_identity::<Served>(monoid);
+        self.reduce_onto_held(input, monoid);
+    }
+
+    /// `self[c] = Σ_r lhs[c, r] · rhs[c, r]`, `r` the dimensions `lhs` and `rhs` span beyond
+    /// `self`'s: each cell the dot product of its run of both, as attention's backward pass sums
+    /// its output against the output's gradient along the value dim. `self` is a window of memory a
+    /// unit or a plane holds ([`Tile::set_cells`]), every unit of the holder summing every cell;
+    /// `lhs` and `rhs` span one space, bound at one width.
     pub fn dot<E: Float>(&mut self, lhs: &Tile, rhs: &Tile) {
         let (width, rhs_width) = (lhs.vector_size(), rhs.vector_size());
         comptime!(assert!(
@@ -31,14 +46,24 @@ impl Tile {
         let define!(Lhs) = lhs.read_element();
         let define!(Rhs) = rhs.read_element();
         let space = comptime!(self.place.space.clone());
-        let cells = comptime!(space.cells());
+        let cells = space.cells();
         let size!(V) = width;
-        let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, space);
+        let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, &space);
         self.set_cells(&values, cells);
     }
 
     /// `c = reduce(c, input)`: reduce `input` into what `self` holds, which must be seeded.
-    pub fn reduce_axis_accumulate(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
+    ///
+    /// It reaches the IR as one `tile.reduce` op.
+    pub fn reduce_dimension_accumulate(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
+        intrinsic!(|scope| ReduceOp::trace(scope, |scope| {
+            self.__expand_reduce_onto_held_method(scope, input, monoid)
+        }))
+    }
+
+    /// [`reduce_dimension_accumulate`](Tile::reduce_dimension_accumulate)'s reduction, as tracing
+    /// writes it inside the op.
+    fn reduce_onto_held(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
         let define!(Source) = input.read_element();
         reduce_leaf::<Served, Source>(self, input, monoid)
@@ -64,10 +89,10 @@ fn reduce_leaf<Acc: Numeric, In: Numeric>(
     let space = comptime!(acc.place.space.clone());
     match &mut acc.kind {
         TileKind::Memory(g) => {
-            reduce::memory::<Acc, In>(g, input, space, monoid);
+            reduce::memory::<Acc, In>(g, input, &space, monoid);
         }
         TileKind::PlaneTile(t) => {
-            reduce_plane_tile::<Acc, In>(t, input, space, monoid);
+            reduce_plane_tile::<Acc, In>(t, input, &space, monoid);
         }
         TileKind::PlanePartition(p) => {
             comptime!(assert!(
@@ -75,7 +100,7 @@ fn reduce_leaf<Acc: Numeric, In: Numeric>(
                 "reduce_leaf: a multi-tile partition must be contracted at its partition level"
             ));
             let mut t = p.at(0usize, 0usize);
-            reduce_plane_tile::<Acc, In>(&mut t, input, space, monoid);
+            reduce_plane_tile::<Acc, In>(&mut t, input, &space, monoid);
         }
         TileKind::TmaGmem(_) => panic!("reduce: a tma source is not an accumulator sink"),
         TileKind::Procedural(_) | TileKind::Lines(_) => {
@@ -88,7 +113,7 @@ fn reduce_leaf<Acc: Numeric, In: Numeric>(
 fn reduce_plane_tile<Acc: Numeric, In: Numeric>(
     tile: &mut PlaneTile,
     input: &Tile,
-    #[comptime] acc_space: Space,
+    #[comptime] acc_space: &Space,
     #[comptime] monoid: Monoid,
 ) {
     match tile {

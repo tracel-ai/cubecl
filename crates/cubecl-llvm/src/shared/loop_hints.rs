@@ -11,6 +11,8 @@ use pliron_llvm::metadata::{
 pub enum LoopHint {
     /// Unroll the loop completely, within LLVM's pragma threshold.
     UnrollFull,
+    /// Leave the loop a loop.
+    UnrollDisable,
 }
 
 impl LoopHint {
@@ -18,6 +20,7 @@ impl LoopHint {
     fn property(self) -> &'static str {
         match self {
             LoopHint::UnrollFull => "llvm.loop.unroll.full",
+            LoopHint::UnrollDisable => "llvm.loop.unroll.disable",
         }
     }
 

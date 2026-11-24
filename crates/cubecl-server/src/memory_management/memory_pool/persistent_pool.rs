@@ -17,9 +17,9 @@ pub struct PersistentPool {
     max_alloc_size: u64,
     location_base: MemoryLocation,
     /// The most slices (one device allocation each) ever held at once.
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 impl core::fmt::Display for PersistentPool {
@@ -41,7 +41,7 @@ impl core::fmt::Display for PersistentPool {
 
             f.write_fmt(format_args!(
                 "  - Slices {} =>  {num_free} free - {num_full} full - {total} total\n",
-                BytesFormat::new(*size)
+                BytesFormat::from_byte_count(*size)
             ))?;
         }
 
@@ -61,8 +61,8 @@ impl PersistentPool {
             max_alloc_size,
             alignment,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -71,10 +71,10 @@ impl PersistentPool {
         MemoryPoolReport {
             kind: MemoryPoolKind::Persistent,
             usage: self.get_memory_usage(),
-            pages: self.slices.len() as u64,
-            pages_peak: self.pages_peak,
-            pages_unmapped: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
-            largest_alloc: self.largest_alloc,
+            page_count: self.slices.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -87,7 +87,7 @@ impl PersistentPool {
 
 impl MemoryPool for PersistentPool {
     fn accept(&self, size: u64) -> bool {
-        self.max_alloc_size >= size
+        size + calculate_padding(size, self.alignment) <= self.max_alloc_size
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -125,9 +125,9 @@ impl MemoryPool for PersistentPool {
                 let slice = &mut self.slices[*pos];
 
                 if slice.is_free() {
-                    slice.storage.utilization.size = size;
-                    slice.storage.utilization.offset = 0;
-                    self.largest_alloc = self.largest_alloc.max(size);
+                    slice.storage.utilization.size_bytes = size;
+                    slice.storage.utilization.offset_bytes = 0;
+                    self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
                     return Some(slice.handle.clone());
                 }
             }
@@ -136,7 +136,7 @@ impl MemoryPool for PersistentPool {
         None
     }
 
-    fn alloc<Storage: crate::storage::ComputeStorage>(
+    fn alloc<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -146,6 +146,16 @@ impl MemoryPool for PersistentPool {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
+        // Refused before the storage sees it: some backends (wgpu) treat a
+        // buffer past the device's limit as a validation error that poisons
+        // the device rather than as a failed allocation.
+        if effective_size > self.max_alloc_size {
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         // Every persistent slice owns its whole buffer, so laziness is
         // per-slice: a minted id under a process mode that discards launches (a scratch
         // session's KV cache, for instance) costs nothing until a measurement
@@ -153,7 +163,10 @@ impl MemoryPool for PersistentPool {
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
         let mut location = self.location_base;
@@ -171,15 +184,15 @@ impl MemoryPool for PersistentPool {
 
         let handle = slice.handle.clone();
         self.slices.push(slice);
-        self.pages_peak = self.pages_peak.max(self.slices.len() as u64);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.peak_pages = self.peak_pages.max(self.slices.len() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(handle)
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?;
-        Some(PageGuard::allocation(slice.handle.clone().binding()))
+        Some(PageGuard::allocation(slice.handle.to_binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
@@ -190,14 +203,14 @@ impl MemoryPool for PersistentPool {
             .collect();
 
         MemoryUsage {
-            number_allocs: used_slices.len() as u64,
-            bytes_in_use: used_slices.iter().map(|slice| slice.storage.size()).sum(),
-            bytes_padding: used_slices.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self.slices.iter().map(|slice| slice.effective_size()).sum(),
+            allocation_count: used_slices.len() as u64,
+            in_use_bytes: used_slices.iter().map(|slice| slice.storage.size()).sum(),
+            padding_bytes: used_slices.iter().map(|slice| slice.padding).sum(),
+            reserved_bytes: self.slices.iter().map(|slice| slice.effective_size()).sum(),
         }
     }
 
-    fn cleanup<Storage: crate::storage::ComputeStorage>(
+    fn cleanup<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
@@ -216,7 +229,7 @@ impl MemoryPool for PersistentPool {
                     // it for the driver to free.
                     slice.tainted.clear(failures);
                     if slice.mapped {
-                        storage.dealloc(slice.storage.id);
+                        storage.deallocate(slice.storage.id);
                     }
                 } else {
                     let slice_pos = slices.len();
@@ -257,7 +270,7 @@ impl MemoryPool for PersistentPool {
         Ok(())
     }
 
-    fn materialize<Storage: crate::storage::ComputeStorage>(
+    fn materialize<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &super::ManagedMemoryBinding,
@@ -284,6 +297,40 @@ mod tests {
     use crate::storage::BytesStorage;
 
     use super::*;
+
+    /// A size whose padded allocation passes the largest allocation is refused
+    /// as `BufferTooBig` before the storage is asked, and the pool still
+    /// serves the next one that fits.
+    #[test_log::test]
+    fn an_allocation_past_the_limit_is_refused_before_the_storage() {
+        use crate::storage::StorageAllocator;
+
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentPool::new(1024, 16, 0);
+
+        let refused = pool.alloc(
+            &mut storage,
+            1025,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        );
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { size: 1025, .. })),
+            "got {refused:?}"
+        );
+        assert_eq!(storage.bytes_allocated(), 0, "the storage was never asked");
+
+        let served = pool
+            .alloc(
+                &mut storage,
+                1024,
+                PageMapping::Eager,
+                &mut ErrorGraph::default(),
+            )
+            .expect("exactly the limit fits");
+        assert_eq!(storage.bytes_allocated(), 1024);
+        core::mem::drop(served);
+    }
 
     /// `alloc` and `try_reserve` must use the same `sizes` key (`size + padding`). See #1224.
     #[test_log::test]
@@ -352,20 +399,20 @@ mod tests {
             &mut ErrorGraph::default(),
         );
         let usage = pool.get_memory_usage();
-        assert_eq!(usage.bytes_in_use, 1024);
-        assert_eq!(usage.bytes_reserved, 2048);
+        assert_eq!(usage.in_use_bytes, 1024);
+        assert_eq!(usage.reserved_bytes, 2048);
 
         let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         let usage = pool.get_memory_usage();
         assert!(result.is_some(), "Handle1 is free to be reused.");
-        assert_eq!(usage.bytes_in_use, 2048);
-        assert_eq!(usage.bytes_reserved, 2048);
+        assert_eq!(usage.in_use_bytes, 2048);
+        assert_eq!(usage.reserved_bytes, 2048);
 
         core::mem::drop(alloc2);
         core::mem::drop(result);
 
         let usage = pool.get_memory_usage();
-        assert_eq!(usage.bytes_in_use, 0);
-        assert_eq!(usage.bytes_reserved, 2048);
+        assert_eq!(usage.in_use_bytes, 0);
+        assert_eq!(usage.reserved_bytes, 2048);
     }
 }

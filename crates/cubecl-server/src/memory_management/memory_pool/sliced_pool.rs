@@ -6,11 +6,21 @@ use crate::{
         memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
-    storage::{ComputeStorage, StorageHandle, StorageId},
+    storage::{StorageAllocator, StorageHandle, StorageId},
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
 use cubecl_environment::backtrace::BackTrace;
+
+/// Whether a reservation may carve the free room on a page a graph guards (see [`PageGuard`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinnedRoom {
+    /// Leave it alone: what lands there would be overwritten by the next replay of the graph
+    /// that used that room.
+    Avoid,
+    /// Carve it too: whatever lands there is overwritten only while it is not in use.
+    Share,
+}
 
 /// A pool that carves slices out of pages of one size.
 ///
@@ -29,9 +39,9 @@ pub struct SlicedPool {
     alignment: u64,
     location_base: MemoryLocation,
     /// The most pages ever held at once.
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 /// What a [`SlicedPool`] carves, and the pool index its slices carry.
@@ -58,8 +68,8 @@ impl SlicedPool {
             near_page_size: true,
             alignment: layout.alignment,
             location_base: MemoryLocation::new(layout.pool, 0, 0),
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -84,14 +94,14 @@ impl SlicedPool {
                 max_slice_size: self.max_slice_size,
             },
             usage: self.get_memory_usage(),
-            pages: self.pages.len() as u64,
-            pages_peak: self.pages_peak,
-            pages_unmapped: self
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self
                 .pages
                 .iter()
                 .filter(|(page, _)| !page.is_mapped())
                 .count() as u64,
-            largest_alloc: self.largest_alloc,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -112,6 +122,17 @@ impl SlicedPool {
             .slice_mut(location.slice as usize)
     }
 
+    /// Whether graphs guard every page the pool holds, and it holds some: room for work outside
+    /// a capture comes only from a new page then.
+    pub(crate) fn is_pinned(&self) -> bool {
+        !self.pages.is_empty() && self.pages().all(MemoryPage::is_guarded)
+    }
+
+    /// Whether a graph guards the page the slice `location` names is on.
+    pub(crate) fn is_guarded_at(&self, location: MemoryLocation) -> bool {
+        self.pages[location.page as usize].0.is_guarded()
+    }
+
     /// The storage behind the slice `location` names, while its page has
     /// real device backing: `None` for one carved lazily and never resolved,
     /// which has nothing behind it to read.
@@ -124,7 +145,7 @@ impl SlicedPool {
 
     /// The storage behind the slice `location` names, giving its page real
     /// device backing first if it was carved lazily.
-    pub(crate) fn mapped_storage_at<Storage: ComputeStorage>(
+    pub(crate) fn mapped_storage_at<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         location: MemoryLocation,
@@ -133,29 +154,46 @@ impl SlicedPool {
         Ok(self.slice_at(location).storage.clone())
     }
 
-    /// Reserve `size` bytes on a page already held, coalescing as it goes.
-    /// A guarded page is left as it is.
-    fn reserve_free(
+    /// Reserve `size` bytes on a page already held, coalescing as it goes. A
+    /// guarded page is carved only when `room` shares it.
+    pub(crate) fn try_reserve_sharing(
         &mut self,
         size: u64,
+        room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         let handle = self
             .pages
             .iter_mut()
-            .filter(|(page, _)| !page.is_guarded())
+            .filter(|(page, _)| room == PinnedRoom::Share || !page.is_guarded())
             .find_map(|(page, _)| {
                 page.coalesce(failures);
                 page.try_reserve(size)
             });
         if handle.is_some() {
-            self.largest_alloc = self.largest_alloc.max(size);
+            self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         }
         handle
     }
 
+    /// Reserve `size` bytes as [`try_reserve_sharing`](Self::try_reserve_sharing)
+    /// does, allocating a page when the room held has none.
+    pub(crate) fn reserve_sharing<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+        mapping: PageMapping,
+        room: PinnedRoom,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        match self.try_reserve_sharing(size, room, failures) {
+            Some(handle) => Ok(handle),
+            None => self.alloc_page(storage, size, mapping),
+        }
+    }
+
     /// Allocate a page and reserve `size` bytes on it.
-    fn alloc_page<Storage: ComputeStorage>(
+    fn alloc_page<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -175,8 +213,8 @@ impl SlicedPool {
             .expect("callers only allocate a page for an allocation that fits it");
         let storage_id = page.storage_id();
         self.pages.push((page, storage_id));
-        self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(reserved)
     }
@@ -186,7 +224,7 @@ impl SlicedPool {
     /// The virtual carving *is* the layout: the page is allocated for real
     /// and rebound — every slice keeps its offset, the minted id ceases to
     /// exist (it never reached the driver).
-    fn map_page<Storage: ComputeStorage>(
+    fn map_page<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         index: usize,
@@ -197,7 +235,7 @@ impl SlicedPool {
         }
         let size = page.size();
         let real = storage
-            .alloc(size)
+            .allocate_bytes(size)
             .map_err(|err| IoError::StorageMappingFailed {
                 size,
                 source: alloc::boxed::Box::new(err),
@@ -210,7 +248,7 @@ impl SlicedPool {
 
     /// Return every page nothing is live on and nothing guards to the driver,
     /// and renumber the rest.
-    pub(crate) fn release_empty<Storage: ComputeStorage>(
+    pub(crate) fn release_empty<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -225,7 +263,7 @@ impl SlicedPool {
                 // garbage.
                 page.shed(failures);
                 if page.is_mapped() {
-                    storage.dealloc(id);
+                    storage.deallocate(id);
                 }
             } else {
                 page.update_page(self.pages_tmp.len() as u16);
@@ -279,14 +317,14 @@ impl MemoryPool for SlicedPool {
     }
 
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
-        self.reserve_free(size, failures)
+        self.try_reserve_sharing(size, PinnedRoom::Avoid, failures)
     }
 
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, storage))
     )]
-    fn alloc<Storage: ComputeStorage>(
+    fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -296,7 +334,7 @@ impl MemoryPool for SlicedPool {
         self.alloc_page(storage, size, mapping)
     }
 
-    fn materialize<Storage: ComputeStorage>(
+    fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &ManagedMemoryBinding,
@@ -334,7 +372,7 @@ impl MemoryPool for SlicedPool {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, storage))
     )]
-    fn cleanup<Storage: ComputeStorage>(
+    fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
@@ -367,8 +405,8 @@ impl Display for SlicedPool {
 
         f.write_fmt(format_args!(
             " - Sliced Pool page_size={} max_alloc_size={}",
-            BytesFormat::new(self.page_size),
-            BytesFormat::new(self.max_slice_size)
+            BytesFormat::from_byte_count(self.page_size),
+            BytesFormat::from_byte_count(self.max_slice_size)
         ))?;
         f.write_str("\n")?;
 
@@ -377,9 +415,9 @@ impl Display for SlicedPool {
             f.write_fmt(format_args!(
                 "   - Page {id} num_slices={} => {} free - {} full - {} total\n",
                 summary.num_total,
-                BytesFormat::new(summary.amount_free),
-                BytesFormat::new(summary.amount_full),
-                BytesFormat::new(summary.amount_total),
+                BytesFormat::from_byte_count(summary.amount_free),
+                BytesFormat::from_byte_count(summary.amount_full),
+                BytesFormat::from_byte_count(summary.amount_total),
             ))?;
         }
 

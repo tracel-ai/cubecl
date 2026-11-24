@@ -7,7 +7,7 @@ use cubecl::zspace::shape;
 use cubecl::{bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle};
 use cubecl_common::e2m1;
 use cubecl_tile::{
-    Axis, Launcher, Level, Levels, Partitioning, Projection, Space, StageStorage, TileSpec,
+    Dimension, Launcher, Level, Levels, Partitioning, Projection, Space, StageStorage, TileSpec,
     TileTensor, TileTensorLaunch,
     launch::Grid,
     layout::{StorageLevels, StoragePartitioning, VectorTile},
@@ -15,10 +15,10 @@ use cubecl_tile::{
 
 use crate::tile::uncut;
 
-const N: Axis = Axis(0);
+const N: Dimension = Dimension(0);
 /// `K` as blocks of one scale make it: which block, and where inside it.
-const KB: Axis = Axis(1);
-const KI: Axis = Axis(2);
+const KB: Dimension = Dimension(1);
+const KI: Dimension = Dimension(2);
 
 /// `output = unpack(values) ⊗ scales`, the values read as many words a load as they are bound
 /// wide.
@@ -26,12 +26,12 @@ const KI: Axis = Axis(2);
 fn tiled_scaled_copy(
     values: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
 ) {
     let values = values.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     output.dequantize_from(&values.mul(&scales));
 }
 
@@ -41,13 +41,13 @@ fn tiled_scaled_copy(
 fn tiled_packed_stage(
     values: &TileTensor<'_>,
     scales: &TileTensor<'_>,
-    output: &TileTensor<'_>,
+    output: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let values = values.tile(&space);
     let scales = scales.tile(&space);
-    let mut output = output.tile(&space);
+    let mut output = output.tile_mut(&space);
     let mut stage = values.stage(level, StageStorage::Strided);
     stage.copy_from(&values);
     sync_cube();
@@ -79,8 +79,8 @@ fn a_rectangle_load_decodes_each_value_under_its_own_scale() {
     check_tiled(storage, 4, 4, Read::Stored);
 }
 
-/// NVFP4 in tile order as a staged matmul reads it, a column's block a load in tiles of sixteen columns,
-/// staged as its words and decoded out of the stage: the stage holds every word where the
+/// NVFP4 in tile order as a staged matmul reads it, a column's block a load in tiles of sixteen
+/// columns, staged as its words and decoded out of the stage: the stage holds every word where the
 /// stored tiles put it.
 #[test]
 fn a_tile_order_weight_staged_as_its_words_decodes_out_of_the_stage() {
@@ -90,23 +90,23 @@ fn a_tile_order_weight_staged_as_its_words_decodes_out_of_the_stage() {
     check_tiled(storage, 32, 2, Read::PackedStage);
 }
 
-/// `cols` columns of two blocks of sixteen stored as `storage` states, read `words_per_load` words a load
-/// and decoded as `read` says, against the host.
+/// `cols` columns of two blocks of sixteen stored as `storage` states, read `words_per_load` words
+/// a load and decoded as `read` says, against the host.
 fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize, read: Read) {
     let (blocks, block) = (2, 16);
     let client = cubecl::test_device().client();
-    let axes = [N, KB, KI];
+    let dimensions = [N, KB, KI];
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, block)])
         .unwrap();
-    let labels = geometry.labels(&axes);
+    let labels = geometry.labels(&dimensions);
     // Every code, cycled, laid down where the storage puts its value.
     let code = |n: usize, kb: usize, ki: usize| ((n * blocks + kb) * block + ki) % 16;
     let offset = |coords: [usize; 3]| {
         let mut rest = coords;
         let mut offset = 0;
         for d in (0..labels.len()).rev() {
-            let a = axes.iter().position(|&a| a == labels[d]).unwrap();
+            let a = dimensions.iter().position(|&a| a == labels[d]).unwrap();
             let extent = geometry.shape()[d];
             offset += (rest[a] % extent) * geometry.strides()[d];
             rest[a] /= extent;
@@ -141,16 +141,17 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
         .zeros()
         .generate_without_host_data();
 
-    let mut w_spec = TileSpec::new(Projection::tiled(&axes, &labels)).packed(QuantValue::E2M1);
+    let mut w_spec =
+        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
     w_spec.stored_tiles = storage.tiles().to_vec();
     let space = Space::new(&[(N, cols), (KB, blocks), (KI, block)]);
-    let (count, dim) = (CubeCount::new_single(), CubeDim::new_single());
+    let (count, axis) = (CubeCount::new_single(), CubeDim::new_single());
     // Each arm launches its own kernel, so each binds its own arguments.
     match read {
         Read::Stored => tiled_scaled_copy::launch(
             &client,
             count,
-            dim,
+            axis,
             TileTensorLaunch::new(
                 w_tensor.binding().into_tensor_arg(),
                 u32::elem_type_native(),
@@ -167,7 +168,7 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
                 out.clone().binding().into_tensor_arg(),
                 dtype,
                 4,
-                TileSpec::direct(&axes),
+                TileSpec::direct(&dimensions),
             ),
             uncut(&client, &space, &space).partitioning_arg(),
         ),
@@ -188,7 +189,7 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
             tiled_packed_stage::launch(
                 &client,
                 count,
-                dim,
+                axis,
                 TileTensorLaunch::new(
                     w_tensor.binding().into_tensor_arg(),
                     u32::elem_type_native(),
@@ -205,7 +206,7 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
                     out.clone().binding().into_tensor_arg(),
                     dtype,
                     4,
-                    TileSpec::direct(&axes),
+                    TileSpec::direct(&dimensions),
                 ),
                 launcher.partitioning_arg(),
                 level,

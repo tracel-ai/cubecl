@@ -6,7 +6,8 @@
 //! A device without the copy engine skips: the async half has nothing to run on.
 
 use crate::support::{
-    HostData, HostDataType, TestInput, TileInput, ValidationResult, assert_equals_approx,
+    HostData, HostDataType, HostDataVec, TestInput, TileInput, ValidationResult,
+    assert_equals_approx,
 };
 use cubecl::{
     bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle, zspace::shape,
@@ -19,12 +20,12 @@ use cubecl_tile::*;
 use super::references;
 use super::{Form, implied};
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// The software instruction the ring's leaf runs.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 const DELIVERIES: [Delivery; 2] = [Delivery::SyncPerUnit, Delivery::AsyncPerUnit];
 
@@ -43,13 +44,13 @@ fn has_copy_engine(client: &Client) -> bool {
 fn ring_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
 
     let walk = space.walk();
@@ -60,11 +61,47 @@ fn ring_matmul(
             for cell in region {
                 let mut c_cell = c_block
                     .at(&cell)
-                    .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+                    .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
                 c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
             }
         });
     });
+}
+
+/// [`ring_matmul`] `rounds` times over, each round building its ring anew and freeing it, as a
+/// kernel that walks several boxes in turn does: `c = rounds · a · b`. The rounds are a loop the
+/// launch does not unroll, so every round's ring stands in the same shared memory.
+#[cube(launch)]
+fn ring_matmul_rounds(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
+    space: Partitioning,
+    rounds: u32,
+    #[comptime] depth: usize,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let mut c = c.tile_mut(&space);
+    c.zero();
+
+    for _ in 0..rounds {
+        let walk = space.walk();
+        let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+        stages.pipelined(walk, |slot, region| {
+            let c_block = c.at(region);
+            slot.consume(|a_s, b_s| {
+                for cell in region {
+                    let mut c_cell = c_block
+                        .at(&cell)
+                        .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
+                    c_cell.mma(&a_s.at(&cell), &b_s.at(&cell));
+                }
+            });
+        });
+        stages.free();
+        sync_cube();
+    }
 }
 
 /// Each region of `src` staged by a blocking `copy_from`, then copied out of the stage: the fill
@@ -72,13 +109,13 @@ fn ring_matmul(
 #[cube(launch)]
 fn staged_copy(
     src: &TileTensor<'_>,
-    dst: &TileTensor<'_>,
+    dst: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let src = src.tile(&space);
-    let dst = dst.tile(&space);
-    let mut stage = src.stage(comptime!(level.clone()), StageStorage::Strided);
+    let dst = dst.tile_mut(&space);
+    let mut stage = src.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
         sync_cube();
@@ -94,13 +131,13 @@ fn staged_copy(
 #[cube(launch)]
 fn staged_packed_copy(
     src: &TileTensor<'_>,
-    dst: &TileTensor<'_>,
+    dst: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let src = src.tile(&space);
-    let dst = dst.tile(&space);
-    let mut stage = src.stage(comptime!(level.clone()), StageStorage::Strided);
+    let dst = dst.tile_mut(&space);
+    let mut stage = src.stage(level.clone(), StageStorage::Strided);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
         sync_cube();
@@ -181,6 +218,72 @@ fn an_async_ring_walk_double_buffered() {
 #[test]
 fn an_async_ring_walk_triple_buffered_over_an_odd_walk() {
     check_ring_matmul(8, 8, 20, 4, 3);
+}
+
+fn ring_matmul_rounds_with(rounds: u32, depth: usize, delivery: Delivery) -> HostData {
+    let client = cubecl::test_device().client();
+    let (m, n, k, block_k, tile) = (8usize, 8usize, 20usize, 4usize, 4usize);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, tile), (N, tile), (K, tile)])
+                .walk(&[(M, m / tile), (N, n / tile), (K, block_k / tile)])
+                .walk_every(&[M, N, K])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+        .tile(&[tile, tile])
+        .arange();
+    let b = TileInput::builder(&client, launcher.space().subspace(&[K, N]))
+        .tile(&[tile, tile])
+        .arange();
+    let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
+        .tile(&[tile, tile])
+        .uniform(7, -100.0, 100.0);
+
+    ring_matmul_rounds::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        a.bind(&launcher).delivery(delivery).build().unwrap().arg(),
+        b.bind(&launcher).delivery(delivery).build().unwrap().arg(),
+        c.arg(&launcher, 1),
+        launcher.partitioning_arg(),
+        rounds,
+        depth,
+    );
+    HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32)
+}
+
+/// A ring built twice in one kernel, the second in the shared memory the first freed, over a walk
+/// of five regions, so the first ring's barriers end on an odd phase: the second ring meets on
+/// barriers of its own, and the kernel finishes with twice the product. Reinitialized in place
+/// with no end to the first, an `mbarrier` keeps its phase and the second ring's first wait never
+/// completes.
+#[test]
+fn an_async_ring_built_again_in_a_loop_meets_on_new_barriers() {
+    let client = cubecl::test_device().client();
+    if !has_copy_engine(&client) {
+        return;
+    }
+    let (_, once) = TestInput::builder(client, shape![2, 2, 4, 4])
+        .custom(references::tiled_matmul(8, 8, 20, 4))
+        .generate_with_f32_host_data();
+    let HostDataVec::F32(values) = &once.data else {
+        panic!("the reference is f32");
+    };
+    let twice = HostData {
+        data: HostDataVec::F32(values.iter().map(|value| 2.0 * value).collect()),
+        ..once.clone()
+    };
+    for depth in [2, 3] {
+        let [sync, copied] = DELIVERIES.map(|delivery| ring_matmul_rounds_with(2, depth, delivery));
+        assert_equals_approx(&sync, &twice, 1e-3).enforce();
+        assert_equals_approx(&copied, &twice, 1e-3).enforce();
+    }
 }
 
 /// `rows` of a `rows_space`-row space are real; the rest overhang the tensor and read as zero.
@@ -351,11 +454,11 @@ fn an_async_copy_stages_packed_words() {
     }
 }
 
-/// [`staged_packed_copy`] of words whose rows are stated as two axes, a block and the row inside
-/// it, in `axes`' order: the fill reads the source at the stage's coordinates through the
-/// source's projection, which puts both axes on its one physical axis of rows.
-fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
-    const ROW_BLOCKS: Axis = Axis(5);
+/// [`staged_packed_copy`] of words whose rows are stated as two dimensions, a block and the row
+/// inside it, in `dimensions`' order: the fill reads the source at the stage's coordinates through
+/// the source's projection, which puts both dimensions on its one physical axis of rows.
+fn staged_packed_copy_of_split_rows(dimensions: [Dimension; 3]) {
+    const ROW_BLOCKS: Dimension = Dimension(5);
     let (rows, cols, tile_rows) = (8, 16, 4);
     let field = QuantValue::Q8S;
     let values: Vec<i32> = (0..rows * cols).map(|i| (i % 128) as i32).collect();
@@ -378,7 +481,7 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
         .dtype(dtype)
         .zeros()
         .generate_without_host_data();
-    let extent = |axis: Axis, rows: usize| match axis {
+    let extent = |dimension: Dimension, rows: usize| match dimension {
         ROW_BLOCKS => 1,
         M => rows,
         _ => cols,
@@ -386,21 +489,24 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
     let launcher = implied(
         &client,
         Partitioning::new(
-            Space::new(&axes.map(|axis| (axis, extent(axis, rows)))),
-            Levels::leaf(&axes.map(|axis| (axis, extent(axis, tile_rows))))
-                .walk_every(&axes)
+            Space::new(&dimensions.map(|dimension| (dimension, extent(dimension, rows)))),
+            Levels::leaf(&dimensions.map(|dimension| (dimension, extent(dimension, tile_rows))))
+                .walk_every(&dimensions)
                 .build(),
         ),
         Form::Static,
     );
     let words_over = Projection::new(
-        &axes,
+        &dimensions,
         &[
             PhysicalAxisMap::disjoint(&[(ROW_BLOCKS, rows), (M, 1)]),
             PhysicalAxisMap::of(N),
         ],
     );
-    let values_over = Projection::new(&axes, &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(N)]);
+    let values_over = Projection::new(
+        &dimensions,
+        &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(N)],
+    );
     staged_packed_copy::launch(
         &client,
         CubeCount::new_single(),
@@ -425,15 +531,15 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
         .map(|i| got.get_f32(&[i / cols, i % cols]))
         .collect();
     let want: Vec<f32> = values.iter().map(|&v| v as f32).collect();
-    assert_eq!(got, want, "rows split as {axes:?}");
+    assert_eq!(got, want, "rows split as {dimensions:?}");
 }
 
-/// **A packed stage of rows stated as two axes holds each row where its source does.** The fill
-/// reads the source through its projection, so a block of rows stated before the row inside it
+/// **A packed stage of rows stated as two dimensions holds each row where its source does.** The
+/// fill reads the source through its projection, so a block of rows stated before the row inside it
 /// lands as one stated after.
 #[test]
-fn a_packed_stage_of_rows_stated_as_two_axes_holds_each_row() {
-    const ROW_BLOCKS: Axis = Axis(5);
+fn a_packed_stage_of_rows_stated_as_two_dimensions_holds_each_row() {
+    const ROW_BLOCKS: Dimension = Dimension(5);
     staged_packed_copy_of_split_rows([ROW_BLOCKS, M, N]);
     staged_packed_copy_of_split_rows([M, ROW_BLOCKS, N]);
 }

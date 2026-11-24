@@ -8,6 +8,7 @@ license.workspace = true
 name = "cubecl"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -29,6 +30,7 @@ default = [
 ]
 std = [
     "cubecl-core/std",
+    "cubecl-server/std",
     "cubecl-cpu?/std",
     "cubecl-cuda?/std",
     "cubecl-hip?/std",
@@ -39,6 +41,11 @@ std = [
 stdlib = ["cubecl-std"] # CubeCL standard library
 tile = ["stdlib", "cubecl-tile"] # The tile DSL
 template = ["cubecl-core/template"]
+# Warns on each `comptime!` the `#[cube]` macro doesn't need. A repo's CI turns it on for its own crates.
+warn-redundant-comptime = ["cubecl-core/warn-redundant-comptime"]
+# Warns on each lint a `#[cube]` function allows that the macro already allows on it. A repo's CI
+# turns it on for its own crates.
+warn-redundant-allow = ["cubecl-core/warn-redundant-allow"]
 
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 
@@ -46,12 +53,15 @@ profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
 persistence = [
     "cubecl-runtime/persistence",
+    "cubecl-server/persistence",
     "cubecl-cpu?/persistence",
     "cubecl-cuda?/persistence",
     "cubecl-hip?/persistence",
     "cubecl-metal?/persistence",
     "cubecl-wgpu?/persistence",
 ]
+# The native caches on SQLite instead of Turso; see `cubecl-environment`.
+rusqlite = ["persistence", "cubecl-runtime/rusqlite"]
 tokio = ["cubecl-core/tokio"]
 
 tracing = [
@@ -99,6 +109,8 @@ cubecl-core = { workspace = true }
 cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true }
 cubecl-runtime = { workspace = true }
+# For `prune`, which reads what the compilers stored beside the autotune answers.
+cubecl-server = { workspace = true }
 cubecl-std = { workspace = true, default-features = true, optional = true }
 cubecl-tile = { workspace = true, optional = true }
 half = { workspace = true }

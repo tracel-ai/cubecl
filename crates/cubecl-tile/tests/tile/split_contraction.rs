@@ -2,15 +2,15 @@
 //!
 //! A cube that does not do the whole contraction holds a slice of every output cell it touches,
 //! and the slices have to be combined. This file is the combine that needs nothing new: the split
-//! is spelled as an *axis*.
+//! is spelled as an *dimension*.
 //!
-//! `K` is declared as two axes, `(KB, KI)`, addressing one physical `K` through
+//! `K` is declared as two dimensions, `(KB, KI)`, addressing one physical `K` through
 //! [`PhysicalAxisMap::disjoint`] exactly as a quantization block does. `KB` counts the splits and
 //! rides the cubes; `KI` is the position inside one split and is what the contraction walks.
 //!
-//! The output is bound over `[KB, M, N]`, so it *spans* the axis being split, and the whole thing
-//! is a batched matmul whose batch is the split index: no cube shares a cell with any other and
-//! nothing is partial. A second pass reduces the `KB` axis away.
+//! The output is bound over `[KB, M, N]`, so it *spans* the dimension being split, and the whole
+//! thing is a batched matmul whose batch is the split index: no cube shares a cell with any other
+//! and nothing is partial. A second pass reduces the `KB` dimension away.
 //!
 //! Two kernels and an extra buffer, but the engine is untouched, which is what makes this the
 //! reference the in-kernel combines are measured against: it is the same arithmetic, cut the same
@@ -32,14 +32,14 @@ use cubecl_tile::launch::AccumulateArgLaunch;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-// `K` as two axes: `KB` counts the splits (one per cube), `KI` walks inside one.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+// `K` as two dimensions: `KB` counts the splits (one per cube), `KI` walks inside one.
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 
 /// The leaf's register block, held fixed across every kernel here.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// The split contraction: a batched matmul whose batch is the split index, writing one partial
 /// per split. One region per cube, contracted whole at the leaf, so `mm` owns the init and
@@ -48,34 +48,34 @@ const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 fn split_partials(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    partials: &TileTensor<'_>,
+    partials: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let partials = partials.tile(&space);
+    let partials = partials.tile_mut(&space);
     for region in space.over(&level) {
         let mut partials_cube = partials
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         partials_cube.mm(&a.at(&region), &b.at(&region));
     }
 }
 
-/// The second pass: sum the split axis away.
+/// The second pass: sum the split dimension away.
 #[cube(launch)]
 fn reduce_splits(
-    partials: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    partials: &mut TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
-    let partials = partials.tile(&space);
-    let out = out.tile(&space);
+    let partials = partials.tile_mut(&space);
+    let out = out.tile_mut(&space);
     for region in space.over(&level) {
         let mut out_cube = out.at(&region);
-        out_cube.reduce_axis(&partials.at(&region), Monoid::Sum);
+        out_cube.reduce_dimension(&partials.at(&region), Monoid::Sum);
     }
 }
 
@@ -117,8 +117,8 @@ fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostDa
         Form::Static,
     );
 
-    // `a` is `[M, K]` and `b` is `[K, N]` in memory: one physical `K` dim each, addressed by the
-    // two logical axes. `inside` is `KB`'s stride through it, `1` is `KI`'s.
+    // `a` is `[M, K]` and `b` is `[K, N]` in memory: one physical `K` axis each, addressed by the
+    // two dimensions. `inside` is `KB`'s stride through it, `1` is `KI`'s.
     split_partials::launch(
         &client,
         split_space.cube_count(),
@@ -204,9 +204,9 @@ fn reference(m: usize, n: usize, k: usize, rows: std::ops::Range<usize>) -> Vec<
         .collect()
 }
 
-/// Each cube contracts its own slice of `K` and writes it to its own plane of the partials
-/// buffer, and the second pass adds the planes up. Both halves are checked: a partials buffer that is
-/// right and a total that is not would be a broken sum, and the reverse a broken split.
+/// Each cube contracts its own slice of `K` and writes it to its own plane of the partials buffer,
+/// and the second pass adds the planes up. Both halves are checked: a partials buffer that is right
+/// and a total that is not would be a broken sum, and the reverse a broken split.
 #[test]
 fn a_split_contraction_sums_back_to_the_whole() {
     let (m, n, k, splits) = (4usize, 4usize, 16usize, 4usize);
@@ -305,11 +305,11 @@ fn the_device_adds_floats_atomically_across_cubes() {
 
 // -- The in-kernel combine --------------------------------------------------
 //
-// The same split, without the second buffer and the second pass: `K` stays one axis, the cubes
+// The same split, without the second buffer and the second pass: `K` stays one dimension, the cubes
 // each take a slice, and the drain adds each cube's contribution into the output atomically.
 // What the workspace pipeline above does in two kernels, this does in one, and the two must agree.
 
-const K: Axis = Axis(4);
+const K: Dimension = Dimension(4);
 
 /// The output is bound as an atomic buffer and drained through a summing sink. The register
 /// accumulator is not decoration: the contraction runs in registers and only the drain touches
@@ -318,24 +318,17 @@ const K: Axis = Axis(4);
 fn atomic_split_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     // The accumulator mirrors the output's grid at this level: opened above the walk, one
     // fragment per region, drained once through the sink after it.
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_region = acc.at(&region);
         acc_region.mma(&a.at(&region), &b.at(&region));
@@ -352,7 +345,7 @@ fn atomic_split_matmul<E: Numeric>(
 fn atomic_split_matmul_by_unit<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] plane_units: Level,
@@ -360,17 +353,10 @@ fn atomic_split_matmul_by_unit<E: Numeric>(
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     // Opened above both walks, so it holds what one unit of one cube sums: its own columns
     // against that cube's slice of the contraction.
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for cube in space.over(&cubes) {
         for unit in cube.over(&plane_units) {
             let mut acc_unit = acc.at(&unit);
@@ -688,18 +674,18 @@ fn an_atomic_drain_sums_across_planes() {
 fn atomic_split_matmul_in_place<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     for region in space.over(&level) {
         let mut c_region = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         c_region.mm(&a.at(&region), &b.at(&region));
     }
 }
@@ -794,19 +780,19 @@ fn a_summing_output_contracts_in_place() {
 fn atomic_split_cmma<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = out.tile(&space);
+    let c = out.tile_mut(&space);
     for cube in space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
         let c_cube = c.at(&cube);
         let acc = c_cube
-            .accumulator::<E>(&a_cube, &b_cube, Instruction::Cmma, Semiring::SUM_PROD)
+            .accumulator::<E>(&a_cube, &b_cube, Semiring::SumProd)
             .with_scratch(Scratch::OneTile);
         let walk = cube.walk();
         let mut stages = Stages::smem(
@@ -964,12 +950,12 @@ fn adds_atomically(client: &cubecl::client::Client) -> bool {
 #[cube(launch)]
 fn copy_into_summing<E: Numeric>(
     src: &TileTensor<'_>,
-    out: &AccumulateArg<'_, E>,
+    out: &mut AccumulateArg<'_, E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let src = src.tile(&space);
-    let mut out = out.tile(&space);
+    let mut out = out.tile_mut(&space);
     out.copy_from(&src);
 }
 

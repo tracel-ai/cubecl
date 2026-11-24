@@ -1,8 +1,7 @@
+use crate::throughput::KernelSampler;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{
-    CmmaDims, ComputeCmmaConfig, KernelConfig, ThroughputError, ThroughputKey,
-};
+use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig, ThroughputError, ThroughputKey};
 
 use crate::throughput::{LaunchConfig, verify::verify};
 
@@ -11,7 +10,7 @@ pub fn build_kernel(
     key: ThroughputKey,
     cmma_config: ComputeCmmaConfig,
     config: LaunchConfig,
-) -> Result<KernelConfig, ThroughputError> {
+) -> Result<KernelSampler, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
@@ -30,7 +29,10 @@ pub fn build_kernel(
                 CubeCount::Static(config.cube_count as u32, 1, 1),
                 config.cube_dim,
                 config.vector_size,
-                BufferArg::from_raw_parts(out.clone(), 1),
+                BufferArg::from_raw_parts(
+                    out.clone(),
+                    cmma_config.cmma_dims.m * cmma_config.cmma_dims.n,
+                ),
                 iterations,
                 cmma_config.cmma_dims,
                 dtype,
@@ -46,11 +48,7 @@ pub fn build_kernel(
     let planes_per_cube = config.cube_dim.num_elems() as usize / config.plane_size;
     let ops_count = config.cube_count * planes_per_cube * ops_per_cmma;
 
-    Ok(KernelConfig {
-        sample,
-        ops_count,
-        min_iterations: 1,
-    })
+    Ok(KernelSampler::new(sample, ops_count, 1))
 }
 
 #[cube(launch_unchecked)]

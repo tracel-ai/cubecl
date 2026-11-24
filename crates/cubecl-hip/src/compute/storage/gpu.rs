@@ -1,7 +1,7 @@
 use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
 
 use crate::AMD_MAX_BINDINGS;
@@ -11,7 +11,6 @@ use crate::AMD_MAX_BINDINGS;
 /// This struct manages memory resources for HIP kernels, allowing them to be used as bindings
 /// for launching kernels.
 pub struct GpuStorage {
-    mem_alignment: usize,
     memory: HashMap<StorageId, (cubecl_hip_sys::hipDeviceptr_t, u64)>,
     /// The bytes `memory` holds.
     allocated: u64,
@@ -30,15 +29,16 @@ pub struct GpuResource {
     pub size: u64,
 }
 
+impl Default for GpuStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GpuStorage {
-    /// Creates a new [`GpuStorage`] instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize) -> Self {
+    /// Creates an empty storage.
+    pub fn new() -> Self {
         Self {
-            mem_alignment,
             memory: HashMap::new(),
             allocated: 0,
             deallocations: Vec::new(),
@@ -108,12 +108,8 @@ impl PtrBindings {
     }
 }
 
-impl ComputeStorage for GpuStorage {
+impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
-
-    fn alignment(&self) -> usize {
-        self.mem_alignment
-    }
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
         let (ptr, _) =
@@ -141,7 +137,7 @@ impl ComputeStorage for GpuStorage {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, size))
     )]
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         // Plain (synchronous) `hipMalloc` on purpose: `hipMallocAsync` draws
         // from the driver's async mempool, which on ROCm never returns freed
@@ -165,12 +161,15 @@ impl ComputeStorage for GpuStorage {
 
         Ok(StorageHandle::new(
             id,
-            StorageUtilization { offset: 0, size },
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
         ))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn dealloc(&mut self, id: StorageId) {
+    fn deallocate(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
 

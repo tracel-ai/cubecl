@@ -15,11 +15,12 @@ use crate::*;
 ///
 /// A cube opens its accumulator on the relayed [`tile`](Relay::tile), takes its turn with
 /// [`take`](Relay::take), drains into the tile, and passes it on with [`pass`](Relay::pass), every
-/// unit of the cube reaching both. The relay publishes a turn's lines at device scope before passing the box on and acquires them after taking it, so it
-/// runs only where the runtime hands one cube's writes to another within a dispatch
-/// (`device_memory_scope`), and reads its turn with a `u32` atomic add, which every GPU runtime
-/// offers. A waiting cube holds its place on the device: the relay rests on a box's earlier runs
-/// having started by the time a later one waits, which a grid whose runs are neighbours gives.
+/// unit of the cube reaching both. The relay publishes a turn's lines at device scope before
+/// passing the box on and acquires them after taking it, so it runs only where the runtime hands
+/// one cube's writes to another within a dispatch (`device_memory_scope`), and reads its turn with
+/// a `u32` atomic add, which every GPU runtime offers. A waiting cube holds its place on the
+/// device: the relay rests on a box's earlier runs having started by the time a later one waits,
+/// which a grid whose runs are neighbours gives.
 #[derive(CubeType)]
 pub struct Relay<'a> {
     /// The carry, read by the last turn.
@@ -31,7 +32,7 @@ pub struct Relay<'a> {
     walk: Walk,
     /// This box's counter.
     counter: usize,
-    /// This cube's turn: its run's position along the split axis.
+    /// This cube's turn: its run's position along the split dimension.
     turn: usize,
     /// The turns whose run holds a tile: the leading ones.
     holders: usize,
@@ -39,11 +40,11 @@ pub struct Relay<'a> {
 
 #[cube]
 impl<'a> TileTensor<'a> {
-    /// This operand as the carry of a [`Relay`]: the box the cubes splitting the contraction
-    /// along its [`across`](Levels::across) axis take their turns at, under `partitioning`, whose
+    /// This operand as the carry of a [`Relay`]: the box the cubes splitting the contraction along
+    /// its [`across`](Levels::across) dimension take their turns at, under `partitioning`, whose
     /// first level is the cube level. `turns` arrives holding zero and is left holding zero.
     pub fn relay<'t, V: Size>(
-        &self,
+        &mut self,
         partitioning: &Partitioning,
         turns: &'t [Atomic<u32>],
     ) -> Relay<'t> {
@@ -130,7 +131,7 @@ impl<'a> Relay<'a> {
         }
     }
 
-    /// The counter of this cube's box: the cube's position over every axis the cube level
+    /// The counter of this cube's box: the cube's position over every dimension the cube level
     /// distributes but the `split` one, as one mixed-radix index, the split's coordinate left at
     /// zero.
     fn counter(partitioning: &Partitioning, walk: &Walk, #[comptime] split: usize) -> usize {
@@ -138,11 +139,11 @@ impl<'a> Relay<'a> {
         let level = comptime!(space.levels()[0].clone());
         let mut counter = 0usize;
         #[unroll]
-        for p in 0..comptime!(space.space().rank()) {
-            let axis = comptime!(space.space().axis_at(p));
-            if comptime!(level.distributes(axis)) {
-                let radix = Self::radix(partitioning, comptime!(level.clone()), p);
-                let position = match comptime!(p == split) {
+        for p in 0..space.space().rank() {
+            let dimension = space.space().dimension_at(p);
+            if level.distributes(dimension) {
+                let radix = Self::radix(partitioning, &level, p);
+                let position = match p == split {
                     true => 0usize.runtime(),
                     false => walk.position_at(p),
                 };
@@ -157,16 +158,16 @@ impl<'a> Relay<'a> {
     fn holders(partitioning: &Partitioning, #[comptime] split: usize) -> usize {
         let space = comptime!(partitioning.clone());
         let level = comptime!(space.levels()[0].clone());
-        let axis = comptime!(space.space().axis_at(split));
-        let workers = comptime!(match level.count(axis) {
+        let dimension = space.space().dimension_at(split);
+        let workers = comptime!(match level.count(dimension) {
             Some(Count::AllAcross(workers)) => workers,
-            _ => unreachable!("Relay::split names an axis spread across cubes"),
+            _ => unreachable!("Relay::split names a dimension spread across cubes"),
         });
-        let grid = Self::grid(partitioning, comptime!(level.clone()), split);
-        match comptime!(level.cut(axis).spread) {
+        let grid = Self::grid(partitioning, &level, split);
+        match level.cut(dimension).spread {
             Spread::Contiguous => {
                 let run = grid
-                    .plus(comptime!(workers - 1).runtime())
+                    .plus((workers - 1).runtime())
                     .divided_by(workers.runtime())
                     .max_with(1usize.runtime());
                 grid.plus(run.minus(1usize.runtime())).divided_by(run)
@@ -175,20 +176,24 @@ impl<'a> Relay<'a> {
         }
     }
 
-    /// The instances the cube level distributes axis `p` to: its workers where spread across them,
-    /// its tile count otherwise.
-    fn radix(partitioning: &Partitioning, #[comptime] level: Level, #[comptime] p: usize) -> usize {
-        let axis = comptime!(partitioning.space().axis_at(p));
-        match comptime!(level.count(axis)) {
+    /// The instances the cube level distributes dimension `p` to: its workers where spread across
+    /// them, its tile count otherwise.
+    fn radix(
+        partitioning: &Partitioning,
+        #[comptime] level: &Level,
+        #[comptime] p: usize,
+    ) -> usize {
+        let dimension = comptime!(partitioning.space().dimension_at(p));
+        match level.count(dimension) {
             Some(Count::AllAcross(workers)) => workers.runtime(),
             _ => Self::grid(partitioning, level, p),
         }
     }
 
-    /// The tiles the cube level cuts axis `p` into.
-    fn grid(partitioning: &Partitioning, #[comptime] level: Level, #[comptime] p: usize) -> usize {
-        let axis = comptime!(partitioning.space().axis_at(p));
-        match comptime!(level.grid(axis)) {
+    /// The tiles the cube level cuts dimension `p` into.
+    fn grid(partitioning: &Partitioning, #[comptime] level: &Level, #[comptime] p: usize) -> usize {
+        let dimension = comptime!(partitioning.space().dimension_at(p));
+        match level.grid(dimension) {
             GridCount::Const(n) => n.runtime(),
             GridCount::Extent(tile) => partitioning.space.count(p, tile),
         }
@@ -196,8 +201,8 @@ impl<'a> Relay<'a> {
 }
 
 impl Relay<'_> {
-    /// The position in `space` of the one axis a relay splits: spread across cubes by the first
-    /// level, the cube level, and not spanned by the carry. Refuses any other partitioning.
+    /// The position in `space` of the one dimension a relay splits: spread across cubes by the
+    /// first level, the cube level, and not spanned by the carry. Refuses any other partitioning.
     fn split(space: &Partitioning, spec: &TileSpec) -> usize {
         let level = &space.levels()[0];
         assert!(
@@ -208,14 +213,14 @@ impl Relay<'_> {
         );
         let split: Vec<usize> = (0..space.space().rank())
             .filter(|&p| {
-                let axis = space.space().axis_at(p);
-                matches!(level.count(axis), Some(Count::AllAcross(_)))
-                    && !spec.axes().contains(&axis)
+                let dimension = space.space().dimension_at(p);
+                matches!(level.count(dimension), Some(Count::AllAcross(_)))
+                    && !spec.dimensions().contains(&dimension)
             })
             .collect();
         assert!(
             split.len() == 1,
-            "TileTensor::relay: the carry must leave out exactly one axis the cube level spreads \
+            "TileTensor::relay: the carry must leave out exactly one dimension the cube level spreads \
              across cubes (`Levels::across`), the one whose runs take the turns; it leaves out {}",
             split.len()
         );

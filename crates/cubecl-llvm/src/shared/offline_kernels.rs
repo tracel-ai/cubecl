@@ -39,6 +39,37 @@ pub(crate) fn scale_kernel(address_type: AddressType) -> impl CubeKernel {
     )
 }
 
+/// A buffer struct: two coordinates and two indices, 16 bytes.
+#[derive(CubeType, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct Observation {
+    x: f32,
+    y: f32,
+    cam: u32,
+    point: u32,
+}
+
+#[cube(launch)]
+fn struct_fields(obs: &[Observation], output: &mut [f32]) {
+    let o = obs[ABSOLUTE_POS];
+    output[ABSOLUTE_POS] = o.x + o.y + f32::cast_from(o.cam + o.point);
+}
+
+pub(crate) fn struct_fields_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(64),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    struct_fields::StructFields::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 #[cube(launch)]
 fn plane_moves(input: &[f32], output: &mut [f32]) {
     let value = input[UNIT_POS as usize];
@@ -101,6 +132,116 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
         k,
+    )
+}
+
+/// [`keep_largest`] repeated by a loop of 256 turns, whose counter indexes nothing.
+// Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "nvptx")]
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn keep_largest_rounds(input: &[f32], output: &mut [f32], #[comptime] k: usize) {
+    let mut largest = Array::<f32>::new(k);
+    #[unroll]
+    for i in 0..k {
+        largest[i] = f32::min_value();
+    }
+    for _ in 0..256u32 {
+        for r in 0..input.len() {
+            let mut candidate = input[r];
+            for j in 0..k {
+                let keep = largest[j] > candidate;
+                let displaced = select(keep, candidate, largest[j]);
+                largest[j] = select(keep, largest[j], candidate);
+                candidate = displaced;
+            }
+        }
+    }
+    #[unroll]
+    for i in 0..k {
+        output[i] = largest[i];
+    }
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn keep_largest_rounds_kernel(k: usize) -> impl CubeKernel {
+    keep_largest_rounds::KeepLargestRounds::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        k,
+    )
+}
+
+#[cfg(feature = "nvptx")]
+fn walk_settings() -> KernelSettings {
+    KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    )
+}
+
+/// A sum carried through a loop of 256 turns around a walk of a local array: the outer loop
+/// carries a value its inner counter does not depend on.
+// Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "nvptx")]
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
+    let mut values = Array::<f32>::new(64usize);
+    #[unroll]
+    for i in 0..64usize {
+        values[i] = input[i];
+    }
+    let mut sum = 0.0f32;
+    for _ in 0..256u32 {
+        for j in 0..64usize {
+            sum += values[j];
+        }
+    }
+    output[UNIT_POS as usize] = sum;
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
+    carried_sum_around_walk::CarriedSumAroundWalk::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// Fills a local array with a counter kept in a variable, so the index is carried from turn to
+/// turn rather than being the loop's own counter.
+#[cfg(feature = "nvptx")]
+#[allow(
+    clippy::explicit_counter_loop,
+    reason = "Exercise a loop-carried counter separate from the loop index"
+)]
+#[cube(launch)]
+fn counted_walk(input: &[f32], output: &mut [f32]) {
+    let mut values = Array::<f32>::new(256usize);
+    let mut count = 0usize;
+    for _ in 0..256u32 {
+        values[count] = input[count];
+        count += 1;
+    }
+    output[UNIT_POS as usize] = values[0usize] + values[255usize];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn counted_walk_kernel() -> impl CubeKernel {
+    counted_walk::CountedWalk::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
     )
 }
 
@@ -216,12 +357,128 @@ pub(crate) fn e4m3_decode_kernel() -> impl CubeKernel {
     )
 }
 
+/// Four `f32` cast to `e4m3` and stored as one word: what a stage of probabilities beside `e4m3`
+/// values holds.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn e4m3_encode(values: &[Vector<f32, Const<4>>], out: &mut [u32]) {
+    let codes = Vector::<cubecl_core::e4m3, Const<4>>::cast_from(values[ABSOLUTE_POS]);
+    out[ABSOLUTE_POS] = u32::reinterpret(codes);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn e4m3_encode_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    e4m3_encode::E4m3Encode::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Scales `input` into `output` and counts the units into `tally`, dropping what the count was:
 /// an accumulation no cube waits on.
 #[cube(launch)]
 fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
     output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
     tally[0].fetch_add(1u32);
+}
+
+/// [`tally`] counting into a `Peer` buffer, which kernels on other devices reach while it runs.
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
+    output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
+    sync_system();
+    tally[0].fetch_add(1u32);
+}
+
+#[cfg(feature = "amdgpu")]
+pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    peer_tally::PeerTally::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        PeerCompilationArg,
+    )
+}
+
+/// Plain stores into a peer's `data`, a fence of `order` at `sync`, then a flag store: a hand-off
+/// with no barrier.
+#[cube(launch)]
+fn fence_send(
+    data: &mut Peer<[u32]>,
+    flag: &Peer<[Atomic<u32>]>,
+    #[comptime] order: MemoryOrder,
+    #[comptime] sync: SyncScope,
+) {
+    data[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
+    fence(comptime![order], comptime![sync]);
+    flag[ABSOLUTE_POS].store(1u32);
+}
+
+pub(crate) fn fence_send_kernel(order: MemoryOrder, sync: SyncScope) -> impl CubeKernel {
+    fence_kernel(|settings| {
+        fence_send::FenceSend::new(
+            settings,
+            device_properties(32),
+            Arc::new(TargetProperties::default()),
+            PeerCompilationArg,
+            PeerCompilationArg,
+            order,
+            sync,
+        )
+    })
+}
+
+/// Polls a peer's flag, then fences with `order` at `sync` and reads the data it guards.
+#[cube(launch)]
+fn fence_poll(
+    flag: &Peer<[Atomic<u32>]>,
+    data: &Peer<[u32]>,
+    out: &mut [u32],
+    #[comptime] order: MemoryOrder,
+    #[comptime] sync: SyncScope,
+) {
+    while flag[ABSOLUTE_POS].load() == 0u32 {}
+    fence(comptime![order], comptime![sync]);
+    out[ABSOLUTE_POS] = data[ABSOLUTE_POS];
+}
+
+pub(crate) fn fence_poll_kernel(order: MemoryOrder, sync: SyncScope) -> impl CubeKernel {
+    fence_kernel(|settings| {
+        fence_poll::FencePoll::new(
+            settings,
+            device_properties(32),
+            Arc::new(TargetProperties::default()),
+            PeerCompilationArg,
+            PeerCompilationArg,
+            BufferCompilationArg { inplace: None },
+            order,
+            sync,
+        )
+    })
+}
+
+fn fence_kernel<K: CubeKernel>(build: impl FnOnce(KernelSettings) -> K) -> K {
+    build(KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    ))
 }
 
 pub(crate) fn tally_kernel() -> impl CubeKernel {
@@ -243,6 +500,7 @@ pub(crate) fn tally_kernel() -> impl CubeKernel {
 /// Walks a column in steps of 32 rows, one row per unit: how a matmul reads its weight along
 /// the reduced axis. A cube starts at its position split by a runtime count, so the start of
 /// every address holds a division by a value only known at launch.
+#[cfg(feature = "nvptx")]
 #[cube(launch)]
 fn strided_walk(
     input: &[f32],
@@ -261,6 +519,7 @@ fn strided_walk(
     output[ABSOLUTE_POS] = sum;
 }
 
+#[cfg(feature = "nvptx")]
 pub(crate) fn strided_walk_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -412,20 +671,247 @@ fn tile_product<A: Scalar, B: Scalar, CD: Numeric>(
     cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
-/// One `(m, n, k)` tile product of `A` by `B` accumulating in `CD`.
-pub(crate) fn tile_product_kernel<
+/// Each lane of the plane loads the elements of role `ident` it holds of `def`'s tile into
+/// `registers`, from `source`, where a row is `row_stride` elements after the one before it and
+/// a column `col_stride`.
+#[cfg(feature = "amdgpu")]
+#[cube]
+fn plane_load_manual_registers<A: Scalar, B: Scalar, CD: Scalar, E: Scalar, N: Size>(
+    def: &cmma::MmaDefinition<A, B, CD>,
+    source: &[E],
+    row_stride: u32,
+    col_stride: u32,
+    registers: &mut Array<Vector<E, N>>,
+    #[comptime] ident: cmma::MatrixIdent,
+) {
+    let lane = UNIT_POS_PLANE;
+    let size = def.vector_size(ident);
+    let elems = def.elems_per_lane(ident);
+    let count = comptime!(elems / size);
+    #[unroll]
+    for i in 0..count {
+        let mut reg = Vector::empty();
+        #[unroll]
+        for j in 0..size {
+            let (row, col) = def.position_of_nth(lane, (i * size + j) as u32, ident);
+            reg.insert(j, source[(row * row_stride + col * col_stride) as usize]);
+        }
+        registers[i] = reg;
+    }
+}
+
+/// Each lane of the plane stores the sums it holds of `registers` into `destination`, where a
+/// row is `row_stride` elements after the one before it and a column `col_stride`.
+#[cfg(feature = "amdgpu")]
+#[cube]
+fn plane_store_manual_sums<A: Scalar, B: Scalar, CD: Scalar, N: Size>(
+    def: &cmma::MmaDefinition<A, B, CD>,
+    registers: &Array<Vector<CD, N>>,
+    destination: &mut [CD],
+    row_stride: u32,
+    col_stride: u32,
+) {
+    let lane = UNIT_POS_PLANE;
+    let size = def.vector_size(cmma::MatrixIdent::Accumulator);
+    let elems = def.elems_per_lane(cmma::MatrixIdent::Accumulator);
+    let count = comptime!(elems / size);
+    #[unroll]
+    for i in 0..count {
+        let reg = registers[i];
+        #[unroll]
+        for j in 0..size {
+            let nth = (i * size + j) as u32;
+            let (row, col) = def.position_of_nth(lane, nth, cmma::MatrixIdent::Accumulator);
+            destination[(row * row_stride + col * col_stride) as usize] = reg.extract(j);
+        }
+    }
+}
+
+/// Each lane of the plane zeroes the sums it holds.
+#[cfg(feature = "amdgpu")]
+#[cube]
+fn plane_zero_manual_sums<CD: Numeric, N: Size>(registers: &mut Array<Vector<CD, N>>) {
+    #[unroll]
+    for i in 0..registers.len() {
+        registers[i] = Vector::new(CD::from_int(0));
+    }
+}
+
+/// One tile product by one plane through the manual MMA API: the lanes load their registers of
+/// `A` and `B` at the positions the target names, multiply them into a zero accumulator, and
+/// store their sums into `out`, each operand addressed through its strides between rows and
+/// between columns.
+///
+/// Per plane, it reads the `m × k` elements of `A` and the `k × n` of `B`, and writes the
+/// `m × n` of `out`.
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn manual_product<A: Scalar, B: Scalar, CD: Numeric>(
+    lhs: &[A],
+    rhs: &[B],
+    out: &mut [CD],
+    a_rows: u32,
+    a_cols: u32,
+    b_rows: u32,
+    b_cols: u32,
+    out_rows: u32,
+    out_cols: u32,
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let def = cmma::MmaDefinition::<A, B, CD>::new(m, n, k);
+    let size!(NA) = def.vector_size(cmma::MatrixIdent::A);
+    let size!(NB) = def.vector_size(cmma::MatrixIdent::B);
+    let size!(NC) = def.vector_size(cmma::MatrixIdent::Accumulator);
+    let mut registers_a = Array::<Vector<A, NA>>::new(def.vectors_per_lane(cmma::MatrixIdent::A));
+    let mut registers_b = Array::<Vector<B, NB>>::new(def.vectors_per_lane(cmma::MatrixIdent::B));
+    let mut registers_c =
+        Array::<Vector<CD, NC>>::new(def.vectors_per_lane(cmma::MatrixIdent::Accumulator));
+
+    plane_load_manual_registers(
+        &def,
+        lhs,
+        a_rows,
+        a_cols,
+        &mut registers_a,
+        cmma::MatrixIdent::A,
+    );
+    plane_load_manual_registers(
+        &def,
+        rhs,
+        b_rows,
+        b_cols,
+        &mut registers_b,
+        cmma::MatrixIdent::B,
+    );
+    plane_zero_manual_sums(&mut registers_c);
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    plane_store_manual_sums(&def, &registers_d, out, out_rows, out_cols);
+}
+
+/// The manual MMA register layout every backend gives CDNA, the one the HIP runtime hands its
+/// devices.
+#[cfg(feature = "amdgpu")]
+fn cdna_target_properties() -> TargetProperties {
+    use cubecl_core::ir::amd::{AmdMatrixCore, AmdMfma};
+    TargetProperties {
+        mma: AmdMatrixCore::Mfma(AmdMfma::Cdna3).mma_properties(),
+    }
+}
+
+/// The runtime tests' quantized tile product of `config` on CDNA: a cube of one 64-lane plane,
+/// on a device offering it.
+#[cfg(feature = "amdgpu")]
+pub(crate) fn cdna_quantized_product_kernel<
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    S: Scalar + cubecl_core::CubeElement,
+>(
+    config: cubecl_core::ir::features::QuantizedMmaConfig,
+) -> impl CubeKernel {
+    use cubecl_core::runtime_tests::cmma::kernel_quantized_mma;
+    const PLANE_DIM: u32 = 64;
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(PLANE_DIM),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(PLANE_DIM)).clone();
+    props.features.matmul.quantized_mma.insert(config);
+    let buffer = || BufferCompilationArg { inplace: None };
+    kernel_quantized_mma::KernelQuantizedMma::<A, B, S>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(cdna_target_properties()),
+        buffer(),
+        buffer(),
+        buffer(),
+        buffer(),
+        buffer(),
+        buffer(),
+        // The six strides are runtime scalars.
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        config,
+    )
+}
+
+/// One `(m, n, k)` manual tile product on CDNA: a cube of one 64-lane plane.
+#[cfg(feature = "amdgpu")]
+pub(crate) fn cdna_manual_product_kernel<
     A: Scalar + cubecl_core::CubeElement,
     B: Scalar + cubecl_core::CubeElement,
     CD: Numeric + cubecl_core::CubeElement,
 >(
     (m, n, k): (usize, usize, usize),
 ) -> impl CubeKernel {
+    const PLANE_DIM: u32 = 64;
     let settings = KernelSettings::new(
-        *CubeDim::new_1d(32),
+        *CubeDim::new_1d(PLANE_DIM),
         ExecutionMode::Unchecked,
         AddressType::U32,
     );
-    let mut props = (*device_properties(32)).clone();
+    let mut props = (*device_properties(PLANE_DIM)).clone();
+    props.features.matmul.mma.insert(MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    });
+    manual_product::ManualProduct::<A, B, CD>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(cdna_target_properties()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        // The six strides are runtime scalars.
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        m,
+        n,
+        k,
+    )
+}
+
+/// One `(m, n, k)` tile product of `A` by `B` accumulating in `CD`.
+pub(crate) fn tile_product_kernel<
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    CD: Numeric + cubecl_core::CubeElement,
+>(
+    shape: (usize, usize, usize),
+) -> impl CubeKernel {
+    const PLANE_DIM: u32 = 32;
+    tile_product_in_plane::<A, B, CD>(shape, PLANE_DIM)
+}
+
+/// [`tile_product_kernel`] for one plane of `plane_dim` units, which is a whole cube.
+pub(crate) fn tile_product_in_plane<
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    CD: Numeric + cubecl_core::CubeElement,
+>(
+    (m, n, k): (usize, usize, usize),
+    plane_dim: u32,
+) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(plane_dim),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(plane_dim)).clone();
     props.features.matmul.cmma.insert(MmaConfig {
         a_type: A::cube_type(),
         b_type: B::cube_type(),
@@ -449,7 +935,7 @@ pub(crate) fn tile_product_kernel<
 
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_product<I: Numeric, A: Numeric>(
+fn plane_group_product<I: Numeric, A: Numeric>(
     lhs: &[I],
     rhs: &[I],
     out: &mut [A],
@@ -508,7 +994,7 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
 /// unroll: each iteration waits for the previous stage's group, while its own runs on.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
+fn plane_group_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
     let layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
         swizzle: wgmma::Swizzle::B128,
@@ -543,7 +1029,7 @@ fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
 }
 
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
+pub(crate) fn plane_group_pipeline_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -555,7 +1041,7 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
             .iter()
             .copied(),
     );
-    warpgroup_pipeline::WarpgroupPipeline::new(
+    plane_group_pipeline::PlaneGroupPipeline::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -568,7 +1054,7 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
 /// A `64 x 16` MMA whose `B` tile holds only 8 rows.
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
-fn warpgroup_short_tile(out: &mut [f32]) {
+fn plane_group_short_tile(out: &mut [f32]) {
     let a_layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
         swizzle: wgmma::Swizzle::None,
@@ -589,7 +1075,7 @@ fn warpgroup_short_tile(out: &mut [f32]) {
 }
 
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
+pub(crate) fn plane_group_short_tile_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -601,7 +1087,7 @@ pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
             .iter()
             .copied(),
     );
-    warpgroup_short_tile::WarpgroupShortTile::new(
+    plane_group_short_tile::PlaneGroupShortTile::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -609,7 +1095,7 @@ pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
     )
 }
 
-/// Where [`warpgroup_product`] reads `A` from.
+/// Where [`plane_group_product`] reads `A` from.
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ProductA {
@@ -617,9 +1103,9 @@ pub(crate) enum ProductA {
     Registers,
 }
 
-/// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
+/// One plane group MMA of `I` operands accumulating in `A`, `64 x n x k`.
 #[cfg(feature = "nvptx")]
-pub(crate) fn warpgroup_product_kernel<
+pub(crate) fn plane_group_product_kernel<
     I: Numeric + cubecl_core::CubeElement,
     A: Numeric + cubecl_core::CubeElement,
 >(
@@ -648,7 +1134,7 @@ pub(crate) fn warpgroup_product_kernel<
             n_max: n as u32,
             k: k as u32,
         });
-    warpgroup_product::WarpgroupProduct::<I, A>::new(
+    plane_group_product::PlaneGroupProduct::<I, A>::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
@@ -703,6 +1189,41 @@ fn tma_tile_load(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
 #[cfg(feature = "nvptx")]
 pub(crate) fn tma_tile_load_kernel() -> impl CubeKernel {
     tma_tile_load::TmaTileLoad::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// Tiles loaded by TMA lap after lap, a constant number of laps, one a lap into one stage, each
+/// summed into the output: the walk of a pipeline's filling plane.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_laps(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let mut sum = 0.0f32;
+
+    for lap in 0..8u32 {
+        let expected = select(UNIT_POS == 0, 32u32 * 16 * 4, 0);
+        if UNIT_POS == 0 {
+            barrier.tma_load_2d(input, stage.as_mut_slice(), 0, (lap * 16) as i32);
+        }
+        let token = barrier.arrive_and_expect_tx(1, expected);
+        barrier.wait(token);
+        sum += stage[UNIT_POS as usize];
+        sync_cube();
+    }
+
+    output[UNIT_POS as usize] = sum;
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_laps_kernel() -> impl CubeKernel {
+    tma_tile_laps::TmaTileLaps::new(
         tma_settings(),
         tma_properties(),
         Arc::new(TargetProperties::default()),
@@ -817,6 +1338,35 @@ fn unit_async_copy(input: &[Vector<f32, Const<4>>], output: &mut [Vector<f32, Co
     output[unit] = stage[31 - unit];
 }
 
+/// A cube barrier ended and another initialized in its place, as a ring built in a loop does.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn barrier_ended_then_reused(output: &mut [u32]) {
+    let first = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    first.arrive_and_wait();
+    sync_cube();
+    if UNIT_POS == 0 {
+        first.invalidate();
+    }
+    let second = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    second.arrive_and_wait();
+    output[UNIT_POS as usize] = UNIT_POS;
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn barrier_ended_then_reused_kernel() -> impl CubeKernel {
+    barrier_ended_then_reused::BarrierEndedThenReused::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 #[cfg(feature = "nvptx")]
 pub(crate) fn unit_async_copy_kernel() -> impl CubeKernel {
     unit_async_copy::UnitAsyncCopy::new(
@@ -867,6 +1417,88 @@ pub(crate) fn mismatched_mma_kernel() -> impl CubeKernel {
     )
 }
 
+/// A manual FP8 `mma` of `m16n8k32`: an `e4m3` A by an `e4m3` B into `f32`, four codes to each
+/// of A's four registers and B's two, read from `a` and `b`.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn fp8_mma(
+    a: &[Vector<cubecl_core::e4m3, Const<4>>],
+    b: &[Vector<cubecl_core::e4m3, Const<4>>],
+    output: &mut [f32],
+) {
+    let def = cmma::MmaDefinition::<cubecl_core::e4m3, cubecl_core::e4m3, f32>::new(
+        16usize, 8usize, 32usize,
+    );
+    let mut registers_a = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(4usize);
+    let mut registers_b = Array::<Vector<cubecl_core::e4m3, Const<4>>>::new(2usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = a[i];
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = b[i];
+        registers_c[i] = Vector::new(0.0);
+    }
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    output[UNIT_POS as usize] = registers_d[0].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn fp8_mma_kernel() -> impl CubeKernel {
+    fp8_mma::Fp8Mma::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A manual `f16` `mma` repeated by a loop of 256 turns, whose registers sit in local arrays
+/// at constant indices.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn mma_rounds(output: &mut [f32]) {
+    let def = cmma::MmaDefinition::<f16, f16, f32>::new(16usize, 8usize, 16usize);
+    let mut registers_a = Array::<Vector<f16, Const<2>>>::new(4usize);
+    let mut registers_b = Array::<Vector<f16, Const<2>>>::new(2usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = Vector::new(f16::from_int(1));
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = Vector::new(f16::from_int(1));
+        registers_c[i] = Vector::new(0.0);
+    }
+    for _ in 0..256u32 {
+        let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+        #[unroll]
+        for i in 0..2usize {
+            registers_c[i] = registers_d[i];
+        }
+    }
+    output[UNIT_POS as usize] = registers_c[0usize].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn mma_rounds_kernel() -> impl CubeKernel {
+    mma_rounds::MmaRounds::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// How a kernel of [`group_waits`] commits and waits.
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -879,7 +1511,7 @@ pub(crate) enum WaitCase {
     TwoStoresPerIteration,
     /// The stores between a wait and the token it waits on are in a loop that may not run.
     MaybeEmptyInnerLoop,
-    /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
+    /// A plane group MMA group committed after the store, which the store's wait doesn't count.
     OtherKind,
     /// A store whose completion nothing waits on.
     Dropped,
@@ -895,7 +1527,7 @@ pub(crate) enum WaitCase {
 fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case: WaitCase) {
     let stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
     let tile = stage.as_slice();
-    match comptime![case] {
+    match case {
         WaitCase::OneBranchStores => {
             let first = tma_store_2d(tile, output, 0, 0);
             if count > 1 {

@@ -1,4 +1,4 @@
-use cubecl::{Device, comptime, prelude::*};
+use cubecl::{Device, prelude::*};
 
 #[derive(CubeType, Clone, Debug, Hash, PartialEq, Eq)]
 enum OperationKind {
@@ -21,7 +21,7 @@ fn fusing<F: Float, N: Size>(
 ) {
     #[unroll]
     for index in 0..ops.len() {
-        let op = comptime! { ops.index(index) };
+        let op = ops.index(index);
         let input = inputs.index(op.input_index);
         let output = outputs.index_mut(op.output_index);
 

@@ -3,9 +3,11 @@
 //! read in 16-byte rows rather than a cell at a time.
 
 use cubecl::{
-    cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
+    cmma::{LdMatrixForm, MatrixIdent, MatrixLayout, MmaDefinition},
     prelude::*,
 };
+
+use super::mma::key_row;
 
 use crate::*;
 
@@ -48,7 +50,7 @@ pub(super) fn load_ldmatrix<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric
             panic!("MmaData::load: an ldmatrix load reads a row- or col-major window")
         }
     });
-    let view = if comptime!(col_major_window) {
+    let view = if col_major_window {
         src.fragment_matrix_packed::<T, W>(cols, rows)
     } else {
         src.fragment_matrix_packed::<T, W>(rows, cols)
@@ -67,7 +69,7 @@ pub(super) fn load_ldmatrix<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric
     // The step this fragment loads, where the window is several instructions deep.
     let (row, col) = along_k(row, col, ident, k_offset);
     // The unit's row runs along the window's lines, and the next unit's starts a line-row on.
-    let (line_row, cell) = if comptime!(col_major_window) {
+    let (line_row, cell) = if col_major_window {
         (col + row_in_matrix, row)
     } else {
         (row + row_in_matrix, col)
@@ -87,6 +89,153 @@ pub(super) fn load_ldmatrix<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric
     }
 }
 
+/// The edge of a window two fragments loaded together lie side by side along, in the window's own
+/// order: its rows, or its columns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum PairAxis {
+    Rows,
+    Cols,
+}
+
+/// [`load_ldmatrix`] of two fragments of one instruction depth that lie side by side along `along`
+/// in `src`, a window over both: one `ldmatrix` reads the matrices of both, where each alone
+/// would take one of half as many. Unit `l` addresses row `l % 8` of matrix `l / 8`, the first
+/// fragment's matrices first, so the instruction hands `first` its registers and then `second`
+/// its own. Only fragments of at most two matrices pair, as a `B` of one depth is: four is the
+/// most one `ldmatrix` reads. Units past the pair's matrices wrap onto them, as in
+/// [`load_ldmatrix`], since every unit hands the instruction an address it may read.
+#[cube]
+pub(super) fn load_ldmatrix_pair<
+    T: Numeric,
+    W: Size,
+    N: Size,
+    A: Numeric,
+    B: Numeric,
+    CD: Numeric,
+>(
+    src: &Tile,
+    first: &mut Array<Vector<T, N>>,
+    second: &mut Array<Vector<T, N>>,
+    def: &MmaDefinition<A, B, CD>,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] edges: (usize, usize),
+    #[comptime] along: PairAxis,
+) {
+    let width = src.vector_size();
+    let elem_size = T::size().comptime();
+    let row_cells = comptime!(LDMATRIX_ROW_BYTES / elem_size);
+    let (rows, cols) = comptime!(edges);
+    let col_major_window = comptime!(match layout {
+        MatrixLayout::RowMajor => false,
+        MatrixLayout::ColMajor => true,
+        MatrixLayout::Undefined => {
+            panic!("MmaData::load: an ldmatrix load reads a row- or col-major window")
+        }
+    });
+    // One fragment's extent in the window's own order, then the pair's.
+    let (frag_rows, frag_cols) = comptime!(match col_major_window {
+        true => (cols, rows),
+        false => (rows, cols),
+    });
+    let (pair_rows, pair_cols) = comptime!(match along {
+        PairAxis::Rows => (2 * frag_rows, frag_cols),
+        PairAxis::Cols => (frag_rows, 2 * frag_cols),
+    });
+    let view = src.fragment_matrix_packed::<T, W>(pair_rows, pair_cols);
+
+    let num_regs = def.vectors_per_lane(ident);
+    comptime!(assert!(
+        2 * num_regs <= 4,
+        "MmaData::load: two fragments of {num_regs} matrices each are more than one ldmatrix reads"
+    ));
+    let vector_size = def.vector_size(ident);
+    let vector_layout = def.vector_layout(ident);
+    let instruction_transposes = comptime!(vector_layout != layout);
+    let unit = UNIT_POS_PLANE;
+    let row_in_matrix = unit % 8;
+    let matrix = unit / 8 % comptime!(2 * num_regs as u32);
+    // The fragment the unit's matrix is of, and which of that fragment's matrices it is.
+    let fragment = matrix / comptime!(num_regs as u32);
+    let nth_matrix = matrix % comptime!(num_regs as u32);
+    let (row, col) = def.position_of_nth(0, nth_matrix * comptime!(vector_size as u32), ident);
+    let (line_row, cell) = if col_major_window {
+        (col + row_in_matrix, row)
+    } else {
+        (row + row_in_matrix, col)
+    };
+    // The second fragment lies one fragment on along the pair's edge.
+    let (line_row, cell) = match along {
+        PairAxis::Rows => (line_row + fragment * comptime!(frag_rows as u32), cell),
+        PairAxis::Cols => (line_row, cell + fragment * comptime!(frag_cols as u32)),
+    };
+    let row_slice = view.line_slice(
+        (line_row, cell / comptime!(width as u32)),
+        (
+            1u32.runtime(),
+            comptime!((row_cells / width) as u32).runtime(),
+        ),
+    );
+    let regs = def.load_matrix::<Vector<T, W>, N>(
+        row_slice,
+        ident,
+        comptime!(2 * num_regs),
+        instruction_transposes,
+    );
+    #[unroll]
+    for i in 0..num_regs {
+        first[i] = regs[i];
+        second[i] = regs[comptime!(num_regs + i)];
+    }
+}
+
+/// Two 8-bit `B` fragments of 32 by 8 one instruction deep, side by side along their columns in
+/// `src`, a window over both whose rows are the fragments' `k`: one transposing `ldmatrix`
+/// (`m16n16.trans.b8`, two matrices), each matrix 16 rows of `k` by the pair's 16 columns. Unit
+/// `u` addresses the `u`th row, which lands as the `k` its four cells a register sit at; it
+/// addresses the row `keys` reads there ([`key_row`]), so a `B` contracted with a run of 8-bit
+/// accumulators reads its rows in the run's order at no cost. Of each matrix, the first
+/// register holds the first fragment's columns and the second the second's, and the matrices are
+/// the fragments' two halves of `k`.
+#[cube]
+pub(super) fn load_ldmatrix_b8_pair<
+    T: Numeric,
+    W: Size,
+    N: Size,
+    A: Numeric,
+    B: Numeric,
+    CD: Numeric,
+>(
+    src: &Tile,
+    first: &mut Array<Vector<T, N>>,
+    second: &mut Array<Vector<T, N>>,
+    def: &MmaDefinition<A, B, CD>,
+    #[comptime] edges: (usize, usize),
+    #[comptime] keys: KeyOrder,
+) {
+    let width = src.vector_size();
+    let (k, n) = comptime!(edges);
+    let view = src.fragment_matrix_packed::<T, W>(k, 2 * n);
+    let row = key_row(UNIT_POS_PLANE, keys);
+    let row_slice = view.line_slice(
+        (row, 0u32),
+        (
+            1u32.runtime(),
+            comptime!((LDMATRIX_ROW_BYTES / width) as u32).runtime(),
+        ),
+    );
+    let regs = def.load_matrix_with_form::<Vector<T, W>, N>(
+        row_slice,
+        LdMatrixForm::M16N16B8,
+        2usize,
+        true,
+    );
+    first[0] = regs[0];
+    first[1] = regs[2];
+    second[0] = regs[1];
+    second[1] = regs[3];
+}
+
 /// `(row, col)`, a cell of an `ident` operand one instruction deep, moved `k_offset` along `k`:
 /// where it lies in a window several instructions deep, at the step `k_offset` starts.
 #[cube]
@@ -96,7 +245,7 @@ pub(crate) fn along_k(
     #[comptime] ident: MatrixIdent,
     #[comptime] k_offset: usize,
 ) -> (u32, u32) {
-    match comptime!(ident) {
+    match ident {
         MatrixIdent::A => (row, col + comptime!(k_offset as u32)),
         MatrixIdent::B => (row + comptime!(k_offset as u32), col),
         MatrixIdent::Accumulator => (row, col),

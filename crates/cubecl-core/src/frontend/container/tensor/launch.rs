@@ -1,4 +1,5 @@
 use cubecl_ir::AddressType;
+use cubecl_ir::interfaces::TypedExt;
 use cubecl_runtime::server::CopyDescriptor;
 use cubecl_zspace::{MetadataError, Shape, Strides, Tiling};
 
@@ -114,6 +115,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
         let vector_size = launcher.with_scope(|scope| C::__expand_vector_size(scope));
+        let atomic = launcher.with_scope(|scope| C::__expand_as_type(scope).is_atomic(scope.ctx()));
         let len = arg.size() / vector_size;
         let meta_arg = TensorMetaLaunch::new(len, arg.shape().len());
         let buffer = match &arg {
@@ -122,7 +124,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
                 inplace: Some(*input_pos),
             },
         };
-        launcher.register_tensor(arg, elem_size);
+        launcher.registering_elem(atomic, |launcher| launcher.register_tensor(arg, elem_size));
         let meta = TensorMeta::register(meta_arg, launcher);
         TensorCompilationArg { meta, buffer }
     }
@@ -216,15 +218,15 @@ impl TensorArg {
 }
 
 impl TensorArg {
+    /// Convert the argument into a [buffer argument](BufferArg).
+    ///
+    /// The kernel sees the whole handle, as for [`TensorBinding::into_buffer_arg`]. An alias
+    /// sees the buffer it aliases.
     pub fn into_buffer_arg(self) -> BufferArg {
         match self {
-            TensorArg::Handle { handle } => {
-                let handle = unsafe {
-                    let size = handle.size();
-                    BufferBinding::from_raw_parts_binding(handle.handle, size)
-                };
-                BufferArg::Handle { handle }
-            }
+            TensorArg::Handle { handle } => BufferArg::Handle {
+                handle: handle.into(),
+            },
             TensorArg::Alias {
                 input_pos, shape, ..
             } => BufferArg::Alias {
@@ -259,8 +261,13 @@ impl TensorBinding {
         }
     }
     /// Convert the handle into a [buffer argument](BufferArg).
+    ///
+    /// The kernel sees the whole handle, since a strided tensor reaches its memory through its
+    /// strides and not its shape.
     pub fn into_buffer_arg(self) -> BufferArg {
-        unsafe { BufferArg::from_raw_parts_binding(self.handle, self.shape.iter().product()) }
+        BufferArg::Handle {
+            handle: self.into(),
+        }
     }
 
     /// Create a handle from raw parts.

@@ -59,18 +59,14 @@ impl StageOwner {
     /// The units that fill one copy of the stage, where the cube holds `cube_units` (`0` when
     /// unknown): all of them, the filling planes', or one plane's share. A share that is not a
     /// whole count is unknown, which a fill walks rolled.
-    pub(crate) fn fill(self, cube_units: usize) -> FillUnits {
+    pub(crate) fn fill(self, cube_units: usize) -> Level {
         match self {
-            StageOwner::Cube { fillers: 0 } => FillUnits::cube(cube_units),
-            StageOwner::Cube { fillers } => FillUnits::filling_planes(fillers),
-            StageOwner::Plane { planes } => FillUnits {
-                scope: ComputeScope::Plane,
-                count: match cube_units.is_multiple_of(planes) {
-                    true => cube_units / planes,
-                    false => 0,
-                },
-                fillers: 0,
-            },
+            StageOwner::Cube { fillers: 0 } => Level::copied_by_cube(cube_units),
+            StageOwner::Cube { fillers: planes } => Level::copied_by_fillers(planes),
+            StageOwner::Plane { planes } => Level::copied_by(
+                ComputeScope::Plane,
+                (cube_units > 0 && cube_units.is_multiple_of(planes)).then(|| cube_units / planes),
+            ),
         }
     }
 }
@@ -80,7 +76,7 @@ impl Memory {
     /// Allocate a shared-memory tile over `space` at physical `vector_size`.
     /// `units` is the launch's cube size, `0` when unknown.
     pub(crate) fn smem<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -100,7 +96,7 @@ impl Memory {
     /// [`RowChunks::STAGE_ALIGNMENT_BYTES`]: an `ldmatrix` row address needs a chunk, and the copy
     /// engine a whole sector. `units` is the launch's cube size, `0` when unknown.
     pub(crate) fn smem_owned<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -110,12 +106,12 @@ impl Memory {
         let alignment = comptime!(alignment.max(RowChunks::STAGE_ALIGNMENT_BYTES));
         let elem_bytes = T::size().comptime();
         let form = comptime!(StageForm::dense(
-            &space,
+            space,
             vector_size,
             storage,
             LineBytes(vector_size * elem_bytes)
         ));
-        let map = RuntimeMap::integral(comptime!(form.projection.physical_rank()));
+        let map = RuntimeMap::integral(form.projection.physical_rank());
         Memory::smem_with_form::<T>(
             space,
             vector_size,
@@ -130,10 +126,11 @@ impl Memory {
 
     /// [`smem`](Memory::smem) for a gathered operand: the compacted physical window its sub-tile
     /// reads ([`Compaction`]), still addressed by the operand's own [`Projection`], filled by the
-    /// units of the cube `owner` names.
+    /// units of the cube `owner` names or landed whole by the TMA engine, aligned to `alignment`
+    /// bytes (`0` the element's own).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn smem_gathered<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -141,10 +138,11 @@ impl Memory {
         map: &RuntimeMap,
         #[comptime] signed: bool,
         #[comptime] boundaries: SmallVec<[Option<Boundary>; Space::MAX_RANK]>,
+        #[comptime] alignment: usize,
         #[comptime] owner: StageOwner,
     ) -> Tile {
         let form = comptime!(StageForm::gathered(
-            &space,
+            space,
             vector_size,
             storage,
             &projection
@@ -153,14 +151,13 @@ impl Memory {
             coefficients: map.coefficients.clone(),
             residues: Coords::constant(comptime!(vec![0; form.projection.physical_rank()])),
         };
-        let stage_map =
-            if comptime!(form.projection.is_rational() || form.projection.has_dynamic_scales()) {
-                stage_map.stored()
-            } else {
-                stage_map
-            };
+        let stage_map = if form.projection.is_rational() || form.projection.has_dynamic_scales() {
+            stage_map.stored()
+        } else {
+            stage_map
+        };
         let source = Memory::pending_source_window(
-            comptime!(form.steps.clone()),
+            form.steps.clone(),
             comptime!(signed),
             comptime!(boundaries),
         );
@@ -171,7 +168,7 @@ impl Memory {
             form,
             stage_map,
             ComptimeOption::new_Some(source),
-            comptime!(0usize),
+            alignment,
             comptime!(owner),
         )
     }
@@ -183,7 +180,7 @@ impl Memory {
     /// starting on the whole buffer's alignment.
     #[allow(clippy::too_many_arguments)]
     fn smem_with_form<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] units: usize,
         #[comptime] form: StageForm,
@@ -193,10 +190,10 @@ impl Memory {
         #[comptime] owner: StageOwner,
     ) -> Tile {
         let size!(W) = vector_size;
-        let cells = comptime!(form.cells());
-        let smem = match comptime!(owner) {
+        let cells = form.cells();
+        let smem = match owner {
             StageOwner::Cube { .. } => {
-                if comptime!(alignment > 0) {
+                if alignment > 0 {
                     Shared::<[Vector<T, W>]>::new_aligned_slice(cells, alignment)
                 } else {
                     Shared::<[Vector<T, W>]>::new_slice(cells)
@@ -207,7 +204,7 @@ impl Memory {
                 let copy = comptime!(aligned_cells(cells, line_bytes, alignment));
                 let start = UNIT_POS_Y as usize * copy;
                 let end = start + cells;
-                if comptime!(alignment > 0) {
+                if alignment > 0 {
                     Shared::<[Vector<T, W>]>::new_aligned_slice(comptime!(copy * planes), alignment)
                         .map(|all| &all[start..end])
                 } else {
@@ -219,7 +216,7 @@ impl Memory {
         Memory::smem_over::<T, _, _>(
             space,
             vector_size,
-            comptime!(owner.fill(units)),
+            owner.fill(units),
             &smem,
             comptime!(Packing::Plain),
             form,
@@ -234,7 +231,7 @@ impl Memory {
     /// `ldmatrix` row address needs a chunk, the copy engine a whole sector, and a TMA box the
     /// descriptor's swizzle span.
     pub(crate) fn smem_packed<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
         #[comptime] storage: StageStorage,
         #[comptime] units: usize,
@@ -245,19 +242,18 @@ impl Memory {
         let alignment = comptime!(alignment.max(RowChunks::STAGE_ALIGNMENT_BYTES));
         let word_bytes = u32::size().comptime();
         let form = comptime!(StageForm::dense(
-            &space,
+            space,
             vector_size,
             storage,
             LineBytes(packing.physical(vector_size) * word_bytes)
         ));
-        let size!(WP) = comptime!(packing.physical(vector_size));
-        let smem =
-            Shared::<[Vector<u32, WP>]>::new_aligned_slice(comptime!(form.cells()), alignment);
-        let map = RuntimeMap::integral(comptime!(form.projection.physical_rank()));
+        let size!(WP) = packing.physical(vector_size);
+        let smem = Shared::<[Vector<u32, WP>]>::new_aligned_slice(form.cells(), alignment);
+        let map = RuntimeMap::integral(form.projection.physical_rank());
         Memory::smem_over::<T, _, _>(
             space,
             vector_size,
-            comptime!(owner.fill(units)),
+            owner.fill(units),
             &smem,
             comptime!(packing),
             form,
@@ -270,9 +266,9 @@ impl Memory {
     /// filled by the units `fill` names.
     #[allow(clippy::too_many_arguments)]
     fn smem_over<T: Numeric, H: Numeric, S: CubePrimitive<Scalar = H>>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
         smem: &Shared<[S]>,
         #[comptime] packing: Packing,
         #[comptime] form: StageForm,
@@ -303,9 +299,9 @@ impl Memory {
     /// its extent masked where `overhang` says a region larger than the buffer writes into it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn smem_backed<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] vector_size: usize,
-        #[comptime] fill: FillUnits,
+        #[comptime] fill: Level,
         backing: Backing,
         #[comptime] packing: Packing,
         #[comptime] form: StageForm,
@@ -314,11 +310,11 @@ impl Memory {
         #[comptime] write: Write,
         #[comptime] overhang: Overhang,
     ) -> Tile {
-        let (physical_shape, physical_strides) = storage_layout(comptime!(form.clone()));
-        let (origin, extent) = full_window(comptime!(form.clone()));
+        let (physical_shape, physical_strides) = storage_layout(form.clone());
+        let (origin, extent) = full_window(form.clone());
         // The bound is the buffer's extent: a region past it is one a masked write skips.
         let bound = extent.clone();
-        let gmem_projection = comptime!(form.positional.clone());
+        let gmem_projection = form.positional.clone();
         Tile {
             kind: TileKind::new_Memory(Memory {
                 address: comptime!(AddressSpace::Shared),
@@ -327,12 +323,12 @@ impl Memory {
                     physical_shape,
                     physical_strides,
                     projection: gmem_projection,
-                    rows: comptime!(form.rows),
+                    rows: form.rows,
                     paging: ComptimeOption::new_None(),
                 },
-                // Empty: a list over the buffer's own dims would misalign one level down.
+                // Empty: a list over the buffer's own axes would misalign one level down.
                 window: Window::new(origin, extent, bound, false, comptime!(SmallVec::new())),
-                projection: comptime!(form.projection),
+                projection: form.projection,
                 map,
                 offsets: Coords::<i32>::new(),
                 window_start: 0u32,
@@ -340,7 +336,7 @@ impl Memory {
                     whole: true,
                     overhang,
                     write,
-                    fill,
+                    copy: fill,
                     storage: WindowStorage::Stored(Storage::Strided),
                     // Read as a source, a stage is copied out by the units that read it.
                     delivery: Delivery::SyncPerUnit,
@@ -354,7 +350,7 @@ impl Memory {
                 source_window: source,
             }),
             factor: Factor::none(),
-            place: comptime!(Placement::new(space, 0usize, Vec::new())),
+            place: comptime!(Placement::new(space.clone(), 0usize, Vec::new())),
             element: elem_type_of::<T>(),
         }
     }
@@ -362,7 +358,7 @@ impl Memory {
     /// One plane's landing: a dense scalar stage over `space`, one window per plane in one buffer.
     /// The buffer is returned beside the tile.
     pub(crate) fn landing<T: Numeric>(
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] units: usize,
         #[comptime] planes: usize,
     ) -> (Tile, Shared<[T]>) {
@@ -373,20 +369,19 @@ impl Memory {
         );
         let start = PLANE_POS.cast::<usize>() * cells;
         let end = start + cells;
-        let window =
-            Shared::<[T]>::new_slice(comptime!(cells * planes)).map(|all| &all[start..end]);
+        let window = Shared::<[T]>::new_slice(cells * planes).map(|all| &all[start..end]);
         let elem_bytes = T::size().comptime();
         let form = comptime!(StageForm::dense(
-            &space,
+            space,
             1,
             StageStorage::Strided,
             LineBytes(elem_bytes)
         ));
-        let map = RuntimeMap::integral(comptime!(form.projection.physical_rank()));
+        let map = RuntimeMap::integral(form.projection.physical_rank());
         let tile = Memory::smem_over::<T, _, _>(
             space,
             1usize,
-            comptime!(FillUnits::cube(units)),
+            comptime!(Level::copied_by_cube(units)),
             &window,
             comptime!(Packing::Plain),
             form,
@@ -403,7 +398,7 @@ impl Memory {
         #[comptime] signed: bool,
         #[comptime] boundaries: SmallVec<[Option<Boundary>; Space::MAX_RANK]>,
     ) -> SourceWindow {
-        let rank = comptime!(steps.len());
+        let rank = steps.len();
         let mut origin = Coords::<i32>::new();
         let mut bound = Coords::<u32>::new();
         #[unroll]
@@ -421,17 +416,17 @@ impl Memory {
     }
 }
 
-/// The whole-buffer window of a stage: zero origin, its extents along the axes its buffer is
+/// The whole-buffer window of a stage: zero origin, its extents along the dimensions its buffer is
 /// addressed by ([`window_extents`](StageForm::window_extents)).
 #[cube]
 #[allow(clippy::needless_range_loop)] // `#[unroll]` requires a range loop.
 fn full_window(#[comptime] form: StageForm) -> (Coords<i32>, Coords<u32>) {
     let mut origin = Coords::<i32>::new();
     let mut extent = Coords::<u32>::new();
-    let extents = comptime!(form.window_extents());
+    let extents = form.window_extents();
 
     #[unroll]
-    for p in 0..comptime!(extents.len()) {
+    for p in 0..extents.len() {
         origin.push(0);
         extent.push(comptime!(extents[p] as u32).runtime());
     }
@@ -455,7 +450,7 @@ pub(crate) fn stage_compaction(
     if src.composition() == Composition::Disjoint && dst.is_direct() {
         return None;
     }
-    let compaction = Compaction::new(src, vector_size, |axis| space.extent(axis));
+    let compaction = Compaction::new(src, vector_size, |dimension| space.extent(dimension));
     assert!(
         compaction.projection() == dst,
         "stage_compaction: a gathered source fills the compacted stage of its own \
@@ -472,7 +467,7 @@ pub(crate) struct StageForm {
     extents: Vec<usize>,
     /// The buffer's own per-position map.
     positional: Projection,
-    /// How the staged tile's logical axes address those extents.
+    /// How the staged tile's dimensions address those extents.
     projection: Projection,
     /// Per physical axis, what a stage coordinate is multiplied by to land on the source.
     steps: SmallVec<[usize; Space::MAX_RANK]>,
@@ -514,7 +509,8 @@ impl StageForm {
             "StageForm: a gathered operand stages into a plain row-major window, but {stage:?} \
              storage was asked for"
         );
-        let compaction = Compaction::new(projection, vector_size, |axis| space.extent(axis));
+        let compaction =
+            Compaction::new(projection, vector_size, |dimension| space.extent(dimension));
         let extents = compaction.line_extents(vector_size);
         StageForm {
             rows: RowArrangement::InOrder,
@@ -525,14 +521,14 @@ impl StageForm {
         }
     }
 
-    /// The extent in lines along each axis the buffer is addressed by, a window's axes: what the
-    /// physical extents carrying that axis hold between them, so a buffer tiled into
-    /// `[grid…, block…]` is still windowed one coordinate an axis.
+    /// The extent in lines along each dimension the buffer is addressed by, a window's dimensions:
+    /// what the physical extents carrying that dimension hold between them, so a buffer tiled into
+    /// `[grid…, block…]` is still windowed one coordinate a dimension.
     fn window_extents(&self) -> Vec<usize> {
         (0..self.positional.coordinate_rank())
             .map(|c| {
                 self.positional
-                    .carriers(Axis(c as u8))
+                    .carriers(Dimension(c as u8))
                     .iter()
                     .map(|&p| self.extents[p])
                     .product()
@@ -601,11 +597,12 @@ impl StageForm {
         pitched
     }
 
-    /// A stage's buffer addressed by position: `rank` synthetic axes, each split into `pieces` dims.
+    /// A stage's buffer addressed by position: `rank` synthetic dimensions, each split into
+    /// `pieces` axes.
     fn positional(rank: usize, pieces: usize) -> Projection {
-        let axes: Vec<Axis> = (0..rank).map(|p| Axis(p as u8)).collect();
-        let labels = StoragePartitioning::level_major(&axes, &vec![pieces; rank]);
-        Projection::tiled(&axes, &labels)
+        let dimensions: Vec<Dimension> = (0..rank).map(|p| Dimension(p as u8)).collect();
+        let labels = StoragePartitioning::level_major(&dimensions, &vec![pieces; rank]);
+        Projection::tiled(&dimensions, &labels)
     }
 
     /// A dense stage's physical line extents: `[extents…]` or `[grid…, …, block…]`.
@@ -619,7 +616,7 @@ impl StageForm {
                 assert!(
                     e.is_multiple_of(b),
                     "Memory::smem: a {b}-element storage block must divide the {e}-element block \
-                     enclosing it on axis {p}"
+                     enclosing it on dimension {p}"
                 );
                 extents.push(e / b);
             }
@@ -638,13 +635,13 @@ impl StageForm {
 /// A stage's physical shape and strides, in lines.
 #[cube]
 fn storage_layout(#[comptime] form: StageForm) -> (Coords<u32>, Coords<u32>) {
-    let strides_c = comptime!(form.strides());
+    let strides_c = form.strides();
 
     let mut shape = Coords::<u32>::new();
     let mut strides = Coords::<u32>::new();
     #[allow(clippy::needless_range_loop)]
     #[unroll]
-    for p in 0..comptime!(form.extents.len()) {
+    for p in 0..form.extents.len() {
         shape.push(comptime!(form.extents[p] as u32));
         strides.push(comptime!(strides_c[p] as u32));
     }
@@ -666,11 +663,11 @@ fn aligned_cells(cells: usize, line_bytes: usize, alignment: usize) -> usize {
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
 
-    /// `16 -> 8 -> 4` on both axes: three distinct block shapes.
+    /// `16 -> 8 -> 4` on both dimensions: three distinct block shapes.
     fn space() -> (Space, Vec<Level>) {
         (
             Space::new(&[(M, 16), (N, 16)]),
@@ -681,7 +678,7 @@ mod tests {
         )
     }
 
-    /// [`space`] plus an ungathered innermost axis, cut to `8 x 8 x 4`.
+    /// [`space`] plus an ungathered innermost dimension, cut to `8 x 8 x 4`.
     fn gathered_space() -> Space {
         Space::new(&[(M, 8), (N, 8), (K, 4)])
     }
@@ -840,15 +837,15 @@ mod tests {
         );
         assert!(matches!(
             tiled(16, RowChunks::Swizzled).tma_swizzle(&stage(32), 1, f16_bits),
-            Err(Refusal::BoxSplitsStageBlocks { axis: K, .. })
+            Err(Decline::BoxSplitsStageBlocks { dimension: K, .. })
         ));
         assert!(matches!(
             tiled(32, RowChunks::Padded).tma_swizzle(&stage(32), 1, f16_bits),
-            Err(Refusal::RowsNoDescriptorLands { .. })
+            Err(Decline::RowsNoDescriptorLands { .. })
         ));
         assert!(matches!(
             tiled(128, RowChunks::Swizzled).tma_swizzle(&stage(128), 1, f16_bits),
-            Err(Refusal::RowsNoDescriptorLands { .. })
+            Err(Decline::RowsNoDescriptorLands { .. })
         ));
     }
 
@@ -862,8 +859,8 @@ mod tests {
         };
         assert_eq!(
             storage.tma_swizzle(&Space::new(&[(M, 64), (K, 32)]), 1, 16),
-            Err(Refusal::BoxSplitsStageBlocks {
-                axis: K,
+            Err(Decline::BoxSplitsStageBlocks {
+                dimension: K,
                 rows: 4,
                 period: 8
             })
@@ -958,11 +955,16 @@ mod tests {
     #[test]
     fn a_plane_fills_with_its_share_of_the_units() {
         let plane = StageOwner::Plane { planes: 4 };
-        assert_eq!(plane.fill(128).count, 32);
-        assert_eq!(plane.fill(0).count, 0);
-        assert_eq!(plane.fill(130).count, 0);
-        assert_eq!(plane.fill(128).scope, ComputeScope::Plane);
-        assert_eq!(StageOwner::CUBE.fill(128), FillUnits::cube(128));
+        assert_eq!(
+            plane.fill(128),
+            Level::copied_by(ComputeScope::Plane, Some(32))
+        );
+        assert_eq!(plane.fill(0), Level::copied_by(ComputeScope::Plane, None));
+        assert_eq!(plane.fill(130), Level::copied_by(ComputeScope::Plane, None));
+        assert_eq!(
+            StageOwner::CUBE.fill(128),
+            Level::copied_by(ComputeScope::Cube, Some(128))
+        );
     }
 
     /// A cube's stage under planes set aside is filled by their units alone, the planes at the
@@ -970,9 +972,8 @@ mod tests {
     #[test]
     fn a_cube_setting_planes_aside_fills_with_their_units() {
         let fill = StageOwner::Cube { fillers: 1 }.fill(160);
-        assert_eq!(fill, FillUnits::filling_planes(1));
-        assert_eq!(fill.scope, ComputeScope::Cube);
-        assert_eq!(fill.count, 0);
+        assert_eq!(fill, Level::copied_by_fillers(1));
+        assert_eq!(fill.copied_units().1, None);
     }
 
     /// Every plane's copy starts on the buffer's alignment: a copy of lines shorter than it is

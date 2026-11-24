@@ -2,8 +2,22 @@
 
 use crate::prelude::*;
 use cubecl_core::ir::dialect::synchronization::{
-    SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+    FenceOp, MemoryOrder, ScheduleBarrierOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp,
+    SyncScope,
 };
+
+/// Only AMDGPU's scheduler takes a fence in the IR; elsewhere the barrier is nothing.
+#[op_interface_impl]
+impl LowerOp for ScheduleBarrierOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        match scope.ctx().target() {
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_schedule_barrier(scope),
+            _ => {}
+        }
+        vec![]
+    }
+}
 
 #[op_interface_impl]
 impl LowerOp for SyncOp {
@@ -32,13 +46,19 @@ impl LowerOp for SyncOp {
             // The units of the cube meet, as at a cube barrier, and what each wrote to storage is
             // visible to every cube of the device, as what other cubes published is visible to it.
             SyncScope::Device => match target {
-                LlvmTarget::Cpu => {
-                    panic!("Device wide synchronization is not supported by the CPU runtime")
-                }
+                LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
                 #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_storage(scope),
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_storage(scope),
+            },
+            // The same, with the release and acquire reaching the host and peer devices.
+            SyncScope::System => match target {
+                LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
+                #[cfg(feature = "amdgpu")]
+                LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_system(scope),
+                #[cfg(feature = "nvptx")]
+                LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_system(scope),
             },
         }
         vec![]
@@ -71,6 +91,23 @@ impl LowerOp for SyncAsyncProxyOp {
             LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_async_proxy(scope),
             _ => {}
         }
+        vec![]
+    }
+}
+
+/// LLVM's `fence` at the target's syncscope for the scope.
+#[op_interface_impl]
+impl LowerOp for FenceOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        let ordering = match self.order(ctx).0 {
+            MemoryOrder::Acquire => AtomicOrderingAttr::Acquire,
+            MemoryOrder::Release => AtomicOrderingAttr::Release,
+            MemoryOrder::AcqRel => AtomicOrderingAttr::AcqRel,
+        };
+        let sync_scope = ctx.target().sync_scope(self.scope(ctx).0);
+        let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, sync_scope);
+        scope.register(&fence);
         vec![]
     }
 }

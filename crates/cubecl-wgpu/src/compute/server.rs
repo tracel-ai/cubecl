@@ -30,9 +30,9 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-#[cfg(feature = "spirv")]
-use cubecl_server::compiler::compilation_store;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
+#[cfg(feature = "spirv")]
+use cubecl_server::compiler::{ArtifactRoot, compilation_store};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
     relocation::{RelocatingStreams, RelocationReason},
@@ -149,7 +149,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         );
 
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let compiler = WgpuArtifactCompiler::new(
             device,
@@ -161,7 +161,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             compiler,
             #[cfg(feature = "spirv")]
             compilation_store(
-                "vulkan",
+                ArtifactRoot::Vulkan,
                 format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
             ),
             #[cfg(feature = "spirv")]
@@ -176,13 +176,13 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 utilities.logger.clone(),
                 backend_scheduler,
                 SchedulerMultiStreamOptions {
-                    max_streams,
+                    max_stream_count,
                     max_tasks: tasks_max,
                     strategy: SchedulerStrategy::Interleave,
                 },
             ),
             utilities: Arc::new(utilities),
-            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
+            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_stream_count as usize),
             graphs: HashMap::new(),
             _compiler: PhantomData,
         }
@@ -211,6 +211,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     resources.push(resource);
                 }
                 KernelResource::TensorMap(_) => panic!("Tensor map not supported in wgpu"),
+                KernelResource::Peer(_) => {
+                    unreachable!("wgpu shares no memory between devices, so no binding is a peer")
+                }
             }
         }
 
@@ -265,13 +268,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             Err(err) => {
                 // Nothing to allocate: the buffer carries the error instead.
                 let err = ServerError::from(err);
-                failures.fail_unallocated(&memory, err.clone());
+                failures.fail_unallocated(&memory.to_binding(), err.clone());
                 return Err(err);
             }
         };
-        if let Err(err) = stream.memory.bind(reserved, memory.clone(), 0, failures) {
+        // The handle moves into the pool rather than a clone of it: see
+        // `Command::initialize_memory`. A binding stays for a failure to land on.
+        let binding = memory.to_binding();
+        if let Err(err) = stream.memory.bind(reserved, memory, 0, failures) {
             let err = ServerError::from(err);
-            failures.fail_unallocated(&memory, err.clone());
+            failures.fail_unallocated(&binding, err.clone());
             return Err(err);
         }
         Ok(())
@@ -508,6 +514,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             written,
         )
         .execute(|server| {
+            // Arguments refused while they were registered never run: the scope
+            // leaves the outputs carrying why.
+            args.check_arguments()?;
             server.streams_pool.clear();
             // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
             // automatically when the guard drops.
@@ -524,6 +533,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 }
                 KernelResource::TensorMap(_) => {
                     panic!("Tensor maps not supported in WGPU")
+                }
+                KernelResource::Peer(_) => {
+                    unreachable!("wgpu shares no memory between devices, so no binding is a peer")
                 }
             });
 
@@ -672,15 +684,34 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         Ok(())
     }
 
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        // Refused as on every backend with graph support. wgpu's graphs share
+        // no room, so the plan never places anything and one run settles it:
+        // no fence has to reclaim the run's frees first, and no second run
+        // has anything to learn.
+        self.scheduler
+            .stream(&stream_id)
+            .capturing
+            .end_run(stream_id)
+            .map(|_| true)
+    }
+
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        self.scheduler
+            .stream(&stream_id)
+            .capturing
+            .start_run(stream_id)
+    }
+
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        // Materialize the warmup work queued in the scheduler before the
+        // Materialize the planning run's work queued in the scheduler before the
         // recording window opens.
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
         stream.capturing.begin()?;
 
-        // Submit the warmup work and surface its failure now, so a warmup
+        // Submit the planning run's work and surface its failure now, so a planning run
         // failure is reported here — where the diagnostic points at the cause
         // — instead of dooming `end_capture` later.
         let stream = self.scheduler.stream(&stream_id);
@@ -711,10 +742,10 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             Err(err) => {
                 // A capture prepared but never opened still holds the stream,
                 // and a `graph_prepare` retry is refused while it does.
-                // Closing is the only call the caller has left — a warmup that
+                // Closing is the only call the caller has left — a planning run that
                 // failed never reaches `start_capture` — so a close from
                 // `Prepare` unwinds it, as `begin_capture` does when the
-                // warmup flush fails, instead of leaving it held forever.
+                // planning flush fails, instead of leaving it held forever.
                 if stream.capturing.is_active() {
                     stream.info_cache.capture_discard();
                     stream.capturing.abort();
@@ -849,7 +880,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
+    for i in (0..rank.saturating_sub(1)).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
@@ -876,5 +907,24 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+#[cfg(test)]
+mod contiguous_strides_tests {
+    use super::contiguous_strides;
+    use cubecl_core::zspace::{shape, strides};
+
+    /// A scalar has no dimensions, so it has no strides.
+    #[test]
+    fn rank_zero_has_no_strides() {
+        assert_eq!(contiguous_strides(&shape![]), strides![]);
+    }
+
+    /// The last dimension is unit stride and each one before it spans the rest.
+    #[test]
+    fn strides_are_row_major() {
+        assert_eq!(contiguous_strides(&shape![7]), strides![1]);
+        assert_eq!(contiguous_strides(&shape![2, 3, 4]), strides![12, 4, 1]);
     }
 }

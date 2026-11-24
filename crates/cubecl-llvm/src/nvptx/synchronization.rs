@@ -32,11 +32,11 @@ pub fn lower_sync_cube(scope: &Scope) {
 }
 
 fn fence(scope: &Scope, ordering: AtomicOrderingAttr) {
-    let fence = llvm::FenceOp::new(
-        scope.ctx_mut(),
-        ordering,
-        SyncScopeAttr::NamedScope("device".into()),
-    );
+    fence_at(scope, SyncScopeAttr::NamedScope("device".into()), ordering);
+}
+
+fn fence_at(scope: &Scope, sync_scope: SyncScopeAttr, ordering: AtomicOrderingAttr) {
+    let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, sync_scope);
     scope.register(&fence);
 }
 
@@ -52,8 +52,16 @@ pub fn lower_sync_storage(scope: &Scope) {
     fence(scope, AtomicOrderingAttr::AcqRel);
 }
 
+/// [`lower_sync_storage`] fenced at the system's scope, LLVM's unnamed one, where CUDA's C++
+/// writes `__threadfence_system()`: it reaches the host and peer devices.
+pub fn lower_sync_system(scope: &Scope) {
+    fence_at(scope, SyncScopeAttr::System, AtomicOrderingAttr::AcqRel);
+    barrier(scope, BARRIER_CTA, BARRIER_ID);
+    fence_at(scope, SyncScopeAttr::System, AtomicOrderingAttr::AcqRel);
+}
+
 /// `fence.proxy.async.shared::cta`: orders this unit's generic proxy accesses to shared memory
-/// with the async proxy's, which TMA and warpgroup MMA read and write through.
+/// with the async proxy's, which TMA and plane group MMA read and write through.
 pub fn lower_sync_async_proxy(scope: &Scope) {
     let void_ty = VoidType::get(scope.ctx_mut()).into();
     let op = call_op(scope.ctx_mut(), FENCE_PROXY_ASYNC_SHARED, void_ty, vec![]);

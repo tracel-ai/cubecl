@@ -1,18 +1,14 @@
 use crate::prelude::*;
-use cubecl_core::ir::dialect::atomic::*;
+use cubecl_core::ir::dialect::{atomic::*, synchronization::SyncScope};
 
-/// The scope every atomic synchronizes at: all units of the device, like CUDA's `atomicAdd`
-/// and HIP's agent-scoped atomics. The system scope would also order against the host and
-/// peer devices, which kernel buffers are never shared with while a kernel runs, and on the
-/// GPU targets it can select slower, system-coherent instructions.
-fn device_scope(ctx: &Context) -> SyncScopeAttr {
-    match ctx.target() {
-        #[cfg(feature = "amdgpu")]
-        LlvmTarget::AmdGpu => SyncScopeAttr::NamedScope("agent".into()),
-        #[cfg(feature = "nvptx")]
-        LlvmTarget::Nvptx => SyncScopeAttr::NamedScope("device".into()),
-        LlvmTarget::Cpu => SyncScopeAttr::System,
-    }
+/// The scope the atomic `op` synchronizes at (see [`atomic_scope`]). A narrower scope than the
+/// device's keeps the device's, which is never wrong, like CUDA's `atomicAdd` and HIP's
+/// agent-scoped atomics. The system scope also orders against the host and peer devices, and on
+/// the GPU targets it selects slower, system-coherent instructions, so only an atomic that asks
+/// for it gets it.
+fn sync_scope(ctx: &Context, op: Ptr<Operation>) -> SyncScopeAttr {
+    ctx.target()
+        .sync_scope(atomic_scope(ctx, op).max(SyncScope::Device))
 }
 
 macro_rules! lower_atomic_rmw {
@@ -29,7 +25,7 @@ macro_rules! lower_atomic_rmw {
                 let val = self.value(ctx);
                 let kind = $pred;
                 let ordering = AtomicOrderingAttr::Monotonic;
-                let sync_scope = device_scope(ctx);
+                let sync_scope = sync_scope(ctx, self.get_operation());
 
                 let op = llvm::AtomicRmwOp::new(ctx, ptr, val, kind, ordering, sync_scope);
                 rewriter.insert_op(ctx, &op);
@@ -76,7 +72,7 @@ impl ToLLVMDialect for AtomicLoadOp {
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
-        let sync_scope = device_scope(ctx);
+        let sync_scope = sync_scope(ctx, self.get_operation());
         let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, sync_scope);
         op.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &op);
@@ -100,7 +96,7 @@ impl ToLLVMDialect for AtomicStoreOp {
             .unwrap_or_else(|| value.get_type(ctx));
         let align = scalar_alignment(ctx, value_cube_ty);
         let ordering = AtomicOrderingAttr::Monotonic;
-        let sync_scope = device_scope(ctx);
+        let sync_scope = sync_scope(ctx, self.get_operation());
 
         let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, sync_scope);
         store.set_alignment(ctx, align);
@@ -124,7 +120,7 @@ impl ToLLVMDialect for AtomicCompareExchangeWeakOp {
         let before = AtomicOrderingAttr::Monotonic;
         let after = AtomicOrderingAttr::Monotonic;
 
-        let sync_scope = device_scope(ctx);
+        let sync_scope = sync_scope(ctx, self.get_operation());
         let op = llvm::AtomicCmpxchgOp::new(ctx, ptr, cmp, new_val, before, after, sync_scope);
         rewriter.insert_op(ctx, &op);
         // `cmpxchg` yields the value it read beside whether it swapped; the cube op is the value.

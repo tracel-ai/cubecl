@@ -154,6 +154,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     test_inputs: <F as TuneInputs>::At<'i>,
     /// What runs before every measured sample, bound to the key and the reference inputs.
     evictor: Option<Box<crate::tune::Evictor<'i>>>,
+    stage_enterer: Option<Box<crate::tune::stage::BoundStageEnterer<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
     #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -292,7 +293,10 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
+        // A key reached by candidates that only gather kernels would measure on the outputs of
+        // discarded launches.
+        let compiling = ProcessMode::current() == ProcessMode::CompileOnly
+            || super::gathering::CandidateGathering::active();
         #[cfg(persistence)]
         let checksum;
 
@@ -330,7 +334,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 checksum = tunables.compute_checksum();
                 let stored = cache.look_up(key, &checksum);
                 let mut log = self.logger.lock();
-                if let AutotuneLogLevel::Full = log.log_level_autotune() {
+                if let AutotuneLogLevel::Full = log.config().autotune.logger.level {
                     log.log_autotune(&format!(
                         "look up key={key}, checksum={checksum}: {stored:?}"
                     ));
@@ -435,6 +439,7 @@ impl<K: AutotuneKey> Tuner<K> {
             autotunables,
             test_inputs,
             evictor: tunables.evictor(key, inputs),
+            stage_enterer: tunables.bound_stage_enterer(key, inputs),
             plan,
             results,
             #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -482,6 +487,9 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
+        let gathering = tunables
+            .bound_stage_enterer(key, inputs)
+            .map(|mut enter| enter(crate::tune::TuneStage::Gathering));
         loop {
             let batch = plan.next();
             if batch.is_empty() {
@@ -490,12 +498,13 @@ impl<K: AutotuneKey> Tuner<K> {
             // Every candidate of the batch runs, so every one of them queues its kernels.
             let mut served = false;
             for index in batch.indices() {
-                served |= autotunables[index].execute(test_inputs.clone()).is_ok();
+                served |= autotunables[index].race(test_inputs.clone()).is_ok();
             }
             if served {
                 break;
             }
         }
+        core::mem::drop(gathering);
     }
 
     /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
@@ -517,6 +526,7 @@ impl<K: AutotuneKey> Tuner<K> {
             track_steps: job.log_context.is_some(),
             compile_parallelism: config.compilation.parallelism(),
             evictor: job.evictor.take(),
+            stage_enterer: job.stage_enterer.take(),
         };
 
         let outcome = match schedule.run_plan(
@@ -608,6 +618,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     job.test_inputs.clone(),
                     client.clone(),
                     job.evictor.as_deref_mut(),
+                    job.stage_enterer.as_deref_mut(),
                 ) {
                     Ok(profiles) => {
                         let bench = PendingBench {

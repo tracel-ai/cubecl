@@ -3,7 +3,7 @@
 use cubecl::zspace::SmallVec;
 
 use crate::algebra::gcd;
-use crate::{Axis, PhysicalAxisMap, Projection, Scale, Space};
+use crate::{Dimension, Divisor, Offset, PhysicalAxisMap, Projection, Scale, Space};
 
 /// The compacted stage of a [`Projection`]: per physical axis, its cell count and source step,
 /// plus the projection addressing it.
@@ -19,8 +19,9 @@ impl Compaction {
     pub fn new(
         projection: &Projection,
         vector_size: usize,
-        extent_of: impl Fn(Axis) -> usize,
+        extent_of: impl Fn(Dimension) -> usize,
     ) -> Compaction {
+        projection.refuse_backward("Compaction");
         let rank = projection.physical_rank();
         let mut steps = SmallVec::new();
         let mut extents = SmallVec::new();
@@ -29,49 +30,74 @@ impl Compaction {
         for pa in 0..rank {
             let axis_map = projection.physical_axis(pa);
             // At offset 0 on the stage, a static divisor may reduce even under a Dynamic offset.
-            let scaled: Vec<(Axis, Scale)> =
-                axis_map.terms().iter().map(|t| (t.axis, t.scale)).collect();
+            let scaled: Vec<(Dimension, Scale)> = axis_map
+                .terms()
+                .iter()
+                .map(|t| (t.dimension, t.scale))
+                .collect();
             let stage_map = PhysicalAxisMap::scaled(&scaled).over(axis_map.divisor());
             let terms = stage_map.terms();
 
             if stage_map.is_rational() {
-                // A rational axis has no single step: dense, sized at its widest bounds.
+                // A rational dimension has no single step: dense, sized at its widest bounds.
                 let d = stage_map.divisor().bound();
-                let field: usize = terms
+                let moving: Vec<_> = terms
                     .iter()
-                    .filter(|t| extent_of(t.axis) > 1)
-                    .map(|t| (extent_of(t.axis) - 1) * t.scale.bound())
+                    .filter(|t| extent_of(t.dimension) > 1)
+                    .collect();
+                let field: usize = moving
+                    .iter()
+                    .map(|t| (extent_of(t.dimension) - 1) * t.scale.bound())
                     .sum();
-                extents.push(1 + field.div_ceil(d));
+                // A window starts on a multiple of its own extent, the windows tiling the
+                // dimension: one dimension at coefficient one, whole cells of a static divisor wide
+                // and not offset, starts on a cell and reads its extent's cells. Otherwise it may
+                // start partway into one and straddle one more; a dynamic divisor's cells are wider
+                // than its bound, so they may too.
+                let whole_cells = match moving.as_slice() {
+                    [term] => {
+                        term.scale.bound() == 1
+                            && matches!(stage_map.divisor(), Divisor::Static(_))
+                            && extent_of(term.dimension).is_multiple_of(d)
+                            && axis_map.offset() == Offset::Static(0)
+                    }
+                    _ => false,
+                };
+                extents.push(match whole_cells {
+                    true => field.div_ceil(d).max(1),
+                    false => 1 + field.div_ceil(d),
+                });
                 steps.push(1);
                 physical.push(stage_map);
             } else {
                 // Only moving terms constrain the step; a moving Dynamic coefficient forces step 1.
                 let step = terms
                     .iter()
-                    .filter(|t| extent_of(t.axis) > 1)
+                    .filter(|t| extent_of(t.dimension) > 1)
                     .try_fold(0, |g, t| match t.scale {
-                        Scale::Static(s) => Some(gcd(g, s)),
+                        Scale::Static(s) => Some(gcd(g, s.unsigned_abs())),
                         Scale::Dynamic { .. } => None,
                     })
                     .unwrap_or(1);
                 let step = step.max(1);
                 // Non-moving static terms pin to 1; Dynamic ones keep their coefficient-array slot.
-                let scaled: Vec<(Axis, Scale)> = terms
+                let scaled: Vec<(Dimension, Scale)> = terms
                     .iter()
                     .map(|t| {
                         let scale = match t.scale {
-                            Scale::Static(s) if extent_of(t.axis) > 1 => Scale::Static(s / step),
+                            Scale::Static(s) if extent_of(t.dimension) > 1 => {
+                                Scale::Static(s / step as isize)
+                            }
                             Scale::Static(_) => Scale::Static(1),
                             dynamic => dynamic,
                         };
-                        (t.axis, scale)
+                        (t.dimension, scale)
                     })
                     .collect();
                 extents.push(
                     1 + scaled
                         .iter()
-                        .map(|&(axis, scale)| (extent_of(axis) - 1) * scale.bound())
+                        .map(|&(dimension, scale)| (extent_of(dimension) - 1) * scale.bound())
                         .sum::<usize>(),
                 );
                 steps.push(step);
@@ -79,10 +105,10 @@ impl Compaction {
             }
         }
 
-        let projection = Projection::new(projection.logical_axes(), &physical);
-        // Compacted at expansion as well as on the host, where no caller takes a refusal.
-        if let Err(refusal) = projection.validate(vector_size) {
-            panic!("{refusal}");
+        let projection = Projection::new(projection.dimensions(), &physical);
+        // Compacted at expansion as well as on the host, where no caller takes a decline.
+        if let Err(decline) = projection.validate(vector_size) {
+            panic!("{decline}");
         }
 
         Compaction {
@@ -92,7 +118,7 @@ impl Compaction {
         }
     }
 
-    /// How the stage's own logical axes address its cells.
+    /// How the stage's own dimensions address its cells.
     pub fn projection(&self) -> &Projection {
         &self.projection
     }
@@ -118,7 +144,7 @@ impl Compaction {
         assert!(
             self.steps[last] == 1,
             "Compaction: the innermost physical axis is addressed in {vector_size}-wide lines, so \
-             it must be an ungathered axis (extent {}, step {})",
+             it must be an ungathered dimension (extent {}, step {})",
             self.extents[last],
             self.steps[last]
         );
@@ -138,9 +164,9 @@ mod tests {
     use super::*;
     use crate::{Divisor, Offset};
 
-    const OH: Axis = Axis(0);
-    const RH: Axis = Axis(1);
-    const CI: Axis = Axis(2);
+    const OH: Dimension = Dimension(0);
+    const RH: Dimension = Dimension(1);
+    const CI: Dimension = Dimension(2);
 
     /// `Ih <- Oh*stride + Rh*dilation`, `Ci` passed through.
     fn conv(stride: usize, dilation: usize) -> Projection {
@@ -153,7 +179,7 @@ mod tests {
         )
     }
 
-    fn extents(oh: usize, rh: usize, ci: usize) -> impl Fn(Axis) -> usize {
+    fn extents(oh: usize, rh: usize, ci: usize) -> impl Fn(Dimension) -> usize {
         move |a| match a {
             OH => oh,
             RH => rh,
@@ -161,11 +187,11 @@ mod tests {
         }
     }
 
-    fn extents2(oh: usize, rh: usize) -> impl Fn(Axis) -> usize {
+    fn extents2(oh: usize, rh: usize) -> impl Fn(Dimension) -> usize {
         move |a| match a {
             OH => oh,
             RH => rh,
-            _ => unreachable!("axis not spanned by this projection"),
+            _ => unreachable!("dimension not spanned by this projection"),
         }
     }
 
@@ -232,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn a_scalar_gather_may_compact_its_only_axis() {
+    fn a_scalar_gather_may_compact_its_only_dimension() {
         let p = Projection::new(&[OH, RH], &[PhysicalAxisMap::affine(&[(OH, 2), (RH, 1)])]);
         let c = Compaction::new(&p, 1, extents2(8, 3));
         assert!(c.is_dense());
@@ -269,6 +295,19 @@ mod tests {
         assert_eq!(c.steps(), &[1, 1]);
         assert_eq!(c.extents(), &[17, 16]);
         assert_eq!(c.projection().offset(0), Offset::Static(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "backward coefficient")]
+    fn a_backward_coefficient_has_no_compaction() {
+        let p = Projection::new(
+            &[OH, RH, CI],
+            &[
+                PhysicalAxisMap::scaled(&[(OH, Scale::Static(1)), (RH, Scale::Static(-1))]),
+                PhysicalAxisMap::of(CI),
+            ],
+        );
+        Compaction::new(&p, 4, extents(8, 3, 16));
     }
 
     #[test]
@@ -325,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn rational_axis_compacts_dense_with_conservative_extent() {
+    fn rational_dimension_compacts_dense_with_conservative_extent() {
         let p = Projection::new(
             &[OH, RH, CI],
             &[
@@ -340,6 +379,40 @@ mod tests {
         assert_eq!(c.extents(), &[8, 16]);
         assert!(c.projection().physical_axis(0).is_rational());
         assert_eq!(c.projection().divisor(0), Divisor::Static(3));
+    }
+
+    /// Words of block scales read a word every four blocks: a window of whole words starts on a
+    /// word, the windows tiling the dimension, and holds exactly its words, which is what a box of
+    /// them lands. A window of part of a word may start partway into one and keeps the margin, as
+    /// does one under a dynamic divisor or an offset.
+    #[test]
+    fn a_window_of_whole_cells_holds_exactly_its_cells() {
+        let words =
+            |map: PhysicalAxisMap| Projection::new(&[OH, CI], &[PhysicalAxisMap::of(OH), map]);
+        let whole = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).over(4)),
+            1,
+            extents(128, 1, 8),
+        );
+        assert_eq!(whole.extents(), &[128, 2]);
+        let part = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).over(4)),
+            1,
+            extents(128, 1, 6),
+        );
+        assert_eq!(part.extents(), &[128, 3]);
+        let dynamic = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).over(Divisor::Dynamic { min: 4 })),
+            1,
+            extents(128, 1, 8),
+        );
+        assert_eq!(dynamic.extents(), &[128, 3]);
+        let offset = Compaction::new(
+            &words(PhysicalAxisMap::of(CI).shifted(Offset::Dynamic).over(4)),
+            1,
+            extents(128, 1, 8),
+        );
+        assert_eq!(offset.extents(), &[128, 3]);
     }
 
     #[test]

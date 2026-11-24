@@ -11,6 +11,7 @@ license.workspace = true
 name = "cubecl-common"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common"
+rust-version.workspace = true
 version.workspace = true
 
 
@@ -61,7 +62,7 @@ xxhash-rust = { workspace = true, features = [
     "const_xxh3",
 ], optional = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = { workspace = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
@@ -81,6 +82,7 @@ cfg_aliases = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
 tempfile = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 

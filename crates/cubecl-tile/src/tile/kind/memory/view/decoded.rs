@@ -9,7 +9,7 @@ use crate::*;
 
 /// The lines of a tile's window at `O`, `W` values a line, each read decoded ([`Tile::decoded`]).
 ///
-/// A line is named by its row, the window's lines grouped by every axis but the innermost and
+/// A line is named by its row, the window's lines grouped by every dimension but the innermost and
 /// counted row-major, and its place in the row. Every line of a row shares the row's address and
 /// scale, so a reader taking several lines of one row computes them once.
 #[derive(CubeType, Clone)]
@@ -33,12 +33,12 @@ impl<O: Float, W: Size> Decoded<O, W> {
     /// # Panics
     ///
     /// As the kernel expands, on a window with a [`Boundary::Clamp`](crate::kind::Boundary::Clamp)
-    /// axis, whose reads must be clamped.
+    /// dimension, whose reads must be clamped.
     pub fn read_unchecked(&self, row: usize, line: usize) -> Vector<O, W> {
         let provable = self.window.guard_provable();
         comptime!(assert!(
             provable,
-            "Decoded::read_unchecked: a clamped window's reads are clamped, never untested"
+            "Decoded::read_unchecked: a clamped or backward window's reads are checked, never untested"
         ));
         self.read_under(row, line, comptime!(Guard::Proved))
     }
@@ -91,9 +91,9 @@ fn read_plain_line<O: Float, W: Size>(
     #[comptime] guard: Guard,
 ) -> Vector<O, W> {
     let space = comptime!(window.place.space.clone());
-    let lines = comptime!(space.extent_at(space.rank() - 1)) / W::value();
+    let lines = space.extent_at(space.rank() - 1) / W::value();
     let values = window.flat::<O, W>();
-    match comptime!(guard) {
+    match guard {
         Guard::Checked => values.read(row * lines + line),
         Guard::Proved => values.read_unchecked(row * lines + line),
     }
@@ -111,8 +111,8 @@ fn read_packed_line<O: Float, W: Size>(
     #[comptime] guard: Guard,
 ) -> Vector<O, W> {
     let space = comptime!(window.place.space.clone());
-    let rank = comptime!(space.rank());
-    let along = comptime!(space.axis_at(rank - 1));
+    let rank = space.rank();
+    let along = space.dimension_at(rank - 1);
     let packing = window.packing();
     let field = comptime!(match packing {
         Packing::Packed { field } => field,
@@ -142,7 +142,8 @@ fn read_packed_line<O: Float, W: Size>(
     let looks_up = mem.codebook.present();
     let scaled = window.factor.scaled();
     let words = window.nd_words::<Const<1>>(guard);
-    // The row's coordinates, every axis but the innermost; then where the line starts along it.
+    // The row's coordinates, every dimension but the innermost; then where the line starts along
+    // it.
     let rows = Coords::constant(comptime!(
         (0..rank - 1)
             .map(|p| space.extent_at(p))
@@ -160,14 +161,14 @@ fn read_packed_line<O: Float, W: Size>(
         let mut at = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            if comptime!(p == rank - 1) {
+            if p == rank - 1 {
                 at.push(first.at(p) + comptime!((w * per_word) as u32));
             } else {
                 at.push(first.at(p));
             }
         }
         let mut word = words.read(load.index(&at, &space)).extract(0usize);
-        if comptime!(fields < per_word) {
+        if fields < per_word {
             word >>= shift;
         }
         let word = Vector::<u32, Const<1>>::new(word);
@@ -186,9 +187,7 @@ fn read_packed_line<O: Float, W: Size>(
         }
     }
     if comptime!(scaled) {
-        let scale = window
-            .factor
-            .at_coords(&first, comptime!(space.clone()), guard);
+        let scale = window.factor.at_coords(&first, space.clone(), guard);
         values *= Vector::<f32, W>::cast_from(scale);
     }
     Vector::<O, W>::cast_from(values)

@@ -1,7 +1,7 @@
 //! One level's cut of one space ([`Step`]).
 
 use super::{Level, Space};
-use crate::{Axis, Coords, Integer, IntegerExpand};
+use crate::{Coords, Dimension, Integer, IntegerExpand};
 use cubecl::prelude::*;
 
 /// One level's cut of one space: the tile coordinates a loop handed out, and the space.
@@ -34,11 +34,11 @@ impl Step {
         }
     }
 
-    /// The coordinate along `axis`; `0` when the axis is absent.
-    pub(crate) fn coord(&self, #[comptime] axis: Axis) -> usize {
-        if comptime!(self.space.contains(axis)) {
+    /// The coordinate along `dimension`; `0` when the dimension is absent.
+    pub(crate) fn coord(&self, #[comptime] dimension: Dimension) -> usize {
+        if comptime!(self.space.contains(dimension)) {
             self.coords
-                .at(comptime!(self.space.position(axis)))
+                .at(comptime!(self.space.position(dimension)))
                 .cast::<usize>()
         } else {
             0usize.runtime()

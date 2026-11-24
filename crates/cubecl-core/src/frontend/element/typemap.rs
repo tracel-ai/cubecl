@@ -17,7 +17,7 @@ use core::{cmp::Ordering, ops::*};
 
 use bytemuck::Zeroable;
 use cubecl_common::powi_portable;
-use cubecl_ir::{ConstantValue, interfaces::TypedExt};
+use cubecl_ir::{ConstantValue, dialect::synchronization::SyncScope, interfaces::TypedExt};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
@@ -382,18 +382,51 @@ impl<Marker: 'static> Numeric for DynamicScalar<Marker> {
     }
 }
 
+macro_rules! atomic_dispatch {
+    ($method: ident, $scope: expr, $lhs: expr, $rhs: expr, $sync: expr) => {
+        binary_expand::<Self>(
+            $scope,
+            $lhs,
+            $rhs,
+            |scope, lhs, rhs| i32::$method(scope, lhs, rhs, $sync),
+            |scope, lhs, rhs| u32::$method(scope, lhs, rhs, $sync),
+            |scope, lhs, rhs| f32::$method(scope, lhs, rhs, $sync),
+        )
+    };
+}
+
 impl<Marker: 'static> AtomicNumeric for DynamicScalar<Marker> {
-    fn __expand_fetch_add(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
-        binary_dispatch!(__expand_fetch_add, scope, ptr, value)
+    fn __expand_fetch_add(
+        scope: &Scope,
+        ptr: ExpandValue,
+        value: ExpandValue,
+        sync: SyncScope,
+    ) -> ExpandValue {
+        atomic_dispatch!(__expand_fetch_add, scope, ptr, value, sync)
     }
-    fn __expand_fetch_sub(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
-        binary_dispatch!(__expand_fetch_sub, scope, ptr, value)
+    fn __expand_fetch_sub(
+        scope: &Scope,
+        ptr: ExpandValue,
+        value: ExpandValue,
+        sync: SyncScope,
+    ) -> ExpandValue {
+        atomic_dispatch!(__expand_fetch_sub, scope, ptr, value, sync)
     }
-    fn __expand_fetch_min(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
-        binary_dispatch!(__expand_fetch_min, scope, ptr, value)
+    fn __expand_fetch_min(
+        scope: &Scope,
+        ptr: ExpandValue,
+        value: ExpandValue,
+        sync: SyncScope,
+    ) -> ExpandValue {
+        atomic_dispatch!(__expand_fetch_min, scope, ptr, value, sync)
     }
-    fn __expand_fetch_max(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
-        binary_dispatch!(__expand_fetch_max, scope, ptr, value)
+    fn __expand_fetch_max(
+        scope: &Scope,
+        ptr: ExpandValue,
+        value: ExpandValue,
+        sync: SyncScope,
+    ) -> ExpandValue {
+        atomic_dispatch!(__expand_fetch_max, scope, ptr, value, sync)
     }
 }
 

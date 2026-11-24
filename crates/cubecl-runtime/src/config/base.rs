@@ -1,12 +1,8 @@
-use crate::config::memory::MemoryConfig;
-use crate::config::streaming::StreamingConfig;
-
 use super::{
-    autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig,
-    throughput::ThroughputConfig,
+    autotune::AutotuneConfig, compilation::CompilationConfig, environment::EnvironmentConfig,
+    memory::MemoryConfig, profiling::ProfilingConfig, streaming::StreamingConfig,
+    throughput::ThroughputConfig, transport::TransportConfig,
 };
-use alloc::format;
-use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
@@ -14,36 +10,40 @@ use cubecl_environment::sync::Mutex;
 /// Static mutex holding the global configuration, initialized as `None`.
 static CUBE_GLOBAL_CONFIG: Mutex<Option<Arc<CubeClRuntimeConfig>>> = Mutex::new(None);
 
-/// Represents the global configuration for `CubeCL`, combining profiling, autotuning, and compilation settings.
+/// Every setting of `CubeCL`, as `cubecl.toml` holds them, one section per field.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CubeClRuntimeConfig {
-    /// Configuration for profiling `CubeCL` operations.
+    /// The `[profiling]` section.
     #[serde(default)]
     pub profiling: ProfilingConfig,
 
-    /// Configuration for autotuning performance parameters.
+    /// The `[autotune]` section.
     #[serde(default)]
     pub autotune: AutotuneConfig,
 
-    /// Configuration for throughput settings.
+    /// The `[throughput]` section.
     #[serde(default)]
     pub throughput: ThroughputConfig,
 
-    /// Configuration for compilation settings.
+    /// The `[compilation]` section.
     #[serde(default)]
     pub compilation: CompilationConfig,
 
-    /// Configuration for streaming settings.
+    /// The `[streaming]` section.
     #[serde(default)]
     pub streaming: StreamingConfig,
 
-    /// Configuration for memory settings.
+    /// The `[memory]` section.
     #[serde(default)]
     pub memory: MemoryConfig,
 
-    /// Which named environment to warm into.
+    /// The `[environment]` section.
     #[serde(default)]
-    pub environment: super::environment::EnvironmentConfig,
+    pub environment: EnvironmentConfig,
+
+    /// The `[transport]` section.
+    #[serde(default)]
+    pub transport: TransportConfig,
 }
 
 impl RuntimeConfig for CubeClRuntimeConfig {
@@ -70,266 +70,7 @@ impl RuntimeConfig for CubeClRuntimeConfig {
     }
 
     #[cfg(std_io)]
-    fn override_from_env(mut self) -> Self {
-        use super::compilation::{CompilationLogLevel, F16Evaluation};
-        use crate::config::{
-            autotune::{AutotuneLevel, AutotuneLogLevel},
-            profiling::ProfilingLogLevel,
-        };
-
-        if let Ok(val) = std::env::var("CUBECL_DEBUG_LOG") {
-            self.compilation.logger.level = CompilationLogLevel::Full;
-            self.profiling.logger.level = ProfilingLogLevel::Medium;
-            self.autotune.logger.level = AutotuneLogLevel::Full;
-
-            match val.as_str() {
-                "stdout" => {
-                    self.compilation.logger.stdout = true;
-                    self.profiling.logger.stdout = true;
-                    self.autotune.logger.stdout = true;
-                }
-                "stderr" => {
-                    self.compilation.logger.stderr = true;
-                    self.profiling.logger.stderr = true;
-                    self.autotune.logger.stderr = true;
-                }
-                "1" | "true" => {
-                    let file_path = "/tmp/cubecl.log";
-                    self.compilation.logger.file = Some(file_path.into());
-                    self.profiling.logger.file = Some(file_path.into());
-                    self.autotune.logger.file = Some(file_path.into());
-                }
-                "0" | "false" => {
-                    self.compilation.logger.level = CompilationLogLevel::Disabled;
-                    self.profiling.logger.level = ProfilingLogLevel::Disabled;
-                    self.autotune.logger.level = AutotuneLogLevel::Disabled;
-                }
-                file_path => {
-                    self.compilation.logger.file = Some(file_path.into());
-                    self.profiling.logger.file = Some(file_path.into());
-                    self.autotune.logger.file = Some(file_path.into());
-                }
-            }
-        };
-
-        if let Ok(val) = std::env::var("CUBECL_DEBUG_OPTION") {
-            match val.as_str() {
-                "debug" => {
-                    self.compilation.logger.level = CompilationLogLevel::Full;
-                    self.profiling.logger.level = ProfilingLogLevel::Medium;
-                    self.autotune.logger.level = AutotuneLogLevel::Full;
-                }
-                "debug-full" => {
-                    self.compilation.logger.level = CompilationLogLevel::Full;
-                    self.profiling.logger.level = ProfilingLogLevel::Full;
-                    self.autotune.logger.level = AutotuneLogLevel::Full;
-                }
-                "profile" => {
-                    self.profiling.logger.level = ProfilingLogLevel::Basic;
-                }
-                "profile-medium" => {
-                    self.profiling.logger.level = ProfilingLogLevel::Medium;
-                }
-                "profile-full" => {
-                    self.profiling.logger.level = ProfilingLogLevel::Full;
-                }
-                _ => {}
-            }
-        };
-
-        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_LEVEL") {
-            match val.as_str() {
-                "minimal" | "0" => {
-                    self.autotune.level = AutotuneLevel::Minimal;
-                }
-                "balanced" | "1" => {
-                    self.autotune.level = AutotuneLevel::Balanced;
-                }
-                "extensive" | "2" => {
-                    self.autotune.level = AutotuneLevel::Extensive;
-                }
-                "full" | "3" => {
-                    self.autotune.level = AutotuneLevel::Full;
-                }
-                _ => {}
-            }
-        }
-
-        if let Ok(val) = std::env::var("CUBECL_CPU_F16_EVAL") {
-            match val.as_str() {
-                "per-operation" => {
-                    self.compilation.f16_evaluation = Some(F16Evaluation::PerOperation);
-                }
-                "chain" => {
-                    self.compilation.f16_evaluation = Some(F16Evaluation::Chain);
-                }
-                "accumulators" => {
-                    self.compilation.f16_evaluation = Some(F16Evaluation::Accumulators);
-                }
-                _ => {}
-            }
-        }
-
-        if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-            self.compilation.dump_dir = Some(dir.into());
-        }
-
-        if let Some(enabled) = env_bool("CUBECL_TIME_PASSES") {
-            self.compilation.time_passes = enabled;
-        }
-
-        if let Some(level) = env_variant("CUBECL_DEBUG_INFO") {
-            self.compilation.debug_info = Some(level);
-        }
-
-        if let Some(format) = env_variant("CUBECL_SPIRV_DEBUG_FORMAT") {
-            self.compilation.spirv_debug_format = format;
-        }
-
-        if let Ok(dir) = std::env::var("CUBECL_SOURCE_CACHE") {
-            self.compilation.source_cache = Some(dir.into());
-        }
-
-        if let Some(enabled) = env_bool("CUBECL_THROUGHPUT_CACHE") {
-            self.throughput.disable_cache = !enabled;
-        }
-
-        if let Ok(val) = std::env::var("CUBECL_ENVIRONMENT") {
-            self.environment.name = val;
-        }
-
-        if let Ok(val) = std::env::var("CUBECL_ENVIRONMENT_RECORDS") {
-            use cubecl_environment::records::RecordLevel;
-
-            match val.as_str() {
-                "off" | "0" => self.environment.records.level = RecordLevel::Off,
-                "basic" | "1" => self.environment.records.level = RecordLevel::Basic,
-                "full" | "2" => self.environment.records.level = RecordLevel::Full,
-                _ => {}
-            }
-        }
-
-        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_CACHE") {
-            self.autotune.disable_cache = !enabled;
-        }
-
-        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_SHORT_CIRCUIT") {
-            self.autotune.disable_short_circuit = !enabled;
-        }
-
-        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_BENCH_ADAPTIVE") {
-            self.autotune.bench.adaptive = enabled;
-        }
-
-        self
-    }
-}
-
-/// The variant of `T` that the environment variable `name` names with its `serde` name, as in
-/// `cubecl.toml`. `None` when the variable is unset or names no variant, as for [`env_bool`].
-#[cfg(std_io)]
-fn env_variant<T: serde::de::DeserializeOwned>(name: &str) -> Option<T> {
-    variant(&std::env::var(name).ok()?)
-}
-
-/// The variant of `T` with the `serde` name `value`.
-#[cfg(std_io)]
-fn variant<T: serde::de::DeserializeOwned>(value: &str) -> Option<T> {
-    use serde::de::{IntoDeserializer, value::Error};
-
-    T::deserialize(IntoDeserializer::<Error>::into_deserializer(value)).ok()
-}
-
-/// A boolean environment variable, or `None` when it is unset or unreadable.
-///
-/// An unrecognized value is `None` rather than an error: the variable is an
-/// override, so failing to parse it means leaving the configured value alone.
-#[cfg(std_io)]
-fn env_bool(name: &str) -> Option<bool> {
-    match std::env::var(name).ok()?.as_str() {
-        "true" | "1" | "on" => Some(true),
-        "false" | "0" | "off" => Some(false),
-        _ => None,
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-/// How to format cubecl type names.
-pub enum TypeNameFormatLevel {
-    /// No formatting apply, full information is included.
-    Full,
-    /// Most information is removed for a small formatted name.
-    Short,
-    /// Balanced info is kept.
-    Balanced,
-}
-
-/// Format a type name with different options.
-pub fn type_name_format(name: &str, level: TypeNameFormatLevel) -> String {
-    match level {
-        TypeNameFormatLevel::Full => name.to_string(),
-        TypeNameFormatLevel::Short => {
-            if let Some(val) = name.split("<").next() {
-                val.split("::").last().unwrap_or(name).to_string()
-            } else {
-                name.to_string()
-            }
-        }
-        TypeNameFormatLevel::Balanced => {
-            let mut split = name.split("<");
-            let before_generic = split.next();
-            let after_generic = split.next();
-
-            let before_generic = match before_generic {
-                None => return name.to_string(),
-                Some(val) => val
-                    .split("::")
-                    .last()
-                    .unwrap_or(val)
-                    .trim()
-                    .replace(">", "")
-                    .to_string(),
-            };
-            let inside_generic = match after_generic {
-                None => return before_generic.to_string(),
-                Some(val) => {
-                    let mut val = val.to_string();
-                    for s in split {
-                        val += "<";
-                        val += s;
-                    }
-                    val
-                }
-            };
-
-            let inside = type_name_list_format(&inside_generic, level);
-
-            format!("{before_generic}{inside}")
-        }
-    }
-}
-
-fn type_name_list_format(name: &str, level: TypeNameFormatLevel) -> String {
-    let mut acc = String::new();
-    let splits = name.split(", ");
-
-    for a in splits {
-        acc += " | ";
-        acc += &type_name_format(a, level);
-    }
-
-    acc
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test_log::test]
-    fn test_format_name() {
-        let full_name = "burn_cubecl::kernel::unary_numeric::unary_numeric::UnaryNumeric<f32, burn_cubecl::tensor::base::CubeTensor<_>::copy::Copy, cubecl_cuda::runtime::CudaRuntime>";
-        let name = type_name_format(full_name, TypeNameFormatLevel::Balanced);
-
-        assert_eq!(name, "UnaryNumeric | f32 | CubeTensor | Copy | CudaRuntime");
+    fn override_from_env(self) -> Self {
+        super::env::override_from_env(self)
     }
 }

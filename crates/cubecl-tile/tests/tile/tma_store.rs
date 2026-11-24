@@ -8,11 +8,13 @@ use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::features::Tma;
 use cubecl::prelude::*;
 use cubecl::zspace::shape;
-use cubecl_tile::launch::{Destination, TmaBox, TmaStored};
+use cubecl_tile::launch::{
+    Destination, ServedDestination, ServedDestinationExpand, TmaBox, TmaStored,
+};
 use cubecl_tile::*;
 
-const ROW: Axis = Axis(0);
-const COL: Axis = Axis(1);
+const ROW: Dimension = Dimension(0);
+const COL: Dimension = Dimension(1);
 /// Rows and columns of the tensor: not whole boxes along either axis.
 const ROWS: usize = 40;
 const COLS: usize = 24;
@@ -22,18 +24,20 @@ const BOX: (usize, usize) = (16, 16);
 #[cube(launch)]
 fn store_by_tma<E: Float, O: Destination>(
     input: &TileTensor<'_>,
-    out: &O::Arg<E>,
+    out: &mut O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let src = input.tile(&space);
-    let dst = O::tile::<E, Const<1>>(out, &space);
+    let dest = O::serve::<E, Const<1>>(out, &space);
+    let dst = dest.tile();
     for cube in &space {
         let mut dst_box = dst.at(&cube);
         let mut staged = dst_box.smem_box();
         staged.copy_from(&src.at(&cube));
         dst_box.copy_from(&staged);
     }
+    dest.finish();
 }
 
 /// Every cell of the tensor holds its own index, stored box by box by the TMA engine, and only
@@ -68,7 +72,7 @@ fn a_box_stored_by_tma_lands_whole_and_clipped() {
     // Bound through the launcher, which masks the reads of a box the edge cuts short.
     let src = launcher
         .arg(input.binding(), dtype)
-        .axes(&[ROW, COL])
+        .dimensions(&[ROW, COL])
         .vectorize(1)
         .build()
         .unwrap();

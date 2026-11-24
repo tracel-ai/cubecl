@@ -5,10 +5,13 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
-use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor};
+use crate::tune::stage::BoundStageEnterer;
+use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer};
 
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
@@ -36,6 +39,14 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
         (self.func)(inputs)
     }
+
+    /// Run the wrapped function as an autotune race runs a candidate, to
+    /// measure it or gather its kernels: what it launches is
+    /// [issued for the race](crate::execution::LaunchPurpose::Race), never
+    /// the work's.
+    pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
+        crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
+    }
 }
 
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
@@ -52,7 +63,11 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
+    stage_enterer: Option<Arc<dyn StageEnterer<K, F> + Send + Sync>>,
     short_circuit: bool,
+    /// Planned once a key: ranking candidates can build every one's blueprint, which costs
+    /// more than the launch, and an untuned key is reached at every layer of a compile pass.
+    run_orders: Mutex<HashMap<K, Arc<[usize]>>>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
@@ -65,7 +80,9 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             key_gen: Arc::new(key_gen),
             bounds_gen: None,
             eviction: None,
+            stage_enterer: None,
             short_circuit: true,
+            run_orders: Mutex::new(HashMap::new()),
         };
         set.checksum = set.names_hash() as u64;
         set
@@ -91,6 +108,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
         self.checksum = self.names_hash() as u64;
+        self.run_orders = Mutex::new(HashMap::new());
         self
     }
 
@@ -104,6 +122,16 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// memory rather than the cache the previous sample left warm. See [`Eviction`].
     pub fn with_eviction(mut self, eviction: Arc<dyn Eviction<K, F> + Send + Sync>) -> Self {
         self.eviction = Some(eviction);
+        self
+    }
+
+    /// Sets what enters every stage of a tune of this set, so candidates that launch where the tuner
+    /// does not see are kept in step with it. See [`StageEnterer`].
+    pub fn with_stage_enterer(
+        mut self,
+        enterer: Arc<dyn StageEnterer<K, F> + Send + Sync>,
+    ) -> Self {
+        self.stage_enterer = Some(enterer);
         self
     }
 
@@ -126,6 +154,23 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Returns the [autotune plan](TunePlan) for the given set.
     pub(crate) fn plan(&self, key: &K) -> TunePlan {
         TunePlan::new(key, &self.tunables)
+    }
+
+    /// The candidates of `key` in the order an untuned key runs them: its plan's
+    /// [order](TunePlan::order).
+    pub(crate) fn run_order(&self, key: &K) -> Arc<[usize]> {
+        if let Some(order) = self.run_orders.lock().get(key) {
+            return order.clone();
+        }
+        // Planned outside the lock: a priority may run for long.
+        let order: Arc<[usize]> = self
+            .plan(key)
+            .order(self.len())
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect();
+        self.run_orders.lock().insert(key.clone(), order.clone());
+        order
     }
 
     /// Returns the operation for the given index, matching the order returned by
@@ -178,6 +223,18 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         let key = key.clone();
         let inputs = inputs.clone();
         Some(Box::new(move || eviction.evict(&key, &inputs)))
+    }
+
+    /// The stage enterer registered on this set, bound to `key` and the reference `inputs`, if any.
+    pub(crate) fn bound_stage_enterer<'i>(
+        &self,
+        key: &K,
+        inputs: &F::At<'i>,
+    ) -> Option<Box<BoundStageEnterer<'i>>> {
+        let enterer = self.stage_enterer.clone()?;
+        let key = key.clone();
+        let inputs = inputs.clone();
+        Some(Box::new(move |stage| enterer.enter(stage, &key, &inputs)))
     }
 
     /// The throughput bounds registered on this set, if any.

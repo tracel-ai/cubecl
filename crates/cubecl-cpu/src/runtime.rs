@@ -210,6 +210,8 @@ impl DeviceService for CpuServer {
             max_shared_memory_size,
             max_cube_count,
             num_cpu_cores: Some(available_parallelism as u32),
+            num_cpu_physical_cores: affinity::physical_core_count(available_parallelism as usize)
+                .map(|count| count as u32),
             last_level_cache_size: affinity::llc_cache_size(),
             max_units_per_cube: available_parallelism,
             max_cube_dim,
@@ -263,7 +265,10 @@ impl DeviceService for CpuServer {
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
         #[cfg(compilation_cache)]
-        let store = cubecl_server::compiler::ArtifactStore::new("cpu", &fingerprint);
+        let store = cubecl_server::compiler::ArtifactStore::new(
+            cubecl_server::compiler::ArtifactRoot::Cpu,
+            &fingerprint,
+        );
 
         CpuServer::new(
             mem_properties,

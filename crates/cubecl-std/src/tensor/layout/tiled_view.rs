@@ -71,12 +71,12 @@ impl Layout for TiledLayout {
                 let mut divisor = 1u32;
                 #[unroll]
                 for finer in 0..comptime!(levels + 1) {
-                    if comptime!(finer > k) {
+                    if finer > k {
                         divisor *= self.physical_shape[comptime!(self.start_axis + finer * n + i)];
                     }
                 }
                 let digit = pos[comptime!(self.start_axis + i)] / divisor;
-                if comptime!(k == 0) {
+                if k == 0 {
                     physical.push(digit);
                 } else {
                     physical

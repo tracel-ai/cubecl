@@ -58,23 +58,45 @@ where
 pub enum Prefetch {
     /// In its own slot, filled before the previous contraction.
     InSlots,
-    /// In registers, loaded before the contraction and stored after. Takes
+    /// In registers, loaded before the contraction and stored after. A fill that copies its
+    /// source's lines as they lie holds them; a fill that decodes a packed source holds its words
+    /// and the word of the block scale each line lands under, and decodes at the store, where its
+    /// block scales are packed words and every coarser scale is one value across the stage. Takes
     /// [`InSlots`](Prefetch::InSlots) where the registers cannot hold the fill: fixed operands,
     /// scales kept beside their values, filler planes, a source not delivered by every unit, a
-    /// depth past 2, a fill that decodes, converts, rewidens or packs its source or masks its
-    /// stage, a stage whose per-unit share is unknown, and loads past [`fits`](Prefetch::fits).
+    /// depth past 2, a fill that converts, rewidens or packs its source or masks its stage, a
+    /// decoding fill whose scales are not held as words, a stage whose per-unit share is unknown,
+    /// and loads past [`fits`](Prefetch::fits).
     InRegisters,
 }
 
 impl Prefetch {
-    /// Scalars one unit holds when `units` prefetch `elements` values read `width` at a time.
-    pub fn scalars(elements: usize, units: usize, width: usize) -> usize {
-        UnitLines::new(elements.div_ceil(width), units).scalars(width)
+    /// Loads one of `units` units takes of a stage of `elements` values read `width` at a time.
+    pub fn turns(elements: usize, units: usize, width: usize) -> usize {
+        Level::copied_by_cube(units)
+            .copy_turns(elements.div_ceil(width))
+            .expect(
+                "Prefetch::turns: a register prefetch deals its lines to a known count of units",
+            )
     }
 
-    /// Whether a register prefetch of `scalars` a unit, over both operands, is accepted.
-    pub fn fits(scalars: usize) -> bool {
-        scalars <= MOST_FETCHED_SCALARS
+    /// 32-bit registers a unit holds of a fill copying its source's lines as they lie: `turns`
+    /// loads of `width` values of `bits` bits each.
+    pub fn straight_registers(turns: usize, width: usize, bits: usize) -> usize {
+        (turns * width * bits).div_ceil(u32::BITS as usize)
+    }
+
+    /// 32-bit registers a unit holds of a fill decoding a packed source: each of `turns` loads of
+    /// `width` values of `bits` bits as the words it is stored in, and the word of the block scale
+    /// each of the lines of `line` values it lands is decoded under.
+    pub fn decoded_registers(turns: usize, width: usize, bits: usize, line: usize) -> usize {
+        turns * ((width * bits).div_ceil(u32::BITS as usize) + width / line)
+    }
+
+    /// Whether a register prefetch holding `registers` 32-bit registers a unit, over both
+    /// operands, is accepted.
+    pub fn fits(registers: usize) -> bool {
+        registers <= MOST_FETCHED_REGISTERS
     }
 }
 
@@ -140,6 +162,7 @@ impl StagesExpand<OperandPair> {
     /// The laps whose every region has a next one to fetch, run with no branch around the fetch,
     /// so what it computes that no lap changes (each unit's place in the stage) leaves the loop.
     /// How many ran.
+    #[allow(clippy::too_many_arguments)]
     fn steady_prefetching_laps<Lhs: Numeric, Rhs: Numeric, F>(
         &mut self,
         scope: &Scope,
@@ -147,6 +170,7 @@ impl StagesExpand<OperandPair> {
         total: NativeExpand<usize>,
         lhs: &mut <Array<Vector<Lhs, super::base::FL>> as CubeType>::ExpandType,
         rhs: &mut <Array<Vector<Rhs, super::base::FR>> as CubeType>::ExpandType,
+        scales: &mut [<Array<u32> as CubeType>::ExpandType; 2],
         compute: &mut F,
     ) -> NativeExpand<usize>
     where
@@ -169,15 +193,26 @@ impl StagesExpand<OperandPair> {
                     .__expand_plus_method(scope, j.into_expand(scope));
                 let next = region_idx.__expand_plus_method(scope, 1usize.into_expand(scope));
                 let upcoming = walk.__expand_region_method(scope, next);
-                self.__expand_fetch_method(scope, target, &sources, &upcoming, lhs, rhs);
+                let [lhs_scales, rhs_scales] = scales;
+                self.__expand_fetch_method(
+                    scope, target, &sources, &upcoming, lhs, rhs, lhs_scales, rhs_scales,
+                );
+                // The fetch's loads stay ahead of the contraction they are meant to hide behind:
+                // a scheduler would otherwise sink each to its first use, after the contraction.
+                schedule_barrier::expand(scope);
                 let region = walk.__expand_region_method(scope, region_idx);
                 let slot = self.__expand_slot_mut_method(scope, j);
                 compute(scope, slot, &region);
+                // Nor does the store's decode rise into the contraction, where it would wait on
+                // the loads the contraction hides.
+                schedule_barrier::expand(scope);
                 // One slot: every unit has read it before any overwrites it.
                 if depth == 1 {
                     self.publish(scope, FIRST_SLOT);
                 }
-                self.__expand_store_method(scope, target, lhs, rhs);
+                self.__expand_store_method(
+                    scope, target, &sources, &upcoming, lhs, rhs, lhs_scales, rhs_scales,
+                );
                 self.publish(scope, target);
             }
         };
@@ -208,14 +243,25 @@ impl StagesExpand<OperandPair> {
             "Stages: a register-staged walk on stages that prefetch into their slots"
         );
         let depth = self.depth;
-        // The registers a fetch holds a region in are at the elements the sources hold.
+        // The registers a fetch holds a region in are at the elements the sources hold, or the
+        // words a decoded source is stored in.
         define_scalar!(Lhs);
         define_scalar!(Rhs);
-        let _lhs = scope.define_type::<Lhs>(self.sources.lhs.element);
-        let _rhs = scope.define_type::<Rhs>(self.sources.rhs.element);
-        let (mut lhs, mut rhs) = self.__expand_fetch_buffers_method::<Lhs, Rhs>(scope);
-        let steady =
-            self.steady_prefetching_laps(scope, &walk, total, &mut lhs, &mut rhs, &mut compute);
+        let (lhs_element, rhs_element) = self.__expand_fetched_elements_method(scope);
+        let _lhs = scope.define_type::<Lhs>(lhs_element);
+        let _rhs = scope.define_type::<Rhs>(rhs_element);
+        let (mut lhs, mut rhs, lhs_scales, rhs_scales) =
+            self.__expand_fetch_buffers_method::<Lhs, Rhs>(scope);
+        let mut scales = [lhs_scales, rhs_scales];
+        let steady = self.steady_prefetching_laps(
+            scope,
+            &walk,
+            total,
+            &mut lhs,
+            &mut rhs,
+            &mut scales,
+            &mut compute,
+        );
         // The last laps, where the walk runs out under them.
         let mut body = |scope: &Scope, lap: NativeExpand<usize>| {
             for j in 0..depth {
@@ -227,22 +273,32 @@ impl StagesExpand<OperandPair> {
                 let in_walk = region_idx.__expand_lt_method(scope, &total);
                 if_expand(scope, in_walk, |scope| {
                     let prefetching = next.__expand_lt_method(scope, &total);
+                    let [lhs_scales, rhs_scales] = &mut scales;
                     if_expand(scope, prefetching, |scope| {
                         let upcoming = walk.__expand_region_method(scope, next);
                         let sources = self.sources.clone();
                         self.__expand_fetch_method(
-                            scope, target, &sources, &upcoming, &mut lhs, &mut rhs,
+                            scope, target, &sources, &upcoming, &mut lhs, &mut rhs, lhs_scales,
+                            rhs_scales,
                         );
                     });
+                    schedule_barrier::expand(scope);
                     let region = walk.__expand_region_method(scope, region_idx);
                     let slot = self.__expand_slot_mut_method(scope, j);
                     compute(scope, slot, &region);
+                    schedule_barrier::expand(scope);
                     if_expand(scope, prefetching, |scope| {
                         // One slot: every unit must finish reading before any overwrites it.
                         if depth == 1 {
                             self.publish(scope, FIRST_SLOT);
                         }
-                        self.__expand_store_method(scope, target, &lhs, &rhs);
+                        // The region the fetch read, named again: the decode of a decoded source
+                        // reads its table and places its lines off it.
+                        let upcoming = walk.__expand_region_method(scope, next);
+                        let sources = self.sources.clone();
+                        self.__expand_store_method(
+                            scope, target, &sources, &upcoming, &lhs, &rhs, lhs_scales, rhs_scales,
+                        );
                         self.publish(scope, target);
                     });
                 });

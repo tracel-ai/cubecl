@@ -1,11 +1,11 @@
 use cubecl::prelude::*;
 
-use crate::{Axis, Integer, IntegerExpand, floor_div_rem};
+use crate::{Dimension, Integer, IntegerExpand, floor_div_rem};
 
 use super::{Reads, Recipe, RecipeCoords, RecipeExpand};
 
 /// The fractional part a rational coordinate mapping leaves behind, scaled:
-/// `coefficient * frac((coord[axis] * numerator_scale + numerator_offset) / divisor)`.
+/// `coefficient * frac((coord[dimension] * numerator_scale + numerator_offset) / divisor)`.
 #[derive(CubeType, Clone)]
 pub struct Phase<T: Float> {
     /// Multiplies the whole fraction.
@@ -14,7 +14,7 @@ pub struct Phase<T: Float> {
     pub numerator_offset: i32,
     pub divisor: u32,
     #[cube(comptime)]
-    pub axis: Axis,
+    pub dimension: Dimension,
 }
 
 #[cube]
@@ -27,7 +27,7 @@ impl<T: Float> Recipe<T> for Phase<T> {
             "Phase: divisor must be non-zero"
         ));
         let numerator = coordinates
-            .along(self.axis)
+            .along(self.dimension)
             .times(self.numerator_scale)
             .cast::<i32>()
             .plus(self.numerator_offset);
@@ -44,7 +44,7 @@ impl<T: Float> Recipe<T> for Phase<T> {
 }
 
 impl<T: Float> Reads for PhaseExpand<T> {
-    fn reads(&self, _scope: &Scope, axis: Axis) -> bool {
-        self.axis == axis
+    fn reads(&self, _scope: &Scope, dimension: Dimension) -> bool {
+        self.dimension == dimension
     }
 }

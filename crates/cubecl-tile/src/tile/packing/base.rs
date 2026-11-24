@@ -46,6 +46,10 @@ pub enum Field {
     /// and cast, the decode left to the compiler. What [`read_on`](Field::read_on) makes of
     /// `Quant(E2M1)` there.
     ConvertedE2M1,
+    /// An `e4m3` or `e5m2` value on a device that converts it itself: a word is read as four of
+    /// them and cast, the decode left to the compiler, rather than decoded from its bits. What
+    /// [`read_on`](Field::read_on) makes of `Fp8(E4M3)` or `Fp8(E5M2)` there.
+    ConvertedFp8(Fp8Format),
     /// A float code (`e2m1`, `e4m3` or `e5m2`) on a device that emulates converting it: a word is
     /// decoded as `f16` pairs from its bits, lifted to its values, or, where `lifted` is false,
     /// each placed `lift` short of its value for a reader whose factor carries the
@@ -85,6 +89,7 @@ impl Field {
             Field::Float(kind) => Field::float_bits(kind),
             Field::Index { bits } => bits,
             Field::ConvertedE2M1 => QuantValue::E2M1.size_bits(),
+            Field::ConvertedFp8(_) => 8,
             Field::Placed { value, .. } => value.size_bits(),
         }
     }
@@ -92,6 +97,37 @@ impl Field {
     /// Values one `u32` holds.
     pub fn per_word(self) -> usize {
         u32::BITS as usize / self.size_bits()
+    }
+
+    /// The 8-bit float format the slot holds, however the device reads it
+    /// ([`read_on`](Field::read_on)): decoded from its bits or cast. None for any other slot.
+    pub(crate) fn fp8(self) -> Option<Fp8Format> {
+        match self {
+            Field::Fp8(format) | Field::ConvertedFp8(format) => Some(format),
+            _ => None,
+        }
+    }
+
+    /// Whether every value a code of this field stands for is also a value of `element`, so a
+    /// decode into `element` under a power of two near one keeps it exactly: an `e2m1` or a
+    /// 4-bit integer code into `e4m3` or `e5m2`, an 8-bit float into itself or a wider float. A
+    /// format of more mantissa bits or a wider exponent than `element`'s, and an integer past the
+    /// ones `element` counts exactly, are not; nor is any into an integer element, or a field
+    /// indexing a table.
+    pub fn values_exact_in(self, element: ElemType) -> bool {
+        let Some(target) = MinifloatRange::of_element(element) else {
+            return false;
+        };
+        let value = match (self.code(), self.fp8()) {
+            (Some(value), _) => value,
+            (None, Some(Fp8Format::E4M3)) => QuantValue::E4M3,
+            (None, Some(Fp8Format::E5M2)) => QuantValue::E5M2,
+            (None, _) => return false,
+        };
+        match MinifloatRange::of_value(value) {
+            Some(source) => source.within(target),
+            None => target.counts_integers_to(value.range().0.abs().max(value.range().1)),
+        }
     }
 
     /// Whether the slot holds an `e2m1` code, however the device reads it
@@ -109,6 +145,67 @@ impl Field {
     }
 }
 
+/// The values of a small float format: its mantissa bits, and the exponents of its smallest and
+/// largest normal values.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct MinifloatRange {
+    mantissa_bits: i32,
+    lowest_exponent: i32,
+    highest_exponent: i32,
+}
+
+impl MinifloatRange {
+    /// `e2m1`'s, `e4m3`'s or `e5m2`'s; `None` for an integer value.
+    fn of_value(value: QuantValue) -> Option<Self> {
+        match value {
+            QuantValue::E2M1 => Some(Self::new(1, 0, 2)),
+            QuantValue::E4M3 => Some(Self::new(3, -6, 8)),
+            QuantValue::E5M2 => Some(Self::new(2, -14, 15)),
+            QuantValue::Q8F
+            | QuantValue::Q8S
+            | QuantValue::Q4F
+            | QuantValue::Q4S
+            | QuantValue::Q2F
+            | QuantValue::Q2S => None,
+        }
+    }
+
+    /// A float element's; `None` for any other.
+    fn of_element(element: ElemType) -> Option<Self> {
+        match element {
+            ElemType::Float(FloatKind::E4M3) => Self::of_value(QuantValue::E4M3),
+            ElemType::Float(FloatKind::E5M2) => Self::of_value(QuantValue::E5M2),
+            ElemType::Float(FloatKind::F16) => Some(Self::new(10, -14, 15)),
+            ElemType::Float(FloatKind::BF16) => Some(Self::new(7, -126, 127)),
+            ElemType::Float(FloatKind::F32) => Some(Self::new(23, -126, 127)),
+            _ => None,
+        }
+    }
+
+    const fn new(mantissa_bits: i32, lowest_exponent: i32, highest_exponent: i32) -> Self {
+        Self {
+            mantissa_bits,
+            lowest_exponent,
+            highest_exponent,
+        }
+    }
+
+    /// Whether every value of this format is one of `target`'s: no more mantissa bits, no larger
+    /// exponent, and no finer subnormal step.
+    fn within(self, target: Self) -> bool {
+        self.mantissa_bits <= target.mantissa_bits
+            && self.highest_exponent <= target.highest_exponent
+            && self.lowest_exponent - self.mantissa_bits
+                >= target.lowest_exponent - target.mantissa_bits
+    }
+
+    /// Whether every integer of magnitude up to `largest` is one of this format's values: up to
+    /// `2^(mantissa bits + 1)`, the last its mantissa counts in steps of one.
+    fn counts_integers_to(self, largest: f32) -> bool {
+        largest <= f32::from(1u16 << (self.mantissa_bits + 1))
+    }
+}
+
 impl Field {
     /// This field as the device `client` reads it: a float code (`e2m1`, `e4m3`, `e5m2`) decoded
     /// from its bits where the device emulates converting it anyway, so a reader's factor can
@@ -120,6 +217,8 @@ impl Field {
             Field::Quant(QuantValue::E2M1) => Some(FloatKind::E2M1x2),
             Field::Quant(QuantValue::E4M3) => Some(FloatKind::E4M3),
             Field::Quant(QuantValue::E5M2) => Some(FloatKind::E5M2),
+            Field::Fp8(Fp8Format::E4M3) => Some(FloatKind::E4M3),
+            Field::Fp8(Fp8Format::E5M2) => Some(FloatKind::E5M2),
             _ => None,
         };
         let emulated = converted_as.is_some_and(|kind| {
@@ -134,6 +233,9 @@ impl Field {
                 lifted: true,
             },
             Field::Quant(QuantValue::E2M1) if converts => Field::ConvertedE2M1,
+            Field::Fp8(format) if converted_as.is_some() && !emulated => {
+                Field::ConvertedFp8(format)
+            }
             other => other,
         }
     }
@@ -202,7 +304,7 @@ impl Field {
         match self {
             Field::Quant(value) | Field::Placed { value, .. } => Some(value),
             Field::ConvertedE2M1 => Some(QuantValue::E2M1),
-            Field::Fp8(_) | Field::Float(_) | Field::Index { .. } => None,
+            Field::Fp8(_) | Field::ConvertedFp8(_) | Field::Float(_) | Field::Index { .. } => None,
         }
     }
 
@@ -214,7 +316,7 @@ impl Field {
     /// For a field no scale is stored as.
     pub(crate) fn scale_dtype(self) -> ScaleDtype {
         match self {
-            Field::Fp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
+            Field::Fp8(Fp8Format::E4M3) | Field::ConvertedFp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
             Field::Fp8(Fp8Format::UE8M0) => ScaleDtype::UE8M0,
             Field::Float(FloatKind::F32) => ScaleDtype::F32,
             Field::Float(FloatKind::F16) => ScaleDtype::F16,
@@ -250,6 +352,7 @@ impl Field {
             Field::Quant(QuantValue::E4M3) => FieldDecode::Byte(Fp8Format::E4M3),
             Field::Quant(QuantValue::E5M2) => FieldDecode::Byte(Fp8Format::E5M2),
             Field::Fp8(format) => FieldDecode::Byte(format),
+            Field::ConvertedFp8(format) => FieldDecode::ConvertedByte(format),
             Field::Float(kind) => FieldDecode::Bits(kind),
             Field::Index { .. } => FieldDecode::Unsigned,
             Field::ConvertedE2M1 => FieldDecode::Converted,
@@ -284,6 +387,8 @@ pub(crate) enum FieldDecode {
     PlacedByte { format: Fp8Format, lifted: bool },
     /// An 8-bit float code, read back through the format's own decoder.
     Byte(Fp8Format),
+    /// An 8-bit float code the device converts: a word cast as four of them.
+    ConvertedByte(Fp8Format),
     /// A whole float, read back by reinterpreting the bits of its slot.
     Bits(FloatKind),
 }
@@ -382,6 +487,45 @@ impl Packing {
 
 #[cfg(test)]
 mod tests {
+    use cubecl::ir::{ElemType, FloatKind};
+    use cubecl::quant::scheme::QuantValue;
+
+    const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
+    const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
+
+    /// `e2m1`'s values are `e4m3` and `e5m2` ones.
+    #[test]
+    fn e2m1_values_are_exact_in_either_8_bit_float() {
+        let e2m1 = super::Field::from(QuantValue::E2M1);
+        assert!(e2m1.values_exact_in(E4M3) && e2m1.values_exact_in(E5M2));
+    }
+
+    /// A 4-bit integer's values are `e4m3` ones: `e4m3` counts integers to 16.
+    #[test]
+    fn a_4_bit_integers_values_are_exact_in_e4m3() {
+        assert!(super::Field::from(QuantValue::Q4S).values_exact_in(E4M3));
+    }
+
+    /// An 8-bit integer's are not: `e4m3` holds no 17.
+    #[test]
+    fn an_8_bit_integers_values_are_not_exact_in_e4m3() {
+        assert!(!super::Field::from(QuantValue::Q8S).values_exact_in(E4M3));
+    }
+
+    /// `e4m3`'s values are its own, and not `e5m2`'s, which has fewer mantissa bits.
+    #[test]
+    fn e4m3_values_are_exact_in_e4m3_alone() {
+        let e4m3 = super::Field::from(QuantValue::E4M3);
+        assert!(e4m3.values_exact_in(E4M3) && !e4m3.values_exact_in(E5M2));
+    }
+
+    /// `e5m2`'s values are `f16` ones, whose exponent it shares.
+    #[test]
+    fn e5m2_values_are_exact_in_f16() {
+        let f16 = ElemType::Float(FloatKind::F16);
+        assert!(super::Field::from(QuantValue::E5M2).values_exact_in(f16));
+    }
+
     use super::*;
 
     #[test]
@@ -471,6 +615,15 @@ mod tests {
         );
         assert_eq!(Field::ConvertedE2M1.decode(), FieldDecode::Converted);
         assert_eq!(Field::ConvertedE2M1.per_word(), 8);
+        assert_eq!(
+            Field::ConvertedFp8(Fp8Format::E4M3).decode(),
+            FieldDecode::ConvertedByte(Fp8Format::E4M3)
+        );
+        assert_eq!(Field::ConvertedFp8(Fp8Format::E4M3).per_word(), 4);
+        assert_eq!(
+            Field::ConvertedFp8(Fp8Format::E4M3).fp8(),
+            Field::Fp8(Fp8Format::E4M3).fp8()
+        );
     }
 
     /// An `e2m1` code is one however a device reads it: converted, placed, or from its bits.

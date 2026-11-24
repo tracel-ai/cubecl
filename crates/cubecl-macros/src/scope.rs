@@ -71,6 +71,14 @@ pub struct Context {
     /// Flag that the function has an early return, used to avoid setting up return flags when
     /// they're not necessary
     pub has_early_return: bool,
+    /// Set while parsing a direct operand of `&&` or `||`: there a `comptime!` block makes the
+    /// operator short-circuit with a branch, while a bare comptime value lets it be a plain `and`,
+    /// so the wrapper changes the kernel and is never redundant.
+    pub in_short_circuit_operand: bool,
+    /// Set while parsing a `comptime!` that is the whole condition of an `if` or the whole value
+    /// of a `match`. There the macro picks a comptime branch for any comptime value, a lone
+    /// comptime local included, so the wrapper is redundant around one.
+    pub in_branch_selector: bool,
 }
 
 impl Context {
@@ -100,6 +108,8 @@ impl Context {
             debug_pos: None,
             debug_pos_count: 0,
             has_early_return: false,
+            in_short_circuit_operand: false,
+            in_branch_selector: false,
         }
     }
 
@@ -173,6 +183,18 @@ impl Context {
         self.level = level;
         self.mut_scope_idx = old_mut_idx;
         res
+    }
+
+    /// Whether `name` is a local the macro already holds as a comptime value, without counting it as
+    /// a use.
+    #[cfg(feature = "warn-redundant-comptime")]
+    pub fn is_const_variable(&self, name: &Ident) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev())
+            .find(|var| name == &var.name)
+            .is_some_and(|var| var.is_const && !var.is_keyword)
     }
 
     pub fn variable(&self, name: &Ident) -> Option<ManagedVar> {

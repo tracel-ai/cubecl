@@ -19,7 +19,7 @@ use cubecl::define_scalar;
 use cubecl::ir::{ElemType, ExpandValue, Scope};
 use cubecl::prelude::*;
 
-// The element a value is held at, apart from any name: a cmma fragment, a warpgroup accumulator
+// The element a value is held at, apart from any name: a cmma fragment, a plane group accumulator
 // or an erased call is kept at it and named at its element where it is used, and a read that
 // converts a value defines it for as long as the read expands.
 define_scalar!(pub(crate) Held);

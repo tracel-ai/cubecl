@@ -1,4 +1,5 @@
-use super::logger::{LogLevel, LoggerConfig};
+use super::debug_info::resolve_debug_info;
+use super::{LogLevel, LoggerConfig};
 use cubecl_ir::settings::DebugInfo;
 
 /// The debug data the cargo profile asks for: [`LineTables`](DebugInfo::LineTables) when the
@@ -9,42 +10,10 @@ pub const PROFILE_DEBUG_INFO: DebugInfo = if cfg!(cubecl_debug_info) {
     DebugInfo::None
 };
 
-/// The debug data of a kernel that asks for `requested`, with the global configuration: the same
-/// level as [`CompilationConfig::resolve_debug_info`]. It reads the configuration once, so a kernel
-/// id can call it at each launch.
-pub fn effective_debug_info(requested: DebugInfo) -> DebugInfo {
-    use super::{CubeClRuntimeConfig, RuntimeConfig};
-    use core::sync::atomic::{AtomicU8, Ordering};
-
-    const UNREAD: u8 = u8::MAX;
-    const NO_LIMIT: u8 = u8::MAX - 1;
-    static LIMIT: AtomicU8 = AtomicU8::new(UNREAD);
-
-    let mut limit = LIMIT.load(Ordering::Relaxed);
-    if limit == UNREAD {
-        limit = CubeClRuntimeConfig::get()
-            .compilation
-            .debug_info
-            .map_or(NO_LIMIT, |level| level as u8);
-        LIMIT.store(limit, Ordering::Relaxed);
-    }
-    // Decode with the casts that encoded the level, so the order of the variants does not matter.
-    let limit = [DebugInfo::None, DebugInfo::LineTables, DebugInfo::Full]
-        .into_iter()
-        .find(|level| *level as u8 == limit);
-    resolve_debug_info(requested, limit)
-}
-
-/// At least [`PROFILE_DEBUG_INFO`], at most `limit`.
-fn resolve_debug_info(requested: DebugInfo, limit: Option<DebugInfo>) -> DebugInfo {
-    let level = requested.max(PROFILE_DEBUG_INFO);
-    limit.map_or(level, |limit| level.min(limit))
-}
-
-/// Configuration for compilation settings in `CubeCL`.
+/// How kernels compile: their bounds checks, debug data and dumps, and the threads they compile on.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CompilationConfig {
-    /// Logger configuration for compilation logs, using binary log levels.
+    /// Where the compilation log goes, and how much it says.
     #[serde(default)]
     pub logger: LoggerConfig<CompilationLogLevel>,
     /// Whether compiled kernels are cached in the active environment.
@@ -104,7 +73,7 @@ impl CompilationConfig {
         #[cfg(all(feature = "std", not(target_family = "wasm")))]
         let threads = self
             .parallelism
-            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |cores| cores.get()));
+            .unwrap_or_else(|| cubecl_common::device_handle::ProcessCpus::get().parallelism());
         #[cfg(any(not(feature = "std"), target_family = "wasm"))]
         let threads = 1;
 
@@ -168,7 +137,7 @@ pub enum SpirvDebugFormat {
     NonSemantic,
 }
 
-/// Bounds checks options.
+/// Which launches check their accesses against the bounds of what they read and write.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BoundsCheckMode {
     #[serde(rename = "enforce")]
@@ -184,10 +153,10 @@ pub enum BoundsCheckMode {
     Auto,
 }
 
-/// Log levels for compilation in `CubeCL`.
+/// How much the compilation log says.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CompilationLogLevel {
-    /// Compilation logging is disabled.
+    /// No compilation log is written.
     #[default]
     #[serde(rename = "disabled")]
     Disabled,
@@ -208,33 +177,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debug_info_follows_the_profile_and_the_kernel() {
-        let config = CompilationConfig::default();
-        assert_eq!(
-            config.resolve_debug_info(DebugInfo::None),
-            PROFILE_DEBUG_INFO
-        );
-        assert_eq!(config.resolve_debug_info(DebugInfo::Full), DebugInfo::Full);
-    }
-
-    #[test]
-    fn debug_info_limit_only_lowers() {
+    fn the_configured_limit_lowers_debug_data() {
         let config = CompilationConfig {
             debug_info: Some(DebugInfo::LineTables),
             ..Default::default()
         };
+
         assert_eq!(
             config.resolve_debug_info(DebugInfo::Full),
             DebugInfo::LineTables
         );
+    }
 
+    #[test]
+    fn at_least_one_thread_compiles() {
         let config = CompilationConfig {
-            debug_info: Some(DebugInfo::Full),
+            parallelism: Some(0),
             ..Default::default()
         };
+
+        assert_eq!(config.parallelism(), 1);
+    }
+
+    #[test]
+    fn a_host_with_native_f16_rounds_per_operation() {
         assert_eq!(
-            config.resolve_debug_info(DebugInfo::None),
-            PROFILE_DEBUG_INFO
+            F16Evaluation::for_native_f16(true),
+            F16Evaluation::PerOperation
         );
+    }
+
+    #[test]
+    fn a_host_without_native_f16_rounds_chains() {
+        assert_eq!(F16Evaluation::for_native_f16(false), F16Evaluation::Chain);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn display_writes_the_config_name() {
+        for mode in [
+            F16Evaluation::PerOperation,
+            F16Evaluation::Chain,
+            F16Evaluation::Accumulators,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&mode).unwrap(),
+                alloc::format!("\"{mode}\"")
+            );
+        }
     }
 }

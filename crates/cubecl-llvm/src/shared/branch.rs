@@ -4,7 +4,9 @@ use crate::prelude::*;
 #[cfg(feature = "nvptx")]
 use crate::shared::loop_hints::LoopHint;
 #[cfg(feature = "nvptx")]
-use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp};
+use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp};
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::dialect::tma::TmaLoadOp;
 use cubecl_core::ir::dialect::{
     BlockPtrExt,
     branch::{self, ConditionOp, IsExitTerminator},
@@ -13,7 +15,13 @@ use cubecl_core::ir::dialect::{
     math::IAddOp,
     scf::{ForOp, IfOp, SwitchOp, WhileOp},
 };
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::interfaces::aliasing::PointerExt;
+#[cfg(feature = "nvptx")]
+use pliron::linked_list::ContainsLinkedList;
 use pliron::region::Region;
+#[cfg(feature = "nvptx")]
+use std::collections::HashSet;
 
 #[op_interface]
 pub trait LowerCpuCF {
@@ -328,8 +336,12 @@ fn split_join_block(
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoopShape {
-    /// A trip count known at compile time, and a body indexing a local array.
+    /// A trip count known at compile time, and a body indexing a local array at an index that
+    /// can differ between turns.
     ConstantOverLocalArray,
+    /// A body issuing bulk tensor copies: a pipeline's walk, which waits on each copy it issues
+    /// a lap later.
+    IssuesBulkCopies,
     Other,
 }
 
@@ -337,19 +349,24 @@ pub(crate) enum LoopShape {
 impl LoopShape {
     /// What this loop's target should be asked for, or `None` to leave it to LLVM's cost model.
     ///
-    /// A loop of a constant trip count over a local array is worth unrolling completely on
-    /// NVPTX, as NVVM does: only then is every index a constant, and a local array indexed by
-    /// constants alone becomes registers instead of local memory. LLVM's NVPTX cost model stops
-    /// short of that for a loop of more than a handful of steps (a top-k accumulator's 64, say),
-    /// and the array it leaves in local memory costs several times the loop. AMDGPU's cost model
-    /// already raises its threshold for a loop that touches a private array, so it needs no hint.
+    /// A loop of a constant trip count that steps through a local array is worth unrolling
+    /// completely on NVPTX, as NVVM does: once the index is a constant, a local array indexed by
+    /// constants alone becomes registers instead of local memory. LLVM's NVPTX cost
+    /// model stops short of that for a loop of more than a handful of steps (a top-k accumulator's
+    /// 64, say), and the array it leaves in local memory costs several times the loop. AMDGPU's
+    /// cost model already raises its threshold for a loop that touches a private array, so it needs
+    /// no hint.
+    ///
+    /// A loop issuing bulk tensor copies is left a loop: its body already unrolls the ring it fills
+    /// by hand, a slot a copy, and a walk of a constant number of laps unrolled completely only
+    /// grows the code the instruction cache holds. On an RTX PRO 6000 a filling plane's walk of
+    /// forty stages, unrolled, took a block-scaled product's kernel from two thousand instructions
+    /// to nine and a half, and its time up by seven percent.
     fn hint(self, target: LlvmTarget) -> Option<LoopHint> {
-        match self {
-            LoopShape::ConstantOverLocalArray => match target {
-                LlvmTarget::Nvptx => Some(LoopHint::UnrollFull),
-                _ => None,
-            },
-            LoopShape::Other => None,
+        match (self, target) {
+            (LoopShape::IssuesBulkCopies, LlvmTarget::Nvptx) => Some(LoopHint::UnrollDisable),
+            (LoopShape::ConstantOverLocalArray, LlvmTarget::Nvptx) => Some(LoopHint::UnrollFull),
+            _ => None,
         }
     }
 
@@ -368,7 +385,13 @@ impl LoopShape {
                 .defining_op()
                 .is_some_and(|def| Operation::get_op::<ConstantOp>(def, ctx).is_some())
         };
-        if constant(start) && constant(end) && constant(step) && indexes_local_array(ctx, op) {
+        if issues_bulk_copies(ctx, op) {
+            LoopShape::IssuesBulkCopies
+        } else if constant(start)
+            && constant(end)
+            && constant(step)
+            && steps_through_local_array(ctx, op)
+        {
             LoopShape::ConstantOverLocalArray
         } else {
             LoopShape::Other
@@ -376,9 +399,9 @@ impl LoopShape {
     }
 }
 
-/// Whether the body of `op` indexes a local array, stopping at the first index that does.
+/// Whether the body of `looped` issues a bulk tensor copy, stopping at the first.
 #[cfg(feature = "nvptx")]
-fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
+fn issues_bulk_copies(ctx: &Context, looped: Ptr<Operation>) -> bool {
     use pliron::graph::walkers::{
         IRNode, WALKCONFIG_PREORDER_FORWARD,
         interruptible::{immutable::walk_op, walk_advance, walk_break},
@@ -388,19 +411,42 @@ fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
         ctx,
         &mut (),
         &WALKCONFIG_PREORDER_FORWARD,
-        op,
-        |ctx, _, node| {
+        looped,
+        |ctx, _, node| match node {
+            IRNode::Operation(op) if op.is_op::<TmaLoadOp>(ctx) => walk_break(()),
+            _ => walk_advance(),
+        },
+    )
+    .is_break()
+}
+
+/// Whether the body of `looped` indexes a local array at an index that can differ between its
+/// turns, stopping at the first that does.
+#[cfg(feature = "nvptx")]
+fn steps_through_local_array(ctx: &Context, looped: Ptr<Operation>) -> bool {
+    use pliron::graph::walkers::{
+        IRNode, WALKCONFIG_PREORDER_FORWARD,
+        interruptible::{immutable::walk_op, walk_advance, walk_break},
+    };
+
+    walk_op(
+        ctx,
+        &mut (looped, HashSet::new()),
+        &WALKCONFIG_PREORDER_FORWARD,
+        looped,
+        |ctx, (looped, seen), node| {
             let IRNode::Operation(op) = node else {
                 return walk_advance();
             };
-            let local = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
+            let steps = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
                 index
                     .base(ctx)
-                    .defining_op()
+                    .get_root_defining_op(ctx)
                     .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
                     .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local)
+                    && varies_per_turn(ctx, index.index(ctx), *looped, seen)
             });
-            if local {
+            if steps {
                 walk_break(())
             } else {
                 walk_advance()
@@ -408,6 +454,52 @@ fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
         },
     )
     .is_break()
+}
+
+/// Whether `value` can differ between the turns of the loop `looped`. A load ends the search:
+/// unrolling does not make what memory holds a constant. A nested loop's counter depends only on
+/// its bounds; any other value defined by a structured op inside `looped` depends on everything
+/// that op reads or yields.
+#[cfg(feature = "nvptx")]
+fn varies_per_turn(
+    ctx: &Context,
+    value: Value,
+    looped: Ptr<Operation>,
+    seen: &mut HashSet<Value>,
+) -> bool {
+    if !seen.insert(value) {
+        return false;
+    }
+    let Some(source) = value
+        .defining_op()
+        .or_else(|| value.defining_block()?.deref(ctx).get_parent_op(ctx))
+    else {
+        return false;
+    };
+    if source == looped {
+        return true;
+    }
+    if !looped.is_ancestor_of(ctx, source) || source.is_op::<LoadOp>(ctx) {
+        return false;
+    }
+    if let Some(nested) = source.as_op::<ForOp>(ctx)
+        && value == nested.iter_var(ctx)
+    {
+        return [nested.start(ctx), nested.end(ctx), nested.step(ctx)]
+            .into_iter()
+            .any(|bound| varies_per_turn(ctx, bound, looped, seen));
+    }
+    let yielded = source
+        .regions(ctx)
+        .into_iter()
+        .flat_map(|region| region.deref(ctx).iter(ctx).collect::<Vec<_>>())
+        .filter_map(|block| block.deref(ctx).get_terminator(ctx))
+        .flat_map(|terminator| terminator.operands(ctx));
+    source
+        .operands(ctx)
+        .into_iter()
+        .chain(yielded)
+        .any(|operand| varies_per_turn(ctx, operand, looped, seen))
 }
 
 fn branch_to_yielded(
@@ -476,6 +568,15 @@ mod tests {
         let asked = |target| LoopShape::ConstantOverLocalArray.hint(target);
         assert_eq!(asked(LlvmTarget::Nvptx), Some(LoopHint::UnrollFull));
         // AMDGPU's own cost model already unrolls these, and the CPU has no such loop hint.
+        #[cfg(feature = "amdgpu")]
+        assert_eq!(asked(LlvmTarget::AmdGpu), None);
+        assert_eq!(asked(LlvmTarget::Cpu), None);
+    }
+
+    #[test]
+    fn only_nvptx_is_asked_to_keep_a_loop_issuing_bulk_copies() {
+        let asked = |target| LoopShape::IssuesBulkCopies.hint(target);
+        assert_eq!(asked(LlvmTarget::Nvptx), Some(LoopHint::UnrollDisable));
         #[cfg(feature = "amdgpu")]
         assert_eq!(asked(LlvmTarget::AmdGpu), None);
         assert_eq!(asked(LlvmTarget::Cpu), None);

@@ -1,4 +1,6 @@
-use cubecl_ir::dialect::synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope};
+use cubecl_ir::dialect::synchronization::{
+    ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+};
 
 use crate::compiler::wgsl::to_wgsl::{wasm_inventory_root, wgsl_op};
 
@@ -8,8 +10,9 @@ wgsl_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
         SyncScope::Plane | SyncScope::Cube => "workgroupBarrier();\n".into(),
         // The storage half is all WGSL can say across workgroups, and the workgroup
-        // barrier is the cube scope this one contains.
-        SyncScope::Device => "storageBarrier();\nworkgroupBarrier();\n".into(),
+        // barrier is the cube scope this one contains. No memory is shared with another
+        // device, so the system is the device.
+        SyncScope::Device | SyncScope::System => "storageBarrier();\nworkgroupBarrier();\n".into(),
         SyncScope::Unit => "".into(),
     }
 });
@@ -18,3 +21,6 @@ wgsl_op!(SyncOp, |op, ctx| {
 wgsl_op!(SyncPlaneStorageOp, |_, _| {
     "storageBarrier();\nworkgroupBarrier();\n".into()
 });
+
+// WGSL says nothing to the scheduler of the compiler that takes it.
+wgsl_op!(ScheduleBarrierOp, |_, _| String::new());

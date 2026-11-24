@@ -2,6 +2,7 @@
 //! no device, no runtime, only the stored bytes.
 
 use cubecl_environment::bundle::{BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
+use cubecl_environment::environment::BuildStamp;
 use cubecl_environment::persistence::{Access, Database, Origin};
 use cubecl_environment::records::{self, MarkRecord, Record, Session, SessionId, Stamp, Stamped};
 use cubecl_environment::stream::StreamId;
@@ -255,7 +256,11 @@ fn fixture(dir: &Path) -> PathBuf {
                 record: CompilationRecord {
                     kernel: kernel.to_string(),
                     ir: Some(format!("{kernel} ir")),
-                    key: KernelCacheKey { id, build_id: 1 },
+                    key: KernelCacheKey {
+                        id,
+                        variant: 0,
+                        built_by: BuildStamp { hash: 1 },
+                    },
                     outcome: outcome.0,
                     work: outcome.1,
                     source: None,
@@ -293,7 +298,8 @@ fn fixture(dir: &Path) -> PathBuf {
         "hip/0.11.0/gfx1151",
         &cbor(&KernelCacheKey {
             id: MATMUL,
-            build_id: 1,
+            variant: 0,
+            built_by: BuildStamp { hash: 1 },
         }),
         &[0; 64],
         Origin::Local,
@@ -310,15 +316,15 @@ fn fixture(dir: &Path) -> PathBuf {
     let pool = MemoryPoolReport {
         kind: MemoryPoolKind::Persistent,
         usage: MemoryUsage {
-            number_allocs: 2,
-            bytes_in_use: 1000,
-            bytes_padding: 100,
-            bytes_reserved: 4096,
+            allocation_count: 2,
+            in_use_bytes: 1000,
+            padding_bytes: 100,
+            reserved_bytes: 4096,
         },
-        pages: 1,
-        pages_peak: 2,
-        pages_unmapped: 0,
-        largest_alloc: 800,
+        page_count: 1,
+        peak_page_count: 2,
+        unmapped_page_count: 0,
+        largest_alloc_bytes: 800,
     };
     insert_record(
         &database,
@@ -350,6 +356,7 @@ fn fixture(dir: &Path) -> PathBuf {
             devices: vec!["hip-gfx1151".to_string()],
             ..Default::default()
         }],
+        saved_by: None,
     }
     .write_to(&database)
     .expect("writes the manifest");
@@ -385,7 +392,7 @@ fn the_summary_totals_every_namespace_by_root() {
     let summary = inspector.summary();
 
     assert_eq!(summary.entries(), 13);
-    assert_eq!(summary.autotune_keys(), 4);
+    assert_eq!(summary.autotune_answers(), 4);
     let roots: Vec<(String, u64)> = summary
         .roots()
         .into_iter()
@@ -783,8 +790,8 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
             .all(|row| row.root().as_str() != "records")
     );
     assert_eq!(
-        stripped.autotune_keys(),
-        Inspector::new(file).summary().autotune_keys()
+        stripped.autotune_answers(),
+        Inspector::new(file).summary().autotune_answers()
     );
     assert_eq!(
         stripped.manifest.expect("an export carries one").name,
@@ -916,7 +923,8 @@ fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
                 ir: None,
                 key: KernelCacheKey {
                     id: MATMUL,
-                    build_id: 2,
+                    variant: 0,
+                    built_by: BuildStamp { hash: 2 },
                 },
                 outcome: CompilationOutcome::Compiled,
                 work: Duration::from_millis(90),
@@ -1090,7 +1098,10 @@ fn memory_snapshots_read_back_in_order() {
     assert_eq!(memory.snapshots.len(), 1);
     let snapshot = &memory.snapshots[0].record;
     assert_eq!(snapshot.label, "walked");
-    assert_eq!(snapshot.report.streams[0].pools.persistent.pages_peak, 2);
+    assert_eq!(
+        snapshot.report.streams[0].pools.persistent.peak_page_count,
+        2
+    );
 }
 
 /// A second environment beside the fixture: the m=128 key answered by the other
@@ -1289,7 +1300,7 @@ fn pruning_keeps_the_newest_sessions_records() {
             .all(|key| key.tune.is_none())
     );
     assert!(inspector.kernels().kernels.is_empty());
-    assert_eq!(summary.autotune_keys(), 4, "the caches are untouched");
+    assert_eq!(summary.autotune_answers(), 4, "the caches are untouched");
 }
 
 /// Pruning a shipped file in place leaves it shipped: out of WAL, so it

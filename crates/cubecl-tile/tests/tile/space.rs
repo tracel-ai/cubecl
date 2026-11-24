@@ -2,23 +2,23 @@
 
 use super::{Form, implied};
 use cubecl::prelude::*;
-use cubecl_tile::{Axis, Launcher, Level, Levels, Partitioning, Space};
+use cubecl_tile::{Dimension, Launcher, Level, Levels, Partitioning, Space};
 
-// Matmul-style axis labels reused across the cases below. `B0`/`B1` are two
-// independent batch axes (a batch is just ordinary axes; broadcasting is omission).
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
-const B0: Axis = Axis(3);
-const B1: Axis = Axis(4);
-// A second contracted axis (a partitioned `K`), and one a walk routes.
-const K2: Axis = Axis(5);
-const EXPERT: Axis = Axis(6);
+// Matmul-style dimension labels reused across the cases below. `B0`/`B1` are two
+// independent batch dimensions (a batch is just ordinary dimensions; broadcasting is omission).
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
+const B0: Dimension = Dimension(3);
+const B1: Dimension = Dimension(4);
+// A second contracted dimension (a partitioned `K`), and one a walk routes.
+const K2: Dimension = Dimension(5);
+const EXPERT: Dimension = Dimension(6);
 
 // ---- Space ----------------------------------------------------------------
 
 #[test]
-fn new_builds_plain_axes() {
+fn new_builds_plain_dimensions() {
     let space = Space::new(&[(M, 4), (N, 8), (K, 2)]);
     assert_eq!(space.rank(), 3);
     assert_eq!(space.extent(M), 4);
@@ -27,14 +27,14 @@ fn new_builds_plain_axes() {
 }
 
 #[test]
-fn project_keeps_listed_axes_in_order() {
+fn project_keeps_listed_dimensions_in_order() {
     let space = Space::new(&[(B0, 12), (M, 16), (K, 8)]);
     let lhs = space.subspace(&[B0, M, K]);
     assert_eq!(lhs.rank(), 3);
     assert_eq!(lhs.extent(B0), 12);
     assert_eq!(lhs.extent(M), 16);
 
-    // An operand broadcasts a batch axis by simply leaving it out of the projection.
+    // An operand broadcasts a batch dimension by simply leaving it out of the projection.
     let dropped = space.subspace(&[M, K]);
     assert_eq!(dropped.rank(), 2);
     assert!(!dropped.contains(B0));
@@ -42,7 +42,7 @@ fn project_keeps_listed_axes_in_order() {
 
 #[test]
 fn merge_assembles_two_batch_broadcast() {
-    // lhs carries B0, rhs carries B1; each omits (broadcasts) the other's batch axis.
+    // lhs carries B0, rhs carries B1; each omits (broadcasts) the other's batch dimension.
     // The merge rebuilds the full {B0, B1, M, N, K} operation space.
     let lhs = Space::new(&[(B0, 4), (M, 16), (K, 8)]);
     let rhs = Space::new(&[(B1, 3), (K, 8), (N, 4)]);
@@ -53,22 +53,22 @@ fn merge_assembles_two_batch_broadcast() {
     assert_eq!(merged.extent(B0), 4);
     assert_eq!(merged.extent(B1), 3);
     assert_eq!(merged.extent(K), 8);
-    // First-appearance order: out's axes lead, K (only on the operands) comes last.
-    assert_eq!(merged.axis_at(0), B0);
-    assert_eq!(merged.axis_at(1), B1);
-    assert_eq!(merged.axis_at(4), K);
+    // First-appearance order: out's dimensions lead, K (only on the operands) comes last.
+    assert_eq!(merged.dimension_at(0), B0);
+    assert_eq!(merged.dimension_at(1), B1);
+    assert_eq!(merged.dimension_at(4), K);
 }
 
 #[test]
-fn merge_shared_size_one_axis_broadcasts() {
-    // A shared axis where one side is size 1 broadcasts to the other (numpy rule).
+fn merge_shared_size_one_dimension_broadcasts() {
+    // A shared dimension where one side is size 1 broadcasts to the other (numpy rule).
     let lhs = Space::new(&[(B0, 1), (M, 16)]);
     let rhs = Space::new(&[(B0, 4), (M, 16)]);
     assert_eq!(Space::merge(&[&lhs, &rhs]).extent(B0), 4);
 }
 
 #[test]
-fn merge_omitted_axis_broadcasts_wholesale() {
+fn merge_omitted_dimension_broadcasts_wholesale() {
     let lhs = Space::new(&[(B0, 12), (M, 16), (K, 8)]);
     let rhs = Space::new(&[(K, 8), (N, 4)]);
 
@@ -78,7 +78,7 @@ fn merge_omitted_axis_broadcasts_wholesale() {
 }
 
 #[test]
-fn merge_plain_shared_axis_agrees() {
+fn merge_plain_shared_dimension_agrees() {
     let lhs = Space::new(&[(M, 16), (K, 8)]);
     let rhs = Space::new(&[(K, 8), (N, 4)]);
     let merged = Space::merge(&[&lhs, &rhs]);
@@ -97,7 +97,7 @@ fn merge_conflicting_extent_panics() {
 // ---- Level::child (the tiling scheme) --------------------------------------
 
 #[test]
-fn a_level_cuts_each_axis_to_its_tile() {
+fn a_level_cuts_each_dimension_to_its_tile() {
     let level = Level::every(&[(M, 4), (N, 3), (K, 2)]);
     let tile = level.child(&Space::new(&[(M, 16), (N, 12), (K, 8)]));
     assert_eq!(tile.extent(M), 4);
@@ -124,31 +124,32 @@ fn levels_chain_into_a_multi_level_scheme() {
 
 // ---- contracting ----------------------------------------------------------
 
-/// A routed axis, as the leaf sees it: it holds one value, only the rhs spans it, and the output
-/// does not carry it. It pairs with nothing and contracts nothing, so it is not one of the
-/// contracted axes, and the fastest one is the one both operands line along.
+/// A routed dimension, as the leaf sees it: it holds one value, only the rhs spans it, and the
+/// output does not carry it. It pairs with nothing and contracts nothing, so it is not one of the
+/// contracted dimensions, and the fastest one is the one both operands line along.
 #[test]
-fn a_routed_axis_is_not_contracted() {
+fn a_routed_dimension_is_not_contracted() {
     let lhs = Space::new(&[(M, 1), (K, 8)]);
     let rhs = Space::new(&[(EXPERT, 1), (N, 4), (K, 8)]);
     let out = Space::new(&[(M, 1), (N, 4)]);
     assert_eq!(&Space::contracted(&[&lhs, &rhs], &out)[..], &[K]);
 }
 
-/// An rhs-only axis holding more than one value is a contraction the walk has to step, and
+/// An rhs-only dimension holding more than one value is a contraction the walk has to step, and
 /// stays.
 #[test]
-fn an_axis_one_operand_spans_is_contracted_while_it_varies() {
+fn a_dimension_one_operand_spans_is_contracted_while_it_varies() {
     let lhs = Space::new(&[(M, 1), (K, 8)]);
     let rhs = Space::new(&[(EXPERT, 3), (N, 4), (K, 8)]);
     let out = Space::new(&[(M, 1), (N, 4)]);
     assert_eq!(&Space::contracted(&[&lhs, &rhs], &out)[..], &[K, EXPERT]);
 }
 
-/// A one-tap window on both axes of a separable filter, as nearest interpolation contracts: every
-/// operand spans both axes, so both stay, and each factor keeps the axis it names by position.
+/// A one-tap window on both dimensions of a separable filter, as nearest interpolation contracts:
+/// every operand spans both dimensions, so both stay, and each factor keeps the dimension it names
+/// by position.
 #[test]
-fn a_one_value_axis_every_operand_spans_is_contracted() {
+fn a_one_value_dimension_every_operand_spans_is_contracted() {
     let weights = Space::new(&[(M, 4), (K, 1), (K2, 1)]);
     let input = Space::new(&[(M, 4), (K, 1), (K2, 1), (N, 4)]);
     let out = Space::new(&[(M, 4), (N, 4)]);
@@ -176,8 +177,8 @@ fn cpu_matmul_nest(m: usize, n: usize, k: usize) -> Launcher {
     )
 }
 
-fn hangs(launcher: &Launcher, axis: Axis) -> bool {
-    launcher.partitioning().overhangs(axis)
+fn hangs(launcher: &Launcher, dimension: Dimension) -> bool {
+    launcher.partitioning().overhangs(dimension)
 }
 
 #[test]
@@ -207,7 +208,7 @@ fn overhangs_with_no_level_never() {
 
 #[test]
 #[should_panic(expected = "concrete space")]
-fn overhangs_dynamic_axis_panics() {
+fn overhangs_dynamic_dimension_panics() {
     let launcher = implied(
         &cubecl::test_device().client(),
         Partitioning::new(
@@ -221,8 +222,8 @@ fn overhangs_dynamic_axis_panics() {
 
 // ---- Level constructors ----------------------------------------------------------
 
-/// The tiles of several axes distributed as one index: the shares ride the cubes even though no
-/// axis does, so the launch grid is their count.
+/// The tiles of several dimensions distributed as one index: the shares ride the cubes even though
+/// no dimension does, so the launch grid is their count.
 #[test]
 fn shared_tiles_launch_their_instances() {
     let launcher = implied(
@@ -243,7 +244,7 @@ fn shared_tiles_launch_their_instances() {
     assert_eq!(launcher.partitioning().levels().len(), 2);
 }
 
-/// Batch axes ride `Z` one tile each, however many there are and however they are listed: a
+/// Batch dimensions ride `Z` one tile each, however many there are and however they are listed: a
 /// box of the grid, not a share.
 #[test]
 fn batches_are_a_dial_each() {
@@ -278,14 +279,14 @@ fn batches_are_a_dial_each() {
     // No work: the lowering that reads this is the one that picks the per-region accumulator
     // nest.
     assert!(one_line.partitioning().level(0).shared_by().is_none());
-    // Both axes ride Z, one cube per (B0, B1) pair, behind the `4 x 2` grid on X and Y.
+    // Both dimensions ride Z, one cube per (B0, B1) pair, behind the `4 x 2` grid on X and Y.
     assert!(matches!(one_line.cube_count(), CubeCount::Static(4, 2, 6)));
 }
 
-/// One axis is a box whatever the count, so `across` on it distributes the axis's own tiles over
-/// the scope, which is what a cut has always meant: no work is stated.
+/// One dimension is a box whatever the count, so `across` on it distributes the dimension's own
+/// tiles over the scope, which is what a cut has always meant: no work is stated.
 #[test]
-fn one_axis_across_a_count_is_a_dial() {
+fn one_dimension_across_a_count_is_a_dial() {
     let launcher = implied(
         &cubecl::test_device().client(),
         Partitioning::new(
@@ -302,9 +303,9 @@ fn one_axis_across_a_count_is_a_dial() {
     assert!(matches!(launcher.cube_count(), CubeCount::Static(4, 1, 1)));
 }
 
-/// Nothing named is nothing said: a level that names no axis cuts every cube the whole space.
+/// Nothing named is nothing said: a level that names no dimension cuts every cube the whole space.
 #[test]
-fn a_level_naming_no_axis_distributes_everything_to_one_cube() {
+fn a_level_naming_no_dimension_distributes_everything_to_one_cube() {
     let launcher = implied(
         &cubecl::test_device().client(),
         Partitioning::new(
@@ -347,18 +348,19 @@ fn sharing_tiles_with_a_knob_on_an_entry_is_refused() {
         .build();
 }
 
-/// A level states each of its axes once, whichever way it states them.
+/// A level states each of its dimensions once, whichever way it states them.
 #[test]
-#[should_panic = "a level states each of its axes once"]
-fn an_axis_named_twice_is_refused() {
+#[should_panic = "a level states each of its dimensions once"]
+fn a_dimension_named_twice_is_refused() {
     let _ = Levels::leaf(&[(M, 16)]).cubes(&[M, M]).build();
 }
 
 // ---- A level that cuts nothing --------------------------------------------
 
-/// A level that takes one of the thing below has one region on every axis, so it partitions
+/// A level that takes one of the thing below has one region on every dimension, so it partitions
 /// nothing. It stays all the same: the kernel walks the levels it stated, one loop per level, so
-/// the list must hold every one. A one-region walk evaluates away in the kernel, so it costs nothing.
+/// the list must hold every one. A one-region walk evaluates away in the kernel, so it costs
+/// nothing.
 #[test]
 fn a_level_that_cuts_nothing_is_kept() {
     let plain = implied(

@@ -98,10 +98,10 @@ pub trait WriteScoped: Sized {
 pub enum ScopedOutcome<R> {
     /// It ran, and its write set has a writer again.
     Executed(R),
-    /// It did not run, because an input it needed carried a failure. Its
+    /// It did not run, because an input it needed carried this failure. Its
     /// write set carries that same failure now, so a read of one of those
     /// buffers names the original cause.
-    Skipped,
+    Skipped(ServerError),
     /// It ran and failed. Its write set carries the error.
     Failed(ServerError),
 }
@@ -119,7 +119,7 @@ impl<R> ScopedOutcome<R> {
         match self {
             ScopedOutcome::Executed(result) => Ok(result),
             ScopedOutcome::Failed(error) => Err(error),
-            ScopedOutcome::Skipped => Err(ServerError::Skipped),
+            ScopedOutcome::Skipped(_) => Err(ServerError::Skipped),
         }
     }
 }
@@ -136,7 +136,7 @@ enum Opened {
     },
     /// Skipped: the write set already carries the failure its inputs did, and
     /// nothing else is owed.
-    Skipped,
+    Skipped(ServerError),
 }
 
 /// One scope around a unit of device work.
@@ -204,13 +204,13 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
         Self {
             server,
             stream,
-            opened: Opened::Skipped,
+            opened: Opened::Skipped(found.error),
         }
     }
 
     /// Whether this scope skipped, so its body will not run.
     pub fn skipped(&self) -> bool {
-        matches!(self.opened, Opened::Skipped)
+        matches!(self.opened, Opened::Skipped(_))
     }
 
     /// Run `body` and settle the write set.
@@ -224,12 +224,12 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
         self,
         body: impl FnOnce(&mut S) -> Result<R, ServerError>,
     ) -> ScopedOutcome<R> {
-        let Opened::Entered {
-            provisional,
-            written,
-        } = self.opened
-        else {
-            return ScopedOutcome::Skipped;
+        let (provisional, written) = match self.opened {
+            Opened::Entered {
+                provisional,
+                written,
+            } => (provisional, written),
+            Opened::Skipped(error) => return ScopedOutcome::Skipped(error),
         };
 
         let result = body(self.server);

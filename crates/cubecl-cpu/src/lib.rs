@@ -56,6 +56,44 @@ mod tests {
         assert_eq!(&*lazy, &[8, 2, 3, 4]);
     }
 
+    /// The bytes of the binding the write tests target, and the byte it starts filled with.
+    const BINDING_BYTES: usize = 8;
+    const FILL: u8 = 9;
+
+    /// A write shorter than its binding fills its start and leaves the rest as it was.
+    #[test]
+    fn a_short_write_fills_the_start_of_its_binding() {
+        use cubecl_common::bytes::Bytes;
+
+        let client = TestRuntime::client(&Default::default());
+        let written = [1, 2, 3];
+        let handle = client.create_from_slice(&[FILL; BINDING_BYTES]);
+        client.write(&handle, Bytes::from_bytes_vec(written.to_vec()));
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+
+        let mut expected = [FILL; BINDING_BYTES];
+        expected[..written.len()].copy_from_slice(&written);
+        assert_eq!(&*client.read_one_unchecked(handle), &expected);
+    }
+
+    /// A write longer than its binding is refused, as on CUDA and HIP: the binding is left
+    /// unwritten, so a read of it fails on the refusal.
+    #[test]
+    fn a_write_past_its_binding_fails_its_read() {
+        use cubecl_common::bytes::Bytes;
+
+        let client = TestRuntime::client(&Default::default());
+        let written = BINDING_BYTES + 1;
+        let handle = client.create_from_slice(&[FILL; BINDING_BYTES]);
+        client.write(&handle, Bytes::from_bytes_vec(vec![1; written]));
+        let err = client
+            .read_one(handle)
+            .expect_err("a write past the binding must fail");
+        let expected =
+            format!("write of {written} bytes exceeds the target buffer of {BINDING_BYTES} bytes");
+        assert!(err.to_string().contains(&expected), "got: {err}");
+    }
+
     /// Eager reads remain live aliases; shared views report aliasing until their own copy-on-write.
     #[test]
     fn eager_reads_preserve_source_mutability() {
@@ -493,10 +531,12 @@ mod tests {
     #[test]
     fn queued_cpu_kernel_keeps_buffer_bindings_alive_until_execution() {
         let client = TestRuntime::client(&Default::default());
-        let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+        let max_stream_count = CubeClRuntimeConfig::get().streaming.max_stream_count as u64;
 
         let stream_a = StreamId { value: 0 };
-        let stream_b = StreamId { value: max_streams };
+        let stream_b = StreamId {
+            value: max_stream_count,
+        };
 
         let client_a = unsafe {
             let mut client = client.clone();

@@ -42,7 +42,7 @@ const KEYS: usize = 64;
 /// Cells a 16-byte line of `f16` holds.
 const LINE: usize = 8;
 
-/// Lines a staged row spans, one more than the dim's: the padding line shifts each row four banks,
+/// Lines a staged row spans, one more than the axis's: the padding line shifts each row four banks,
 /// so the eight rows one `ldmatrix` reads land in distinct banks.
 const ROW_LINES: usize = DIM / LINE + 1;
 
@@ -71,7 +71,7 @@ fn register_attention(
     let a_size = def.vector_size(MatrixIdent::A);
     let c_size = def.vector_size(MatrixIdent::Accumulator);
     let b_layout = def.vector_layout(MatrixIdent::B);
-    // Keys are staged `[key, dim]`: `kᵀ`'s `B` lies col-major in them, `v`'s row-major.
+    // Keys are staged `[key, axis]`: `kᵀ`'s `B` lies col-major in them, `v`'s row-major.
     let key_transposed = comptime!(b_layout != MatrixLayout::ColMajor);
     let value_transposed = comptime!(b_layout != MatrixLayout::RowMajor);
 
@@ -123,9 +123,9 @@ fn register_attention(
     // Two stages: the next block's keys and values land by async copy while this one computes.
     let stage_lines = comptime!(KEYS * ROW_LINES);
     let mut key_stage =
-        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(comptime!(2 * stage_lines), 16usize);
+        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(2 * stage_lines, 16usize);
     let mut value_stage =
-        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(comptime!(2 * stage_lines), 16usize);
+        Shared::<[Vector<f16, Const<8>>]>::new_aligned_slice(2 * stage_lines, 16usize);
     let landed_even = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let landed_odd = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let kv_base = kv_head * keys * comptime!((DIM / LINE) as u32);
@@ -185,12 +185,12 @@ fn register_attention(
                 for r in 0..a_regs {
                     a[r] = query[comptime!(step * a_regs + r)];
                 }
-                // `kᵀ`'s `(dim, key)` lies at the stage's `(key, dim)`.
+                // `kᵀ`'s `(axis, key)` lies at the stage's `(key, axis)`.
                 let key = comptime!(tile as u32 * 8) + b_col + row_in_matrix;
-                let dim = comptime!(step as u32 * 16) + b_row;
+                let axis = comptime!(step as u32 * 16) + b_row;
                 let at = (stage_base
                     + key * comptime!(ROW_LINES as u32)
-                    + dim / comptime!(LINE as u32)) as usize;
+                    + axis / comptime!(LINE as u32)) as usize;
                 let b = def.load_matrix::<Vector<f16, Const<8>>, NB>(
                     &key_stage[at..at + 1],
                     MatrixIdent::B,
@@ -240,7 +240,7 @@ fn register_attention(
             }
         }
 
-        if comptime!(value_depth == 16) {
+        if value_depth == 16 {
             // out += p · v: two score tiles side by side are one `A` fragment of a 16-key step.
             #[unroll]
             for step in 0..comptime!(KEYS / 16) {
@@ -256,12 +256,12 @@ fn register_attention(
                     for r in 0..c_regs {
                         c[r] = acc[comptime!(tile * c_regs + r)];
                     }
-                    // `v`'s `(key, dim)` lies where it is staged.
+                    // `v`'s `(key, axis)` lies where it is staged.
                     let key = comptime!(step as u32 * 16) + b_row + row_in_matrix;
-                    let dim = comptime!(tile as u32 * 8) + b_col;
+                    let axis = comptime!(tile as u32 * 8) + b_col;
                     let at = (stage_base
                         + key * comptime!(ROW_LINES as u32)
-                        + dim / comptime!(LINE as u32)) as usize;
+                        + axis / comptime!(LINE as u32)) as usize;
                     let b = def.load_matrix::<Vector<f16, Const<8>>, NB>(
                         &value_stage[at..at + 1],
                         MatrixIdent::B,
@@ -296,10 +296,10 @@ fn register_attention(
                         c[r] = acc[comptime!(tile * c_regs + r)];
                     }
                     let key = comptime!(step as u32 * 8) + half_row + row_in_matrix;
-                    let dim = comptime!(tile as u32 * 8) + half_col;
+                    let axis = comptime!(tile as u32 * 8) + half_col;
                     let at = (stage_base
                         + key * comptime!(ROW_LINES as u32)
-                        + dim / comptime!(LINE as u32)) as usize;
+                        + axis / comptime!(LINE as u32)) as usize;
                     let b = half.load_matrix::<Vector<f16, Const<8>>, NB>(
                         &value_stage[at..at + 1],
                         MatrixIdent::B,
@@ -358,7 +358,7 @@ fn row_across(
     let mut acc = value;
     #[unroll]
     for bit in 0..5u32 {
-        let mask = comptime!(1u32 << bit);
+        let mask = 1u32 << bit;
         let (other_row, _) = def.position_of_nth(mask, nth as u32, MatrixIdent::Accumulator);
         if other_row == row {
             acc = monoid.combine::<f32>(acc, plane_shuffle_xor(acc, mask));

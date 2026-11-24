@@ -49,7 +49,7 @@ pub(crate) struct RegisterData {
     pub(crate) vector_size: usize,
     /// Contracted values one step of the rhs brings for one cell: `1` for an rhs lined along the
     /// block's columns, else the run a load holds of a column, which each step sums into its
-    /// cell, so the block is one value wide, or, [opened for partials](RegisterBlock::partials),
+    /// cell, so the block is one value wide, or, [opened for partials](SoftwareMatmul::partials),
     /// keeps a lane each of, so a line is one cell `contracted_per_step` wide.
     #[cube(comptime)]
     pub(crate) contracted_per_step: usize,
@@ -61,10 +61,10 @@ pub(crate) struct RegisterData {
     pub(crate) nr: usize,
     /// The sink's matrix this block was sized against.
     #[cube(comptime)]
-    pub(crate) axes: MatrixAxes,
+    pub(crate) dimensions: MatrixDimensions,
     /// Execution configuration for this register leaf.
     #[cube(comptime)]
-    pub(crate) config: RegisterBlock,
+    pub(crate) config: SoftwareMatmul,
     /// What this block accumulates, and so the `⊕` its partials merge under.
     #[cube(comptime)]
     pub(crate) accumulation: Accumulation,
@@ -91,7 +91,7 @@ pub(crate) fn assert_whole_cells(contracted_per_step: usize, vector_size: usize,
     assert!(
         !holds_partials(contracted_per_step, vector_size),
         "{site}: the block holds each cell as {vector_size} partials, summed only at its drain; \
-         open it without `RegisterBlock::partials` to read its cells"
+         open it without `SoftwareMatmul::partials` to read its cells"
     );
 }
 
@@ -99,7 +99,7 @@ pub(crate) fn assert_whole_cells(contracted_per_step: usize, vector_size: usize,
 /// attention unit holds a score one value a cell beside its output's lines, so every block binds
 /// its own before it touches its lines.
 #[cube]
-pub(crate) fn register_block_size(#[comptime] vector_size: usize) {
+pub(crate) fn register_line_width(#[comptime] vector_size: usize) {
     intrinsic!(|scope| {
         scope.register_size::<RA>(vector_size);
     });
@@ -114,10 +114,10 @@ impl RegisterData {
     pub(crate) fn alloc<T: Numeric>(
         #[comptime] m: usize,
         #[comptime] n: usize,
-        #[comptime] axes: MatrixAxes,
+        #[comptime] dimensions: MatrixDimensions,
         #[comptime] vector_size: usize,
         #[comptime] contracted_per_step: usize,
-        #[comptime] config: RegisterBlock,
+        #[comptime] config: SoftwareMatmul,
         #[comptime] accumulation: Accumulation,
     ) -> RegisterData {
         comptime!(assert!(
@@ -130,15 +130,15 @@ impl RegisterData {
             vector_size > 0 && n.is_multiple_of(cells),
             "RegisterData::alloc: n ({n}) must be a whole number of {vector_size}-wide lines"
         ));
-        register_block_size(vector_size);
-        let nr = comptime!(n / cells);
+        register_line_width(vector_size);
+        let nr = n / cells;
         RegisterData {
-            data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(comptime!(m * nr))),
+            data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(m * nr)),
             vector_size,
             contracted_per_step,
             mr: m,
             nr,
-            axes,
+            dimensions,
             config,
             accumulation,
         }
@@ -151,7 +151,7 @@ impl RegisterData {
     /// Every cell at `val`. A cell held as partials takes it in its first lane and the identity
     /// in the rest, so its lanes sum to `val`.
     pub(crate) fn init<T: Numeric>(&mut self, val: T) {
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         let data = self.data.at_mut::<T>();
         let count = comptime!(self.mr * self.nr);
         let mut line = Vector::<T, RA>::cast_from(val);
@@ -185,7 +185,7 @@ impl RegisterData {
             src.nr,
             src.contracted_per_step
         ));
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         let count = comptime!(self.mr * self.nr);
         #[allow(clippy::needless_range_loop)]
         #[unroll]
@@ -197,7 +197,7 @@ impl RegisterData {
     /// `self[i, :] *= factors[first + i]` for every slice `i` along the block's columns, in the
     /// registers that hold it.
     pub(crate) fn mul_along<T: Numeric>(&mut self, factors: &Array<T>, #[comptime] first: usize) {
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         let data = self.data.at_mut::<T>();
         #[unroll]
         for r in 0..self.mr {
@@ -211,7 +211,7 @@ impl RegisterData {
 
     /// Multiply every partial this block holds by `factor`.
     pub(crate) fn scale<T: Numeric>(&mut self, factor: T) {
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         let data = self.data.at_mut::<T>();
         let count = comptime!(self.mr * self.nr);
         let line = Vector::<T, RA>::cast_from(factor);
@@ -230,9 +230,9 @@ impl RegisterData {
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
-        register_block_size(self.vector_size);
+        register_line_width(self.vector_size);
         let size!(A) = comptime!(cells_per_line(self.contracted_per_step, self.vector_size));
         self.drain::<T, Out, A>(mem, space);
     }
@@ -248,12 +248,16 @@ impl RegisterData {
     }
 
     /// [`store_cast_window`](Self::store_cast_window) into a sink of `A`-wide cells.
-    fn drain<T: Numeric, Out: Numeric, A: Size>(&self, mem: &mut Memory, #[comptime] space: Space) {
+    fn drain<T: Numeric, Out: Numeric, A: Size>(
+        &self,
+        mem: &mut Memory,
+        #[comptime] space: &Space,
+    ) {
         let data = self.data.at::<T>();
         let mem_write = comptime!(mem.access.write);
         let unit_share = comptime!(mem.unit_share);
         let monoid = comptime!(self.accumulation.monoid());
-        let mut sink = mem.matrix_mut::<Out, A>(0usize, comptime!(self.axes), space);
+        let mut sink = mem.matrix_mut::<Out, A>(0usize, comptime!(self.dimensions), space);
 
         // Split at comptime: a per-line `match` plus a unit guard breaks the CPU backend.
         match comptime!(Drain::of(unit_share, mem_write)) {
@@ -317,8 +321,8 @@ impl RegisterData {
 }
 
 /// The block cut into slices along its columns, each a unit holds whole: the verbs
-/// [`AxisSlices`] runs on a register block. The block holds whole cells, never a line of partials
-/// of one ([`assert_whole_cells`]).
+/// [`DimensionSlices`] runs on a register block. The block holds whole cells, never a line of
+/// partials of one ([`assert_whole_cells`]).
 #[cube]
 impl RegisterData {
     /// `self[i, s] = self[i, s] · scale + bias[i, s]` at every cell, the bias read at the cell of
@@ -327,7 +331,7 @@ impl RegisterData {
         &mut self,
         scale: E,
         bias: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         let data = self.data.at_mut::<E>();
         #[unroll]
@@ -339,8 +343,29 @@ impl RegisterData {
                 #[unroll]
                 for j in 0..self.vector_size {
                     let column = n * self.vector_size + j;
-                    let cell = bias.value_at::<E>(r as u32, column as u32, space.clone());
+                    let cell = bias.value_at::<E>(r as u32, column as u32, space);
                     line.insert(j, line.extract(j) * scale + cell);
+                }
+                data[at] = line;
+            }
+        }
+    }
+
+    /// `self[i, s] = self[i, s] · exp(bias[i, s])` at every cell, the bias read at the cell of a
+    /// tile over `space` that the block holds ([`DimensionSlices::mul_exp`]).
+    pub(crate) fn mul_exp_along<E: Float>(&mut self, bias: &Procedural, #[comptime] space: &Space) {
+        let data = self.data.at_mut::<E>();
+        #[unroll]
+        for r in 0..self.mr {
+            #[unroll]
+            for n in 0..self.nr {
+                let at = r * self.nr + n;
+                let mut line = data[at];
+                #[unroll]
+                for j in 0..self.vector_size {
+                    let column = n * self.vector_size + j;
+                    let cell = bias.value_at::<E>(r as u32, column as u32, space);
+                    line.insert(j, DimensionSlices::mul_exp_cell::<E>(line.extract(j), cell));
                 }
                 data[at] = line;
             }
@@ -367,7 +392,8 @@ impl RegisterData {
         maxima
     }
 
-    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` ([`AxisSlices::exp2_scaled_minus_cell`]).
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])`
+    /// ([`DimensionSlices::exp2_scaled_minus_cell`]).
     pub(crate) fn exp2_scaled_minus_along<E: Float>(&mut self, scale: E, offsets: &Array<E>) {
         let data = self.data.at_mut::<E>();
         #[unroll]
@@ -380,7 +406,11 @@ impl RegisterData {
                 for j in 0..self.vector_size {
                     line.insert(
                         j,
-                        AxisSlices::exp2_scaled_minus_cell::<E>(line.extract(j), scale, offsets[r]),
+                        DimensionSlices::exp2_scaled_minus_cell::<E>(
+                            line.extract(j),
+                            scale,
+                            offsets[r],
+                        ),
                     );
                 }
                 data[at] = line;
@@ -390,13 +420,13 @@ impl RegisterData {
 
     /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])` at every cell, the bias read at
     /// the cell of a tile over `space` that the block holds, `logsumexp` the cells of a tile it
-    /// broadcasts over ([`AxisSlices::probabilities`]).
+    /// broadcasts over ([`DimensionSlices::probabilities`]).
     pub(crate) fn probabilities_along<E: Float>(
         &mut self,
         scale: E,
         bias: &Procedural,
         logsumexp: &Array<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] broadcast: Broadcast,
     ) {
         let data = self.data.at_mut::<E>();
@@ -410,16 +440,19 @@ impl RegisterData {
                 for j in 0..self.vector_size {
                     let column = n * self.vector_size + j;
                     let score = line.extract(j) * scale
-                        + bias.value_at::<E>(r as u32, column as u32, space.clone());
+                        + bias.value_at::<E>(r as u32, column as u32, space);
                     let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
-                    line.insert(j, AxisSlices::exp_minus_cell::<E>(score, logsumexp[slot]));
+                    line.insert(
+                        j,
+                        DimensionSlices::exp_minus_cell::<E>(score, logsumexp[slot]),
+                    );
                 }
                 data[at] = line;
             }
         }
     }
 
-    /// `self[c] = probabilities[c] · (self[c] − delta[c])` ([`AxisSlices::softmax_gradient`]),
+    /// `self[c] = probabilities[c] · (self[c] − delta[c])` ([`DimensionSlices::softmax_gradient`]),
     /// `probabilities` a block of this one's shape, `delta` the cells of a tile both broadcast
     /// over.
     pub(crate) fn softmax_gradient_along<E: Float>(

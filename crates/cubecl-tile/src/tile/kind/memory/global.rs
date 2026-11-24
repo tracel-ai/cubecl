@@ -24,9 +24,9 @@ pub struct GlobalOperand {
     #[cube(comptime)]
     pub write: Write,
     /// One per [`Scale::Dynamic`](crate::Scale) term and one per
-    /// [`Divisor::Dynamic`](crate::Divisor) axis, by physical axis, divisor last.
+    /// [`Divisor::Dynamic`](crate::Divisor) dimension, by physical axis, divisor last.
     pub(crate) coefficients: Coords<u32>,
-    /// One signed value per [`Offset::Dynamic`](crate::Offset) axis.
+    /// One signed value per [`Offset::Dynamic`](crate::Offset) dimension.
     pub(crate) offsets: Coords<i32>,
     /// The table a pool of pages is read as sequences through, where the spec states
     /// [`paging`](TileSpec::paging).
@@ -35,7 +35,9 @@ pub struct GlobalOperand {
 
 #[cube]
 impl GlobalOperand {
-    /// A launched tensor, `space` projected onto the `spec` axes; shape and strides in scalars.
+    /// A launched tensor, `space` projected onto the `spec` dimensions; shape and strides in
+    /// scalars.
+    /// Read-only: a write into a tile of it is refused as the kernel expands.
     pub fn tensor<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -43,17 +45,36 @@ impl GlobalOperand {
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             Coords::<u32>::new(),
             Coords::<i32>::new(),
             ComptimeOption::new_None(),
+            false,
+        )
+    }
+
+    /// The writable twin of [`tensor`](GlobalOperand::tensor).
+    pub fn tensor_mut<T: Numeric, E: CubePrimitive<Scalar = T>>(
+        tensor: &mut Tensor<E>,
+        #[comptime] space: Space,
+        #[comptime] spec: TileSpec,
+    ) -> GlobalOperand {
+        GlobalOperand::of_tensor::<T, E>(
+            &*tensor,
+            space.clone(),
+            spec,
+            Coords::<u32>::new(),
+            Coords::<i32>::new(),
+            ComptimeOption::new_None(),
+            true,
         )
     }
 
     /// [`tensor`](GlobalOperand::tensor) over a pool of pages, read as the sequences `table` names
-    /// ([`Paging`]): the spec states which axes the table resolves, the tensor is the pool as it
-    /// lies, and the operand's extent along the two axes is the table's.
+    /// ([`Paging`]): the spec states which dimensions the table resolves, the tensor is the pool as
+    /// it lies, and the operand's extent along the two dimensions is the table's. Read-only: a
+    /// pool is written where it lies.
     pub fn paged<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         table: &Tensor<u32>,
@@ -63,50 +84,56 @@ impl GlobalOperand {
         let paging = comptime!(spec.paging.unwrap_or_else(|| panic!(
             "GlobalOperand::paged: the spec states no paging for the table to resolve"
         )));
-        let projection = comptime!(spec.projection.clone());
-        let (sequence_dim, _) = comptime!(
+        let projection = spec.projection.clone();
+        let (sequence_axis, _) = comptime!(
             paging
-                .dims(&projection)
-                .unwrap_or_else(|refusal| panic!("GlobalOperand::paged: {refusal}"))
+                .axes(&projection)
+                .unwrap_or_else(|decline| panic!("GlobalOperand::paged: {decline}"))
         );
         let table = PageTable::new(
             table,
-            tensor.shape(sequence_dim) as u32,
+            tensor.shape(sequence_axis) as u32,
             paging,
-            projection,
+            &projection,
             tensor.vector_size(),
         );
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             Coords::<u32>::new(),
             Coords::<i32>::new(),
             ComptimeOption::new_Some(table),
+            false,
         )
     }
 
     /// [`tensor`](GlobalOperand::tensor) for a gather with a runtime affine map.
     /// `coefficients` and `offsets` follow the field order; only their lengths are checked.
+    /// Written only where `writable`.
     pub(crate) fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
         #[comptime] spec: TileSpec,
         coefficients: Coords<u32>,
         offsets: Coords<i32>,
+        #[comptime] writable: bool,
     ) -> GlobalOperand {
         GlobalOperand::of_tensor::<T, E>(
             tensor,
-            space,
+            space.clone(),
             spec,
             coefficients,
             offsets,
             ComptimeOption::new_None(),
+            writable,
         )
     }
 
     /// The shared body: `E` is the binding element, `T` the served scalar, `paging` the table a
-    /// pool of pages is read through, which sets the operand's extent along its two axes.
+    /// pool of pages is read through, which sets the operand's extent along its two dimensions,
+    /// and `writable` whether a tile of it may be written.
+    #[allow(clippy::too_many_arguments)]
     fn of_tensor<T: Numeric, E: CubePrimitive>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
@@ -114,24 +141,27 @@ impl GlobalOperand {
         coefficients: Coords<u32>,
         offsets: Coords<i32>,
         paging: ComptimeOption<PageTable>,
+        #[comptime] writable: bool,
     ) -> GlobalOperand {
-        let rank = comptime!(spec.projection.physical_rank());
+        let rank = spec.projection.physical_rank();
         // Held at what the binding holds: `T`, or the `u32` words a packed one packs it in.
-        let backing = match comptime!(spec.packing) {
-            Packing::Plain | Packing::Words { .. } => {
-                Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
-                    tensor
-                        .as_slice()
-                        .downcast_unchecked::<T>()
-                        .as_boxed_unchecked()
-                }))
-            }
-            Packing::Packed { .. } => Backing::new_Buffer(Raw::<Slice>::of::<u32>(unsafe {
+        let raw = match spec.packing {
+            Packing::Plain | Packing::Words { .. } => Raw::<Slice>::of::<T>(unsafe {
+                tensor
+                    .as_slice()
+                    .downcast_unchecked::<T>()
+                    .as_boxed_unchecked()
+            }),
+            Packing::Packed { .. } => Raw::<Slice>::of::<u32>(unsafe {
                 tensor
                     .as_slice()
                     .downcast_unchecked::<u32>()
                     .as_boxed_unchecked()
-            })),
+            }),
+        };
+        let backing = match writable {
+            true => Backing::new_Buffer(raw),
+            false => Backing::new_ReadBuffer(raw),
         };
         let pool = RuntimeGeometry::of_tensor::<E>(tensor, rank);
         #[comptime]
@@ -212,17 +242,17 @@ impl GlobalOperand {
     /// This operand as a [`Tile`] at the top of `levels`.
     pub fn tile<T: Numeric>(self, #[comptime] levels: Vec<Level>) -> Tile {
         let place = comptime!(Placement::root(
-            self.space.subspace(self.spec.axes()),
+            self.space.subspace(self.spec.dimensions()),
             levels
         ));
-        Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place)
+        Tile::new::<T>(TileKind::new_Memory(Memory::global(self)), place.clone())
     }
 }
 
 #[cube]
 impl Memory {
     /// The memory tile a launched operand becomes, its top window boxed over the physical axes.
-    // The unrolled loop over the buffer's dims indexes a compile-time list by the dim.
+    // The unrolled loop over the buffer's axes indexes a compile-time list by the axis.
     #[allow(clippy::needless_range_loop)]
     pub(crate) fn global(operand: GlobalOperand) -> Memory {
         let backing = operand.backing;
@@ -235,17 +265,17 @@ impl Memory {
         let spec = comptime!(operand.spec.clone());
         let write = comptime!(operand.write);
         let split_share = comptime!(SplitShare::Whole);
-        let space = comptime!(space.subspace(spec.axes()));
-        let projection = comptime!(spec.projection.clone());
-        let coords = comptime!(projection.untiled());
-        let packing = comptime!(spec.packing);
-        let vector_size = comptime!(packing.served(bound_width));
-        let dims_given = geometry.shape.len();
+        let space = space.subspace(spec.dimensions());
+        let projection = spec.projection.clone();
+        let coords = projection.untiled();
+        let packing = spec.packing;
+        let vector_size = packing.served(bound_width);
+        let axes_given = geometry.shape.len();
         let coefficients_given = coefficients.len();
         let offsets_given = offsets.len();
         comptime!(assert!(
-            dims_given == projection.physical_rank(),
-            "GlobalOperand: the projection addresses {} physical dims but {dims_given} were given",
+            axes_given == projection.physical_rank(),
+            "GlobalOperand: the projection addresses {} physical axes but {axes_given} were given",
             projection.physical_rank()
         ));
         comptime!(assert!(
@@ -266,19 +296,19 @@ impl Memory {
              (GlobalOperand::paged), and only such a spec is"
         ));
         // Gathered buffers have fewer physical axes than logical; storage-tiled ones have more.
-        let rank = comptime!(projection.physical_rank());
-        // The buffer read in loads: each dim's extent over what one load covers of it, every
-        // stride counted in loads. A plain buffer's innermost dim counts lines one line apart and
+        let rank = projection.physical_rank();
+        // The buffer read in loads: each axis's extent over what one load covers of it, every
+        // stride counted in loads. A plain buffer's innermost axis counts lines one line apart and
         // the coarser strides divide by the width; a stored tile a load takes whole is one.
         let load = comptime!(
             VectorTile::new(
                 &spec.stored_tiles,
-                space.axis_at(space.rank() - 1),
+                space.dimension_at(space.rank() - 1),
                 vector_size
             )
             .unwrap_or_else(|why| panic!("GlobalOperand: {vector_size} values a load: {why}"))
         );
-        let parts = comptime!(load.parts(&spec.stored_tiles, &projection.dense_labels(), rank));
+        let parts = load.parts(&spec.stored_tiles, &projection.dense_labels(), rank);
         // A stated tile's extent is the statement's, not read off the buffer: the reads over it
         // divide by a constant.
         let stated = comptime!(VectorTile::stated_extents(
@@ -298,16 +328,16 @@ impl Memory {
             }
             physical_strides.push(geometry.strides.at(i) * part / comptime!(vector_size as u32));
         }
-        let gmem_projection = comptime!(projection.positional());
+        let gmem_projection = projection.positional();
         // The product of the physical shape, so tiled (padded) operands get the logical extent.
-        let bound = logical_extent(comptime!(gmem_projection.clone()), &physical_shape);
+        let bound = logical_extent(&gmem_projection, &physical_shape);
         let (origin, extent, map) = top_window(
-            comptime!(space.clone()),
+            &space,
             &bound,
             &offsets,
             coefficients,
-            comptime!(load.clone()),
-            comptime!(coords.clone()),
+            load.clone(),
+            &coords,
         );
         Memory {
             address: comptime!(AddressSpace::Global),
@@ -315,7 +345,7 @@ impl Memory {
                 backing,
                 vector_size: comptime!(vector_size),
                 packing: comptime!(packing),
-                stored_tiles: comptime!(spec.stored_tiles.clone()),
+                stored_tiles: spec.stored_tiles.clone(),
             },
             layout: BufferLayout {
                 physical_shape,
@@ -328,8 +358,8 @@ impl Memory {
                 origin,
                 extent,
                 bound,
-                comptime!(coords.may_underflow()),
-                comptime!(spec.boundaries.clone()),
+                coords.may_underflow(),
+                spec.boundaries.clone(),
             ),
             source_window: ComptimeOption::new_None(),
             projection: comptime!(coords),
@@ -344,7 +374,7 @@ impl Memory {
                     Overhang::Fits
                 },
                 write,
-                fill: FillUnits::cube(spec.units),
+                copy: Level::copied_by_cube(spec.units),
                 storage: WindowStorage::Stored(spec.storage),
                 delivery: spec.delivery,
             }),
@@ -361,16 +391,16 @@ impl Memory {
 /// The contract an operand's statement owes, checked on the host.
 fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     let projection = &spec.projection;
-    // At expansion no caller takes a refusal; a spec stated by hand, not bound, arrives here
+    // At expansion no caller takes a decline; a spec stated by hand, not bound, arrives here
     // unchecked.
-    if let Err(refusal) = projection.validate(vector_size) {
-        panic!("{refusal}");
+    if let Err(decline) = projection.validate(vector_size) {
+        panic!("{decline}");
     }
-    projection.validate_composition(|axis| space.extent(axis));
+    projection.validate_composition(|dimension| space.extent(dimension));
     if let Some(paging) = &spec.paging {
         let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery);
-        if let Err(refusal) = checked {
-            panic!("GlobalOperand: {refusal}");
+        if let Err(decline) = checked {
+            panic!("GlobalOperand: {decline}");
         }
     }
     let coord_rank = projection.coordinate_rank();
@@ -381,39 +411,38 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     );
     assert!(
         vector_size == 1 || spec.boundaries.last().copied().flatten() != Some(Boundary::Clamp),
-        "GlobalOperand: Boundary::Clamp cannot clamp the vectorized innermost axis (served at \
+        "GlobalOperand: Boundary::Clamp cannot clamp the vectorized innermost dimension (served at \
          {vector_size})"
     );
 }
 
-/// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` axes read `bound`.
+/// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` dimensions read `bound`.
 #[cube]
 fn top_window(
-    #[comptime] space: Space,
+    #[comptime] space: &Space,
     bound: &Coords<u32>,
     offsets: &Coords<i32>,
     coefficients: Coords<u32>,
     #[comptime] load: VectorTile,
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
 ) -> (Coords<i32>, Coords<u32>, RuntimeMap) {
     let mut origin = Coords::<i32>::new();
     let mut extent = Coords::<u32>::new();
     let mut residues = Coords::<u32>::new();
-    let rank = comptime!(projection.physical_rank());
+    let rank = projection.physical_rank();
 
     #[unroll]
     for pa in 0..rank {
-        let size = if comptime!(projection.is_direct()) {
+        let size = if projection.is_direct() {
             origin.push(0);
             residues.push(0u32);
-            let axis = comptime!(space.axis_at(pa));
-            match comptime!(space.extent_raw(axis)) {
-                Extent::Static(e) => (comptime!(e / load.extent_along(axis)) as u32).runtime(),
+            let dimension = space.dimension_at(pa);
+            match space.extent_raw(dimension) {
+                Extent::Static(e) => (comptime!(e / load.extent_along(dimension)) as u32).runtime(),
                 Extent::Dynamic => bound.at(pa),
             }
         } else {
-            let (start, phase) =
-                gathered_origin(comptime!(projection.clone()), offsets, &coefficients, pa);
+            let (start, phase) = gathered_origin(projection, offsets, &coefficients, pa);
             origin.push(start);
             residues.push(phase);
             bound.at(pa)
@@ -434,31 +463,31 @@ fn top_window(
 /// Where a gathered physical axis's top window starts, and the phase its division left behind.
 #[cube]
 fn gathered_origin(
-    #[comptime] projection: Projection,
+    #[comptime] projection: &Projection,
     offsets: &Coords<i32>,
     coefficients: &Coords<u32>,
     #[comptime] pa: usize,
 ) -> (i32, u32) {
-    let axis_map = comptime!(projection.physical_axis(pa));
+    let axis_map = projection.physical_axis(pa);
 
-    if comptime!(axis_map.origin().is_some()) {
+    if axis_map.origin().is_some() {
         (
             comptime!(axis_map.origin().unwrap() as i32).runtime(),
             comptime!(axis_map.residue().unwrap() as u32).runtime(),
         )
     } else {
         // Floor division: a negative (padding) offset must not round toward zero.
-        let offset = match comptime!(axis_map.offset()) {
+        let offset = match axis_map.offset() {
             Offset::Static(o) => comptime!(o as i32).runtime(),
-            Offset::Dynamic => offsets.at(comptime!(projection.dynamic_offset_index(pa).unwrap())),
+            Offset::Dynamic => offsets.at(projection.dynamic_offset_index(pa).unwrap()),
         };
-        if comptime!(!axis_map.is_rational()) {
+        if !axis_map.is_rational() {
             (offset, 0u32)
         } else {
-            let divisor = match comptime!(axis_map.divisor()) {
+            let divisor = match axis_map.divisor() {
                 Divisor::Static(d) => comptime!(d as i32).runtime(),
                 Divisor::Dynamic { .. } => coefficients
-                    .at(comptime!(projection.dynamic_divisor_index(pa).unwrap()))
+                    .at(projection.dynamic_divisor_index(pa).unwrap())
                     .cast::<i32>(),
             };
             let (start, residue) = floor_div_rem(offset, divisor);

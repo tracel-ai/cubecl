@@ -2,8 +2,9 @@
 //! values of `k`: NVFP4, contracted through the device's block-scaled instruction, the values and
 //! scales handed to it as they lie rather than decoded first.
 //!
-//! The kernel is the plain staged walk a float product takes, its instruction stating its operands
-//! block-scaled (`MmaOperands::BlockScaled`). A per-tensor factor above the block scales rides an
+//! The kernel is the plain staged walk a float product takes. Its accumulator picks the
+//! block-scaled instruction from its operands: codes under block scales the device reads as
+//! stored. A per-tensor factor above the block scales rides an
 //! operand whose block scales are words of four `e4m3`, which a stage keeps beside the values, so
 //! the factor leaves for the sum. It runs only where the device offers that instruction, and is
 //! held to the reference on codes and scales that are exact in `f32`.
@@ -15,28 +16,18 @@ use cubecl::{
 };
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
-    Axis, BlockScaledOperands, Instruction, Level, Levels, MmaOperands, Partitioning, Projection,
-    Semiring, Space, StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
-    layout::PhysicalAxisMap, ops::matmul::MmaIo,
+    Dimension, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages,
+    TileSpec, TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 
 use super::{Form, implied};
 
-/// NVFP4 as the block-scaled instruction takes it: `e2m1` codes two to a byte under an `e4m3`
-/// scale every sixteen of `k`.
-const NVFP4: BlockScaledOperands = BlockScaledOperands {
-    lhs: FloatKind::E2M1x2,
-    rhs: FloatKind::E2M1x2,
-    scales: FloatKind::E4M3,
-    block: 16,
-};
-
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
-/// `k` as the two axes a scale block makes of it: the block, and the value inside it.
-const KB: Axis = Axis(3);
-const KI: Axis = Axis(4);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
+/// `k` as the two dimensions a scale block makes of it: the block, and the value inside it.
+const KB: Dimension = Dimension(3);
+const KI: Dimension = Dimension(4);
 
 /// Values one scale covers along `k`: NVFP4's block.
 const BLOCK: usize = 16;
@@ -52,24 +43,22 @@ fn block_scaled_matmul<E: Numeric>(
     a_scales: &TileTensor<'_>,
     b: &TileTensor<'_>,
     b_scales: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     let a_scales = a_scales.tile(&space);
     let b_scales = b_scales.tile(&space);
+    // Opened on the operands as the instruction reads them, codes under their block scales, so
+    // the device's block-scaled instruction is the one picked.
     let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Mma {
-            io: MmaIo::manual(),
-            operands: MmaOperands::BlockScaled(NVFP4),
-        }),
-        Semiring::SUM_PROD,
+        &a.mul(&a_scales).scales_kept_beside(),
+        &b.mul(&b_scales).scales_kept_beside(),
+        Semiring::SumProd,
     );
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
@@ -92,19 +81,16 @@ fn block_scaled_matmul<E: Numeric>(
 fn block_scaled_matmul_under_words<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let instruction = comptime!(Instruction::Mma {
-        io: MmaIo::manual(),
-        operands: MmaOperands::BlockScaled(NVFP4),
-    });
-    let mut c = c.tile(&space);
-    let (a, a_factor) = a.tile(&space).factor(c.space(), instruction);
-    let (b, b_factor) = b.tile(&space).factor(c.space(), instruction);
-    let acc = c.accumulator::<E>(&a, &b, instruction, Semiring::SUM_PROD);
+    let mut c = c.tile_mut(&space);
+    let (a, b) = (a.tile(&space), b.tile(&space));
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
+    let (a, a_factor) = a.factor(&acc);
+    let (b, b_factor) = b.factor(&acc);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
@@ -169,8 +155,8 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
 
     let field = Field::Quant(QuantValue::E2M1);
     // Values counted in values; their buffers hold words of eight along `k`.
-    let values = |rows: Axis| TileSpec::new(Projection::direct(&[rows, K])).packed(field);
-    let scales = |rows: Axis| {
+    let values = |rows: Dimension| TileSpec::new(Projection::direct(&[rows, K])).packed(field);
+    let scales = |rows: Dimension| {
         TileSpec::new(Projection::new(
             &[rows, K],
             &[
@@ -214,11 +200,14 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
                     })
                     .collect()
             };
-            let word_scales = |values: &[f32], rows: usize, axis: Axis| {
+            let word_scales = |values: &[f32], rows: usize, dimension: Dimension| {
                 let handle = client.create_from_slice(u32::as_bytes(&scale_words(values)));
                 let spec = TileSpec::new(Projection::new(
-                    &[axis, K],
-                    &[PhysicalAxisMap::of(axis), PhysicalAxisMap::of(K).over(STEP)],
+                    &[dimension, K],
+                    &[
+                        PhysicalAxisMap::of(dimension),
+                        PhysicalAxisMap::of(K).over(STEP),
+                    ],
                 ))
                 .words(Field::Fp8(Fp8Format::E4M3));
                 TileTensorLaunch::new(
@@ -228,11 +217,12 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
                     spec,
                 )
             };
-            let operand = |words, rows: usize, axis: Axis, scales: &[f32], global_value: f32| {
-                TileTensorLaunch::new(tensor(words, rows, k), stored, 1, values(axis))
-                    .scales(word_scales(scales, rows, axis))
-                    .scales(global(global_value))
-            };
+            let operand =
+                |words, rows: usize, dimension: Dimension, scales: &[f32], global_value: f32| {
+                    TileTensorLaunch::new(tensor(words, rows, k), stored, 1, values(dimension))
+                        .scales(word_scales(scales, rows, dimension))
+                        .scales(global(global_value))
+                };
             block_scaled_matmul_under_words::launch(
                 &client,
                 launcher.cube_count(),
@@ -289,9 +279,10 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
 }
 
 /// [`check_block_scaled`] under per-tensor factors, `k` split into its blocks and the value inside
-/// one (`KB·KI`), as a packed product states it: the values over both axes, their block scales
-/// words of four `e4m3` scales, one a word of `KB` (`KB` divided by four), as the block-scaled
-/// instruction reads them, and each step of the instruction four blocks deep, one word.
+/// one (`KB·KI`), as a packed product states it: the values over both dimensions, their block
+/// scales words of four `e4m3` scales, one a word of `KB` (`KB` divided by four), as the
+/// block-scaled instruction reads them, and each step of the instruction four blocks deep, one
+/// word.
 fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
     let client = cubecl::test_device().client();
     if !offers_nvfp4(&client) {
@@ -345,7 +336,7 @@ fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
     let tensor = |handle, rows: usize, cols: usize| unsafe {
         TensorArg::from_raw_parts(handle, [cols, 1].into(), [rows, cols].into())
     };
-    let along_k = |rows: Axis| {
+    let along_k = |rows: Dimension| {
         Projection::new(
             &[rows, KB, KI],
             &[
@@ -356,42 +347,43 @@ fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
     };
     let words = u32::elem_type_native();
     let element = f32::elem_type_native();
-    let operand = |codes: Vec<u32>, scales: Vec<u32>, rows: usize, axis: Axis, global: f32| {
-        let values = TileTensorLaunch::new(
-            tensor(client.create_from_slice(u32::as_bytes(&codes)), rows, k),
-            words,
-            1,
-            TileSpec::new(along_k(axis)).packed(Field::Quant(QuantValue::E2M1)),
-        );
-        let block_scales = TileTensorLaunch::new(
-            tensor(
-                client.create_from_slice(u32::as_bytes(&scales)),
-                rows,
-                k / STEP,
-            ),
-            words,
-            1,
-            TileSpec::new(Projection::new(
-                &[axis, KB],
-                &[
-                    PhysicalAxisMap::of(axis),
-                    PhysicalAxisMap::of(KB).over(STEP / BLOCK),
-                ],
-            ))
-            .words(Field::Fp8(Fp8Format::E4M3)),
-        );
-        let global = TileTensorLaunch::new(
-            tensor(client.create_from_slice(f32::as_bytes(&[global])), 1, 1),
-            words,
-            1,
-            TileSpec::new(Projection::new(
-                &[M, N, KB],
-                &[PhysicalAxisMap::broadcast()],
-            ))
-            .packed(Field::Float(FloatKind::F32)),
-        );
-        values.scales(block_scales).scales(global)
-    };
+    let operand =
+        |codes: Vec<u32>, scales: Vec<u32>, rows: usize, dimension: Dimension, global: f32| {
+            let values = TileTensorLaunch::new(
+                tensor(client.create_from_slice(u32::as_bytes(&codes)), rows, k),
+                words,
+                1,
+                TileSpec::new(along_k(dimension)).packed(Field::Quant(QuantValue::E2M1)),
+            );
+            let block_scales = TileTensorLaunch::new(
+                tensor(
+                    client.create_from_slice(u32::as_bytes(&scales)),
+                    rows,
+                    k / STEP,
+                ),
+                words,
+                1,
+                TileSpec::new(Projection::new(
+                    &[dimension, KB],
+                    &[
+                        PhysicalAxisMap::of(dimension),
+                        PhysicalAxisMap::of(KB).over(STEP / BLOCK),
+                    ],
+                ))
+                .words(Field::Fp8(Fp8Format::E4M3)),
+            );
+            let global = TileTensorLaunch::new(
+                tensor(client.create_from_slice(f32::as_bytes(&[global])), 1, 1),
+                words,
+                1,
+                TileSpec::new(Projection::new(
+                    &[M, N, KB],
+                    &[PhysicalAxisMap::broadcast()],
+                ))
+                .packed(Field::Float(FloatKind::F32)),
+            );
+            values.scales(block_scales).scales(global)
+        };
     block_scaled_matmul_under_words::launch(
         &client,
         launcher.cube_count(),

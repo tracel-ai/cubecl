@@ -3,7 +3,8 @@
 
 use super::{Level, Partitioning, Space};
 use crate::{
-    Axis, ComputeScope, Coords, Coverage, Integer, IntegerExpand, MatrixAxes, Path, Step, Walk,
+    ComputeScope, Coords, Coverage, Dimension, Integer, IntegerExpand, MatrixDimensions, Path,
+    Step, Walk,
 };
 use cubecl::{prelude::*, unexpanded};
 
@@ -13,7 +14,7 @@ use cubecl::{prelude::*, unexpanded};
 #[expand(derive(Clone))]
 pub struct Region {
     step_coords: Sequence<Coords<u32>>,
-    /// The runtime sizes of the root's dynamic axes, positional.
+    /// The runtime sizes of the root's dynamic dimensions, positional.
     sizes: Sequence<usize>,
     #[cube(comptime)]
     pub(crate) path: Path,
@@ -74,7 +75,7 @@ impl Region {
 
     /// The planes below this region, each once, at the first step of every walk between: what a
     /// plane holds across a walk, such as its rows, is the same at every step, while its
-    /// coordinates along a walked axis are the first step's.
+    /// coordinates along a walked dimension are the first step's.
     pub fn planes(&self) -> Planes {
         Planes {
             region: self.clone(),
@@ -90,28 +91,28 @@ impl Region {
         c0: usize,
         c1: usize,
     ) -> Region {
-        let edges = comptime!(MatrixAxes::edges(&space));
-        Region::cell(depth, space, level, edges, c0, c1)
+        let edges = comptime!(MatrixDimensions::edges(&space));
+        Region::cell(depth, &space, &level, edges, c0, c1)
     }
 
-    /// The region one level below the root at coordinates `(c0, c1)` along the first axis of
+    /// The region one level below the root at coordinates `(c0, c1)` along the first dimension of
     /// each of `edges`' two groups under `level`, `0` elsewhere, for a tile at `depth`.
     pub(crate) fn cell(
         #[comptime] depth: usize,
-        #[comptime] space: Space,
-        #[comptime] level: Level,
-        #[comptime] edges: MatrixAxes,
+        #[comptime] space: &Space,
+        #[comptime] level: &Level,
+        #[comptime] edges: MatrixDimensions,
         c0: usize,
         c1: usize,
     ) -> Region {
-        let rank = comptime!(space.rank());
+        let rank = space.rank();
         let mut coords = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
             // `cast`, not `as`, and `runtime` on the `0`: both keep a comptime coordinate constant.
-            let c = if comptime!(p == edges.row_split) {
+            let c = if p == edges.row_split {
                 c0.cast::<u32>()
-            } else if comptime!(p == edges.col_split) {
+            } else if p == edges.col_split {
                 c1.cast::<u32>()
             } else {
                 0u32.runtime()
@@ -126,7 +127,7 @@ impl Region {
             comptime!(Path::new(
                 depth,
                 Partitioning::new(space.clone(), Vec::new()),
-                vec![level]
+                vec![level.clone()]
             )),
         )
     }
@@ -143,31 +144,32 @@ impl Region {
 
     /// The box this region covers, as a runtime space.
     pub(crate) fn child(&self) -> Space {
-        Space::with_sizes(comptime!(self.path.child()), self.sizes.clone())
+        Space::with_sizes(&comptime!(self.path.child()), self.sizes.clone())
     }
 
-    /// The innermost level's coordinate along `axis`; `0` when the axis is absent.
-    pub fn coord(&self, #[comptime] axis: Axis) -> usize {
+    /// The innermost level's coordinate along `dimension`; `0` when the dimension is absent.
+    pub fn coord(&self, #[comptime] dimension: Dimension) -> usize {
         let last = comptime!(self.path.len() - 1);
-        self.step(last).coord(axis)
+        self.step(last).coord(dimension)
     }
 
-    /// The first coordinate along `axis` of the box this region covers, counted from its root's:
-    /// every level's coordinate along `axis` times the tile it cuts there. What a kernel bounds a
-    /// walk of its own by, as an attention's causal queries bound the keys they read.
-    pub fn origin(&self, #[comptime] axis: Axis) -> usize {
+    /// The first coordinate along `dimension` of the box this region covers, counted from its
+    /// root's: every level's coordinate along `dimension` times the tile it cuts there. What a
+    /// kernel bounds a walk of its own by, as an attention's causal queries bound the keys they
+    /// read.
+    pub fn origin(&self, #[comptime] dimension: Dimension) -> usize {
         let mut origin = 0usize;
         #[unroll]
         for i in 0..comptime!(self.path.len()) {
-            if let Some(tile) = comptime!(self.path.level(i).tile(axis)) {
-                origin += self.step(i).coord(axis) * tile;
+            if let Some(tile) = comptime!(self.path.level(i).tile(dimension)) {
+                origin += self.step(i).coord(dimension) * tile;
             }
         }
         origin
     }
 
     /// This path with one more level's coordinates below it.
-    pub(crate) fn below(&self, coords: Coords<u32>, #[comptime] level: Level) -> Region {
+    pub(crate) fn below(&self, coords: Coords<u32>, #[comptime] level: &Level) -> Region {
         let n = comptime!(self.step_coords.len());
         let mut step_coords = Sequence::<Coords<u32>>::new();
         #[unroll]
@@ -178,13 +180,13 @@ impl Region {
         Region::new(
             step_coords,
             self.sizes.clone(),
-            comptime!(self.path.below(level)),
+            comptime!(self.path.below(level.clone())),
         )
     }
 
     /// The regions of `level` over this region's own box.
     pub fn over(&self, #[comptime] level: &Level) -> Walk {
-        Walk::of(&self.child(), comptime!(level.clone()), self.clone())
+        Walk::of(&self.child(), level.clone(), self.clone())
     }
 }
 

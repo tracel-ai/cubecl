@@ -1,6 +1,7 @@
+use crate::throughput::KernelSampler;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
+use cubecl_runtime::throughput::{MemorySpec, ThroughputError, ThroughputKey};
 
 use crate::throughput::{
     LaunchConfig,
@@ -15,7 +16,7 @@ pub fn build_kernel(
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,
-) -> Result<KernelConfig, ThroughputError> {
+) -> Result<KernelSampler, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
@@ -35,8 +36,11 @@ pub fn build_kernel(
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
                 config.cube_dim,
                 config.vector_size,
-                BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
-                BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
+                BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines * config.vector_size),
+                BufferArg::from_raw_parts(
+                    out_handle.clone(),
+                    probe.pool_lines * config.vector_size,
+                ),
                 probe.window_lines,
                 iterations,
                 probe.blocked,
@@ -52,11 +56,11 @@ pub fn build_kernel(
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;
 
-    Ok(KernelConfig {
+    Ok(KernelSampler::new(
         sample,
         ops_count,
-        min_iterations: probe.min_iterations(),
-    })
+        probe.min_iterations(),
+    ))
 }
 
 #[cube(launch_unchecked)]

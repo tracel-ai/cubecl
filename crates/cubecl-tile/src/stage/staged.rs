@@ -9,8 +9,9 @@ use crate::*;
 pub(crate) enum StageElement {
     /// The values the operand serves, which are what it stores: copied as they lie.
     Served,
-    /// The values the operand serves, decoded by the fill: from scales, a codebook, or packed
-    /// fields as wide as their word, which take the same shared memory staged either way.
+    /// The values the operand serves, decoded by the fill: from scales, a codebook, packed fields
+    /// as wide as their word, which take the same shared memory staged either way, or narrower
+    /// ones for a reader that names the element it decodes them into.
     Decoded,
     /// The stored form, words of several packed fields: copied as they lie.
     Stored,
@@ -26,11 +27,11 @@ impl StageElement {
 #[cube]
 impl Memory {
     /// Cooperatively materialize a procedural source into this plain, direct scalar tile.
-    /// Every unit that shares its fill ([`FillUnits`]) must own this window.
+    /// Every unit its fill's level names ([`Level::copied_by`]) must own this window.
     pub(crate) fn fill_procedural<T: Numeric>(
         &mut self,
         src: &Procedural,
-        #[comptime] space: Space,
+        #[comptime] space: &Space,
     ) {
         comptime!(assert!(
             self.store.packing.as_stored()
@@ -40,42 +41,36 @@ impl Memory {
         ));
         // Runtime window, so a Dynamic extent witnessed by another operand still works.
         let shape = self.window.extent.clone();
-        let fill = comptime!(self.access.fill);
+        let fill = comptime!(self.access.copy.clone());
         let mut dst = self.flat_mut::<T, Const<1>>();
         let total = dst.shape();
-        let stride = FillUnits::workers(fill);
-        let mut i = FillUnits::worker(fill);
-        while i < total {
+        for line in Walk::copy(&fill, total) {
+            let i = line.coord(Level::COPIED);
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
-            dst.write(
-                i,
-                Vector::cast_from(src.read_masked::<T>(&pos, comptime!(space.clone()))),
-            );
-            i += stride;
+            dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));
         }
     }
 
     /// Allocate a tile staging one `divide()` sub-tile of `operand`, laid out as `storage` and
     /// served `width` wide where stated, for `owner`: the cube, or each plane a copy of its own,
-    /// which only a plain stage of served values is.
+    /// which only a plain stage of served values is. A reader that names the element it decodes
+    /// into, `decoded`, is staged values where it could be staged words
+    /// ([`stage_element_for`](Tile::stage_element_for)).
     pub(crate) fn stage<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
+        #[comptime] decoded: Option<ElemType>,
     ) -> Tile {
-        match comptime!(storage.clone()) {
+        match storage.clone() {
             // The plane holds the units at the depth of one region of `level`.
             StageStorage::Lines { read } => {
-                comptime!(owner.refuse_for_a_plane("held in the plane's units"));
+                owner.refuse_for_a_plane("held in the plane's units");
                 Tile {
-                    kind: TileKind::new_Lines(Lines::new(
-                        operand,
-                        comptime!(level.clone()),
-                        comptime!(read),
-                    )),
+                    kind: TileKind::new_Lines(Lines::new(operand, level, comptime!(read))),
                     factor: Factor::none(),
                     place: comptime!(Placement::new(
                         level.child(&operand.place.space),
@@ -85,19 +80,20 @@ impl Memory {
                     element: elem_type_of::<S>(),
                 }
             }
-            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner),
+            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner, decoded),
         }
     }
 
     /// [`stage`](Memory::stage) in shared memory.
     fn stage_memory<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
+        #[comptime] decoded: Option<ElemType>,
     ) -> Tile {
-        let element = operand.stage_element();
+        let element = operand.stage_element_for(decoded);
         let decodes = comptime!(element == StageElement::Decoded);
         let packing = operand.packing();
         let stage = Memory::stage_memory_as_served::<S>(
@@ -113,14 +109,14 @@ impl Memory {
     /// [`stage_memory`](Memory::stage_memory) before a stage of words is read as words.
     fn stage_memory_as_served<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] element: StageElement,
         #[comptime] decodes: bool,
     ) -> Tile {
-        match comptime!(element) {
+        match element {
             StageElement::Served | StageElement::Decoded => {
                 let space = comptime!(level.child(&operand.place.space));
                 let projection = operand.projection();
@@ -143,28 +139,28 @@ impl Memory {
                     }
                     // A decoding fill writes the stage value by value, so its lines need only
                     // divide the source's loads: as wide as every region below the stage cuts
-                    // whole along its innermost axis, or a step would start mid-line.
+                    // whole along its innermost dimension, or a step would start mid-line.
                     None if decodes => {
-                        let innermost = space.axis_at(space.rank() - 1);
+                        let innermost = space.dimension_at(space.rank() - 1);
                         space
-                            .leaf(operand.place.below_level(&level))
+                            .leaf(operand.place.below_level(level))
                             .whole_run(innermost, source_width)
                     }
                     None => source_width,
                 });
-                // A TMA-filled stage's buffer must be TMA-aligned; TMA operands are always direct.
+                // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
+                // words a gather reads lands as the compacted window the gather stages.
                 let delivery = operand.delivery();
-                let alignment = comptime!(match delivery.is_tma() {
-                    true => Delivery::TMA_STAGE_ALIGNMENT,
-                    false => 0usize,
-                });
-                // A decoded stage is dense over the values' axes whatever the source's map.
-                if comptime!(projection.is_direct() || decodes) {
-                    Memory::smem_owned::<S>(space, vector_size, storage, units, alignment, owner)
+                let alignment = comptime!(delivery.engine().stage_alignment);
+                // A decoded stage is dense over the values' dimensions whatever the source's map,
+                // and so is a tiled one, which an instruction reads as one matrix.
+                let tiled = comptime!(matches!(storage, StageStorage::Tiled { .. }));
+                if comptime!(projection.is_direct() || decodes || tiled) {
+                    Memory::smem_owned::<S>(&space, vector_size, storage, units, alignment, owner)
                 } else {
-                    comptime!(owner.refuse_for_a_plane("gathered"));
+                    owner.refuse_for_a_plane("gathered");
                     Memory::smem_gathered::<S>(
-                        space,
+                        &space,
                         vector_size,
                         storage,
                         units,
@@ -172,12 +168,13 @@ impl Memory {
                         &operand.runtime_map(),
                         operand.window_signed(),
                         operand.window_boundaries(),
+                        alignment,
                         owner,
                     )
                 }
             }
             StageElement::Stored => {
-                comptime!(owner.refuse_for_a_plane("kept in its stored form"));
+                owner.refuse_for_a_plane("kept in its stored form");
                 Memory::smem_stored::<S>(operand, level, storage, owner)
             }
         }
@@ -187,7 +184,7 @@ impl Memory {
     /// names, whose units fill it.
     fn smem_stored<S: Numeric>(
         operand: &Tile,
-        #[comptime] level: Level,
+        #[comptime] level: &Level,
         #[comptime] storage: StageStorage,
         #[comptime] owner: StageOwner,
     ) -> Tile {
@@ -211,10 +208,10 @@ impl Memory {
             Packing::Plain | Packing::Words { .. } => {
                 // The values the bulk engine lands come packed; a plain stored stage keeps the
                 // copy's alignment.
-                Memory::smem_owned::<S>(space, vector_size, storage, units, 0usize, owner)
+                Memory::smem_owned::<S>(&space, vector_size, storage, units, 0usize, owner)
             }
             packing => Memory::smem_packed::<S>(
-                space,
+                &space,
                 vector_size,
                 storage,
                 units,

@@ -5,7 +5,13 @@
 
 use cubecl_core::{
     frontend::reinterpret_value,
-    ir::{Scope, dialect::atomic::*, interfaces::TypedExt, prelude::*, types::VectorType},
+    ir::{
+        Scope,
+        dialect::{atomic::*, synchronization::SyncScope},
+        interfaces::TypedExt,
+        prelude::*,
+        types::VectorType,
+    },
 };
 use pliron::{
     builtin::types::{IntegerType, Signedness},
@@ -108,9 +114,14 @@ macro_rules! atomic_binop {
                 let vec = atom_vec(ctx, value);
                 let ftz = atom_ftz(ctx, value);
                 let ty = $atom_ty(ctx, value);
+                // PTX's default scope is the GPU's; `.sys` also reaches the host and peers.
+                let sys = match atomic_scope(ctx, self.get_operation()) {
+                    SyncScope::System => ".sys",
+                    _ => "",
+                };
                 let value = as_registers(scope, value);
 
-                let ptx = format!("atom.relaxed.{}{ftz}{vec}.{ty} $0, [$1], $2;", $op);
+                let ptx = format!("atom.relaxed{sys}.{}{ftz}{vec}.{ty} $0, [$1], $2;", $op);
                 let op = InlinePtxOp::new_volatile(
                     ctx,
                     Some(value.get_type(ctx)),

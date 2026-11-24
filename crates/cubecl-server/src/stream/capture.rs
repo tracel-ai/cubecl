@@ -3,7 +3,8 @@
 //! [`Server::graph_prepare`](crate::server::Server::graph_prepare)); the lifecycle itself is
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
-use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate};
+use super::allocation_planner::{AllocationPlanner, Divergence, Placement};
+use crate::memory_management::{AllocationKind, ManagedMemoryBinding, MemoryLocation, PageUpdate};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -34,14 +35,14 @@ pub struct StreamCapture {
     state: StreamCaptureState,
     /// What the recorded launches write, kept without holding their memory:
     /// a held binding keeps its slice from being reused, and the recording
-    /// has to reuse memory exactly as the warmup run did.
+    /// has to reuse memory exactly as the planning run did.
     recorded: Vec<WeakBufferBinding>,
     /// The memory the recorded launches were given, as the pages the graph
     /// will [guard](crate::memory_management::PageGuard) once it seals.
     touched: Vec<TouchedPage>,
-    /// The pinned staging the warmup run reserved, held until the window
+    /// The pinned staging the planning run reserved, held until the window
     /// opens. A recorded copy keeps its staging for the graph's life, so the
-    /// recorded run needs one slice per copy where the warmup run could reuse
+    /// recorded run needs one slice per copy where the planning run could reuse
     /// one; holding them makes the pool that big before the window opens,
     /// where nothing may be allocated.
     primed: Vec<ManagedMemoryBinding>,
@@ -52,6 +53,20 @@ pub struct StreamCapture {
     /// plain heap. A window that never seals drops them here: its copies
     /// never ran and now never will.
     retained_host: Vec<Bytes>,
+    /// The memory of other devices the recorded launches bind, held while the
+    /// window is open and handed to the graph it seals into. A replay
+    /// dereferences the same addresses, so the memory must stay in place on
+    /// its owner for as long as the graph lives.
+    retained_peers: Vec<BufferBinding>,
+    /// What planning the work found, and the plan the recorded run follows: which of its
+    /// allocations are outputs, kept off the room the stream's graphs share.
+    planner: AllocationPlanner,
+    /// The memory the recorded run placed as outputs, held while the window is open and handed
+    /// to the graph it seals into. Every replay writes it whether or not the work kept it, so a
+    /// slice the work let go must not go back to the room other graphs' outputs are carved from.
+    /// Arrival usage: pushed per output as the recording allocates it, drained whole as the
+    /// window closes.
+    retained_outputs: Vec<ManagedMemoryBinding>,
     /// The failure that doomed the window, if one did — work inside it failed
     /// or was skipped, so the recording is missing an operation. Sealing it
     /// would hand back a graph silently missing that work, and the replay
@@ -70,6 +85,9 @@ impl StreamCapture {
             touched: Vec::new(),
             primed: Vec::new(),
             retained_host: Vec::new(),
+            retained_peers: Vec::new(),
+            planner: AllocationPlanner::default(),
+            retained_outputs: Vec::new(),
             failed: None,
         }
     }
@@ -123,9 +141,159 @@ impl StreamCapture {
         }
     }
 
+    /// What this stream's reservations are, which decides whether they may carve
+    /// the free room on the pages its graphs pinned.
+    ///
+    /// A capture's may, from its planning run on: the room is what earlier
+    /// graphs' temporaries used, every graph of the stream replays in stream
+    /// order, and a slice a handle still holds is never free — so what a
+    /// capture carves there is overwritten only while it is not in use. Work
+    /// outside a capture never may: it outlives the next replay, which would
+    /// write over it.
+    ///
+    /// Only the capture's own logical `stream` may: another logical stream
+    /// folded onto the same backend stream runs its work for real, and what
+    /// it keeps would sit where a graph's replay writes.
+    pub fn allocation_kind(&self, stream: StreamId) -> AllocationKind {
+        match self.runs_work_of(stream) {
+            true => AllocationKind::GraphIntermediate,
+            false => AllocationKind::Eager,
+        }
+    }
+
+    /// Note an allocation of `size_bytes` given to the memory `binding` names by the logical
+    /// `stream`, placed as `placement` says, while that stream captures: the planning runs list
+    /// theirs to learn which are outputs, and the recorded run lists its own to check it kept no
+    /// buffer it placed as a temporary.
+    /// What the recorded run placed as an output is held for the graph it seals into: every
+    /// replay writes it whether or not the work kept it, so a slice the work let go must not go
+    /// back to the room other graphs' outputs are carved from.
+    ///
+    /// Another logical stream's allocations on the same backend stream are not the work's, and
+    /// are left out, as is every allocation outside a capture: neither costs more than the
+    /// check.
+    pub fn allocated(
+        &mut self,
+        stream: StreamId,
+        size_bytes: u64,
+        binding: ManagedMemoryBinding,
+        placement: Placement,
+    ) {
+        if !self.runs_work_of(stream) {
+            return;
+        }
+        self.planner.allocated(size_bytes, &binding, placement);
+        if placement == Placement::Output && self.state.is_recording() {
+            self.retained_outputs.push(binding);
+        }
+    }
+
+    /// Where the next allocation of `size_bytes` goes: while a capture is under way, one the
+    /// plan matches to an output is placed off the shared room, in the planning runs as in the
+    /// recording, so the recording lands where the last planning did (see
+    /// `AllocationPlanner::place_bytes`).
+    ///
+    /// Only the capture's own logical `stream` follows the plan, as in
+    /// [`allocated`](Self::allocated).
+    pub fn place(&mut self, stream: StreamId, size_bytes: u64) -> Placement {
+        match self.runs_work_of(stream) {
+            true => self.planner.place_bytes(size_bytes),
+            false => Placement::Pools,
+        }
+    }
+
+    /// Whether the logical `stream` is the one that prepared the capture under way.
+    pub fn is_owned_by(&self, stream: StreamId) -> bool {
+        self.owner() == Some(stream)
+    }
+
+    /// Whether what the logical `stream` allocates now is the captured work's: it owns the
+    /// capture, and a run of the work is under way. Between two planning runs, what the owner
+    /// allocates, a fresh input say, is not the work's, and outlives every replay.
+    fn runs_work_of(&self, stream: StreamId) -> bool {
+        self.is_owned_by(stream) && self.planner.is_running()
+    }
+
+    /// Start the next planning run, after the last one ended: what the work allocates is
+    /// logged again, and placed by the plan. The first run starts as the capture is prepared.
+    ///
+    /// # Errors
+    ///
+    /// When the stream is not planning, a run is already under way, or the logical `caller` is
+    /// not the one that prepared the capture.
+    pub fn start_run(&mut self, caller: StreamId) -> Result<(), ServerError> {
+        if !self.state.is_preparing() || !self.is_owned_by(caller) {
+            return Err(ServerError::graph_state(
+                "a planning run starts only on the logical stream that prepared the capture, \
+                 before its window opens",
+            ));
+        }
+        if self.planner.is_running() {
+            return Err(ServerError::graph_state(
+                "a planning run starts only once the last one ended with `graph_end_run`",
+            ));
+        }
+        self.planner.start_run();
+        Ok(())
+    }
+
+    /// End a planning run, once its deferred frees are reclaimed, and answer whether it kept
+    /// the buffers the run before it kept, the same sizes in the same order: what the recording's
+    /// seal depends on has settled, and the recording can follow it.
+    ///
+    /// # Errors
+    ///
+    /// When the stream is not planning: no capture is prepared, or its window is open. And when
+    /// the logical `caller` is not the one that prepared it: another logical stream folded onto
+    /// the same backend stream would cut the owner's run log short.
+    pub fn end_run(&mut self, caller: StreamId) -> Result<bool, ServerError> {
+        self.ensure_planned_by(caller)?;
+        Ok(self.planner.finish_run())
+    }
+
+    /// Check that the logical `caller` may end a planning run, before anything is done to end
+    /// it: a backend reclaims the run's deferred frees first, and the fence that takes would
+    /// abort a recording.
+    ///
+    /// # Errors
+    ///
+    /// As [`end_run`](Self::end_run).
+    pub fn ensure_planned_by(&self, caller: StreamId) -> Result<(), ServerError> {
+        if !self.state.is_preparing() {
+            return Err(ServerError::graph_state(
+                "a planning run ends only while a capture is prepared and its window not open",
+            ));
+        }
+        if !self.is_owned_by(caller) {
+            return Err(ServerError::graph_state(
+                "a planning run ends only on the logical stream that prepared the capture",
+            ));
+        }
+        Ok(())
+    }
+
+    /// What the planning runs left alive that still is, taken as the window opens: a buffer
+    /// the work kept from a planning run may sit on room another graph's replay writes, since
+    /// planning carves that room as the recording does.
+    pub fn drain_planned_kept(&mut self) -> impl Iterator<Item = ManagedMemoryBinding> + '_ {
+        self.planner.drain_kept()
+    }
+
+    /// Whether the window may open: a recording with no plan could put an output on room
+    /// another graph's replay writes.
+    pub fn has_plan(&self) -> bool {
+        self.planner.has_plan()
+    }
+
+    /// End the recorded run, once its deferred frees are reclaimed: the first buffer it keeps
+    /// on room the plan left to temporaries, if it does, which means the graph must not seal.
+    pub fn finish_recording(&mut self) -> Option<Divergence> {
+        self.planner.finish_recording()
+    }
+
     /// Hold `staging` until the window opens, when the stream is preparing a
     /// capture: a recorded copy keeps its staging for the graph's life, so the
-    /// recorded run needs a slice per copy where the warmup run could reuse
+    /// recorded run needs a slice per copy where the planning run could reuse
     /// one, and holding them grows the pool before nothing may be allocated.
     pub fn prime(&mut self, staging: &ManagedMemoryBinding) {
         if self.state.is_preparing() {
@@ -187,6 +355,31 @@ impl StreamCapture {
         core::mem::take(&mut self.retained_host)
     }
 
+    /// Hold `binding`, memory of another device a recorded launch binds, for
+    /// as long as the graph the window seals into lives.
+    ///
+    /// Only meaningful while recording, as [`retain_host`](Self::retain_host).
+    pub fn retain_peer(&mut self, binding: BufferBinding) {
+        debug_assert!(
+            self.state.is_recording(),
+            "peer memory is the window's to retain only while it records"
+        );
+        self.retained_peers.push(binding);
+    }
+
+    /// The memory of other devices the recorded launches bind, taken as the
+    /// window closes, as [`take_retained_host`](Self::take_retained_host).
+    pub fn take_retained_peers(&mut self) -> Vec<BufferBinding> {
+        core::mem::take(&mut self.retained_peers)
+    }
+
+    /// The memory the recorded run placed as outputs, drained as the window closes, onto the
+    /// graph when it seals, or dropped when it does not, as
+    /// [`take_retained_host`](Self::take_retained_host).
+    pub fn drain_retained_outputs(&mut self) -> impl Iterator<Item = ManagedMemoryBinding> + '_ {
+        self.retained_outputs.drain(..)
+    }
+
     /// The failure that doomed this window, taken as it closes. `Some` means
     /// the recording is missing at least one operation and must not seal.
     pub fn take_failure(&mut self) -> Option<ServerError> {
@@ -215,7 +408,7 @@ impl StreamCapture {
 
     /// The [`CacheMode`] the metadata info cache should run in at this lifecycle
     /// position: a window pins what it builds, so a replay finds the same entries it recorded
-    /// against. Both while a graph is being *prepared* (warmup, which primes
+    /// against. Both while a graph is being *prepared* (planning, which primes
     /// the cache) and while it is being *recorded* the cache runs in
     /// [`CacheMode::Capture`] — caching every buffer and invalidating none — so
     /// the capture window finds every info buffer warm and drops none out from
@@ -227,7 +420,7 @@ impl StreamCapture {
         }
     }
 
-    /// Start the warmup run; [`begin`](Self::begin) may open the window
+    /// Start the planning run; [`begin`](Self::begin) may open the window
     /// afterwards. A capture starts from an empty recording, so a window that
     /// was abandoned mid-flight cannot leak its buffers into the next one.
     ///
@@ -238,21 +431,43 @@ impl StreamCapture {
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
         self.clear();
+        self.planner.start_run();
         Ok(())
     }
 
+    /// [`prepare`](Self::prepare) a retry of the recording just refused for keeping a buffer
+    /// it placed as a temporary, and answer whether there was one: its allocations place the
+    /// first planning run, which grows the room apart for every buffer it kept. Nothing is
+    /// prepared when there was none.
+    ///
+    /// # Errors
+    ///
+    /// As [`prepare`](Self::prepare).
+    pub fn prepare_retry(&mut self, owner: StreamId) -> Result<bool, ServerError> {
+        if !self.planner.has_refused_recording() {
+            return Ok(false);
+        }
+        self.state.prepare(owner)?;
+        self.clear_window();
+        self.planner.retry();
+        self.planner.start_run();
+        Ok(true)
+    }
+
     /// Open the window: launches from here until [`end`](Self::end) are
-    /// recorded rather than executed.
+    /// recorded rather than executed, and allocations follow the planning run's
+    /// plan.
     ///
     /// # Errors
     ///
     /// Fails when no capture is prepared, or one is already recording.
     ///
-    /// The staging the warmup run primed goes back to the pool, for the
+    /// The staging the planning run primed goes back to the pool, for the
     /// recorded run to reuse.
     pub fn begin(&mut self) -> Result<(), ServerError> {
         self.state.begin()?;
         self.primed.clear();
+        self.planner.start_recording();
         Ok(())
     }
 
@@ -275,10 +490,18 @@ impl StreamCapture {
     }
 
     fn clear(&mut self) {
+        self.clear_window();
+        self.planner.clear();
+    }
+
+    /// Forget everything a window recorded or retained, and keep the plan.
+    fn clear_window(&mut self) {
         self.recorded.clear();
         self.touched.clear();
         self.primed.clear();
         self.retained_host.clear();
+        self.retained_peers.clear();
+        self.retained_outputs.clear();
         self.failed = None;
     }
 }
@@ -367,7 +590,7 @@ mod tests {
 
         capture.record([before]);
         capture.prepare(OWNER).unwrap();
-        // Prepared is the warmup run: it executes rather than records.
+        // Prepared is the planning run: it executes rather than records.
         capture.record([warmup]);
 
         capture.begin().unwrap();
@@ -474,7 +697,7 @@ mod tests {
     }
 
     /// The cache runs in capture mode for the *whole* prepare → record window,
-    /// not just while recording: warmup is what makes the recorded launches hit
+    /// not just while recording: the planning run is what makes the recorded launches hit
     /// warm info buffers, and an entry evicted between the two would be one a
     /// recorded launch dropped out from under itself.
     #[test]
@@ -489,9 +712,9 @@ mod tests {
         assert_eq!(capture.cache_mode(), CacheMode::Normal);
     }
 
-    /// A capture is visible to the stream that prepared it, from its warmup run
+    /// A capture is visible to the stream that prepared it, from its planning run
     /// until it ends however it ends, and to no other stream: code that has to
-    /// decide the same way in the warmup and the recording reads it, and would
+    /// decide the same way in the planning run and the recording reads it, and would
     /// keep paying for it if a finished capture lingered.
     #[test]
     fn a_capture_is_seen_by_its_stream_until_it_ends() {
@@ -502,7 +725,7 @@ mod tests {
 
         assert!(!status.is_capturing(OWNER), "no capture before prepare");
         capture.prepare(OWNER).unwrap();
-        assert!(status.is_capturing(OWNER), "the warmup run is part of it");
+        assert!(status.is_capturing(OWNER), "the planning run is part of it");
         assert!(
             !status.is_capturing(OTHER),
             "another stream isn't capturing"
@@ -551,7 +774,7 @@ mod tests {
             |capture: &StreamCapture| (capture.page_update(), status.any_recording());
 
         recording.prepare(OWNER).unwrap();
-        assert!(!status.any_recording(), "a warmup records nothing");
+        assert!(!status.any_recording(), "a planning run records nothing");
         recording.begin().unwrap();
         assert_eq!(recording_now(&recording), (PageUpdate::Forbidden, true));
         assert_eq!(recording_now(&neighbour), (PageUpdate::AddOnly, true));
@@ -570,7 +793,7 @@ mod tests {
         recording.abort();
         assert!(
             !status.any_recording(),
-            "aborting a warmup leaves the count alone"
+            "aborting a planning run leaves the count alone"
         );
 
         recording.prepare(OWNER).unwrap();

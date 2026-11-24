@@ -30,10 +30,10 @@ pub use serde;
 // The runtime API, re-exported so `crate::server::Handle` and
 // `cubecl_server::server::Handle` both name the one type.
 pub use cubecl_runtime::benchmark;
+pub use cubecl_runtime::local_tuner;
 pub use cubecl_runtime::{
-    client, config, device, execution, id, launched, logging, runtime, throughput, tma, tune,
+    client, config, device, execution, id, logging, runtime, throughput, tma, tune,
 };
-pub use cubecl_runtime::{local_tuner, storage_id_type};
 
 /// Kernel related traits, and the compiled kernel a launch produces.
 pub mod kernel;
@@ -59,6 +59,9 @@ pub mod device_events;
 
 /// Compiler trait, and the compilation caches in front of one.
 pub mod compiler;
+
+pub mod prune;
+
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
 

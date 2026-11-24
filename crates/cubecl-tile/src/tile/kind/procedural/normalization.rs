@@ -51,8 +51,8 @@ pub enum TapSupport {
 /// A guarded reciprocal that preserves the sign of a valid denominator; NaN takes the fallback.
 #[cube]
 pub(crate) fn guarded_recip<E: Numeric>(d: E, #[comptime] guard: DivGuard) -> E {
-    let epsilon = E::cast_from(comptime!(guard.epsilon));
-    let fallback = E::cast_from(comptime!(guard.fallback));
+    let epsilon = E::cast_from(guard.epsilon);
+    let fallback = E::cast_from(guard.fallback);
     let valid = d.abs() > epsilon;
     let safe = select(valid, d, E::from_int(1));
     select(valid, E::from_int(1) / safe, fallback)

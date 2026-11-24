@@ -3,7 +3,8 @@
 use crate::id::KernelId;
 use cubecl_environment::records::{Record, RecordEffect, RecordLevel, Span};
 
-use super::{KernelCacheKey, build_id_hash};
+use super::KernelCacheKey;
+use cubecl_environment::environment::BuildStamp;
 
 /// One kernel's trip through a backend's compilation path, as the environment
 /// records it: compiled fresh, loaded from the compilation store, or rekeyed
@@ -17,8 +18,9 @@ use super::{KernelCacheKey, build_id_hash};
 pub struct CompilationRecord {
     /// The kernel's type.
     pub kernel: alloc::string::String,
-    /// The store entry naming the artifact: what tells two instances of one
-    /// kernel type apart.
+    /// The kernel and the build the artifact is stored under, in variant
+    /// zero whatever variant a backend stores it in: what tells two instances
+    /// of one kernel type apart.
     pub key: KernelCacheKey,
     /// The kernel as cubecl defined it, before the backend's compiler — the
     /// IR's textual form, for a reader to render — at [`RecordLevel::Full`].
@@ -154,7 +156,7 @@ impl CompilationRecording {
             span,
             work: core::time::Duration::ZERO,
             kernel: kernel_id.type_name(),
-            key: KernelCacheKey::new(kernel_id, build_id_hash()),
+            key: KernelCacheKey::new(kernel_id, BuildStamp::current()),
             ir: None,
             source: None,
         });

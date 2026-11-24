@@ -55,9 +55,15 @@ impl Window {
     pub(crate) fn axes_in_bounds(&self, pos: &CoordsDyn, #[comptime] axes: Vec<usize>) -> bool {
         let mut valid = true;
         #[unroll]
-        for a in 0..comptime!(axes.len()) {
+        for a in 0..axes.len() {
             let i = comptime!(axes[a]);
-            if comptime!(self.boundaries.get(i).copied().flatten() == Some(Boundary::Zero)) {
+            if comptime!(
+                self.boundaries
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .is_some_and(Boundary::masks)
+            ) {
                 valid = valid && self.axis_in_bounds(pos[i], i);
             }
         }
@@ -66,7 +72,13 @@ impl Window {
 
     /// The scalar physical-axis check behind [`axes_in_bounds`](Self::axes_in_bounds).
     pub(crate) fn axis_in_bounds(&self, pos: u32, #[comptime] axis: usize) -> bool {
-        if comptime!(self.boundaries.get(axis).copied().flatten() == Some(Boundary::Zero)) {
+        if comptime!(
+            self.boundaries
+                .get(axis)
+                .copied()
+                .flatten()
+                .is_some_and(Boundary::masks)
+        ) {
             self.lands(pos, axis)
         } else {
             true.runtime()
@@ -75,7 +87,7 @@ impl Window {
 
     /// Whether `pos` lands inside the buffer on every axis a read does not clamp onto its edge.
     ///
-    /// Every axis, not only those the window names a [`Boundary::Zero`] on: a window opened at a
+    /// Every axis, not only those the window masks ([`Boundary::masks`]): a window opened at a
     /// box larger than its buffer, as a fragment taller than the rows it is drained into, leaves
     /// the buffer along an axis that names none.
     #[allow(clippy::needless_range_loop)] // `#[unroll]` requires a range loop.
@@ -165,9 +177,15 @@ impl SourceWindow {
     ) -> bool {
         let mut valid = true;
         #[unroll]
-        for a in 0..comptime!(axes.len()) {
+        for a in 0..axes.len() {
             let i = comptime!(axes[a]);
-            if comptime!(self.boundaries.get(i).copied().flatten() == Some(Boundary::Zero)) {
+            if comptime!(
+                self.boundaries
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .is_some_and(Boundary::masks)
+            ) {
                 valid = valid && self.axis_in_bounds(stage_origin.at(i), pos[i], i);
             }
         }
@@ -181,7 +199,13 @@ impl SourceWindow {
         pos: u32,
         #[comptime] axis: usize,
     ) -> bool {
-        if comptime!(self.boundaries.get(axis).copied().flatten() == Some(Boundary::Zero)) {
+        if comptime!(
+            self.boundaries
+                .get(axis)
+                .copied()
+                .flatten()
+                .is_some_and(Boundary::masks)
+        ) {
             let step = comptime!(self.steps.get(axis).copied().unwrap_or(1) as i32);
             let cell = (stage_origin + pos.cast::<i32>()) * step;
             let abs = self.origin.at(axis) + cell;
@@ -220,7 +244,7 @@ impl Layout for Window {
                     // Both arms evaluate: a zero-extent axis's wrapped `bound - 1` is discarded.
                     select(bound_i == 0u32, 0u32, edge)
                 }
-                None | Some(Boundary::Zero) => shifted,
+                None | Some(Boundary::Zero) | Some(Boundary::Identity(_)) => shifted,
             };
             out.push(shifted);
         }

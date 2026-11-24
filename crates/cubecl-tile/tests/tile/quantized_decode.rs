@@ -1,4 +1,4 @@
-//! The quantized decode product's serving geometry, in the split-axis spelling.
+//! The quantized decode product's serving geometry, in the split-dimension spelling.
 //!
 //! `y = W · x` with `W` the weight's physical `[d_out, d_in]` buffer as the *lhs*, the
 //! orientation a decode step streams, where the contraction runs along the buffer's contiguous
@@ -20,32 +20,31 @@ use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::*;
 
 /// The weight's output dimension: rows of the lhs.
-const M: Axis = Axis(0);
+const M: Dimension = Dimension(0);
 /// Activation rows projected in one launch (1 at decode).
-const N: Axis = Axis(1);
-/// The contraction as the two axes a scale block makes of it.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const N: Dimension = Dimension(1);
+/// The contraction as the two dimensions a scale block makes of it.
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 
 /// The partials sum through the sink's element between `K` steps. Three levels: this cube's
 /// strip of rows, this plane's group of rows, this unit's rows against its share of the
 /// contraction, the leaf running under a block of `budget` scalars.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn quantized_decode(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
 ) {
     let w = w.tile(&space);
     let x = x.tile(&space);
     let scale = scale.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     // This instance's windows of `out`, each initialized once: the level projected
-    // onto `out`'s own axes walks nothing it does not span.
+    // onto `out`'s own dimensions walks nothing it does not span.
     for cube in &out {
         let mut out_w = out.at(&cube);
         out_w.zero();
@@ -63,7 +62,7 @@ fn quantized_decode(
             for unit in plane {
                 let mut out_unit = out_plane
                     .at(&unit)
-                    .accumulating(comptime!(RegisterBlock::new(budget)), Semiring::SUM_PROD);
+                    .accumulating(comptime!(SoftwareMatmul::new(budget)), Semiring::SumProd);
                 out_unit.mma(
                     &w_plane.at(&unit).mul(&scale_plane.at(&unit)),
                     &x_plane.at(&unit),
@@ -80,12 +79,11 @@ fn quantized_decode(
 /// the accumulator, so a rhs lined along the contraction sums a whole step into one cell and
 /// `RegisterData::mma_scaled` refuses it; the shipping shape thus keeps its accumulator in memory.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn quantized_decode_promoted<E: Numeric>(
     w: &TileTensor<'_>,
     x: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
     #[define(E)] _dtype: ElemType,
@@ -93,14 +91,12 @@ fn quantized_decode_promoted<E: Numeric>(
     let w = w.tile(&space);
     let x = x.tile(&space);
     let scale = scale.tile(&space);
-    let out = out.tile(&space);
-    let acc = out.accumulator::<E>(
+    let out = out.tile_mut(&space);
+    let acc = out.register_accumulator::<E>(
         &w,
         &x,
-        comptime!(Instruction::Registers {
-            config: RegisterBlock::new(budget)
-        }),
-        Semiring::SUM_PROD,
+        comptime!(SoftwareMatmul::new(budget)),
+        Semiring::SumProd,
     );
     for cube in space {
         let acc_cube = acc.at(&cube);
@@ -143,7 +139,7 @@ fn a_unit_level_that_cuts_nothing_hands_every_unit_the_plane() {
 }
 
 /// `promoted`: where the accumulator lives. `units_cut`: whether the unit level distributes rows
-/// and words to the units, or names no axis and hands every unit the plane's box.
+/// and words to the units, or names no dimension and hands every unit the plane's box.
 fn serving_geometry(promoted: bool, units_cut: bool) {
     let field = QuantValue::Q8S;
     let bits = field.size_bits();
@@ -297,21 +293,21 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
     // One scale per `(row, block of K)`: `KI` is carried and addressed by nothing.
     let s_op = launcher
         .arg(s_tensor.binding(), dtype)
-        .axes(&[M, KB])
+        .dimensions(&[M, KB])
         .build()
         .unwrap();
     let out_op = launcher
         .arg(out.clone().binding(), dtype)
-        .axes(&[M, N])
+        .dimensions(&[M, N])
         .build()
         .unwrap();
 
-    let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
+    let (count, axis) = (launcher.cube_count(), launcher.cube_dim());
     if promoted {
         quantized_decode_promoted::launch(
             &client,
             count,
-            dim,
+            axis,
             w_op.arg(),
             x_op.arg(),
             s_op.arg(),
@@ -324,7 +320,7 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
         quantized_decode::launch(
             &client,
             count,
-            dim,
+            axis,
             w_op.arg(),
             x_op.arg(),
             s_op.arg(),

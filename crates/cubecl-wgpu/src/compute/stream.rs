@@ -8,10 +8,11 @@ use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
-    controller::WgpuAllocController,
+    controller::MappingStaging,
     schedule::{Addresses, ScheduleTask},
 };
 use core::iter;
+use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(renderdoc)]
 use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
@@ -98,7 +99,10 @@ pub struct WgpuStream {
     /// Number of consecutive `write_buffer` calls without a `queue.submit()`.
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
-    pending_write_count: usize,
+    ///
+    /// Shared by every stream where buffers are mapped, as [`Self::write_mapped`] has to see the
+    /// writes any of them queued. Elsewhere it is this stream's own.
+    pending_write_count: Arc<AtomicUsize>,
     /// Cross-stream input bindings for tasks recorded but not yet submitted.
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
@@ -188,6 +192,7 @@ impl WgpuStream {
         use_vulkan_compiler: bool,
         captures: &DeviceCaptures,
         poison: PoisonWatch,
+        pending_write_count: Arc<AtomicUsize>,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
@@ -234,7 +239,7 @@ impl WgpuStream {
             tasks_max,
             poll,
             submission_load: SubmissionLoad::default(),
-            pending_write_count: 0,
+            pending_write_count,
             shared_bindings: SharedMemoryBindings::default(),
             // Tighter entry cap than the default policy: the uniforms pool is
             // bucketed exclusive pages with a 32 KiB minimum, so every cached
@@ -349,19 +354,14 @@ impl WgpuStream {
                 if self.capturing.is_recording() {
                     // Cross-stream input pins belong to the graph for its whole
                     // lifetime, not to the next submission.
-                    self.recording
-                        .shared
-                        .bindings
-                        .append(&mut shared_inputs.bindings);
+                    self.recording.shared.append(&mut shared_inputs);
                     let (resources, custom_handles, addresses) = resources.into_resources(self);
                     self.record_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
                     return;
                 }
                 // Drain into the stream's pending pins; the handle returns its buffer to the
                 // server pool when it drops at the end of this arm.
-                self.shared_bindings
-                    .bindings
-                    .append(&mut shared_inputs.bindings);
+                self.shared_bindings.append(&mut shared_inputs);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
@@ -427,22 +427,26 @@ impl WgpuStream {
             return Box::pin(async move { Err(err) });
         }
 
-        for entry in staging_info.iter() {
-            if let Some((staging, _binding, _size)) = entry {
+        let mut staged = Vec::with_capacity(staging_info.len());
+        for entry in staging_info {
+            if let Some((staging, binding, size)) = entry {
                 let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
                 self.poison.wake_on_loss(&sender);
-                staging
-                    .buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |v| {
+                // Held until the map completes, which an abandoned read's staging buffer waits on.
+                let polling = self.poll.start_polling();
+                let staging =
+                    MappingStaging::map(staging.buffer, binding, size, &self.poison, move |v| {
                         // This might fail if the channel is closed (eg. the future is dropped).
                         // This is fine, just means results aren't needed anymore.
                         let _ = sender.try_send(v);
+                        core::mem::drop(polling);
                     });
 
                 callbacks.push(Some(receiver));
+                staged.push(Some(staging));
             } else {
                 callbacks.push(None);
+                staged.push(None);
             }
         }
 
@@ -474,21 +478,13 @@ impl WgpuStream {
             // Can stop polling now.
             core::mem::drop(poll);
 
-            let result = {
-                staging_info
-                    .into_iter()
-                    .map(|entry| {
-                        if let Some((staging, binding, size)) = entry {
-                            let controller =
-                                Box::new(WgpuAllocController::init(binding, staging.buffer));
-                            // SAFETY: The binding has initialized memory for at least `size` bytes.
-                            unsafe { Bytes::from_controller(controller, size) }
-                        } else {
-                            Bytes::from_bytes_vec(vec![])
-                        }
-                    })
-                    .collect()
-            };
+            let result = staged
+                .into_iter()
+                .map(|entry| match entry {
+                    Some(staging) => staging.into_bytes(),
+                    None => Bytes::from_bytes_vec(vec![]),
+                })
+                .collect();
 
             Ok(result)
         })
@@ -751,6 +747,11 @@ impl WgpuStream {
             return false;
         }
 
+        // A queued write lands at the next submit, so it would overwrite a copy made now.
+        if self.pending_write_count.load(Ordering::Relaxed) > 0 {
+            return false;
+        }
+
         // A pooled range may have belonged to a tensor whose kernels are still running, so
         // the copy needs an idle queue. Never drain one to get it: the stall costs a
         // pipelined loop the CPU/GPU overlap it lives on, and it buys nothing on a bulk
@@ -815,7 +816,7 @@ impl WgpuStream {
             buffer.slice(0..data.len()).copy_from_slice(data);
         }
 
-        self.pending_write_count += 1;
+        let pending_write_count = self.pending_write_count.fetch_add(1, Ordering::Relaxed) + 1;
 
         // Prevent wgpu staging buffer pool exhaustion during bulk writes (e.g. model
         // loading with hundreds of tensors). queue.write_buffer() is async — wgpu
@@ -826,7 +827,7 @@ impl WgpuStream {
         // See: https://github.com/tracel-ai/cubecl/issues/1120
         const MAX_PENDING_WRITES: usize = 64;
 
-        if self.pending_write_count >= MAX_PENDING_WRITES {
+        if pending_write_count >= MAX_PENDING_WRITES {
             // Submit a fresh, empty command buffer to flush all pending write_buffer work.
             // wgpu flushes its internal staging-buffer copies on any queue.submit(),
             // so we don't need to touch the main compute encoder here.
@@ -847,7 +848,7 @@ impl WgpuStream {
                 log::warn!("wgpu: write flush poll failed ({e})");
             }
 
-            self.pending_write_count = 0;
+            self.pending_write_count.store(0, Ordering::Relaxed);
         }
     }
 
@@ -933,7 +934,7 @@ impl WgpuStream {
         });
 
         self.tasks_count = 0;
-        self.pending_write_count = 0;
+        self.pending_write_count.store(0, Ordering::Relaxed);
     }
 
     /// Drain the driver's validation canary into the log.

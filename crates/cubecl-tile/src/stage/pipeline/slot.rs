@@ -49,7 +49,7 @@ impl<P: Payload<P> + CubeType<ExpandType: Clone>> Slot<P> {
     /// Bring `src`'s window at `region` into this slot, for every operand whose refill is `only`.
     pub(crate) fn refill(&mut self, src: &P, region: &Region, #[comptime] only: Refill) {
         let refills = comptime!(self.refills.clone());
-        let writes = comptime!(refills.contains(&only));
+        let writes = refills.contains(&only);
         if comptime!(writes || only == Refill::EveryRegion) {
             self.meeting.acquire_write();
             self.data

@@ -1,16 +1,17 @@
 //! `c.mm(&a.mul(&s), &b)`: the contraction with one
 //! factor scaled by a **real operand**, on the factor the kernel wrote it on.
 //!
-//! *Which* operand is not stated: the scales' own axes say it. A scale over the output's columns
-//! is a fact about the rhs's columns and nothing else could multiply it in; anything else scales the
-//! lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where cheapest.
+//! *Which* operand is not stated: the scales' own dimensions say it. A scale over the output's
+//! columns is a fact about the rhs's columns and nothing else could multiply it in; anything else
+//! scales the lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where
+//! cheapest.
 //!
 //! The point is what the kernel signature says: the values are a tensor of values, the scales a
 //! tensor of scales, both named at the call, and the scaling is a verb the kernel writes. Nothing
 //! decodes behind a read or rides a side channel, so `f16` scales work with no widening pass.
 //!
 //! The scales resolve at their own granularity through their own projection: a plain `KB` for a
-//! per-block scale, `KI` too for a per-element one, an omitted axis for a broadcast.
+//! per-block scale, `KI` too for a per-element one, an omitted dimension for a broadcast.
 
 use crate::support::{HostData, HostDataType, TestInput, skip_unless_plane_holds};
 use cubecl::{
@@ -21,7 +22,6 @@ use cubecl::{
     zspace::shape,
 };
 use cubecl_common::{e2m1, e4m3};
-use cubecl_tile::Instruction;
 use cubecl_tile::kind::Field;
 use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::layout::split;
@@ -30,7 +30,7 @@ use cubecl_tile::*;
 use half::f16;
 
 use super::matmul::{require_cmma_8x8x8, require_cmma_8x8x8_f32};
-use super::{Form, implied};
+use super::{Form, implied, uncut};
 use cubecl_tile::launch::Bound;
 
 /// Which factor a test kernel writes its scales on. The engine has no such enum: a kernel says
@@ -41,14 +41,14 @@ enum Scaled {
     Rhs,
 }
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-/// The contraction, as the two axes a block makes of it: which block, and where inside it.
-const KB: Axis = Axis(2);
-const KI: Axis = Axis(3);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+/// The contraction, as the two dimensions a block makes of it: which block, and where inside it.
+const KB: Dimension = Dimension(2);
+const KI: Dimension = Dimension(3);
 
 /// The register block the contractions here run under, but for the wide-lhs one.
-const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
+const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
 /// `c = (a ⊗ s) · b`, with `s` at whatever granularity its own projection states.
 #[cube(launch)]
@@ -56,7 +56,7 @@ fn scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -64,13 +64,13 @@ fn scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        match comptime!(side) {
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
+        match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -78,13 +78,14 @@ fn scaled_matmul(
 }
 
 /// [`scaled_matmul`] with the accumulator promoted to registers: the partials never round-trip
-/// through `c`'s element between `K` steps, which is the form a decode step's one-row product wants.
+/// through `c`'s element between `K` steps, which is the form a decode step's one-row product
+/// wants.
 #[cube(launch)]
 fn scaled_matmul_promoted<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -93,18 +94,11 @@ fn scaled_matmul_promoted<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let c = c.tile_mut(&space);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => acc_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => acc_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -113,19 +107,19 @@ fn scaled_matmul_promoted<E: Numeric>(
 }
 
 /// `c = (a ⊗ blocks ⊗ global) · b`, written as a kernel writes any sum: what `factor` takes out of
-/// the operand for a sum in `instruction`'s form multiplies the sum once, as it drains; what it
-/// leaves rides the load.
+/// the operand for the sum it opened multiplies the sum once, as it drains; what it leaves rides
+/// the load. The sum is a register block of `registers`, or the device's matrix instruction where
+/// `None`.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn factored_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     blocks: &TileTensor<'_>,
     global: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
-    #[comptime] instruction: Instruction,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a
@@ -133,9 +127,12 @@ fn factored_matmul<E: Numeric>(
         .mul(&blocks.tile(&space))
         .mul(&global.tile(&space));
     let b = b.tile(&space);
-    let mut c = c.tile(&space);
-    let (a, a_factor) = a.factor(c.space(), instruction);
-    let acc = c.accumulator::<E>(&a, &b, instruction, Semiring::SUM_PROD);
+    let mut c = c.tile_mut(&space);
+    let acc = match registers {
+        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SumProd),
+        None => c.accumulator::<E>(&a, &b, Semiring::SumProd),
+    };
+    let (a, a_factor) = a.factor(&acc);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         acc_r.mma(&a.at(&region), &b.at(&region));
@@ -150,7 +147,7 @@ fn two_level_scaled_matmul(
     b: &TileTensor<'_>,
     blocks: &TileTensor<'_>,
     global: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -161,13 +158,13 @@ fn two_level_scaled_matmul(
     // tiles. Nothing states a scheme.
     let blocks = blocks.tile(&space);
     let global = global.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c
             .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        match comptime!(side) {
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
+        match side {
             Scaled::Lhs => c_r.mma(
                 &a.at(&region)
                     .mul(&blocks.at(&region))
@@ -188,12 +185,11 @@ fn two_level_scaled_matmul(
 /// by the plane's units, unpacked and scaled, and loaded as the fragment the plain instruction
 /// takes. Both operands carry a landing here so one kernel serves either side.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn scaled_matmul_cmma<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -202,11 +198,11 @@ fn scaled_matmul_cmma<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let c = c.tile_mut(&space);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => acc_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => acc_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -217,7 +213,7 @@ fn scaled_matmul_cmma<E: Numeric>(
 /// **Two scale levels, applied in order.** `nvfp4`'s shape: a scale per block of the contraction,
 /// under one factor for the whole tensor.
 ///
-/// The second level is an operand like the first, spanning the same axes and distinguishing
+/// The second level is an operand like the first, spanning the same dimensions and distinguishing
 /// fewer of them, and it rides the same [`Scales`] as the block level. Nothing in the kernel
 /// counts levels: it windows `scales` and hands it to the leaf.
 #[test]
@@ -305,7 +301,8 @@ fn two_levels_multiply_in_order() {
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // Same axes as the level below it, addressing neither: one value over all their tiles.
+            // Same dimensions as the level below it, addressing neither: one value over all their
+            // tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -339,12 +336,7 @@ fn two_levels_multiply_in_order() {
 /// result is the same product.
 #[test]
 fn a_decoded_operands_global_scale_leaves_for_the_sum() {
-    check_factored(
-        Instruction::Registers {
-            config: REGISTER_BLOCK,
-        },
-        4,
-    );
+    check_factored(Some(SOFTWARE_MATMUL), 4);
 }
 
 /// [`factored_matmul`] in cmma fragments: a cmma sum is scaled only through shared memory, so the
@@ -355,12 +347,266 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
     if !require_cmma_8x8x8_f32(&client) {
         return;
     }
-    check_factored(Instruction::Cmma, 8);
+    check_factored(None, 8);
 }
 
-/// `c = (a ⊗ blocks ⊗ global) · b` over `size × size` summed in `instruction`'s form, written
-/// through `factor` and `scaled` as a kernel writes any sum, against the host product.
-fn check_factored(instruction: Instruction, size: usize) {
+/// `c = (a ⊗ r) · (b ⊗ s)` over `e4m3` operands, `r` a scale a row of `a` and `s` one a column of
+/// `b`: both taken out of the sum whatever its instruction ([`Tile::factor_out`]), which an 8-bit
+/// value has no room for, and applied cell by cell as the sum drains.
+#[cube(launch)]
+fn row_and_column_factored_matmul<E: Numeric>(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    rows: &TileTensor<'_>,
+    columns: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
+    space: Partitioning,
+    #[comptime] level: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let a = a.tile(&space).mul(&rows.tile(&space));
+    let b = b.tile(&space).mul(&columns.tile(&space));
+    let mut c = c.tile_mut(&space);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
+    let (a, a_factor) = a.factor_out(&acc);
+    let (b, b_factor) = b.factor_out(&acc);
+    for region in space.over(&level) {
+        let mut acc_r = acc.at(&region);
+        acc_r.mma(&a.at(&region), &b.at(&region));
+    }
+    c.dequantize_from(&acc.scaled(&a_factor).scaled(&b_factor));
+}
+
+/// An `e4m3` product under a scale a row of its lhs and a scale a column of its rhs, which vary
+/// across the output: the sum is held in this crate's MMA, whose cells each unit holds where it
+/// reads them, and each cell is scaled by its row's and its column's as it drains, against the
+/// host product. A skip on a device whose MMA takes no `e4m3` operands.
+#[test]
+fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
+    const SIZE: usize = 16;
+    let client = cubecl::test_device().client();
+    let e4m3_type = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    let f32_type = f32::elem_type_native();
+    let offered = client.properties().features.matmul.mma.iter().any(|cfg| {
+        cfg.a_type == e4m3_type
+            && cfg.b_type == e4m3_type
+            && cfg.cd_type == f32_type
+            && cfg.m as usize == SIZE
+            && cfg.n as usize == SIZE
+            && cfg.k as usize == SIZE
+    });
+    if !offered {
+        crate::support::ValidationResult::Skipped(
+            "device has no 16x16x16 manual MMA over e4m3".to_string(),
+        )
+        .enforce();
+        return;
+    }
+    let (rows, cols, depth) = (SIZE, SIZE, 2 * SIZE);
+    // Small integers, every one an `e4m3` value.
+    let a: Vec<f32> = (0..rows * depth).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..depth * cols).map(|i| (i % 5) as f32 - 2.0).collect();
+    let r: Vec<f32> = (0..rows).map(|m| 0.25 * (m % 4 + 1) as f32).collect();
+    let s: Vec<f32> = (0..cols).map(|n| 0.5 * (n % 3 + 1) as f32).collect();
+    let e4m3s = |values: &[f32], shape: [usize; 2]| {
+        let bytes: Vec<u8> = values
+            .iter()
+            .map(|&v| e4m3::from_f32(v).to_bits())
+            .collect();
+        TensorHandle::new_contiguous(
+            cubecl::zspace::Shape::new(shape),
+            client.create(Bytes::from_bytes_vec(bytes)),
+            e4m3_type,
+        )
+    };
+    let f32s = |values: &[f32], shape: [usize; 2]| {
+        TestInput::builder(client.clone(), cubecl::zspace::Shape::new(shape))
+            .dtype(f32_type)
+            .custom(values.to_vec())
+            .generate_without_host_data()
+    };
+    let (a_t, b_t) = (e4m3s(&a, [rows, depth]), e4m3s(&b, [depth, cols]));
+    let (r_t, s_t) = (f32s(&r, [rows, 1]), f32s(&s, [cols, 1]));
+    let c = TestInput::builder(client.clone(), shape![rows, cols])
+        .dtype(f32_type)
+        .zeros()
+        .generate_without_host_data();
+
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, rows), (N, cols), (KI, depth)]),
+            Levels::leaf(&[(M, rows), (N, cols), (KI, SIZE)])
+                .walk_every(&[M, N, KI])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let scale = |handle: TensorHandle, along: Dimension, across: Dimension| {
+        TileTensorLaunch::new(
+            handle.binding().into_tensor_arg(),
+            f32_type,
+            1,
+            TileSpec::new(Projection::new(
+                &[along, across],
+                &[PhysicalAxisMap::of(along), PhysicalAxisMap::broadcast()],
+            )),
+        )
+    };
+    row_and_column_factored_matmul::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            a_t.binding().into_tensor_arg(),
+            e4m3_type,
+            1,
+            TileSpec::direct(&[M, KI]),
+        ),
+        TileTensorLaunch::new(
+            b_t.binding().into_tensor_arg(),
+            e4m3_type,
+            1,
+            TileSpec::direct(&[KI, N]),
+        ),
+        scale(r_t, M, KI),
+        scale(s_t, N, KI),
+        TileTensorLaunch::new(
+            c.clone().binding().into_tensor_arg(),
+            f32_type,
+            1,
+            TileSpec::direct(&[M, N]),
+        ),
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+        f32_type,
+    );
+
+    let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
+    for m in 0..rows {
+        for n in 0..cols {
+            let want: f32 = (0..depth)
+                .map(|k| a[m * depth + k] * r[m] * b[k * cols + n] * s[n])
+                .sum();
+            let have = got.get_f32(&[m, n]);
+            assert!(
+                (have - want).abs() < 1e-3,
+                "at ({m}, {n}): got {have}, want {want}"
+            );
+        }
+    }
+}
+
+/// The one scale `a` is stored under, read off the factor taken out of it into `out[0]`, and
+/// `a`'s first value as it lies, without it, into `out[1]`. The factor is the one a register sum
+/// of `a · b` takes out ([`Tile::factor`]), or, `whole`, the one a sum no tile holds takes out
+/// ([`Tile::factor_whole`]).
+#[cube(launch)]
+fn per_tensor_factor(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
+    out: &mut Tensor<f32>,
+    space: Partitioning,
+    #[comptime] whole: bool,
+) {
+    let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile_mut(&space));
+    let (a, factor) = if whole {
+        a.factor_whole()
+    } else {
+        let sum = c.register_accumulator::<f32>(&a, &b, SOFTWARE_MATMUL, Semiring::SumProd);
+        a.factor(&sum)
+    };
+    out[0] = factor.whole();
+    out[1] = a.flat::<f32, Const<1>>().read(0).extract(0usize);
+}
+
+/// A sum held in plain registers takes on an operand's per-tensor scale as one number: values
+/// stored under one scale over the whole tensor give it up to `factor`, whose `whole` reads it,
+/// and are read as they lie.
+#[test]
+fn a_per_tensor_factor_reads_as_its_one_scale() {
+    check_per_tensor_factor(false);
+}
+
+/// A sum no tile holds takes the same per-tensor scale out with `factor_whole`, and the values
+/// are read as they lie.
+#[test]
+fn a_per_tensor_factor_leaves_for_a_sum_no_tile_holds() {
+    check_per_tensor_factor(true);
+}
+
+/// [`per_tensor_factor`] over values stored under a scale of 0.37, the factor taken out as
+/// `whole` says.
+fn check_per_tensor_factor(whole: bool) {
+    let (rows, depth, cols, scale) = (4, 4, 4, 0.37f32);
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let a: Vec<f32> = (0..rows * depth).map(|i| i as f32 + 1.5).collect();
+    let (a_t, _) = TestInput::builder(client.clone(), shape![rows, depth])
+        .dtype(dtype)
+        .custom(a.clone())
+        .generate_with_f32_host_data();
+    let b_t = TestInput::builder(client.clone(), shape![depth, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let c_t = TestInput::builder(client.clone(), shape![rows, cols])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+    let (g_t, _) = TestInput::builder(client.clone(), shape![1])
+        .dtype(dtype)
+        .custom(vec![scale])
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![2])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols), (KI, depth)]);
+    per_tensor_factor::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_single(),
+        TileTensorLaunch::new(
+            a_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, KI]),
+        )
+        .scales(TileTensorLaunch::new(
+            g_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::new(Projection::new(&[M, KI], &[PhysicalAxisMap::broadcast()])),
+        )),
+        TileTensorLaunch::new(
+            b_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[KI, N]),
+        ),
+        TileTensorLaunch::new(
+            c_t.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[M, N]),
+        ),
+        out.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+        whole,
+    );
+
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    assert_eq!(got.get_f32(&[0]), scale, "the factor's one scale");
+    assert_eq!(got.get_f32(&[1]), a[0], "the values left without it");
+}
+
+/// `c = (a ⊗ blocks ⊗ global) · b` over `size × size`, summed in a register block of
+/// `registers` or the device's matrix instruction, written through `factor` and `scaled` as a
+/// kernel writes any sum, against the host product.
+fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
     let (rows, cols, block, blocks) = (size, size, 8, 2);
     let depth = block * blocks;
 
@@ -442,7 +688,8 @@ fn check_factored(instruction: Instruction, size: usize) {
             g_t.binding().into_tensor_arg(),
             dtype,
             1,
-            // Same axes as the level below it, addressing neither: one value over all their tiles.
+            // Same dimensions as the level below it, addressing neither: one value over all their
+            // tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
@@ -453,7 +700,7 @@ fn check_factored(instruction: Instruction, size: usize) {
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        instruction,
+        registers,
         dtype,
     );
 
@@ -680,14 +927,14 @@ fn a_cut_finer_than_the_block_reuses_its_scale() {
     }
 }
 
-/// **A scale over no axis at all.** The base of the hierarchy: one number covering everything,
+/// **A scale over no dimension at all.** The base of the hierarchy: one number covering everything,
 /// which is what a per-tensor level is.
 ///
-/// Spelled the way every other granularity is, by which axes the operand distinguishes. The nest
-/// still names `[M, KB]`, so the scales' matrix has the shape any other level's would; the
+/// Spelled the way every other granularity is, by which dimensions the operand distinguishes. The
+/// nest still names `[M, KB]`, so the scales' matrix has the shape any other level's would; the
 /// projection addresses neither, so every position reads the same value. Nothing says "per tensor".
 #[test]
-fn a_scale_over_no_axis_covers_everything() {
+fn a_scale_over_no_dimension_covers_everything() {
     let (rows, cols, block, blocks) = (4, 4, 8, 2);
     let depth = block * blocks;
 
@@ -999,7 +1246,7 @@ fn f16_scales_are_read_as_f16() {
 }
 
 /// The scales span `N`, so they scale the rhs, and the call site says so
-/// on the rhs; the leaf checks that against the axes.
+/// on the rhs; the leaf checks that against the dimensions.
 #[test]
 fn scales_over_the_columns_scale_the_rhs() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
@@ -1426,7 +1673,7 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -1435,18 +1682,11 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
-    let acc = c.accumulator::<E>(
-        &a,
-        &b,
-        comptime!(Instruction::Registers {
-            config: REGISTER_BLOCK
-        }),
-        Semiring::SUM_PROD,
-    );
+    let c = c.tile_mut(&space);
+    let acc = c.register_accumulator::<E>(&a, &b, comptime!(SOFTWARE_MATMUL), Semiring::SumProd);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => acc_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => acc_r.mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -1537,7 +1777,7 @@ fn rhs_scales_are_served_several_at_a_time() {
             s_t.binding().into_tensor_arg(),
             dtype,
             plane_units,
-            // `N` innermost: the width lands on the axis the scales vary over fastest, and
+            // `N` innermost: the width lands on the dimension the scales vary over fastest, and
             // spanning it is what makes them the rhs's.
             TileSpec::new(Projection::new(
                 &[KB, KI, N],
@@ -1579,7 +1819,7 @@ fn wide_lhs_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -1587,19 +1827,19 @@ fn wide_lhs_scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     for region in space.over(&level) {
         let mut c_r = c.at(&region).accumulating(
-            comptime!(RegisterBlock::new(64).component_fanout()),
-            Semiring::SUM_PROD,
+            comptime!(SoftwareMatmul::new(64).component_fanout()),
+            Semiring::SumProd,
         );
-        match comptime!(side) {
+        match side {
             Scaled::Lhs => c_r.mma(&a.at(&region).mul(&scale.at(&region)), &b.at(&region)),
             Scaled::Rhs => c_r
                 .accumulating(
-                    comptime!(RegisterBlock::new(64).component_fanout()),
-                    Semiring::SUM_PROD,
+                    comptime!(SoftwareMatmul::new(64).component_fanout()),
+                    Semiring::SumProd,
                 )
                 .mma(&a.at(&region), &b.at(&region).mul(&scale.at(&region))),
         }
@@ -1607,11 +1847,11 @@ fn wide_lhs_scaled_matmul(
 }
 
 /// **Scales served as lines along the contraction.** The lhs's scales vary over `KB` and nothing
-/// else, so `KB` is their innermost axis and a read serves several blocks of `K` at once.
+/// else, so `KB` is their innermost dimension and a read serves several blocks of `K` at once.
 ///
-/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled so
-/// each one's unit is a constant, and the lines under one scale line stay rolled, since they all take
-/// the same scale. One row here, so the scales are per block of `K` alone.
+/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled
+/// so each one's unit is a constant, and the lines under one scale line stay rolled, since they all
+/// take the same scale. One row here, so the scales are per block of `K` alone.
 #[test]
 fn lhs_scales_are_served_several_at_a_time() {
     let (cols, block, blocks, plane_units) = (4, 4, 4, 4);
@@ -1684,7 +1924,7 @@ fn lhs_scales_are_served_several_at_a_time() {
             s_t.binding().into_tensor_arg(),
             dtype,
             plane_units,
-            // `KB` innermost and alone: the width lands on the axis the scales vary over.
+            // `KB` innermost and alone: the width lands on the dimension the scales vary over.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::of(KB)])),
         ),
         TileTensorLaunch::new(
@@ -1882,7 +2122,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -1890,9 +2130,9 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
-    let mut stage = b.stage(comptime!(level.clone()), StageStorage::Strided);
-    let acc = c.accumulator::<E>(&a, &b, Instruction::Cmma, Semiring::SUM_PROD);
+    let c = c.tile_mut(&space);
+    let mut stage = b.stage(level.clone(), StageStorage::Strided);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     for region in space.over(&level) {
         stage.copy_from(&b.at(&region));
         sync_cube();
@@ -2023,9 +2263,10 @@ fn a_packed_stage_lands_on_the_tensor_cores() {
     }
 }
 
-/// The columns, as the two axes a storage tile makes of them: which tile, and where inside it.
-const NB: Axis = Axis(4);
-const NI: Axis = Axis(5);
+/// The columns, as the two dimensions a storage tile makes of them: which tile, and where inside
+/// it.
+const NB: Dimension = Dimension(4);
+const NI: Dimension = Dimension(5);
 
 /// `c = a · (b ⊗ s)` over a weight **stored in tile order**, walked the way the memory-bound
 /// kernel walks it on either arm: the cube grid, the planes, the chunks a plane walks under one
@@ -2034,14 +2275,13 @@ const NI: Axis = Axis(5);
 /// The scales of a chunk are loaded once, into the plane's units or its own shared window, and
 /// every step reads its scale from there.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn chunked_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
-    #[comptime] instruction: Instruction,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
     #[define(E)] _dtype: ElemType,
@@ -2051,7 +2291,7 @@ fn chunked_scaled_matmul<E: Numeric>(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
@@ -2062,11 +2302,14 @@ fn chunked_scaled_matmul<E: Numeric>(
             let b_plane = b_cube.at(&plane);
             let scale_plane = scale_cube.at(&plane);
             let c_plane = c_cube.at(&plane);
-            let mut lines = scale_plane.stage(
-                comptime!(chunks.clone()),
-                comptime!(StageStorage::Lines { read }),
-            );
-            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, instruction, Semiring::SUM_PROD);
+            let mut lines =
+                scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
+            let sum = match registers {
+                Some(config) => {
+                    c_plane.register_accumulator::<E>(&a_plane, &b_plane, config, Semiring::SumProd)
+                }
+                None => c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd),
+            };
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
                 for step in chunk {
@@ -2097,6 +2340,19 @@ enum TileScales {
     F32,
     /// `ue4m3` bytes, four to a word: what NVFP4 carries.
     Ue4m3,
+    /// `ue8m0` bytes, four to a word: what MXFP4 carries, a power of two each.
+    Ue8m0,
+}
+
+impl TileScales {
+    /// Whether these scales are packed words, which a decoding fill holds as stored across a
+    /// contraction.
+    fn in_words(self) -> bool {
+        match self {
+            TileScales::F32 => false,
+            TileScales::Ue4m3 | TileScales::Ue8m0 => true,
+        }
+    }
 }
 
 /// A weight stored in tile order, with its activation and the host's view of both.
@@ -2155,6 +2411,15 @@ impl TileOrdered {
         TileOrdered { words, s, ..this }
     }
 
+    /// These values under scales a power of two each, from 0.25 to 4, which `ue8m0` holds
+    /// exactly, still different between neighbouring columns and neighbouring tiles.
+    fn under_powers_of_two(self) -> Self {
+        let s = (0..self.s.len())
+            .map(|i| 2f32.powi(((i % 5) + (i / 16)) as i32 % 5 - 2))
+            .collect();
+        Self { s, ..self }
+    }
+
     fn depth(&self) -> usize {
         self.k_tiles * self.tile
     }
@@ -2206,9 +2471,9 @@ impl TileOrdered {
         launcher
             .arg(a_t.binding(), f32::elem_type_native())
             .gathered(
-                Projection::dims()
-                    .dim(M)
-                    .dim(split(&[(KB, self.k_tiles), (KI, self.tile)]))
+                Projection::axes()
+                    .axis(M)
+                    .axis(split(&[(KB, self.k_tiles), (KI, self.tile)]))
                     .build(),
             )
             .vectorize(32 / Self::FIELD.size_bits())
@@ -2217,7 +2482,7 @@ impl TileOrdered {
     }
 
     /// The activation in `elem`, stated as its rows by its blocks by the position inside one, a
-    /// dim an axis: the same values as [`a_op`](Self::a_op), bound directly, which a stage can
+    /// axis a dimension: the same values as [`a_op`](Self::a_op), bound directly, which a stage can
     /// hold.
     fn a_op_blocked(&self, client: &Client, launcher: &Launcher, elem: ElemType) -> Bound {
         let (a_t, _) =
@@ -2227,7 +2492,7 @@ impl TileOrdered {
                 .generate_with_f32_host_data();
         launcher
             .arg(a_t.binding(), elem)
-            .axes(&[M, KB, KI])
+            .dimensions(&[M, KB, KI])
             .vectorize(32 / Self::FIELD.size_bits())
             .build()
             .unwrap()
@@ -2248,7 +2513,14 @@ impl TileOrdered {
         binding.strides = contiguous_strides(&shape).into();
         let b = launcher
             .arg(binding, u32::elem_type_native())
-            .gathered(Projection::dims().dim(NB).dim(KB).dim(NI).dim(KI).build())
+            .gathered(
+                Projection::axes()
+                    .axis(NB)
+                    .axis(KB)
+                    .axis(NI)
+                    .axis(KI)
+                    .build(),
+            )
             .packed(Self::FIELD);
         match read {
             Some(values) => b.vectorize(values),
@@ -2267,10 +2539,10 @@ impl TileOrdered {
         scales: TileScales,
         served: usize,
     ) -> Bound {
-        let axes = Projection::dims()
-            .dim(NB)
-            .dim(KB)
-            .dim(NI)
+        let dimensions = Projection::axes()
+            .axis(NB)
+            .axis(KB)
+            .axis(NI)
             .spanning(KI)
             .build();
         let shape = vec![self.n_tiles, self.k_tiles, self.tile];
@@ -2285,20 +2557,28 @@ impl TileOrdered {
                 .generate_with_f32_host_data();
                 launcher
                     .arg(s_t.binding(), f32::elem_type_native())
-                    .gathered(axes)
+                    .gathered(dimensions)
                     .vectorize(served)
                     .build()
                     .unwrap()
             }
-            TileScales::Ue4m3 => {
+            TileScales::Ue4m3 | TileScales::Ue8m0 => {
                 let per_word = 4;
+                let byte = |v: f32| match scales {
+                    TileScales::Ue8m0 => (v.log2().round() as i32 + 127) as u32,
+                    _ => e4m3::from_f32(v).to_bits() as u32,
+                };
+                let field = match scales {
+                    TileScales::Ue8m0 => ScaleDtype::UE8M0,
+                    _ => ScaleDtype::UE4M3,
+                };
                 let bytes: Vec<u32> = self
                     .s
                     .chunks(per_word)
                     .map(|word| {
-                        word.iter().enumerate().fold(0u32, |acc, (j, &v)| {
-                            acc | ((e4m3::from_f32(v).to_bits() as u32) << (j * 8))
-                        })
+                        word.iter()
+                            .enumerate()
+                            .fold(0u32, |acc, (j, &v)| acc | (byte(v) << (j * 8)))
                     })
                     .collect();
                 let s_t = TensorHandle::new_contiguous(
@@ -2311,8 +2591,8 @@ impl TileOrdered {
                 binding.strides = contiguous_strides(&shape).into();
                 launcher
                     .arg(binding, u32::elem_type_native())
-                    .gathered(axes)
-                    .packed(Field::of_scale(ScaleDtype::UE4M3))
+                    .gathered(dimensions)
+                    .packed(Field::of_scale(field))
                     .vectorize(served)
                     .build()
                     .unwrap()
@@ -2324,9 +2604,9 @@ impl TileOrdered {
         launcher
             .arg(c.clone().binding(), c.dtype)
             .gathered(
-                Projection::dims()
-                    .dim(M)
-                    .dim(split(&[(NB, self.n_tiles), (NI, self.tile)]))
+                Projection::axes()
+                    .axis(M)
+                    .axis(split(&[(NB, self.n_tiles), (NI, self.tile)]))
                     .build(),
             )
             .build()
@@ -2402,11 +2682,9 @@ fn check_chunked(arm: Arm, scales: TileScales, read: UnitRead) {
             .build(),
     };
     let chunks_level = levels[2].clone();
-    let instruction = match arm {
-        Arm::Registers => Instruction::Registers {
-            config: REGISTER_BLOCK,
-        },
-        Arm::Landing => Instruction::Cmma,
+    let registers = match arm {
+        Arm::Registers => Some(SOFTWARE_MATMUL),
+        Arm::Landing => None,
     };
     let launcher = implied(&client, Partitioning::new(w.space(), levels), Form::Static);
     let s_op = w.s_op(
@@ -2429,7 +2707,7 @@ fn check_chunked(arm: Arm, scales: TileScales, read: UnitRead) {
         s_op.arg(),
         w.c_op(&launcher, &c).arg(),
         launcher.partitioning_arg(),
-        instruction,
+        registers,
         chunks_level,
         read,
         dtype,
@@ -2475,12 +2753,11 @@ fn a_tile_ordered_weight_lands_on_the_tensor_cores_under_byte_scales() {
 /// The partition's fragments load through their landing a depth at a time, the quant block being
 /// the loop inside the partition's depth: two instructions under one scale.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn partitioned_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] chunks: Level,
     #[comptime] read: UnitRead,
@@ -2490,7 +2767,7 @@ fn partitioned_scaled_matmul<E: Numeric>(
     // The weight is scaled at every step, which lands it on its own.
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let a_cube = a.at(&cube);
         let b_cube = b.at(&cube);
@@ -2501,12 +2778,9 @@ fn partitioned_scaled_matmul<E: Numeric>(
             let b_plane = b_cube.at(&plane);
             let scale_plane = scale_cube.at(&plane);
             let c_plane = c_cube.at(&plane);
-            let mut lines = scale_plane.stage(
-                comptime!(chunks.clone()),
-                comptime!(StageStorage::Lines { read }),
-            );
-            let sum =
-                c_plane.accumulator::<E>(&a_plane, &b_plane, Instruction::Cmma, Semiring::SUM_PROD);
+            let mut lines =
+                scale_plane.stage(chunks.clone(), comptime!(StageStorage::Lines { read }));
+            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd);
             for chunk in plane {
                 lines.copy_from(&scale_plane.at(&chunk));
                 for step in chunk {
@@ -2594,22 +2868,21 @@ fn stepped_scaled_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let (a_cube, b_cube) = (a.at(&cube), b.at(&cube));
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
         for plane in cube {
             let (a_plane, b_plane) = (a_cube.at(&plane), b_cube.at(&plane));
             let (scale_plane, c_plane) = (scale_cube.at(&plane), c_cube.at(&plane));
-            let sum =
-                c_plane.accumulator::<E>(&a_plane, &b_plane, Instruction::Cmma, Semiring::SUM_PROD);
+            let sum = c_plane.accumulator::<E>(&a_plane, &b_plane, Semiring::SumProd);
             for step in plane {
                 let mut sum_step = sum.at(&step);
                 sum_step.mma(
@@ -2676,22 +2949,22 @@ enum CopiedThrough {
 }
 
 /// A tile-ordered weight copied decoded: its words under their scales, into a dense output over
-/// the weight's own axes, one cube a tile column, reaching it as `through` says.
+/// the weight's own dimensions, one cube a tile column, reaching it as `through` says.
 #[cube(launch)]
 fn decoded_tile_order_copy(
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] through: CopiedThrough,
 ) {
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let out = out.tile(&space);
+    let out = out.tile_mut(&space);
     for cube in space {
         let decoded = b.at(&cube).mul(&scale.at(&cube));
         let mut out_cube = out.at(&cube);
-        match comptime!(through) {
+        match through {
             CopiedThrough::Directly => out_cube.dequantize_from(&decoded),
             CopiedThrough::ABlockAtATime => {
                 for block in cube.walk() {
@@ -2756,7 +3029,7 @@ fn check_decoded_tile_order_copy(through: CopiedThrough) {
         s_op.arg(),
         launcher
             .arg(out.clone().binding(), dtype)
-            .axes(&[NB, KB, NI, KI])
+            .dimensions(&[NB, KB, NI, KI])
             .vectorize(w.tile)
             .build()
             .unwrap()
@@ -2796,29 +3069,29 @@ enum Unpacked {
 /// `decoded` for the instruction, summing in `A`: a stage the fill decodes holds `decoded`, and
 /// words staged as they are stored are dequantized at it by each plane.
 #[cube(launch)]
-#[allow(clippy::too_many_arguments)]
 fn staged_stepped_scaled_matmul<A: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] unpacked: Unpacked,
     #[comptime] storage: StageStorage,
     #[comptime] decoded: ElemType,
     #[comptime] prefetch: Prefetch,
+    #[comptime] in_registers: Option<bool>,
     #[define(A)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in space {
         let (a_cube, b_cube) = (a.at(&cube), b.at(&cube));
         let (scale_cube, c_cube) = (scale.at(&cube), c.at(&cube));
-        let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Instruction::Cmma, Semiring::SUM_PROD);
+        let sum = c_cube.accumulator::<A>(&a_cube, &b_cube, Semiring::SumProd);
         let run = cube.walk();
-        let staged = match comptime!(unpacked) {
+        let staged = match unpacked {
             Unpacked::ByEachPlane => b_cube.clone(),
             Unpacked::ByTheFill => b_cube.mul(&scale_cube),
         };
@@ -2826,17 +3099,26 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
             &run,
             &a_cube,
             &staged,
-            comptime!(storage.clone()),
+            storage.clone(),
             1usize,
             comptime!(Some(decoded)),
         );
+        if comptime!(in_registers.is_some()) {
+            // The slots give the same product, so a fallback would pass on the numbers alone.
+            let held = stages.prefetches_in_registers();
+            comptime!(assert_eq!(
+                Some(held),
+                in_registers,
+                "where the stage waits under {prefetch:?}"
+            ));
+        }
         stages.walk(run, prefetch, |slot, stage| {
             let sum_stage = sum.at(stage);
             let scale_stage = scale_cube.at(stage);
             slot.consume(|a_stage, b_stage| {
                 for plane in stage {
                     let mut sum_plane = sum_stage.at(&plane);
-                    let b_plane = match comptime!(unpacked) {
+                    let b_plane = match unpacked {
                         Unpacked::ByEachPlane => b_stage.at(&plane).mul(&scale_stage.at(&plane)),
                         Unpacked::ByTheFill => b_stage.at(&plane),
                     };
@@ -2873,7 +3155,7 @@ enum StagesHeld {
 }
 
 impl StagesHeld {
-    /// The storage, its blocks `fragment` wide along every axis the instruction spans.
+    /// The storage, its blocks `fragment` wide along every dimension the instruction spans.
     fn storage(self, fragment: usize) -> StageStorage {
         match self {
             Self::Strided => StageStorage::Strided,
@@ -2906,9 +3188,53 @@ fn check_staged_stepped(
     stages: StagesHeld,
     prefetch: Prefetch,
 ) {
-    let (plane_rows, n_tiles, k_tiles, fragment) = (16, 2, 4, 8);
+    check_staged_stepped_over(
+        TileCounts::POWERS_OF_TWO,
+        scales,
+        elem,
+        planes,
+        unpacked,
+        stages,
+        prefetch,
+    );
+}
+
+/// How many tiles of the weight lie along `N` and down `K`.
+#[derive(Clone, Copy, Debug)]
+struct TileCounts {
+    n: usize,
+    k: usize,
+}
+
+impl TileCounts {
+    const POWERS_OF_TWO: Self = Self { n: 2, k: 4 };
+    /// Three of each: three cubes, and a walk of three stages, which no power of two divides.
+    const THREES: Self = Self { n: 3, k: 3 };
+}
+
+/// [`check_staged_stepped`] over a weight of `tiles`. A fill the scales decode and the next stage
+/// asked for in registers holds that stage there wherever the scales are words, which the kernel
+/// asserts.
+fn check_staged_stepped_over(
+    tiles: TileCounts,
+    scales: TileScales,
+    elem: ElemType,
+    planes: PlaneGrid,
+    unpacked: Unpacked,
+    stages: StagesHeld,
+    prefetch: Prefetch,
+) {
+    let (plane_rows, n_tiles, k_tiles, fragment) = (16, tiles.n, tiles.k, 8);
     let rows = plane_rows * planes.rows;
     let w = TileOrdered::new(rows, n_tiles, k_tiles);
+    let w = match scales {
+        TileScales::Ue8m0 => w.under_powers_of_two(),
+        TileScales::F32 | TileScales::Ue4m3 => w,
+    };
+    let in_registers = match (unpacked, prefetch) {
+        (Unpacked::ByTheFill, Prefetch::InRegisters) => Some(scales.in_words()),
+        _ => None,
+    };
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
     if !require_cmma_8x8x8(&client, elem, dtype) {
@@ -2948,12 +3274,44 @@ fn check_staged_stepped(
         stages.storage(fragment),
         elem,
         prefetch,
+        in_registers,
         dtype,
     );
     w.check(
         &client,
         c,
         &format!("staged stepped {scales:?} {elem:?} {unpacked:?} {stages:?} {prefetch:?}"),
+    );
+}
+
+/// MXFP4's `ue8m0` block scales are words as NVFP4's are: the fill holds them across the
+/// contraction and decodes at the store.
+#[test]
+fn a_stage_decoded_out_of_registers_under_e8m0_scales_contracts_as_its_values() {
+    check_staged_stepped(
+        TileScales::Ue8m0,
+        f16::elem_type_native(),
+        PlaneGrid::ONE,
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
+    );
+}
+
+/// Three tiles each way: an odd count of cubes and of stages, the last one no pair's.
+#[test]
+fn a_stage_decoded_out_of_registers_over_three_tiles_each_way_contracts_as_its_values() {
+    check_staged_stepped_over(
+        TileCounts::THREES,
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid {
+            rows: 1,
+            columns: 2,
+        },
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
     );
 }
 
@@ -3045,12 +3403,61 @@ fn a_tile_ordered_weight_decoded_by_the_stage_fill_contracts_as_its_values() {
     );
 }
 
-/// The same asked to wait in registers: a fill that decodes cannot copy its source straight into
-/// them, so the stage is contracted as the values it decodes to.
+/// The same with the next stage waiting in registers: each unit holds its loads of the weight's
+/// words and its block scales' words across the contraction, and decodes them into the stage after
+/// it, which then contracts as the values it decodes to.
 #[test]
 fn a_stage_the_fill_decodes_contracts_as_its_values_when_registers_are_asked_for() {
     check_staged_stepped(
         TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid::ONE,
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
+    );
+}
+
+/// The same with two planes splitting the rows, both reading the stage the cube's units decoded
+/// out of their registers.
+#[test]
+fn a_stage_decoded_out_of_registers_serves_every_plane_sharing_it() {
+    check_staged_stepped(
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid {
+            rows: 2,
+            columns: 1,
+        },
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
+    );
+}
+
+/// The same into stages held in padded blocks, under two planes each way: the decode out of
+/// registers lands each value where the stage's layout puts it, as the decoding copy does.
+#[test]
+fn a_stage_decoded_out_of_registers_lands_in_padded_blocks() {
+    check_staged_stepped(
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid {
+            rows: 2,
+            columns: 2,
+        },
+        Unpacked::ByTheFill,
+        StagesHeld::InPaddedBlocks,
+        Prefetch::InRegisters,
+    );
+}
+
+/// The same under `f32` block scales, plain rather than packed in words: the fetch holds only
+/// scales packed as words, so the ring fills its slots, and the product is the same.
+#[test]
+fn a_stage_whose_scales_are_no_words_fills_its_slots_when_registers_are_asked_for() {
+    check_staged_stepped(
+        TileScales::F32,
         f16::elem_type_native(),
         PlaneGrid::ONE,
         Unpacked::ByTheFill,
@@ -3108,15 +3515,15 @@ fn a_tile_ordered_weight_read_a_block_a_load_lands_a_step_at_a_time_under_byte_s
 fn scaled_copy<E: Numeric>(
     a: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    out: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] staged: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let scale = scale.tile(&space);
-    let mut out = out.tile(&space);
-    if comptime!(staged) {
+    let mut out = out.tile_mut(&space);
+    if staged {
         let mut stage = Tile::shared::<E>(comptime!(space.space().clone()), StageStorage::Strided);
         stage.dequantize_from(&a.mul(&scale));
         sync_cube();
@@ -3141,8 +3548,8 @@ fn check_scaled_copy(staged: bool) {
         .dtype(dtype)
         .custom(s.clone())
         .generate_with_f32_host_data();
-    // A stage is dense over its axes, one dim each; copied back out, it lands in a buffer laid
-    // out the same way. A direct copy writes the values' own layout.
+    // A stage is dense over its dimensions, one axis each; copied back out, it lands in a buffer
+    // laid out the same way. A direct copy writes the values' own layout.
     let out_shape = match staged {
         true => shape![rows, blocks, block],
         false => shape![rows, depth],
@@ -3232,7 +3639,7 @@ fn staged_scaled_matmul(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     scale: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
@@ -3240,7 +3647,7 @@ fn staged_scaled_matmul(
     let a = a.tile(&space);
     let b = b.tile(&space);
     let scale = scale.tile(&space);
-    let mut c = c.tile(&space);
+    let mut c = c.tile_mut(&space);
     c.zero();
     let walk = space.over(&level);
     let mut stages = Stages::smem(
@@ -3254,7 +3661,7 @@ fn staged_scaled_matmul(
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
+            .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
         slot.consume(|a_s, b_s| {
             c_r.mma(a_s, b_s);
         });

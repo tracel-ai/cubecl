@@ -1,6 +1,6 @@
 //! Which outdated pages a relocation empties, and in what order.
 
-use crate::memory_management::ManagedMemoryHandle;
+use crate::memory_management::ManagedMemoryBinding;
 use crate::memory_management::memory_pool::MemoryPage;
 use alloc::vec::Vec;
 
@@ -28,8 +28,9 @@ pub struct MovablePage {
 /// One live allocation on an outdated page.
 #[derive(Debug)]
 pub struct LiveAllocation {
-    /// The allocation, as its owners hold it.
-    pub handle: ManagedMemoryHandle,
+    /// The allocation, bound rather than held: a handle of the relocation's own would count
+    /// among its owners' while the move runs (see [`ManagedMemoryHandle::to_binding`]).
+    pub handle: ManagedMemoryBinding,
     /// Its size in bytes, which the move copies.
     pub size: u64,
 }
@@ -64,7 +65,7 @@ impl MovablePage {
         let live: Vec<_> = page
             .live()
             .map(|slice| LiveAllocation {
-                handle: slice.handle.clone(),
+                handle: slice.handle.to_binding(),
                 size: slice.storage.size(),
             })
             .collect();
@@ -96,7 +97,7 @@ mod tests {
             live: sizes
                 .iter()
                 .map(|&size| LiveAllocation {
-                    handle: ManagedMemoryHandle::new(),
+                    handle: crate::memory_management::ManagedMemoryHandle::new().binding(),
                     size,
                 })
                 .collect(),

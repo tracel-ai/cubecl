@@ -29,7 +29,7 @@ impl Monoid {
     pub fn identity<E: Numeric>(#[comptime] monoid: Monoid) -> E {
         let elem = elem_type_of::<E>();
         let float = comptime!(elem.is_float());
-        match comptime!(monoid) {
+        match monoid {
             Monoid::Sum => E::from_int(0),
             Monoid::Prod => E::from_int(1),
             Monoid::Max => {

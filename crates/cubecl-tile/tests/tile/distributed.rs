@@ -14,9 +14,9 @@ use cubecl_tile::launch::BoundaryPolicy;
 use cubecl_tile::launch::Grid;
 use cubecl_tile::*;
 
-const M: Axis = Axis(0);
-const N: Axis = Axis(1);
-const K: Axis = Axis(2);
+const M: Dimension = Dimension(0);
+const N: Dimension = Dimension(1);
+const K: Dimension = Dimension(2);
 
 /// Rows and columns of the block one unit owns, and the depth one step of its walk reads.
 const BLOCK: [usize; 3] = [2, 2, 4];
@@ -29,24 +29,22 @@ const PLANES: usize = 2;
 fn distributed_block_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    c: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
-    let c = c.tile(&space);
+    let c = c.tile_mut(&space);
     for cube in &space {
         for plane in cube {
             for unit in plane {
                 let (a_unit, b_unit, c_unit) = (a.at(&unit), b.at(&unit), c.at(&unit));
-                let sum = c_unit.accumulator::<E>(
+                let sum = c_unit.register_accumulator::<E>(
                     &a_unit,
                     &b_unit,
-                    comptime!(Instruction::Registers {
-                        config: RegisterBlock::new(BLOCK[0] * BLOCK[1])
-                    }),
-                    Semiring::SUM_PROD,
+                    comptime!(SoftwareMatmul::new(BLOCK[0] * BLOCK[1])),
+                    Semiring::SumProd,
                 );
                 for step in &unit {
                     let mut sum_step = sum.at(&step);
@@ -183,7 +181,7 @@ fn every_block_is_taken_once_at_any_unit_count() {
     }
 }
 
-/// A shape that tiles by nothing: the cubes overhang both axes of the output and the walk
+/// A shape that tiles by nothing: the cubes overhang both dimensions of the output and the walk
 /// overhangs `K`, and the units still take every block inside once.
 #[test]
 fn distributed_blocks_mask_a_ragged_edge() {

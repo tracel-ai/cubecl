@@ -40,6 +40,16 @@ use crate::*;
 /// ([`TileTensorLaunch::runtime_map`]) ride the argument too, as does the table that places their
 /// windows ([`TileTensorLaunch::indexed`]), a routed product's experts or a pool's pages. A kernel
 /// serves every operand the same way, with [`tile`](TileTensor::tile).
+///
+/// # Read and written operands
+///
+/// A kernel writes an operand only through a tile served by [`tile_mut`](TileTensor::tile_mut),
+/// which takes the operand by `&mut`; a tile served by [`tile`](TileTensor::tile) is read-only,
+/// and a write into it is refused as the kernel expands. The launch declares a parameter taken
+/// by `&` read-only, and a launch that fails before it runs, a kernel refused as it expands above
+/// all, fails the reads of only the buffers it declares written: an output written through `&`
+/// would be read back as whatever its allocation held. The tables an operand is read through,
+/// its codebook and the table placing its windows, are read-only whichever way it is taken.
 pub struct TileTensor<'a> {
     pub spec: TileSpec,
     /// The element the buffer holds.
@@ -48,8 +58,14 @@ pub struct TileTensor<'a> {
 }
 
 impl TileTensor<'_> {
-    /// Serve the operand as a [`Tile`] over the kernel's one `partitioning`, under its scales.
+    /// Serve the operand as a read-only [`Tile`] over the kernel's one `partitioning`, under its
+    /// scales.
     pub fn tile(&self, _partitioning: &Partitioning) -> Tile {
+        unexpanded!()
+    }
+
+    /// [`tile`](TileTensor::tile), written: the operand's values and scales may be stored into.
+    pub fn tile_mut(&mut self, _partitioning: &Partitioning) -> Tile {
         unexpanded!()
     }
 
@@ -61,7 +77,8 @@ impl TileTensor<'_> {
     }
 }
 
-/// A buffer of values, served at `E`, its projection's runtime half `coefficients` and `offsets`.
+/// A buffer of values, served at `E`, its projection's runtime half `coefficients` and `offsets`,
+/// written only where `writable`.
 #[cube]
 fn buffer_tile<E: Numeric>(
     tensor: &Tensor<E>,
@@ -69,27 +86,22 @@ fn buffer_tile<E: Numeric>(
     coefficients: Coords<u32>,
     offsets: Coords<i32>,
     #[comptime] spec: TileSpec,
+    #[comptime] writable: bool,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::gathered(
-        tensor,
-        comptime!(space.space().clone()),
-        spec,
-        coefficients,
-        offsets,
-    )
-    .tile::<E>(comptime!(space.levels().to_vec()))
+    GlobalOperand::gathered(tensor, space.space(), spec, coefficients, offsets, writable)
+        .tile::<E>(space.levels().to_vec())
 }
 
-/// A codebook's table, `entries` long along its one axis, outside the kernel's space.
+/// A codebook's table, `entries` long along its one dimension, outside the kernel's space.
 #[cube]
 fn table_tile<E: Numeric>(
     tensor: &Tensor<E>,
     #[comptime] entries: usize,
     #[comptime] spec: TileSpec,
 ) -> Tile {
-    let space = comptime!(Space::new(&[(spec.axes()[0], entries)]));
-    GlobalOperand::tensor(tensor, comptime!(space.clone()), spec).tile::<E>(comptime!(Vec::new()))
+    let space = comptime!(Space::new(&[(spec.dimensions()[0], entries)]));
+    GlobalOperand::tensor(tensor, space.clone(), spec).tile::<E>(comptime!(Vec::new()))
 }
 
 /// [`buffer_tile`] over a pool of pages, read as the sequences `table` names.
@@ -101,11 +113,11 @@ fn paged_tile<E: Numeric>(
     #[comptime] spec: TileSpec,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    GlobalOperand::paged(tensor, table, comptime!(space.space().clone()), spec)
-        .tile::<E>(comptime!(space.levels().to_vec()))
+    GlobalOperand::paged(tensor, table, space.space().clone(), spec)
+        .tile::<E>(space.levels().to_vec())
 }
 
-/// A tensor map, served as a TMA-filled tile.
+/// A tensor map, served as a TMA-filled tile, stored into only where `writable`.
 #[cube]
 fn tensor_map_tile<E: Numeric>(
     map: TensorMap<E, Tiled>,
@@ -113,16 +125,19 @@ fn tensor_map_tile<E: Numeric>(
     partitioning: &Partitioning,
     #[comptime] spec: TileSpec,
     #[comptime] width: usize,
+    #[comptime] writable: bool,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
-    let own = comptime!(space.space().subspace(spec.axes()));
+    let own = space.space().subspace(spec.dimensions());
     let data = TmaData::from_tensor_map(
         map,
         layout,
-        comptime!(own.rank()),
-        comptime!(spec.units),
-        comptime!(spec.packing),
+        own.rank(),
+        spec.units,
+        spec.packing,
         width,
+        spec.projection.clone(),
+        writable,
     );
     Tile::new::<E>(
         TileKind::new_TmaGmem(data),
@@ -171,10 +186,28 @@ impl<'a> TileTensorExpand<'a> {
         scope: &Scope,
         partitioning: &PartitioningExpand,
     ) -> TileExpand {
-        let values = self.values_tile(scope, partitioning);
+        self.served(scope, partitioning, false)
+    }
+
+    pub fn __expand_tile_mut_method(
+        &mut self,
+        scope: &Scope,
+        partitioning: &PartitioningExpand,
+    ) -> TileExpand {
+        self.served(scope, partitioning, true)
+    }
+
+    /// The operand as a tile, its values and scales written only where `writable`.
+    fn served(
+        &self,
+        scope: &Scope,
+        partitioning: &PartitioningExpand,
+        writable: bool,
+    ) -> TileExpand {
+        let values = self.values_tile(scope, partitioning, writable);
         let values = self.looking_up(scope, values);
         let values = self.indexing(scope, values, partitioning);
-        self.scaling(scope, values, partitioning)
+        self.scaling(scope, values, partitioning, writable)
     }
 
     pub fn __expand_lines_method<E: Numeric, V: Size>(
@@ -212,8 +245,13 @@ impl<'a> TileTensorExpand<'a> {
     }
 
     /// The values alone, under none of their scales: read through their table where they are a
-    /// pool of pages, where they lie otherwise.
-    fn values_tile(&self, scope: &Scope, partitioning: &PartitioningExpand) -> TileExpand {
+    /// pool of pages, where they lie otherwise. A pool is read-only: it is written where it lies.
+    fn values_tile(
+        &self,
+        scope: &Scope,
+        partitioning: &PartitioningExpand,
+        writable: bool,
+    ) -> TileExpand {
         let _held = scope.define_type::<Held>(self.element);
         match &self.values {
             ValuesExpand::Tensor { tensor, meta, .. } => {
@@ -250,6 +288,7 @@ impl<'a> TileTensorExpand<'a> {
                     coefficients,
                     offsets,
                     self.spec.clone(),
+                    writable,
                 )
             }
             ValuesExpand::TensorMap { map, layout, width } => tensor_map_tile::expand::<Held>(
@@ -259,6 +298,7 @@ impl<'a> TileTensorExpand<'a> {
                 partitioning,
                 self.spec.clone(),
                 *width,
+                writable,
             ),
         }
     }
@@ -302,12 +342,12 @@ impl<'a> TileTensorExpand<'a> {
         if self.spec.paging.is_some() {
             return values;
         }
-        let keys = table.spec.axes().to_vec();
+        let keys = table.spec.dimensions().to_vec();
         let read_at = indexing
             .read_at(&keys, &partitioning.levels)
-            .unwrap_or_else(|refusal| panic!("{refusal}"));
+            .unwrap_or_else(|decline| panic!("{decline}"));
         let ValuesExpand::Tensor { tensor, meta, .. } = &table.values else {
-            panic!("{}", Refusal::IndexTableNotU32)
+            panic!("{}", Decline::IndexTableNotU32)
         };
         let entries = scope.create_kernel_ref(TensorExpand::<u32>::__expand_from_parts(
             *meta,
@@ -330,6 +370,7 @@ impl<'a> TileTensorExpand<'a> {
         scope: &Scope,
         values: TileExpand,
         partitioning: &PartitioningExpand,
+        writable: bool,
     ) -> TileExpand {
         let Some(level) = &self.scale else {
             return values;
@@ -342,7 +383,7 @@ impl<'a> TileTensorExpand<'a> {
             "TileTensor: a tensor map lands its values as they lie, so it rides only scales a \
              stage keeps beside them: words of block scales, or block scales packed in words"
         );
-        values.__expand_mul_method(scope, &level.__expand_tile_method(scope, partitioning))
+        values.__expand_mul_method(scope, &level.served(scope, partitioning, writable))
     }
 }
 
@@ -436,44 +477,44 @@ impl TileTensorLaunch {
     }
 
     /// These values, stored as indices ([`Field::Index`]), read as the entries of `table` they
-    /// name: a plain one-dim buffer of at least an entry per index, read one value a line.
+    /// name: a plain one-axis buffer of at least an entry per index, read one value a line.
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] for values not stored as indices, or a table that is not a plain one-dim
+    /// The [`Decline`] for values not stored as indices, or a table that is not a plain one-axis
     /// buffer holding an entry for every index.
-    pub fn codebook(mut self, table: TileTensorLaunch) -> Result<Self, Refusal> {
+    pub fn codebook(mut self, table: TileTensorLaunch) -> Result<Self, Decline> {
         let Packing::Packed {
             field: Field::Index { bits },
         } = self.spec.packing
         else {
-            return Err(Refusal::CodebookOfValuesNotIndices);
+            return Err(Decline::CodebookOfValuesNotIndices);
         };
         let ValuesLaunch::Tensor { tensor, width } = &table.values else {
-            return Err(Refusal::CodebookTableNotPlain);
+            return Err(Decline::CodebookTableNotPlain);
         };
         let plain = *width == 1
             && tensor.shape().len() == 1
-            && table.spec.axes().len() == 1
+            && table.spec.dimensions().len() == 1
             && table.spec.packing.as_stored()
             && table.scale.is_none()
             && table.index.is_none()
             && table.codebook.is_none();
         if !plain {
-            return Err(Refusal::CodebookTableNotPlain);
+            return Err(Decline::CodebookTableNotPlain);
         }
         let entries = tensor.shape()[0];
         if entries < 1 << bits {
-            return Err(Refusal::CodebookTableShort { entries, bits });
+            return Err(Decline::CodebookTableShort { entries, bits });
         }
         self.codebook = Some(Box::new(table));
         Ok(self)
     }
 
-    /// These values read through their projection's runtime half: a value for each of its
-    /// dynamic coefficients and divisors (`Scale::Dynamic`, `Divisor::Dynamic`), physical axis
-    /// major, each axis's divisor last, and for each of its dynamic offsets (`Offset::Dynamic`).
-    /// Only how many there are is checked, as the kernel expands.
+    /// These values read through their projection's runtime half: a value for each of its dynamic
+    /// coefficients and divisors (`Scale::Dynamic`, `Divisor::Dynamic`), physical axis major, each
+    /// dimension's divisor last, and for each of its dynamic offsets (`Offset::Dynamic`). Only how
+    /// many there are is checked, as the kernel expands.
     pub fn runtime_map(mut self, coefficients: Vec<u32>, offsets: Vec<i32>) -> Self {
         self.runtime_map = (coefficients, offsets);
         self
@@ -500,6 +541,26 @@ impl TileTensorLaunch {
         self
     }
 
+    /// This tensor map of `u32` words read as words (`Packing::Words`) of `field`, several to a
+    /// word along the dimension they scale: what a TMA engine moves of block scales a block-scaled
+    /// instruction takes a word at a time, which a stage holds as they lie.
+    ///
+    /// # Panics
+    ///
+    /// On an argument that is not a tensor map of `u32` words.
+    pub fn words(mut self, field: impl Into<Field>) -> Self {
+        assert!(
+            matches!(self.values, ValuesLaunch::TensorMap { .. })
+                && self.element == u32::elem_type_native(),
+            "TileTensorLaunch::words: a tensor map of u32 words is read as words of scales, and \
+             this is not one"
+        );
+        Arc::make_mut(&mut self.spec).packing = Packing::Words {
+            field: field.into(),
+        };
+        self
+    }
+
     /// These values under `scale`, outside the scales they carry already: words of block scales
     /// where `scale` is bound as [words](TileSpec::words), scales read as numbers otherwise.
     pub fn scales(mut self, scale: TileTensorLaunch) -> Self {
@@ -510,32 +571,32 @@ impl TileTensorLaunch {
         self
     }
 
-    /// These values with their windows placed by `table`, whose dims are its keys, as `indexing`
+    /// These values with their windows placed by `table`, whose axes are its keys, as `indexing`
     /// says ([`Indexing`]). The scales they carry move with them wherever they span the placed
-    /// axis; state them first, so they are checked here.
+    /// dimension; state them first, so they are checked here.
     ///
-    /// A table keyed by the axis it places and one more, `[sequence, position]` placing the
-    /// sequence, reads these values as a pool of pages: the dim the sequence labels holds pages,
+    /// A table keyed by the dimension it places and one more, `[sequence, position]` placing the
+    /// sequence, reads these values as a pool of pages: the axis the sequence labels holds pages,
     /// the one the position labels a page's positions, and sequence `b`'s position `s` lies in page
     /// `table[b, s / page_size]`, `page_size` the pool's extent along the position. The operand's
-    /// extents along the two axes are the table's, checked on every read. The table is read as
-    /// each window is cut, a window holding one page or two reading it once. The scales of a pool
-    /// spanning either axis are a pool of their own, placed by the same table before they are
-    /// stated.
+    /// extents along the two dimensions are the table's, checked on every read. The table is read
+    /// as each window is cut, a window holding one page or two reading it once. The scales of a
+    /// pool spanning either dimension are a pool of their own, placed by the same table before they
+    /// are stated.
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] for a table that is not plain `u32` entries over one dim per key, or for
-    /// values, or a scale level spanning the placed axis, whose windows an entry cannot place.
-    pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Refusal> {
+    /// The [`Decline`] for a table that is not plain `u32` entries over one axis per key, or for
+    /// values, or a scale level spanning the placed dimension, whose windows an entry cannot place.
+    pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Decline> {
         self.placed_by(table, indexing, false)
     }
 
     /// [`indexed`](Self::indexed), the table a pool of pages is read through stated to cover the
-    /// launch's extents along both its axes, so a read the launch keeps in bounds is in bounds
-    /// through the table: the two axes are checked only where the launch overhangs, as a buffer
-    /// read where it lies is. A table that stops short reads its clamped entries there: other
-    /// positions of the pool, never past it.
+    /// launch's extents along both its dimensions, so a read the launch keeps in bounds is in
+    /// bounds through the table: the two dimensions are checked only where the launch overhangs, as
+    /// a buffer read where it lies is. A table that stops short reads its clamped entries there:
+    /// other positions of the pool, never past it.
     ///
     /// # Errors
     ///
@@ -544,7 +605,7 @@ impl TileTensorLaunch {
         self,
         table: TileTensorLaunch,
         indexing: Indexing,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         self.placed_by(table, indexing, true)
     }
 
@@ -554,9 +615,9 @@ impl TileTensorLaunch {
         table: TileTensorLaunch,
         indexing: Indexing,
         covering: bool,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Decline> {
         let ValuesLaunch::Tensor { tensor, width } = &table.values else {
-            return Err(Refusal::IndexTableNotU32);
+            return Err(Decline::IndexTableNotU32);
         };
         let plain_u32 = table.element == u32::elem_type_native()
             && *width == 1
@@ -564,12 +625,12 @@ impl TileTensorLaunch {
             && table.scale.is_none()
             && table.index.is_none();
         if !plain_u32 {
-            return Err(Refusal::IndexTableNotU32);
+            return Err(Decline::IndexTableNotU32);
         }
-        let keys = table.spec.axes();
+        let keys = table.spec.dimensions();
         let rank = tensor.shape().len();
         if rank != keys.len() {
-            return Err(Refusal::IndexTableRank {
+            return Err(Decline::IndexTableRank {
                 keys: keys.len(),
                 rank,
             });
@@ -580,9 +641,9 @@ impl TileTensorLaunch {
             self.spec = Arc::new(self.paged_spec(*sequence, position, covering)?);
             let mut level = self.scale.as_deref();
             while let Some(scale) = level {
-                let spans = |axis| scale.spec.axes().contains(&axis);
+                let spans = |dimension| scale.spec.dimensions().contains(&dimension);
                 if (spans(first) || spans(position)) && scale.spec.paging.is_none() {
-                    return Err(Refusal::ScalesOfAPoolUnpaged);
+                    return Err(Decline::ScalesOfAPoolUnpaged);
                 }
                 level = scale.scale.as_deref();
             }
@@ -592,7 +653,7 @@ impl TileTensorLaunch {
         indexing.validate(&self.spec, self.indexed_width()?, keys)?;
         let mut level = self.scale.as_deref();
         while let Some(scale) = level {
-            if scale.spec.axes().contains(&indexing.axis()) {
+            if scale.spec.dimensions().contains(&indexing.dimension()) {
                 indexing.places(&scale.spec, scale.indexed_width()?)?;
             }
             level = scale.scale.as_deref();
@@ -602,16 +663,16 @@ impl TileTensorLaunch {
     }
 
     /// This operand's spec read as a pool of pages along `sequence` and `position`: its paging, and
-    /// unless the table `covering` the launch, the two axes checked on every read, their extents
-    /// being the table's.
+    /// unless the table `covering` the launch, the two dimensions checked on every read, their
+    /// extents being the table's.
     fn paged_spec(
         &self,
-        sequence: Axis,
-        position: Axis,
+        sequence: Dimension,
+        position: Dimension,
         covering: bool,
-    ) -> Result<TileSpec, Refusal> {
+    ) -> Result<TileSpec, Decline> {
         let ValuesLaunch::Tensor { tensor, .. } = &self.values else {
-            return Err(Refusal::PagingMovedByRuns);
+            return Err(Decline::PagingMovedByRuns);
         };
         let mut spec = TileSpec::clone(&self.spec);
         let paging = Paging::of_pool(
@@ -629,9 +690,9 @@ impl TileTensorLaunch {
                     .map(|_| None)
                     .collect();
             }
-            let (sequence_dim, position_dim) = paging.dims(&spec.projection)?;
-            for dim in [sequence_dim, position_dim] {
-                spec.boundaries[dim] = Some(boundary.unwrap_or(Boundary::Zero));
+            let (sequence_axis, position_axis) = paging.axes(&spec.projection)?;
+            for axis in [sequence_axis, position_axis] {
+                spec.boundaries[axis] = Some(boundary.unwrap_or(Boundary::Zero));
             }
         }
         spec.paging = Some(paging);
@@ -640,10 +701,10 @@ impl TileTensorLaunch {
 
     /// The values a line of this buffer holds, where an entry may move its window: a tensor map
     /// lands boxes where they lie, and is never indexed.
-    fn indexed_width(&self) -> Result<usize, Refusal> {
+    fn indexed_width(&self) -> Result<usize, Decline> {
         match &self.values {
             ValuesLaunch::Tensor { width, .. } => Ok(*width),
-            ValuesLaunch::TensorMap { .. } => Err(Refusal::IndexOfAStatedLayout),
+            ValuesLaunch::TensorMap { .. } => Err(Decline::IndexOfAStatedLayout),
         }
     }
 }
@@ -665,7 +726,7 @@ pub struct TileTensorCompilationArg {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum ValuesCompilationArg {
     Tensor {
-        tensor: TensorCompilationArg,
+        buffer: BufferCompilationArg,
         width: usize,
     },
     TensorMap {
@@ -695,7 +756,7 @@ impl LaunchArg for TileTensor<'static> {
         let values = match values {
             ValuesLaunch::Tensor { tensor, width } => {
                 let line_size = element.size() * width;
-                let meta = TensorMetaLaunch::new(tensor.size() / width, tensor.shape().len());
+                let rank = tensor.shape().len();
                 let buffer = match &tensor {
                     TensorArg::Handle { .. } => BufferCompilationArg { inplace: None },
                     TensorArg::Alias { input_pos, .. } => BufferCompilationArg {
@@ -703,11 +764,8 @@ impl LaunchArg for TileTensor<'static> {
                     },
                 };
                 launcher.register_tensor(tensor, line_size);
-                let meta = TensorMeta::register(meta, launcher);
-                ValuesCompilationArg::Tensor {
-                    tensor: TensorCompilationArg { meta, buffer },
-                    width,
-                }
+                <usize as LaunchArg>::register(rank, launcher);
+                ValuesCompilationArg::Tensor { buffer, width }
             }
             ValuesLaunch::TensorMap { map, layout, width } => {
                 let layout = layout.register(&map, Type::new(element), launcher);
@@ -716,9 +774,19 @@ impl LaunchArg for TileTensor<'static> {
             }
         };
         let scale = scale.map(|level| Box::new(TileTensor::register(*level, launcher)));
-        let index = index
-            .map(|(table, indexing)| (Box::new(TileTensor::register(*table, launcher)), indexing));
-        let codebook = codebook.map(|table| Box::new(TileTensor::register(*table, launcher)));
+        // The tables the values are read through are never written, whichever way the operand
+        // is taken: a launch refused before it runs leaves them unclaimed.
+        let index = index.map(|(table, indexing)| {
+            let table = launcher.declaring_io(BufferIOAttr::ReadOnly, |launcher| {
+                TileTensor::register(*table, launcher)
+            });
+            (Box::new(table), indexing)
+        });
+        let codebook = codebook.map(|table| {
+            Box::new(launcher.declaring_io(BufferIOAttr::ReadOnly, |launcher| {
+                TileTensor::register(*table, launcher)
+            }))
+        });
         for coefficient in &coefficients {
             coefficient.register(launcher);
         }
@@ -741,8 +809,8 @@ impl LaunchArg for TileTensor<'static> {
         builder: &mut KernelBuilder,
     ) -> TileTensorExpand<'static> {
         let values = match &arg.values {
-            ValuesCompilationArg::Tensor { tensor, width } => {
-                let buffer = match tensor.buffer.inplace {
+            ValuesCompilationArg::Tensor { buffer, width } => {
+                let buffer = match buffer.inplace {
                     Some(id) => builder.inplace(id),
                     None => {
                         let scope = &builder.scope;
@@ -754,10 +822,17 @@ impl LaunchArg for TileTensor<'static> {
                         builder.tensor(line)
                     }
                 };
-                let meta = TensorMeta::expand(&tensor.meta, builder);
+                let rank = <usize as LaunchArg>::expand(&(), builder);
                 let scope = &builder.scope;
                 let _held = scope.define_type::<Held>(arg.element);
+                // A tile reads only within its buffer, so the tensor's length is the buffer's: no
+                // view's shape is counted, and a view that repeats its buffer at stride zero,
+                // whose shape counts every repetition, registers nothing that can overflow.
                 let len = expand_buffer_length_native(scope, buffer);
+                let meta = TensorMetaExpand {
+                    len: len.into(),
+                    rank,
+                };
                 let values = slice::from_raw_parts::<Held>(
                     scope,
                     buffer,
@@ -857,22 +932,39 @@ impl AsMutExpand for TileTensorExpand<'_> {
 #[cfg(test)]
 mod tests {
     use cubecl::ir::FloatKind;
+    use cubecl::zspace;
 
     use super::*;
 
+    /// Queries packed end to end viewed once per sequence repeat their buffer at stride zero, so
+    /// the view's shape counts `2^33` values a `u32` launch cannot hold, though its buffer holds
+    /// `2^13`. Registering it sends no length, so nothing overflows.
+    #[test]
+    fn a_view_repeating_its_buffer_past_u32_registers() {
+        let shape = zspace::Shape::new([1 << 20, 1 << 13]);
+        assert_eq!(shape.iter().product::<usize>(), 1 << 33);
+        let tensor = TensorArg::Alias {
+            input_pos: 0,
+            strides: zspace::Strides::new(&[0, 1]),
+            shape,
+        };
+        let element = ElemType::Float(FloatKind::F32);
+        let spec = TileSpec::direct(&[Dimension(0), Dimension(1)]);
+        let mut launcher = KernelLauncher::new(builder_settings());
+        TileTensor::register(
+            TileTensorLaunch::new(tensor, element, 1, spec),
+            &mut launcher,
+        );
+    }
+
     /// A one-axis buffer of `f32`, expanded as a kernel argument outside any launch.
     fn expanded_f32_buffer(builder: &mut KernelBuilder) -> TileTensorExpand<'static> {
-        let mut launcher = KernelLauncher::new(builder_settings());
-        let meta = TensorMeta::register(TensorMetaLaunch::new(4, 1), &mut launcher);
         let arg = TileTensorCompilationArg {
             values: ValuesCompilationArg::Tensor {
-                tensor: TensorCompilationArg {
-                    meta,
-                    buffer: BufferCompilationArg { inplace: None },
-                },
+                buffer: BufferCompilationArg { inplace: None },
                 width: 1,
             },
-            spec: Arc::new(TileSpec::direct(&[Axis(0)])),
+            spec: Arc::new(TileSpec::direct(&[Dimension(0)])),
             element: ElemType::Float(FloatKind::F32),
             scale: None,
             index: None,
@@ -899,15 +991,13 @@ mod tests {
     }
 
     /// A `[4]` `u32` table keyed by `keys`, expanded as a kernel argument outside any launch.
-    fn expanded_table(builder: &mut KernelBuilder, keys: &[Axis]) -> TileTensorExpand<'static> {
-        let mut launcher = KernelLauncher::new(builder_settings());
-        let meta = TensorMeta::register(TensorMetaLaunch::new(4, keys.len()), &mut launcher);
+    fn expanded_table(
+        builder: &mut KernelBuilder,
+        keys: &[Dimension],
+    ) -> TileTensorExpand<'static> {
         let arg = TileTensorCompilationArg {
             values: ValuesCompilationArg::Tensor {
-                tensor: TensorCompilationArg {
-                    meta,
-                    buffer: BufferCompilationArg { inplace: None },
-                },
+                buffer: BufferCompilationArg { inplace: None },
                 width: 1,
             },
             spec: Arc::new(TileSpec::direct(keys)),
@@ -920,13 +1010,13 @@ mod tests {
         TileTensor::expand(&arg, builder)
     }
 
-    /// The one-axis `f32` buffer as a run keyed by `keys`, served on a bare scope under `levels`
-    /// over `space`.
-    fn serve_indexed(keys: &[Axis], space: &[(Axis, usize)], levels: Vec<Level>) {
+    /// The one-dimension `f32` buffer as a run keyed by `keys`, served on a bare scope under
+    /// `levels` over `space`.
+    fn serve_indexed(keys: &[Dimension], space: &[(Dimension, usize)], levels: Vec<Level>) {
         let mut builder = KernelBuilder::new(builder_settings());
         let mut values = expanded_f32_buffer(&mut builder);
         let table = expanded_table(&mut builder, keys);
-        values.index = Some((Box::new(table), Indexing::Run(Axis(0))));
+        values.index = Some((Box::new(table), Indexing::Run(Dimension(0))));
         let scope = &builder.scope;
         let partitioning = PartitioningExpand {
             space: SpaceExpand {
@@ -942,13 +1032,16 @@ mod tests {
     /// such step, and the operand is refused as it is served.
     #[test]
     #[should_panic(
-        expected = "the first level cutting one of [Axis(1), Axis(2)] does not cut them all"
+        expected = "the first level cutting one of [Dimension(1), Dimension(2)] does not cut them all"
     )]
     fn keys_cut_at_two_levels_are_refused_as_the_tile_expands() {
         serve_indexed(
-            &[Axis(1), Axis(2)],
-            &[(Axis(0), 4), (Axis(1), 2), (Axis(2), 2)],
-            vec![Level::every(&[(Axis(1), 1)]), Level::every(&[(Axis(2), 1)])],
+            &[Dimension(1), Dimension(2)],
+            &[(Dimension(0), 4), (Dimension(1), 2), (Dimension(2), 2)],
+            vec![
+                Level::every(&[(Dimension(1), 1)]),
+                Level::every(&[(Dimension(2), 1)]),
+            ],
         );
     }
 
@@ -957,9 +1050,9 @@ mod tests {
     #[test]
     fn a_table_no_level_cuts_is_read_as_the_tile_expands() {
         serve_indexed(
-            &[Axis(1)],
-            &[(Axis(0), 4), (Axis(1), 1)],
-            vec![Level::every(&[(Axis(0), 2)])],
+            &[Dimension(1)],
+            &[(Dimension(0), 4), (Dimension(1), 1)],
+            vec![Level::every(&[(Dimension(0), 2)])],
         );
     }
 

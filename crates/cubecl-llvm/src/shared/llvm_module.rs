@@ -453,6 +453,29 @@ impl Instruction<'_> {
             (!LLVMIsAAtomicRMWInst(self.inst).is_null()).then(|| LLVMGetAtomicRMWBinOp(self.inst))
         }
     }
+
+    /// Whether this is an atomic or a fence that synchronizes at the system's scope, LLVM's
+    /// unnamed one, which reaches the host and peer devices.
+    pub(crate) fn is_system_scope(&self) -> bool {
+        use llvm_sys::LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic;
+        use llvm_sys::core::{
+            LLVMGetAtomicSyncScopeID, LLVMGetOrdering, LLVMIsAAtomicCmpXchgInst,
+            LLVMIsAAtomicRMWInst, LLVMIsAFenceInst, LLVMIsALoadInst, LLVMIsAStoreInst,
+        };
+        /// `llvm::SyncScope::System`: the one id LLVM fixes besides `SingleThread`'s 0.
+        const SYSTEM: u32 = 1;
+        // SAFETY: the instruction is live, and only atomics and fences are asked for their
+        // scope: a load or store is one only when it has an ordering.
+        unsafe {
+            let synchronizes = !LLVMIsAFenceInst(self.inst).is_null()
+                || !LLVMIsAAtomicRMWInst(self.inst).is_null()
+                || !LLVMIsAAtomicCmpXchgInst(self.inst).is_null()
+                || ((!LLVMIsALoadInst(self.inst).is_null()
+                    || !LLVMIsAStoreInst(self.inst).is_null())
+                    && LLVMGetOrdering(self.inst) != LLVMAtomicOrderingNotAtomic);
+            synchronizes && LLVMGetAtomicSyncScopeID(self.inst) == SYSTEM
+        }
+    }
 }
 
 /// One parameter of an [`EntryFunction`], which is the only thing that hands one out: an index

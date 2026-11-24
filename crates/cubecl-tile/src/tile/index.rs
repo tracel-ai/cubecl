@@ -1,43 +1,44 @@
 //! A table of `u32` entries an operand carries ([`TileTensorLaunch::indexed`]), read where its
 //! window is cut: each row's expert, each tile's group, each group's run of rows.
 //!
-//! The table's dims are its key axes, in order: it holds one entry per tile of the first level of
-//! the nest that cuts them, the same entry a kernel would read off `region.coord(key)` itself.
-//! The tile reads that entry once, in [`Tile::at`], at the step that cuts the keys, and places its
-//! window with it ([`Indexing`]); its reads never touch the table again. Where no level cuts the
-//! keys they are one tile, so the table's first entry is the one, read as the tile is served. The
-//! scales it carries move with it wherever they span the axis the entry places, so a routed
-//! operand may be quantized.
+//! The table's axes are its key dimensions, in order: it holds one entry per tile of the first
+//! level of the nest that cuts them, the same entry a kernel would read off `region.coord(key)`
+//! itself. The tile reads that entry once, in [`Tile::at`], at the step that cuts the keys, and
+//! places its window with it ([`Indexing`]); its reads never touch the table again. Where no level
+//! cuts the keys they are one tile, so the table's first entry is the one, read as the tile is
+//! served. The scales it carries move with it wherever they span the dimension the entry places, so
+//! a routed operand may be quantized.
 
 use cubecl::prelude::*;
 
 use crate::stage::pipeline::payload::base::StageOperand;
 use crate::*;
 
-/// What an operand's table entry places. The table's own dims are its keys
+/// What an operand's table entry places. The table's own axes are its keys
 /// ([`TileTensorLaunch::indexed`]).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Indexing {
-    /// The entry is the operand's coordinate along `axis`, which no level may cut: each row's
-    /// expert, keyed by the row; each tile's group, keyed by the row axis a level cuts in tiles.
-    /// The axis is one wide below it, so a contraction sees one slab. An entry past the axis
-    /// names nothing: the tile holds nothing to walk ([`Region::walk_within`]), and a read of it
-    /// outside a walk reads the last coordinate, unless the operand checks the axis with
-    /// [`Boundary::Zero`], where it reads zero.
-    Coordinate(Axis),
-    /// The entry is where the operand's run along `axis` ends, and the one before it along the
+    /// The entry is the operand's coordinate along `dimension`, which no level may cut: each row's
+    /// expert, keyed by the row; each tile's group, keyed by the row dimension a level cuts in
+    /// tiles. The dimension is one wide below it, so a contraction sees one slab. An entry past the
+    /// dimension names nothing: the tile holds nothing to walk ([`Region::walk_within`]), and a
+    /// read of it outside a walk reads the last coordinate, unless the operand checks the dimension
+    /// with [`Boundary::Zero`], where it reads zero.
+    Coordinate(Dimension),
+    /// The entry is where the operand's run along `dimension` ends, and the one before it along the
     /// key where it starts (`0` for the first): each group's rows packed end to end, the table
-    /// their cumulative ends. The operand reads zero past the run, and a walk over its window
-    /// along `axis` steps the run alone where the axis is dynamic. A run that ends before it
-    /// starts is empty, and holds nothing to walk. No level at or above the key's may cut `axis`.
-    Run(Axis),
+    /// their cumulative ends. The operand reads zero past the run, and a walk over its window along
+    /// `dimension` steps the run alone where the dimension is dynamic. A run that ends before it
+    /// starts is empty, and holds nothing to walk. No level at or above the key's may cut
+    /// `dimension`.
+    Run(Dimension),
 }
 
 impl Indexing {
-    /// The axis the entry places.
-    pub fn axis(&self) -> Axis {
+    /// The dimension the entry places.
+    pub fn dimension(&self) -> Dimension {
         match self {
-            Indexing::Coordinate(axis) | Indexing::Run(axis) => *axis,
+            Indexing::Coordinate(dimension) | Indexing::Run(dimension) => *dimension,
         }
     }
 
@@ -45,91 +46,100 @@ impl Indexing {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first rule the statement breaks.
+    /// The [`Decline`] naming the first rule the statement breaks.
     pub(crate) fn validate(
         &self,
         values: &TileSpec,
         width: usize,
-        keys: &[Axis],
-    ) -> Result<(), Refusal> {
-        let axis = self.axis();
-        if !values.axes().contains(&axis) {
-            return Err(Refusal::IndexOfAnAxisNotSpanned(axis));
+        keys: &[Dimension],
+    ) -> Result<(), Decline> {
+        let dimension = self.dimension();
+        if !values.dimensions().contains(&dimension) {
+            return Err(Decline::IndexOfADimensionNotSpanned(dimension));
         }
-        if keys.is_empty() || keys.contains(&axis) {
-            return Err(Refusal::IndexKeyedByItsAxis(axis));
+        if keys.is_empty() || keys.contains(&dimension) {
+            return Err(Decline::IndexKeyedByItsDimension(dimension));
         }
         if matches!(self, Indexing::Run(_)) && keys.len() != 1 {
-            return Err(Refusal::RunKeyedByMany(keys.len()));
+            return Err(Decline::RunKeyedByMany(keys.len()));
         }
         self.places(values, width)
     }
 
     /// What an operand bound `width` values a line owes where an entry moves its window, the
-    /// values' or a scale's spanning the placed axis: a buffer neither storage-tiled nor paged, one
-    /// dim of which is the axis alone, read one value a line where that dim is the innermost, since
-    /// an entry is an element and a line would straddle two; under a run, a buffer over its
-    /// labelled dims, as [`Tile::within`] places.
+    /// values' or a scale's spanning the placed dimension: a buffer that is not paged, one axis of
+    /// which is the dimension alone, read one value a line where that axis is the innermost, since
+    /// an entry is an element and a line would straddle two. A coordinate moves that one axis by its
+    /// stride, so the buffer may be storage-tiled along its other axes, as a stack of matrices
+    /// stored in tiles is, slab by slab; no stored tile may span the dimension. A run is placed over
+    /// a buffer's labelled axes alone, as [`Tile::within`] places, never a storage-tiled one.
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first rule `spec` breaks.
-    pub(crate) fn places(&self, spec: &TileSpec, width: usize) -> Result<(), Refusal> {
+    /// The [`Decline`] naming the first rule `spec` breaks.
+    pub(crate) fn places(&self, spec: &TileSpec, width: usize) -> Result<(), Decline> {
         let projection = &spec.projection;
-        let stated =
-            projection.is_tiled() || !spec.stored_tiles.is_empty() || spec.paging.is_some();
-        let gathered = matches!(self, Indexing::Run(_)) && !projection.is_direct();
-        let dim = placed_dim(projection, self.axis());
-        match dim {
-            _ if stated || gathered => Err(Refusal::IndexOfAStatedLayout),
-            None => Err(Refusal::IndexOfAStatedLayout),
-            Some(dim)
-                if dim + 1 == projection.physical_rank()
+        let tiled = projection.is_tiled() || !spec.stored_tiles.is_empty();
+        let stated = spec.paging.is_some()
+            || match self {
+                Indexing::Coordinate(dimension) => {
+                    spec.stored_tiles.iter().any(|&(d, _)| d == *dimension)
+                }
+                Indexing::Run(_) => tiled || !projection.is_direct(),
+            };
+        let axis = placed_axis(projection, self.dimension());
+        match axis {
+            _ if stated => Err(Decline::IndexOfAStatedLayout),
+            None => Err(Decline::IndexOfAStatedLayout),
+            Some(axis)
+                if axis + 1 == projection.physical_rank()
                     && (width > 1 || !spec.packing.as_stored()) =>
             {
-                Err(Refusal::IndexAlongALine(self.axis()))
+                Err(Decline::IndexAlongALine(self.dimension()))
             }
             Some(_) => Ok(()),
         }
     }
 
     /// Where in `levels` the table is read: the first level that cuts a key, which must cut them
-    /// all, and below which (for a run, at or above which) no level cuts the placed axis; `None`
-    /// where no level cuts the keys, which are then one tile, read as the tile is served.
+    /// all, and below which (for a run, at or above which) no level cuts the placed dimension;
+    /// `None` where no level cuts the keys, which are then one tile, read as the tile is served.
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] naming the first rule the nest breaks.
+    /// The [`Decline`] naming the first rule the nest breaks.
     pub(crate) fn read_at(
         &self,
-        keys: &[Axis],
+        keys: &[Dimension],
         levels: &[Level],
-    ) -> Result<Option<usize>, Refusal> {
-        let cuts = |level: &Level, axis: Axis| level.count(axis).is_some();
+    ) -> Result<Option<usize>, Decline> {
+        let cuts = |level: &Level, dimension: Dimension| level.count(dimension).is_some();
         let at = levels
             .iter()
             .position(|level| keys.iter().any(|&key| cuts(level, key)));
         if let Some(at) = at
             && !keys.iter().all(|&key| cuts(&levels[at], key))
         {
-            return Err(Refusal::IndexKeysCutApart(keys.to_vec()));
+            return Err(Decline::IndexKeysCutApart(keys.to_vec()));
         }
-        let axis = self.axis();
+        let dimension = self.dimension();
         let placed_by_a_level = match (self, at) {
-            (Indexing::Coordinate(_), _) => levels.iter().any(|level| cuts(level, axis)),
-            (Indexing::Run(_), Some(at)) => levels[..=at].iter().any(|level| cuts(level, axis)),
+            (Indexing::Coordinate(_), _) => levels.iter().any(|level| cuts(level, dimension)),
+            (Indexing::Run(_), Some(at)) => {
+                levels[..=at].iter().any(|level| cuts(level, dimension))
+            }
             (Indexing::Run(_), None) => false,
         };
         match placed_by_a_level {
-            true => Err(Refusal::IndexedAxisCut(axis)),
+            true => Err(Decline::IndexedDimensionCut(dimension)),
             false => Ok(at),
         }
     }
 }
 
-/// The buffer dim that is `axis` alone, which an entry moves the window along.
-pub(crate) fn placed_dim(projection: &Projection, axis: Axis) -> Option<usize> {
-    Witness::new(projection, axis).map(|witness| witness.dim())
+/// The buffer axis that is `dimension` alone, which an entry moves the window along.
+pub(crate) fn placed_axis(projection: &Projection, dimension: Dimension) -> Option<usize> {
+    Witness::new(projection, dimension).map(|witness| witness.axis())
 }
 
 /// A table as a tile reads it: its entries, its stride along each key, and whether its entry is
@@ -144,29 +154,29 @@ pub(crate) struct IndexTable {
     strides: Coords<u32>,
     #[cube(comptime)]
     pub(crate) indexing: Indexing,
-    /// The table's dims, in order.
+    /// The table's axes, in order.
     #[cube(comptime)]
-    pub(crate) keys: Vec<Axis>,
+    pub(crate) keys: Vec<Dimension>,
     /// Whether the entry is read and the window placed: a placed table is never read again.
     #[cube(comptime)]
     pub(crate) placed: bool,
-    /// Whether the entry read names a coordinate of the axis, or a run of at least one; `true`
+    /// Whether the entry read names a coordinate of the dimension, or a run of at least one; `true`
     /// until it is read. A walk within a tile whose entry is out of range takes no step.
     in_range: bool,
 }
 
 #[cube]
 impl IndexTable {
-    /// `table`, its dims the `keys`, placing as `indexing` says.
+    /// `table`, its axes the `keys`, placing as `indexing` says.
     #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn new(
         table: &Tensor<u32>,
-        #[comptime] keys: Vec<Axis>,
+        #[comptime] keys: Vec<Dimension>,
         #[comptime] indexing: Indexing,
     ) -> IndexTable {
         let mut strides = Coords::<u32>::new();
         #[unroll]
-        for i in 0..comptime!(keys.len()) {
+        for i in 0..keys.len() {
             strides.push(table.stride(i) as u32);
         }
         IndexTable {
@@ -209,7 +219,7 @@ impl IndexTable {
     }
 
     /// This table with its entry read and placed, `in_range` saying whether the entry named a
-    /// coordinate of the axis, or a run of at least one.
+    /// coordinate of the dimension, or a run of at least one.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
     pub(crate) fn read(&self, in_range: bool) -> IndexTable {
         IndexTable {
@@ -237,8 +247,8 @@ fn first_entry() -> u32 {
 
 impl Tile {
     /// This tile with its table read where `step` cuts the table's keys: its window, and the
-    /// windows of the scales it carries that span the axis the entry places, placed by the entry.
-    /// Any other tile, or step, as it is.
+    /// windows of the scales it carries that span the dimension the entry places, placed by the
+    /// entry. Any other tile, or step, as it is.
     pub(crate) fn indexed_at(self, _step: &Step) -> Tile {
         cubecl::unexpanded!()
     }
@@ -265,14 +275,14 @@ impl TileExpand {
         let ComptimeOptionExpand::Some(table) = &memory.index else {
             return self;
         };
-        let cuts = |key: &Axis| step.level.count(*key).is_some();
+        let cuts = |key: &Dimension| step.level.count(*key).is_some();
         if table.placed || !table.keys.iter().any(cuts) {
             return self;
         }
         assert!(
             table.keys.iter().all(cuts),
             "{}",
-            Refusal::IndexKeysCutApart(table.keys.clone())
+            Decline::IndexKeysCutApart(table.keys.clone())
         );
         let at = table.__expand_position_method(scope, step);
         self.read_index(scope, at)
@@ -294,16 +304,19 @@ impl TileExpand {
         };
         let table = table.clone();
         let (placed, in_range) = match table.indexing {
-            Indexing::Coordinate(axis) => {
+            Indexing::Coordinate(dimension) => {
                 let entry = table.__expand_entry_method(scope, at);
-                let in_range = self.__expand_names_coordinate_method(scope, axis, entry);
-                let entry = self.__expand_clamped_method(scope, axis, entry);
-                (self.__expand_placed_at_method(scope, axis, entry), in_range)
+                let in_range = self.__expand_names_coordinate_method(scope, dimension, entry);
+                let entry = self.__expand_clamped_method(scope, dimension, entry);
+                (
+                    self.__expand_placed_at_method(scope, dimension, entry),
+                    in_range,
+                )
             }
-            Indexing::Run(axis) => {
+            Indexing::Run(dimension) => {
                 let (start, end) = table.__expand_run_method(scope, at);
                 (
-                    self.__expand_run_within_method(scope, axis, start, end),
+                    self.__expand_run_within_method(scope, dimension, start, end),
                     nonempty::expand(scope, start, end),
                 )
             }
@@ -319,7 +332,7 @@ impl TileExpand {
     ) -> TileExpand {
         match &mut self.kind {
             TileKindExpand::Memory(memory) => memory.index = ComptimeOptionExpand::Some(table),
-            _ => panic!("{}", Refusal::IndexOfAStatedLayout),
+            _ => panic!("{}", Decline::IndexOfAStatedLayout),
         }
         self
     }
@@ -327,37 +340,45 @@ impl TileExpand {
 
 #[cube]
 impl Tile {
-    /// Whether `coord`, an entry naming a coordinate along `axis`, lies within the axis.
+    /// Whether `coord`, an entry naming a coordinate along `dimension`, lies within the dimension.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
-    fn names_coordinate(&self, #[comptime] axis: Axis, coord: u32) -> bool {
+    fn names_coordinate(&self, #[comptime] dimension: Dimension, coord: u32) -> bool {
         let memory = self.mem("indexed_at");
-        let p = comptime!(placed_dim(&memory.projection, axis).unwrap());
+        let p = comptime!(placed_axis(&memory.projection, dimension).unwrap());
         coord < memory.window.bound.at(p)
     }
 
-    /// `coord`, an entry naming a coordinate along `axis`, clamped to the axis unless the operand
-    /// reads zero past it.
+    /// `coord`, an entry naming a coordinate along `dimension`, clamped to the dimension unless the
+    /// operand reads zero past it.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
-    fn clamped(&self, #[comptime] axis: Axis, coord: u32) -> u32 {
+    fn clamped(&self, #[comptime] dimension: Dimension, coord: u32) -> u32 {
         let memory = self.mem("indexed_at");
-        let p = comptime!(placed_dim(&memory.projection, axis).unwrap());
-        let zero =
-            comptime!(memory.window.boundaries.get(p).copied().flatten() == Some(Boundary::Zero));
-        if comptime!(zero) {
+        let p = comptime!(placed_axis(&memory.projection, dimension).unwrap());
+        let zero = comptime!(
+            memory
+                .window
+                .boundaries
+                .get(p)
+                .copied()
+                .flatten()
+                .is_some_and(Boundary::masks)
+        );
+        if zero {
             coord
         } else {
             coord.min_with(memory.window.bound.at(p).max_with(1u32).minus(1u32))
         }
     }
 
-    /// This tile one wide at `coord` along `axis`, and so are the scales it carries that span it.
+    /// This tile one wide at `coord` along `dimension`, and so are the scales it carries that span
+    /// it.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
-    pub(crate) fn placed_at(&self, #[comptime] axis: Axis, coord: u32) -> Tile {
+    pub(crate) fn placed_at(&self, #[comptime] dimension: Dimension, coord: u32) -> Tile {
         Tile {
-            kind: TileKind::new_Memory(self.mem("placed_at").placed_at(axis, coord)),
-            factor: self.factor.placed_at(axis, coord),
+            kind: TileKind::new_Memory(self.mem("placed_at").placed_at(dimension, coord)),
+            factor: self.factor.placed_at(dimension, coord),
             place: comptime!(Placement::new(
-                Level::every(&[(axis, 1)]).child(&self.place.space),
+                Level::every(&[(dimension, 1)]).child(&self.place.space),
                 self.place.depth,
                 self.place.levels.clone()
             )),
@@ -365,18 +386,24 @@ impl Tile {
         }
     }
 
-    /// This tile reading the run `[from, until)` along `axis`, zero past it, and so are the scales
-    /// it carries that span it. An `until` before `from` is an empty run, never a negative one.
+    /// This tile reading the run `[from, until)` along `dimension`, zero past it, and so are the
+    /// scales it carries that span it. An `until` before `from` is an empty run, never a negative
+    /// one.
     #[allow(dead_code)] // Reached through its expand, from `Tile::indexed_at`.
-    pub(crate) fn run_within(&self, #[comptime] axis: Axis, from: u32, until: u32) -> Tile {
+    pub(crate) fn run_within(
+        &self,
+        #[comptime] dimension: Dimension,
+        from: u32,
+        until: u32,
+    ) -> Tile {
         let until = until.max_with(from);
         Tile {
             kind: TileKind::new_Memory(self.mem("run_within").within(
-                axis,
+                dimension,
                 from.cast::<usize>(),
                 until.cast::<usize>(),
             )),
-            factor: self.factor.run_within(axis, from, until),
+            factor: self.factor.run_within(dimension, from, until),
             place: comptime!(self.place.clone()),
             element: comptime!(self.element),
         }
@@ -384,12 +411,12 @@ impl Tile {
 }
 
 impl Region {
-    /// The regions of the level below this one, over what `tile` holds: along a dynamic axis an
-    /// index placed a run of `tile` along ([`Indexing::Run`]), the run's tiles alone; along every
-    /// other, this region's box. A tile whose entry names nothing, a coordinate past its axis or
-    /// an empty run, holds nothing, and the walk takes no step. What a cube walks its group's rows
-    /// by, every operand it holds windowed by the same regions, and what a routine walks an
-    /// indexed operand by, so a tile a padding row or a padding tile names does no work.
+    /// The regions of the level below this one, over what `tile` holds: along a dynamic dimension
+    /// an index placed a run of `tile` along ([`Indexing::Run`]), the run's tiles alone; along
+    /// every other, this region's box. A tile whose entry names nothing, a coordinate past its
+    /// dimension or an empty run, holds nothing, and the walk takes no step. What a cube walks its
+    /// group's rows by, every operand it holds windowed by the same regions, and what a routine
+    /// walks an indexed operand by, so a tile a padding row or a padding tile names does no work.
     pub fn walk_within(&self, _tile: &Tile) -> Walk {
         cubecl::unexpanded!()
     }
@@ -400,18 +427,22 @@ impl RegionExpand {
         let child = self.__expand_child_method(scope);
         let box_space = SpaceExpand::comptime(&child);
         let run = tile
-            .run_axis()
-            .filter(|&axis| box_space.contains(axis) && box_space.is_dynamic(axis));
+            .run_dimension()
+            .filter(|&dimension| box_space.contains(dimension) && box_space.is_dynamic(dimension));
         let sized = match run {
-            Some(axis) => {
-                let extent = tile.clone().__expand_runtime_extent_method(scope, axis);
-                with_extent::expand(scope, &child, box_space.position(axis), extent)
+            Some(dimension) => {
+                let extent = tile
+                    .clone()
+                    .__expand_runtime_extent_method(scope, dimension);
+                with_extent::expand(scope, &child, box_space.position(dimension), extent)
             }
             None => child,
         };
         let level = self.path.next();
         let mut walk = Walk::__expand_of(scope, &sized, level.clone(), self.clone());
-        walk.run = run.filter(|&axis| level.axes() == [axis] && !level.is_reversed(axis));
+        walk.run = run.filter(|&dimension| {
+            level.dimensions() == [dimension] && !level.is_reversed(dimension)
+        });
         // A walk stepping the run itself is as long as the run, empty for an empty one.
         match (tile.read_entry_in_range(), walk.run) {
             (Some(in_range), None) => over_what_is_held::expand(scope, walk, in_range),
@@ -427,19 +458,19 @@ fn over_what_is_held(walk: Walk, in_range: bool) -> Walk {
     walk.range(0usize, steps)
 }
 
-/// `space` with the runtime size of its dynamic axis at `p` set to `extent`.
+/// `space` with the runtime size of its dynamic dimension at `p` set to `extent`.
 #[cube]
 fn with_extent(space: &Space, #[comptime] p: usize, extent: usize) -> Space {
     let mut sizes = Sequence::<usize>::new();
     #[unroll]
     for i in 0..comptime!(space.rank()) {
-        if comptime!(i == p) {
+        if i == p {
             sizes.push(extent);
         } else {
             sizes.push(space.runtime_extent_at(i));
         }
     }
-    Space::with_sizes(comptime!(space.clone()), sizes)
+    Space::with_sizes(&comptime!(space.clone()), sizes)
 }
 
 impl TileExpand {
@@ -455,14 +486,14 @@ impl TileExpand {
         }
     }
 
-    /// The axis an index placed a run of this tile along, where it holds one.
-    pub(crate) fn run_axis(&self) -> Option<Axis> {
+    /// The dimension an index placed a run of this tile along, where it holds one.
+    pub(crate) fn run_dimension(&self) -> Option<Dimension> {
         match &self.kind {
             TileKindExpand::Memory(MemoryExpand {
                 index: ComptimeOptionExpand::Some(table),
                 ..
             }) if table.placed => match table.indexing {
-                Indexing::Run(axis) => Some(axis),
+                Indexing::Run(dimension) => Some(dimension),
                 Indexing::Coordinate(_) => None,
             },
             _ => None,
@@ -494,7 +525,7 @@ impl TileExpand {
 
 #[cube]
 impl Memory {
-    /// The bound a walk reads off dim `p`: the window's, or its run's length where an index placed
+    /// The bound a walk reads off axis `p`: the window's, or its run's length where an index placed
     /// a run along it, so a walk over the window steps the run alone.
     pub(crate) fn walked_bound(&self, #[comptime] p: usize) -> u32 {
         let bound = self.window.bound.at(p);
@@ -508,7 +539,7 @@ impl Memory {
 }
 
 impl Memory {
-    /// Whether an index placed a run along dim `p` of this window.
+    /// Whether an index placed a run along axis `p` of this window.
     pub(crate) fn runs_along(&self, _p: usize) -> comptime_type!(bool) {
         cubecl::unexpanded!()
     }
@@ -519,8 +550,8 @@ impl MemoryExpand {
         match &self.index {
             ComptimeOptionExpand::Some(table) => {
                 table.placed
-                    && matches!(table.indexing, Indexing::Run(axis)
-                        if placed_dim(&self.projection, axis) == Some(p))
+                    && matches!(table.indexing, Indexing::Run(dimension)
+                        if placed_axis(&self.projection, dimension) == Some(p))
             }
             ComptimeOptionExpand::None => false,
         }
@@ -528,8 +559,8 @@ impl MemoryExpand {
 }
 
 impl Tile {
-    /// This operand as a slot plans its stage: who moves it, the axes it spans, and the keys of a
-    /// table it has yet to read.
+    /// This operand as a slot plans its stage: who moves it, the dimensions it spans, and the keys
+    /// of a table it has yet to read.
     pub(crate) fn stage_operand(&self) -> comptime_type!(StageOperand) {
         cubecl::unexpanded!()
     }
@@ -545,7 +576,7 @@ impl TileExpand {
     }
 
     /// The keys of a table this tile has yet to read; none where it has none, or has read it.
-    pub(crate) fn pending_keys(&self) -> Vec<Axis> {
+    pub(crate) fn pending_keys(&self) -> Vec<Dimension> {
         match &self.kind {
             TileKindExpand::Memory(MemoryExpand {
                 index: ComptimeOptionExpand::Some(table),
@@ -557,9 +588,9 @@ impl TileExpand {
 }
 
 impl Tile {
-    /// This tile shaped as one region of `level` holds it, for a stage: one wide along the axis
-    /// its table places where `level` cuts the table's keys, and so are the scales it carries
-    /// that span it. Its window is not moved; the fill of each region places it.
+    /// This tile shaped as one region of `level` holds it, for a stage: one wide along the
+    /// dimension its table places where `level` cuts the table's keys, and so are the scales it
+    /// carries that span it. Its window is not moved; the fill of each region places it.
     pub(crate) fn shaped_for(&self, _level: Level) -> Tile {
         cubecl::unexpanded!()
     }
@@ -574,22 +605,24 @@ impl TileExpand {
         else {
             return self.clone();
         };
-        let Indexing::Coordinate(axis) = table.indexing else {
+        let Indexing::Coordinate(dimension) = table.indexing else {
             return self.clone();
         };
         if table.placed || !table.keys.iter().any(|key| level.count(*key).is_some()) {
             return self.clone();
         }
-        self.one_wide(axis)
+        self.one_wide(dimension)
     }
 
-    /// This tile's place, and its spanning scales', one wide along `axis`; its window unmoved.
-    fn one_wide(&self, axis: Axis) -> TileExpand {
+    /// This tile's place, and its spanning scales', one wide along `dimension`; its window unmoved.
+    fn one_wide(&self, dimension: Dimension) -> TileExpand {
         let mut shaped = self.clone();
-        if shaped.place.space.contains(axis) {
-            shaped.place.space = Level::every(&[(axis, 1)]).child(&shaped.place.space);
+        if shaped.place.space.contains(dimension) {
+            shaped.place.space = Level::every(&[(dimension, 1)]).child(&shaped.place.space);
         }
-        shaped.factor = self.factor.spanning(axis, |scale| scale.one_wide(axis));
+        shaped.factor = self
+            .factor
+            .spanning(dimension, |scale| scale.one_wide(dimension));
         shaped
     }
 }
@@ -598,10 +631,10 @@ impl TileExpand {
 mod tests {
     use super::*;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
-    const EXPERT: Axis = Axis(3);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+    const EXPERT: Dimension = Dimension(3);
 
     fn rows(tile: usize) -> Level {
         Level::every(&[(M, tile)])
@@ -629,17 +662,17 @@ mod tests {
     fn keys_cut_at_two_levels_are_refused() {
         let levels = [rows(1), Level::every(&[(N, 1)])];
         let read = Indexing::Coordinate(EXPERT).read_at(&[M, N], &levels);
-        assert_eq!(read, Err(Refusal::IndexKeysCutApart(vec![M, N])));
+        assert_eq!(read, Err(Decline::IndexKeysCutApart(vec![M, N])));
     }
 
     #[test]
     fn a_coordinate_a_level_cuts_is_refused() {
         let levels = [rows(1), Level::every(&[(EXPERT, 1)])];
         let read = Indexing::Coordinate(EXPERT).read_at(&[M], &levels);
-        assert_eq!(read, Err(Refusal::IndexedAxisCut(EXPERT)));
+        assert_eq!(read, Err(Decline::IndexedDimensionCut(EXPERT)));
     }
 
-    /// A run is placed whole: a level cutting its axis at or above the key's would have cut a
+    /// A run is placed whole: a level cutting its dimension at or above the key's would have cut a
     /// window the run has not placed yet. Below it, the run is what that level walks.
     #[test]
     fn a_run_cut_before_it_is_placed_is_refused() {
@@ -649,7 +682,7 @@ mod tests {
         let run = Indexing::Run(M);
         assert_eq!(
             run.read_at(&[EXPERT], &above),
-            Err(Refusal::IndexedAxisCut(M))
+            Err(Decline::IndexedDimensionCut(M))
         );
         assert_eq!(run.read_at(&[EXPERT], &below), Ok(Some(0)));
     }
@@ -658,9 +691,9 @@ mod tests {
     fn a_coordinate_keyed_by_itself_is_refused() {
         let spec = TileSpec::direct(&[EXPERT, K, N]);
         let refused = Indexing::Coordinate(EXPERT).validate(&spec, 1, &[EXPERT]);
-        assert_eq!(refused, Err(Refusal::IndexKeyedByItsAxis(EXPERT)));
+        assert_eq!(refused, Err(Decline::IndexKeyedByItsDimension(EXPERT)));
         let unkeyed = Indexing::Coordinate(EXPERT).validate(&spec, 1, &[]);
-        assert_eq!(unkeyed, Err(Refusal::IndexKeyedByItsAxis(EXPERT)));
+        assert_eq!(unkeyed, Err(Decline::IndexKeyedByItsDimension(EXPERT)));
     }
 
     #[test]
@@ -672,34 +705,63 @@ mod tests {
             page_size: 4,
         });
         let refused = Indexing::Coordinate(EXPERT).validate(&spec, 1, &[M]);
-        assert_eq!(refused, Err(Refusal::IndexOfAStatedLayout));
+        assert_eq!(refused, Err(Decline::IndexOfAStatedLayout));
     }
 
-    /// The innermost dim may be placed where the operand reads it one value a line: a run along
+    /// The innermost axis may be placed where the operand reads it one value a line: a run along
     /// the rows of a transposed operand. Read in wider lines, or packed, a line would straddle two
     /// entries.
     #[test]
-    fn the_innermost_dim_is_placed_only_one_value_a_line() {
+    fn the_innermost_axis_is_placed_only_one_value_a_line() {
         let spec = TileSpec::direct(&[N, K]);
         let run = Indexing::Run(K);
         assert_eq!(run.validate(&spec, 1, &[M]), Ok(()));
         assert_eq!(
             run.validate(&spec, 4, &[M]),
-            Err(Refusal::IndexAlongALine(K))
+            Err(Decline::IndexAlongALine(K))
         );
         let packed =
             TileSpec::direct(&[N, K]).packed(Field::from(cubecl::quant::scheme::QuantValue::Q8S));
         assert_eq!(
             run.validate(&packed, 1, &[M]),
-            Err(Refusal::IndexAlongALine(K))
+            Err(Decline::IndexAlongALine(K))
         );
     }
 
-    /// A packed weight blocks its columns over two axes, so its projection is not direct; the
-    /// expert is still one dim of its own, which is all a coordinate moves.
+    /// A stack of matrices stored in tiles, each slab one axis of its own the tiling leaves whole:
+    /// a coordinate moves that axis by its stride, so it places one slab. A tiling that splits the
+    /// placed axis, a stored tile spanning it, or a run over the tiled buffer is refused.
     #[test]
-    fn a_coordinate_places_a_whole_dim_of_a_gathered_operand_and_a_run_does_not() {
-        let block = Axis(4);
+    fn a_coordinate_places_a_dim_the_storage_tiling_leaves_whole() {
+        let stack = |order: &[Dimension]| TileSpec::new(Projection::tiled(&[EXPERT, N, K], order));
+        let mut slabs = stack(&[EXPERT, N, K, N, K]);
+        slabs.stored_tiles = vec![(K, 8), (N, 8)];
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&slabs, 1, &[M]),
+            Ok(())
+        );
+        assert_eq!(
+            Indexing::Run(EXPERT).validate(&slabs, 1, &[M]),
+            Err(Decline::IndexOfAStatedLayout)
+        );
+        let split = stack(&[EXPERT, N, K, EXPERT, N, K]);
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&split, 1, &[M]),
+            Err(Decline::IndexOfAStatedLayout)
+        );
+        let mut spanned = stack(&[EXPERT, N, K, N, K]);
+        spanned.stored_tiles = vec![(EXPERT, 2)];
+        assert_eq!(
+            Indexing::Coordinate(EXPERT).validate(&spanned, 1, &[M]),
+            Err(Decline::IndexOfAStatedLayout)
+        );
+    }
+
+    /// A packed weight blocks its columns over two dimensions, so its projection is not direct; the
+    /// expert is still one axis of its own, which is all a coordinate moves.
+    #[test]
+    fn a_coordinate_places_a_whole_axis_of_a_gathered_operand_and_a_run_does_not() {
+        let block = Dimension(4);
         let spec = TileSpec::new(Projection::new(
             &[EXPERT, K, N, block],
             &[
@@ -714,7 +776,7 @@ mod tests {
         );
         assert_eq!(
             Indexing::Run(EXPERT).validate(&spec, 1, &[M]),
-            Err(Refusal::IndexOfAStatedLayout)
+            Err(Decline::IndexOfAStatedLayout)
         );
     }
 }

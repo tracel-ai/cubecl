@@ -113,7 +113,7 @@ impl MemoryProbe {
     /// kernel that moves little has little in flight, and that is precisely
     /// what limits it.
     fn sized(shape: DeviceShape, line_bytes: usize, spec: MemorySpec, blocked: bool) -> Self {
-        let buffers = spec.access.buffers() as usize;
+        let buffers = spec.access.buffer_count() as usize;
         let window_bytes = (spec.bytes.min(usize::MAX as u64) as usize) / buffers;
 
         let cap_lines = (window_cap(shape.max_alloc as u64) as usize / line_bytes).max(1);
@@ -183,7 +183,7 @@ pub fn prime(
             CubeCount::Static(config.cube_count as u32, 1, 1),
             config.cube_dim,
             config.vector_size,
-            BufferArg::from_raw_parts(handle.clone(), pool_lines),
+            BufferArg::from_raw_parts(handle.clone(), pool_lines * config.vector_size),
             pool_lines,
             dtype,
         );

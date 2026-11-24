@@ -1,5 +1,10 @@
+use crate::compute::device_poison::PoisonWatch;
+use alloc::sync::Arc;
 use core::mem::MaybeUninit;
-use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty};
+use cubecl_common::bytes::{
+    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
+};
+use cubecl_environment::sync::Mutex;
 use cubecl_server::memory_management::ManagedMemoryBinding;
 use wgpu::BufferView;
 
@@ -78,6 +83,106 @@ impl WgpuAllocController {
             view: Some(buf_view),
             buffer,
             _binding: binding,
+        }
+    }
+}
+
+/// A staging buffer whose map was requested. Dropped before
+/// [`into_bytes`](Self::into_bytes), it sees the buffer unmapped before its
+/// pool can hand it out again.
+pub(crate) struct MappingStaging {
+    staging: Arc<Mutex<Staging>>,
+    size: usize,
+    poison: PoisonWatch,
+}
+
+/// What the read and its map's callback share. Only the callback may unmap a
+/// buffer whose map is still completing: wgpu reports it unmapped meanwhile.
+struct Staging {
+    buffer_and_binding: Option<(wgpu::Buffer, ManagedMemoryBinding)>,
+    mapped: bool,
+    abandoned: bool,
+}
+
+impl MappingStaging {
+    /// Map `buffer` for reading, calling `on_mapped` once the map completes.
+    pub(crate) fn map(
+        buffer: wgpu::Buffer,
+        binding: ManagedMemoryBinding,
+        size: usize,
+        poison: &PoisonWatch,
+        on_mapped: impl FnOnce(Result<(), wgpu::BufferAsyncError>) + Send + 'static,
+    ) -> Self {
+        let staging = Arc::new(Mutex::new(Staging {
+            buffer_and_binding: Some((buffer.clone(), binding)),
+            mapped: false,
+            abandoned: false,
+        }));
+        let shared = staging.clone();
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                shared.lock().complete(result.is_ok());
+                on_mapped(result);
+            });
+
+        Self {
+            staging,
+            size,
+            poison: poison.clone(),
+        }
+    }
+
+    /// The buffer's first `size` bytes, once its map has completed.
+    pub(crate) fn into_bytes(self) -> Bytes {
+        let (buffer, binding) = self
+            .staging
+            .lock()
+            .buffer_and_binding
+            .take()
+            .expect("taken once");
+        let controller = Box::new(WgpuAllocController::init(binding, buffer));
+        // SAFETY: The binding has initialized memory for at least `size` bytes.
+        unsafe { Bytes::from_controller(controller, self.size) }
+    }
+}
+
+impl Drop for MappingStaging {
+    fn drop(&mut self) {
+        let mut staging = self.staging.lock();
+        staging.abandon();
+        // A lost device may never run the callback, which would keep the buffer reserved.
+        let lost = match self.poison.is_poisoned() {
+            true => staging.buffer_and_binding.take(),
+            false => None,
+        };
+        // Dropped unlocked: dropping a buffer's last handle runs its pending callback.
+        core::mem::drop(staging);
+        core::mem::drop(lost);
+    }
+}
+
+impl Staging {
+    fn complete(&mut self, mapped: bool) {
+        self.mapped = mapped;
+        if self.abandoned {
+            self.release();
+        }
+    }
+
+    fn abandon(&mut self) {
+        self.abandoned = true;
+        if self.mapped {
+            self.release();
+        }
+    }
+
+    /// Unmap the buffer if it is mapped, then hand it back to its pool.
+    fn release(&mut self) {
+        if let Some((buffer, _binding)) = self.buffer_and_binding.take()
+            && self.mapped
+        {
+            buffer.unmap();
         }
     }
 }

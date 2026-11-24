@@ -23,7 +23,29 @@ impl Device for CudaDevice {
     fn to_id(&self) -> DeviceId {
         DeviceId {
             type_id: 0,
-            index_id: super::index_id(self.index),
+            index_id: super::index::index_id(self.index),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_device_round_trips_its_id() {
+        let device = CudaDevice::new(3);
+
+        assert_eq!(CudaDevice::from_id(device.to_id()), device);
+    }
+
+    #[test]
+    fn an_index_too_wide_for_the_id_is_kept_at_the_largest() {
+        let too_wide = CudaDevice::new(usize::MAX);
+
+        assert_eq!(
+            CudaDevice::from_id(too_wide.to_id()).index,
+            u16::MAX as usize
+        );
     }
 }

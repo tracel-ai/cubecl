@@ -1,4 +1,5 @@
-use super::{AutotuneError, Evictor, TuneFn, TuneInputs};
+use super::stage::{BoundStageEnterer, enter_stage};
+use super::{AutotuneError, Evictor, TuneFn, TuneInputs, TuneStage};
 use crate::client::Client;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -20,20 +21,22 @@ impl AutotuneOutput for () {
     }
 }
 
-/// Benchmark how long this operation takes for a number of samples.
+/// Benchmark how long this operation takes for a number of samples, inside a measuring stage
+/// `stage` enters while the device is held.
 ///
 /// Returns at least one duration, otherwise an error is returned.
-pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
+pub(crate) fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
     evictor: Option<&mut Evictor<'_>>,
+    stage: Option<&mut BoundStageEnterer<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // `scoped` holds exclusive device access for the whole benchmark loop and
     // accepts non-`'static` closures.
     client
         .clone()
-        .exclusive(move || profile_exclusive(operation, inputs, client, evictor))
+        .exclusive(move || profile_exclusive(operation, inputs, client, evictor, stage))
         .map_err(|err| AutotuneError::Unknown {
             name: operation.name.to_string(),
             err: err.to_string(),
@@ -82,7 +85,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
             );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = client.profile(move || self.execute(inputs), &self.name);
+        let profiled = client.profile(move || self.race(inputs), &self.name);
 
         match profiled {
             Ok((Ok(_), duration)) => Ok(duration),
@@ -100,6 +103,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
     mut evictor: Option<&mut Evictor<'_>>,
+    stage: Option<&mut BoundStageEnterer<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so their stream executes whatever
     // the process mode drops: it exists to skip the *workload*, not the tuning it is
@@ -112,6 +116,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     // stream here as there.
     let measuring =
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
+    let measuring_stage = enter_stage(stage, TuneStage::Measuring);
 
     warmup(operation, inputs.clone(), client.clone())?;
 
@@ -121,7 +126,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     let (_, num_samples) = crate::config::CubeClRuntimeConfig::get()
         .autotune
         .bench
-        .samples();
+        .sample_count_range();
     let mut durations = Vec::new();
 
     for _ in 0..num_samples {
@@ -131,6 +136,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // for the failure replaced by `InvalidSamples`.
         durations.push(operation.sample_once(inputs.clone(), &client, evictor.as_deref_mut())?);
     }
+    core::mem::drop(measuring_stage);
     core::mem::drop(measuring);
 
     if durations.is_empty() {
@@ -155,7 +161,7 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
 
     for _ in 0..num_warmup {
         let inputs = inputs.clone();
-        let profiled = client.profile(move || operation.execute(inputs), &operation.name);
+        let profiled = client.profile(move || operation.race(inputs), &operation.name);
 
         match profiled {
             // The tunable rejected its own configuration, which it will do identically on

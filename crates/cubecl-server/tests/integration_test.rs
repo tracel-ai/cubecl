@@ -7,10 +7,16 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
-use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
+use cubecl_server::benchmark::CommunicationSkipGuard;
+use cubecl_server::client::{Client, ClientGroup, ClientGroupError, Exchange, MemberBuffers};
+use cubecl_server::logging::{
+    CollectivePath, Communication, Execution, ExecutionId, ExecutionKind, ExecutionObservation,
+    ExecutionObserver, ExecutionPlace, ExecutionScope, Measurement, ProfileDuration, StreamRole,
+    Timed, TimingMethod, TimingRequest, TransferRoute, WaitTarget,
+};
 use cubecl_server::server::{
-    CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation,
-    ServerError,
+    Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
+    ReduceOperation, Reduction, ServerError, TransportProvider,
 };
 use cubecl_server::{
     local_tuner,
@@ -163,6 +169,21 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
 
     assert_eq!(transferred.service, destination.service_id());
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
+}
+
+#[test_log::test]
+fn a_refused_send_fails_the_read_of_what_its_peer_received() {
+    let mut source = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 0));
+    let destination = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 1));
+    let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let transferred = source.to_client(handle, &destination);
+
+    let error = destination.read_one(transferred).unwrap_err();
+    assert!(
+        format!("{error}").contains("the dummy source was never written"),
+        "{error}"
+    );
 }
 
 #[test_log::test]
@@ -382,6 +403,115 @@ fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
     });
 }
 
+#[test_log::test]
+fn a_group_skipping_communication_checks_every_part_and_queues_none() {
+    let clients = [0, 1]
+        .map(|index| Client::load::<DummyServer<CountedTransport>>(DeviceId::new(0, index)))
+        .to_vec();
+    let group = ClientGroup::new(clients).unwrap();
+    let parts = || {
+        group
+            .clients()
+            .iter()
+            .map(|client| collective_parts(client.service_id()))
+            .sum::<usize>()
+    };
+    let contents = [1u8, 2, 3, 4, 5, 6, 7, 8];
+    let in_place = || -> Vec<MemberBuffers> {
+        group
+            .clients()
+            .iter()
+            .map(|client| {
+                let handle = client.create_from_slice(&contents);
+                MemberBuffers {
+                    src: handle.clone(),
+                    dst: handle,
+                }
+            })
+            .collect()
+    };
+    let read = |buffers: &[MemberBuffers]| -> Vec<Vec<u8>> {
+        group
+            .clients()
+            .iter()
+            .zip(buffers)
+            .map(|(client, buffers)| client.read_one(buffers.dst.clone()).unwrap().to_vec())
+            .collect()
+    };
+    let all_reduce = |buffers: &[MemberBuffers]| {
+        let parts = buffers
+            .iter()
+            .map(|buffers| MemberBuffers {
+                src: buffers.src.clone(),
+                dst: buffers.dst.clone(),
+            })
+            .collect();
+        group.all_reduce(parts, F32, ReduceOperation::Sum);
+    };
+
+    let member = CommunicationSkipGuard::enter(&group.clients()[1..]);
+    assert!(!group.clients()[0].skips_communication());
+    assert!(group.skips_communication());
+
+    let reduced = in_place();
+    all_reduce(&reduced);
+    group.all_gather(member_buffers(&group, 8, 16));
+    group.reduce_scatter(member_buffers(&group, 8, 4), F32, ReduceOperation::Sum);
+    group.all_to_all(member_buffers(&group, 8, 8));
+    let root = group.clients()[0].empty(8);
+    let dst = vec![root.clone(), group.clients()[1].empty(8)];
+    group.broadcast(root, dst);
+    for (part, buffers) in group.parts(SUM, 8).into_iter().zip(in_place()) {
+        part.queue(buffers);
+    }
+    assert_refused("holds 8 bytes where it needs 16", || {
+        group.all_gather(member_buffers(&group, 8, 8))
+    });
+    let device_ids: Vec<DeviceId> = group
+        .clients()
+        .iter()
+        .map(|client| client.service_id().device)
+        .collect();
+    let every = CommunicationSkipGuard::enter(group.clients());
+    for client in group.clients() {
+        let handle = client.create_from_slice(&contents);
+        client.clone().all_reduce(
+            handle.clone(),
+            handle,
+            F32,
+            device_ids.clone(),
+            ReduceOperation::Sum,
+        );
+    }
+    drop(every);
+    assert!(
+        group.skips_communication(),
+        "the member's own skip still holds"
+    );
+    assert_eq!(read(&reduced), [contents.to_vec(), contents.to_vec()]);
+    assert_eq!(parts(), 0);
+
+    drop(member);
+    let reduced = in_place();
+    all_reduce(&reduced);
+    read(&reduced);
+    assert_eq!(parts(), 2);
+}
+
+#[test_log::test]
+fn a_part_refuses_a_source_of_another_size_than_its_collective_on_the_caller() {
+    let group = transported_group();
+    let mut parts = group.parts(SUM, 8).into_iter();
+    let mut buffers = member_buffers(&group, 16, 16).into_iter();
+    let (part, buffers) = (parts.next().unwrap(), buffers.next().unwrap());
+    assert_refused("holds 16 bytes where it needs 8", || part.queue(buffers));
+}
+
+const SUM: Exchange = Exchange::AllReduce(Reduction {
+    dtype: F32,
+    op: ReduceOperation::Sum,
+});
+
 /// Two clients of a runtime that claims a transport, so a collective reaches the caller's checks.
 fn transported_group() -> ClientGroup {
     let clients = [0, 1]
@@ -471,37 +601,37 @@ fn execute_elementwise_addition() {
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
 }
 
-/// A profile the server refuses — as one is inside a graph capture window —
+/// A profile the server refuses, as one is inside a graph capture window,
 /// must cost the observer its timing and nothing else: the kernel still runs,
-/// [`launched`](cubecl_server::logging::LaunchObserver::launched) still
-/// arrives, and `timed` is skipped. `serial` because the observer slot, the
+/// [`issued`](cubecl_server::logging::ExecutionObserver::issued) still
+/// arrives, and `measured` is skipped. `serial` because the observer slot, the
 /// refusal toggle, and execution overrides are all process-wide.
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_server::logging::{
-        Duration, LaunchObservation, LaunchObserver, TimingMethod, TimingRequest,
-    };
-
     #[derive(Default)]
     struct WantsTiming {
         launched: std::sync::Mutex<Vec<&'static str>>,
-        timed: std::sync::Mutex<Vec<&'static str>>,
+        measured: std::sync::Mutex<Vec<&'static str>>,
     }
-    impl LaunchObserver for WantsTiming {
-        fn launched(&self, kernel: &'static str) {
-            self.launched.lock().unwrap().push(kernel);
+    impl ExecutionObserver for WantsTiming {
+        fn issued(&self, execution: &Execution) {
+            if let ExecutionKind::Kernel { name, .. } = execution.kind {
+                self.launched.lock().unwrap().push(name);
+            }
         }
         fn timing(&self) -> TimingRequest {
             TimingRequest::Resolved
         }
-        fn timed(&self, kernel: &'static str, _duration: Duration, _method: TimingMethod) {
-            self.timed.lock().unwrap().push(kernel);
+        fn measured(&self, execution: &Execution, _measurement: Measurement) {
+            if let ExecutionKind::Kernel { name, .. } = execution.kind {
+                self.measured.lock().unwrap().push(name);
+            }
         }
     }
 
     let observer = std::sync::Arc::new(WantsTiming::default());
-    let watching = LaunchObservation::new(observer.clone());
+    let watching = ExecutionObservation::new(observer.clone());
     REFUSE_PROFILES.store(true, core::sync::atomic::Ordering::Relaxed);
     let refusing = ClearsRefusedProfiles;
 
@@ -534,9 +664,614 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         "the launch is still reported"
     );
     assert!(
-        observer.timed.lock().unwrap().is_empty(),
+        observer.measured.lock().unwrap().is_empty(),
         "nothing was measured, so nothing is reported as measured"
     );
+}
+
+/// Checked against the launch: the profiling logger, when on, makes a deferred observer's wait too.
+#[test_log::test]
+#[serial_test::serial]
+fn launches_read_timing_exactly_when_their_observer_is_handed_a_read_duration() {
+    struct Asks {
+        timing: TimingRequest,
+        read: core::sync::atomic::AtomicBool,
+    }
+    impl ExecutionObserver for Asks {
+        fn issued(&self, _execution: &Execution) {}
+        fn timing(&self) -> TimingRequest {
+            self.timing
+        }
+        fn measured(&self, _execution: &Execution, measurement: Measurement) {
+            if matches!(measurement, Measurement::Read { .. }) {
+                self.read.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
+    let client = test_client(&DummyDevice);
+    assert!(!client.launches_read_timing(), "unobserved");
+
+    for timing in [
+        TimingRequest::Resolved,
+        TimingRequest::Deferred(Timed::Kernels),
+    ] {
+        let observer = Arc::new(Asks {
+            timing,
+            read: core::sync::atomic::AtomicBool::new(false),
+        });
+        let watching = ExecutionObservation::new(observer.clone());
+        let waits = client.launches_read_timing();
+        let lhs = client.create_from_slice(&[0, 1, 2]);
+        let rhs = client.create_from_slice(&[4, 4, 4]);
+        let out = client.empty(3);
+        client.launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![
+                lhs.binding(),
+                rhs.binding(),
+                out.clone().binding(),
+            ]),
+        );
+        client.read_one(out).unwrap();
+        drop(watching);
+
+        assert_eq!(waits, observer.read.load(Ordering::Relaxed), "{timing:?}");
+    }
+    assert!(!client.launches_read_timing(), "after the observation");
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn an_observed_group_all_reduce_is_one_collective_with_a_part_per_member() {
+    let (group, devices) = transported_group_on([60, 61]);
+    let recorded = Recorded::on(&devices);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, parts @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    assert_eq!(collective.parent, None);
+    assert_eq!(
+        collective.kind,
+        ExecutionKind::Communication(Communication::Collective {
+            operation: Collective::AllReduce,
+            members: services(&group),
+            bytes: 8,
+            path: CollectivePath::Native(TransportProvider::Nccl),
+        })
+    );
+    assert_parts_of(collective, parts, &devices, StreamRole::Collective);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn an_observed_skipped_collective_is_issued_as_skipped_with_no_part() {
+    let (group, devices) = transported_group_on([62, 63]);
+    let recorded = Recorded::on(&devices);
+    let _skipping = CommunicationSkipGuard::enter(group.clients());
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    for (part, buffers) in group
+        .parts(SUM, 8)
+        .into_iter()
+        .zip(member_buffers(&group, 8, 8))
+    {
+        part.queue(buffers);
+    }
+    drop(watching);
+
+    let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
+    let skipped = ExecutionKind::Communication(Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 8,
+        path: CollectivePath::Skipped,
+    });
+    assert_eq!(kinds, [skipped.clone(), skipped]);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn a_scope_parents_the_launches_and_transfers_issued_inside_it() {
+    let (group, devices) = transported_group_on([64, 65]);
+    let recorded = Recorded::on(&devices);
+    let mut source = group.clients()[0].clone();
+    let destination = &group.clients()[1];
+    let sent = source.create_from_slice(&[1u8, 2, 3, 4]);
+    let (lhs, rhs, out) = (
+        source.create_from_slice(&[0, 1, 2]),
+        source.create_from_slice(&[4, 4, 4]),
+        source.empty(3),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    let emulated = ExecutionScope::communication(|| Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 4,
+        path: CollectivePath::Emulated {
+            why: "emulated by the test".into(),
+        },
+    });
+    source.launch(
+        Box::new(KernelTask::new(DummyElementwiseAddition)),
+        CubeCount::Static(1, 1, 1),
+        KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.binding()]),
+    );
+    source.to_client(sent, destination);
+    drop(emulated);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, kernel, transfer, parts @ ..] = issued.as_slice() else {
+        panic!("issued {issued:?}");
+    };
+    assert_eq!(collective.parent, None);
+    assert_eq!(kernel.parent, Some(collective.id));
+    assert!(
+        matches!(
+            kernel.kind,
+            ExecutionKind::Kernel {
+                place: ExecutionPlace {
+                    stream: StreamRole::Compute(_),
+                    service,
+                },
+                ..
+            } if service.device == devices[0]
+        ),
+        "{kernel:?}"
+    );
+    assert_eq!(transfer.parent, Some(collective.id));
+    assert!(
+        matches!(
+            transfer.kind,
+            ExecutionKind::Communication(Communication::Transfer {
+                from,
+                to,
+                bytes: 4,
+                route: TransferRoute::Device,
+            }) if from.device == devices[0] && to.device == devices[1]
+        ),
+        "{transfer:?}"
+    );
+    assert_parts_of(transfer, parts, &devices, StreamRole::Transfer);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_transfer_across_runtimes_names_both_ends_apart() {
+    let device = DeviceId::new(0, 68);
+    let mut source = Client::load::<DummyServer>(device);
+    let destination = Client::load::<DummyServer<Other>>(device);
+    let recorded = Recorded::on(&[device]);
+    let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    source.to_client(handle, &destination);
+    drop(watching);
+
+    let issued = recorded.issued();
+    assert!(
+        issued.iter().any(|execution| matches!(
+            execution.kind,
+            ExecutionKind::Communication(Communication::Transfer { from, to, .. })
+                if from == source.service_id() && to == destination.service_id() && from != to
+        )),
+        "{issued:?}"
+    );
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn parts_queued_on_their_members_threads_belong_to_the_collective_made_before() {
+    let (group, devices) = transported_group_on([66, 67]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    let parts = group.parts(SUM, 8);
+    let queued: Vec<_> = parts
+        .into_iter()
+        .zip(member_buffers(&group, 8, 8))
+        .map(|(part, buffers)| std::thread::spawn(move || part.queue(buffers)))
+        .collect();
+    for thread in queued {
+        thread.join().unwrap();
+    }
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, members @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    assert_eq!(
+        collective.kind,
+        ExecutionKind::Communication(Communication::Collective {
+            operation: Collective::AllReduce,
+            members: services(&group),
+            bytes: 8,
+            path: CollectivePath::Native(TransportProvider::Nccl),
+        })
+    );
+    for device in &devices {
+        let on_device: Vec<_> = members
+            .iter()
+            .filter(|it| recorded_on(it) == *device)
+            .collect();
+        let [part, wait] = on_device.as_slice() else {
+            panic!("{device:?} issued {on_device:?}");
+        };
+        assert_parts_of(
+            collective,
+            &[(*part).clone()],
+            &[*device],
+            StreamRole::Collective,
+        );
+        assert_eq!(wait.parent, Some(collective.id));
+        assert!(
+            matches!(
+                wait.kind,
+                ExecutionKind::Wait {
+                    place: ExecutionPlace { service, stream: StreamRole::Compute(_) },
+                    awaits: WaitTarget::Part(awaited),
+                } if service.device == *device && awaited == part.id
+            ),
+            "{wait:?}"
+        );
+    }
+    assert_eq!(
+        recorded.measured().len(),
+        4,
+        "each part and wait, read back"
+    );
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn parts_made_while_nothing_observes_record_nothing_and_still_queue() {
+    let (group, devices) = transported_group_on([84, 85]);
+    let recorded = Recorded::on(&devices);
+    let parts = group.parts(SUM, 8);
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    for (part, buffers) in parts.into_iter().zip(member_buffers(&group, 8, 8)) {
+        part.queue(buffers);
+    }
+    drop(watching);
+
+    let issued = recorded.issued();
+    assert_eq!(issued.len(), 2, "{issued:?}");
+    for (part, device) in issued.iter().zip(&devices) {
+        assert_eq!(part.parent, None, "{part:?}");
+        assert!(
+            matches!(part.kind, ExecutionKind::Part { place } if place.service.device == *device),
+            "{part:?}"
+        );
+    }
+}
+
+/// A part's timing is refused inside a graph capture window, as the dummy refuses it while
+/// profiles are: the part is still issued under its collective, and its windows read empty.
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn a_part_queued_where_timing_is_refused_is_issued_and_reads_empty() {
+    let (group, devices) = transported_group_on([86, 87]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+    REFUSE_PROFILES.store(true, Ordering::Relaxed);
+    let refusing = ClearsRefusedProfiles;
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    for (part, buffers) in group
+        .parts(SUM, 8)
+        .into_iter()
+        .zip(member_buffers(&group, 8, 8))
+    {
+        part.queue(buffers);
+    }
+    drop(watching);
+    for client in group.clients() {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+    }
+    drop(refusing);
+
+    let issued = recorded.issued();
+    let [collective, members @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    let parts: Vec<_> = members
+        .iter()
+        .filter(|it| matches!(it.kind, ExecutionKind::Part { .. }))
+        .cloned()
+        .collect();
+    assert_parts_of(collective, &parts, &devices, StreamRole::Collective);
+    let unread = std::mem::take(&mut *recorded.unread.lock().unwrap());
+    assert_eq!(unread.len(), 4, "each part and wait, handed over unread");
+    for (id, measurement) in unread {
+        assert!(
+            cubecl_environment::future::block_on(measurement.resolve()).is_none(),
+            "{id:?} read back a window"
+        );
+    }
+}
+
+#[test_log::test]
+#[serial_test::serial]
+#[cfg(feature = "std")]
+fn timed_communications_time_each_part_of_a_group_collective_and_its_wait() {
+    let (group, devices) = transported_group_on([76, 77]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [collective, members @ ..] = issued.as_slice() else {
+        panic!("nothing was issued");
+    };
+    let (parts, waits): (Vec<_>, Vec<_>) = members.chunks(2).map(|it| (&it[0], &it[1])).unzip();
+    assert_parts_of(
+        collective,
+        &parts.iter().copied().cloned().collect::<Vec<_>>(),
+        &devices,
+        StreamRole::Collective,
+    );
+    for ((part, wait), device) in parts.iter().zip(&waits).zip(&devices) {
+        assert_eq!(wait.parent, Some(collective.id));
+        assert!(
+            matches!(
+                wait.kind,
+                ExecutionKind::Wait {
+                    place: ExecutionPlace { service, stream: StreamRole::Compute(_) },
+                    awaits: WaitTarget::Part(awaited),
+                } if service.device == *device && awaited == part.id
+            ),
+            "{wait:?}"
+        );
+    }
+    let timed: Vec<_> = members.iter().map(|it| it.id).collect();
+    assert_eq!(recorded.measured(), timed, "each part and wait, read back");
+    for client in group.clients() {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        assert_eq!(timed_collective_parts(client.service_id()), 1);
+    }
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn kernels_only_issue_no_wait_and_time_no_part() {
+    let (group, devices) = transported_group_on([78, 79]);
+    let recorded = Recorded::timing(&devices, TimingRequest::Deferred(Timed::Kernels));
+
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+
+    let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
+    assert!(
+        !kinds
+            .iter()
+            .any(|kind| matches!(kind, ExecutionKind::Wait { .. })),
+        "{kinds:?}"
+    );
+    assert!(recorded.measured().is_empty());
+    for client in group.clients() {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        assert_eq!(collective_parts(client.service_id()), 2);
+        assert_eq!(timed_collective_parts(client.service_id()), 0);
+    }
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_sync_collective_waits_for_the_queued_collectives() {
+    let (group, devices) = transported_group_on([80, 81]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+    let mut client = group.clients()[0].clone();
+    let (src, dst) = (client.empty(8), client.empty(8));
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    client.all_reduce(src, dst, F32, devices.clone(), ReduceOperation::Sum);
+    client.sync_collective();
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [_collective, part, wait] = issued.as_slice() else {
+        panic!("issued {issued:?}");
+    };
+    assert!(matches!(part.kind, ExecutionKind::Part { .. }), "{part:?}");
+    assert_eq!(wait.parent, None);
+    assert!(
+        matches!(
+            wait.kind,
+            ExecutionKind::Wait {
+                awaits: WaitTarget::QueuedCollectives,
+                ..
+            }
+        ),
+        "{wait:?}"
+    );
+    assert_eq!(recorded.measured(), [part.id, wait.id]);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn timed_communications_time_a_host_staged_transfer_on_the_host() {
+    let devices = [DeviceId::new(0, 82), DeviceId::new(0, 83)];
+    let mut source = Client::load::<DummyServer>(devices[0]);
+    let destination = Client::load::<DummyServer>(devices[1]);
+    let sent = source.create_from_slice(&[1u8, 2, 3, 4]);
+    let recorded = Recorded::timing(
+        &devices,
+        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+    );
+
+    let watching = ExecutionObservation::new(recorded.clone());
+    source.to_client(sent, &destination);
+    drop(watching);
+
+    let issued = recorded.issued();
+    let [transfer] = issued.as_slice() else {
+        panic!("issued {issued:?}");
+    };
+    assert!(matches!(
+        transfer.kind,
+        ExecutionKind::Communication(Communication::Transfer {
+            route: TransferRoute::Host,
+            ..
+        })
+    ));
+    assert_eq!(recorded.measured(), [transfer.id]);
+    assert_eq!(*recorded.methods.lock().unwrap(), [TimingMethod::System]);
+}
+
+/// Two clients of a runtime that claims a transport, on devices no other test uses: the observer
+/// is process-wide, and tests running beside this one issue their own executions.
+fn transported_group_on(indices: [u16; 2]) -> (ClientGroup, Vec<DeviceId>) {
+    let devices: Vec<DeviceId> = indices.map(|index| DeviceId::new(0, index)).to_vec();
+    let clients = devices
+        .iter()
+        .map(|device| Client::load::<DummyServer<Transported>>(*device))
+        .collect();
+    (ClientGroup::new(clients).unwrap(), devices)
+}
+
+/// The device an execution placed on one runs on.
+fn recorded_on(execution: &Execution) -> DeviceId {
+    match execution.kind {
+        ExecutionKind::Part { place } | ExecutionKind::Wait { place, .. } => place.service.device,
+        ref other => panic!("not placed on one device: {other:?}"),
+    }
+}
+
+fn services(group: &ClientGroup) -> Vec<ServiceId> {
+    group.clients().iter().map(Client::service_id).collect()
+}
+
+fn assert_parts_of(
+    parent: &Execution,
+    parts: &[Execution],
+    devices: &[DeviceId],
+    stream: StreamRole,
+) {
+    for part in parts {
+        assert_eq!(part.parent, Some(parent.id), "{part:?}");
+    }
+    let places: Vec<_> = parts
+        .iter()
+        .map(|part| match part.kind {
+            ExecutionKind::Part { place } => (place.service.device, place.stream),
+            ref other => panic!("not a part: {other:?}"),
+        })
+        .collect();
+    let expected: Vec<_> = devices.iter().map(|device| (*device, stream)).collect();
+    assert_eq!(places, expected);
+}
+
+/// Every execution issued on some devices, in issue order, and the measurements they were handed.
+struct Recorded {
+    devices: Vec<DeviceId>,
+    timing: TimingRequest,
+    issued: std::sync::Mutex<Vec<Execution>>,
+    unread: std::sync::Mutex<Vec<(ExecutionId, ProfileDuration)>>,
+    methods: std::sync::Mutex<Vec<TimingMethod>>,
+}
+
+impl Recorded {
+    fn on(devices: &[DeviceId]) -> Arc<Self> {
+        Self::timing(devices, TimingRequest::None)
+    }
+
+    fn timing(devices: &[DeviceId], timing: TimingRequest) -> Arc<Self> {
+        Arc::new(Self {
+            devices: devices.to_vec(),
+            timing,
+            issued: Default::default(),
+            unread: Default::default(),
+            methods: Default::default(),
+        })
+    }
+
+    fn issued(&self) -> Vec<Execution> {
+        self.issued.lock().unwrap().clone()
+    }
+
+    /// The executions whose measurement was handed over unread and reads back, in that order.
+    fn measured(&self) -> Vec<ExecutionId> {
+        std::mem::take(&mut *self.unread.lock().unwrap())
+            .into_iter()
+            .map(|(id, measurement)| {
+                self.methods
+                    .lock()
+                    .unwrap()
+                    .push(measurement.timing_method());
+                cubecl_environment::future::block_on(measurement.resolve())
+                    .unwrap_or_else(|| panic!("{id:?} read back empty"));
+                id
+            })
+            .collect()
+    }
+
+    fn touches(&self, kind: &ExecutionKind) -> bool {
+        let on = |device: &DeviceId| self.devices.contains(device);
+        match kind {
+            ExecutionKind::Kernel { place, .. }
+            | ExecutionKind::Part { place }
+            | ExecutionKind::Wait { place, .. } => on(&place.service.device),
+            ExecutionKind::Communication(Communication::Collective { members, .. }) => {
+                members.iter().any(|member| on(&member.device))
+            }
+            ExecutionKind::Communication(Communication::Transfer { from, to, .. }) => {
+                on(&from.device) || on(&to.device)
+            }
+        }
+    }
+}
+
+impl ExecutionObserver for Recorded {
+    fn issued(&self, execution: &Execution) {
+        if self.touches(&execution.kind) {
+            self.issued.lock().unwrap().push(execution.clone());
+        }
+    }
+
+    fn timing(&self) -> TimingRequest {
+        self.timing
+    }
+
+    fn measured(&self, execution: &Execution, measurement: Measurement) {
+        if let Measurement::Unread(measurement) = measurement
+            && self.touches(&execution.kind)
+        {
+            self.unread
+                .lock()
+                .unwrap()
+                .push((execution.id, measurement));
+        }
+    }
 }
 
 #[test_log::test]
@@ -1601,6 +2336,122 @@ fn autotune_evicts_before_every_measured_sample() {
     );
 }
 
+/// What the stages of one tune of a fresh key did, the tune run as `execute` runs it.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn staged_tune() -> dummy::StageTrace {
+    use std::sync::{Arc, Mutex};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_stages");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let handles = vec![lhs, rhs, client.empty(3)];
+
+    let trace = Arc::new(Mutex::new(dummy::StageTrace::default()));
+    let uid = fresh_tune_key_uid();
+    // Its own tuner id too: a set is built once per id, and each call wants a set of its own.
+    let id = uid.clone();
+    let test_set = {
+        let trace = trace.clone();
+        TUNER.init(&id, move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_stage_enterer(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                trace.clone(),
+            )
+        })
+    };
+
+    TUNER.execute(&id, &client, test_set, handles);
+
+    std::mem::take(&mut *trace.lock().unwrap())
+}
+
+/// The winner of a tune runs as the call's work, in no stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_its_winner_outside_every_stage() {
+    let trace = staged_tune();
+
+    assert_eq!(trace.ran_in.last(), Some(&None));
+}
+
+/// Every run of a tune's candidates is inside a stage its set's enterer entered.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_every_candidate_inside_a_stage() {
+    let trace = staged_tune();
+
+    let (_winner, tuning) = trace
+        .ran_in
+        .split_last()
+        .expect("the candidates should have run");
+    assert!(tuning.iter().all(Option::is_some), "{tuning:?}");
+}
+
+/// The adaptive scheduler gathers each candidate's kernels inside a gathering stage before it
+/// measures it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_gathers_its_candidates_inside_a_gathering_stage() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    if !CubeClRuntimeConfig::get().autotune.bench.adaptive {
+        return;
+    }
+
+    let trace = staged_tune();
+
+    assert_eq!(
+        trace.ran_in.first(),
+        Some(&Some(cubecl_server::tune::TuneStage::Gathering))
+    );
+}
+
+/// A tune under a `CompileOnly` override runs every candidate inside a gathering stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_gathers_under_compile_only() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::TuneStage;
+
+    let collector = StatisticsCollector::new();
+    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let trace = staged_tune();
+    core::mem::drop(compile);
+
+    let (_work, gathered) = trace
+        .ran_in
+        .split_last()
+        .expect("the candidates should have run");
+    assert!(
+        gathered
+            .iter()
+            .all(|stage| *stage == Some(TuneStage::Gathering)),
+        "{gathered:?}"
+    );
+}
+
+/// A tune's stages end in the order they nest, and none is left open.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_ends_its_stages_in_nesting_order() {
+    let trace = staged_tune();
+
+    assert_eq!(
+        (trace.misordered_count, trace.open.len()),
+        (0, 0),
+        "{trace:?}"
+    );
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]
@@ -1983,7 +2834,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     if !bench.adaptive {
         return;
     }
-    let (min_samples, max_samples) = bench.samples();
+    let (min_sample_count, max_sample_count) = bench.sample_count_range();
 
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_eliminated_candidate");
 
@@ -2020,13 +2871,13 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     // Every candidate is warmed up once and sampled at least to the elimination floor, so the
     // slow one cannot have been dropped before it had the evidence against it.
     assert!(
-        slow > min_samples,
+        slow > min_sample_count,
         "the slow candidate was dropped before it earned it: {slow} calls"
     );
     // A full pass is one warmup plus the ceiling. The slow candidate must fall short of that,
     // and short of what the survivors spent, or nothing was eliminated at all.
     assert!(
-        slow < max_samples + 1,
+        slow < max_sample_count + 1,
         "the slow candidate was sampled to the ceiling: {slow} calls"
     );
     assert!(
@@ -2462,7 +3313,7 @@ fn an_override_reserves_without_mapping() {
             .streams
             .iter()
             .flat_map(|stream| stream.pools.dynamic.iter())
-            .find(|pool| pool.largest_alloc == SIZE)
+            .find(|pool| pool.largest_alloc_bytes == SIZE)
             .expect("some pool served the buffer")
             .clone()
     }
@@ -2483,17 +3334,17 @@ fn an_override_reserves_without_mapping() {
     let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
-        pool.pages_unmapped, pool.pages,
+        pool.unmapped_page_count, pool.page_count,
         "the reservation must have no device backing: {report:?}"
     );
-    assert!(pool.pages >= 1, "{report:?}");
+    assert!(pool.page_count >= 1, "{report:?}");
 
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
     let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
-        arena(&report).pages_unmapped,
+        arena(&report).unmapped_page_count,
         0,
         "resolution installed the backing: {report:?}"
     );
@@ -2585,7 +3436,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let id = KernelId::new::<Recorded>().info(3u32);
+    let id = KernelId::new::<Recorded>().with_info(3u32);
     let stored = true;
     CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
     CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);
@@ -2722,38 +3573,6 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     );
 }
 
-/// A launch is collected while a collection is open — the kernel a replay has
-/// to keep — and only then.
-#[test_log::test]
-#[serial_test::serial]
-fn a_launch_is_collected_while_a_collection_is_open() {
-    use cubecl_server::launched::LaunchedKernels;
-
-    let client = test_client(&DummyDevice);
-    let launch = || {
-        let lhs = client.create_from_slice(&[0, 1, 2]);
-        let rhs = client.create_from_slice(&[4, 4, 4]);
-        let out = client.empty(3);
-        let kernel = KernelTask::new(DummyElementwiseAddition);
-        let id = cubecl_server::kernel::KernelMetadata::id(&kernel);
-        client.launch(
-            Box::new(kernel),
-            CubeCount::Static(1, 1, 1),
-            KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.binding()]),
-        );
-        id
-    };
-
-    let collection = LaunchedKernels::new();
-    let id = launch();
-    let launched = collection.finish();
-    assert!(launched.contains(&id.stable_hash()));
-
-    let collection = LaunchedKernels::new();
-    let launched = collection.finish();
-    assert!(launched.is_empty(), "a new collection starts empty");
-}
-
 /// A round that measures nothing falls back on a candidate that ran, never on one that rejected
 /// the problem: the first candidate's function rejects it, then profiles stop, so the correct
 /// `add` runs but is not timed. Deciding the rejection would run it for real and fail the same
@@ -2788,4 +3607,261 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
     drop(refusing);
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
+    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+    use std::sync::Mutex;
+
+    static OUTER: LocalTuner<String, String> = local_tuner!("nested_compile_outer");
+    static INNER: LocalTuner<String, String> = local_tuner!("nested_compile_inner");
+    static RUNS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+
+    fn inner_set(client: DummyClient, uid: String) -> TunableSet<String, Vec<Handle>, ()> {
+        let candidate = |name: &'static str| {
+            let op = OneKernelAutotuneOperation::new(
+                KernelTask::new(DummyElementwiseAddition),
+                client.clone(),
+            );
+            Tunable::new(name, move |inputs| {
+                RUNS.lock().unwrap().push(name);
+                op.run(inputs)
+            })
+        };
+        TunableSet::new(
+            move |_: &Vec<Handle>| format!("nested-inner-{uid}"),
+            CloneInputGenerator,
+        )
+        .with(candidate("inner-a"))
+        .with(candidate("inner-b"))
+    }
+
+    fn outer_set(client: DummyClient, uid: String) -> TunableSet<String, Vec<Handle>, ()> {
+        let plain = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            client.clone(),
+        );
+        let outer_key = format!("nested-outer-{uid}");
+        TunableSet::new(
+            move |_: &Vec<Handle>| outer_key.clone(),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("nests", move |inputs: Vec<Handle>| {
+            RUNS.lock().unwrap().push("outer");
+            let inner = client.clone();
+            let uid = uid.clone();
+            let set = INNER.init(&"nested-inner".to_string(), move || {
+                inner_set(inner.clone(), uid.clone())
+            });
+            INNER.execute(&"nested-inner".to_string(), &client, set, inputs);
+            Ok::<(), String>(())
+        }))
+        .with(Tunable::new("plain", move |inputs| plain.run(inputs)))
+    }
+
+    let client = test_client(&DummyDevice);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+
+    let uid = fresh_tune_key_uid();
+    let set = OUTER.init(&"nested-outer".to_string(), move || {
+        outer_set(test_client(&DummyDevice), uid.clone())
+    });
+    OUTER.execute(&"nested-outer".to_string(), &client, set, handles);
+
+    let runs = RUNS.lock().unwrap().clone();
+    let first_pass: Vec<_> = runs
+        .iter()
+        .skip(1)
+        .take_while(|run| **run != "outer")
+        .copied()
+        .collect();
+    assert_eq!(runs.first(), Some(&"outer"));
+    // Each inner candidate queues its kernels, then the first serves the call untuned.
+    assert_eq!(
+        first_pass,
+        ["inner-a", "inner-b", "inner-a"],
+        "the inner key was tuned while the outer candidates compiled: {runs:?}"
+    );
+    // Only a tune runs every inner candidate.
+    let mut warmup = runs.iter().skip(1).skip_while(|run| **run != "outer");
+    assert!(
+        warmup.any(|run| *run == "inner-b"),
+        "the inner key was not tuned at the outer warmup: {runs:?}"
+    );
+}
+
+/// A prune keeps this build's kernels its work launched, every variant of
+/// them, and removes those only a race launched, those another build compiled
+/// with the records of what its work launched, and the build records; the
+/// autotune answers stay. The launches are written here as the loader records
+/// them: what this tests is the prune, the recording being the runtimes'.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_keeps_what_the_work_loaded() {
+    use cubecl_environment::environment::BuildStamp;
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::persistence::{Database, Namespace, Origin};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    // Opens the active environment's database, created by the first store.
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let tuner: cubecl_server::tune::Tuner<String> =
+        cubecl_server::tune::Tuner::new("pruned", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    let database = Database::open_active().unwrap();
+
+    let build = BuildStamp::current();
+    let other = BuildStamp {
+        hash: build.hash ^ 1,
+    };
+    let artifact = |id: u128, variant: u128, built_by: BuildStamp| {
+        cbor(&KernelCacheKey {
+            id,
+            variant,
+            built_by,
+        })
+    };
+    let (work, race) = (0x1111_u128, 0x2222_u128);
+    let stored = [
+        artifact(work, 0, build),
+        artifact(work, 5, build),
+        artifact(race, 0, build),
+        artifact(work, 0, other),
+    ];
+    let artifacts = Namespace::scoped(ArtifactRoot::Cpu.as_str(), "fingerprint");
+    for key in &stored {
+        database.insert(artifacts.as_str(), key, b"binary", Origin::Local);
+    }
+    let (this_build, other_build) = (
+        WorkLaunchStore::namespace(build),
+        WorkLaunchStore::namespace(other),
+    );
+    database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
+    database.insert(
+        other_build.as_str(),
+        &cbor(&race),
+        &cbor(&()),
+        Origin::Local,
+    );
+    database.insert(
+        cubecl_environment::records::ROOT,
+        b"record",
+        b"value",
+        Origin::Local,
+    );
+    let autotune = || -> Vec<String> {
+        database
+            .namespaces()
+            .into_iter()
+            .filter(|namespace| namespace.starts_with("autotune/"))
+            .collect()
+    };
+    let [answers] = autotune().try_into().unwrap();
+    database.insert(
+        &answers,
+        b"an answer to an older candidate list",
+        b"value",
+        Origin::Local,
+    );
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!((pruned.kernels.kept, pruned.kernels.removed), (2, 2));
+    assert!(pruned.records.removed > 0 && pruned.records.kept == 0);
+    let namespaces = database.namespaces();
+    assert!(
+        namespaces
+            .iter()
+            .any(|namespace| namespace == this_build.as_str())
+    );
+    assert!(
+        !namespaces
+            .iter()
+            .any(|namespace| namespace == other_build.as_str()),
+        "another build's launches go with its kernels"
+    );
+    let present = |key: &[u8]| database.get(artifacts.as_str(), key).is_some();
+    assert!(
+        present(&stored[0]) && present(&stored[1]),
+        "the work's kernel, in each variant"
+    );
+    assert!(!present(&stored[2]), "only a race launched it");
+    assert!(!present(&stored[3]), "another build compiled it");
+    assert_eq!(
+        autotune(),
+        std::slice::from_ref(&answers),
+        "the answers stay"
+    );
+    assert!(
+        database
+            .get(&answers, b"an answer to an older candidate list")
+            .is_some(),
+        "an answer no tuner reads any more stays too"
+    );
+}
+
+/// An application keeps its data in the environment beside the compilers',
+/// and a prune reads only the compilers' namespaces: an entry of its own that
+/// happens to decode as another build's kernel key survives.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_leaves_an_applications_entries_alone() {
+    use cubecl_environment::environment::BuildStamp;
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::compiler::KernelCacheKey;
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    // Opens the active environment's database, created by the first store.
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let tuner: cubecl_server::tune::Tuner<String> =
+        cubecl_server::tune::Tuner::new("application", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    let database = Database::open_active().unwrap();
+    let lookalike = cbor(&KernelCacheKey {
+        id: 1,
+        variant: 0,
+        built_by: BuildStamp {
+            hash: BuildStamp::current().hash ^ 1,
+        },
+    });
+    let namespace = "my-application/0.1.0/settings";
+    database.insert(namespace, b"setting", &lookalike, Origin::Local);
+    database.insert(namespace, &lookalike, b"value", Origin::Local);
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!(pruned.kernels.removed, 0, "{pruned:?}");
+    assert!(database.get(namespace, b"setting").is_some());
+    assert!(database.get(namespace, &lookalike).is_some());
+}
+
+/// `value` encoded as a store encodes it: CBOR.
+#[cfg(all(feature = "std", persistence))]
+fn cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).unwrap();
+    bytes
 }

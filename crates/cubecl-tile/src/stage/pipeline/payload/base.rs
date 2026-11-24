@@ -9,11 +9,11 @@ use crate::*;
 pub(crate) struct StageOperand {
     /// Who moves this operand's bytes into its stage.
     pub(crate) delivery: Delivery,
-    /// The axes the operand spans.
+    /// The dimensions the operand spans.
     pub(crate) space: Space,
     /// The keys of a table the operand has yet to read ([`Indexing`]): its window moves along
     /// them too, though it spans none of them.
-    pub(crate) keys: Vec<Axis>,
+    pub(crate) keys: Vec<Dimension>,
 }
 
 /// What shapes a slot's buffers: level, depth, storage, optional line width, and who holds them.
@@ -68,15 +68,16 @@ pub(crate) trait Payload<Me: CubeType>: CubeType {
 #[cube]
 pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
     // An operand whose table this level reads stages one region of it: one slab, not the stack.
-    let shaped = operand.shaped_for(comptime!(spec.level.clone()));
+    let shaped = operand.shaped_for(spec.level.clone());
     let operand = &shaped;
-    let define!(Staged) = operand.staged_element(comptime!(spec.decoded));
+    let define!(Staged) = operand.staged_element(spec.decoded);
     let stage = Memory::stage::<Staged>(
         operand,
-        comptime!(spec.level.clone()),
-        comptime!(spec.storage.clone()),
-        comptime!(spec.width),
-        comptime!(spec.owner),
+        &spec.level,
+        spec.storage.clone(),
+        spec.width,
+        spec.owner,
+        spec.decoded,
     );
     let stage = Tile::new::<Staged>(
         stage.kind,

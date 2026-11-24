@@ -11,7 +11,7 @@ pub fn validate_cube_dim(
     properties: &DeviceProperties,
     kernel_id: &KernelId,
 ) -> Result<(), LaunchError> {
-    let requested = kernel_id.cube_dim;
+    let requested = kernel_id.cube_dim();
     let max: Dim3 = properties.hardware.max_cube_dim.into();
     if !max.can_contain(requested) {
         Err(ResourceLimitError::CubeDim {
@@ -30,7 +30,7 @@ pub fn validate_units(
     properties: &DeviceProperties,
     kernel_id: &KernelId,
 ) -> Result<(), LaunchError> {
-    let requested = kernel_id.cube_dim.num_elems();
+    let requested = kernel_id.cube_dim().num_elems();
     let max = properties.hardware.max_units_per_cube;
     if requested > max {
         Err(ResourceLimitError::Units {

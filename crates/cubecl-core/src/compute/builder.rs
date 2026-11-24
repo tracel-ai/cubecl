@@ -5,7 +5,7 @@ use pliron::r#type::TypeHandle;
 use crate::{KernelExpansion, KernelIntegrator, prelude::KernelDefinition};
 use alloc::collections::BTreeMap;
 use cubecl_ir::{
-    DeviceProperties, ElemType, Scope, TargetProperties,
+    ContextExt as _, DeviceProperties, ElemType, Scope, TargetProperties,
     metadata::{INFO_ALIGN, Info, Metadata, SizedInfoField},
     pliron::value::Value,
     settings::KernelSettings,
@@ -51,6 +51,13 @@ impl KernelBuilder {
         self.scope.global(id, None, value_ty)
     }
 
+    /// Register a buffer in memory shared with the other devices of the runtime, and return the
+    /// [element](Value) to be used for kernel expansion.
+    pub fn peer_buffer(&mut self, value_ty: TypeHandle) -> Value {
+        let id = self.inc_buffer_id();
+        self.scope.peer_global(id, value_ty)
+    }
+
     /// Register a tensor and return the [element](Value) to be used for kernel expansion.
     pub fn tensor(&mut self, value_ty: TypeHandle) -> Value {
         let id = self.inc_buffer_id();
@@ -87,6 +94,10 @@ impl KernelBuilder {
             debug.finish();
         }
         let info = self.create_info();
+        // Read by the fusion pass and the backends' own code generation.
+        self.scope
+            .ctx_mut()
+            .set_aux_ty(self.settings.float_contraction);
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,
             info,

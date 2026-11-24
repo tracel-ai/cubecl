@@ -10,7 +10,7 @@ use cubecl_core::{
 use cubecl_server::driver::DriverError;
 use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_server::{
-    config::{memory::CudaAllocator, streaming::StreamPriority},
+    config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
@@ -63,10 +63,8 @@ impl StreamMemory for Stream {
 pub struct CudaStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
-    mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
-    allocator: CudaAllocator,
     /// The device's captures, which every stream this creates takes its capture state from.
     captures: DeviceCaptures,
 }
@@ -139,7 +137,7 @@ impl EventStreamBackend for CudaStreamBackend {
     fn create_stream(&self) -> Result<Self::Stream, ServerError> {
         let stream = create_cuda_stream(self.priority)?;
 
-        let storage = GpuStorage::new(self.mem_alignment, stream, self.allocator);
+        let storage = GpuStorage::new();
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,

@@ -70,7 +70,7 @@ impl Driver for Hip {
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
-        resource: <PinnedMemoryStorage as cubecl_server::storage::ComputeStorage>::Resource,
+        resource: <PinnedMemoryStorage as cubecl_server::storage::StorageAllocator>::Resource,
         size: usize,
     ) -> Bytes {
         let controller =

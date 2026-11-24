@@ -34,6 +34,11 @@ pub struct DirectPool {
     /// of growing `slices` for the life of the process.
     vacant: Vec<usize>,
     alignment: u64,
+    /// The largest device allocation this pool asks the storage for, padding
+    /// included. A larger one is refused before the storage sees it: some
+    /// backends (wgpu) treat a buffer past the device's limit as a validation
+    /// error that poisons the device rather than as a failed allocation.
+    max_alloc_size: u64,
     location_base: MemoryLocation,
     /// Reserved-bytes ceiling above which a [reclaim](Self::reclaim) returns
     /// free slices to the driver. A watermark, not a budget: live memory is
@@ -41,23 +46,25 @@ pub struct DirectPool {
     /// leaving it to an explicit cleanup.
     reclaim_at: Option<u64>,
     /// The most slices ever held at once.
-    pages_peak: u64,
+    peak_pages: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
-    largest_alloc: u64,
+    largest_alloc_bytes: u64,
 }
 
 impl DirectPool {
-    /// Create a pool that accepts any size: with no pages to fit an allocation
-    /// into, the only limit is what the storage can allocate.
-    pub fn new(alignment: u64, pool_pos: u8, reclaim_at: Option<u64>) -> Self {
+    /// Create a pool that serves any size up to `max_alloc_size`, the largest
+    /// single allocation the device makes: with no pages to fit an allocation
+    /// into, that is its only limit.
+    pub fn new(max_alloc_size: u64, alignment: u64, pool_pos: u8, reclaim_at: Option<u64>) -> Self {
         Self {
             slices: Vec::new(),
             vacant: Vec::new(),
             alignment,
+            max_alloc_size,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
             reclaim_at,
-            pages_peak: 0,
-            largest_alloc: 0,
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
         }
     }
 
@@ -66,10 +73,10 @@ impl DirectPool {
         MemoryPoolReport {
             kind: MemoryPoolKind::Direct,
             usage: self.get_memory_usage(),
-            pages: self.live().count() as u64,
-            pages_peak: self.pages_peak,
-            pages_unmapped: self.live().filter(|slice| !slice.mapped).count() as u64,
-            largest_alloc: self.largest_alloc,
+            page_count: self.live().count() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self.live().filter(|slice| !slice.mapped).count() as u64,
+            largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
 
@@ -94,7 +101,7 @@ impl DirectPool {
     ///
     /// Answers whether any slice went back, so a caller knows the storage has
     /// deallocations to flush.
-    fn release_free<Storage: crate::storage::ComputeStorage>(
+    fn release_free<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         headroom: u64,
@@ -118,7 +125,7 @@ impl DirectPool {
                 continue;
             }
             if slice.mapped {
-                storage.dealloc(slice.storage.id);
+                storage.deallocate(slice.storage.id);
             }
             slice.tainted.clear(failures);
             reserved -= slice.effective_size();
@@ -136,7 +143,7 @@ impl DirectPool {
     /// The only place slices go back outside an explicit cleanup: an
     /// allocation never releases one, so a reservation that must keep every
     /// slice where it is can still allocate.
-    pub(crate) fn reclaim<Storage: crate::storage::ComputeStorage>(
+    pub(crate) fn reclaim<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -146,8 +153,8 @@ impl DirectPool {
 }
 
 impl MemoryPool for DirectPool {
-    fn accept(&self, _size: u64) -> bool {
-        true
+    fn accept(&self, size: u64) -> bool {
+        size + calculate_padding(size, self.alignment) <= self.max_alloc_size
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -194,13 +201,16 @@ impl MemoryPool for DirectPool {
         // the slice keeps its old padding while its utilization takes the new
         // size, and the next exact-fit lookup no longer recognizes it.
         slice.padding = padding;
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
-        self.largest_alloc = self.largest_alloc.max(size);
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Some(slice.handle.clone())
     }
 
-    fn alloc<Storage: crate::storage::ComputeStorage>(
+    fn alloc<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -210,11 +220,21 @@ impl MemoryPool for DirectPool {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
+        if effective_size > self.max_alloc_size {
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
 
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.storage.utilization = StorageUtilization {
+            offset_bytes: 0,
+            size_bytes: size,
+        };
 
         let index = match self.vacant.pop() {
             Some(index) => index,
@@ -229,13 +249,13 @@ impl MemoryPool for DirectPool {
 
         let handle = slice.handle.clone();
         self.slices[index] = Some(slice);
-        self.pages_peak = self.pages_peak.max(self.live().count() as u64);
-        self.largest_alloc = self.largest_alloc.max(size);
+        self.peak_pages = self.peak_pages.max(self.live().count() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
 
         Ok(handle)
     }
 
-    fn materialize<Storage: crate::storage::ComputeStorage>(
+    fn materialize<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &super::ManagedMemoryBinding,
@@ -256,17 +276,17 @@ impl MemoryPool for DirectPool {
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?.as_ref()?;
-        Some(PageGuard::allocation(slice.handle.clone().binding()))
+        Some(PageGuard::allocation(slice.handle.to_binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
         let used: Vec<_> = self.live().filter(|slice| !slice.is_free()).collect();
 
         MemoryUsage {
-            number_allocs: used.len() as u64,
-            bytes_in_use: used.iter().map(|slice| slice.storage.size()).sum(),
-            bytes_padding: used.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self.live().map(|slice| slice.effective_size()).sum(),
+            allocation_count: used.len() as u64,
+            in_use_bytes: used.iter().map(|slice| slice.storage.size()).sum(),
+            padding_bytes: used.iter().map(|slice| slice.padding).sum(),
+            reserved_bytes: self.live().map(|slice| slice.effective_size()).sum(),
         }
     }
 
@@ -277,7 +297,7 @@ impl MemoryPool for DirectPool {
     ///
     /// Periodic cleanups are ignored here: the memory calls
     /// [`reclaim`](Self::reclaim) for those, which honours the ceiling.
-    fn cleanup<Storage: crate::storage::ComputeStorage>(
+    fn cleanup<Storage: crate::storage::StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
@@ -294,7 +314,7 @@ impl MemoryPool for DirectPool {
                 continue;
             }
             if slice.mapped {
-                storage.dealloc(slice.storage.id);
+                storage.deallocate(slice.storage.id);
             }
             slice.tainted.clear(failures);
             *entry = None;
@@ -331,15 +351,94 @@ impl MemoryPool for DirectPool {
 impl core::fmt::Display for DirectPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let usage = self.get_memory_usage();
-        if usage.bytes_reserved == 0 {
+        if usage.reserved_bytes == 0 {
             return Ok(());
         }
 
         f.write_fmt(format_args!(
             "  - Direct: {} slices, largest {}\n",
             self.live().count(),
-            BytesFormat::new(self.largest_alloc)
+            BytesFormat::from_byte_count(self.largest_alloc_bytes)
         ))?;
         f.write_fmt(format_args!("\n{usage}\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{BytesStorage, StorageAllocator};
+
+    /// The largest allocation the pools under test may make.
+    const MAX: u64 = 1024;
+    const ALIGNMENT: u64 = 16;
+
+    fn pool() -> DirectPool {
+        DirectPool::new(MAX, ALIGNMENT, 0, Some(0))
+    }
+
+    fn alloc(
+        pool: &mut DirectPool,
+        storage: &mut BytesStorage,
+        size: u64,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        pool.alloc(
+            storage,
+            size,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        )
+    }
+
+    /// A size past the largest allocation is refused as `BufferTooBig`
+    /// before the storage is asked for anything.
+    #[test_log::test]
+    fn an_allocation_past_the_limit_is_refused_before_the_storage() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        let refused = alloc(&mut pool, &mut storage, 2 * MAX);
+
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { size, .. }) if size == 2 * MAX),
+            "got {refused:?}"
+        );
+        assert_eq!(storage.bytes_allocated(), 0, "the storage was never asked");
+        assert!(!pool.accept(2 * MAX));
+    }
+
+    /// The padded size is what the device allocates, so it is what the limit
+    /// bounds: one byte past the last aligned size under the limit is refused.
+    #[test_log::test]
+    fn padding_counts_against_the_limit() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        assert!(pool.accept(MAX));
+        assert!(!pool.accept(MAX + 1));
+        assert!(
+            matches!(
+                alloc(&mut pool, &mut storage, MAX + 1),
+                Err(IoError::BufferTooBig { .. })
+            ),
+            "{} pads to {} bytes, past {MAX}",
+            MAX + 1,
+            MAX + ALIGNMENT
+        );
+    }
+
+    /// A refusal leaves the pool serving: the next allocation, exactly at the
+    /// limit, is served.
+    #[test_log::test]
+    fn the_pool_serves_after_a_refusal() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        alloc(&mut pool, &mut storage, 4 * MAX).expect_err("past the limit");
+        let served = alloc(&mut pool, &mut storage, MAX).expect("exactly the limit fits");
+
+        assert_eq!(storage.bytes_allocated(), MAX);
+        assert_eq!(pool.get_memory_usage().allocation_count, 1);
+        core::mem::drop(served);
     }
 }

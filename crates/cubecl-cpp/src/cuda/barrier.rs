@@ -14,6 +14,11 @@ cuda_op!(InitOp, |op, ctx| format!(
     op.arrival_count(ctx).name(ctx)
 ));
 
+cuda_op!(InvalidateOp, |op, ctx| format!(
+    "{}->~barrier();",
+    op.barrier(ctx).name(ctx)
+));
+
 cuda_op!(MemCopyAsyncOp, |op, ctx| {
     let source = op.source(ctx).name(ctx);
     let barrier = op.barrier(ctx).name(ctx);

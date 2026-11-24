@@ -10,6 +10,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::modules::HipCompiledKernel;
 use crate::compute::{Captures, Window};
 use crate::compute::{Command, context::HipContext, driver::Hip, stream::HipStreamBackend};
+use cubecl_common::device::Device;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
@@ -18,16 +19,18 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CommunicationTiming, ComputeWait, CopyDescriptor, Handle, KernelArguments,
+        KernelResource, PeerAccess, PeerBinding, ProfileError, ProfilingToken, Reduction,
+        SendOutcome, SendReport, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_hip_sys::hipStream_t;
-use cubecl_server::command::{CollectiveServer, Collectives, Refused};
+use cubecl_server::command::{CollectiveServer, Collectives, PeerLaunch, Refused};
 use cubecl_server::compiler::ArtifactId;
+use cubecl_server::device::AmdDevice;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -37,18 +40,28 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ComputeStorage, ManagedResource},
-    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
+    storage::{ManagedResource, StorageAllocator},
+    stream::{
+        ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
+        failed_writing,
+    },
 };
+use std::collections::HashSet;
 use std::sync::Arc;
+
+use crate::compute::status::checked;
 
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
     device_id: DeviceId,
+    /// The devices whose memory kernels here can address: peer access is
+    /// enabled once per pair, the first time a kernel binds that device's
+    /// memory.
+    peers: HashSet<DeviceId>,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities>,
-    collectives: Collectives<Hip>,
+    collectives: Collectives<Hip, crate::compute::events::Hip>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
 }
@@ -83,16 +96,19 @@ impl Server for HipServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // Taken before the handle moves into the pool, for a failure to land on: a binding,
+        // which no `can_mut` counts, rather than a clone of the handle.
+        let binding = memory.to_binding();
         let result = match self.command_no_inputs(stream_id) {
             Ok(mut command) => command
-                .initialize_memory(memory.clone(), size)
+                .initialize_memory(memory, size)
                 .map_err(ServerError::from),
             Err(error) => Err(error),
         };
         // No stream to allocate on, or no memory to allocate: the buffer carries the
         // error instead.
         if let Err(error) = &result {
-            self.streams.fail_unallocated(&memory, error.clone());
+            self.streams.fail_unallocated(&binding, error.clone());
         }
         result
     }
@@ -164,11 +180,30 @@ impl Server for HipServer {
         // that touches a buffer: resolving resources, uploading metadata or
         // reading a dynamic cube count would materialize memory the run
         // exists to leave unmapped.
+        // A planning run's launch builds what the launch path allocates — its
+        // metadata buffer, the staging that uploads it — and stops before the
+        // dispatch, so the recorded run allocates none of it.
+        if launch_mode == LaunchMode::Resolve {
+            // A failure here is the recorded run's to report: it repeats this
+            // launch and needs what failed to build.
+            let _ = self.launch_checked(
+                id.kernel,
+                &loaded,
+                (1, 1, 1),
+                bindings,
+                stream_id,
+                launch_mode,
+            );
+            return;
+        }
         if launch_mode.discards_launch() {
             return;
         }
         let kernel_id = id.kernel;
         let io = loaded.io.as_deref();
+        // What the launch does with memory of other devices, settled with
+        // their owners however the launch ends.
+        let peers = PeerLaunch::new(&bindings, io);
 
         // The count resolves before the scope opens, because entering the
         // scope replaces whatever claim the outputs carry — and a count that
@@ -183,6 +218,7 @@ impl Server for HipServer {
                 // count buffer travels to everything downstream of it.
                 let mut written = self.write_set();
                 written.extend(bindings.buffers_written(io).cloned());
+                peers.failed(&err);
                 failed_writing(self, stream_id, written, err);
                 return;
             }
@@ -201,14 +237,27 @@ impl Server for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io).cloned());
-        ExecuteScope::launching(
+        // A peer input that carries a failure stops the launch as a failed
+        // input of this device would: nothing runs on its stale bytes.
+        if let Some(error) = peers.input_failure() {
+            peers.failed(&error);
+            failed_writing(self, stream_id, written, error);
+            return;
+        }
+        let outcome = ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
             bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+        .execute(|server| {
+            server.launch_checked(kernel_id, &loaded, count, bindings, stream_id, launch_mode)
+        });
+        match outcome {
+            ScopedOutcome::Executed(()) => peers.enqueued(),
+            ScopedOutcome::Failed(error) | ScopedOutcome::Skipped(error) => peers.failed(&error),
+        }
     }
 
     fn check(
@@ -236,6 +285,21 @@ impl Server for HipServer {
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn graph_prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).prepare_retry(stream_id)
+    }
+
+    fn graph_end_run(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).end_run(stream_id)
+    }
+
+    fn graph_start_run(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).start_run(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -451,14 +515,19 @@ impl ServerCommunication for HipServer {
         CollectiveServer::sync_collective(self, stream_id)
     }
 
+    fn time_next_communication(&mut self, timing: CommunicationTiming) {
+        CollectiveServer::time_next_communication(self, timing)
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
     fn send(
         &mut self,
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        report: SendReport,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -467,20 +536,89 @@ impl ServerCommunication for HipServer {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        outcome: SendOutcome,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src)
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, outcome)
+    }
+
+    fn peer_access(&mut self, peer: DeviceId) -> PeerAccess {
+        let own = AmdDevice::from_id(self.device_id).index as i32;
+        let other = AmdDevice::from_id(peer).index as i32;
+        let attribute = |attribute| {
+            let mut value = 0;
+            // SAFETY: `value` is a valid stack variable HIP writes through.
+            let status = unsafe {
+                cubecl_hip_sys::hipDeviceGetP2PAttribute(&mut value, attribute, own, other)
+            };
+            checked("hipDeviceGetP2PAttribute", status).is_ok() && value != 0
+        };
+        if !attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrAccessSupported) {
+            PeerAccess::None
+        } else if attribute(cubecl_hip_sys::hipDeviceP2PAttr_hipDevP2PAttrNativeAtomicSupported) {
+            PeerAccess::MemoryAndAtomics
+        } else {
+            PeerAccess::Memory
+        }
+    }
+
+    fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
+        // The same claim check a read makes: a peer reads these bytes with
+        // nothing ordering it behind a failed write here.
+        let stream = binding.stream;
+        Ok(self.get_resource(binding, stream)?.resource().ptr as u64)
+    }
+
+    fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {
+        let Some(stream) = written.first().map(|binding| binding.stream) else {
+            return;
+        };
+        match error {
+            Some(error) => failed_writing(self, stream, written, error),
+            None => self.streams.written(written.iter()),
+        }
+    }
+}
+
+impl HipServer {
+    /// Let kernels on this device address the memory of `peer`, once.
+    ///
+    /// HIP maps every allocation of the peer, present and future, into this
+    /// device's address space, so the address the peer resolved is the one a
+    /// kernel here dereferences.
+    fn enable_peer(&mut self, peer: DeviceId) -> Result<(), ServerError> {
+        if self.peers.contains(&peer) {
+            return Ok(());
+        }
+        let own = AmdDevice::from_id(self.device_id).index as i32;
+        let index = AmdDevice::from_id(peer).index as i32;
+        // SAFETY: access is granted to the current device, so this one is made
+        // current first rather than trusting whatever the thread last set.
+        let status = unsafe {
+            checked("hipSetDevice", cubecl_hip_sys::hipSetDevice(own))?;
+            cubecl_hip_sys::hipDeviceEnablePeerAccess(index, 0)
+        };
+        if status != cubecl_hip_sys::hipError_t_hipErrorPeerAccessAlreadyEnabled {
+            checked("hipDeviceEnablePeerAccess", status)?;
+        }
+        self.peers.insert(peer);
+        Ok(())
     }
 }
 
 impl CollectiveServer for HipServer {
     type Driver = Hip;
+    type Events = crate::compute::events::Hip;
 
     fn device_id(&self) -> DeviceId {
         self.device_id
     }
 
-    fn collectives(&mut self) -> &mut Collectives<Hip> {
+    fn collectives(&mut self) -> &mut Collectives<Hip, crate::compute::events::Hip> {
         &mut self.collectives
+    }
+
+    fn profiler(&mut self) -> &mut crate::compute::events::EventProfiler {
+        &mut self.ctx.profiler
     }
 
     fn streams(&mut self) -> &mut MultiStream<HipStreamBackend> {
@@ -532,30 +670,29 @@ impl HipServer {
         ctx: HipContext,
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
-        mem_alignment: usize,
         is_integrated: bool,
         utilities: ServerUtilities,
         captures: DeviceCaptures,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let device_id = utilities.service.device;
 
         Self {
             ctx,
             device_id,
+            peers: HashSet::new(),
             streams: MultiStream::new(
                 utilities.logger.clone(),
                 HipStreamBackend::new(
                     mem_props,
                     mem_config,
-                    mem_alignment,
                     is_integrated,
                     utilities.logger.clone(),
                     captures,
                 ),
-                max_streams,
+                max_stream_count,
             ),
             utilities: Arc::new(utilities),
             collectives: Collectives::new(device_id),
@@ -611,7 +748,9 @@ impl HipServer {
             // shares them, an autotune sweep above all.
             let mut written = self.write_set();
             written.extend(bindings.buffers_written(None).cloned());
-            failed_writing(self, stream_id, written, ServerError::Launch(err));
+            let err = ServerError::Launch(err);
+            PeerLaunch::new(bindings, None).failed(&err);
+            failed_writing(self, stream_id, written, err);
         } else {
             self.profile_failure(&ServerError::Launch(err));
         }
@@ -707,7 +846,21 @@ impl HipServer {
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
+        // Arguments refused while they were registered never run: the scope
+        // leaves the outputs carrying why.
+        bindings.check_arguments()?;
+        for peer in bindings.peers() {
+            self.enable_peer(peer.binding().service.device)?;
+        }
+        // The kernel argument a peer buffer is passed through: HIP copies the
+        // arguments when the launch is enqueued, so these only have to
+        // outlive the call.
+        let peer_addresses: Vec<u64> = bindings.peers().map(PeerBinding::address).collect();
+        let mut peer_slots = peer_addresses.iter();
+        let mut peers = Vec::with_capacity(peer_addresses.len());
+
         let mut command = self.command(stream_id, bindings.buffers())?;
 
         let KernelArguments {
@@ -724,12 +877,26 @@ impl HipServer {
             .map(|res| match res {
                 KernelResource::Buffer(b) => command.resource(b),
                 KernelResource::TensorMap(_) => panic!("Can't use tensor maps on HIP"),
+                KernelResource::Peer(peer) => {
+                    let slot = peer_slots.next().expect("one slot per peer binding");
+                    let resource = GpuResource::new(
+                        *slot as cubecl_hip_sys::hipDeviceptr_t,
+                        std::ptr::from_ref(slot) as *mut std::ffi::c_void,
+                        peer.size(),
+                    );
+                    peers.push(peer);
+                    Ok(resource)
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         resources.push(command.resource(info_handle.binding())?);
+        if launch_mode == LaunchMode::Resolve {
+            return Ok(());
+        }
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
+        command.hold_peers(peers);
 
         Ok(())
     }
@@ -755,7 +922,7 @@ fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, Ser
     match stream.info_cache.lookup(mode, &words) {
         Lookup::Hit(handle) => Ok(handle),
         Lookup::Build { store } => {
-            let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
+            let handle = command.create_metadata(bytemuck::cast_slice(&words))?;
             if store {
                 command.stream().info_cache.store(words, handle.clone());
             }

@@ -37,8 +37,11 @@ impl AutotuneLogContext {
     /// are enabled. Decisions are independent of the logger, so they are still populated when the
     /// logger is disabled.
     pub fn new(logger: &mut Logger) -> Option<Self> {
-        let logging = !matches!(logger.log_level_autotune(), AutotuneLogLevel::Disabled);
-        if logging || logger.autotune_decisions_enabled() {
+        let logging = !matches!(
+            logger.config().autotune.logger.level,
+            AutotuneLogLevel::Disabled
+        );
+        if logging || logger.config().autotune.decisions_enabled() {
             Some(Self {
                 bounds: None,
                 limit: None,
@@ -174,8 +177,8 @@ fn log_result<K: AutotuneKey>(
     results: &[AutotuneResult],
     log_context: Option<&AutotuneLogContext>,
 ) {
-    let level = logger.log_level_autotune();
-    let decisions = logger.autotune_decisions_enabled();
+    let level = logger.config().autotune.logger.level;
+    let decisions = logger.config().autotune.decisions_enabled();
     if matches!(level, AutotuneLogLevel::Disabled) && !decisions {
         return;
     }

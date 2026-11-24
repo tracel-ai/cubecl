@@ -6,11 +6,11 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Axis, Space, StoragePartitioning, TileMisfit};
+use crate::{Dimension, Space, StoragePartitioning, TileMisfit};
 
 use crate::Coords;
 
-/// One operand's physical `(extent, stride)` per dim, in scalars, and its storage tiling.
+/// One operand's physical `(extent, stride)` per axis, in scalars, and its storage tiling.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Geometry {
     shape: Vec<usize>,
@@ -19,11 +19,11 @@ pub struct Geometry {
 }
 
 impl Geometry {
-    /// One `(extent, stride)` per physical dim, coarsest first, both in scalars.
-    pub fn new(dims: &[(usize, usize)]) -> Self {
+    /// One `(extent, stride)` per physical axis, coarsest first, both in scalars.
+    pub fn new(axes: &[(usize, usize)]) -> Self {
         Self {
-            shape: dims.iter().map(|&(extent, _)| extent).collect(),
-            strides: dims.iter().map(|&(_, stride)| stride).collect(),
+            shape: axes.iter().map(|&(extent, _)| extent).collect(),
+            strides: axes.iter().map(|&(_, stride)| stride).collect(),
             tiling: Tiling::UNTILED,
         }
     }
@@ -32,8 +32,8 @@ impl Geometry {
     /// is counted in.
     pub fn row_major(shape: &[usize]) -> Self {
         let mut strides = vec![1; shape.len()];
-        for dim in (0..shape.len().saturating_sub(1)).rev() {
-            strides[dim] = strides[dim + 1] * shape[dim + 1];
+        for axis in (0..shape.len().saturating_sub(1)).rev() {
+            strides[axis] = strides[axis + 1] * shape[axis + 1];
         }
         Self {
             shape: shape.to_vec(),
@@ -42,46 +42,61 @@ impl Geometry {
         }
     }
 
-    /// This geometry with its dims stated as pieces of logical dims, as `tiling` says.
+    /// Elements from the first it addresses to past its last: its extents' product where its axes
+    /// lie back to back, more where a stride pads one apart; zero for a buffer of no element.
+    pub fn span(&self) -> usize {
+        if self.shape.contains(&0) {
+            return 0;
+        }
+        self.shape
+            .iter()
+            .zip(&self.strides)
+            .map(|(extent, stride)| (extent - 1) * stride)
+            .sum::<usize>()
+            + 1
+    }
+
+    /// This geometry with its axes stated as pieces of logical axes, as `tiling` says.
     pub(crate) fn with_tiling(mut self, tiling: Tiling) -> Self {
         self.tiling = tiling;
         self
     }
 
-    /// Which dims are pieces of one logical dim: untiled unless the binding said otherwise.
+    /// Which axes are pieces of one logical axis: untiled unless the binding said otherwise.
     pub fn tiling(&self) -> Tiling {
         self.tiling
     }
 
-    /// Its trailing dims, coarsest first, each named by the axis it is a piece of: `axes` name the
-    /// trailing logical dims in the tensor's order, each once per piece its tiling stores it as, in
-    /// [`StoragePartitioning::labels`]' order. The dims ahead of them are batch dims, one each.
+    /// Its trailing axes, coarsest first, each named by the dimension it is a piece of:
+    /// `dimensions` name the trailing logical axes in the tensor's order, each once per piece its
+    /// tiling stores it as, in [`StoragePartitioning::labels`]' order. The axes ahead of them are
+    /// batch axes, one each.
     ///
     /// # Panics
     ///
-    /// When the tiling does not fit the rank, when the buffer stands for fewer logical dims than
-    /// `axes` name, or when it tiles a batch dim, which is stored one dim.
-    pub fn labels(&self, axes: &[Axis]) -> Vec<Axis> {
+    /// When the tiling does not fit the rank, when the buffer stands for fewer logical axes than
+    /// `dimensions` name, or when it tiles a batch axis, which is stored one axis.
+    pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
         if !self.tiling.is_tiled() {
-            return axes.to_vec();
+            return dimensions.to_vec();
         }
         let logical_rank = self
             .tiling
             .logical_rank(self.rank())
             .unwrap_or_else(|e| panic!("Geometry::labels: {e:?}"));
         assert!(
-            logical_rank >= axes.len(),
-            "Geometry::labels: the buffer stands for {logical_rank} dims but {} axes name them",
-            axes.len()
+            logical_rank >= dimensions.len(),
+            "Geometry::labels: the buffer stands for {logical_rank} axes but {} dimensions name them",
+            dimensions.len()
         );
         let fragments = self.tiling.fragments(logical_rank);
-        let (batches, block) = fragments.split_at(logical_rank - axes.len());
+        let (batches, block) = fragments.split_at(logical_rank - dimensions.len());
         assert!(
             batches.iter().all(|&n| n == 1),
-            "Geometry::labels: batch dims are stored one dim each, so {batches:?} pieces over \
+            "Geometry::labels: batch axes are stored one axis each, so {batches:?} pieces over \
              them cannot be named"
         );
-        StoragePartitioning::level_major(axes, block)
+        StoragePartitioning::level_major(dimensions, block)
     }
 
     /// The extents, coarsest first.
@@ -94,58 +109,62 @@ impl Geometry {
         &self.strides
     }
 
-    /// How many physical dims the operand has.
+    /// How many physical axes the operand has.
     pub fn rank(&self) -> usize {
         self.shape.len()
     }
 
-    /// This geometry with its trailing `labels.len()` dims and labels reordered by stride, coarsest
-    /// first; leading (batch) dims stay put.
-    pub fn in_stride_order(&self, labels: &[Axis]) -> (Geometry, Vec<Axis>) {
-        let batch_dims = self.rank() - labels.len();
+    /// This geometry with its trailing `labels.len()` axes and labels reordered by stride, coarsest
+    /// first; leading (batch) axes stay put.
+    pub fn in_stride_order(&self, labels: &[Dimension]) -> (Geometry, Vec<Dimension>) {
+        let batch_axes = self.rank() - labels.len();
         let mut trailing: Vec<(usize, (usize, usize))> =
-            self.dims().enumerate().skip(batch_dims).collect();
-        trailing.sort_by_key(|&(_, dim)| stride_order(dim));
-        let dims: Vec<(usize, usize)> = self
-            .dims()
-            .take(batch_dims)
-            .chain(trailing.iter().map(|&(_, dim)| dim))
+            self.axes().enumerate().skip(batch_axes).collect();
+        trailing.sort_by_key(|&(_, axis)| stride_order(axis));
+        let axes: Vec<(usize, usize)> = self
+            .axes()
+            .take(batch_axes)
+            .chain(trailing.iter().map(|&(_, axis)| axis))
             .collect();
         let ordered = trailing
             .iter()
-            .map(|&(dim, _)| labels[dim - batch_dims])
+            .map(|&(axis, _)| labels[axis - batch_axes])
             .collect();
-        (Geometry::new(&dims), ordered)
+        (Geometry::new(&axes), ordered)
     }
 
-    pub fn dims(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+    pub fn axes(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         self.shape.iter().copied().zip(self.strides.iter().copied())
     }
 
-    /// Whether this buffer can be read a `tile` at a time, `tile` finest first over the axes
-    /// `labels` name, right-aligned to the dims.
-    pub fn serves(&self, tile: &[(Axis, usize)], labels: &[Axis]) -> Result<(), LineMisfit> {
+    /// Whether this buffer can be read a `tile` at a time, `tile` finest first over the dimensions
+    /// `labels` name, right-aligned to the axes.
+    pub fn serves(
+        &self,
+        tile: &[(Dimension, usize)],
+        labels: &[Dimension],
+    ) -> Result<(), LineMisfit> {
         let values: usize = tile.iter().map(|&(_, count)| count).product();
         if values == 1 {
             return Ok(());
         }
         if self.rank() == 0 {
-            return Err(LineMisfit::NoDims);
+            return Err(LineMisfit::NoAxes);
         }
         let storage = StoragePartitioning::new(self, labels).ok_or(LineMisfit::NotPartitioned)?;
         storage
             .holds(tile, &self.extents(labels))
             .map_err(LineMisfit::Tile)?;
-        // The run, from the finest dim up: each dim it takes steps by what it has taken so far.
+        // The run, from the finest axis up: each axis it takes steps by what it has taken so far.
         let mut by_stride: SmallVec<[(usize, (usize, usize)); 8]> = self
-            .dims()
+            .axes()
             .enumerate()
             .filter(|&(_, (extent, stride))| extent > 1 && stride > 0)
             .collect();
-        by_stride.sort_by_key(|&(dim, (_, stride))| (stride, core::cmp::Reverse(dim)));
+        by_stride.sort_by_key(|&(axis, (_, stride))| (stride, core::cmp::Reverse(axis)));
         let mut inside: SmallVec<[usize; 8]> = SmallVec::new();
         let mut run = 1;
-        for &(dim, (extent, stride)) in &by_stride {
+        for &(axis, (extent, stride)) in &by_stride {
             if run >= values {
                 break;
             }
@@ -155,62 +174,75 @@ impl Geometry {
                     _ => LineMisfit::Gap(stride),
                 });
             }
-            inside.push(dim);
+            inside.push(axis);
             run *= extent;
         }
-        // A dim of one element steps nowhere, so its stride lands no value inside a line.
-        match self.dims().enumerate().find(|&(dim, (extent, stride))| {
-            extent > 1 && !inside.contains(&dim) && !stride.is_multiple_of(values)
+        // An axis of one element steps nowhere, so its stride lands no value inside a line.
+        match self.axes().enumerate().find(|&(axis, (extent, stride))| {
+            extent > 1 && !inside.contains(&axis) && !stride.is_multiple_of(values)
         }) {
             Some((_, (_, stride))) => Err(LineMisfit::StrideInsideLine(stride)),
             None => Ok(()),
         }
     }
 
-    /// Each labelled axis's extent: the product of the dims it labels.
-    pub(crate) fn extents(&self, labels: &[Axis]) -> Vec<(Axis, usize)> {
+    /// Each labelled dimension's extent: the product of the axes it labels.
+    pub(crate) fn extents(&self, labels: &[Dimension]) -> Vec<(Dimension, usize)> {
         let unlabelled = self.rank().saturating_sub(labels.len());
-        let mut extents: Vec<(Axis, usize)> = Vec::new();
-        for (dim, extent) in self.shape.iter().copied().enumerate().skip(unlabelled) {
-            let axis = labels[dim - unlabelled];
-            match extents.iter_mut().find(|(a, _)| *a == axis) {
+        let mut extents: Vec<(Dimension, usize)> = Vec::new();
+        for (axis, extent) in self.shape.iter().copied().enumerate().skip(unlabelled) {
+            let dimension = labels[axis - unlabelled];
+            match extents.iter_mut().find(|(a, _)| *a == dimension) {
                 Some((_, product)) => *product *= extent,
-                None => extents.push((axis, extent)),
+                None => extents.push((dimension, extent)),
             }
         }
         extents
     }
 
-    /// The dims with extent above one and non-zero stride, as `(index, (extent, stride))`,
+    /// Elements that lie back to back from the first: the axes taken finest stride first, each
+    /// while it steps by what the finer ones hold. A stride padded past that run ends it.
+    pub(crate) fn dense_run(&self) -> usize {
+        let mut run = 1;
+        for (_, (extent, stride)) in self.addressing_axes_by_stride().into_iter().rev() {
+            if stride != run {
+                break;
+            }
+            run *= extent;
+        }
+        run
+    }
+
+    /// The axes with extent above one and non-zero stride, as `(index, (extent, stride))`,
     /// coarsest stride first.
-    pub(crate) fn addressing_dims_by_stride(
+    pub(crate) fn addressing_axes_by_stride(
         &self,
     ) -> SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> {
-        let mut dims: SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> = self
-            .dims()
+        let mut axes: SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> = self
+            .axes()
             .enumerate()
             .filter(|&(_, (extent, stride))| extent > 1 && stride > 0)
             .collect();
-        dims.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
-        dims
+        axes.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
+        axes
     }
 }
 
 /// Why a [`Geometry`] cannot be read a tile at a time ([`Geometry::serves`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineMisfit {
-    /// The finest dim's own stride, when it is not 1: consecutive values are not one run.
+    /// The finest axis's own stride, when it is not 1: consecutive values are not one run.
     InnermostStrided(usize),
-    /// A dim inside the tile that does not step by what is finer than it: a gap in the run.
+    /// An axis inside the tile that does not step by what is finer than it: a gap in the run.
     Gap(usize),
     /// The storage partitioning does not hold the tile: see [`TileMisfit`].
     Tile(TileMisfit),
     /// A stride outside the tile that is not a whole number of tiles.
     StrideInsideLine(usize),
-    /// The buffer's order is no partitioning: a stated piece coarser than the rest of an axis.
+    /// The buffer's order is no partitioning: a stated piece coarser than the rest of a dimension.
     NotPartitioned,
-    /// No dims at all, so only a single value fits.
-    NoDims,
+    /// No axes at all, so only a single value fits.
+    NoAxes,
 }
 
 impl Display for LineMisfit {
@@ -218,12 +250,12 @@ impl Display for LineMisfit {
         match self {
             Self::InnermostStrided(stride) => write!(
                 f,
-                "its finest dim steps by {stride} rather than 1, so consecutive values are not \
+                "its finest axis steps by {stride} rather than 1, so consecutive values are not \
                  one run"
             ),
             Self::Gap(stride) => write!(
                 f,
-                "a dim inside the tile steps by {stride}, leaving a gap in its run"
+                "an axis inside the tile steps by {stride}, leaving a gap in its run"
             ),
             Self::Tile(why) => write!(f, "its storage does not hold the tile: {why}"),
             Self::StrideInsideLine(stride) => write!(
@@ -233,10 +265,10 @@ impl Display for LineMisfit {
             ),
             Self::NotPartitioned => write!(
                 f,
-                "a stated piece sits coarser than the rest of an axis, so its order is no \
+                "a stated piece sits coarser than the rest of a dimension, so its order is no \
                  partitioning"
             ),
-            Self::NoDims => write!(f, "it has no dims, so only a single value fits"),
+            Self::NoAxes => write!(f, "it has no axes, so only a single value fits"),
         }
     }
 }
@@ -261,7 +293,7 @@ pub struct RuntimeGeometry {
 
 #[cube]
 impl RuntimeGeometry {
-    /// An empty geometry, grown a dim at a time by `push`.
+    /// An empty geometry, grown an axis at a time by `push`.
     // A cube constructor: `Default` has no kernel expansion.
     #[allow(clippy::new_without_default)]
     pub fn new() -> RuntimeGeometry {
@@ -271,7 +303,7 @@ impl RuntimeGeometry {
         }
     }
 
-    /// The geometry a launched tensor carries, over its first `rank` dims.
+    /// The geometry a launched tensor carries, over its first `rank` axes.
     pub fn of_tensor<E: CubePrimitive>(
         tensor: &Tensor<E>,
         #[comptime] rank: usize,
@@ -284,17 +316,17 @@ impl RuntimeGeometry {
         geometry
     }
 
-    /// One physical dim, coarsest first: how far it runs, and the scalar stride that steps it.
+    /// One physical axis, coarsest first: how far it runs, and the scalar stride that steps it.
     pub fn push(&mut self, extent: u32, stride: u32) {
         self.shape.push(extent);
         self.strides.push(stride);
     }
 }
 
-/// Where a dim of `(extent, stride)` sorts among a buffer's dims in stride order: by stride,
-/// coarsest first, and on a tie a dim of one element before the others. It steps nowhere, so its
+/// Where an axis of `(extent, stride)` sorts among a buffer's axes in stride order: by stride,
+/// coarsest first, and on a tie an axis of one element before the others. It steps nowhere, so its
 /// stride places it nowhere: a column `[k, 1]` at strides `[1, 1]` runs along `k`, and its lines
-/// run along `k` too, not along the dim one element long.
+/// run along `k` too, not along the axis one element long.
 pub(crate) fn stride_order((extent, stride): (usize, usize)) -> (core::cmp::Reverse<usize>, bool) {
     (core::cmp::Reverse(stride), extent != 1)
 }
@@ -304,33 +336,42 @@ mod tests {
     use super::*;
     use crate::StorageLevels;
 
-    const M: Axis = Axis(0);
-    const N: Axis = Axis(1);
-    const K: Axis = Axis(2);
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+
+    /// A geometry's span is the elements its strides reach, padding included, and zero when it
+    /// holds none.
+    #[test]
+    fn a_span_reaches_past_the_last_element_its_strides_address() {
+        assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
+        assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
+        assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
+    }
 
     #[test]
-    fn stride_order_reorders_the_dims_and_their_labels() {
+    fn stride_order_reorders_the_axes_and_their_labels() {
         // `[n, k]` behind a `[k, n]` view: `k` strides by one.
-        let (dims, labels) = Geometry::new(&[(4096, 1), (6144, 4096)]).in_stride_order(&[K, N]);
+        let (axes, labels) = Geometry::new(&[(4096, 1), (6144, 4096)]).in_stride_order(&[K, N]);
         assert_eq!(labels, vec![N, K]);
-        assert_eq!(dims, Geometry::new(&[(6144, 4096), (4096, 1)]));
+        assert_eq!(axes, Geometry::new(&[(6144, 4096), (4096, 1)]));
 
         // Already in order: nothing moves.
-        let (dims, labels) = Geometry::new(&[(4096, 6144), (6144, 1)]).in_stride_order(&[K, N]);
+        let (axes, labels) = Geometry::new(&[(4096, 6144), (6144, 1)]).in_stride_order(&[K, N]);
         assert_eq!(labels, vec![K, N]);
-        assert_eq!(dims, Geometry::new(&[(4096, 6144), (6144, 1)]));
+        assert_eq!(axes, Geometry::new(&[(4096, 6144), (6144, 1)]));
 
-        // A broadcast batch dim strides by zero and stays first all the same.
-        let (dims, labels) =
+        // A broadcast batch axis strides by zero and stays first all the same.
+        let (axes, labels) =
             Geometry::new(&[(8, 0), (4096, 1), (6144, 4096)]).in_stride_order(&[K, N]);
         assert_eq!(labels, vec![N, K]);
-        assert_eq!(dims, Geometry::new(&[(8, 0), (6144, 4096), (4096, 1)]));
+        assert_eq!(axes, Geometry::new(&[(8, 0), (6144, 4096), (4096, 1)]));
     }
 
     /// On untiled buffers, `serves` agrees with the one-axis line rule ([`line_rule_serves`]).
     #[test]
     fn a_line_is_served_where_the_line_rule_served_it() {
-        let geometries: Vec<(Geometry, Vec<Axis>)> = vec![
+        let geometries: Vec<(Geometry, Vec<Dimension>)> = vec![
             (Geometry::new(&[(64, 128), (128, 1)]), vec![M, N]),
             (Geometry::new(&[(64, 136), (128, 1)]), vec![M, N]),
             (Geometry::new(&[(64, 130), (130, 1)]), vec![M, N]),
@@ -371,8 +412,8 @@ mod tests {
         assert!(geometry.serves(&[(N, 8)], &labels).is_err());
     }
 
-    /// The one-axis line rule: a line of `width` is served where the innermost dim is contiguous
-    /// and its extent and every outer stride are multiples of `width`; an outer dim of one
+    /// The one-axis line rule: a line of `width` is served where the innermost axis is contiguous
+    /// and its extent and every outer stride are multiples of `width`; an outer axis of one
     /// element steps nowhere, so its stride counts for nothing.
     fn line_rule_serves(geometry: &Geometry, width: usize) -> bool {
         if width == 1 {

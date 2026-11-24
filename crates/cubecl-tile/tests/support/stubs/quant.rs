@@ -8,11 +8,11 @@ pub fn quantize(
     values: &[f32],
     shape: &[usize],
     scales: &[f32],
-    block_dims: &[usize],
+    block_axes: &[usize],
     scheme: &QuantScheme,
 ) -> Vec<u8> {
-    let scales_shape = scales_grid(shape, block_dims);
-    let quantized = quantized_values(values, shape, scales, block_dims, &scales_shape, scheme);
+    let scales_shape = scales_grid(shape, block_axes);
+    let quantized = quantized_values(values, shape, scales, block_axes, &scales_shape, scheme);
 
     match scheme.store {
         QuantStore::Native => encode_native(&quantized, scheme.value),
@@ -25,10 +25,10 @@ pub fn dequantize(
     bytes: &[u8],
     shape: &[usize],
     scales: &[f32],
-    block_dims: &[usize],
+    block_axes: &[usize],
     scheme: &QuantScheme,
 ) -> Vec<f32> {
-    let scales_shape = scales_grid(shape, block_dims);
+    let scales_shape = scales_grid(shape, block_axes);
 
     let quants = match scheme.store {
         QuantStore::Native => decode_native(bytes, scheme.value),
@@ -36,14 +36,14 @@ pub fn dequantize(
         other => panic!("dequantize stub: unsupported store {other:?}"),
     };
 
-    dequantized_values(&quants, scales, shape, block_dims, &scales_shape, scheme)
+    dequantized_values(&quants, scales, shape, block_axes, &scales_shape, scheme)
 }
 
 fn quantized_values(
     values: &[f32],
     shape: &[usize],
     scales: &[f32],
-    block_dims: &[usize],
+    block_axes: &[usize],
     scales_shape: &[usize],
     scheme: &QuantScheme,
 ) -> Vec<f32> {
@@ -54,7 +54,7 @@ fn quantized_values(
             .iter()
             .enumerate()
             .map(|(i, &v)| {
-                let scale = scales[scale_index(i, shape, block_dims, scales_shape)];
+                let scale = scales[scale_index(i, shape, block_axes, scales_shape)];
                 let scaled = v / scale;
                 let snapped = if rounds_to_integers(scheme.value) {
                     scaled.round()
@@ -64,8 +64,8 @@ fn quantized_values(
                 snapped.clamp(range_min, range_max)
             })
             .collect(),
-        // A lookup field is a table index, not a rounded value; these stubs carry no table, so
-        // a lookup test states its indices exactly ([`pack_q_values`]) and multiplies the table into
+        // A lookup field is a table index, not a rounded value; these stubs carry no table, so a
+        // lookup test states its indices exactly ([`pack_q_values`]) and multiplies the table into
         // its own host reference.
         QuantMode::Lookup => panic!("quantize stub: lookup takes exact indices via pack_q_values"),
     }
@@ -94,7 +94,7 @@ fn dequantized_values(
     quantized: &[f32],
     scales: &[f32],
     shape: &[usize],
-    block_dims: &[usize],
+    block_axes: &[usize],
     scales_shape: &[usize],
     scheme: &QuantScheme,
 ) -> Vec<f32> {
@@ -102,7 +102,7 @@ fn dequantized_values(
         QuantMode::Symmetric => quantized
             .iter()
             .enumerate()
-            .map(|(i, &q)| q * scales[scale_index(i, shape, block_dims, scales_shape)])
+            .map(|(i, &q)| q * scales[scale_index(i, shape, block_axes, scales_shape)])
             .collect(),
         QuantMode::Lookup => panic!(
             "dequantize stub: lookup carries no table here; fold table[index] * scale into the \
@@ -265,7 +265,7 @@ pub(crate) fn assert_supported(scheme: &QuantScheme) {
 /// The scheme's per-axis block edges over `shape`: the number of elements each scale covers
 /// along each axis. A scheme with no block level has one scale for the whole tensor, so its
 /// block spans everything.
-pub(crate) fn block_dims(scheme: &QuantScheme, shape: &[usize]) -> Vec<usize> {
+pub(crate) fn block_axes(scheme: &QuantScheme, shape: &[usize]) -> Vec<usize> {
     assert_supported(scheme);
 
     match scheme.block_size() {
@@ -278,22 +278,22 @@ pub(crate) fn block_dims(scheme: &QuantScheme, shape: &[usize]) -> Vec<usize> {
     }
 }
 
-/// The block scale grid: each axis divided by its block extent, so one entry per block.
-pub fn scales_grid(shape: &[usize], block_dims: &[usize]) -> Vec<usize> {
+/// The block scale grid: each dimension divided by its block extent, so one entry per block.
+pub fn scales_grid(shape: &[usize], block_axes: &[usize]) -> Vec<usize> {
     assert_eq!(
         shape.len(),
-        block_dims.len(),
-        "shape/block_dims rank mismatch"
+        block_axes.len(),
+        "shape/block_axes rank mismatch"
     );
     shape
         .iter()
-        .zip(block_dims)
-        .map(|(&dim, &block)| {
+        .zip(block_axes)
+        .map(|(&axis, &block)| {
             assert!(
-                block > 0 && dim.is_multiple_of(block),
-                "axis of {dim} elements does not divide into {block}-element blocks"
+                block > 0 && axis.is_multiple_of(block),
+                "dimension of {axis} elements does not divide into {block}-element blocks"
             );
-            dim / block
+            axis / block
         })
         .collect()
 }
@@ -303,7 +303,7 @@ pub fn scales_grid(shape: &[usize], block_dims: &[usize]) -> Vec<usize> {
 fn scale_index(
     linear: usize,
     shape: &[usize],
-    block_dims: &[usize],
+    block_axes: &[usize],
     scales_shape: &[usize],
 ) -> usize {
     let rank = shape.len();
@@ -316,7 +316,7 @@ fn scale_index(
 
     let mut block_linear = 0;
     for d in 0..rank {
-        block_linear = block_linear * scales_shape[d] + coord[d] / block_dims[d];
+        block_linear = block_linear * scales_shape[d] + coord[d] / block_axes[d];
     }
     block_linear
 }
@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn block_level_uses_per_block_scale() {
-        // Two blocks of 4 along the last dim, each with its own scale.
+        // Two blocks of 4 along the last axis, each with its own scale.
         let s = scheme(QuantValue::Q8S, QuantStore::Native).per_block([4u8], ScaleDtype::F32);
         let values = vec![
             0.1, 0.2, 0.3, 0.4, // block 0

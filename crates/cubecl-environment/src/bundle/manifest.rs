@@ -1,6 +1,8 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::environment::BuildStamp;
+
 /// The `meta` key the manifest is stored under.
 #[cfg(native_cache)]
 pub(super) const MANIFEST_KEY: &str = "manifest";
@@ -52,7 +54,7 @@ impl core::fmt::Display for BundleError {
                 write!(
                     f,
                     "unsupported bundle database schema {schema} (this build reads {})",
-                    crate::persistence::turso::SCHEMA_VERSION
+                    crate::persistence::database::SCHEMA_VERSION
                 )
             }
             BundleError::TooLarge => write!(
@@ -82,6 +84,13 @@ impl From<std::io::Error> for BundleError {
     }
 }
 
+#[cfg(native_cache)]
+impl From<crate::persistence::sql::SqlError> for BundleError {
+    fn from(err: crate::persistence::sql::SqlError) -> Self {
+        Self::Storage(err.to_string())
+    }
+}
+
 /// The manifest of an environment bundle, stored as a row of the bundle
 /// database in [`BundleFormat::Sqlite`](super::BundleFormat::Sqlite) and as the
 /// metadata blob in [`BundleFormat::Flat`](super::BundleFormat::Flat).
@@ -100,6 +109,36 @@ pub struct BundleManifest {
     /// The environments the bundle was captured on, informational in v1.
     #[serde(default, rename = "environments")]
     pub environments: Vec<EnvironmentInfo>,
+    /// The executable that exported the bundle, which tells a reader whether
+    /// its own build saved it; `None` when the manifest names none.
+    ///
+    /// Written as the stamp's 32 hexadecimal digits: the manifest is JSON a
+    /// person or a tool outside Rust reads, and a 128-bit integer loses
+    /// digits in a JSON reader that parses numbers as doubles.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "hex_stamp")]
+    pub saved_by: Option<BuildStamp>,
+}
+
+/// [`BundleManifest::saved_by`] as hexadecimal text.
+mod hex_stamp {
+    use super::BuildStamp;
+    use alloc::string::{String, ToString};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+
+    pub fn serialize<S: Serializer>(
+        stamp: &Option<BuildStamp>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        stamp.map(|stamp| stamp.to_string()).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<BuildStamp>, D::Error> {
+        Option::<String>::deserialize(deserializer)?
+            .map(|hex| hex.parse().map_err(D::Error::custom))
+            .transpose()
+    }
 }
 
 /// Description of one environment a bundle was captured on. Informational:
@@ -184,8 +223,10 @@ impl BundleManifest {
 
     /// Reads and validates the manifest of a bundle database.
     #[cfg(native_cache)]
-    pub(super) fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
-        let content = crate::persistence::turso::meta_get(connection, MANIFEST_KEY)
+    pub(super) fn read(
+        connection: &crate::persistence::sql::Connection,
+    ) -> Result<Self, BundleError> {
+        let content = crate::persistence::database::meta_get(connection, MANIFEST_KEY)
             .map_err(super::sqlite::missing_meta)?
             .ok_or(BundleError::NotABundle)?;
 
@@ -194,11 +235,42 @@ impl BundleManifest {
 
     /// Writes the manifest into a bundle database.
     #[cfg(native_cache)]
-    pub(super) fn write(&self, connection: &turso::Connection) -> Result<(), BundleError> {
+    pub(super) fn write(
+        &self,
+        connection: &crate::persistence::sql::Connection,
+    ) -> Result<(), BundleError> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
-        crate::persistence::turso::meta_set(connection, MANIFEST_KEY, &content)
-            .map_err(super::export::storage_error)
+        crate::persistence::database::meta_set(connection, MANIFEST_KEY, &content)
+            .map_err(BundleError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The stamp a manifest carries is written as text, so a JSON reader
+    /// that parses numbers as doubles keeps every digit, and reads back as
+    /// the same stamp.
+    #[test]
+    fn the_saving_stamp_is_written_as_hex_text() {
+        let stamp = BuildStamp {
+            hash: u128::MAX - 7,
+        };
+        let manifest = BundleManifest {
+            schema: MANIFEST_SCHEMA,
+            name: "saved".into(),
+            cubecl_version: "0.12.0".into(),
+            created_unix_secs: None,
+            environments: Vec::new(),
+            saved_by: Some(stamp),
+        };
+
+        let json = serde_json::to_value(&manifest).unwrap();
+        assert_eq!(json["saved_by"], serde_json::json!(stamp.to_string()));
+        let read = BundleManifest::parse(json.to_string().as_bytes()).unwrap();
+        assert_eq!(read.saved_by, Some(stamp));
     }
 }
