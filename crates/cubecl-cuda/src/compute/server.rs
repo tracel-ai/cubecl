@@ -617,9 +617,7 @@ impl ServerCommunication for CudaServer {
         // nothing ordering it behind a failed write here.
         let stream = binding.stream;
         let address = self.get_resource(binding.clone(), stream)?.resource().ptr;
-        // A peer writes it with nothing this device can run first.
-        binding.memory.descriptor().share_with_peers();
-        cubecl_server::stream::start_overwritten_reads(self, stream, &[binding]);
+        cubecl_server::stream::start_reads_before_sharing(self, &binding)?;
         Ok(address)
     }
 
@@ -755,14 +753,15 @@ impl WriteScoped for CudaServer {
         &mut self,
         source: CopyDescriptor,
         stream: StreamId,
-        writer: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
-        let started = Server::read(self, vec![source], stream);
+        Some(Server::read(self, vec![source], stream))
+    }
+
+    fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {
         // Its own fault, which the read reports as well.
-        if let Err(error) = self.streams.wait_for(writer, stream) {
+        if let Err(error) = self.streams.wait_for(writer, reader) {
             log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
         }
-        Some(started)
     }
 }
 

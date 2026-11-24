@@ -94,8 +94,8 @@ pub trait WriteScoped: Sized {
         self.write_streams().write_set()
     }
 
-    /// The server's read of `source`, queued on `stream` with work on `writer` queued after it,
-    /// for a lazy read the server keeps of memory that work is about to write.
+    /// The server's read of `source`, queued on `stream`, for a lazy read the server keeps of
+    /// memory work is about to write.
     ///
     /// Defaults to `None`, for a server that keeps no lazy read.
     #[allow(unused_variables)]
@@ -103,10 +103,16 @@ pub trait WriteScoped: Sized {
         &mut self,
         source: CopyDescriptor,
         stream: StreamId,
-        writer: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         None
     }
+
+    /// Order work queued on `writer` from now on after the work queued on `reader` so far,
+    /// which holds the copy of a lazy read that work is about to overwrite.
+    ///
+    /// Defaults to nothing, for a server whose streams run in the order work is queued.
+    #[allow(unused_variables)]
+    fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {}
 }
 
 /// What a scope's work did.
@@ -182,7 +188,15 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
     /// started first, before the claim would fail it.
     pub fn over(server: &'a mut S, stream: StreamId, written: Vec<BufferBinding>) -> Self {
         start_overwritten_reads(server, stream, &written);
-        Self::entered(server, stream, written)
+        let provisional = server.write_streams().enter_write(&written);
+        Self {
+            server,
+            stream,
+            opened: Opened::Entered {
+                provisional,
+                written,
+            },
+        }
     }
 
     /// A scope over a launch of `kernel` on `stream`, reading `reads` and
@@ -210,6 +224,7 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
         if let Some(capture) = server.capturing(stream) {
             capture.fail(found.error.clone());
         }
+        start_overwritten_reads(server, stream, &written);
         server.write_streams().propagate(&found, kernel, written);
         Self {
             server,
@@ -268,20 +283,6 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
     }
 }
 
-impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
-    fn entered(server: &'a mut S, stream: StreamId, written: Vec<BufferBinding>) -> Self {
-        let provisional = server.write_streams().enter_write(&written);
-        Self {
-            server,
-            stream,
-            opened: Opened::Entered {
-                provisional,
-                written,
-            },
-        }
-    }
-}
-
 /// Claim `written` for `error` without running anything: work that never
 /// started leaves its destinations exactly as they were, so a read of one of
 /// them has to fail on the error that stopped it.
@@ -291,5 +292,5 @@ pub fn failed_writing<S: WriteScoped>(
     written: Vec<BufferBinding>,
     error: ServerError,
 ) {
-    let _ = ExecuteScope::entered(server, stream, written).execute(|_| Err::<(), _>(error));
+    let _ = ExecuteScope::over(server, stream, written).execute(|_| Err::<(), _>(error));
 }

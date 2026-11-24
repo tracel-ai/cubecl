@@ -12,6 +12,8 @@ use cubecl_environment::sync::{Mutex, Once};
 ///
 /// - While a server keeps it, work that server queues to write the memory starts the read
 ///   first, so the bytes are the memory as it was when the server took it.
+/// - It counts on its memory's descriptor from when its server keeps it until its bytes are
+///   resolved or it is dropped, so work writing the memory meanwhile finds it.
 pub struct LazyRead {
     source: CopyDescriptor,
     state: Mutex<LazyReadState>,
@@ -29,6 +31,8 @@ enum LazyReadState {
     /// Work was about to write the memory, so its server started the read first. `None` once
     /// taken to be resolved into [`LazyRead::started`].
     Started(Option<DynFut<Result<Vec<Bytes>, ServerError>>>),
+    /// The started read resolved into [`LazyRead::started`]: no copy of it is in flight.
+    Resolved,
 }
 
 impl LazyRead {
@@ -64,14 +68,20 @@ impl LazyRead {
         matches!(*self.state.lock(), LazyReadState::Kept)
     }
 
+    /// Whether a write started it and its copy may still be in flight, so work writing the
+    /// memory from another stream has to wait for it.
+    pub fn is_in_flight(&self) -> bool {
+        matches!(*self.state.lock(), LazyReadState::Started(_))
+    }
+
     /// `read` is the server's read of [`source`](Self::source), queued ahead of any work that
     /// writes the memory after it, which the first access takes its bytes from.
+    ///
+    /// # Assumptions
+    ///
+    /// - Its server keeps it.
     pub fn start(&self, read: DynFut<Result<Vec<Bytes>, ServerError>>) {
-        let mut state = self.state.lock();
-        if let LazyReadState::Kept = *state {
-            self.source.handle.memory.descriptor().lazy_read_let_go();
-        }
-        *state = LazyReadState::Started(Some(read));
+        *self.state.lock() = LazyReadState::Started(Some(read));
     }
 
     /// Its server refused to keep it, which the first access answers with.
@@ -87,7 +97,7 @@ impl LazyRead {
     pub(crate) fn is_started(&self) -> Result<bool, ServerError> {
         match &*self.state.lock() {
             LazyReadState::Refused(error) => Err(error.clone()),
-            LazyReadState::Started(_) => Ok(true),
+            LazyReadState::Started(_) | LazyReadState::Resolved => Ok(true),
             LazyReadState::Unkept | LazyReadState::Kept => Ok(false),
         }
     }
@@ -108,8 +118,12 @@ impl LazyRead {
                 LazyReadState::Started(read) => read.take(),
                 _ => None,
             }
-            .expect("a started read is resolved once");
-            cubecl_environment::future::reader::read_sync(read).map(|mut bytes| bytes.remove(0))
+            .expect("a started read should be resolved once");
+            let bytes = cubecl_environment::future::reader::read_sync(read)
+                .map(|mut bytes| bytes.remove(0));
+            *self.state.lock() = LazyReadState::Resolved;
+            self.source.handle.memory.descriptor().lazy_read_let_go();
+            bytes
         });
         match started {
             Ok(bytes) => Ok(Bytes::from_bytes_vec(bytes[range].to_vec())),
@@ -120,7 +134,7 @@ impl LazyRead {
 
 impl Drop for LazyRead {
     fn drop(&mut self) {
-        if let LazyReadState::Kept = *self.state.lock() {
+        if let LazyReadState::Kept | LazyReadState::Started(_) = *self.state.lock() {
             self.source.handle.memory.descriptor().lazy_read_let_go();
         }
     }

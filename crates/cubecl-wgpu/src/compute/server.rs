@@ -121,7 +121,6 @@ impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
         &mut self,
         source: CopyDescriptor,
         stream: StreamId,
-        _writer: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         // Submitted at once to the one queue, ahead of everything the writer encodes after it.
         Some(Server::read(self, vec![source], stream))

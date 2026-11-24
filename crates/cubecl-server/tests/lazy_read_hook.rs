@@ -13,7 +13,7 @@ use cubecl_server::server::{BufferBinding, CopyDescriptor, Handle, LazyRead, Ser
 use cubecl_server::storage::BytesStorage;
 use cubecl_server::stream::{
     ExecuteScope, FailureStore, Failures, StreamCapture, StreamFactory, StreamMemory, StreamPool,
-    WriteScoped, keep_lazy_read,
+    WriteScoped, failed_writing, keep_lazy_read,
 };
 use std::sync::Arc;
 
@@ -65,12 +65,14 @@ impl StreamFactory for Factory {
     }
 }
 
-/// A server that records each read a write starts, as `(read's stream, writer's stream)`.
+/// A server that records the stream of each read a write starts, and each wait a write makes
+/// on another stream, as `(writer, reader)`.
 struct Device {
     pool: StreamPool<Factory>,
     failures: Failures,
     capture: StreamCapture,
-    started: Vec<(StreamId, StreamId)>,
+    started: Vec<StreamId>,
+    waits: Vec<(StreamId, StreamId)>,
 }
 
 impl FailureStore for Device {
@@ -100,12 +102,15 @@ impl WriteScoped for Device {
         &mut self,
         _source: CopyDescriptor,
         stream: StreamId,
-        writer: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
-        self.started.push((stream, writer));
+        self.started.push(stream);
         Some(Box::pin(async {
             Ok(vec![Bytes::from_bytes_vec(vec![0; SIZE as usize])])
         }))
+    }
+
+    fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {
+        self.waits.push((writer, reader));
     }
 }
 
@@ -123,6 +128,7 @@ impl Device {
             failures: Failures::new(logger),
             capture: StreamCapture::new(&cubecl_runtime::server::DeviceCaptures::default()),
             started: Vec::new(),
+            waits: Vec::new(),
         }
     }
 
@@ -193,7 +199,7 @@ fn a_write_over_a_kept_lazy_read_starts_it_once() {
     device.write(stream, binding.clone());
     device.write(stream, binding);
 
-    assert_eq!(device.started, vec![(stream, stream)]);
+    assert_eq!(device.started, vec![stream]);
 }
 
 #[test]
@@ -206,7 +212,10 @@ fn a_write_on_another_stream_starts_the_read_on_its_own() {
 
     device.write(writer, binding);
 
-    assert_eq!(device.started, vec![(reader, writer)]);
+    assert_eq!(
+        (device.started, device.waits),
+        (vec![reader], vec![(writer, reader)])
+    );
 }
 
 #[test]
@@ -238,4 +247,39 @@ fn a_dropped_lazy_read_is_not_started() {
     device.write(stream, binding);
 
     assert!(device.started.is_empty());
+}
+
+#[test]
+fn a_write_from_another_stream_waits_for_a_copy_in_flight() {
+    let mut device = Device::new();
+    let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (_handle, binding) = device.buffer(writer);
+    let read = lazy_read(&binding);
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    device.write(reader, bytes(0..SIZE / 2, &binding));
+
+    device.write(writer, bytes(SIZE / 2..SIZE, &binding));
+
+    assert_eq!(device.waits, vec![(writer, reader)]);
+}
+
+#[test]
+fn a_failed_write_starts_the_read_its_claim_would_fail() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (_handle, binding) = device.buffer(stream);
+    let read = lazy_read(&binding);
+    keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
+
+    failed_writing(
+        &mut device,
+        stream,
+        vec![binding],
+        ServerError::Generic {
+            reason: "never compiled".into(),
+            backtrace: Default::default(),
+        },
+    );
+
+    assert_eq!(device.started, vec![stream]);
 }

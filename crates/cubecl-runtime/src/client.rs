@@ -534,7 +534,9 @@ impl Client {
     /// - The bytes are the buffer as it was at this call, under every write the server queues
     ///   before the first access, except on the CPU, whose reads alias its memory: a write
     ///   starts the copy before it runs. Memory [shared with peers](Self::share_with_peers) is
-    ///   copied at the call, since a peer writes it with nothing this device can run first.
+    ///   copied by work queued at the call, since a peer writes it with nothing this device
+    ///   can run first: a peer write ordered after a sync of this device, as every peer write
+    ///   is ordered, comes after the copy.
     /// - The first access answers with the error this call's
     ///   [`read_lazy_async`](Self::read_lazy_async) would have, a stream recording a graph
     ///   included.

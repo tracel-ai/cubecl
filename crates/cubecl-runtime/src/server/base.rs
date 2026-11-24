@@ -888,17 +888,15 @@ pub trait Server:
     /// [`check`](Self::check) the memory `read` names, then keep `read` until the first access
     /// to its bytes. `stream_id` is the stream it was made on.
     ///
-    /// An implementation that keeps it starts it, with [`LazyRead::start`], ahead of any work
-    /// it queues to write that memory. The default only checks, for a server whose reads alias
-    /// its memory, where a lazy read is as live as an eager one.
+    /// An implementation whose reads copy keeps it and starts it, with [`LazyRead::start`],
+    /// ahead of any work it queues to write that memory. One whose reads alias its memory only
+    /// checks, since a lazy read there is as live as an eager one.
     ///
     /// # Errors
     ///
     /// What [`check`](Self::check) returns. An implementation that keeps it also refuses it on
     /// a stream recording a graph, where its copy would be recorded rather than run.
-    fn read_lazy(&mut self, read: Arc<LazyRead>, stream_id: StreamId) -> Result<(), ServerError> {
-        self.check(alloc::vec![read.source().handle.clone()], stream_id)
-    }
+    fn read_lazy(&mut self, read: Arc<LazyRead>, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

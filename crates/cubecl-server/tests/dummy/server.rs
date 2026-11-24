@@ -518,6 +518,15 @@ impl<M: Marker> Server for DummyServer<M> {
         self.ensure_written(handles.iter())
     }
 
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_server::server::LazyRead>,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        // No test of this server writes what it reads lazily.
+        self.ensure_written(core::iter::once(&read.source().handle))
+    }
+
     fn memory_report(
         &mut self,
         stream_id: StreamId,

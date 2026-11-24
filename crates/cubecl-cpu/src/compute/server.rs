@@ -512,6 +512,16 @@ impl Server for CpuServer {
         self.scheduler.ensure_written(handles.iter())
     }
 
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        // A read aliases host memory, so a lazy one is as live as an eager one.
+        self.scheduler
+            .ensure_written(core::iter::once(&read.source().handle))
+    }
+
     fn compile_queued(&mut self) {
         self.kernels.compile_queued(&self.scheduler.logger);
     }

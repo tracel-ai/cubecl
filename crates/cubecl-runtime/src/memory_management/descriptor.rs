@@ -9,7 +9,7 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering
 ///
 /// All mutation happens on the device thread, so `Relaxed` is all the ordering
 /// it needs, and on the targets that matter that is a plain load and store. The
-/// one exception is a lazy read let go from the thread that drops it: the count
+/// one exception is a lazy read let go from the thread that resolves or drops it: the count
 /// only rises on the device thread, so a value it reads late costs that thread
 /// a lookup and never misses a read.
 /// Being atomic rather than a `Cell` is what makes the descriptor `Sync` by
@@ -114,7 +114,8 @@ impl ManagedMemoryDescriptor {
         self.location().page as usize
     }
 
-    /// Whether its device keeps a lazy read of the memory that a write must start first.
+    /// Whether its device keeps a lazy read of the memory that a write must start first, or
+    /// wait for while its copy is in flight.
     #[doc(hidden)]
     pub fn has_lazy_reads(&self) -> bool {
         self.lazy_reads.load(Ordering::Relaxed) != 0
