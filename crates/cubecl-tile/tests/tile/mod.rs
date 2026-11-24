@@ -42,6 +42,7 @@ mod register_attention;
 mod relay;
 mod routed;
 mod row_chunks;
+mod scale_add;
 mod scaled;
 mod separable;
 mod smem_accumulation;
