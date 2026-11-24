@@ -1072,7 +1072,9 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                 RegionSuccessor::Region(successor_region) => {
                     let successor_block = successor_region.deref(ctx).get_entry_block().unwrap();
                     let successor_point = ProgramPoint::at_block_start(ctx, successor_block);
-                    if !is_block_live::<Self>(solver, successor_point) {
+                    let executable =
+                        solver.get_or_create_for::<Self, Executable>(point, successor_block.into());
+                    if !executable.deref().is_live() {
                         continue;
                     }
                     self.get_lattice_for(solver, point, successor_point)
