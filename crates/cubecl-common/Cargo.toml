@@ -82,6 +82,7 @@ cfg_aliases = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
 tempfile = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 

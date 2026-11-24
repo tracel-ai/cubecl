@@ -35,6 +35,7 @@ impl NativeDecode {
             NativeDecode::E2M1x2 => "llvm.nvvm.e2m1x2.to.f16x2.rn",
             NativeDecode::E4M3 => "llvm.nvvm.e4m3x2.to.f16x2.rn",
             NativeDecode::E5M2 => "llvm.nvvm.e5m2x2.to.f16x2.rn",
+            NativeDecode::UE8M0 => unreachable!("NVPTX decodes no ue8m0 itself"),
         }
     }
 
@@ -45,7 +46,9 @@ impl NativeDecode {
         match self {
             NativeDecode::E4M3 => "llvm.nvvm.ff.to.e4m3x2.rn",
             NativeDecode::E5M2 => "llvm.nvvm.ff.to.e5m2x2.rn",
-            NativeDecode::E2M1x2 => unreachable!("e2m1x2 is encoded by the software codec"),
+            NativeDecode::E2M1x2 | NativeDecode::UE8M0 => {
+                unreachable!("e2m1x2 and ue8m0 are encoded by the software codec")
+            }
         }
     }
 
@@ -54,6 +57,7 @@ impl NativeDecode {
         match self {
             NativeDecode::E2M1x2 => 1,
             NativeDecode::E4M3 | NativeDecode::E5M2 => 2,
+            NativeDecode::UE8M0 => unreachable!("NVPTX decodes no ue8m0 itself"),
         }
     }
 }
@@ -76,6 +80,7 @@ pub(crate) fn decode(
     let values = match format {
         NativeDecode::E2M1x2 => 2 * byte_count,
         NativeDecode::E4M3 | NativeDecode::E5M2 => byte_count,
+        NativeDecode::UE8M0 => unreachable!("NVPTX decodes no ue8m0 itself"),
     };
     let half: TypeHandle = FP16Type::get(ctx).into();
     let pair_ty: TypeHandle = LlvmVectorType::get(ctx, half, 2, VectorTypeKind::Fixed).into();

@@ -174,6 +174,7 @@ impl ToLLVMDialect for CastOp {
             .lookup_most_recent_type(self.input(ctx))
             .unwrap_or(self.input(ctx).get_type(ctx));
 
+        // Before the decode below, which takes the one minifloat this leaves it: `ue8m0`.
         #[cfg(feature = "amdgpu")]
         if ctx.target() == LlvmTarget::AmdGpu
             && let Some(value) = crate::amdgpu::fp8::cast(ctx, rewriter, self, in_ty)
@@ -194,6 +195,20 @@ impl ToLLVMDialect for CastOp {
             let res_ty = cube_type_to_llvm(ctx, self.result_type(ctx));
             let input = self.input(ctx);
             let value = crate::nvptx::native_decode::decode(ctx, rewriter, format, input, res_ty);
+            rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
+            return Ok(());
+        }
+        #[cfg(feature = "amdgpu")]
+        if ctx.target() == LlvmTarget::AmdGpu
+            && let Some(format) = crate::shared::native_decode::NativeDecode::decoded_by(
+                ctx,
+                in_ty,
+                self.result_type(ctx),
+            )
+        {
+            let res_ty = cube_type_to_llvm(ctx, self.result_type(ctx));
+            let input = self.input(ctx);
+            let value = crate::amdgpu::native_decode::decode(ctx, rewriter, format, input, res_ty);
             rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
             return Ok(());
         }

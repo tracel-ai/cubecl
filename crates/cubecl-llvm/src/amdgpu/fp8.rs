@@ -21,12 +21,18 @@ use cubecl_core::ir::{
 /// Codes a conversion's 32-bit source holds, any one of which it decodes.
 const CODES_PER_WORD: usize = 4;
 
-/// The fp8 formats a part with `matrix` converts itself. RDNA4 reads both as OCP states them;
-/// CDNA3's conversions are of the FNUZ formats, so its casts stay the software codec's.
+/// The minifloats a part with `matrix` converts itself: `ue8m0` on every part
+/// ([`native_decode`](crate::amdgpu::native_decode)), and RDNA4's fp8. RDNA4 reads both fp8 formats
+/// as OCP states them; CDNA3's conversions are of the FNUZ formats, so its casts stay the software
+/// codec's.
 pub(crate) fn native_decodes(matrix: Option<AmdMatrixCore>) -> &'static [NativeDecode] {
     match matrix {
-        Some(AmdMatrixCore::Wmma(AmdWmma::Rdna4)) => &[NativeDecode::E4M3, NativeDecode::E5M2],
-        Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_)) | None => &[],
+        Some(AmdMatrixCore::Wmma(AmdWmma::Rdna4)) => {
+            &[NativeDecode::E4M3, NativeDecode::E5M2, NativeDecode::UE8M0]
+        }
+        Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_)) | None => {
+            &[NativeDecode::UE8M0]
+        }
     }
 }
 
@@ -48,7 +54,7 @@ impl Fp8Conversion {
                 name: "bf8",
                 largest: Fp8Format::E5M2.max_value(),
             }),
-            NativeDecode::E2M1x2 => None,
+            NativeDecode::E2M1x2 | NativeDecode::UE8M0 => None,
         }
     }
 }

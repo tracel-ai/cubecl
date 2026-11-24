@@ -350,6 +350,153 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
     check_factored(None, 8);
 }
 
+/// `c = (a ⊗ r) · (b ⊗ s)` over `e4m3` operands, `r` a scale a row of `a` and `s` one a column of
+/// `b`: both taken out of the sum whatever its instruction ([`Tile::factor_out`]), which an 8-bit
+/// value has no room for, and applied cell by cell as the sum drains.
+#[cube(launch)]
+fn row_and_column_factored_matmul<E: Numeric>(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    rows: &TileTensor<'_>,
+    columns: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
+    space: Partitioning,
+    #[comptime] level: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let a = a.tile(&space).mul(&rows.tile(&space));
+    let b = b.tile(&space).mul(&columns.tile(&space));
+    let mut c = c.tile_mut(&space);
+    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
+    let (a, a_factor) = a.factor_out(&acc);
+    let (b, b_factor) = b.factor_out(&acc);
+    for region in space.over(&level) {
+        let mut acc_r = acc.at(&region);
+        acc_r.mma(&a.at(&region), &b.at(&region));
+    }
+    c.dequantize_from(&acc.scaled(&a_factor).scaled(&b_factor));
+}
+
+/// An `e4m3` product under a scale a row of its lhs and a scale a column of its rhs, which vary
+/// across the output: the sum is held in this crate's MMA, whose cells each unit holds where it
+/// reads them, and each cell is scaled by its row's and its column's as it drains, against the
+/// host product. A skip on a device whose MMA takes no `e4m3` operands.
+#[test]
+fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
+    const SIZE: usize = 16;
+    let client = cubecl::test_device().client();
+    let e4m3_type = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    let f32_type = f32::elem_type_native();
+    let offered = client.properties().features.matmul.mma.iter().any(|cfg| {
+        cfg.a_type == e4m3_type
+            && cfg.b_type == e4m3_type
+            && cfg.cd_type == f32_type
+            && cfg.m as usize == SIZE
+            && cfg.n as usize == SIZE
+            && cfg.k as usize == SIZE
+    });
+    if !offered {
+        crate::support::ValidationResult::Skipped(
+            "device has no 16x16x16 manual MMA over e4m3".to_string(),
+        )
+        .enforce();
+        return;
+    }
+    let (rows, cols, depth) = (SIZE, SIZE, 2 * SIZE);
+    // Small integers, every one an `e4m3` value.
+    let a: Vec<f32> = (0..rows * depth).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..depth * cols).map(|i| (i % 5) as f32 - 2.0).collect();
+    let r: Vec<f32> = (0..rows).map(|m| 0.25 * (m % 4 + 1) as f32).collect();
+    let s: Vec<f32> = (0..cols).map(|n| 0.5 * (n % 3 + 1) as f32).collect();
+    let e4m3s = |values: &[f32], shape: [usize; 2]| {
+        let bytes: Vec<u8> = values
+            .iter()
+            .map(|&v| e4m3::from_f32(v).to_bits())
+            .collect();
+        TensorHandle::new_contiguous(
+            cubecl::zspace::Shape::new(shape),
+            client.create(Bytes::from_bytes_vec(bytes)),
+            e4m3_type,
+        )
+    };
+    let f32s = |values: &[f32], shape: [usize; 2]| {
+        TestInput::builder(client.clone(), cubecl::zspace::Shape::new(shape))
+            .dtype(f32_type)
+            .custom(values.to_vec())
+            .generate_without_host_data()
+    };
+    let (a_t, b_t) = (e4m3s(&a, [rows, depth]), e4m3s(&b, [depth, cols]));
+    let (r_t, s_t) = (f32s(&r, [rows, 1]), f32s(&s, [cols, 1]));
+    let c = TestInput::builder(client.clone(), shape![rows, cols])
+        .dtype(f32_type)
+        .zeros()
+        .generate_without_host_data();
+
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, rows), (N, cols), (KI, depth)]),
+            Levels::leaf(&[(M, rows), (N, cols), (KI, SIZE)])
+                .walk_every(&[M, N, KI])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let scale = |handle: TensorHandle, along: Dimension, across: Dimension| {
+        TileTensorLaunch::new(
+            handle.binding().into_tensor_arg(),
+            f32_type,
+            1,
+            TileSpec::new(Projection::new(
+                &[along, across],
+                &[PhysicalAxisMap::of(along), PhysicalAxisMap::broadcast()],
+            )),
+        )
+    };
+    row_and_column_factored_matmul::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileTensorLaunch::new(
+            a_t.binding().into_tensor_arg(),
+            e4m3_type,
+            1,
+            TileSpec::direct(&[M, KI]),
+        ),
+        TileTensorLaunch::new(
+            b_t.binding().into_tensor_arg(),
+            e4m3_type,
+            1,
+            TileSpec::direct(&[KI, N]),
+        ),
+        scale(r_t, M, KI),
+        scale(s_t, N, KI),
+        TileTensorLaunch::new(
+            c.clone().binding().into_tensor_arg(),
+            f32_type,
+            1,
+            TileSpec::direct(&[M, N]),
+        ),
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+        f32_type,
+    );
+
+    let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
+    for m in 0..rows {
+        for n in 0..cols {
+            let want: f32 = (0..depth)
+                .map(|k| a[m * depth + k] * r[m] * b[k * cols + n] * s[n])
+                .sum();
+            let have = got.get_f32(&[m, n]);
+            assert!(
+                (have - want).abs() < 1e-3,
+                "at ({m}, {n}): got {have}, want {want}"
+            );
+        }
+    }
+}
+
 /// The one scale `a` is stored under, read off the factor taken out of it into `out[0]`, and
 /// `a`'s first value as it lies, without it, into `out[1]`. The factor is the one a register sum
 /// of `a · b` takes out ([`Tile::factor`]), or, `whole`, the one a sum no tile holds takes out

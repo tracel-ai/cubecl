@@ -1080,6 +1080,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
+ "serde_json",
  "spin",
  "tempfile",
  "test-log",

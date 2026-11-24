@@ -256,6 +256,48 @@ impl MmaData {
         }
     }
 
+    /// Multiply each cell of this (accumulator) fragment by `factor` at the cell's place in
+    /// `space`, the fragment's window: scales varying across the output, a row's and a column's,
+    /// read where each unit holds its cells.
+    #[allow(dead_code)] // Reached through its expand, from `Tile::scale_own_cells`.
+    pub(crate) fn scale_cells<T: Numeric>(&mut self, factor: &Factor, #[comptime] space: &Space) {
+        let def = MmaDefinition::<T, T, T>::new(self.m, self.n, self.k);
+        let layout = comptime!(self.layout);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let dimensions = comptime!(MatrixDimensions::trailing(space));
+        match &mut self.fragment {
+            MmaFragment::Acc(f) => {
+                let acc = f.at_mut::<T>();
+                #[unroll]
+                for i in 0..acc.len() {
+                    let mut vector = acc[i];
+                    #[unroll]
+                    for e in 0..vector_size {
+                        let (row, col) = def.position_of_nth(
+                            UNIT_POS_PLANE,
+                            comptime!((i * vector_size + e) as u32),
+                            MatrixIdent::Accumulator,
+                        );
+                        let (row, col) = laid_out(row, col, layout);
+                        // The cell alone: the first value of a run one wide.
+                        let (first, alone) = (0usize, 1usize);
+                        let at =
+                            TileMatrix::value_coords(row, col, first, space, dimensions, alone);
+                        let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
+                        vector.insert(e, vector.extract(e) * T::cast_from(scale));
+                    }
+                    acc[i] = vector;
+                }
+            }
+            MmaFragment::Lhs(_)
+            | MmaFragment::Rhs(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::scale_cells: an operand fragment is contracted, not scaled")
+            }
+        }
+    }
+
     /// Fill this fragment from `src`'s window by the role's transport, a fragment deeper than its
     /// instruction as `load` says.
     pub(crate) fn load_window<T: Numeric>(&mut self, src: &Tile, #[comptime] load: DeepLoad) {
@@ -1430,6 +1472,16 @@ fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (u
     }
 }
 
+/// The cell an instruction names at `(row, col)` where a sum laid out as `layout` holds it.
+#[cube]
+fn laid_out(row: u32, col: u32, #[comptime] layout: MatrixLayout) -> (u32, u32) {
+    match layout {
+        MatrixLayout::RowMajor => (row, col),
+        MatrixLayout::ColMajor => (col, row),
+        MatrixLayout::Undefined => panic!("mma: a sum is laid out row- or col-major"),
+    }
+}
+
 /// Each unit's accumulator cells written through `mem`'s own write: one element at a time, or,
 /// where `mem` is bound as wide as a unit's run of cells along a row of a row-major destination,
 /// a run at a time, as a sink that adds whole lines takes them.
@@ -1456,13 +1508,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
                 let elem_idx = i * vector_size + e;
                 let (row, col) =
                     def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
-                let at = match layout {
-                    MatrixLayout::RowMajor => (row, col),
-                    MatrixLayout::ColMajor => (col, row),
-                    MatrixLayout::Undefined => {
-                        panic!("mma: a stage layout must be row- or col-major")
-                    }
-                };
+                let at = laid_out(row, col, layout);
                 let mut value = Vector::<Out, Const<1>>::empty();
                 value.insert(0usize, Out::cast_from(fragment[i].extract(e)));
                 sink.write(at, value);
