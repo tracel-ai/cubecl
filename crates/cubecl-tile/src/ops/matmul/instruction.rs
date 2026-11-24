@@ -1,6 +1,6 @@
 //! What one plane contracts through ([`Instruction`]).
 
-use cubecl::cmma::MatrixIdent;
+use cubecl::cmma::{MatrixIdent, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
     DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
@@ -8,6 +8,7 @@ use cubecl::ir::{
 
 use cubecl::quant::scheme::QuantValue;
 
+use crate::ops::matmul::mma_io::LaneVectors;
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
 use crate::{ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
@@ -497,10 +498,8 @@ struct Offered {
 /// laying a fragment's `A` otherwise than its accumulator, or for values wider than 16 bits,
 /// whose `A` lays its cells otherwise (`accumulators_as_a`); and for 8-bit values other than
 /// `e4m3`. The held cells are cast to the values' element, and `e5m2`'s two bits of mantissa are
-/// too coarse for an attention's probabilities. An 8-bit `A` is placed as `mma.sync` lays it,
-/// held calls 8 wide, its `B` reading its rows in that order
-/// ([`KeyOrder::AccumulatorRun`](super::KeyOrder::AccumulatorRun)), or as RDNA4's WMMA does, held
-/// calls 16 wide, its `B` reading them as they lie. A run of RDNA4's held cells is one cell deep
+/// too coarse for an attention's probabilities. An `A` is a run of them where the target's
+/// registers lay the two alike ([`rereads`]). A run of RDNA4's held cells is one cell deep
 /// ([`deepest_run`]).
 fn held_run(
     device: &DeviceProperties,
@@ -515,10 +514,9 @@ fn held_run(
         return None;
     };
     let element = rhs.element(rhs)?;
-    let read_as_a = element.size_bits() == 16
-        || (element == ElemType::Float(FloatKind::E4M3)
-            && [MMA_SYNC_8_BIT_WIDTH, RDNA_WMMA_WIDTH].contains(&held_width));
-    if !accumulator_is_a(target) || !read_as_a {
+    let holds_probabilities =
+        element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
+    if !accumulator_is_a(target) || !holds_probabilities {
         return None;
     }
     let runs: Vec<&MmaConfig> = device
@@ -531,6 +529,7 @@ fn held_run(
         .filter(|s| n.is_multiple_of(s.n as usize))
         .filter(|s| (s.k as usize).is_multiple_of(held_width) && k.is_multiple_of(s.k as usize))
         .filter(|s| s.k as usize <= deepest_run(held_width))
+        .filter(|s| rereads(target, [held_rows, held_width], s))
         .collect();
     let depth = runs
         .iter()
@@ -551,8 +550,30 @@ fn held_run(
     })
 }
 
-/// The width of the held `mma.sync` call whose 8-bit `A` placement `accumulators_as_a` knows.
-const MMA_SYNC_8_BIT_WIDTH: usize = 8;
+/// Whether `call`'s `A` is a run of accumulators of `m × n` cells as `target` lays the two in a
+/// lane's vectors ([`KeyOrder::rereading`]).
+fn rereads(target: &TargetProperties, [m, n]: [usize; 2], call: &MmaConfig) -> bool {
+    let element = call.a_type;
+    let vectors = |ident, shape: MatrixShape, copies: usize| {
+        let width = target.mma.vector_size(ident, shape, element);
+        let cells = shape.num_elems(ident) * copies / target.mma.const_plane_size as usize;
+        LaneVectors {
+            width,
+            count: cells / width,
+        }
+    };
+    let acc = vectors(
+        MatrixIdent::Accumulator,
+        (m, n, n).into(),
+        target.mma.register_duplication_acc,
+    );
+    let a = vectors(
+        MatrixIdent::A,
+        (call.m as usize, call.n as usize, call.k as usize).into(),
+        target.mma.register_duplication_a,
+    );
+    KeyOrder::rereading(element.size(), acc, a).is_some()
+}
 
 /// The width of RDNA's WMMA accumulator, `16 × 16`: each half of its lanes holds half of a cell's
 /// columns.
@@ -717,8 +738,10 @@ fn best_call<'a>(
 pub(crate) mod tests {
     use super::*;
     use cubecl::cmma::MatrixLayout;
+    use cubecl::ir::amd::{AmdMatrixCore, AmdWmma};
     use cubecl::ir::{
-        DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize, features::Features,
+        ContiguousElements, DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize,
+        features::Features,
     };
     use cubecl::profile::TimingMethod;
 
@@ -813,6 +836,16 @@ pub(crate) mod tests {
             MatrixLayout::RowMajor => MatrixLayout::ColMajor,
             _ => MatrixLayout::RowMajor,
         };
+        target
+    }
+
+    /// A target whose `A` and accumulator lie alike, a lane's vectors of each as long as given.
+    fn sum_is_next_a_in(a: VectorSize, acc: VectorSize) -> TargetProperties {
+        let mut target = sum_is_next_a();
+        target.mma.contiguous_elements = ContiguousElements::new(move |_, ident, _| match ident {
+            MatrixIdent::A | MatrixIdent::B => a,
+            MatrixIdent::Accumulator => acc,
+        });
         target
     }
 
@@ -1142,7 +1175,7 @@ pub(crate) mod tests {
         let pick = |kind| {
             Instruction::for_accumulator(
                 &device,
-                &sum_is_next_a(),
+                &sum_is_next_a_in(4, 2),
                 ComputeScope::Plane,
                 held,
                 FragmentSource::Values(fp8(kind)),
@@ -1180,9 +1213,10 @@ pub(crate) mod tests {
         assert_eq!(pick, Some(16));
     }
 
-    /// Held cells 16 wide, as RDNA4's, are reread as an `e4m3` `A`, a cell a call.
+    /// Held `16 × 16` cells are reread as an `e4m3` `A` where a lane's vectors of the two are as
+    /// long, as RDNA4's are, and not where an `A` vector is four accumulator vectors long.
     #[test]
-    fn held_cells_16_wide_meet_e4m3_values() {
+    fn held_cells_meet_e4m3_values_as_the_registers_lay_them() {
         let mut device = rdna();
         let fp8 = ElemType::Float(FloatKind::E4M3);
         device.features.matmul.mma.insert(MmaConfig {
@@ -1194,19 +1228,24 @@ pub(crate) mod tests {
             instruction: mma(),
             cell: [16, 16],
         };
+        let rdna4 = TargetProperties {
+            mma: AmdMatrixCore::Wmma(AmdWmma::Rdna4).mma_properties(),
+        };
+        let pick = |target| {
+            Instruction::for_accumulator(
+                &device,
+                &target,
+                ComputeScope::Plane,
+                held,
+                FragmentSource::Values(fp8),
+                F32,
+                [16, 32, 64],
+            )
+            .map(|p| (p.instruction, p.cell(), p.depth()))
+        };
 
-        let pick = Instruction::for_accumulator(
-            &device,
-            &sum_is_next_a(),
-            ComputeScope::Plane,
-            held,
-            FragmentSource::Values(fp8),
-            F32,
-            [16, 32, 64],
-        )
-        .map(|p| (p.instruction, p.cell(), p.depth()));
-
-        assert_eq!(pick, Some((mma(), [16, 16], 16)));
+        assert_eq!(pick(rdna4), Some((mma(), [16, 16], 16)));
+        assert_eq!(pick(sum_is_next_a_in(8, 2)), None);
     }
 
     /// Plane groups of four issue the plane group MMA.

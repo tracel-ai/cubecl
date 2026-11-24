@@ -7,6 +7,7 @@ use cubecl::{
 
 use super::block_scaled::*;
 use super::widths::*;
+use crate::ops::matmul::mma_io::LaneVectors;
 use crate::tile::kind::plane::load_matrix::{
     LDMATRIX_ROW_BYTES, PairAxis, along_k, load_ldmatrix, load_ldmatrix_b8_pair, load_ldmatrix_pair,
 };
@@ -1527,23 +1528,24 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
     let a_regs = a_def.vectors_per_lane(MatrixIdent::A);
     let a_width = a_def.vector_size(MatrixIdent::A);
     let bytes = L::size().comptime();
-    comptime!(assert!(
-        bytes <= 2 && a_width.is_multiple_of(acc_width),
-        "accumulators_as_a: an accumulator's cells sit along the A operand's rows for 16- and \
-         8-bit operands; a {bytes}-byte operand's A lays them otherwise"
+    let order = comptime!(KeyOrder::rereading(
+        bytes,
+        LaneVectors {
+            width: acc_width,
+            count: acc_regs
+        },
+        LaneVectors {
+            width: a_width,
+            count: a_regs
+        },
     ));
-    // Accumulator vectors one `A` vector holds side by side, on the same row. A 16-bit `A` holds
-    // the cells in the accumulators' order. The 8-bit placement, and the order its `B` reads its
-    // rows in ([`key_row`]), are the `mma.sync` layouts': two accumulator vectors a unit, a row
-    // each, and four `A` vectors, rows alternating.
+    comptime!(assert!(
+        order.is_some(),
+        "accumulators_as_a: a {bytes}-byte A of {a_regs} vectors of {a_width} lays its cells \
+         otherwise than accumulators of {acc_regs} vectors of {acc_width}"
+    ));
+    // Accumulator vectors one `A` vector holds side by side, on the same row.
     let side_by_side = comptime!(a_width / acc_width);
-    let in_order = side_by_side == 1 || bytes == 2;
-    comptime!(assert!(
-        in_order || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
-        "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \
-         {acc_regs} vectors of {acc_width} is laid out unlike the `mma.sync` layouts its rows \
-         are placed for"
-    ));
     let acc_cells = comptime!(acc_regs * acc_width);
     comptime!(assert!(
         count * acc_cells == a_regs * a_width,
@@ -1573,12 +1575,12 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         for i in 0..acc_regs {
             #[unroll]
             for e in 0..acc_width {
-                let (register, slot) = comptime!(match in_order {
-                    true => {
+                let (register, slot) = comptime!(match order {
+                    Some(KeyOrder::AsLaid) => {
                         let cell = (j * acc_regs + i) * acc_width + e;
                         (cell / a_width, cell % a_width)
                     }
-                    false => (
+                    _ => (
                         i + acc_regs * (j / side_by_side),
                         acc_width * (j % side_by_side) + e,
                     ),
