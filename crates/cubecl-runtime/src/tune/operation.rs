@@ -5,17 +5,18 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
+use cubecl_common::profile::ProfileDuration;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
 use crate::client::Client;
-use crate::server::ProfileError;
+use crate::server::{ProfileError, ServerError};
 use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor};
 
 use super::{
-    AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
+    AutotuneError, AutotuneOutput, input_generator::InputGenerator, key_generator::KeyGenerator,
     tune_inputs::TuneInputs,
 };
 use super::{Tunable, TunePlan};
@@ -40,7 +41,9 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
         (self.func)(inputs)
     }
+}
 
+impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     /// Run the wrapped function as an autotune race runs a candidate, to
     /// measure it or gather its kernels: what it launches is
     /// [issued for the race](crate::execution::LaunchPurpose::Race), never
@@ -49,8 +52,10 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
         crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
     }
 
-    /// [`race`](Self::race) on the device's own thread, a panic in the function answered as its
-    /// [error](AutotuneError::Panicked), so it costs no other candidate its measurement.
+    /// [`race`](Self::race) in a device call of its own, so a panic in the function costs no
+    /// other candidate its measurement.
+    ///
+    /// Expects to already hold exclusive device access, so that only a panic stops the call.
     pub(crate) fn race_contained<'a>(
         &self,
         inputs: <I as TuneInputs>::At<'a>,
@@ -59,14 +64,16 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     where
         Out: Send,
     {
-        match client.exclusive_call(|| self.race(inputs)) {
-            Ok(raced) => raced,
-            Err(err) if err.is_panic() => Err(self.panicked(format!("{err:?}"))),
-            Err(err) => Err(AutotuneError::Unknown {
-                name: self.name.clone(),
-                err: format!("{err:?}"),
-            }),
-        }
+        self.contained(client.exclusive(|| self.race(inputs)))
+    }
+
+    /// What a race in a device call of its own answers: its output or error, or the panic that
+    /// stopped the call.
+    fn contained(
+        &self,
+        call: Result<Result<Out, AutotuneError>, ServerError>,
+    ) -> Result<Out, AutotuneError> {
+        call.unwrap_or_else(|panic| Err(self.panicked(panic.to_string())))
     }
 
     /// What a failed profile of this tunable says of it.
@@ -89,6 +96,58 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
         AutotuneError::Panicked {
             name: self.name.clone(),
             message,
+        }
+    }
+}
+
+impl<I: TuneInputs, Out: AutotuneOutput> TuneFn<I, Out> {
+    /// Run the operation once without measuring it, to trigger compilation.
+    ///
+    /// Expects to already hold exclusive device access; the adaptive driver takes it once for
+    /// the whole round robin rather than once per candidate.
+    pub(crate) fn warmup_once<'a>(
+        &self,
+        inputs: <I as TuneInputs>::At<'a>,
+        client: &Client,
+    ) -> Result<(), AutotuneError> {
+        // We make sure the server is in a correct state.
+        let _errs = client.flush();
+
+        // The profile is dropped without being resolved: a warmup only exists to surface a
+        // failure to compile or launch, which is what the error carries — so nothing is
+        // evicted for it, either.
+        self.sample_once(inputs, client, None).map(|_| ())
+    }
+
+    /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
+    ///
+    /// `evictor` runs first, outside the profiled region, so the sample reads what a real
+    /// call reads rather than what the previous launch left in cache ([`Eviction`]). An
+    /// eviction that fails is logged and the sample taken warm: the measurement is still
+    /// worth more than none, and the failure is the eviction's, not the candidate's.
+    ///
+    /// [`Eviction`]: super::Eviction
+    pub(crate) fn sample_once<'a>(
+        &self,
+        inputs: <I as TuneInputs>::At<'a>,
+        client: &Client,
+        evictor: Option<&mut Evictor<'_>>,
+    ) -> Result<ProfileDuration, AutotuneError> {
+        if let Some(evict) = evictor
+            && let Err(err) = evict()
+        {
+            log::error!(
+                "The eviction before a sample of `{}` failed, so the sample is measured on a warm cache.\n{err}",
+                self.name
+            );
+        }
+        // The output is returned so dead code elimination can't drop the work being profiled.
+        let profiled = client.profile(move || self.race_contained(inputs, client), &self.name);
+
+        match profiled {
+            Ok((Ok(_), duration)) => Ok(duration),
+            Ok((Err(err), _)) => Err(err),
+            Err(err) => Err(self.unprofiled(err)),
         }
     }
 }
@@ -287,3 +346,64 @@ pub trait AutotuneKey:
 }
 
 impl AutotuneKey for String {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compiler::CompilationError;
+    use crate::server::LaunchError;
+
+    fn candidate() -> TuneFn<(), usize> {
+        Tunable::<(), (), usize>::new("candidate", |_: ()| Ok::<_, String>(1)).function
+    }
+
+    #[test]
+    fn a_contained_race_answers_what_it_answered() {
+        let rejection = AutotuneError::Rejected {
+            name: "candidate".into(),
+            reason: "no line of this shape".into(),
+        };
+
+        let answer = candidate().contained(Ok(Err(rejection)));
+
+        assert!(matches!(answer, Err(AutotuneError::Rejected { .. })));
+    }
+
+    #[test]
+    fn a_contained_race_that_panicked_is_panicked() {
+        let panic = ServerError::Generic {
+            reason: "the block divides the vector".into(),
+            backtrace: Default::default(),
+        };
+
+        let answer = candidate().contained(Err(panic));
+
+        assert!(matches!(answer, Err(AutotuneError::Panicked { .. })));
+    }
+
+    #[test]
+    fn a_profile_stopped_by_an_expansion_panic_is_panicked() {
+        let error = ProfileError::Launch(LaunchError::CompilationError(
+            CompilationError::ExpansionPanicked {
+                kernel: "kernel".into(),
+                message: "an assertion failed".into(),
+                backtrace: Default::default(),
+            },
+        ));
+
+        let answer = candidate().unprofiled(error);
+
+        assert!(matches!(answer, AutotuneError::Panicked { .. }));
+    }
+
+    #[test]
+    fn a_profile_that_failed_otherwise_is_unknown() {
+        let error = ProfileError::NotRegistered {
+            backtrace: Default::default(),
+        };
+
+        let answer = candidate().unprofiled(error);
+
+        assert!(matches!(answer, AutotuneError::Unknown { .. }));
+    }
+}

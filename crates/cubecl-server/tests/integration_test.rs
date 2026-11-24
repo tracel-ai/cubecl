@@ -1593,17 +1593,15 @@ fn a_candidate_that_panics_is_dropped_alone() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// The elected candidate may reject another call of its key: the next candidate serves it.
+/// The elected candidate may reject a call of its key: the next candidate serves it.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_call_the_elected_candidate_rejects_is_served_by_another() {
     use cubecl_server::tune::Tunable;
-    use std::sync::atomic::AtomicBool;
 
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_call_the_elected_candidate_rejects_is_served_by_another");
-    static REJECTS: AtomicBool = AtomicBool::new(false);
 
     let client = test_client(&DummyDevice);
     let key = fresh_tune_key_uid();
@@ -1617,26 +1615,27 @@ fn a_call_the_elected_candidate_rejects_is_served_by_another() {
         );
         let add =
             OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        // The call holds a fourth handle, which the race's inputs lack and `add` rejects.
         TunableSet::<String, Vec<Handle>, ()>::new(
             move |_: &Vec<Handle>| key.clone(),
-            |_: &String, inputs: &Vec<Handle>| inputs.clone(),
+            |_: &String, inputs: &Vec<Handle>| inputs[..3].to_vec(),
         )
-        .with(Tunable::new("add_slow_wrong", move |inputs| {
-            slow.run(inputs)
-        }))
-        .with(Tunable::new("add", move |inputs| {
-            match REJECTS.load(Ordering::Relaxed) {
-                true => Err("no line of this shape".to_string()),
-                false => add.run(inputs),
-            }
-        }))
+        .with(Tunable::new(
+            "add_slow_wrong",
+            move |inputs: Vec<Handle>| slow.run(inputs[..3].to_vec()),
+        ))
+        .with(Tunable::new(
+            "add",
+            move |inputs: Vec<Handle>| match inputs.len() {
+                3 => add.run(inputs),
+                _ => Err("no line of this shape".to_string()),
+            },
+        ))
     });
-    let (handles, _) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set.clone(), handles);
-
-    REJECTS.store(true, Ordering::Relaxed);
-    let (handles, _) = addition_inputs(&client, &set);
+    let (mut handles, _) = addition_inputs(&client, &set);
     let out = handles[2].clone();
+    handles.push(client.empty(3));
+
     TUNER.execute(&id, &client, set, handles);
 
     assert_eq!(

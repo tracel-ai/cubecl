@@ -377,3 +377,22 @@ impl AutotuneReport {
         self.keys.retain(|key| key.table.tuner.contains(pattern));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_candidate_that_panicked_failed_with_what_the_panic_said() {
+        let (name, outcome) = failure(AutotuneError::Panicked {
+            name: "tiled".to_string(),
+            message: "the block divides the vector".to_string(),
+        });
+
+        assert_eq!(name.as_deref(), Some("tiled"));
+        assert!(matches!(
+            outcome,
+            CandidateOutcome::Failed { reason } if reason == "the block divides the vector"
+        ));
+    }
+}

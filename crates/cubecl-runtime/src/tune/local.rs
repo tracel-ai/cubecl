@@ -297,12 +297,10 @@ where
             // the candidates run in the plan's order, the one the measurement follows, so the
             // best ranked candidate that launches runs rather than the first declared.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
-                match execute_in_plan_order(&operations, &operations.run_order(&key), inputs) {
-                    Ok(output) => output,
-                    Err(failures) => panic!(
-                        "All autotune operations failed, no viable operation found.\n{failures:?}"
-                    ),
-                }
+                execute_in_plan_order(&operations, &operations.run_order(&key), inputs)
+                    .unwrap_or_else(|failures| {
+                        panic!("No autotune candidate for {key} launches.\n{failures:?}")
+                    })
             }
         }
     }
@@ -481,6 +479,41 @@ mod tests {
             );
 
         assert_eq!(execute_elected(&operations, &FakeAutotuneKey, 1, ()), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "serves this call")]
+    fn a_call_no_candidate_serves_panics() {
+        let operations = set()
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new("elected", fails))
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new("other", fails));
+
+        execute_elected(&operations, &FakeAutotuneKey, 0, ());
+    }
+
+    #[test]
+    #[should_panic(expected = "should serve every call")]
+    fn a_rejected_call_with_no_spare_panics() {
+        /// Inputs that implement the trait by hand, and so have no spare.
+        struct Borrowed;
+
+        impl TuneInputs for Borrowed {
+            type At<'a> = ();
+        }
+
+        let operations =
+            TunableSet::<FakeAutotuneKey, Borrowed, usize>::new_cloning_inputs(|_: &()| {
+                FakeAutotuneKey
+            })
+            .with(Tunable::<FakeAutotuneKey, Borrowed, usize>::new(
+                "elected", fails,
+            ))
+            .with(Tunable::<FakeAutotuneKey, Borrowed, usize>::new(
+                "other",
+                answers(1),
+            ));
+
+        execute_elected(&operations, &FakeAutotuneKey, 0, ());
     }
 
     #[test]

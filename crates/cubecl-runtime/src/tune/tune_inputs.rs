@@ -34,3 +34,24 @@ impl<T: Clone + Send + Sync + 'static> TuneInputs for T {
         Some(inputs.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owned_inputs_have_a_spare() {
+        assert_eq!(<u32 as TuneInputs>::spare(&7), Some(7));
+    }
+
+    #[test]
+    fn inputs_implemented_by_hand_have_no_spare() {
+        struct Borrowed;
+
+        impl TuneInputs for Borrowed {
+            type At<'a> = &'a u32;
+        }
+
+        assert_eq!(Borrowed::spare(&&7), None);
+    }
+}

@@ -89,7 +89,8 @@ pub enum ProfileError {
 }
 
 impl ProfileError {
-    /// Whether a kernel of the window panicked while it expanded.
+    /// Whether the window failed on a defect of the kernel it profiled, rather than on the
+    /// profiling: a kernel whose own code panicked as it was expanded.
     pub fn is_expansion_panic(&self) -> bool {
         match self {
             Self::Launch(error) => error.is_expansion_panic(),
@@ -485,7 +486,7 @@ impl LaunchError {
         }
     }
 
-    /// Whether this is the kernel panicking while it expanded.
+    /// Whether [`CompilationError::ExpansionPanicked`] stopped the launch.
     pub fn is_expansion_panic(&self) -> bool {
         matches!(
             self,
@@ -785,10 +786,8 @@ impl ServerError {
         }
     }
 
-    /// Whether this is a kernel that panicked while it expanded.
-    ///
-    /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
-    /// the roots, and answers yes when *any* root is one.
+    /// Whether an expansion panic is among the failures this reports, under the read of a buffer
+    /// it left unwritten or beside failures of other launches.
     pub fn is_expansion_panic(&self) -> bool {
         match self {
             Self::Launch(error) => error.is_expansion_panic(),
@@ -2654,21 +2653,22 @@ mod tests {
         );
     }
 
-    /// A panic while expanding is found under the read that reports it and among other failures.
+    /// The launch failure of a kernel whose own code panicked as it was expanded.
+    fn expansion_panic() -> LaunchError {
+        LaunchError::CompilationError(CompilationError::ExpansionPanicked {
+            kernel: "kernel".into(),
+            message: "an assertion failed".into(),
+            backtrace: Default::default(),
+        })
+    }
+
     #[test_log::test]
     fn an_expansion_panic_is_found_at_the_root() {
-        let panicked = ServerError::Launch(LaunchError::CompilationError(
-            CompilationError::ExpansionPanicked {
-                kernel: "kernel".into(),
-                message: "an assertion failed".into(),
-                backtrace: Default::default(),
-            },
-        ));
         let unwritten = ServerError::Unwritten {
             failure: 1,
             claimed: 1,
             chain: Vec::new(),
-            root: alloc::boxed::Box::new(panicked),
+            root: alloc::boxed::Box::new(ServerError::Launch(expansion_panic())),
             backtrace: Default::default(),
         };
         let several = ServerError::Several {
@@ -2677,6 +2677,49 @@ mod tests {
         };
 
         assert!(several.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_failure_no_launch_caused_is_no_expansion_panic() {
+        assert!(!ServerError::TornDown.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_launch_stopped_by_an_expansion_panic_says_so() {
+        assert!(expansion_panic().is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_launch_a_compiler_refused_is_no_expansion_panic() {
+        let refused = LaunchError::CompilationError(CompilationError::Generic {
+            reason: "no such intrinsic on this target".into(),
+            backtrace: Default::default(),
+        });
+
+        assert!(!refused.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_window_finds_the_expansion_panic_its_launch_met() {
+        let error = ProfileError::Launch(expansion_panic());
+
+        assert!(error.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_window_finds_the_expansion_panic_the_server_reports() {
+        let error = ProfileError::from(ServerError::Launch(expansion_panic()));
+
+        assert!(error.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_window_that_was_lost_met_no_expansion_panic() {
+        let error = ProfileError::NotRegistered {
+            backtrace: Default::default(),
+        };
+
+        assert!(!error.is_expansion_panic());
     }
 
     /// Every fallback over-names: a kernel the compiler kept no answer for,
