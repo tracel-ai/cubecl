@@ -6,6 +6,7 @@
 use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
 use cubecl_hip_sys::hipStream_t;
 use cubecl_server::command::Elements;
+use cubecl_server::config::transport::MinChannels;
 use libloading::Library;
 use std::{
     env,
@@ -22,11 +23,6 @@ pub(crate) type Comm = *mut c_void;
 pub struct UniqueId {
     internal: [c_char; 128],
 }
-
-/// The fewest channels a communicator runs a collective on. RCCL's topology search counts the
-/// channels a link's rated bandwidth needs, and over PCI Express it settles on so few that the
-/// link idles between a block's transfers. A floor only raises what the search picks.
-const MIN_CHANNELS: c_int = 16;
 
 /// `ncclConfig_t` as NCCL 2.17 laid it out, the first layout with `minCTAs`. A later release
 /// reads the fields of the version a config names and keeps its defaults for the rest.
@@ -188,16 +184,17 @@ impl Rccl {
     }
 
     /// Joins the group `id` names as rank `rank` of `ranks`, on the current device, running its
-    /// collectives on at least [`MIN_CHANNELS`] channels where the release takes a config. Blocks
+    /// collectives on at least `min_channels` channels where the release takes a config. Blocks
     /// until every other rank joins `id` too.
     pub(crate) fn comm_init_rank(
         &self,
         ranks: c_int,
         id: UniqueId,
         rank: c_int,
+        min_channels: MinChannels,
     ) -> Result<Comm, RcclError> {
         match self.comm_init_rank_config {
-            Some(init) => self.join_configured(init, ranks, id, rank),
+            Some(init) => self.join_configured(init, ranks, id, rank, min_channels),
             None => self.join_by_default(ranks, id, rank),
         }
     }
@@ -209,9 +206,10 @@ impl Rccl {
         ranks: c_int,
         id: UniqueId,
         rank: c_int,
+        min_channels: MinChannels,
     ) -> Result<Comm, RcclError> {
         let mut comm: Comm = core::ptr::null_mut();
-        let mut config = Config::new(MIN_CHANNELS);
+        let mut config = Config::new(c_int::from(min_channels.0));
         // SAFETY: `comm` is a valid out-pointer and `config` a whole config of the version it
         // names, which the call only reads.
         self.check("ncclCommInitRankConfig", unsafe {

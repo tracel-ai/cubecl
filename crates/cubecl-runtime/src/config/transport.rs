@@ -4,6 +4,31 @@ pub struct TransportConfig {
     /// Whether NCCL or RCCL carries the transfers between devices, `auto` unless configured.
     #[serde(default)]
     pub device: DeviceTransportMode,
+    /// How the provider sets up a communicator, the `[transport.provider]` section.
+    #[serde(default)]
+    pub provider: TransportProviderConfig,
+}
+
+/// How the transport provider, NCCL or RCCL, sets up a communicator. Ignored when the device
+/// transport is off.
+#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TransportProviderConfig {
+    /// The fewest channels a communicator runs a collective on.
+    #[serde(default)]
+    pub min_channels: MinChannels,
+}
+
+/// A floor on the channels a communicator runs a collective on: the provider may pick more, and
+/// `NCCL_MIN_CTAS` overrides it. Over PCI Express the provider's topology search settles on one
+/// channel, which leaves the link idle between a block's transfers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct MinChannels(pub u16);
+
+impl Default for MinChannels {
+    fn default() -> Self {
+        Self(16)
+    }
 }
 
 /// Whether a runtime loads its device transport.
@@ -37,5 +62,22 @@ mod tests {
         let config: CubeClRuntimeConfig = toml::from_str("[transport]\ndevice = \"off\"").unwrap();
 
         assert_eq!(config.transport.device, DeviceTransportMode::Off);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn a_config_file_without_the_section_floors_channels_at_sixteen() {
+        let config: CubeClRuntimeConfig = toml::from_str("").unwrap();
+
+        assert_eq!(config.transport.provider.min_channels, MinChannels(16));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn the_channel_floor_can_be_set() {
+        let config: CubeClRuntimeConfig =
+            toml::from_str("[transport.provider]\nmin_channels = 4").unwrap();
+
+        assert_eq!(config.transport.provider.min_channels, MinChannels(4));
     }
 }
