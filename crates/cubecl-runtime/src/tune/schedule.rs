@@ -9,7 +9,6 @@ use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
-use crate::tune::TuneStage;
 use crate::tune::patience::PatienceTable;
 use crate::tune::sampler::{SampleSet, measured};
 use crate::tune::stage::{BoundStageEnterer, enter_stage};
@@ -17,6 +16,7 @@ use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
     TunePlan,
 };
+use crate::tune::{TuneDeviceAccess, TuneStage};
 
 /// The outcome of benchmarking one batch of the [`TunePlan`].
 #[derive(Debug)]
@@ -61,14 +61,16 @@ pub(crate) struct Schedule<'i> {
     /// What runs before every measured sample, when the set registered one.
     pub(crate) evictor: Option<Box<Evictor<'i>>>,
     pub(crate) stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
+    /// How the batches hold the device, and how their samples are timed.
+    pub(crate) access: TuneDeviceAccess,
 }
 
 impl Schedule<'_> {
     /// Benchmark one batch of candidates, blocking until the batch is decided.
     ///
-    /// Takes exclusive device access for the entire round robin: candidates are interleaved, so
-    /// releasing the device between them would let unrelated work land in the middle of a
-    /// measurement.
+    /// Under [`TuneDeviceAccess::Exclusive`], takes exclusive device access for the entire round
+    /// robin: candidates are interleaved, so releasing the device between them would let unrelated
+    /// work land in the middle of a measurement.
     pub(crate) fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         batch: Batch,
@@ -80,6 +82,7 @@ impl Schedule<'_> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let fallback = batch.indices();
+        let access = self.access;
         let run = || {
             let measuring = crate::execution::StreamModeOverride::new(
                 crate::execution::StreamMode::Execute,
@@ -98,7 +101,7 @@ impl Schedule<'_> {
             outcome
         };
 
-        match client.clone().exclusive(run) {
+        match access.hold(client, run) {
             Ok(outcome) => outcome,
             Err(err) => BatchOutcome {
                 results: fallback
@@ -163,7 +166,7 @@ impl Schedule<'_> {
                     .map(|(_, candidate)| candidate);
                 let gathering =
                     enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Gathering);
-                compile_together(ahead, autotunables, &inputs, client);
+                compile_together(ahead, autotunables, &inputs, client, self.access);
                 core::mem::drop(gathering);
             }
             // A candidate that rejected the problem while compiling is out of the round already.
@@ -218,6 +221,7 @@ impl Schedule<'_> {
                     inputs.clone(),
                     client,
                     self.evictor.as_deref_mut(),
+                    self.access,
                 ) {
                     Ok(profile) => {
                         candidate.method.get_or_insert(profile.timing_method());
@@ -363,7 +367,7 @@ impl Schedule<'_> {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        if let Err(err) = operation.warmup_once(inputs.clone(), client) {
+        if let Err(err) = operation.warmup_once(inputs.clone(), client, self.access) {
             candidate.fail(err);
             return false;
         }
@@ -401,7 +405,12 @@ impl Schedule<'_> {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match operation.sample_once(inputs.clone(), client, self.evictor.as_deref_mut()) {
+        match operation.sample_once(
+            inputs.clone(),
+            client,
+            self.evictor.as_deref_mut(),
+            self.access,
+        ) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
                 match measured(profile.resolve().await) {
@@ -656,6 +665,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     autotunables: &[&TuneFn<F, Out>],
     inputs: &<F as TuneInputs>::At<'a>,
     client: &Client,
+    access: TuneDeviceAccess,
 ) where
     <F as TuneInputs>::At<'a>: Clone,
 {
@@ -664,7 +674,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     let gathering = super::gathering::CandidateGathering::new();
     for candidate in candidates {
         if let Err(unusable @ (AutotuneError::Rejected { .. } | AutotuneError::Panicked { .. })) =
-            autotunables[candidate.index].race_contained(inputs.clone(), client)
+            autotunables[candidate.index].race_contained(inputs.clone(), client, access)
         {
             candidate.fail(unusable);
         }
@@ -691,6 +701,7 @@ mod tests {
             compile_parallelism: 1,
             evictor: None,
             stage_enterer: None,
+            access: TuneDeviceAccess::Exclusive,
         }
     }
 

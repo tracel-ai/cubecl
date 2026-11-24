@@ -14,7 +14,7 @@ use alloc::format;
 use crate::client::Client;
 use crate::server::{ProfileError, ServerError};
 use crate::tune::stage::BoundStageEnterer;
-use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer};
+use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer, TuneDeviceAccess};
 
 use super::{
     AutotuneError, AutotuneOutput, input_generator::InputGenerator, key_generator::KeyGenerator,
@@ -53,23 +53,23 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
         crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
     }
 
-    /// [`race`](Self::race) in a device call of its own, so a panic in the function costs no
-    /// other candidate its measurement.
+    /// [`race`](Self::race) contained as `access` runs it ([`TuneDeviceAccess::contain`]), so a
+    /// panic in the function costs no other candidate its measurement.
     ///
-    /// Expects to already hold exclusive device access, so that only a panic stops the call.
+    /// Expects to already hold the device as `access` does, so that only a panic stops the race.
     pub(crate) fn race_contained<'a>(
         &self,
         inputs: <I as TuneInputs>::At<'a>,
         client: &Client,
+        access: TuneDeviceAccess,
     ) -> Result<Out, AutotuneError>
     where
         Out: Send,
     {
-        self.contained(client.exclusive(|| self.race(inputs)))
+        self.contained(access.contain(client, || self.race(inputs)))
     }
 
-    /// What a race in a device call of its own answers: its output or error, or the panic that
-    /// stopped the call.
+    /// What a contained race answers: its output or error, or the panic that stopped it.
     fn contained(
         &self,
         call: Result<Result<Out, AutotuneError>, ServerError>,
@@ -110,6 +110,7 @@ impl<I: TuneInputs, Out: AutotuneOutput> TuneFn<I, Out> {
         &self,
         inputs: <I as TuneInputs>::At<'a>,
         client: &Client,
+        access: TuneDeviceAccess,
     ) -> Result<(), AutotuneError> {
         // We make sure the server is in a correct state.
         let _errs = client.flush();
@@ -117,7 +118,7 @@ impl<I: TuneInputs, Out: AutotuneOutput> TuneFn<I, Out> {
         // The profile is dropped without being resolved: a warmup only exists to surface a
         // failure to compile or launch, which is what the error carries — so nothing is
         // evicted for it, either.
-        self.sample_once(inputs, client, None).map(|_| ())
+        self.sample_once(inputs, client, None, access).map(|_| ())
     }
 
     /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
@@ -133,6 +134,7 @@ impl<I: TuneInputs, Out: AutotuneOutput> TuneFn<I, Out> {
         inputs: <I as TuneInputs>::At<'a>,
         client: &Client,
         evictor: Option<&mut Evictor<'_>>,
+        access: TuneDeviceAccess,
     ) -> Result<ProfileDuration, AutotuneError> {
         if let Some(evict) = evictor
             && let Err(err) = evict()
@@ -143,7 +145,11 @@ impl<I: TuneInputs, Out: AutotuneOutput> TuneFn<I, Out> {
             );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = client.profile(move || self.race_contained(inputs, client), &self.name);
+        let profiled = access.profile(
+            client,
+            move || self.race_contained(inputs, client, access),
+            &self.name,
+        );
 
         match profiled {
             Ok((Ok(_), duration)) => Ok(duration),
@@ -168,6 +174,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
     stage_enterer: Option<Arc<dyn StageEnterer<K, F> + Send + Sync>>,
+    device_access: TuneDeviceAccess,
     short_circuit: bool,
     /// Planned once a key: ranking candidates can build every one's blueprint, which costs
     /// more than the launch, and an untuned key is reached at every layer of a compile pass.
@@ -185,6 +192,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             bounds_gen: None,
             eviction: None,
             stage_enterer: None,
+            device_access: TuneDeviceAccess::Exclusive,
             short_circuit: true,
             run_orders: Mutex::new(HashMap::new()),
         };
@@ -237,6 +245,17 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     ) -> Self {
         self.stage_enterer = Some(enterer);
         self
+    }
+
+    /// Sets how a tune of this set holds the device it measures. See [`TuneDeviceAccess`].
+    pub fn with_device_access(mut self, access: TuneDeviceAccess) -> Self {
+        self.device_access = access;
+        self
+    }
+
+    /// How a tune of this set holds the device it measures.
+    pub fn device_access(&self) -> TuneDeviceAccess {
+        self.device_access
     }
 
     /// Set whether bounds-based short-circuiting is enabled.

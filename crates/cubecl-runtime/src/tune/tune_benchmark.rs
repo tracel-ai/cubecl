@@ -1,5 +1,5 @@
 use super::stage::{BoundStageEnterer, enter_stage};
-use super::{AutotuneError, Evictor, TuneFn, TuneInputs, TuneStage};
+use super::{AutotuneError, Evictor, TuneDeviceAccess, TuneFn, TuneInputs, TuneStage};
 use crate::client::Client;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -31,12 +31,15 @@ pub(crate) fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     client: Client,
     evictor: Option<&mut Evictor<'_>>,
     stage: Option<&mut BoundStageEnterer<'_>>,
+    access: TuneDeviceAccess,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
-    // `scoped` holds exclusive device access for the whole benchmark loop and
-    // accepts non-`'static` closures.
-    client
-        .clone()
-        .exclusive(move || profile_exclusive(operation, inputs, client, evictor, stage))
+    // Under exclusive access the device is held for the whole benchmark loop, which accepts
+    // non-`'static` closures.
+    let held = client.clone();
+    access
+        .hold(&held, move || {
+            profile_exclusive(operation, inputs, client, evictor, stage, access)
+        })
         .map_err(|err| AutotuneError::Unknown {
             name: operation.name.to_string(),
             err: err.to_string(),
@@ -49,6 +52,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     client: Client,
     mut evictor: Option<&mut Evictor<'_>>,
     stage: Option<&mut BoundStageEnterer<'_>>,
+    access: TuneDeviceAccess,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so their stream executes whatever
     // the process mode drops: it exists to skip the *workload*, not the tuning it is
@@ -63,7 +67,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
     let measuring_stage = enter_stage(stage, TuneStage::Measuring);
 
-    warmup(operation, inputs.clone(), client.clone())?;
+    warmup(operation, inputs.clone(), client.clone(), access)?;
 
     // The same budget the adaptive scheduler reads. This pass takes the ceiling: with no
     // elimination, there is nothing for a smaller budget to buy, and a candidate that stops early
@@ -79,7 +83,12 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // go, so the loop stops on the first error and hands it back untouched. Sampling on
         // would only pay more device round trips to reach the same verdict, with the reason
         // for the failure replaced by `InvalidSamples`.
-        durations.push(operation.sample_once(inputs.clone(), &client, evictor.as_deref_mut())?);
+        durations.push(operation.sample_once(
+            inputs.clone(),
+            &client,
+            evictor.as_deref_mut(),
+            access,
+        )?);
     }
     core::mem::drop(measuring_stage);
     core::mem::drop(measuring);
@@ -97,6 +106,7 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
+    access: TuneDeviceAccess,
 ) -> Result<(), AutotuneError> {
     let num_warmup = 3;
 
@@ -106,8 +116,9 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
 
     for _ in 0..num_warmup {
         let inputs = inputs.clone();
-        let profiled = client.profile(
-            || operation.race_contained(inputs, &client),
+        let profiled = access.profile(
+            &client,
+            || operation.race_contained(inputs, &client, access),
             &operation.name,
         );
 

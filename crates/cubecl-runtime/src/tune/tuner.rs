@@ -165,6 +165,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     /// What runs before every measured sample, bound to the key and the reference inputs.
     evictor: Option<Box<crate::tune::Evictor<'i>>>,
     stage_enterer: Option<Box<crate::tune::stage::BoundStageEnterer<'i>>>,
+    access: crate::tune::TuneDeviceAccess,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
     #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -450,6 +451,7 @@ impl<K: AutotuneKey> Tuner<K> {
             test_inputs,
             evictor: tunables.evictor(key, inputs),
             stage_enterer: tunables.bound_stage_enterer(key, inputs),
+            access: tunables.device_access(),
             plan,
             results,
             #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -537,6 +539,7 @@ impl<K: AutotuneKey> Tuner<K> {
             compile_parallelism: config.compilation.parallelism(),
             evictor: job.evictor.take(),
             stage_enterer: job.stage_enterer.take(),
+            access: job.access,
         };
 
         let outcome = match schedule.run_plan(
@@ -629,6 +632,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     client.clone(),
                     job.evictor.as_deref_mut(),
                     job.stage_enterer.as_deref_mut(),
+                    job.access,
                 ) {
                     Ok(profiles) => {
                         let bench = PendingBench {

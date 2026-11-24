@@ -1555,15 +1555,38 @@ fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_candidate_that_panics_is_dropped_alone() {
-    use cubecl_server::tune::Tunable;
+    use cubecl_server::tune::TuneDeviceAccess;
 
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_candidate_that_panics_is_dropped_alone");
 
+    assert_a_panicking_candidate_is_dropped_alone(&TUNER, TuneDeviceAccess::Exclusive);
+}
+
+/// A candidate that panics on a device its tune never holds is dropped alone too.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_candidate_that_panics_on_a_shared_device_is_dropped_alone() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_candidate_that_panics_on_a_shared_device_is_dropped_alone");
+
+    assert_a_panicking_candidate_is_dropped_alone(&TUNER, TuneDeviceAccess::Shared);
+}
+
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn assert_a_panicking_candidate_is_dropped_alone(
+    tuner: &'static LocalTuner<String, String>,
+    access: cubecl_server::tune::TuneDeviceAccess,
+) {
+    use cubecl_server::tune::Tunable;
+
     let client = test_client(&DummyDevice);
     let key = fresh_tune_key_uid();
     let id = key.clone();
-    let set = TUNER.init(&id, move || {
+    let set = tuner.init(&id, move || {
         let client = test_client(&DummyDevice);
         let key = key.clone();
         let slow = OneKernelAutotuneOperation::new(
@@ -1584,11 +1607,12 @@ fn a_candidate_that_panics_is_dropped_alone() {
             |_: Vec<Handle>| -> Result<(), String> { panic!("the block divides the vector") },
         ))
         .with(Tunable::new("add", move |inputs| add.run(inputs)))
+        .with_device_access(access)
     });
     let (handles, _) = addition_inputs(&client, &set);
     let out = handles[2].clone();
 
-    TUNER.execute(&id, &client, set, handles);
+    tuner.execute(&id, &client, set, handles);
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
@@ -2545,6 +2569,37 @@ fn autotune_ends_its_stages_in_nesting_order() {
         (0, 0),
         "{trace:?}"
     );
+}
+
+/// A tune that holds no device measures candidates whose launches another thread makes and waits
+/// on: the device is free to serve that thread while the candidate waits for it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_without_holding_the_device_serves_launches_from_another_thread() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_shared_access");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+    let uid = fresh_tune_key_uid();
+    let test_set = TUNER.init(&"test".to_string(), move || {
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_launched_elsewhere(
+            test_client(&DummyDevice),
+            shapes,
+            uid.clone(),
+            TuneDeviceAccess::Shared,
+        )
+    });
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
