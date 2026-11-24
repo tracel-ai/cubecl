@@ -1401,7 +1401,7 @@ fn a_tune_on_a_lost_device_settles_nothing() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.abandoned),
+        (autotune.registered_count, autotune.abandoned_count),
         (1, 1),
         "the stopped tune is abandoned, not left registered"
     );
@@ -1488,7 +1488,7 @@ fn a_lost_card_tunes_no_key_again() {
     core::mem::drop(counted);
     POISONED.store(false, Ordering::Relaxed);
 
-    assert_eq!(collector.statistics().autotune.registered, 0);
+    assert_eq!(collector.statistics().autotune.registered_count, 0);
 }
 
 /// A tune that unwinds leaves its key to the next caller, as a lost device does.
@@ -2053,7 +2053,11 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
 
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.measured, autotune.loaded),
+        (
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count
+        ),
         (2, 1, 1),
         "the other adapter measures, the same one reads"
     );
@@ -2160,7 +2164,11 @@ fn devices_of_the_same_hardware_share_a_tuner() {
 
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.measured, autotune.loaded),
+        (
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count
+        ),
         (0, 0, 0),
         "answered from memory, neither measured nor read"
     );
@@ -2189,7 +2197,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
         let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         tune(&gathering);
     }
-    let reader = collector.reader();
+    let reader = collector.to_reader();
     drop(collector);
     tune(&Tuner::new("gathered", &client.hardware_identity()));
     tune(&gathering);
@@ -2197,10 +2205,10 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
     let autotune = reader.statistics().autotune;
     assert_eq!(
         (
-            autotune.registered,
-            autotune.measured,
-            autotune.loaded,
-            autotune.abandoned
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count,
+            autotune.abandoned_count
         ),
         (1, 0, 1, 0)
     );
@@ -3256,14 +3264,14 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
     let gathered = collector.statistics().autotune;
     assert_eq!(
-        (gathered.registered, gathered.settled()),
+        (gathered.registered_count, gathered.settled_count()),
         (1, 0),
         "gathered once"
     );
 
     // Measured with no override open, the tune still settles to the
     // collector that gathered it.
-    let reader = collector.reader();
+    let reader = collector.to_reader();
     drop(collector);
     TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert!(
@@ -3272,7 +3280,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     );
     let measured = reader.statistics().autotune;
     assert_eq!(
-        (measured.registered, measured.measured),
+        (measured.registered_count, measured.measured_count),
         (1, 1),
         "the tune gathered is the one measured, counted where it was gathered"
     );
@@ -3337,7 +3345,7 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
         );
         core::mem::drop(compile);
     }
-    assert_eq!(collector.statistics().autotune.registered, 1);
+    assert_eq!(collector.statistics().autotune.registered_count, 1);
 }
 
 /// A key a `CompileOnly` pass reaches inside another key's candidates is not
@@ -3406,7 +3414,7 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "the outer key's candidates reached the inner key"
     );
     assert_eq!(
-        collector.statistics().autotune.registered,
+        collector.statistics().autotune.registered_count,
         1,
         "only the outer key is registered"
     );
@@ -3424,10 +3432,10 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "measuring the outer key reached the inner one"
     );
     let tuned = collector.statistics().autotune;
-    assert_eq!(tuned.registered, 2);
+    assert_eq!(tuned.registered_count, 2);
     assert_eq!(
-        (tuned.measured, tuned.failed),
-        (tuned.registered, 0),
+        (tuned.measured_count, tuned.failed_count),
+        (tuned.registered_count, 0),
         "every tune registered was measured, once"
     );
 }

@@ -50,7 +50,7 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     /// [issued for the race](crate::execution::LaunchPurpose::Race), never
     /// the work's.
     pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
-        crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
+        crate::execution::race(|| (self.func)(inputs))
     }
 
     /// [`race`](Self::race) contained as `access` runs it ([`TuneDeviceAccess::contain`]), so a

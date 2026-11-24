@@ -320,9 +320,7 @@ where
     first_served(order.iter().copied(), |index| {
         // Run as the work, but before the tune decided: a candidate whose
         // kernel fails to compile is the tune's to drop, not the work's failure.
-        crate::execution::LaunchPurpose::provisionally(|| {
-            operations.fastest(index).execute(inputs.clone())
-        })
+        crate::execution::run_provisionally(|| operations.fastest(index).execute(inputs.clone()))
     })
 }
 

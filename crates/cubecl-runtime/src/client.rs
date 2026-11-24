@@ -1572,12 +1572,11 @@ impl Client {
             true => crate::execution::LaunchMode::planning(self.service_stream()),
             false => crate::execution::LaunchMode::new(self.service_stream()),
         };
-        // So is where its kernels count: the device runs it later, and an
-        // override closing in between must not change that.
-        let issued = crate::execution::IssuedRecorder::new();
-        // And what it is issued for: a race's launch loads a kernel the work
-        // may never pick, and the server records only the work's.
-        let purpose = crate::execution::LaunchPurpose::issued();
+        // So are where its kernels count, since the device runs it later and
+        // an override closing in between must not change that, and what it is
+        // issued for: a race's launch loads a kernel the work may never pick,
+        // and the server records only the work's.
+        let issued = crate::execution::IssuedLaunch::new(crate::execution::LaunchPurpose::issued());
 
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
@@ -1613,10 +1612,8 @@ impl Client {
                         None
                     };
 
-                    purpose.apply(|| {
-                        issued.apply(|| unsafe {
-                            state.launch(kernel, count, bindings, stream_id, launch_mode)
-                        })
+                    issued.run(|| unsafe {
+                        state.launch(kernel, count, bindings, stream_id, launch_mode)
                     });
 
                     if let Some(info) = execution_info {
@@ -1650,16 +1647,8 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| {
-                                purpose.apply(|| {
-                                    issued_profiled.apply(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
-                                    })
+                                issued_profiled.run(|| unsafe {
+                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
                                 })
                             })
                             .unwrap_or_resume()
@@ -1684,16 +1673,14 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    purpose.apply(|| {
-                                        issued.apply(|| unsafe {
-                                            state.launch(
-                                                kernel,
-                                                count,
-                                                bindings,
-                                                stream_id,
-                                                launch_mode,
-                                            )
-                                        })
+                                    issued.run(|| unsafe {
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
                                     });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);
