@@ -138,7 +138,7 @@ pub enum Decline {
     /// they are stated.
     ScalesOfAPoolUnpaged,
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table that is not plain `u32` entries,
-    /// one a line: an entry is a coordinate.
+    /// one a line, its axes its keys in their order: an entry is a coordinate.
     IndexTableNotU32,
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` axes keyed by `keys`
     /// dimensions: a table holds one axis per key.
@@ -415,8 +415,8 @@ impl Display for Decline {
             ),
             Decline::IndexTableNotU32 => write!(
                 f,
-                "TileTensorLaunch::indexed: a table holds plain u32 entries, one a line, each a \
-                 coordinate"
+                "TileTensorLaunch::indexed: a table holds plain u32 entries, one a line, its axes its \
+                 keys in their order, each entry a coordinate"
             ),
             Decline::IndexTableRank { keys, rank } => write!(
                 f,

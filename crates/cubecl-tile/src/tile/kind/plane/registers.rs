@@ -96,8 +96,8 @@ pub(crate) fn assert_whole_cells(contracted_per_step: usize, vector_size: usize,
 }
 
 /// Bind the block width `RA` for what follows. A kernel may hold blocks of several widths, as an
-/// attention unit holds a score one value a cell beside its output's lines, so every block binds
-/// its own before it touches its lines.
+/// attention unit holds a score one value a cell beside its output's lines, so a block binds its own
+/// before it reads or writes a whole line of its registers.
 #[cube]
 pub(crate) fn register_line_width(#[comptime] vector_size: usize) {
     intrinsic!(|scope| {
@@ -165,32 +165,6 @@ impl RegisterData {
         #[unroll]
         for i in 0..count {
             data[i] = line;
-        }
-    }
-
-    /// Add `src`'s block (same grid and values a step) into this one, casting each line up to `T`.
-    pub(crate) fn add_cast_from<T: Numeric, S: Numeric>(&mut self, src: &RegisterData) {
-        let data = self.data.at_mut::<T>();
-        comptime!(assert!(
-            self.mr == src.mr
-                && self.nr == src.nr
-                && self.contracted_per_step == src.contracted_per_step
-                && self.vector_size == src.vector_size,
-            "RegisterData::add_cast_from: the blocks are {}x{} over {} contracted and {}x{} over \
-             {}; a promotion adds line for line and both are opened against one sink",
-            self.mr,
-            self.nr,
-            self.contracted_per_step,
-            src.mr,
-            src.nr,
-            src.contracted_per_step
-        ));
-        register_line_width(self.vector_size);
-        let count = comptime!(self.mr * self.nr);
-        #[allow(clippy::needless_range_loop)]
-        #[unroll]
-        for i in 0..count {
-            data[i] += Vector::<T, RA>::cast_from(src.data.at::<S>()[i]);
         }
     }
 

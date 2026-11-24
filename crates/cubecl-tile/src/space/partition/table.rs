@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::{ComputeScope, Coverage, Dimension, Level, Partitioning, Space, Spread};
+use crate::{ComputeScope, Count, Coverage, Dimension, Level, Partitioning, Space, Spread};
 
 /// The leaf row's glyph.
 const LEAF: char = '◦';
@@ -157,7 +157,10 @@ impl Row {
         let counts: Vec<Option<usize>> = level
             .dimensions()
             .iter()
-            .map(|&dimension| level.tiles_const(space, dimension))
+            .map(|&dimension| match level.count(dimension) {
+                Some(Count::AllAcross(workers)) => Some(workers),
+                _ => level.tiles_const(space, dimension),
+            })
             .collect();
         let total = counts
             .iter()
@@ -177,12 +180,16 @@ impl Row {
             },
             Coverage::Distribute(ComputeScope::Plane) => match level.shared_by() {
                 Some(planes) => format!("{planes} planes sharing {many} boxes"),
+                None if level.spans_launch() => format!("{many} planes of the launch"),
                 None => format!("{many} planes a cube"),
             },
             Coverage::Distribute(ComputeScope::PlaneGroup { planes }) => match level.shared_by() {
                 Some(groups) => format!("{groups} groups of {planes} planes sharing {many} boxes"),
                 None => format!("{many} groups of {planes} planes a cube"),
             },
+            Coverage::Distribute(ComputeScope::Unit) if level.spans_launch() => {
+                format!("{many} units of the launch")
+            }
             Coverage::Distribute(ComputeScope::Unit) => format!("{many} units"),
             Coverage::Walk => format!("{many} steps"),
         };

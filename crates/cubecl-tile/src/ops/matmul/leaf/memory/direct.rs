@@ -1,4 +1,4 @@
-//! The 2-D contraction nest: a single contracted dimension, no gathered operands.
+//! The 2-D contraction nest: its contracted dimensions one edge, no gathered operands.
 
 use cubecl::prelude::*;
 

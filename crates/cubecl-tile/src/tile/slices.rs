@@ -431,7 +431,7 @@ pub(crate) struct Broadcast {
 
 impl Broadcast {
     /// How a tile over `space` reads one over `broadcast`, whose every dimension is one of
-    /// `space`'s at its extent, or one wide.
+    /// `space`'s at its extent, or one wide where `space` omits it.
     ///
     /// # Panics
     ///
@@ -445,7 +445,7 @@ impl Broadcast {
                     false => broadcast.extent(dimension) == 1,
                 }),
             "Broadcast::new: every dimension of {broadcast:?} is one of {space:?}'s at its extent, or \
-             one wide"
+             one wide where it is none of them"
         );
         let stride = |dimension: Dimension| {
             (broadcast.position(dimension) + 1..broadcast.rank())

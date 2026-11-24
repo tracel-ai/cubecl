@@ -102,7 +102,7 @@ impl Launcher {
             } => (cube_count, cube_dim),
             Grid::FromLevels => {
                 let plane_size = client.properties().hardware.plane_size_max;
-                let plane_units = partitioning.units();
+                let plane_units = over_concrete.units();
                 if plane_units != 1 && plane_units != plane_size {
                     return Err(Decline::GridNotReadOffLevels {
                         units: plane_units,

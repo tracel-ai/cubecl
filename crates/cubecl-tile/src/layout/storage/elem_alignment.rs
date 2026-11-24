@@ -25,8 +25,8 @@ pub struct ElemAlignment(Widths);
 enum Widths {
     /// Every width dividing this one.
     Dividing(usize),
-    /// This width alone: a storage-tiled buffer stores its read as a piece, which a reader takes
-    /// whole.
+    /// This width, or one value: a storage-tiled buffer stores its read as a piece, which a reader
+    /// takes whole or a value at a time.
     Exactly(usize),
 }
 

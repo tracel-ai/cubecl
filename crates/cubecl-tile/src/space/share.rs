@@ -108,7 +108,8 @@ pub(crate) enum SplitShare {
     Whole,
     /// Several cubes hold partials of the same cell, each writing it whole from its planes.
     PartialAcrossCubes,
-    /// Several planes of one cube hold partials of the same cell, and write it at once.
+    /// Several planes of one cube, or units of the launch, hold partials of the same cell, and write
+    /// it at once.
     PartialAcrossPlanes,
 }
 
@@ -117,8 +118,14 @@ impl SplitShare {
     /// `space`. `space` must be the level's whole space, not the operand's projection.
     pub(crate) fn new(level: &Level, space: &Space, spanned: &Space) -> SplitShare {
         match level.coverage() {
-            Coverage::Walk | Coverage::Distribute(ComputeScope::Unit) => return SplitShare::Whole,
-            Coverage::Distribute(ComputeScope::Plane)
+            Coverage::Walk => return SplitShare::Whole,
+            // The plane's units combine their partials in registers ([`UnitShare`]).
+            Coverage::Distribute(ComputeScope::Unit) if level.unit_cube().is_none() => {
+                return SplitShare::Whole;
+            }
+            // The launch's units hold their tiles apart, and write them at once.
+            Coverage::Distribute(ComputeScope::Unit)
+            | Coverage::Distribute(ComputeScope::Plane)
             | Coverage::Distribute(ComputeScope::PlaneGroup { .. })
             | Coverage::Distribute(ComputeScope::Cube) => {}
         }
@@ -134,9 +141,12 @@ impl SplitShare {
         };
         match (split, level.coverage()) {
             (false, _) => SplitShare::Whole,
-            (true, Coverage::Distribute(ComputeScope::Plane | ComputeScope::PlaneGroup { .. })) => {
-                SplitShare::PartialAcrossPlanes
-            }
+            (
+                true,
+                Coverage::Distribute(
+                    ComputeScope::Unit | ComputeScope::Plane | ComputeScope::PlaneGroup { .. },
+                ),
+            ) => SplitShare::PartialAcrossPlanes,
             (true, _) => SplitShare::PartialAcrossCubes,
         }
     }
@@ -159,6 +169,7 @@ impl SplitShare {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::space::UnitCube;
     use crate::{Levels, Space};
 
     const M: Dimension = Dimension(0);
@@ -246,6 +257,25 @@ mod tests {
         );
         let walk = Levels::leaf(&[(K, 8)]).walk_every(&[K]).level();
         assert_eq!(UnitShare::new(&walk, &out), UnitShare::Repeated);
+    }
+
+    /// The launch's units hold partials of a cell whose operand lacks a dimension they take.
+    #[test]
+    fn the_launchs_units_split_a_dimension_the_operand_lacks() {
+        let space = Space::new(&[(M, 4), (K, 32)]);
+        let level = Levels::leaf(&[(M, 1), (K, 8)])
+            .launch_units(
+                &[M, K],
+                UnitCube {
+                    plane_width: 32,
+                    planes: 1,
+                },
+            )
+            .level();
+        assert_eq!(
+            SplitShare::new(&level, &space, &space.subspace(&[M])),
+            SplitShare::PartialAcrossPlanes
+        );
     }
 
     /// Shares compose level by level.

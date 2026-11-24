@@ -32,8 +32,8 @@ pub(crate) struct StoreForm {
 pub(crate) enum TransportKind {
     /// The packed words verbatim.
     Packed,
-    /// Every line in the destination's physical order; only for a whole, unmasked, addressed
-    /// destination that replaces.
+    /// Every line in the destination's physical order, or the source's where an engine moves them;
+    /// only from an addressed source to a whole, unmasked, addressed destination that replaces.
     Straight,
     /// Source and destination each read as a flat run of its own window.
     Scanned(Scan),
@@ -103,6 +103,7 @@ impl TransportKind {
             && src.packing.as_stored()
             && access.write == Write::Replace
             && dst.addressed
+            && src.addressed
         {
             // A padded stage assembles each destination line from scalar source cells.
             assert!(
@@ -134,8 +135,8 @@ impl Memory {
             }
             ComptimeOption::None => {}
         }
-        let addressed = self.store.has_address();
-        let src_addressed = src.store.has_address();
+        let addressed = self.store.addressed();
+        let src_addressed = src.store.addressed();
         let transport = comptime!(TransportKind::new(
             StoreForm {
                 packing: self.store.packing,

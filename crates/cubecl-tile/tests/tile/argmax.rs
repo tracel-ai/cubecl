@@ -3,6 +3,7 @@
 //! one at a time, a plane's units at once and groups of four units, on two-lane vectors whose
 //! lanes reduce apart.
 
+use crate::support::skip_unless_plane_holds;
 use cubecl::prelude::*;
 use cubecl_tile::space::UnitShare;
 use cubecl_tile::{Carrier, Indexed, Monoid};
@@ -212,10 +213,10 @@ fn a_unit_fold_in_index_order_keeps_the_lowest_index_and_the_first_nan() {
 #[test]
 fn a_plane_and_its_groups_keep_the_lowest_index_and_the_first_nan() {
     let client = cubecl::test_device().client();
-    let units = client.properties().hardware.plane_size_max as usize;
-    if units < 4 {
+    if skip_unless_plane_holds(&client, 4) {
         return;
     }
+    let units = client.properties().hardware.plane_size_max as usize;
     for (share, group) in [
         (UnitShare::Plane, units),
         (UnitShare::Group { unit_bits: 0b11 }, 4),

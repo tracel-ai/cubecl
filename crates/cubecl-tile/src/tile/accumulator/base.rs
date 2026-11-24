@@ -42,9 +42,10 @@ pub enum Scratch {
     /// No window: fragments store through their intrinsic, which cannot add; a drain that needs
     /// one opens [`OneTile`](Scratch::OneTile).
     None,
-    /// One tile, bounced through shared memory with three cube-wide barriers each.
+    /// One tile, bounced through shared memory with three barriers each, of the plane that holds the
+    /// grid.
     OneTile,
-    /// The plane's whole grid, two barriers for the whole drain.
+    /// The plane's whole grid, three barriers for the whole drain.
     #[serde(rename = "WholePartition")]
     WholeGrid,
 }
@@ -135,7 +136,9 @@ impl Tile {
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
-            | TileKind::Lines(_) => panic!("Tile::factor: a sum is a tile an accumulator opened"),
+            | TileKind::Lines(_) => {
+                panic!("Tile::sum_instruction: a sum is a tile an accumulator opened")
+            }
         }
     }
 

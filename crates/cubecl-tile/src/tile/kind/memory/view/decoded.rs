@@ -33,7 +33,7 @@ impl<O: Float, W: Size> Decoded<O, W> {
     /// # Panics
     ///
     /// As the kernel expands, on a window with a [`Boundary::Clamp`](crate::kind::Boundary::Clamp)
-    /// dimension, whose reads must be clamped.
+    /// dimension, whose reads must be clamped, or one walked backward, whose reads must be checked.
     pub fn read_unchecked(&self, row: usize, line: usize) -> Vector<O, W> {
         let provable = self.window.guard_provable();
         comptime!(assert!(

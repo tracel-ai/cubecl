@@ -62,10 +62,6 @@ pub(crate) fn launch_tiles(
     let at = block_coords(block, &blocks, named.len(), order.block_order());
 
     let capped = order.cap().is_some();
-    comptime!(assert!(
-        !capped || (order.one_block_a_cube() && named.len() == 1),
-        "launch_tiles: a capped launch's cubes take a block each, along the level's one dimension"
-    ));
     let mut positions = Coords::<usize>::new();
     let mut counts = Coords::<usize>::new();
     let mut scales = Coords::<usize>::new();

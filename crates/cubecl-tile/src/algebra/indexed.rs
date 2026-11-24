@@ -13,7 +13,8 @@ use crate::{Carrier, Monoid};
 /// index. A NaN wins over every number under both, as the monoid keeps NaN on numbers, and
 /// between NaNs the lower index wins: the result is the first NaN's index. `-0` and `+0` are
 /// equal values. The identities are `(-inf, u32::MAX)` under `Max` and `(+inf, u32::MAX)` under
-/// `Min`, which every read value beats, `-inf` itself by its lower index.
+/// `Min`, an integer's bounds in place of the infinities, which every read value beats, `-inf`
+/// itself by its lower index.
 ///
 /// `Sum` and `Prod` have no meaning on an index, so they are refused when the kernel expands.
 #[derive(CubeType, CubeTypeMut, Clone, Copy)]

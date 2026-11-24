@@ -164,7 +164,7 @@ impl PlaneOrder {
         if self.cubes.is_some() {
             return false;
         }
-        if Self::spare_blocks_land_past(level, self.block_order) != dimension {
+        if !self.spare_blocks_land_past(level, space, dimension) {
             return false;
         }
         if level
@@ -191,19 +191,44 @@ impl PlaneOrder {
             .product()
     }
 
-    /// The dimension a block index past the last lands past
+    /// Whether a block index past the last can land past `dimension`
     /// ([`block_coords`](crate::space::walk::launch_span::block_coords)): the one dimension; of
-    /// two, the one `order` runs out along; of more, the outermost, which is never wrapped.
-    fn spare_blocks_land_past(level: &Level, order: CubeOrder) -> Dimension {
+    /// two, the one the order runs out along, and the other too where the order's strips leave a
+    /// narrower last one, down which the index runs on; of more, the outermost, which is never
+    /// wrapped.
+    fn spare_blocks_land_past(&self, level: &Level, space: &Space, dimension: Dimension) -> bool {
         let dimensions = level.dimensions();
         match dimensions.len() {
-            1 => dimensions[0],
-            2 => match order.canonicalize() {
-                CubeOrder::SwizzleRow(_) => dimensions[0],
-                CubeOrder::RowMajor | CubeOrder::SwizzleCol(_) => dimensions[1],
+            1 => dimension == dimensions[0],
+            2 => match self.block_order.canonicalize() {
+                CubeOrder::RowMajor => dimension == dimensions[1],
+                CubeOrder::SwizzleRow(width) => {
+                    dimension == dimensions[0]
+                        || self.strips_are_ragged(level, space, dimensions[0], width)
+                }
+                CubeOrder::SwizzleCol(width) => {
+                    dimension == dimensions[1]
+                        || self.strips_are_ragged(level, space, dimensions[1], width)
+                }
             },
-            _ => dimensions[dimensions.len() - 1],
+            _ => dimension == dimensions[dimensions.len() - 1],
         }
+    }
+
+    /// Whether strips of `width` blocks along `across` leave a narrower last one, or may: the
+    /// launch alone knows a dynamic extent's blocks.
+    fn strips_are_ragged(
+        &self,
+        level: &Level,
+        space: &Space,
+        across: Dimension,
+        width: usize,
+    ) -> bool {
+        space.is_dynamic(across)
+            || !level
+                .tiles(space, across)
+                .div_ceil(self.block_along(across))
+                .is_multiple_of(width)
     }
 }
 
@@ -254,6 +279,35 @@ mod tests {
                 .launch_planes(&[N], PlaneOrder::new(&[(N, 1)], CubeOrder::RowMajor))
                 .build(),
         )
+    }
+
+    /// Over blocks whose last strip is narrower, spare planes run past the strips' far end too.
+    #[test]
+    fn spare_planes_overrun_the_far_end_of_a_ragged_strip() {
+        const M: Dimension = Dimension(1);
+        let partitioning = Partitioning::new(
+            Space::new(&[(M, 1), (N, 3)]),
+            Levels::leaf(&[(M, 1), (N, 1)])
+                .launch_planes(
+                    &[M, N],
+                    PlaneOrder::new(&[], CubeOrder::SwizzleRow(2)).cubes_of(2),
+                )
+                .build(),
+        );
+        assert!(partitioning.overhangs(N));
+    }
+
+    /// A capped launch's planes walk one dimension: two are refused on the host.
+    #[test]
+    #[should_panic(expected = "a capped launch's cubes take a block each")]
+    fn a_capped_launch_over_two_dimensions_is_refused() {
+        const M: Dimension = Dimension(1);
+        Levels::leaf(&[(M, 1), (N, 1)])
+            .launch_planes(
+                &[M, N],
+                PlaneOrder::new(&[(M, 2)], CubeOrder::RowMajor).capped(4),
+            )
+            .build();
     }
 
     /// More cubes than one dimension takes are laid out exactly where a count one dimension takes

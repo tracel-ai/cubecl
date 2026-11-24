@@ -3,7 +3,8 @@
 //! ```text
 //! Projection::axes()
 //!     .axis(B)                                        // axis 0 = b
-//!     .axis(stencil(&[(OH, stride), (RH, dilation)]).pad(pad)) // axis 1 = oh*stride+rh*dilation-pad
+//!     .axis(PhysicalAxisMap::affine(&[(OH, stride), (RH, dilation)]).shifted(-pad))
+//!                                                     // axis 1 = oh*stride+rh*dilation-pad
 //!     .axis(C)                                        // axis 2 = c
 //!     .build()
 //! ```

@@ -35,6 +35,8 @@ impl Tile {
     /// unit or a plane holds ([`Tile::set_cells`]), every unit of the holder summing every cell;
     /// `lhs` and `rhs` span one space, bound at one width.
     pub fn dot<E: Float>(&mut self, lhs: &Tile, rhs: &Tile) {
+        lhs.refuse_factor("Tile::dot");
+        rhs.refuse_factor("Tile::dot");
         let (width, rhs_width) = (lhs.vector_size(), rhs.vector_size());
         comptime!(assert!(
             lhs.place.space == rhs.place.space && width == rhs_width,

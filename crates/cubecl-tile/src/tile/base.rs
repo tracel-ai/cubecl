@@ -171,7 +171,8 @@ impl Tile {
         }
     }
 
-    /// The launch's cube size this operand was bound with, `0` when unknown.
+    /// The units a cooperative copy of this operand deals its lines to: the launch's cube size it was
+    /// bound with, or its plane's units for a stage a plane owns; `0` when unknown.
     pub(crate) fn units(&self) -> comptime_type!(usize) {
         let fill = self.copy_level();
         comptime!(fill.copied_units().1.unwrap_or(0))
@@ -190,7 +191,8 @@ impl Tile {
         }
     }
 
-    /// Physical vector width of the backing store; `1` for a fragment or tma source. Refuses a
+    /// Physical vector width of the backing store, the width a tensor map is served at; `1` for a
+    /// fragment. Refuses a
     /// memory whose loads span several dimensions: its reader asks for the vector tile instead.
     pub fn vector_size(&self) -> comptime_type!(usize) {
         match &self.kind {
@@ -562,8 +564,16 @@ impl Tile {
     }
 
     /// This operand's window at `from` on `dimension`, reading zero past `until` (both in
-    /// elements).
+    /// elements), and the scales it carries that span `dimension` windowed with it. A `from` known
+    /// at expansion to be 0 moves neither.
     pub fn within(&self, #[comptime] dimension: Dimension, from: usize, until: usize) -> Tile {
+        let first = from.constant();
+        let factor = match comptime!(first == Some(0)) {
+            true => self.factor.clone(),
+            false => self
+                .factor
+                .run_within(dimension, from.cast::<u32>(), until.cast::<u32>()),
+        };
         let tile_kind = match &self.kind {
             TileKind::Memory(g) => TileKind::new_Memory(g.within(dimension, from, until)),
             TileKind::TmaGmem(_)
@@ -577,7 +587,7 @@ impl Tile {
         };
         Tile {
             kind: tile_kind,
-            factor: self.factor.clone(),
+            factor,
             place: comptime!(self.place.clone()),
             element: comptime!(self.element),
         }
@@ -1074,27 +1084,6 @@ impl Tile {
         }
     }
 
-    /// Add a resident block `src` into this one, casting up to `T`, without touching memory.
-    pub fn add_cast_from(&mut self, src: &Tile) {
-        let define!(Served) = self.element;
-        let define!(Source) = src.element;
-        match (&mut self.kind, &src.kind) {
-            (TileKind::PlaneTile(d), TileKind::PlaneTile(s)) => {
-                d.add_cast_from::<Served, Source>(s)
-            }
-            (TileKind::PlanePartition(d), TileKind::PlanePartition(s)) => {
-                // The fragment clones the block's array reference, so this promotes the block
-                // itself.
-                let mut fragment = d.fragment();
-                fragment.add_cast_from::<Served, Source>(&s.fragment())
-            }
-            _ => panic!(
-                "Tile::add_cast_from: a resident block promotes into a resident block; memory \
-                 is reached through `copy_cast_from`"
-            ),
-        }
-    }
-
     /// [`copy_from`](Tile::copy_from) with a cast: stores a wider resident fragment down to `T`,
     /// or copies a memory window of the same box, the units sharing it a line at a time, or loads
     /// the fragments a plane holds of a factor ([`held_for`](Tile::held_for)), cast as they load. A
@@ -1395,8 +1384,8 @@ impl Tile {
         unexpanded!()
     }
 
-    /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
-    /// [`decoded`](Tile::decoded): what an operand bound under a codebook
+    /// These values as indices into `table`, decoded only by
+    /// [`dequantize_from`](Tile::dequantize_from) and [`decoded`](Tile::decoded): what an operand bound under a codebook
     /// ([`TileTensorLaunch::codebook`]) is served as.
     #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn lookup(&self, _table: &Tile) -> Tile {
@@ -1813,7 +1802,7 @@ impl TileExpand {
                 !memory.codebook.present(),
                 "{site}: these values are indices into a codebook (`TileTensorLaunch::codebook`), \
                  which only a copy or a decoded read decodes; copy them into a stage first \
-                 (`stage.copy_from(&w)`), or read them `decoded`"
+                 (`stage.dequantize_from(&w)`), or read them `decoded`"
             );
         }
     }

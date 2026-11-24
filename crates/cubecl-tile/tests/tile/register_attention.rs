@@ -19,6 +19,7 @@
 
 use std::time::Instant;
 
+use crate::support::ValidationResult;
 use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     prelude::barrier::{Barrier, copy_async},
@@ -438,6 +439,7 @@ fn fragment_positions(a: &mut Tensor<u32>, acc: &mut Tensor<u32>, half_acc: &mut
 fn two_accumulator_tiles_are_one_a_fragment() {
     let client = cubecl::test_device().client();
     if !offers_mma(&client) {
+        ValidationResult::Skipped("the device offers no mma instruction".to_string()).enforce();
         return;
     }
     let (a_elems, c_elems) = (8usize, 4usize);
@@ -492,6 +494,7 @@ fn two_accumulator_tiles_are_one_a_fragment() {
 fn register_attention_matches_the_reference() {
     let client = cubecl::test_device().client();
     if !offers_mma(&client) {
+        ValidationResult::Skipped("the device offers no mma instruction".to_string()).enforce();
         return;
     }
     let problem = Problem {
@@ -619,6 +622,7 @@ fn mma_ceiling(out: &mut Tensor<f32>, #[comptime] repeats: u32) {
 fn mma_ceiling_throughput() {
     let client = cubecl::test_device().client();
     if !offers_mma(&client) {
+        ValidationResult::Skipped("the device offers no mma instruction".to_string()).enforce();
         return;
     }
     let (cubes, planes, repeats) = (1024u32, 4u32, 4096u32);
