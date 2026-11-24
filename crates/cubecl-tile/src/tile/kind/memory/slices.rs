@@ -18,19 +18,23 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                let at = i * length + s;
-                let cell = bias.value_at::<E>(i as u32, s as u32, space);
-                view.write(
-                    at,
-                    Vector::cast_from(view.read(at).extract(0usize) * scale + cell),
-                );
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let at = i * loads + l;
+                let mut line = view.read(at);
+                #[unroll]
+                for lane in 0..width {
+                    let cell = bias.value_at::<E>(i as u32, (l * width + lane) as u32, space);
+                    line.insert(lane, line.extract(lane) * scale + cell);
+                }
+                view.write(at, line);
+                l += PLANE_DIM as usize;
             }
         }
     }
@@ -44,22 +48,26 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                let at = i * length + s;
-                let cell = bias.value_at::<E>(i as u32, s as u32, space);
-                view.write(
-                    at,
-                    Vector::cast_from(DimensionSlices::mul_exp_cell::<E>(
-                        view.read(at).extract(0usize),
-                        cell,
-                    )),
-                );
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let at = i * loads + l;
+                let mut line = view.read(at);
+                #[unroll]
+                for lane in 0..width {
+                    let cell = bias.value_at::<E>(i as u32, (l * width + lane) as u32, space);
+                    line.insert(
+                        lane,
+                        DimensionSlices::mul_exp_cell::<E>(line.extract(lane), cell),
+                    );
+                }
+                view.write(at, line);
+                l += PLANE_DIM as usize;
             }
         }
     }
@@ -73,16 +81,22 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let view = self.flat::<E, W>();
         let mut maxima = Array::<E>::new(slices);
         #[unroll]
         for i in 0..slices {
             let mut partial = seed[i];
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                partial = max(partial, view.read(i * length + s).extract(0usize));
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let line = view.read(i * loads + l);
+                #[unroll]
+                for lane in 0..width {
+                    partial = max(partial, line.extract(lane));
+                }
+                l += PLANE_DIM as usize;
             }
             maxima[i] = plane_max(partial);
         }
@@ -99,20 +113,29 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (count, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..count {
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                let at = i * length + s;
-                let cell = DimensionSlices::exp2_scaled_minus_cell::<E>(
-                    view.read(at).extract(0usize),
-                    scale,
-                    offsets[i],
-                );
-                view.write(at, Vector::cast_from(cell));
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let at = i * loads + l;
+                let mut line = view.read(at);
+                #[unroll]
+                for lane in 0..width {
+                    line.insert(
+                        lane,
+                        DimensionSlices::exp2_scaled_minus_cell::<E>(
+                            line.extract(lane),
+                            scale,
+                            offsets[i],
+                        ),
+                    );
+                }
+                view.write(at, line);
+                l += PLANE_DIM as usize;
             }
         }
     }
@@ -124,16 +147,22 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let view = self.flat::<E, W>();
         let mut sums = Array::<E>::new(slices);
         #[unroll]
         for i in 0..slices {
             let mut partial = E::from_int(0);
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                partial += view.read(i * length + s).extract(0usize);
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let line = view.read(i * loads + l);
+                #[unroll]
+                for lane in 0..width {
+                    partial += line.extract(lane);
+                }
+                l += PLANE_DIM as usize;
             }
             sums[i] = plane_sum(partial);
         }
@@ -148,11 +177,13 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (length, cells) = comptime!((space.extent(dimension), space.cells()));
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         let mut at = UNIT_POS_PLANE as usize;
-        while at < cells {
-            view.write(at, view.read(at) * Vector::cast_from(factors[at / length]));
+        while at < cells / width {
+            view.write(at, view.read(at) * Vector::cast_from(factors[at / loads]));
             at += PLANE_DIM as usize;
         }
     }
@@ -172,20 +203,29 @@ impl Memory {
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
             let first = broadcast.at(i, 0);
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                let at = i * length + s;
-                let score = view.read(at).extract(0usize) * scale
-                    + bias.value_at::<E>(i as u32, s as u32, space);
-                let probability =
-                    DimensionSlices::exp_minus_cell::<E>(score, logsumexp[first + s * step]);
-                view.write(at, Vector::cast_from(probability));
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let at = i * loads + l;
+                let mut line = view.read(at);
+                #[unroll]
+                for lane in 0..width {
+                    let s = l * width + lane;
+                    let score =
+                        line.extract(lane) * scale + bias.value_at::<E>(i as u32, s as u32, space);
+                    line.insert(
+                        lane,
+                        DimensionSlices::exp_minus_cell::<E>(score, logsumexp[first + s * step]),
+                    );
+                }
+                view.write(at, line);
+                l += PLANE_DIM as usize;
             }
         }
     }
@@ -205,21 +245,26 @@ impl Memory {
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
-        let size!(W) = 1usize;
+        let width = comptime!(self.store.vector_size);
+        let loads = self.loads_along(length);
+        let size!(W) = width;
         let read = probabilities.flat::<E, W>();
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
             let first = broadcast.at(i, 0);
-            let mut s = UNIT_POS_PLANE as usize;
-            while s < length {
-                let at = i * length + s;
-                let gradient = view.read(at).extract(0usize) - delta[first + s * step];
-                view.write(
-                    at,
-                    Vector::cast_from(read.read(at).extract(0usize) * gradient),
-                );
-                s += PLANE_DIM as usize;
+            let mut l = UNIT_POS_PLANE as usize;
+            while l < loads {
+                let at = i * loads + l;
+                let mut line = view.read(at);
+                let probability = read.read(at);
+                #[unroll]
+                for lane in 0..width {
+                    let gradient = line.extract(lane) - delta[first + (l * width + lane) * step];
+                    line.insert(lane, probability.extract(lane) * gradient);
+                }
+                view.write(at, line);
+                l += PLANE_DIM as usize;
             }
         }
     }
