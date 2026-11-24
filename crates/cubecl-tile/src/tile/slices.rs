@@ -2,6 +2,7 @@
 
 use cubecl::prelude::*;
 
+use crate::ops::softmax::Rescale;
 use crate::*;
 
 /// Who keeps a tile's slices, and so how a slice is read whole.
@@ -229,6 +230,24 @@ impl DimensionSlices {
             }
             DimensionSlicesKind::Fragments(partition) => partition.mul_along::<E>(factors),
             DimensionSlicesKind::Fragment(tile) => tile.mul_along(factors, 0usize),
+        }
+    }
+
+    /// This tile, what a softmax's earlier blocks were summed into, under `rescale`
+    /// ([`OnlineSoftmax::step`](crate::ops::softmax::OnlineSoftmax::step)): each slice by its
+    /// factor, which a state kept as this tile's slices are cut holds ([`mul`](Self::mul)), and
+    /// skipped where no factor the unit holds moved.
+    pub fn rescale<E: Float>(&mut self, rescale: &Rescale<E>) {
+        if comptime!(!rescale.lazy) || rescale.moved {
+            self.mul::<E>(&rescale.factors);
+        }
+    }
+
+    /// [`rescale`](Self::rescale) by a softmax holding one factor for every slice of the tile in
+    /// every unit ([`mul_every_slice`](Self::mul_every_slice)).
+    pub fn rescale_every_slice<E: Float>(&mut self, rescale: &Rescale<E>) {
+        if comptime!(!rescale.lazy) || rescale.moved {
+            self.mul_every_slice::<E>(&rescale.factors);
         }
     }
 

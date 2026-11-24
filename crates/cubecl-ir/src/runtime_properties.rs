@@ -1,8 +1,8 @@
 use pliron::{context::Context, r#type::TypedHandle};
 
 use crate::{
-    TypeHash, VectorSize,
-    types::matrix::{MatrixIdent, MatrixLayout, MatrixType},
+    ElemType, TypeHash, VectorSize,
+    types::matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape, MatrixType},
 };
 
 /// Hacky solution for getting comptime properties into the scope.
@@ -92,6 +92,28 @@ impl PartialEq for ContiguousElements {
 impl TypeHash for ContiguousElements {
     fn write_hash(hasher: &mut impl core::hash::Hasher) {
         hasher.write_i32(0);
+    }
+}
+
+impl MmaProperties {
+    /// Elements a lane holds in one vector of operand `ident`, of `elem`, in a contraction of
+    /// `shape`: what a kernel reads off its own definition of it, for code that picks one ahead.
+    pub fn vector_size(
+        &self,
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+    ) -> VectorSize {
+        let ctx = Context::default();
+        let matrix = MatrixType::get(
+            &ctx,
+            ident,
+            shape,
+            elem.to_type(&ctx),
+            MatrixLayout::ColMajor,
+            MatrixScope::Plane,
+        );
+        self.contiguous_elements.apply(&ctx, ident, matrix)
     }
 }
 

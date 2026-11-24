@@ -76,6 +76,7 @@ fn plane_attention<E: Float>(
     #[comptime] unbiased: bool,
     #[comptime] over_run: bool,
     #[comptime] rescaled: bool,
+    #[comptime] headroom: u32,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -128,7 +129,7 @@ fn plane_attention<E: Float>(
                     .accumulator::<f32>(&p, &v_p, Semiring::SumProd)
                     .with_scratch(Scratch::OneTile),
             };
-            let mut softmax = OnlineSoftmax::<f32>::along(&score, S);
+            let mut softmax = OnlineSoftmax::<f32>::along(&score, S).with_headroom(headroom);
             // The query spans no key: staged once, before the walk, where the keys are staged.
             let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
             q_s.copy_from(&q_p);
@@ -155,8 +156,8 @@ fn plane_attention<E: Float>(
                     sync_plane();
                     // The window's state holds every row in every unit.
                     match rescaled {
-                        true => acc.along(V).mul_every_slice(&correction),
-                        false => acc.along(V).mul(&correction),
+                        true => acc.along(V).rescale_every_slice(&correction),
+                        false => acc.along(V).rescale(&correction),
                     }
                     for fragment in stage.walk().routed(D, 0).unrolled() {
                         let mut cell = acc.at(&fragment);
@@ -197,6 +198,8 @@ fn register_plane_attention<E: Float>(
     #[comptime] plane_rows: usize,
     #[comptime] ending: Ending,
     #[comptime] unbiased: bool,
+    #[comptime] headroom: u32,
+    #[comptime] held: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -226,16 +229,33 @@ fn register_plane_attention<E: Float>(
             let keys_walk = plane.walk();
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
-            let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
-            q_s.copy_from(&q_p);
-            sync_plane();
-            let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
+            let q_s = match held {
+                true => q_p.clone(),
+                false => {
+                    let mut staged = q_p.stage_for(&walk, StageStorage::Strided, None);
+                    staged.copy_from(&q_p);
+                    sync_plane();
+                    staged
+                }
+            };
+            let logits = match held {
+                true => Tile::held_factor_accumulator::<f32, E>(&walk, comptime!(vec![Q, S]), &q_s),
+                false => Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s),
+            };
+            let q_s = match held {
+                true => {
+                    let mut fragments = q_s.held_for::<E>(&logits);
+                    fragments.copy_cast_from(&q_s);
+                    fragments
+                }
+                false => q_s,
+            };
             // The value's sum is opened against what it contracts: the score's own fragments,
             // whose instruction it keeps.
             let acc = out
                 .at(&plane)
                 .accumulator::<f32>(&logits, &v_p, Semiring::SumProd);
-            let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
+            let mut softmax = OnlineSoftmax::<f32>::along(&logits, S).with_headroom(headroom);
             let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
@@ -251,7 +271,7 @@ fn register_plane_attention<E: Float>(
                         false => softmax.step(&logits, &bias_s, scale),
                     };
                     let p = logits.cast::<E>();
-                    acc.along(V).mul(&correction);
+                    acc.along(V).rescale(&correction);
                     for fragment in stage.walk().routed(D, 0).unrolled() {
                         let mut cell = acc.at(&fragment);
                         cell.mma(&p.at(&fragment), &v_s.at(&fragment));
@@ -347,7 +367,7 @@ fn cut_plane_attention<E: Float>(
                     logits.mma(&q_s, k_s);
                     let correction = softmax.step(&logits, &bias_s, scale);
                     let p = logits.cast::<E>();
-                    acc.along(V).mul(&correction);
+                    acc.along(V).rescale(&correction);
                     // The output's sum sits at the plane, above the walk over the blocks: this
                     // block's product adds into it at the stage.
                     let mut sum = acc.at(stage);
@@ -535,7 +555,7 @@ fn unit_attention(
                 );
                 score.mma(&q_s, &k_s);
                 let correction = softmax.step(&score, &bias_s, scale);
-                acc.along(V).mul(&correction);
+                acc.along(V).rescale(&correction);
                 acc.mma(&score, &v_s);
             }
             match ending {
@@ -620,7 +640,7 @@ fn unit_attention_over_scaled_keys(
                 let (k_s, k_scale) = k_s.factor(&score);
                 score.mma(&q_s, &k_s);
                 let correction = softmax.step(&score.scaled(&k_scale), &bias_s, scale);
-                acc.along(V).mul(&correction);
+                acc.along(V).rescale(&correction);
                 acc.mma(&score, &v_s);
             }
             acc.along(V).mul(&softmax.recip_l());
@@ -672,6 +692,12 @@ struct Case {
     /// The value's sum opened as a rescaled accumulator ([`Tile::rescaled_accumulator`]), scaled
     /// by every row's factor ([`DimensionSlices::mul_every_slice`]) ([`plane_attention`] alone).
     rescaled: bool,
+    /// Octaves the softmax keeps before its max follows a row's scores
+    /// ([`OnlineSoftmax::with_headroom`]).
+    headroom: u32,
+    /// The query held in the plane's registers across the walk ([`Tile::held_for`]) rather than
+    /// staged ([`register_plane_attention`] alone).
+    held: bool,
 }
 
 impl Case {
@@ -768,6 +794,7 @@ fn run<E: Float + CubeElement>(case: Case) {
         case.unbiased(),
         case.over_run,
         case.rescaled,
+        case.headroom,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -803,8 +830,12 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
     let depth = 32 / e_ty.size();
     // The score is held where the value rereads it only where the tile keeps it in the manual
     // mma; a device whose fragment API offers the same calls keeps it there instead.
+    let pick = match case.held {
+        true => Instruction::for_held_factor_accumulator,
+        false => Instruction::for_stage_accumulator,
+    };
     let kept_in_mma = |n: u32| {
-        Instruction::for_stage_accumulator(
+        pick(
             client.properties(),
             client.target_properties(),
             FragmentSource::Values(e_ty),
@@ -914,6 +945,8 @@ fn run_registers_at(e_ty: ElemType, case: Case, ending: Ending, run: usize) {
         m * rows,
         ending,
         case.unbiased(),
+        case.headroom,
+        case.held,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -1439,6 +1472,8 @@ const PREFILL: Case = Case {
     unbiased: false,
     over_run: false,
     rescaled: false,
+    headroom: 0,
+    held: false,
 };
 
 #[test]
@@ -1518,6 +1553,24 @@ fn plane_attention_steps_unbiased_blocks() {
     }
 }
 
+/// A softmax rescaling past a headroom computes what one rescaling after every block does: at 1
+/// octave, which rows' scores rise past in some blocks and not in others, and at 14, which most
+/// stay within, with a bias and without one.
+#[test]
+fn plane_attention_rescales_past_a_headroom() {
+    for headroom in [1, 14] {
+        for (attended, unbiased, rescaled) in [(64, true, false), (50, false, true)] {
+            run::<half::f16>(Case {
+                attended,
+                unbiased,
+                rescaled,
+                headroom,
+                ..PREFILL
+            });
+        }
+    }
+}
+
 /// A walk over the attended keys' run fills every block but its last unchecked; the last, which
 /// runs past the attended keys into poisoned ones, still reads zero there.
 #[test]
@@ -1559,11 +1612,69 @@ const REGISTER_PREFILL: Case = Case {
     unbiased: false,
     over_run: false,
     rescaled: false,
+    headroom: 0,
+    held: false,
 };
 
 #[test]
 fn register_plane_attention_matches_the_reference() {
     run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized, 1);
+}
+
+/// Each unit's rows rescaled past a headroom, the keys masked causally.
+#[test]
+fn register_plane_attention_rescales_past_a_headroom() {
+    for headroom in [1, 14] {
+        run_registers::<half::f16>(
+            Case {
+                attended: 100,
+                causal: true,
+                headroom,
+                ..REGISTER_PREFILL
+            },
+            Ending::Normalized,
+            1,
+        );
+    }
+}
+
+/// The query read from global memory once, into fragments every block's scores then contract, as
+/// many a plane along the head dim as the contraction takes steps and along the queries as it holds
+/// rows.
+#[test]
+fn register_plane_attention_holds_its_query_in_registers() {
+    for rows in [1, 2] {
+        run_registers::<half::f16>(
+            Case {
+                rows,
+                queries: 32 * rows,
+                held: true,
+                ..REGISTER_PREFILL
+            },
+            Ending::Normalized,
+            1,
+        );
+    }
+}
+
+/// The same at `e4m3`, whose head dim the score walks in several steps of its instruction.
+#[test]
+fn register_plane_attention_holds_an_fp8_query_in_registers() {
+    let e4m3 = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    for head in [32, 128] {
+        run_registers_at(
+            e4m3,
+            Case {
+                rows: 1,
+                queries: 32,
+                head,
+                held: true,
+                ..REGISTER_PREFILL
+            },
+            Ending::Normalized,
+            1,
+        );
+    }
 }
 
 #[test]
@@ -1779,6 +1890,8 @@ fn a_plane_stating_its_tile_holds_a_score_the_tile_cuts() {
         unbiased: false,
         over_run: false,
         rescaled: false,
+        headroom: 0,
+        held: false,
     };
     run_cut::<half::f16>(case);
     run_cut::<half::f16>(Case {

@@ -3,10 +3,14 @@
 //! the encode of `f32` to fp8.
 
 use crate::{
-    nvptx::registers::{extract_lane, insert_lane, poison},
+    nvptx::registers::{insert_lane, poison},
     prelude::*,
     shared::plane::bitcast,
-    shared::{intrinsic::call_op, native_decode::NativeDecode, to_llvm::general::convert_float},
+    shared::{
+        intrinsic::call_op,
+        native_decode::NativeDecode,
+        to_llvm::{general::convert_float, vector::extract_lane},
+    },
 };
 use cubecl_core::ir::nvidia::SmArch;
 

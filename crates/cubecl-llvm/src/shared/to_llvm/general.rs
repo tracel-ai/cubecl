@@ -174,6 +174,13 @@ impl ToLLVMDialect for CastOp {
             .lookup_most_recent_type(self.input(ctx))
             .unwrap_or(self.input(ctx).get_type(ctx));
 
+        #[cfg(feature = "amdgpu")]
+        if ctx.target() == LlvmTarget::AmdGpu
+            && let Some(value) = crate::amdgpu::fp8::cast(ctx, rewriter, self, in_ty)
+        {
+            rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
+            return Ok(());
+        }
         // A decode the pipeline left for the target: only one that decodes the format itself
         // has one ([`NativeDecode`](crate::shared::native_decode::NativeDecode)).
         #[cfg(feature = "nvptx")]

@@ -7,6 +7,7 @@ use cubecl::{
 
 use super::block_scaled::*;
 use super::widths::*;
+use crate::ops::matmul::mma_io::LaneVectors;
 use crate::tile::kind::plane::load_matrix::{
     LDMATRIX_ROW_BYTES, PairAxis, along_k, load_ldmatrix, load_ldmatrix_b8_pair, load_ldmatrix_pair,
 };
@@ -782,6 +783,18 @@ impl MmaData {
 
 #[cube]
 impl MmaData {
+    /// Whether the `A` a contraction rereads this accumulator's cells of `E` as, holds them in
+    /// another order than they lie here: an 8-bit `A` vector two accumulator vectors long, whose
+    /// halves lie a row of vectors apart ([`accumulators_as_a`]). An `A` vector as long as the
+    /// accumulator's, as RDNA4's 8-bit one is, holds its columns as they lie.
+    pub(crate) fn reorders_as_a<E: Numeric>(&self) -> comptime_type!(bool) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.n);
+        let acc_width = def.vector_size(MatrixIdent::Accumulator);
+        let a_width = def.vector_size(MatrixIdent::A);
+        let bytes = E::size().comptime();
+        comptime!(bytes == 1 && a_width != acc_width)
+    }
+
     /// This accumulator with each cell cast to `E` in the register that holds it.
     pub(crate) fn cast<A: Numeric, E: Numeric>(&self) -> MmaData {
         let acc = self.acc_registers::<A>();
@@ -804,6 +817,79 @@ impl MmaData {
 
 #[cube]
 impl MmaData {
+    /// Fill this fragment, an `A`, from `src`'s window of values of `R`, each cast as it is read: a
+    /// unit's run of `k` a line at a time, or out of the line that holds it, read as the window guards its bounds, so the window may
+    /// run past the problem's edge. A fragment deeper than its instruction fills a step at a time,
+    /// its registers in the order [`load_in_steps`] leaves them.
+    pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
+        let (m, n, k) = comptime!((self.m, self.n, self.k));
+        let layout = comptime!(self.layout);
+        let depth = instruction_depth::<T>(m, n, k);
+        let def = MmaDefinition::<T, T, T>::new(m, n, depth);
+        let per_step = def.vectors_per_lane(MatrixIdent::A);
+        let vector_size = def.vector_size(MatrixIdent::A);
+        let vector_layout = def.vector_layout(MatrixIdent::A);
+        let served = src.vector_size();
+        let width = comptime!(served);
+        let (rows, cols) = comptime!(covered_edges(&src.place.space, MatrixIdent::A, (m, k)));
+        comptime!(assert!(
+            layout == MatrixLayout::RowMajor
+                && vector_layout == layout
+                && (vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size)),
+            "MmaData::load_cast_window: a run of {vector_size} cells along the contraction neither \
+             holds whole {width}-wide lines along it nor sits inside one"
+        ));
+        // Cells of a run one line holds: all of them, where it lies within a line.
+        let run = comptime!(width.min(vector_size));
+        let short = comptime!((rows, cols) != (m, k));
+        let size!(W) = served;
+        let view = src.fragment_matrix_packed::<R, W>(rows, cols);
+        match &mut self.fragment {
+            MmaFragment::Lhs(fragment) => {
+                let fragment = fragment.at_mut::<T>();
+                #[unroll]
+                for s in 0..comptime!(k / depth) {
+                    #[unroll]
+                    for i in 0..per_step {
+                        let (row, col) = def.position_of_nth(
+                            UNIT_POS_PLANE,
+                            comptime!(i * vector_size) as u32,
+                            MatrixIdent::A,
+                        );
+                        let col = col + comptime!((s * depth) as u32);
+                        let mut vector = Vector::<T, NL>::cast_from(T::from_int(0));
+                        if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32))
+                        {
+                            #[unroll]
+                            for l in 0..comptime!(vector_size / run) {
+                                let cell = col + comptime!((l * run) as u32);
+                                let line = view.read((row, cell / comptime!(width as u32)));
+                                let start = cell % comptime!(width as u32);
+                                #[unroll]
+                                for e in 0..run {
+                                    let value = match width > run {
+                                        true => {
+                                            line.extract_dynamic((start + e as u32).cast::<usize>())
+                                        }
+                                        false => line.extract(e),
+                                    };
+                                    vector.insert(l * run + e, T::cast_from(value));
+                                }
+                            }
+                        }
+                        fragment[comptime!(s * per_step + i)] = vector;
+                    }
+                }
+            }
+            MmaFragment::Rhs(_)
+            | MmaFragment::Acc(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::load_cast_window: an `A` fragment is held cast")
+            }
+        }
+    }
+
     /// Each row's max, starting from `seed`'s, over the units that share it.
     pub(crate) fn maxima_along<E: Float>(&self, seed: &Array<E>) -> Array<E> {
         let rows = self.rows_per_unit::<E>();
@@ -1097,15 +1183,19 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
             panic!("MmaData::load: a manual fragment load reads a row- or col-major window")
         }
     });
-    // A register vector along the lines starts at a multiple of its size, and so does every row
-    // where the lines hold whole vectors: it is then one load.
-    // Rows read in a run's order are not consecutive: each is read on its own.
-    let whole_vectors = comptime!(
-        vector_layout == layout && served.is_multiple_of(vector_size) && keys == KeyOrder::AsLaid
-    );
     match &src.kind {
         TileKind::Memory(m) => {
             let stride = m.row_stride_at(rank - 2);
+            let row_cells = stride.constant();
+            // A register vector along the lines starts at a multiple of its size: it is one load
+            // where every row does too. Rows read in a run's order are not consecutive, so each is
+            // read on its own.
+            let whole_vectors = comptime!({
+                let rows_start_whole = served.is_multiple_of(vector_size)
+                    || vector_size.is_multiple_of(served)
+                        && row_cells.is_some_and(|row| row.is_multiple_of(vector_size as u64));
+                vector_layout == layout && keys == KeyOrder::AsLaid && rows_start_whole
+            });
             let view = if transposed {
                 src.fragment_matrix_packed::<T, W>(cols, rows)
             } else {
@@ -1445,23 +1535,24 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
     let a_regs = a_def.vectors_per_lane(MatrixIdent::A);
     let a_width = a_def.vector_size(MatrixIdent::A);
     let bytes = L::size().comptime();
-    comptime!(assert!(
-        bytes <= 2 && a_width.is_multiple_of(acc_width),
-        "accumulators_as_a: an accumulator's cells sit along the A operand's rows for 16- and \
-         8-bit operands; a {bytes}-byte operand's A lays them otherwise"
+    let order = comptime!(KeyOrder::rereading(
+        bytes,
+        LaneVectors {
+            width: acc_width,
+            count: acc_regs
+        },
+        LaneVectors {
+            width: a_width,
+            count: a_regs
+        },
     ));
-    // Accumulator vectors one `A` vector holds side by side, on the same row. A 16-bit `A` holds
-    // the cells in the accumulators' order. The 8-bit placement, and the order its `B` reads its
-    // rows in ([`key_row`]), are the `mma.sync` layouts': two accumulator vectors a unit, a row
-    // each, and four `A` vectors, rows alternating.
+    comptime!(assert!(
+        order.is_some(),
+        "accumulators_as_a: a {bytes}-byte A of {a_regs} vectors of {a_width} lays its cells \
+         otherwise than accumulators of {acc_regs} vectors of {acc_width}"
+    ));
+    // Accumulator vectors one `A` vector holds side by side, on the same row.
     let side_by_side = comptime!(a_width / acc_width);
-    let in_order = side_by_side == 1 || bytes == 2;
-    comptime!(assert!(
-        in_order || (side_by_side == 2 && bytes == 1 && acc_regs == 2 && a_regs == 4),
-        "accumulators_as_a: an 8-bit A of {a_regs} vectors of {a_width} beside accumulators of \
-         {acc_regs} vectors of {acc_width} is laid out unlike the `mma.sync` layouts its rows \
-         are placed for"
-    ));
     let acc_cells = comptime!(acc_regs * acc_width);
     comptime!(assert!(
         count * acc_cells == a_regs * a_width,
@@ -1491,12 +1582,12 @@ pub(crate) fn accumulators_as_a<L: Numeric>(
         for i in 0..acc_regs {
             #[unroll]
             for e in 0..acc_width {
-                let (register, slot) = comptime!(match in_order {
-                    true => {
+                let (register, slot) = comptime!(match order {
+                    Some(KeyOrder::AsLaid) => {
                         let cell = (j * acc_regs + i) * acc_width + e;
                         (cell / a_width, cell % a_width)
                     }
-                    false => (
+                    _ => (
                         i + acc_regs * (j / side_by_side),
                         acc_width * (j % side_by_side) + e,
                     ),

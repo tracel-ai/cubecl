@@ -29,6 +29,33 @@ pub enum KeyOrder {
     AccumulatorRun,
 }
 
+/// The vectors a lane holds its cells of one operand of a call in.
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct LaneVectors {
+    pub width: usize,
+    pub count: usize,
+}
+
+impl KeyOrder {
+    /// The order the `B` reads its rows in beside an `A` of `bytes`-byte values held in `a`, when
+    /// that `A` is a run of accumulators held in `acc` each. An accumulator's vectors lie along its
+    /// rows, as an `A`'s do, so an `A` of vectors as long holds each `k` where it lies, and so does
+    /// a 16-bit one of longer vectors. An 8-bit `A` of vectors twice as long holds two accumulators'
+    /// vectors of one row side by side: the `mma.sync` layouts', two accumulator vectors a lane
+    /// beside four `A` vectors. `None` for any other.
+    pub(crate) fn rereading(bytes: usize, acc: LaneVectors, a: LaneVectors) -> Option<Self> {
+        match (
+            bytes,
+            a.width.is_multiple_of(acc.width),
+            a.width / acc.width,
+        ) {
+            (2, true, _) | (1, true, 1) => Some(KeyOrder::AsLaid),
+            (1, true, 2) if (acc.count, a.count) == (2, 4) => Some(KeyOrder::AccumulatorRun),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LoadMethod {
     Manual,

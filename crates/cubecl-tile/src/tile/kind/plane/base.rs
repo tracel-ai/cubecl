@@ -73,6 +73,21 @@ impl PlaneTile {
         }
     }
 
+    /// Whether a contraction rereading this tile as its `A` reads its columns in another order than
+    /// they lie ([`MmaData::reorders_as_a`]).
+    pub(crate) fn reorders_as_a<E: Numeric>(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Mma(data) => match &data.fragment {
+                MmaFragment::Acc(_) => data.reorders_as_a::<E>(),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Rhs(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile contracts through the block-scaled instruction, which reads its factors'
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
@@ -314,6 +329,17 @@ impl PlaneTile {
                 "PlaneTile::scale: a plane group accumulator is written by the MMAs in flight, and \
                  scaled only once they are done, at its drain"
             ),
+        }
+    }
+
+    /// Load this fragment, an `A` held across its sum's products, from `src`'s window, cast as it
+    /// loads ([`MmaData::load_cast_window`]).
+    pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
+        match self {
+            PlaneTile::Mma(fragment) => fragment.load_cast_window::<T, R>(src),
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                panic!("PlaneTile::load_cast_window: only a manual-mma fragment is held cast")
+            }
         }
     }
 
@@ -942,6 +968,37 @@ impl PlanePartition {
             frags.copy_from(src);
         }
         frags
+    }
+
+    /// [`fill_from`](Self::fill_from) with every cell cast from `R`, the element `src` serves, one
+    /// `A` fragment at a time ([`MmaData::load_cast_window`]).
+    pub(crate) fn fill_cast_from<T: Numeric, R: Numeric>(&self, src: &Tile) {
+        let level = comptime!(fragment_level(
+            &src.place.space,
+            (self.rows, self.cols),
+            (self.m_tiles, self.n_tiles)
+        ));
+        let edges = comptime!(grid_dimensions(
+            &src.place.space,
+            (self.rows, self.cols),
+            (self.m_tiles, self.n_tiles)
+        ));
+        #[unroll]
+        for mi in 0..comptime!(self.m_tiles) {
+            #[unroll]
+            for ni in 0..comptime!(self.n_tiles) {
+                let window = src.at(&Region::cell(
+                    comptime!(src.place.depth),
+                    &src.place.space,
+                    &level,
+                    edges,
+                    mi,
+                    ni,
+                ));
+                let mut fragment = self.at(mi, ni);
+                fragment.load_cast_window::<T, R>(&window);
+            }
+        }
     }
 
     /// Fill each tile from its window of `src`, in row-major order, manual-mma tiles deeper than
