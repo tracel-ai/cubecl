@@ -10,7 +10,8 @@ use cubecl_environment::sync::Mutex;
 
 use alloc::format;
 
-use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor};
+use crate::tune::stage::BoundStageEnterer;
+use crate::tune::{Bounds, BoundsGenerator, Eviction, Evictor, StageEnterer, TuneDeviceAccess};
 
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
@@ -44,7 +45,7 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     /// [issued for the race](crate::execution::LaunchPurpose::Race), never
     /// the work's.
     pub(crate) fn race<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
-        crate::execution::LaunchPurpose::racing(|| (self.func)(inputs))
+        crate::execution::race(|| (self.func)(inputs))
     }
 }
 
@@ -62,6 +63,8 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     eviction: Option<Arc<dyn Eviction<K, F> + Send + Sync>>,
+    stage_enterer: Option<Arc<dyn StageEnterer<K, F> + Send + Sync>>,
+    device_access: TuneDeviceAccess,
     short_circuit: bool,
     /// Planned once a key: ranking candidates can build every one's blueprint, which costs
     /// more than the launch, and an untuned key is reached at every layer of a compile pass.
@@ -78,6 +81,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             key_gen: Arc::new(key_gen),
             bounds_gen: None,
             eviction: None,
+            stage_enterer: None,
+            device_access: TuneDeviceAccess::Exclusive,
             short_circuit: true,
             run_orders: Mutex::new(HashMap::new()),
         };
@@ -120,6 +125,27 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     pub fn with_eviction(mut self, eviction: Arc<dyn Eviction<K, F> + Send + Sync>) -> Self {
         self.eviction = Some(eviction);
         self
+    }
+
+    /// Sets what enters every stage of a tune of this set, so candidates that launch where the tuner
+    /// does not see are kept in step with it. See [`StageEnterer`].
+    pub fn with_stage_enterer(
+        mut self,
+        enterer: Arc<dyn StageEnterer<K, F> + Send + Sync>,
+    ) -> Self {
+        self.stage_enterer = Some(enterer);
+        self
+    }
+
+    /// Sets how a tune of this set holds the device it measures. See [`TuneDeviceAccess`].
+    pub fn with_device_access(mut self, access: TuneDeviceAccess) -> Self {
+        self.device_access = access;
+        self
+    }
+
+    /// How a tune of this set holds the device it measures.
+    pub fn device_access(&self) -> TuneDeviceAccess {
+        self.device_access
     }
 
     /// Set whether bounds-based short-circuiting is enabled.
@@ -210,6 +236,18 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         let key = key.clone();
         let inputs = inputs.clone();
         Some(Box::new(move || eviction.evict(&key, &inputs)))
+    }
+
+    /// The stage enterer registered on this set, bound to `key` and the reference `inputs`, if any.
+    pub(crate) fn bound_stage_enterer<'i>(
+        &self,
+        key: &K,
+        inputs: &F::At<'i>,
+    ) -> Option<Box<BoundStageEnterer<'i>>> {
+        let enterer = self.stage_enterer.clone()?;
+        let key = key.clone();
+        let inputs = inputs.clone();
+        Some(Box::new(move |stage| enterer.enter(stage, &key, &inputs)))
     }
 
     /// The throughput bounds registered on this set, if any.

@@ -119,8 +119,9 @@ impl Tile {
 #[cube]
 impl DimensionSlices {
     /// `self[i, s] = self[i, s] · scale + bias[i, s]`, the procedural `bias` read at each cell's
-    /// coordinates, windowed to the same region as the tile.
-    pub(crate) fn scale_add<E: Float>(&mut self, scale: E, bias: &Tile) {
+    /// coordinates, windowed to the same region as the tile. A cmma fragment is drained first
+    /// into a window of shared memory the calling plane holds.
+    pub fn scale_add<E: Float>(&mut self, scale: E, bias: &Tile) {
         let recipe = bias.recipe();
         match &mut self.kind {
             DimensionSlicesKind::Registers(block) => {
@@ -136,6 +137,20 @@ impl DimensionSlices {
                 let mut fragment = tile.manual_fragment();
                 fragment.scale_add_along::<E>(scale, recipe, &self.space, (0usize, 0usize))
             }
+        }
+    }
+
+    /// `self[i, s] *= factors[i]`, `factors` holding one factor for every slice of the tile in
+    /// every unit, as a softmax kept in a window holds its state: where [`mul`](Self::mul) reads a
+    /// manual-mma fragment's factors one for each row its unit holds, this reads each row's own.
+    pub fn mul_every_slice<E: Float>(&mut self, factors: &Array<E>) {
+        match &mut self.kind {
+            DimensionSlicesKind::Registers(block) => block.mul_along::<E>(factors, 0usize),
+            DimensionSlicesKind::Window(window) => {
+                window.mul_along::<E>(factors, &self.space, self.dimension)
+            }
+            DimensionSlicesKind::Fragments(partition) => partition.mul_every_row::<E>(factors),
+            DimensionSlicesKind::Fragment(tile) => tile.mul_every_row(factors, 0usize),
         }
     }
 

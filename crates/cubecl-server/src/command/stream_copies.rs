@@ -4,7 +4,7 @@ use super::{DeviceStream, Driver};
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{CopyQueue, StorageCopy};
 use crate::server::{IoError, ServerError};
-use crate::storage::ComputeStorage;
+use crate::storage::StorageAllocator;
 use alloc::vec::Vec;
 
 /// A command's streams, as the queue a relocation copies on: the current one
@@ -45,8 +45,8 @@ impl<D: Driver> CopyQueue<<D::Stream as DeviceStream>::DeviceStorage> for Stream
         storage: &mut <D::Stream as DeviceStream>::DeviceStorage,
         copy: &StorageCopy,
     ) -> Result<(), IoError> {
-        let source = storage.get(&copy.source)?;
-        let target = storage.get(&copy.target)?;
+        let source = storage.get(&copy.source);
+        let target = storage.get(&copy.target);
         // SAFETY: a relocation's copy is between two live slices of the same
         // size on distinct pages, and nothing reads the target or writes the
         // source until `wait_copies` returns.

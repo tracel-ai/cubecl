@@ -3,7 +3,9 @@ use crate::{
     frontend::{NativeExpand, element::Atomic},
     ir::{
         Scope,
-        dialect::synchronization::{FenceOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp},
+        dialect::synchronization::{
+            FenceOp, ScheduleBarrierOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp,
+        },
     },
     prelude::{CubePrimitive, Numeric},
     unexpanded,
@@ -27,6 +29,22 @@ pub mod sync_cube {
 
     pub fn expand(scope: &Scope) {
         scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Cube));
+    }
+}
+
+/// Keeps the compiler's instruction scheduler from moving any instruction across this point, on a
+/// target whose scheduler can be fenced (AMDGPU); nothing elsewhere. It orders no memory and no
+/// unit waits at it: a software pipeline places it after the loads it issues ahead, so the
+/// scheduler cannot sink them below the work meant to hide their latency.
+pub fn schedule_barrier() {
+    unexpanded!()
+}
+
+pub mod schedule_barrier {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        scope.register(&ScheduleBarrierOp::new(scope.ctx_mut()));
     }
 }
 

@@ -1346,6 +1346,16 @@ impl Tile {
         unexpanded!()
     }
 
+    /// [`factor`](Tile::factor), giving the outer scales up whatever the sum's instruction would
+    /// have: what an operand decoded into an element with no room for them takes, an 8-bit float,
+    /// whose range its values already fill. The caller knows that element, the stage it decodes
+    /// into, which the values do not. A sum of 8-bit floats is held in the manual MMA
+    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), whose drain
+    /// applies scales varying across its cells one cell at a time.
+    pub fn factor_out(&self, _sum: &Tile) -> (Tile, Factor) {
+        unexpanded!()
+    }
+
     /// This tile without its outer scales that vary along no dimension, and those scales: what a
     /// sum held outside any tile, in a unit's own registers, takes out of every term and applies
     /// once ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing
@@ -1389,6 +1399,19 @@ impl Tile {
     /// Whether these values carry scales ([`mul`](Tile::mul)) or index a table
     /// ([`lookup`](Tile::lookup)).
     pub(crate) fn quantized(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
+    /// Whether this sum's scales vary across its cells, a row's or a column's, which its drain
+    /// applies cell by cell rather than as one number.
+    pub(crate) fn factor_varies(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
+    /// Multiply each cell of this one-fragment sum by its scales at the cell's place: a sum held
+    /// in this crate's transport, whose units hold their cells where they can read them.
+    #[allow(clippy::extra_unused_type_parameters)] // Read by the expansion.
+    pub(crate) fn scale_own_cells<T: Numeric>(&mut self) {
         unexpanded!()
     }
 
@@ -1543,26 +1566,35 @@ impl TileExpand {
         scope: &Scope,
         sum: &TileExpand,
     ) -> (TileExpand, FactorExpand) {
-        let space = sum.place.space.clone();
-        let gives_up = !self.looks_up()
-            && (self.factor.staged_beside(scope)
-                || sum
-                    .__expand_sum_instruction_method(scope)
-                    .scales_its_sum_in_place());
-        if !gives_up {
-            return (self.clone(), FactorExpand::default());
+        let gives_up = self.factor.staged_beside(scope)
+            || sum
+                .__expand_sum_instruction_method(scope)
+                .scales_its_sum_in_place();
+        match gives_up {
+            true => self.split_factor_on(scope, &sum.place.space),
+            false => (self.clone(), FactorExpand::default()),
         }
-        let (inner, outer) = self.factor.split_on(scope, &space);
-        let mut values = self.clone();
-        values.factor = inner;
-        (values, outer)
+    }
+
+    pub fn __expand_factor_out_method(
+        &self,
+        scope: &Scope,
+        sum: &TileExpand,
+    ) -> (TileExpand, FactorExpand) {
+        self.split_factor_on(scope, &sum.place.space)
     }
 
     pub fn __expand_factor_whole_method(&self, scope: &Scope) -> (TileExpand, FactorExpand) {
+        self.split_factor_on(scope, &Space::new(&[]))
+    }
+
+    /// These values without their outer scales that vary only along `space`, and those scales
+    /// ([`FactorExpand::split_on`]); a tile that looks its values up keeps every scale.
+    fn split_factor_on(&self, scope: &Scope, space: &Space) -> (TileExpand, FactorExpand) {
         if self.looks_up() {
             return (self.clone(), FactorExpand::default());
         }
-        let (inner, outer) = self.factor.split_on(scope, &Space::new(&[]));
+        let (inner, outer) = self.factor.split_on(scope, space);
         let mut values = self.clone();
         values.factor = inner;
         (values, outer)
@@ -1601,6 +1633,36 @@ impl TileExpand {
 
     pub(crate) fn __expand_quantized_method(&self, _scope: &Scope) -> bool {
         self.looks_up() || self.factor.scaled()
+    }
+
+    /// Whether this sum's scales vary across its cells ([`FactorExpand::varies_within`]).
+    pub(crate) fn __expand_factor_varies_method(&self, scope: &Scope) -> bool {
+        self.factor.varies_within(scope, &self.place.space)
+    }
+
+    /// Multiply each cell of this one-fragment manual-mma sum by its scales at the cell's place.
+    pub(crate) fn __expand_scale_own_cells_method<T: Numeric>(&mut self, scope: &Scope) {
+        let space = self.place.space.clone();
+        let factor = self.factor.clone();
+        let fragment = match &self.kind {
+            TileKindExpand::PlaneTile(tile) => tile.clone(),
+            TileKindExpand::PlanePartition(partition) => {
+                partition.clone().__expand_fragment_method(scope)
+            }
+            _ => {
+                panic!("Tile::scale_own_cells: a plane-resident sum's cells are scaled where held")
+            }
+        };
+        match fragment {
+            PlaneTileExpand::Mma(mut data) => {
+                data.__expand_scale_cells_method::<T>(scope, &factor, &space)
+            }
+            _ => panic!(
+                "Tile::scale_own_cells: scales varying across the output are applied to a \
+                 manual-mma sum's cells, which each unit holds at known places; this sum's \
+                 instruction hides them"
+            ),
+        }
     }
 
     pub(crate) fn __expand_factor_levels_method(&self, _scope: &Scope) -> usize {
@@ -1839,6 +1901,68 @@ impl Tile {
         own
     }
 
+    /// Where the value at `coords` sits in the load holding it: its place counted across every
+    /// axis the load spans ([`value_in_line`](Tile::value_in_line)).
+    fn position_in_load(&self, coords: &Coords<u32>) -> u32 {
+        let space = comptime!(self.place.space.clone());
+        let rank = space.rank();
+        let load = self.vector_tile();
+        let mut position = 0u32.runtime();
+        #[unroll]
+        for p in 0..rank {
+            let axis = space.dimension_at(p);
+            let extent = comptime!(load.extent_along(axis) as u32);
+            if extent > 1 {
+                let step = comptime!(load.step_along(axis) as u32);
+                position += coords.at(p).remainder(extent).times(step);
+            }
+        }
+        position
+    }
+
+    /// The word of a packed tile holding the value at `coords`, as stored: the read half of
+    /// [`value_in_line`](Tile::value_in_line), which a register fetch issues ahead of the work
+    /// that hides it, leaving the field to [`scale_in_word`](Tile::scale_in_word).
+    #[allow(dead_code)] // Reached through its expand, from `Tile::fetch_decoded_from`.
+    pub(crate) fn scale_word_at(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> u32 {
+        let space = comptime!(self.place.space.clone());
+        let load = self.vector_tile();
+        let width = comptime!(load.values());
+        let packing = self.packing();
+        let per_word = comptime!(match packing {
+            Packing::Packed { field } => field.per_word() as u32,
+            Packing::Plain | Packing::Words { .. } => {
+                panic!("Tile::scale_word_at: only a packed tile holds its values in words")
+            }
+        });
+        let words_wide = comptime!(packing.physical(width));
+        let size!(WP) = words_wide;
+        let words = self.nd_words::<WP>(guard).read(load.index(coords, &space));
+        if words_wide > 1 {
+            let position = self.position_in_load(coords);
+            words.extract_dynamic((position / per_word).cast::<usize>())
+        } else {
+            words.extract(0usize)
+        }
+    }
+
+    /// The value at `coords` out of `word`, the word [`scale_word_at`](Tile::scale_word_at) read
+    /// for it: the decode half of [`value_in_line`](Tile::value_in_line).
+    #[allow(dead_code)] // Reached through its expand, from `Tile::store_decoded`.
+    pub(crate) fn scale_in_word<S: Numeric>(&self, word: u32, coords: &Coords<u32>) -> S {
+        let packing = self.packing();
+        let field = comptime!(match packing {
+            Packing::Packed { field } => field,
+            Packing::Plain | Packing::Words { .. } => {
+                panic!("Tile::scale_in_word: only a packed tile holds its values in words")
+            }
+        });
+        let (bits, per_word) = comptime!((field.size_bits() as u32, field.per_word() as u32));
+        let position = self.position_in_load(coords);
+        let shifted = word >> ((position % per_word) * bits);
+        unpack_line::<S, Const<1>, Const<1>>(Vector::new(shifted), field).extract(0usize)
+    }
+
     /// The one value at `coords` of a tile that serves lines: the load holding it, read whole, and
     /// the value's place in it, whatever dimensions the load spans. A packed load decodes only the
     /// field that value is, not the whole line.
@@ -1846,20 +1970,10 @@ impl Tile {
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
-        let rank = space.rank();
         let load = self.vector_tile();
         let width = comptime!(load.values());
         let packing = self.packing();
-        let mut position = 0u32.runtime();
-        #[unroll]
-        for p in 0..rank {
-            let dimension = space.dimension_at(p);
-            let extent = comptime!(load.extent_along(dimension) as u32);
-            if extent > 1 {
-                let step = comptime!(load.step_along(dimension) as u32);
-                position += coords.at(p).remainder(extent).times(step);
-            }
-        }
+        let position = self.position_in_load(coords);
         match comptime!(packing) {
             Packing::Plain | Packing::Words { .. } => {
                 let size!(W) = width;

@@ -10,7 +10,7 @@ use cubecl::prelude::*;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
+    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
     Projection, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
 };
 
@@ -269,12 +269,18 @@ impl<'a> Arg<'a, Labelled> {
             overhangs,
             width,
         )?;
-        // Inside its storage tile a window is one unmasked run: a checked operand whose launch
-        // reaches past its padding would read storage tiles it does not have, which the kernel
-        // can only find out as it expands.
+        for &boundary in boundaries.modes.iter().flatten() {
+            data.delivery.reads_edge(boundary)?;
+        }
+        if !matches!(packing, Packing::Plain)
+            && Boundary::edge_identity(&boundaries.modes).is_some()
+        {
+            return Err(Decline::IdentityEdgeOfPackedValues);
+        }
+        // A checked operand masks every window from the root down, and inside its storage tile a
+        // window is read as one unmasked run, so such a launch cannot expand.
         if let Storage::Tiled(Some(level)) = storage
             && !boundaries.modes.is_empty()
-            && self.reaches_past_storage_tiles(&dimensions, level)
         {
             return Err(Decline::CheckedInsideStorageTile { level });
         }
@@ -355,43 +361,6 @@ impl<'a> Arg<'a, Labelled> {
             .rev()
             .find_map(|tile| windows.iter().position(|window| cuts_to(window, tile)));
         (Storage::Tiled(level), stored_tiles)
-    }
-
-    /// Whether a window of `level`, the storage tile's, lies wholly past the operand along one of
-    /// `dimensions`: the launch's outermost tile reaches past the extent padded to whole storage tiles,
-    /// where no storage tile is allocated, or a level down to it is launched in an order that
-    /// starts planes past the last of its tiles ([`PlaneOrder::overruns`]), however evenly its
-    /// tile divides the extent. A window that only overhangs the extent reads padding.
-    ///
-    /// [`PlaneOrder::overruns`]: crate::space::PlaneOrder
-    fn reaches_past_storage_tiles(&self, dimensions: &[Dimension], level: usize) -> bool {
-        let launch = self.data.launch;
-        let levels = launch.partitioning().levels();
-        let mut space = launch.space().clone();
-        let overruns = levels[..=level].iter().any(|level| {
-            let overruns = level.launch_order().is_some_and(|order| {
-                dimensions.iter().any(|&dimension| {
-                    level.tile(dimension).is_some() && order.overruns(level, &space, dimension)
-                })
-            });
-            space = level.child(&space);
-            overruns
-        });
-        overruns
-            || dimensions.iter().any(|&dimension| {
-                // The outermost level cutting the dimension tiles the grid; the last one down to
-                // `level` is the storage tile's extent along it. No cut leaves one window, the
-                // whole extent.
-                let mut cuts = levels[..=level]
-                    .iter()
-                    .filter_map(|level| level.tile(dimension));
-                let Some(outer) = cuts.next() else {
-                    return false;
-                };
-                let stored = cuts.next_back().unwrap_or(outer);
-                let extent = launch.space().extent(dimension);
-                extent.next_multiple_of(outer) > extent.next_multiple_of(stored)
-            })
     }
 }
 

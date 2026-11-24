@@ -29,7 +29,17 @@ pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
 
 /// The global-level half of [`check_scale_bindings`], for a consumer holding global scales already
 /// folded into a register rather than as countable bindings.
+///
+/// # Panics
+///
+/// Where the scheme has a per-row level, which these readers would take for a global one: one
+/// value for the whole tensor.
 pub fn check_global_levels(scheme: &QuantScheme) {
+    assert!(
+        scheme.row_scale().is_none(),
+        "a per-row scale level should be read where its rows are known, by a tile kernel; these \
+         readers take an outer level for one scale over the whole tensor"
+    );
     if scheme.block_scale().is_some()
         && let Some(tensor) = scheme.tensor_scale()
     {

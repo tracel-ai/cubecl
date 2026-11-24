@@ -13,7 +13,7 @@ use crate::{
     },
     poison::DevicePoison,
     server::{BufferBinding, KernelResource, PeerBinding},
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
@@ -938,13 +938,32 @@ pub trait Server:
         Ok(())
     }
 
+    /// [`graph_prepare`](Server::graph_prepare) a retry of the recording just
+    /// refused on `stream_id` for keeping a buffer it placed as a temporary,
+    /// and answer whether there was one: nothing is prepared otherwise.
+    ///
+    /// The refused recording's allocations place the retry's first planning
+    /// run, so that run grows the room apart for every buffer the recording
+    /// kept. A recording follows that run, never the refused one: its window
+    /// adds no page. A capture prepared with `graph_prepare` forgets them.
+    ///
+    /// `false` by default, for a backend that refuses no recording that way.
+    ///
+    /// # Errors
+    ///
+    /// As [`graph_prepare`](Server::graph_prepare).
+    fn graph_prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        let _ = stream_id;
+        Ok(false)
+    }
+
     /// End a planning run of the work a capture on `stream_id` is about to
-    /// record, and answer whether it allocated what the run before it did.
+    /// record, and answer whether it kept the buffers the run before it kept.
     ///
     /// The last run is the recording's plan: what it left allocated is the
     /// work's output, which the recorded run places on room no other graph's
-    /// replay writes, and a recorded run that allocates otherwise does not
-    /// seal. The run's launches are the client's to discard (see
+    /// replay writes, and a recorded run that keeps a buffer the plan does
+    /// not does not seal. The run's launches are the client's to discard (see
     /// [`Client::capture`](crate::client::Client::capture)).
     ///
     /// `true` by default, for a backend whose graphs share no room and so
@@ -1109,8 +1128,8 @@ pub trait Server:
 /// type is the backend's own, and only a caller that names the backend can
 /// receive one.
 pub trait ServerStorage: Server {
-    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
-    type Storage: ComputeStorage;
+    /// The [storage](StorageAllocator) type defines how data is stored and accessed.
+    type Storage: StorageAllocator;
     /// Given a resource handle, returns the storage resource.
     ///
     /// The same claim check a read makes guards this too: a buffer a failed
@@ -1121,7 +1140,7 @@ pub trait ServerStorage: Server {
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
+    ) -> Result<ManagedResource<<Self::Storage as StorageAllocator>::Resource>, ServerError>;
 }
 
 /// An ID unique to any unordered combination of devices.
@@ -1773,15 +1792,10 @@ pub enum IoError {
         reason: Reason,
     },
 
-    /// The storage backend holds no allocation for a handle's storage id.
-    ///
-    /// One layer below [`IoError::NotFound`]: there the memory manager could
-    /// not route a binding to a slice, here the routing succeeded and the
-    /// allocation the slice names is gone. A handle outliving its page, or a
-    /// storage id a deallocation retired, reaches the storage this way.
-    #[error("the storage holds no allocation for that handle: {reason}\n{backtrace}")]
-    StorageHandleNotFound {
-        /// Which id was looked up, and in which storage.
+    /// A binding's offsets reach past the end of the memory it binds.
+    #[error("the binding reaches past the end of its memory: {reason}\n{backtrace}")]
+    BindingOutOfBounds {
+        /// The offsets, and the size of the memory they trim.
         reason: Reason,
         /// The backtrace.
         #[cfg_attr(serializable, serde(skip))]

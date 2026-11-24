@@ -438,19 +438,15 @@ impl Memory {
     }
 
     /// `view` masked as `check` says, reading past the edge the identity of the monoid this
-    /// operand's window names ([`Boundary::Identity`]), or zero where it names none.
-    fn edged<'b, T: Numeric, W: Size, C: Coordinates + 'b>(
+    /// operand's window names ([`Boundary::Identity`]), or zero where it names none. A stage
+    /// filled through the registers reads its source this way too, so it holds what a read of
+    /// the operand would.
+    pub(crate) fn edged<'b, T: Numeric, W: Size, C: Coordinates + 'b>(
         &self,
         view: View<'b, Vector<T, W>, C>,
         #[comptime] check: bool,
     ) -> Masked<'b, Vector<T, W>, C> {
-        let identity =
-            comptime!(self.window.boundaries.iter().flatten().find_map(
-                |boundary| match boundary {
-                    Boundary::Identity(monoid) => Some(*monoid),
-                    _ => None,
-                }
-            ));
+        let identity = comptime!(Boundary::edge_identity(&self.window.boundaries));
         match identity {
             Some(monoid) => Masked::filled(
                 view,
@@ -564,11 +560,21 @@ impl Memory {
         layout: ProjectionInKernel,
         #[comptime] guard: Guard,
     ) -> Masked<'_, Vector<u32, WP>, CoordsDyn> {
+        self.nd_words_as::<u32, WP>(layout, guard)
+    }
+
+    /// [`nd_words`](Memory::nd_words) read as `I`, an element a caller binds to `u32` at
+    /// expansion: what a register fetch holds a packed load in, its registers typed by the walk.
+    pub(crate) fn nd_words_as<I: Numeric, WP: Size>(
+        &self,
+        layout: ProjectionInKernel,
+        #[comptime] guard: Guard,
+    ) -> Masked<'_, Vector<I, WP>, CoordsDyn> {
         comptime!(assert!(
             matches!(self.store.packing, Packing::Packed { .. }),
             "Memory::nd_words: only a packed store holds words"
         ));
-        let words = self.window_view_storage::<u32, WP>(guard).view(layout);
+        let words = self.window_view_storage::<I, WP>(guard).view(layout);
         Masked::new(
             words,
             comptime!(guard.checks() && self.access.overhang.masks()),

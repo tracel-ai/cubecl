@@ -90,7 +90,7 @@ impl CompilationTarget for CudaModules {
         dump_ptx(&id.kernel, &artifact.ptx);
 
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
-        let line_info = id.kernel.debug_info != DebugInfo::None;
+        let line_info = id.kernel.debug_info() != DebugInfo::None;
         // SAFETY: `cubin` is machine code a driver assembled for this device's architecture, and
         // `ptx` a valid null-terminated PTX binary. `func_name` is a null-terminated `CString`
         // matching the kernel entry point in the compiled module.
@@ -127,7 +127,7 @@ impl CompilationTarget for CudaModules {
         };
 
         Ok(CudaCompiledKernel {
-            cube_dim: id.kernel.cube_dim.into(),
+            cube_dim: id.kernel.cube_dim().into(),
             shared_mem_bytes: artifact.shared_mem_bytes,
             func,
             io: artifact.io.clone().map(Arc::from),

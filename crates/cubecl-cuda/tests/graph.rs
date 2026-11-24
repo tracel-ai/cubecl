@@ -391,3 +391,31 @@ fn cuda_graph_input_written_between_runs_survives_another_graphs_replay() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::an_input_written_between_runs_survives_another_graphs_replay::<CudaRuntime>();
 }
+
+/// See [`graph_sharing::inputs_kept_per_graph_take_no_page_of_their_own`].
+#[test]
+fn cuda_graph_inputs_kept_per_graph_take_no_page_of_their_own() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::inputs_kept_per_graph_take_no_page_of_their_own::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::small_buffers_kept_per_graph_take_no_page_of_their_own`].
+#[test]
+fn cuda_graph_small_buffers_kept_per_graph_take_no_page_of_their_own() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::small_buffers_kept_per_graph_take_no_page_of_their_own::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::a_recording_allocating_a_temporary_its_plan_did_not_seals`].
+#[test]
+fn cuda_graph_recording_allocating_a_temporary_its_plan_did_not_seals() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_recording_allocating_a_temporary_its_plan_did_not_seals::<CudaRuntime>();
+}
+
+/// See [`graph_sharing::a_recording_skipping_a_temporary_its_plan_made_seals`].
+#[test]
+fn cuda_graph_recording_skipping_a_temporary_its_plan_made_seals() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_sharing::a_recording_skipping_a_temporary_its_plan_made_seals::<CudaRuntime>();
+}

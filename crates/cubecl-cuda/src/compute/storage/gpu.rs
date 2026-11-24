@@ -1,7 +1,7 @@
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
@@ -23,7 +23,6 @@ pub struct GpuStorage {
     /// The bytes `memory` holds.
     allocated: u64,
     ptr_bindings: PtrBindings,
-    mem_alignment: usize,
 }
 
 /// A GPU memory resource allocated for CUDA using [`GpuStorage`].
@@ -44,15 +43,20 @@ impl GpuResource {
     }
 }
 
+impl Default for GpuStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GpuStorage {
-    /// Creates storage whose allocations are aligned to `mem_alignment` bytes.
-    pub fn new(mem_alignment: usize) -> Self {
+    /// Creates an empty storage.
+    pub fn new() -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             allocated: 0,
             ptr_bindings: PtrBindings::new(),
-            mem_alignment,
         }
     }
 
@@ -135,38 +139,31 @@ impl PtrBindings {
     }
 }
 
-impl ComputeStorage for GpuStorage {
+impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
 
-    fn alignment(&self) -> usize {
-        self.mem_alignment
-    }
-
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
-        let (ptr, _, _) =
-            self.memory
-                .get(&handle.id)
-                .ok_or_else(|| IoError::StorageHandleNotFound {
-                    reason: format!("{} in the CUDA gpu storage", handle.id).into(),
-                    backtrace: BackTrace::capture(),
-                })?;
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let (ptr, _, _) = self
+            .memory
+            .get(&handle.id)
+            .expect("the handle should name a live allocation of this storage");
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        Ok(GpuResource::new(
+        GpuResource::new(
             *ptr,
             ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
             size,
-        ))
+        )
     }
 
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, size))
     )]
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         // CubeCL pools these allocations itself, so the synchronous allocator is
         // the only one: CUDA's stream-ordered pool would be a second pool under
@@ -207,12 +204,15 @@ impl ComputeStorage for GpuStorage {
         self.allocated += size;
         Ok(StorageHandle::new(
             id,
-            StorageUtilization { offset: 0, size },
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
         ))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn dealloc(&mut self, id: StorageId) {
+    fn deallocate(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
 
@@ -235,16 +235,16 @@ mod tests {
         let context = cudarc::driver::CudaContext::new(0).unwrap();
         let stream = context.new_stream().unwrap();
 
-        let mut storage = GpuStorage::new(512);
+        let mut storage = GpuStorage::new();
         for size in [0, 16] {
-            let handle = storage.alloc(size).unwrap();
-            let resource = storage.get(&handle).unwrap();
+            let handle = storage.allocate_bytes(size).unwrap();
+            let resource = storage.get(&handle);
             assert_eq!(handle.size(), size);
             assert_eq!(resource.size, size);
             assert_eq!(resource.ptr == 0, size == 0);
             assert_eq!(storage.bytes_allocated(), size);
 
-            storage.dealloc(handle.id);
+            storage.deallocate(handle.id);
             storage.flush();
             stream.synchronize().unwrap();
             assert_eq!(storage.bytes_allocated(), 0);

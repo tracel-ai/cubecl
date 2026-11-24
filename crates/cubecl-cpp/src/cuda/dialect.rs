@@ -1,5 +1,7 @@
 use cubecl_core::ir::{
-    dialect::synchronization::{FenceOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope},
+    dialect::synchronization::{
+        FenceOp, ScheduleBarrierOp, SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+    },
     prelude::*,
 };
 
@@ -92,6 +94,9 @@ cuda_op!(FenceOp, |op, ctx| {
 
 // `__syncwarp` already orders every memory the warp's threads wrote, global included.
 cuda_op!(SyncPlaneStorageOp, |_, _| "__syncwarp();\n".into());
+
+// CUDA C++ has no way to fence NVCC's scheduler.
+cuda_op!(ScheduleBarrierOp, |_, _| String::new());
 
 cuda_op!(SyncAsyncProxyOp, |_, _| {
     "cuda::device::experimental::fence_proxy_async_shared_cta();".into()

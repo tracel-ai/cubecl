@@ -8,7 +8,7 @@ use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
-    controller::WgpuAllocController,
+    controller::MappingStaging,
     schedule::{Addresses, ScheduleTask},
 };
 use core::iter;
@@ -354,19 +354,14 @@ impl WgpuStream {
                 if self.capturing.is_recording() {
                     // Cross-stream input pins belong to the graph for its whole
                     // lifetime, not to the next submission.
-                    self.recording
-                        .shared
-                        .bindings
-                        .append(&mut shared_inputs.bindings);
+                    self.recording.shared.append(&mut shared_inputs);
                     let (resources, custom_handles, addresses) = resources.into_resources(self);
                     self.record_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
                     return;
                 }
                 // Drain into the stream's pending pins; the handle returns its buffer to the
                 // server pool when it drops at the end of this arm.
-                self.shared_bindings
-                    .bindings
-                    .append(&mut shared_inputs.bindings);
+                self.shared_bindings.append(&mut shared_inputs);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
@@ -432,22 +427,26 @@ impl WgpuStream {
             return Box::pin(async move { Err(err) });
         }
 
-        for entry in staging_info.iter() {
-            if let Some((staging, _binding, _size)) = entry {
+        let mut staged = Vec::with_capacity(staging_info.len());
+        for entry in staging_info {
+            if let Some((staging, binding, size)) = entry {
                 let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
                 self.poison.wake_on_loss(&sender);
-                staging
-                    .buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |v| {
+                // Held until the map completes, which an abandoned read's staging buffer waits on.
+                let polling = self.poll.start_polling();
+                let staging =
+                    MappingStaging::map(staging.buffer, binding, size, &self.poison, move |v| {
                         // This might fail if the channel is closed (eg. the future is dropped).
                         // This is fine, just means results aren't needed anymore.
                         let _ = sender.try_send(v);
+                        core::mem::drop(polling);
                     });
 
                 callbacks.push(Some(receiver));
+                staged.push(Some(staging));
             } else {
                 callbacks.push(None);
+                staged.push(None);
             }
         }
 
@@ -479,21 +478,13 @@ impl WgpuStream {
             // Can stop polling now.
             core::mem::drop(poll);
 
-            let result = {
-                staging_info
-                    .into_iter()
-                    .map(|entry| {
-                        if let Some((staging, binding, size)) = entry {
-                            let controller =
-                                Box::new(WgpuAllocController::init(binding, staging.buffer));
-                            // SAFETY: The binding has initialized memory for at least `size` bytes.
-                            unsafe { Bytes::from_controller(controller, size) }
-                        } else {
-                            Bytes::from_bytes_vec(vec![])
-                        }
-                    })
-                    .collect()
-            };
+            let result = staged
+                .into_iter()
+                .map(|entry| match entry {
+                    Some(staging) => staging.into_bytes(),
+                    None => Bytes::from_bytes_vec(vec![]),
+                })
+                .collect();
 
             Ok(result)
         })
@@ -776,7 +767,8 @@ impl WgpuStream {
             }
         }
 
-        // SAFETY: The range is in bounds and the queue is idle.
+        // SAFETY: `data` fits the resource, which `WgpuStorage::get` checks lies within
+        // its mapped buffer, and the queue is idle.
         unsafe {
             let dst = host_ptr.0.as_ptr().add(resource.offset as usize);
             core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());

@@ -4,9 +4,7 @@
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
 use super::allocation_planner::{AllocationPlanner, Divergence, Placement};
-use crate::memory_management::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, PageUpdate, PinnedPages,
-};
+use crate::memory_management::{AllocationKind, ManagedMemoryBinding, MemoryLocation, PageUpdate};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -143,8 +141,8 @@ impl StreamCapture {
         }
     }
 
-    /// Whether this stream's reservations may carve the free room on the pages
-    /// its graphs pinned.
+    /// What this stream's reservations are, which decides whether they may carve
+    /// the free room on the pages its graphs pinned.
     ///
     /// A capture's may, from its planning run on: the room is what earlier
     /// graphs' temporaries used, every graph of the stream replays in stream
@@ -156,16 +154,17 @@ impl StreamCapture {
     /// Only the capture's own logical `stream` may: another logical stream
     /// folded onto the same backend stream runs its work for real, and what
     /// it keeps would sit where a graph's replay writes.
-    pub fn pinned_pages(&self, stream: StreamId) -> PinnedPages {
+    pub fn allocation_kind(&self, stream: StreamId) -> AllocationKind {
         match self.runs_work_of(stream) {
-            true => PinnedPages::Share,
-            false => PinnedPages::Avoid,
+            true => AllocationKind::GraphIntermediate,
+            false => AllocationKind::Eager,
         }
     }
 
-    /// Note an allocation of `size_bytes` given to `memory` by the logical `stream`, placed as
-    /// `placement` says, while that stream captures: the planning runs list theirs to learn
-    /// which are outputs, and the recorded run lists its own to check it allocated as planned.
+    /// Note an allocation of `size_bytes` given to the memory `binding` names by the logical
+    /// `stream`, placed as `placement` says, while that stream captures: the planning runs list
+    /// theirs to learn which are outputs, and the recorded run lists its own to check it kept no
+    /// buffer it placed as a temporary.
     /// What the recorded run placed as an output is held for the graph it seals into: every
     /// replay writes it whether or not the work kept it, so a slice the work let go must not go
     /// back to the room other graphs' outputs are carved from.
@@ -177,23 +176,22 @@ impl StreamCapture {
         &mut self,
         stream: StreamId,
         size_bytes: u64,
-        memory: &ManagedMemoryHandle,
+        binding: ManagedMemoryBinding,
         placement: Placement,
     ) {
         if !self.runs_work_of(stream) {
             return;
         }
-        let binding = memory.clone().binding();
-        self.planner.allocated(size_bytes, &binding);
+        self.planner.allocated(size_bytes, &binding, placement);
         if placement == Placement::Output && self.state.is_recording() {
             self.retained_outputs.push(binding);
         }
     }
 
-    /// Where the next allocation of `size_bytes` goes: while a capture is under way, what the
-    /// last planning run found to be an output at its position is placed off the shared room,
-    /// in the planning runs as in the recording, so the recording lands where the last
-    /// planning did.
+    /// Where the next allocation of `size_bytes` goes: while a capture is under way, one the
+    /// plan matches to an output is placed off the shared room, in the planning runs as in the
+    /// recording, so the recording lands where the last planning did (see
+    /// `AllocationPlanner::place_bytes`).
     ///
     /// Only the capture's own logical `stream` follows the plan, as in
     /// [`allocated`](Self::allocated).
@@ -239,9 +237,9 @@ impl StreamCapture {
         Ok(())
     }
 
-    /// End a planning run, once its deferred frees are reclaimed, and answer whether it
-    /// allocated what the run before it did, the same sizes in the same order with the same
-    /// ones still held: the work has reached its steady state, and the recording can follow it.
+    /// End a planning run, once its deferred frees are reclaimed, and answer whether it kept
+    /// the buffers the run before it kept, the same sizes in the same order: what the recording's
+    /// seal depends on has settled, and the recording can follow it.
     ///
     /// # Errors
     ///
@@ -287,8 +285,8 @@ impl StreamCapture {
         self.planner.has_plan()
     }
 
-    /// End the recorded run, once its deferred frees are reclaimed: where it allocated
-    /// otherwise than planned, if it did, which means the graph must not seal.
+    /// End the recorded run, once its deferred frees are reclaimed: the first buffer it keeps
+    /// on room the plan left to temporaries, if it does, which means the graph must not seal.
     pub fn finish_recording(&mut self) -> Option<Divergence> {
         self.planner.finish_recording()
     }
@@ -437,6 +435,25 @@ impl StreamCapture {
         Ok(())
     }
 
+    /// [`prepare`](Self::prepare) a retry of the recording just refused for keeping a buffer
+    /// it placed as a temporary, and answer whether there was one: its allocations place the
+    /// first planning run, which grows the room apart for every buffer it kept. Nothing is
+    /// prepared when there was none.
+    ///
+    /// # Errors
+    ///
+    /// As [`prepare`](Self::prepare).
+    pub fn prepare_retry(&mut self, owner: StreamId) -> Result<bool, ServerError> {
+        if !self.planner.has_refused_recording() {
+            return Ok(false);
+        }
+        self.state.prepare(owner)?;
+        self.clear_window();
+        self.planner.retry();
+        self.planner.start_run();
+        Ok(true)
+    }
+
     /// Open the window: launches from here until [`end`](Self::end) are
     /// recorded rather than executed, and allocations follow the planning run's
     /// plan.
@@ -473,12 +490,17 @@ impl StreamCapture {
     }
 
     fn clear(&mut self) {
+        self.clear_window();
+        self.planner.clear();
+    }
+
+    /// Forget everything a window recorded or retained, and keep the plan.
+    fn clear_window(&mut self) {
         self.recorded.clear();
         self.touched.clear();
         self.primed.clear();
         self.retained_host.clear();
         self.retained_peers.clear();
-        self.planner.clear();
         self.retained_outputs.clear();
         self.failed = None;
     }

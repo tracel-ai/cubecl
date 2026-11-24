@@ -26,9 +26,9 @@ pub enum Decline {
     WidthNotServed { width: usize, why: LineMisfit },
     /// The innermost dimension is served in vector lines but is not provably in bounds.
     UncheckableVectorEdge,
-    /// A storage-tiled operand whose storage tile is the tile of `level`, and which this launch
-    /// overhangs: a window inside one storage tile is read as one unmasked run, so the windows
-    /// past the tensor's end would read storage tiles it does not have.
+    /// A storage-tiled operand whose storage tile is the tile of `level`, and which is checked: the
+    /// launch overhangs a dimension it addresses, so its windows mask, while a window inside its
+    /// storage tile is read as one unmasked run.
     CheckedInsideStorageTile { level: usize },
     /// A gathered mapping read in vector lines whose innermost physical axis does not step by the
     /// operand's last dimension at coefficient 1.
@@ -86,6 +86,14 @@ pub enum Decline {
     /// A ring holding its next stage in the units' registers, filled by a delivery the units do
     /// not load and store themselves ([`Delivery::holds`](crate::launch::Delivery::holds)).
     PrefetchPastDelivery(Delivery),
+    /// An operand whose edge reads a monoid's identity ([`Boundary::Identity`](crate::Boundary)),
+    /// moved by a delivery whose engine fills past the edge with zero
+    /// ([`Delivery::reads_edge`](crate::launch::Delivery::reads_edge)).
+    IdentityEdgePastDelivery(Delivery),
+    /// An operand of packed values whose edge reads a monoid's identity
+    /// ([`Boundary::Identity`](crate::Boundary)): a stored word is not one value, so no value's
+    /// identity fills it.
+    IdentityEdgeOfPackedValues,
     /// Lines `bits` long, which the copy engine does not move whole
     /// ([`Delivery::moves_lines`](crate::launch::Delivery::moves_lines)).
     LineNotCopied { bits: usize },
@@ -232,9 +240,9 @@ impl Display for Decline {
             Decline::CheckedInsideStorageTile { level } => write!(
                 f,
                 "Arg: this storage-tiled operand's storage tile is the tile of level {level}, \
-                 where a window is read as one unmasked run, and the launch overhangs it, so a \
-                 window past the tensor's end would read storage tiles it does not have; tile \
-                 the launch so it divides the operand, or tile it coarser than the storage tile"
+                 where a window is read as one unmasked run, but the launch overhangs a \
+                 dimension the operand addresses, so its windows mask; tile the launch so it \
+                 divides the operand, or tile it coarser than the storage tile"
             ),
             Decline::DimensionsOutOfAxisOrder { stated, by_axis } => write!(
                 f,
@@ -315,6 +323,16 @@ impl Display for Decline {
                 f,
                 "Delivery: a stage held in the units' registers is one they load and store \
                  themselves, and {delivery:?} moves it without them"
+            ),
+            Decline::IdentityEdgePastDelivery(delivery) => write!(
+                f,
+                "Delivery: this operand reads a monoid's identity past its edge, and {delivery:?} \
+                 moves memory to memory, filling past the edge with zero"
+            ),
+            Decline::IdentityEdgeOfPackedValues => write!(
+                f,
+                "Boundary: this operand reads a monoid's identity past its edge, and its values \
+                 are packed in words, which no one value's identity fills"
             ),
             Decline::LineNotCopied { bits } => write!(
                 f,

@@ -1,5 +1,5 @@
 use crate::{
-    config::{TypeNameFormatLevel, type_name_format},
+    config::TypeNameFormatLevel,
     device::HardwareIdentity,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
@@ -15,9 +15,9 @@ use crate::{
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{ComputeStorage, ManagedResource},
+    storage::{ManagedResource, StorageAllocator},
     throughput::{
-        ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
+        CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
@@ -425,7 +425,7 @@ impl Client {
     pub fn read_async(
         &self,
         handles: Vec<Handle>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let shapes = handles
             .iter()
             .map(|it| [it.size_in_used() as usize].into())
@@ -469,7 +469,7 @@ impl Client {
     pub fn read_tensor_async(
         &self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         self.do_read(descriptors)
     }
 
@@ -495,7 +495,7 @@ impl Client {
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         let fut = self.read_tensor_async(vec![descriptor]);
 
         async { Ok(fut.await?.remove(0)) }
@@ -526,7 +526,7 @@ impl Client {
     /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
-        self.expect_local(&source.handle.clone().binding());
+        self.expect_local(&source.handle.to_binding());
         lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
     }
 
@@ -544,8 +544,8 @@ impl Client {
     pub fn read_lazy_async(
         &self,
         source: CopyDescriptor<Handle>,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        let binding = source.handle.clone().binding();
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
+        let binding = source.handle.to_binding();
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
@@ -570,7 +570,7 @@ impl Client {
     pub fn read_lazy_async(
         &self,
         source: CopyDescriptor<Handle>,
-    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send + use<> {
         self.read_one_tensor_async(source.binding())
     }
 
@@ -578,7 +578,7 @@ impl Client {
     pub fn get_resource<S: ServerStorage>(
         &self,
         handle: Handle,
-    ) -> Result<ManagedResource<<S::Storage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<S::Storage as StorageAllocator>::Resource>, ServerError> {
         let stream_id = self.stream_id();
         let binding = handle.binding();
         self.local(&binding)?;
@@ -618,7 +618,7 @@ impl Client {
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.memory.clone().binding(),
+                        alloc.memory.to_binding(),
                         desc.shape,
                         alloc.strides.clone(),
                         desc.elem_size,
@@ -658,7 +658,7 @@ impl Client {
             .map(|((desc, layout), data)| {
                 (
                     CopyDescriptor::new(
-                        layout.memory.clone().binding(),
+                        layout.memory.to_binding(),
                         desc.shape,
                         layout.strides.clone(),
                         desc.elem_size,
@@ -796,7 +796,7 @@ impl Client {
     pub fn write(&self, handle: &Handle, data: Bytes) {
         let stream_id = self.stream_id();
         let descriptor =
-            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+            CopyDescriptor::new(handle.to_binding(), [data.len()].into(), [1].into(), 1);
         self.expect_local(&descriptor.handle);
         self.device.submit(move |server| {
             server.write(vec![(descriptor, data)], stream_id);
@@ -1029,7 +1029,7 @@ impl Client {
     /// failure the buffer carries.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
-        let binding = handle.clone().binding();
+        let binding = handle.to_binding();
         self.local(&binding)?;
         // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
@@ -1061,7 +1061,7 @@ impl Client {
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
-        self.expect_local(&src.clone().binding());
+        self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
@@ -1572,12 +1572,11 @@ impl Client {
             true => crate::execution::LaunchMode::planning(self.service_stream()),
             false => crate::execution::LaunchMode::new(self.service_stream()),
         };
-        // So is where its kernels count: the device runs it later, and an
-        // override closing in between must not change that.
-        let issued = crate::execution::IssuedRecorder::new();
-        // And what it is issued for: a race's launch loads a kernel the work
-        // may never pick, and the server records only the work's.
-        let purpose = crate::execution::LaunchPurpose::issued();
+        // So are where its kernels count, since the device runs it later and
+        // an override closing in between must not change that, and what it is
+        // issued for: a race's launch loads a kernel the work may never pick,
+        // and the server records only the work's.
+        let issued = crate::execution::IssuedLaunch::new(crate::execution::LaunchPurpose::issued());
 
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
@@ -1613,10 +1612,8 @@ impl Client {
                         None
                     };
 
-                    purpose.apply(|| {
-                        issued.apply(|| unsafe {
-                            state.launch(kernel, count, bindings, stream_id, launch_mode)
-                        })
+                    issued.run(|| unsafe {
+                        state.launch(kernel, count, bindings, stream_id, launch_mode)
                     });
 
                     if let Some(info) = execution_info {
@@ -1650,16 +1647,8 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| {
-                                purpose.apply(|| {
-                                    issued_profiled.apply(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
-                                    })
+                                issued_profiled.run(|| unsafe {
+                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
                                 })
                             })
                             .unwrap_or_resume()
@@ -1684,16 +1673,14 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    purpose.apply(|| {
-                                        issued.apply(|| unsafe {
-                                            state.launch(
-                                                kernel,
-                                                count,
-                                                bindings,
-                                                stream_id,
-                                                launch_mode,
-                                            )
-                                        })
+                                    issued.run(|| unsafe {
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
                                     });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);
@@ -1816,31 +1803,42 @@ impl Client {
     ///
     /// `work` runs several times. First as planning runs, with its launches discarded: kernels
     /// compile and tunes measure, and the pools grow to what it allocates, so the recorded run
-    /// needs no fresh memory. The planning runs repeat until two runs in a row allocate alike, since
-    /// a first run can take another path than the steady state (a tune, a fused optimization
-    /// being built). Then once more, recorded. What the last planning run left allocated is the
-    /// work's output, and the recorded run places it on room no other graph of the stream
-    /// writes, so the output outlives every replay but its own graph's.
+    /// needs no fresh memory. The planning runs repeat until two runs in a row keep the same
+    /// buffers, since a first run can take another path than the steady state (a tune, a fused
+    /// optimization being built). Then once more, recorded. What the last planning run left
+    /// allocated is the work's output, and the recorded run places it on room no other graph of
+    /// the stream writes, so the output outlives every replay but its own graph's.
     ///
-    /// `work` must therefore allocate the same buffers, and keep the same ones, on every run,
-    /// and must not read the device: a planning run's launches never ran. For the same reason a
-    /// tune first met in a planning run measures its candidates on inputs nothing wrote, so a
-    /// kernel whose speed depends on its data is better tuned before the capture. A temporary
+    /// `work` must therefore keep the same buffers on every run, allocated in the same order.
+    /// Its temporaries may differ from run to run, as a framework's do when it writes in place
+    /// into a buffer only while nothing else holds it: they sit on room every graph of the
+    /// stream overwrites, so which ones a run allocates is its own business. A recording can
+    /// still place a buffer it keeps as a temporary — one allocated just before an output of its
+    /// size takes the output's room — and is then refused. The work then runs once more as a
+    /// planning run placed by the refused recording's allocations, and is recorded again, up to
+    /// three recordings in all.
+    ///
+    /// `work` must not read the device either: a planning run's launches never ran. For the same
+    /// reason a tune first met in a planning run measures its candidates on inputs nothing wrote,
+    /// so a kernel whose speed depends on its data is better tuned before the capture. A temporary
     /// still held when a run returns, as a lazily released handle is, counts as an output: it
     /// takes room of its own rather than the shared room, which is safe and only costs memory.
     ///
     /// # Errors
     ///
     /// When the backend has no graph support, a capture is already under way on the stream,
-    /// the recorded run allocated otherwise than the last planning run, or anything the window
-    /// could not record (see [`start_capture`](Self::start_capture)). The capture this call
-    /// prepared is over either way, and so it is when `work` panics: left prepared, the stream
-    /// would discard every launch that follows.
+    /// every recording kept a buffer it placed as a temporary, or anything the window could not
+    /// record (see [`start_capture`](Self::start_capture)). The capture this call prepared is
+    /// over either way, and so it is when `work` panics: left prepared, the stream would discard
+    /// every launch that follows.
     pub fn capture<T>(&self, mut work: impl FnMut() -> T) -> Result<(Graph, T), ServerError> {
         /// Runs a capture plans before recording whatever it found: a cold fused path
-        /// settles by its second run. The recording is checked against the last run, so a work
-        /// that never settles seals only when its recording allocates as that run did.
+        /// settles by its second run. A work whose kept buffers never settle is recorded after
+        /// this many runs all the same: only what the recording keeps decides whether it seals.
         const PLANNING_RUNS_MAX: usize = 4;
+        /// Recordings a capture makes before it gives up: a refused one places the planning
+        /// run of the next, which seals whenever it allocates as that run did.
+        const RECORDINGS_MAX: usize = 3;
 
         self.graph_prepare()?;
         let closer = CaptureCloser { client: self };
@@ -1856,8 +1854,28 @@ impl Client {
             }
         }
         self.start_capture()?;
-        let output = work();
-        let graph = self.stop_capture();
+        let mut output = work();
+        let mut graph = self.stop_capture();
+        for _ in 1..RECORDINGS_MAX {
+            let Err(refusal) = graph else {
+                break;
+            };
+            core::mem::drop(output);
+            // Only a recording refused for keeping a buffer it placed as a temporary is
+            // retried, and the reason it failed is what the caller hears otherwise.
+            if !self.graph_prepare_retry().unwrap_or(false) {
+                return Err(refusal);
+            }
+            // The window adds no page: one planning run grows the room apart for the buffers
+            // the refused recording kept. Whether it settled does not matter, only what the
+            // recording keeps decides whether it seals.
+            let planned = work();
+            self.graph_end_run()?;
+            core::mem::drop(planned);
+            self.start_capture()?;
+            output = work();
+            graph = self.stop_capture();
+        }
         core::mem::drop(closer);
         Ok((graph?, output))
     }
@@ -1880,8 +1898,18 @@ impl Client {
             .closed_as_error()
     }
 
+    /// [`graph_prepare`](Self::graph_prepare) a retry of the recording just refused on this
+    /// stream for keeping a buffer it placed as a temporary, and answer whether there was one
+    /// (see [`Server::graph_prepare_retry`]).
+    fn graph_prepare_retry(&self) -> Result<bool, ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.graph_prepare_retry(stream_id))
+            .closed_as_error()
+    }
+
     /// End one planning run of the work, with what it returned still held, and answer whether it
-    /// allocated what the run before it did: the work has reached its steady state, and the
+    /// kept the buffers the run before it kept: the work has reached its steady state, and the
     /// recording can follow it (see [`Server::graph_end_run`]).
     ///
     /// # Errors
@@ -2047,7 +2075,7 @@ impl Client {
         handles
             .into_iter()
             .map(|handle| {
-                let binding = handle.clone().binding();
+                let binding = handle.to_binding();
                 self.local(&binding)?;
                 Ok(binding)
             })
@@ -2391,7 +2419,7 @@ impl Client {
         let alloc = layouts.remove(0);
 
         let desc_descriptor = CopyDescriptor {
-            handle: handle_base.clone().binding(),
+            handle: handle_base.to_binding(),
             shape,
             strides: alloc.strides.clone(),
             elem_size,
@@ -2436,7 +2464,7 @@ impl Client {
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
         let cache = ThroughputCache::get_for_device(self.name(), self.properties());
-        let mut throughputs = ThroughputBenchmarker::new(cache);
+        let mut throughputs = CachedThroughput::new(cache);
 
         if let Some(value) = throughputs.cached(key) {
             return Ok(value);
@@ -2452,7 +2480,7 @@ impl Client {
 }
 
 fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
-    let base = type_name_format(name, TypeNameFormatLevel::Balanced);
+    let base = TypeNameFormatLevel::Balanced.format(name);
     kernel_id.entrypoint_name(&base)
 }
 

@@ -9,7 +9,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::IoError;
 use cubecl_server::runtime::Runtime;
-use cubecl_server::storage::ComputeStorage;
+use cubecl_server::storage::StorageAllocator;
 use cubecl_wgpu::{
     AutoGraphicsApi, RuntimeOptions, WgpuDevice, WgpuRuntime, WgpuStorage, init_device, init_setup,
 };
@@ -35,12 +35,12 @@ fn an_allocation_past_the_device_memory_fails_and_the_device_stays_usable() {
     let device = init_device(setup, RuntimeOptions::default());
     let client = <WgpuRuntime>::client(&device);
 
-    let mut storage = WgpuStorage::new(4, wgpu_device.clone(), wgpu::BufferUsages::STORAGE, false);
+    let mut storage = WgpuStorage::new(wgpu_device.clone(), wgpu::BufferUsages::STORAGE, false);
     // Fill the device with buffers of the largest size wgpu allows, until one has no room.
     let size = wgpu_device.limits().max_buffer_size;
     let mut held = Vec::new();
     let err = loop {
-        match storage.alloc(size) {
+        match storage.allocate_bytes(size) {
             Ok(handle) => held.push(handle),
             Err(err) => break err,
         }
@@ -53,11 +53,11 @@ fn an_allocation_past_the_device_memory_fails_and_the_device_stays_usable() {
     assert_eq!(storage.bytes_allocated(), held.len() as u64 * size);
 
     for handle in held {
-        storage.dealloc(handle.id);
+        storage.deallocate(handle.id);
     }
     let _ = wgpu_device.poll(wgpu::PollType::wait_indefinitely());
-    let small = storage.alloc(1024).expect("the memory is back");
-    storage.dealloc(small.id);
+    let small = storage.allocate_bytes(1024).expect("the memory is back");
+    storage.deallocate(small.id);
 
     let out = client.empty(core::mem::size_of::<u32>());
     fill::launch(

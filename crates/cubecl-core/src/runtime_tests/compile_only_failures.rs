@@ -114,7 +114,7 @@ pub fn test_autotune_failing_candidate_reports_nothing<R: Runtime>(client: Clien
     );
     let compilation = collector.statistics().compilation;
     assert!(
-        compilation.failed >= 1,
+        compilation.failed_count >= 1,
         "the failing candidate was compiled and failed: {compilation:?}"
     );
 

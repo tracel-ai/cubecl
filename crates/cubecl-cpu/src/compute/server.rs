@@ -27,7 +27,7 @@ use cubecl_server::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
-    storage::{BytesStorage, ComputeStorage, ManagedResource},
+    storage::{BytesStorage, ManagedResource, StorageAllocator},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
 };
@@ -71,13 +71,13 @@ impl CpuServer {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
         let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let max_stream_count = config.streaming.max_stream_count;
 
         let scheduler = SchedulerMultiStream::new(
             utilities.logger.clone(),
             backend,
             SchedulerMultiStreamOptions {
-                max_streams,
+                max_stream_count,
                 max_tasks: 8,
                 strategy: SchedulerStrategy::Interleave,
             },
@@ -222,7 +222,7 @@ impl Server for CpuServer {
             Err(err) => {
                 // Nothing to allocate: the buffer carries the error instead.
                 let err = ServerError::from(err);
-                failures.fail_unallocated(&memory, err.clone());
+                failures.fail_unallocated(&memory.to_binding(), err.clone());
                 return Err(err);
             }
         };
@@ -573,7 +573,7 @@ impl ServerCommunication for CpuServer {}
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
+    for i in (0..rank.saturating_sub(1)).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
@@ -586,7 +586,7 @@ impl ServerStorage for CpuServer {
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<Self::Storage as StorageAllocator>::Resource>, ServerError> {
         // The same claim check a read makes: a buffer a failed launch never
         // filled reports the failure rather than handing back a pointer to
         // whatever was there before.
@@ -601,5 +601,24 @@ impl ServerStorage for CpuServer {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+#[cfg(test)]
+mod contiguous_strides_tests {
+    use super::contiguous_strides;
+    use cubecl_core::zspace::{shape, strides};
+
+    /// A scalar has no dimensions, so it has no strides.
+    #[test]
+    fn rank_zero_has_no_strides() {
+        assert_eq!(contiguous_strides(&shape![]), strides![]);
+    }
+
+    /// The last dimension is unit stride and each one before it spans the rest.
+    #[test]
+    fn strides_are_row_major() {
+        assert_eq!(contiguous_strides(&shape![7]), strides![1]);
+        assert_eq!(contiguous_strides(&shape![2, 3, 4]), strides![12, 4, 1]);
     }
 }

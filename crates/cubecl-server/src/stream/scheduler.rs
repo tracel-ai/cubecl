@@ -148,7 +148,7 @@ impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
 #[derive(Debug)]
 pub struct SchedulerMultiStreamOptions {
     /// Maximum number of streams allowed in the pool.
-    pub max_streams: u8,
+    pub max_stream_count: u8,
     /// Maximum number of tasks per stream before execution is triggered.
     pub max_tasks: usize,
     /// The scheduling strategy to use.
@@ -226,7 +226,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         options: SchedulerMultiStreamOptions,
     ) -> Self {
         Self {
-            pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
+            pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_stream_count, 0),
             failures: Failures::new(logger.clone()),
             max_tasks: options.max_tasks,
             strategy: options.strategy,
@@ -293,7 +293,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// The streams a task using `binding` must follow: the one that owns it, and the one with a
     /// queued write into it when that is another.
     pub fn streams_to_align(&self, binding: &BufferBinding) -> impl Iterator<Item = StreamId> {
-        let id = binding.memory.descriptor().id;
+        let id = binding.memory.descriptor().id();
         let writer = self
             .foreign_writes
             .iter()
@@ -307,7 +307,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// recorded: it already aligned with any pending writer, and executing that writer drops it.
     fn record_write(&mut self, writer: StreamId, binding: &BufferBinding) {
         let owner = binding.stream;
-        let memory = binding.memory.descriptor().id;
+        let memory = binding.memory.descriptor().id();
         self.foreign_writes
             .retain(|write| write.owner != owner || write.memory != memory);
         if owner != writer {

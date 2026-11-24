@@ -1,6 +1,6 @@
 use crate::server::IoError;
 
-use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use super::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
 use alloc::alloc::{Layout, alloc_zeroed, dealloc};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
@@ -46,9 +46,9 @@ impl BytesResource {
     pub fn get_write_ptr_and_length(&self) -> (*mut u8, usize) {
         (
             // SAFETY:
-            // - The offset is created to be within the bounds of the allocation.
-            unsafe { self.ptr.add(self.utilization.offset as usize) },
-            self.utilization.size as usize,
+            // - `BytesStorage::get` checks the part lies within its allocation.
+            unsafe { self.ptr.add(self.utilization.offset_bytes as usize) },
+            self.utilization.size_bytes as usize,
         )
     }
 
@@ -63,7 +63,7 @@ impl BytesResource {
 
         // SAFETY:
         // - ptr is non-null and aligned (from BytesStorage::alloc).
-        // - The region [ptr..ptr+len) is within a single allocation.
+        // - The region [ptr..ptr+len) is within one allocation, which `BytesStorage::get` checks.
         // - Memory is initialized (BytesStorage uses alloc_zeroed).
         // - `&mut self` ensures exclusive access to this resource's region.
         // - `StorageHandle` assigns non-overlapping regions per resource.
@@ -79,44 +79,46 @@ impl BytesResource {
 
         // SAFETY:
         // - ptr is non-null and aligned (from BytesStorage::alloc).
-        // - The region [ptr..ptr+len) is within a single allocation.
+        // - The region [ptr..ptr+len) is within one allocation, which `BytesStorage::get` checks.
         // - Memory is initialized (BytesStorage uses alloc_zeroed).
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 }
 
-impl ComputeStorage for BytesStorage {
+impl StorageAllocator for BytesStorage {
     type Resource = BytesResource;
 
-    fn alignment(&self) -> usize {
-        Self::ALIGNMENT
-    }
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let allocated_bytes = self
+            .memory
+            .get(&handle.id)
+            .expect("the handle should name a live allocation of this storage");
+        // Every read and write of the resource offsets its pointer by the
+        // handle, so this is checked rather than assumed.
+        assert!(
+            handle.offset() + handle.size() <= allocated_bytes.layout.size() as u64,
+            "the handle should lie within its allocation"
+        );
 
-    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
-        let allocated_bytes =
-            self.memory
-                .get(&handle.id)
-                .ok_or_else(|| IoError::StorageHandleNotFound {
-                    reason: alloc::format!("{} in the bytes storage", handle.id).into(),
-                    backtrace: BackTrace::capture(),
-                })?;
-
-        Ok(BytesResource {
+        BytesResource {
             ptr: allocated_bytes.ptr,
             utilization: handle.utilization.clone(),
-        })
+        }
     }
 
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, size))
     )]
-    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         self.allocated += size;
         let handle = StorageHandle {
             id,
-            utilization: StorageUtilization { offset: 0, size },
+            utilization: StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: size,
+            },
         };
 
         if size == 0 {
@@ -149,7 +151,7 @@ impl ComputeStorage for BytesStorage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn dealloc(&mut self, id: StorageId) {
+    fn deallocate(&mut self, id: StorageId) {
         if let Some(memory) = self.memory.remove(&id) {
             self.allocated -= memory.layout.size() as u64;
             if memory.layout.size() > 0 {
@@ -176,27 +178,26 @@ mod tests {
     #[test_log::test]
     fn test_can_alloc_and_dealloc() {
         let mut storage = BytesStorage::default();
-        let handle_1 = storage.alloc(64).unwrap();
+        let handle_1 = storage.allocate_bytes(64).unwrap();
 
         assert_eq!(handle_1.size(), 64);
-        storage.dealloc(handle_1.id);
+        storage.deallocate(handle_1.id);
     }
 
     #[test_log::test]
     fn test_slices() {
         let mut storage = BytesStorage::default();
-        let handle_1 = storage.alloc(64).unwrap();
+        let handle_1 = storage.allocate_bytes(64).unwrap();
         let handle_2 = StorageHandle::new(
             handle_1.id,
             StorageUtilization {
-                offset: 24,
-                size: 8,
+                offset_bytes: 24,
+                size_bytes: 8,
             },
         );
 
         storage
             .get(&handle_1)
-            .unwrap()
             .write()
             .iter_mut()
             .enumerate()
@@ -204,9 +205,9 @@ mod tests {
                 *b = i as u8;
             });
 
-        let bytes = storage.get(&handle_2).unwrap().read().to_vec();
+        let bytes = storage.get(&handle_2).read().to_vec();
 
-        storage.dealloc(handle_1.id);
+        storage.deallocate(handle_1.id);
         assert_eq!(bytes, &[24, 25, 26, 27, 28, 29, 30, 31]);
     }
 
@@ -214,61 +215,54 @@ mod tests {
     #[test_log::test]
     fn test_read_after_alloc_without_write() {
         let mut storage = BytesStorage::default();
-        let handle = storage.alloc(16).unwrap();
-        let resource = storage.get(&handle).unwrap();
+        let handle = storage.allocate_bytes(16).unwrap();
+        let resource = storage.get(&handle);
         assert!(resource.read().iter().all(|&b| b == 0));
-        storage.dealloc(handle.id);
+        storage.deallocate(handle.id);
     }
 
     /// Miri catches: "creating allocation with size 0"
     #[test_log::test]
     fn test_zero_size_alloc_and_dealloc() {
         let mut storage = BytesStorage::default();
-        let handle = storage.alloc(0).unwrap();
+        let handle = storage.allocate_bytes(0).unwrap();
         assert_eq!(handle.size(), 0);
-        storage.dealloc(handle.id);
+        storage.deallocate(handle.id);
     }
 
     #[test_log::test]
     fn test_alloc_dealloc_realloc() {
         let mut storage = BytesStorage::default();
-        let h1 = storage.alloc(32).unwrap();
-        storage.get(&h1).unwrap().write()[0] = 0xAA;
-        storage.dealloc(h1.id);
-        let h2 = storage.alloc(32).unwrap();
-        storage.dealloc(h2.id);
+        let h1 = storage.allocate_bytes(32).unwrap();
+        storage.get(&h1).write()[0] = 0xAA;
+        storage.deallocate(h1.id);
+        let h2 = storage.allocate_bytes(32).unwrap();
+        storage.deallocate(h2.id);
     }
 
     #[test_log::test]
     fn test_multiple_non_overlapping_regions() {
         let mut storage = BytesStorage::default();
-        let base = storage.alloc(64).unwrap();
+        let base = storage.allocate_bytes(64).unwrap();
 
         let regions: alloc::vec::Vec<_> = (0..4)
             .map(|i| {
                 StorageHandle::new(
                     base.id,
                     StorageUtilization {
-                        offset: i * 16,
-                        size: 16,
+                        offset_bytes: i * 16,
+                        size_bytes: 16,
                     },
                 )
             })
             .collect();
 
         for (i, region) in regions.iter().enumerate() {
-            storage.get(region).unwrap().write().fill(i as u8);
+            storage.get(region).write().fill(i as u8);
         }
         for (i, region) in regions.iter().enumerate() {
-            assert!(
-                storage
-                    .get(region)
-                    .unwrap()
-                    .read()
-                    .iter()
-                    .all(|&b| b == i as u8)
-            );
+            assert!(storage.get(region).read().iter().all(|&b| b == i as u8));
         }
-        storage.dealloc(base.id);
+        storage.deallocate(base.id);
     }
 }

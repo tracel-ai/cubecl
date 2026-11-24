@@ -28,6 +28,7 @@
 
 mod base;
 mod bounds_generator;
+mod device_access;
 mod eviction;
 mod gathering;
 mod input_generator;
@@ -45,6 +46,7 @@ mod patience;
 mod sampler;
 #[cfg(not(target_family = "wasm"))]
 mod schedule;
+mod stage;
 mod tune_benchmark;
 mod tune_cache;
 mod tune_inputs;
@@ -53,6 +55,7 @@ mod util;
 
 pub use base::*;
 pub use bounds_generator::*;
+pub use device_access::TuneDeviceAccess;
 pub use eviction::*;
 pub use input_generator::*;
 pub use key_generator::*;
@@ -61,6 +64,7 @@ pub use log::*;
 pub use operation::*;
 #[cfg(persistence)]
 pub use record::{PlannedCandidate, Trial, TuneRecord};
+pub use stage::{StageEnterer, TuneStage};
 pub use tune_benchmark::*;
 pub use tune_cache::*;
 pub use tune_inputs::*;

@@ -4,6 +4,7 @@ mod link;
 mod operands;
 mod pooling;
 mod runners;
+mod sampler;
 mod shape;
 mod workers;
 
@@ -14,5 +15,6 @@ pub use runners::*;
 
 use operands::{Arithmetic, CooperativeMatrix};
 use pooling::PooledProbes;
+pub(crate) use sampler::KernelSampler;
 use shape::ShapeSweep;
 use workers::WorkerSweep;

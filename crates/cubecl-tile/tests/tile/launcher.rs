@@ -1,11 +1,12 @@
 //! Unit tests for [`Launcher`]: geometry read off the concrete space, kernel space dynamic.
 
 use super::{Form, implied};
+use cubecl::quant::scheme::QuantValue;
 use cubecl::{prelude::*, zspace::Tiling};
-use cubecl_tile::launch::{BoundaryPolicy, Decline};
+use cubecl_tile::launch::{BoundaryPolicy, Decline, Delivery};
 use cubecl_tile::{
-    Dimension, Geometry, Level, Partitioning, Projection, Space, TileSpec,
-    kind::{Boundary, Storage},
+    Dimension, Geometry, Level, Monoid, Partitioning, Projection, Space, TileSpec,
+    kind::{Boundary, Field, Storage},
     layout::{Divisor, Offset, PhysicalAxisMap, Scale, StorageLevels, VectorTile},
 };
 
@@ -197,6 +198,51 @@ fn any_extent_checks_what_some_extent_could_overhang() {
     assert_eq!(bound(18, None), [None, Some(Boundary::Zero)]);
 }
 
+/// An operand whose edge reads a monoid's identity binds only where every value past the edge can
+/// be that identity: not through an engine that copies memory to memory, which writes zero there,
+/// and not over packed words, which no one value's identity fills.
+#[test]
+fn an_identity_edge_binds_only_where_it_can_be_filled() {
+    let client = cubecl::test_device().client();
+    // m = 18 overhangs the cube's 16 rows, so M is checked.
+    let launch = {
+        let (space, levels) = batched_space(1, 1, 18, 64, 64);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+    let identity = BoundaryPolicy::Every(Boundary::Identity(Monoid::Max));
+
+    let registers = launch
+        .arg(binding(&client, &[18, 64]), f32::elem_type_native())
+        .dimensions(&[M, K])
+        .boundary(identity)
+        .build()
+        .unwrap();
+    assert_eq!(
+        registers.spec.boundaries.as_slice(),
+        &[Some(Boundary::Identity(Monoid::Max)), None]
+    );
+
+    for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
+        let refused = launch
+            .arg(binding(&client, &[18, 64]), f32::elem_type_native())
+            .dimensions(&[M, K])
+            .boundary(identity)
+            .delivery(delivery)
+            .build()
+            .err();
+        assert_eq!(refused, Some(Decline::IdentityEdgePastDelivery(delivery)));
+    }
+
+    let refused = launch
+        .arg(binding(&client, &[18, 8]), u32::elem_type_native())
+        .dimensions(&[M, K])
+        .boundary(identity)
+        .packed(Field::from(QuantValue::E2M1))
+        .build()
+        .err();
+    assert_eq!(refused, Some(Decline::IdentityEdgeOfPackedValues));
+}
+
 /// A storage-tiled operand is addressed by fewer coordinates than its buffer has axes, and the
 /// boundary list follows the coordinates: sized off the physical rank it would land its
 /// per-dimension modes on the grid fragments, which no [`Window`] ever reads.
@@ -209,9 +255,9 @@ fn arg_sizes_boundaries_by_coordinate_rank_under_storage_tiling() {
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
-    // 2 coordinate dimensions (M, K), tiled into 4 physical buffer axes: 8*8 = 64 and 5*4 = 20, the
-    // buffer padded to whole blocks of the leaf's own (8, 4).
-    let mut tiled = binding(&client, &[8, 5, 8, 4]);
+    // 2 coordinate dimensions (M, K), tiled into 4 physical buffer axes: 4*16 = 64 and 5*4 = 20, in
+    // blocks of (16, 4) that no level cuts to, so the checked operand keeps no storage level.
+    let mut tiled = binding(&client, &[4, 5, 16, 4]);
     tiled.tiling = Tiling::new(&[2, 2]).unwrap();
     let tiled = launch
         .arg(tiled, f32::elem_type_native())
@@ -431,7 +477,7 @@ fn arg_reads_a_storage_tile_that_is_no_level_through_its_layout() {
 fn arg_reads_a_tiling_stated_over_batch_axes_too() {
     let client = cubecl::test_device().client();
     let launch = {
-        let (space, levels) = batched_space(3, 1, 64, 64, 18);
+        let (space, levels) = batched_space(3, 1, 64, 64, 20);
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
 
@@ -447,6 +493,31 @@ fn arg_reads_a_tiling_stated_over_batch_axes_too() {
     assert_eq!(arg.spec.projection.physical_rank(), 5);
     assert_eq!(arg.spec.projection.coordinate_rank(), 3);
     assert_eq!(arg.spec.storage, Storage::Tiled(Some(2)));
+}
+
+/// The same operand under a launch whose `K`, 18, ends inside the last stored tile: the walk
+/// overhangs `K` only into the tile's padding, and the operand is still checked, so it is refused
+/// at the level whose tile is its block.
+#[test]
+fn arg_refuses_a_checked_operand_whose_block_is_a_level_tile() {
+    let client = cubecl::test_device().client();
+    let launch = {
+        let (space, levels) = batched_space(3, 1, 64, 64, 18);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+
+    let mut tiled = binding(&client, &[3, 8, 5, 8, 4]);
+    tiled.tiling = Tiling::new(&[1, 2, 2]).unwrap();
+    let refused = launch
+        .arg(tiled, f32::elem_type_native())
+        .dimensions(&[M, K])
+        .batches(&[B0, B1])
+        .build();
+
+    assert_eq!(
+        refused.map(|_| ()),
+        Err(Decline::CheckedInsideStorageTile { level: 2 })
+    );
 }
 
 #[test]

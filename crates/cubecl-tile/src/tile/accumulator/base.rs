@@ -149,23 +149,31 @@ impl Tile {
         rhs: &Tile,
         #[comptime] semiring: Semiring,
     ) -> Tile {
-        let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
-        let call = plane_call::<EA>(&place, lhs, rhs, comptime!(OpenedBy::Accumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
-        let instruction = comptime!(call.instruction);
-        if comptime!(instruction == Instruction::Wgmma) {
-            comptime!(assert_groups_own_their_box(&self.place));
-        }
-        let vector_size = self.vector_size();
-        accumulator_in::<EA>(
-            &place,
+        self.opened_accumulator::<EA>(lhs, rhs, semiring, comptime!(OpenedBy::Accumulator))
+    }
+
+    /// [`accumulator`](Tile::accumulator) for a sum whose rows are scaled between its products, as
+    /// an online softmax's output is: held where its units scale a row in their registers
+    /// wherever the device offers that at the fragment API's call
+    /// ([`Instruction::for_rescaled_accumulator`](crate::Instruction::for_rescaled_accumulator)).
+    /// Held in the fragment API, it bounces each scale through `scratch`
+    /// ([`with_scratch`](Tile::with_scratch)); held otherwise, it takes none.
+    pub fn rescaled_accumulator<EA: Numeric>(
+        &self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] semiring: Semiring,
+        #[comptime] scratch: Scratch,
+    ) -> Tile {
+        let sum = self.opened_accumulator::<EA>(
             lhs,
-            instruction,
-            vector_size,
-            1usize,
-            comptime!(Accumulation::Contraction(semiring)),
-        )
+            rhs,
+            semiring,
+            comptime!(OpenedBy::RescaledAccumulator),
+        );
+        let instruction = sum.sum_instruction();
+        let bounced = comptime!(instruction == Instruction::Cmma);
+        sum.with_scratch(comptime!(if bounced { scratch } else { Scratch::None }))
     }
 
     /// What this output sums `lhs · rhs` into under `semiring`, at the element `EA`, opened at
@@ -258,9 +266,15 @@ impl Tile {
 
     /// Drain this accumulator into `dest`, cast to its element. `self` and `dest` must be
     /// indexed by the same region. A cmma grid opened with no scratch opens one where `dest`
-    /// needs its fragments bounced.
+    /// needs its fragments bounced. Scales the sum carries are applied as it drains: one over
+    /// every cell as one number, ones varying across its cells cell by cell.
     ///
     /// It reaches the IR as one `tile.drained_into` op.
+    ///
+    /// # Panics
+    ///
+    /// As the kernel expands, where scales varying across its cells ride a sum held in the
+    /// fragment API, which hides where its cells lie.
     pub fn drained_into(&self, dest: &Tile) {
         intrinsic!(|scope| DrainOp::trace(scope, |scope| {
             self.__expand_drain_into_method(scope, dest)
@@ -296,15 +310,93 @@ impl Tile {
         let unopened = self.scratch_unopened();
         let in_place = self.casts_in_place_to::<Served, Out>();
         let bounces = dest.fragments_bounce(in_place);
-        if comptime!(unopened && (scaled || bounces)) {
-            let opened = self.clone().with_scratch(Scratch::OneTile);
-            opened.drain_into(dest);
-        } else if scaled {
-            let mut sum = self.unscaled();
-            sum.scale_by::<f32>(self.factor.whole());
-            sum.drain_into(dest);
+        let varies = self.factor_varies();
+        let scaling = comptime!(DrainScaling::of(
+            unopened && (scaled || bounces),
+            scaled,
+            varies
+        ));
+        match scaling {
+            DrainScaling::OpensScratch => {
+                self.clone().with_scratch(Scratch::OneTile).drain_into(dest)
+            }
+            DrainScaling::PerCell => self.drain_scaled_per_cell::<Served>(dest),
+            DrainScaling::Whole => self.drain_scaled_whole(dest),
+            DrainScaling::Unscaled => self.drain_as_opened::<Served, Out>(dest),
+        }
+    }
+
+    /// [`drain_into`](Tile::drain_into) of a sum whose scales vary across its cells: each cell
+    /// multiplied by its own where its unit holds it, then drained unscaled.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_scaled_per_cell<Served: Numeric>(&self, dest: &Tile) {
+        scale_cells_below::<Served>(self, comptime!(self.place.below().to_vec()), 0usize);
+        self.unscaled().drain_into(dest);
+    }
+
+    /// [`drain_into`](Tile::drain_into) of a sum under one scale over all its cells.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_scaled_whole(&self, dest: &Tile) {
+        let mut sum = self.unscaled();
+        sum.scale_by::<f32>(self.factor.whole());
+        sum.drain_into(dest);
+    }
+}
+
+/// How a sum's drain applies the scales it carries.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum DrainScaling {
+    /// Through a scratch the drain opens first: a scaled sum, or one bouncing to its destination,
+    /// with none opened.
+    OpensScratch,
+    /// Cell by cell, the scales varying across the sum's cells.
+    PerCell,
+    /// As one number over every cell.
+    Whole,
+    /// None to apply.
+    Unscaled,
+}
+
+impl DrainScaling {
+    /// The drain of a sum that `opens_scratch`, carries scales where `scaled`, which vary across
+    /// its cells where `varies`.
+    fn of(opens_scratch: bool, scaled: bool, varies: bool) -> Self {
+        match (opens_scratch, scaled, varies) {
+            (true, _, _) => Self::OpensScratch,
+            (false, true, true) => Self::PerCell,
+            (false, true, false) => Self::Whole,
+            (false, false, _) => Self::Unscaled,
+        }
+    }
+}
+
+/// Each fragment of `acc` below `levels[depth..]` multiplied cell by cell by its scales, which
+/// vary across the output: a row's and a column's, where a product's inputs carry them per row.
+#[cube]
+fn scale_cells_below<A: Numeric>(
+    acc: &Tile,
+    #[comptime] levels: Vec<Level>,
+    #[comptime] depth: usize,
+) {
+    if depth == levels.len() {
+        let mut fragment = acc.clone();
+        fragment.scale_own_cells::<A>();
+    } else {
+        let level = comptime!(levels[depth].clone());
+        if comptime!(level.coverage() == Coverage::Walk) {
+            for region in acc.over(&level).unrolled() {
+                scale_cells_below::<A>(&acc.at(&region), levels.clone(), depth + 1);
+            }
         } else {
-            self.drain_as_opened::<Served, Out>(dest);
+            for region in acc.over(&level) {
+                scale_cells_below::<A>(&acc.at(&region), levels.clone(), depth + 1);
+            }
         }
     }
 }
@@ -393,6 +485,25 @@ impl Tile {
             | TileKind::Procedural(_)
             | TileKind::Lines(_) => comptime!(false),
         }
+    }
+
+    /// This sum multiplied by the scales it carries, once, and carrying none: what a drain that
+    /// lands it a chunk at a time ([`drained_chunk_into`](Tile::drained_chunk_into)) writes. A
+    /// grid of cmma fragments opened with no scratch is scaled through the smallest.
+    pub(crate) fn with_scales_applied(&self) -> Tile {
+        let levels = self.factor_levels();
+        let unopened = self.scratch_unopened();
+        let scaled = comptime!(levels > 0);
+        let scratch = comptime!(if unopened && scaled {
+            Scratch::OneTile
+        } else {
+            Scratch::None
+        });
+        let mut sum = self.clone().with_scratch(scratch).unscaled();
+        if scaled {
+            sum.scale_by::<f32>(self.factor.whole());
+        }
+        sum
     }
 
     /// [`drained_into`](Tile::drained_into) for the fragments of chunk `turn` alone, of
@@ -802,10 +913,41 @@ impl Tile {
     }
 }
 
+#[cube]
+impl Tile {
+    /// The sum the planes holding this output open over `lhs · rhs` under `semiring`, at `EA`,
+    /// opened at zero in the instruction the tile layer picks for a sum opened by `opened_by`.
+    fn opened_accumulator<EA: Numeric>(
+        &self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] semiring: Semiring,
+        #[comptime] opened_by: OpenedBy,
+    ) -> Tile {
+        let place = comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space));
+        let call = plane_call::<EA>(&place, lhs, rhs, opened_by);
+        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
+        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+        let instruction = comptime!(call.instruction);
+        if comptime!(instruction == Instruction::Wgmma) {
+            comptime!(assert_groups_own_their_box(&self.place));
+        }
+        let vector_size = self.vector_size();
+        accumulator_in::<EA>(
+            &place,
+            lhs,
+            instruction,
+            vector_size,
+            1usize,
+            comptime!(Accumulation::Contraction(semiring)),
+        )
+    }
+}
+
 /// The instruction a plane-held sum at `out` of `lhs · rhs`, summed in `EA`, contracts
 /// through on the device the kernel compiles for, at the shape of one of its calls, read off the
 /// device and its target as the kernel expands ([`Instruction::for_accumulator`],
-/// [`Instruction::for_stage_accumulator`]).
+/// [`Instruction::for_stage_accumulator`], [`Instruction::for_rescaled_accumulator`]).
 #[cube]
 fn plane_call<EA: Numeric>(
     #[comptime] out: &Placement,

@@ -31,7 +31,7 @@ use cubecl_server::{
         Reduction, SendOutcome, SendReport, Server, ServerCommunication, ServerError,
         ServerUtilities, TransportProvider,
     },
-    storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
+    storage::{BytesResource, BytesStorage, ManagedResource, StorageAllocator},
     timestamp_profiler::TimestampProfiler,
 };
 use cubecl_zspace::{Shape, Strides};
@@ -344,7 +344,7 @@ impl<M: Marker> Server for DummyServer<M> {
             .reserve(size, PageUpdate::Allow, &mut self.failures)
             .unwrap();
         self.memory_management
-            .bind(reserved, memory.clone(), 0, &mut self.failures)
+            .bind(reserved, memory, 0, &mut self.failures)
             .unwrap();
         Ok(())
     }
@@ -394,7 +394,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 .memory_management
                 .get_storage(descriptor.handle.memory)
                 .unwrap();
-            let mut bytes = self.memory_management.storage().get(&storage_h).unwrap();
+            let mut bytes = self.memory_management.storage().get(&storage_h);
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
     }

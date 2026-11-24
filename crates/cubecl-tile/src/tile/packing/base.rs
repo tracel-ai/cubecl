@@ -108,6 +108,28 @@ impl Field {
         }
     }
 
+    /// Whether every value a code of this field stands for is also a value of `element`, so a
+    /// decode into `element` under a power of two near one keeps it exactly: an `e2m1` or a
+    /// 4-bit integer code into `e4m3` or `e5m2`, an 8-bit float into itself or a wider float. A
+    /// format of more mantissa bits or a wider exponent than `element`'s, and an integer past the
+    /// ones `element` counts exactly, are not; nor is any into an integer element, or a field
+    /// indexing a table.
+    pub fn values_exact_in(self, element: ElemType) -> bool {
+        let Some(target) = MinifloatRange::of_element(element) else {
+            return false;
+        };
+        let value = match (self.code(), self.fp8()) {
+            (Some(value), _) => value,
+            (None, Some(Fp8Format::E4M3)) => QuantValue::E4M3,
+            (None, Some(Fp8Format::E5M2)) => QuantValue::E5M2,
+            (None, _) => return false,
+        };
+        match MinifloatRange::of_value(value) {
+            Some(source) => source.within(target),
+            None => target.counts_integers_to(value.range().0.abs().max(value.range().1)),
+        }
+    }
+
     /// Whether the slot holds an `e2m1` code, however the device reads it
     /// ([`read_on`](Field::read_on)): what a reader that takes the codes' values whole asks.
     pub(crate) fn holds_e2m1(self) -> bool {
@@ -120,6 +142,67 @@ impl Field {
                     ..
                 }
         )
+    }
+}
+
+/// The values of a small float format: its mantissa bits, and the exponents of its smallest and
+/// largest normal values.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct MinifloatRange {
+    mantissa_bits: i32,
+    lowest_exponent: i32,
+    highest_exponent: i32,
+}
+
+impl MinifloatRange {
+    /// `e2m1`'s, `e4m3`'s or `e5m2`'s; `None` for an integer value.
+    fn of_value(value: QuantValue) -> Option<Self> {
+        match value {
+            QuantValue::E2M1 => Some(Self::new(1, 0, 2)),
+            QuantValue::E4M3 => Some(Self::new(3, -6, 8)),
+            QuantValue::E5M2 => Some(Self::new(2, -14, 15)),
+            QuantValue::Q8F
+            | QuantValue::Q8S
+            | QuantValue::Q4F
+            | QuantValue::Q4S
+            | QuantValue::Q2F
+            | QuantValue::Q2S => None,
+        }
+    }
+
+    /// A float element's; `None` for any other.
+    fn of_element(element: ElemType) -> Option<Self> {
+        match element {
+            ElemType::Float(FloatKind::E4M3) => Self::of_value(QuantValue::E4M3),
+            ElemType::Float(FloatKind::E5M2) => Self::of_value(QuantValue::E5M2),
+            ElemType::Float(FloatKind::F16) => Some(Self::new(10, -14, 15)),
+            ElemType::Float(FloatKind::BF16) => Some(Self::new(7, -126, 127)),
+            ElemType::Float(FloatKind::F32) => Some(Self::new(23, -126, 127)),
+            _ => None,
+        }
+    }
+
+    const fn new(mantissa_bits: i32, lowest_exponent: i32, highest_exponent: i32) -> Self {
+        Self {
+            mantissa_bits,
+            lowest_exponent,
+            highest_exponent,
+        }
+    }
+
+    /// Whether every value of this format is one of `target`'s: no more mantissa bits, no larger
+    /// exponent, and no finer subnormal step.
+    fn within(self, target: Self) -> bool {
+        self.mantissa_bits <= target.mantissa_bits
+            && self.highest_exponent <= target.highest_exponent
+            && self.lowest_exponent - self.mantissa_bits
+                >= target.lowest_exponent - target.mantissa_bits
+    }
+
+    /// Whether every integer of magnitude up to `largest` is one of this format's values: up to
+    /// `2^(mantissa bits + 1)`, the last its mantissa counts in steps of one.
+    fn counts_integers_to(self, largest: f32) -> bool {
+        largest <= f32::from(1u16 << (self.mantissa_bits + 1))
     }
 }
 
@@ -404,6 +487,45 @@ impl Packing {
 
 #[cfg(test)]
 mod tests {
+    use cubecl::ir::{ElemType, FloatKind};
+    use cubecl::quant::scheme::QuantValue;
+
+    const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
+    const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
+
+    /// `e2m1`'s values are `e4m3` and `e5m2` ones.
+    #[test]
+    fn e2m1_values_are_exact_in_either_8_bit_float() {
+        let e2m1 = super::Field::from(QuantValue::E2M1);
+        assert!(e2m1.values_exact_in(E4M3) && e2m1.values_exact_in(E5M2));
+    }
+
+    /// A 4-bit integer's values are `e4m3` ones: `e4m3` counts integers to 16.
+    #[test]
+    fn a_4_bit_integers_values_are_exact_in_e4m3() {
+        assert!(super::Field::from(QuantValue::Q4S).values_exact_in(E4M3));
+    }
+
+    /// An 8-bit integer's are not: `e4m3` holds no 17.
+    #[test]
+    fn an_8_bit_integers_values_are_not_exact_in_e4m3() {
+        assert!(!super::Field::from(QuantValue::Q8S).values_exact_in(E4M3));
+    }
+
+    /// `e4m3`'s values are its own, and not `e5m2`'s, which has fewer mantissa bits.
+    #[test]
+    fn e4m3_values_are_exact_in_e4m3_alone() {
+        let e4m3 = super::Field::from(QuantValue::E4M3);
+        assert!(e4m3.values_exact_in(E4M3) && !e4m3.values_exact_in(E5M2));
+    }
+
+    /// `e5m2`'s values are `f16` ones, whose exponent it shares.
+    #[test]
+    fn e5m2_values_are_exact_in_f16() {
+        let f16 = ElemType::Float(FloatKind::F16);
+        assert!(super::Field::from(QuantValue::E5M2).values_exact_in(f16));
+    }
+
     use super::*;
 
     #[test]

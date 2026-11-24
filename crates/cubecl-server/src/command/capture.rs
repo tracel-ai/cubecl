@@ -243,6 +243,21 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         Ok(())
     }
 
+    /// [`prepare`](Self::prepare) a retry of the recording just refused on this stream for
+    /// keeping a buffer it placed as a temporary, and answer whether there was one (see
+    /// [`StreamCapture::prepare_retry`](crate::stream::StreamCapture::prepare_retry)).
+    ///
+    /// # Errors
+    ///
+    /// As [`prepare`](Self::prepare).
+    pub fn prepare_retry(&mut self, stream_id: StreamId) -> Result<bool, ServerError> {
+        if !self.stream().capturing().prepare_retry(stream_id)? {
+            return Ok(false);
+        }
+        RelocatingStreams::relocate_device(self.command, RelocationReason::Capture);
+        Ok(true)
+    }
+
     /// End a planning run of the work about to be recorded, and answer whether it allocated
     /// what the run before it did (see [`StreamCapture::end_run`](crate::stream::StreamCapture::end_run)).
     ///
@@ -382,11 +397,11 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // flushes were deferred for as long as it was.
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
-        // A recording that allocated otherwise than its planning run may have
-        // put a buffer it keeps on room another graph's replay overwrites.
+        // A recording that keeps a buffer its planning run did not may have put
+        // it on room another graph's replay overwrites.
         let diverged = stream.capturing().finish_recording().map(|divergence| {
             ServerError::graph_state(format!(
-                "the recorded run did not allocate as its planning run did, so the graph cannot \
+                "the recorded run kept a buffer its planning run did not, so the graph cannot \
                  seal: {divergence}"
             ))
         });

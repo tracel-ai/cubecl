@@ -1,5 +1,7 @@
 use cubecl_ir::{
-    dialect::synchronization::{FenceOp, MemoryOrder, SyncOp, SyncPlaneStorageOp, SyncScope},
+    dialect::synchronization::{
+        FenceOp, MemoryOrder, ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+    },
     prelude::*,
 };
 use pliron_spirv::ops::{ControlBarrierOp, MemoryBarrierOp};
@@ -13,6 +15,20 @@ fn memory_scope_capabilities(scope: Scope) -> Vec<Capability> {
     match scope {
         Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
         _ => vec![],
+    }
+}
+
+/// SPIR-V says nothing to the scheduler of the driver that takes it: the barrier is erased.
+#[op_interface_impl]
+impl ToSpirvDialectOp for ScheduleBarrierOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        rewriter.erase_operation(ctx, self.get_operation());
+        Ok(())
     }
 }
 

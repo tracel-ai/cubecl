@@ -16,3 +16,18 @@ impl Device for CpuDevice {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_id_names_the_one_cpu_device() {
+        assert_eq!(CpuDevice::from_id(DeviceId::new(7, 7)), CpuDevice);
+    }
+
+    #[test]
+    fn the_cpu_device_round_trips_its_id() {
+        assert_eq!(CpuDevice::from_id(CpuDevice.to_id()), CpuDevice);
+    }
+}

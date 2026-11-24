@@ -1401,7 +1401,7 @@ fn a_tune_on_a_lost_device_settles_nothing() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.abandoned),
+        (autotune.registered_count, autotune.abandoned_count),
         (1, 1),
         "the stopped tune is abandoned, not left registered"
     );
@@ -1488,7 +1488,7 @@ fn a_lost_card_tunes_no_key_again() {
     core::mem::drop(counted);
     POISONED.store(false, Ordering::Relaxed);
 
-    assert_eq!(collector.statistics().autotune.registered, 0);
+    assert_eq!(collector.statistics().autotune.registered_count, 0);
 }
 
 /// A tune that unwinds leaves its key to the next caller, as a lost device does.
@@ -1934,7 +1934,11 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
 
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.measured, autotune.loaded),
+        (
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count
+        ),
         (2, 1, 1),
         "the other adapter measures, the same one reads"
     );
@@ -2041,7 +2045,11 @@ fn devices_of_the_same_hardware_share_a_tuner() {
 
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.measured, autotune.loaded),
+        (
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count
+        ),
         (0, 0, 0),
         "answered from memory, neither measured nor read"
     );
@@ -2070,7 +2078,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
         let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         tune(&gathering);
     }
-    let reader = collector.reader();
+    let reader = collector.to_reader();
     drop(collector);
     tune(&Tuner::new("gathered", &client.hardware_identity()));
     tune(&gathering);
@@ -2078,10 +2086,10 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
     let autotune = reader.statistics().autotune;
     assert_eq!(
         (
-            autotune.registered,
-            autotune.measured,
-            autotune.loaded,
-            autotune.abandoned
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count,
+            autotune.abandoned_count
         ),
         (1, 0, 1, 0)
     );
@@ -2334,6 +2342,153 @@ fn autotune_evicts_before_every_measured_sample() {
         calls - unmeasured,
         "{evictions} evictions for {calls} launches, {unmeasured} of them unmeasured"
     );
+}
+
+/// What the stages of one tune of a fresh key did, the tune run as `execute` runs it.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn staged_tune() -> dummy::StageTrace {
+    use std::sync::{Arc, Mutex};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_stages");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let handles = vec![lhs, rhs, client.empty(3)];
+
+    let trace = Arc::new(Mutex::new(dummy::StageTrace::default()));
+    let uid = fresh_tune_key_uid();
+    // Its own tuner id too: a set is built once per id, and each call wants a set of its own.
+    let id = uid.clone();
+    let test_set = {
+        let trace = trace.clone();
+        TUNER.init(&id, move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_stage_enterer(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                trace.clone(),
+            )
+        })
+    };
+
+    TUNER.execute(&id, &client, test_set, handles);
+
+    std::mem::take(&mut *trace.lock().unwrap())
+}
+
+/// The winner of a tune runs as the call's work, in no stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_its_winner_outside_every_stage() {
+    let trace = staged_tune();
+
+    assert_eq!(trace.ran_in.last(), Some(&None));
+}
+
+/// Every run of a tune's candidates is inside a stage its set's enterer entered.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_every_candidate_inside_a_stage() {
+    let trace = staged_tune();
+
+    let (_winner, tuning) = trace
+        .ran_in
+        .split_last()
+        .expect("the candidates should have run");
+    assert!(tuning.iter().all(Option::is_some), "{tuning:?}");
+}
+
+/// The adaptive scheduler gathers each candidate's kernels inside a gathering stage before it
+/// measures it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_gathers_its_candidates_inside_a_gathering_stage() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    if !CubeClRuntimeConfig::get().autotune.bench.adaptive {
+        return;
+    }
+
+    let trace = staged_tune();
+
+    assert_eq!(
+        trace.ran_in.first(),
+        Some(&Some(cubecl_server::tune::TuneStage::Gathering))
+    );
+}
+
+/// A tune under a `CompileOnly` override runs every candidate inside a gathering stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_gathers_under_compile_only() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::TuneStage;
+
+    let collector = StatisticsCollector::new();
+    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let trace = staged_tune();
+    core::mem::drop(compile);
+
+    let (_work, gathered) = trace
+        .ran_in
+        .split_last()
+        .expect("the candidates should have run");
+    assert!(
+        gathered
+            .iter()
+            .all(|stage| *stage == Some(TuneStage::Gathering)),
+        "{gathered:?}"
+    );
+}
+
+/// A tune's stages end in the order they nest, and none is left open.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_ends_its_stages_in_nesting_order() {
+    let trace = staged_tune();
+
+    assert_eq!(
+        (trace.misordered_count, trace.open.len()),
+        (0, 0),
+        "{trace:?}"
+    );
+}
+
+/// A tune that holds no device measures candidates whose launches another thread makes and waits
+/// on: the device is free to serve that thread while the candidate waits for it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_without_holding_the_device_serves_launches_from_another_thread() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_shared_access");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+    let uid = fresh_tune_key_uid();
+    let test_set = TUNER.init(&"test".to_string(), move || {
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_launched_elsewhere(
+            test_client(&DummyDevice),
+            shapes,
+            uid.clone(),
+            TuneDeviceAccess::Shared,
+        )
+    });
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
@@ -2718,7 +2873,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     if !bench.adaptive {
         return;
     }
-    let (min_samples, max_samples) = bench.samples();
+    let (min_sample_count, max_sample_count) = bench.sample_count_range();
 
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_eliminated_candidate");
 
@@ -2755,13 +2910,13 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     // Every candidate is warmed up once and sampled at least to the elimination floor, so the
     // slow one cannot have been dropped before it had the evidence against it.
     assert!(
-        slow > min_samples,
+        slow > min_sample_count,
         "the slow candidate was dropped before it earned it: {slow} calls"
     );
     // A full pass is one warmup plus the ceiling. The slow candidate must fall short of that,
     // and short of what the survivors spent, or nothing was eliminated at all.
     assert!(
-        slow < max_samples + 1,
+        slow < max_sample_count + 1,
         "the slow candidate was sampled to the ceiling: {slow} calls"
     );
     assert!(
@@ -2990,14 +3145,14 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
     let gathered = collector.statistics().autotune;
     assert_eq!(
-        (gathered.registered, gathered.settled()),
+        (gathered.registered_count, gathered.settled_count()),
         (1, 0),
         "gathered once"
     );
 
     // Measured with no override open, the tune still settles to the
     // collector that gathered it.
-    let reader = collector.reader();
+    let reader = collector.to_reader();
     drop(collector);
     TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert!(
@@ -3006,7 +3161,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     );
     let measured = reader.statistics().autotune;
     assert_eq!(
-        (measured.registered, measured.measured),
+        (measured.registered_count, measured.measured_count),
         (1, 1),
         "the tune gathered is the one measured, counted where it was gathered"
     );
@@ -3071,7 +3226,7 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
         );
         core::mem::drop(compile);
     }
-    assert_eq!(collector.statistics().autotune.registered, 1);
+    assert_eq!(collector.statistics().autotune.registered_count, 1);
 }
 
 /// A key a `CompileOnly` pass reaches inside another key's candidates is not
@@ -3140,7 +3295,7 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "the outer key's candidates reached the inner key"
     );
     assert_eq!(
-        collector.statistics().autotune.registered,
+        collector.statistics().autotune.registered_count,
         1,
         "only the outer key is registered"
     );
@@ -3158,10 +3313,10 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "measuring the outer key reached the inner one"
     );
     let tuned = collector.statistics().autotune;
-    assert_eq!(tuned.registered, 2);
+    assert_eq!(tuned.registered_count, 2);
     assert_eq!(
-        (tuned.measured, tuned.failed),
-        (tuned.registered, 0),
+        (tuned.measured_count, tuned.failed_count),
+        (tuned.registered_count, 0),
         "every tune registered was measured, once"
     );
 }
@@ -3197,7 +3352,7 @@ fn an_override_reserves_without_mapping() {
             .streams
             .iter()
             .flat_map(|stream| stream.pools.dynamic.iter())
-            .find(|pool| pool.largest_alloc == SIZE)
+            .find(|pool| pool.largest_alloc_bytes == SIZE)
             .expect("some pool served the buffer")
             .clone()
     }
@@ -3218,17 +3373,17 @@ fn an_override_reserves_without_mapping() {
     let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
-        pool.pages_unmapped, pool.pages,
+        pool.unmapped_page_count, pool.page_count,
         "the reservation must have no device backing: {report:?}"
     );
-    assert!(pool.pages >= 1, "{report:?}");
+    assert!(pool.page_count >= 1, "{report:?}");
 
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
     let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
-        arena(&report).pages_unmapped,
+        arena(&report).unmapped_page_count,
         0,
         "resolution installed the backing: {report:?}"
     );
@@ -3320,7 +3475,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let id = KernelId::new::<Recorded>().info(3u32);
+    let id = KernelId::new::<Recorded>().with_info(3u32);
     let stored = true;
     CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
     CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);

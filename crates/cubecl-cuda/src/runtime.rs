@@ -488,7 +488,6 @@ impl DeviceService for CudaServer {
             cuda_ctx,
             mem_properties,
             options.memory_config,
-            mem_alignment,
             device_id,
             utilities,
             captures,
