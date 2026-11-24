@@ -217,10 +217,15 @@ impl Memory {
     /// caller's code ([`GlobalOperand::source`]), so it runs only where it has a value to give.
     /// A source over shared memory is this crate's, and only loads.
     fn past_edge(&self) -> comptime_type!(PastEdge) {
-        let has_address = self.store.has_address();
+        let backing = match &self.store.backing {
+            Backing::Buffer(_) | Backing::ReadBuffer(_) | Backing::WriteCall(_) => {
+                comptime!(PastEdge::Clamp)
+            }
+            Backing::ReadCall(_) => comptime!(PastEdge::Skip),
+        };
         comptime!(match self.address {
-            AddressSpace::Global if !has_address => PastEdge::Skip,
-            AddressSpace::Global | AddressSpace::Shared => PastEdge::Clamp,
+            AddressSpace::Global => backing,
+            AddressSpace::Shared => PastEdge::Clamp,
         })
     }
 
