@@ -22,7 +22,6 @@ use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
-use crate::tune::profiler::CandidateProfiler;
 use crate::tune::sampler::measured;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -288,22 +287,6 @@ impl<K: AutotuneKey> Tuner<K> {
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out, Id>,
         client: &Client,
-        log_context: Option<crate::tune::AutotuneLogContext>,
-    ) -> TuneCacheResult
-    where
-        <F as TuneInputs>::At<'a>: Clone + Send,
-    {
-        let profiler = CandidateProfiler::new(core::slice::from_ref(client));
-        self.check_tune_with(key, inputs, tunables, &profiler, log_context)
-    }
-
-    /// [`check_tune`](Self::check_tune), its candidates run and timed by `profiler`.
-    pub(crate) fn check_tune_with<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
-        &self,
-        key: &K,
-        inputs: &F::At<'a>,
-        tunables: &TunableSet<K, F, Out, Id>,
-        profiler: &CandidateProfiler,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
     where
@@ -328,7 +311,7 @@ impl<K: AutotuneKey> Tuner<K> {
             // at once, once a switched environment has dropped the ones it queued for the old one:
             // a walk reaches the same key at every layer, and a miss would checksum the set and
             // read the store again each time for a tune that will not run.
-            if compiling && cache.is_compiled(key, profiler.lead().service_id()) {
+            if compiling && cache.is_compiled(key, client.service_id()) {
                 return TuneCacheResult::Compiled;
             }
             let cur = cache.fastest(key);
@@ -336,7 +319,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 return cur;
             }
             // Every candidate would meet the loss: the key is left to a healthy card.
-            if cache.is_lost(profiler.lead().service_id()) {
+            if cache.is_lost(client.service_id()) {
                 return TuneCacheResult::Pending;
             }
             // A key with one candidate is answered, not tuned: nothing to read or to store.
@@ -369,7 +352,7 @@ impl<K: AutotuneKey> Tuner<K> {
             // and may never run the one that reaches a key gathered inside it. Such a key is
             // registered if it is ever measured, as an ungathered one is.
             if compiling {
-                cache.mark_compiled(key.clone(), profiler.lead().service_id(), || {
+                cache.mark_compiled(key.clone(), client.service_id(), || {
                     if super::gathering::CandidateGathering::active() {
                         None
                     } else {
@@ -428,7 +411,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // Kernels a `CompileOnly` override queued compile here, together, before anything is
         // timed: left to the next launch, they would all compile inside the first candidate's
         // warmup, and its measurement would carry every candidate's compilation.
-        profiler.compile_queued();
+        client.compile_queued();
         let plan = tunables.plan(key);
         #[cfg(persistence)]
         if recording.is_open() {
@@ -478,10 +461,10 @@ impl<K: AutotuneKey> Tuner<K> {
             .bench
             .adaptive
         {
-            return self.tune_adaptive(job, profiler);
+            return self.tune_adaptive(job, client);
         }
 
-        self.tune_fixed_samples(job, profiler)
+        self.tune_fixed_samples(job, client)
     }
 
     /// Runs the candidates the plan would measure once each, on the inputs a tune generates,
@@ -524,7 +507,7 @@ impl<K: AutotuneKey> Tuner<K> {
     fn tune_adaptive<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
-        profiler: &CandidateProfiler,
+        client: &Client,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
@@ -544,11 +527,11 @@ impl<K: AutotuneKey> Tuner<K> {
             &mut job.plan,
             &job.autotunables,
             &job.test_inputs,
-            profiler,
+            client,
             &mut job.results,
         ) {
             Ok(outcome) => outcome,
-            Err(lost) => return self.stop_on_lost_card(&job.key, profiler.lead(), lost),
+            Err(lost) => return self.stop_on_lost_card(&job.key, client, lost),
         };
 
         for (name, duration) in outcome.steps {
@@ -579,7 +562,7 @@ impl<K: AutotuneKey> Tuner<K> {
     fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
-        profiler: &CandidateProfiler,
+        client: &Client,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
@@ -602,8 +585,10 @@ impl<K: AutotuneKey> Tuner<K> {
 
             if batch.is_empty() {
                 #[cfg(not(target_family = "wasm"))]
-                if let Err(lost) = profiler.expect_devices() {
-                    return self.stop_on_lost_card(&job.key, profiler.lead(), lost);
+                if let Err(lost) = cubecl_environment::future::block_on(client.sync())
+                    && lost.is_device_poisoned()
+                {
+                    return self.stop_on_lost_card(&job.key, client, lost);
                 }
                 let key = &job.key;
                 panic!(
@@ -624,7 +609,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 match tune_benchmark(
                     op,
                     job.test_inputs.clone(),
-                    profiler,
+                    client.clone(),
                     job.evictor.as_deref_mut(),
                 ) {
                     Ok(profiles) => {

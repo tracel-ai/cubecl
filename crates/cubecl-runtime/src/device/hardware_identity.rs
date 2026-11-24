@@ -1,10 +1,7 @@
 use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::string::String;
 use core::fmt::{Display, Formatter};
 use cubecl_ir::{DeviceIdentity, DeviceProperties};
-
-use crate::client::Client;
 
 /// Which hardware a device is: its [`DeviceIdentity`] without the card it sits in, so what is
 /// measured on one device holds for every device of the same hardware.
@@ -44,28 +41,6 @@ impl HardwareIdentity {
 }
 
 impl HardwareIdentity {
-    /// The devices of `clients` as one hardware, in order: a lone device's own identity, and for
-    /// several the slot each sits in as well, since what they measure together moves with the
-    /// links between them.
-    ///
-    /// # Panics
-    ///
-    /// Without a client.
-    pub(crate) fn of_devices(clients: &[Client]) -> Self {
-        let lead = clients[0].hardware_identity();
-        if clients.len() == 1 {
-            return lead;
-        }
-        let slots = clients.iter().map(|client| {
-            Self::name_in_slot(client.name(), client.properties())
-                .unwrap_or_else(|| client.hardware_identity().to_string())
-        });
-        Self {
-            name: segment(&slots.collect::<Vec<_>>().join("+")),
-            ..lead
-        }
-    }
-
     /// This identity written with `memory` bytes installed, laid out as the throughput cache names
     /// its tables: another layout would orphan every peak measured.
     pub(crate) fn name_with_memory_bytes(&self, memory: u64) -> String {

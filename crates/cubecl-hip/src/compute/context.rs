@@ -111,8 +111,6 @@ impl HipContext {
         // for all kernel arguments. The dispatch and cube dimensions are validated by
         // the caller.
         unsafe {
-            // Every argument is ready: a window waiting for this launch starts here.
-            self.profiler.launching(stream.sys);
             let status = cubecl_hip_sys::hipModuleLaunchKernel(
                 kernel.func,
                 dispatch_count.0,

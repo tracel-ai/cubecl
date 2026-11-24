@@ -35,7 +35,6 @@ mod key_generator;
 mod local;
 mod log;
 mod operation;
-mod profiler;
 // What a tune leaves in the environment beside its answer.
 #[cfg(persistence)]
 mod record;

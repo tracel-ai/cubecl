@@ -1,4 +1,3 @@
-use super::profiler::CandidateProfiler;
 use super::{AutotuneError, AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
@@ -37,8 +36,7 @@ struct Tuners<AK: AutotuneKey, ID> {
     opened: HashMap<TunerIdentity, Arc<Tuner<AK>>>,
 }
 
-/// Which tuner a device's executes, or a group of devices' elections, reach: one per hardware and
-/// candidate list.
+/// Which tuner a device's executes reach: one per hardware and candidate list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TunerIdentity {
     hardware: HardwareIdentity,
@@ -61,7 +59,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
         &mut self,
         id: &ID,
         name: &str,
-        clients: &[Client],
+        client: &Client,
         operations: &TunableSet<AK, I, Out, Id>,
     ) -> Arc<Tuner<AK>> {
         let checksum = operations.checksum();
@@ -69,7 +67,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
             return tuner.clone();
         }
         let identity = TunerIdentity {
-            hardware: HardwareIdentity::of_devices(clients),
+            hardware: client.hardware_identity(),
             checksum,
         };
         let tuner = self
@@ -203,49 +201,6 @@ where
         Some(operations.identity(fastest_index).clone())
     }
 
-    /// What the fastest tunable in `operations` for `inputs` is
-    /// [identified](super::Tunable::identified) by, its candidates each run over the devices of
-    /// `clients` together: settled by a round where none is, and never run beyond it. `None` where
-    /// no round settled: one is in flight, the candidates only queued their kernels, or a device is
-    /// lost. [`fastest_identity`](Self::fastest_identity) then answers for the key under `id`.
-    ///
-    /// A sample is the slowest device's time from the first kernel a candidate launches there, and
-    /// the answer holds for these devices in the slots they sit in. No device is held while its
-    /// candidates run, so nothing else may launch on them: the caller's own contract, as is the
-    /// order each candidate reaches the devices in.
-    ///
-    /// # Panics
-    ///
-    /// Without a client, and where no candidate runs.
-    pub fn elect<'a, I: TuneInputs, Out, Id>(
-        &self,
-        id: &ID,
-        clients: &[Client],
-        operations: &TunableSet<AK, I, Out, Id>,
-        inputs: &<I as TuneInputs>::At<'a>,
-    ) -> Option<Id>
-    where
-        <I as TuneInputs>::At<'a>: Clone + Send,
-        Out: AutotuneOutput,
-        Id: Clone,
-    {
-        let key = operations.generate_key(inputs);
-        let tuner = self
-            .state
-            .lock()
-            .get_or_insert_with(Tuners::new)
-            .get_or_open(id, self.name, clients, operations);
-        let profiler = CandidateProfiler::new(clients);
-        let log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
-        match tuner.check_tune_with::<I, Out, Id>(&key, inputs, operations, &profiler, log_context)
-        {
-            TuneCacheResult::Hit { fastest_index } => {
-                Some(operations.identity(fastest_index).clone())
-            }
-            TuneCacheResult::Miss | TuneCacheResult::Pending | TuneCacheResult::Compiled => None,
-        }
-    }
-
     /// Clear the autotune state, and the sets [`init`](Self::init) built, which keep the run
     /// orders they planned.
     pub fn clear(&self) {
@@ -295,7 +250,7 @@ where
             .state
             .lock()
             .get_or_insert_with(Tuners::new)
-            .get_or_open(id, self.name, core::slice::from_ref(client), &operations);
+            .get_or_open(id, self.name, client, &operations);
 
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
