@@ -818,7 +818,7 @@ impl MmaData {
 #[cube]
 impl MmaData {
     /// Fill this fragment, an `A`, from `src`'s window of values of `R`, each cast as it is read: a
-    /// unit's run of `k` a line at a time, read as the window guards its bounds, so the window may
+    /// unit's run of `k` a line at a time, or out of the line that holds it, read as the window guards its bounds, so the window may
     /// run past the problem's edge. A fragment deeper than its instruction fills a step at a time,
     /// its registers in the order [`load_in_steps`] leaves them.
     pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
@@ -835,10 +835,12 @@ impl MmaData {
         comptime!(assert!(
             layout == MatrixLayout::RowMajor
                 && vector_layout == layout
-                && vector_size.is_multiple_of(width),
-            "MmaData::load_cast_window: a run of {vector_size} cells along the contraction is read \
-             from whole lines along it, {width} wide here"
+                && (vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size)),
+            "MmaData::load_cast_window: a run of {vector_size} cells along the contraction neither \
+             holds whole {width}-wide lines along it nor sits inside one"
         ));
+        // Cells of a run one line holds: all of them, where it lies within a line.
+        let run = comptime!(width.min(vector_size));
         let short = comptime!((rows, cols) != (m, k));
         let size!(W) = served;
         let view = src.fragment_matrix_packed::<R, W>(rows, cols);
@@ -859,14 +861,19 @@ impl MmaData {
                         if !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32))
                         {
                             #[unroll]
-                            for l in 0..comptime!(vector_size / width) {
-                                let line = view.read((
-                                    row,
-                                    col / comptime!(width as u32) + comptime!(l as u32),
-                                ));
+                            for l in 0..comptime!(vector_size / run) {
+                                let cell = col + comptime!((l * run) as u32);
+                                let line = view.read((row, cell / comptime!(width as u32)));
+                                let start = cell % comptime!(width as u32);
                                 #[unroll]
-                                for e in 0..width {
-                                    vector.insert(l * width + e, T::cast_from(line.extract(e)));
+                                for e in 0..run {
+                                    let value = match comptime!(width > run) {
+                                        true => {
+                                            line.extract_dynamic((start + e as u32).cast::<usize>())
+                                        }
+                                        false => line.extract(e),
+                                    };
+                                    vector.insert(l * run + e, T::cast_from(value));
                                 }
                             }
                         }
