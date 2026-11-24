@@ -738,7 +738,6 @@ fn best_call<'a>(
 pub(crate) mod tests {
     use super::*;
     use cubecl::cmma::MatrixLayout;
-    use cubecl::ir::amd::{AmdMatrixCore, AmdWmma};
     use cubecl::ir::{
         ContiguousElements, DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize,
         features::Features,
@@ -1228,9 +1227,6 @@ pub(crate) mod tests {
             instruction: mma(),
             cell: [16, 16],
         };
-        let rdna4 = TargetProperties {
-            mma: AmdMatrixCore::Wmma(AmdWmma::Rdna4).mma_properties(),
-        };
         let pick = |target| {
             Instruction::for_accumulator(
                 &device,
@@ -1244,7 +1240,7 @@ pub(crate) mod tests {
             .map(|p| (p.instruction, p.cell(), p.depth()))
         };
 
-        assert_eq!(pick(rdna4), Some((mma(), [16, 16], 16)));
+        assert_eq!(pick(sum_is_next_a_in(8, 8)), Some((mma(), [16, 16], 16)));
         assert_eq!(pick(sum_is_next_a_in(8, 2)), None);
     }
 

@@ -879,7 +879,7 @@ impl Tile {
         let (m_tiles, n_tiles) = tiles;
         let mut frags = Sequence::<PlaneTile>::new();
         #[unroll]
-        for _i in 0..comptime!(m_tiles * n_tiles) {
+        for _i in 0..(m_tiles * n_tiles) {
             frags.push(PlaneTile::operand::<E>(
                 instruction,
                 comptime!(MatrixIdent::A),

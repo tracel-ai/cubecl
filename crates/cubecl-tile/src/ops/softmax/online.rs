@@ -369,7 +369,7 @@ impl<E: Float> OnlineSoftmax<E> {
         let lazy = comptime!(self.headroom > 0);
         let mut factors = Array::<E>::new(self.slices);
         let mut moved = false;
-        if comptime!(lazy) {
+        if lazy {
             #[unroll]
             for i in 0..self.slices {
                 moved = moved || max[i] > self.m[i];
