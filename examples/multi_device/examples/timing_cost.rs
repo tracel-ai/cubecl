@@ -6,8 +6,8 @@ use cubecl::{
     future::block_on,
     ir::{ElemType, FloatKind},
     logging::{
-        Execution, ExecutionObservation, ExecutionObserver, Measurement, ProfileDuration, Timed,
-        TimingRequest,
+        Execution, ExecutionObservation, ExecutionObserver, Measurement, ProfileDuration,
+        TimedExecutions, TimingRequest,
     },
     prelude::*,
     server::{Handle, ReduceOperation},
