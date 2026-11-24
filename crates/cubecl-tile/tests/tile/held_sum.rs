@@ -1,14 +1,16 @@
-//! A sum a plane holds in manual-mma fragments, scaled and added to a procedural bias where it is
-//! held ([`DimensionSlices::scale_add`]), then drained into a window that lists its dimensions in
-//! the other order, a one-wide one between them, against the host.
+//! A sum a plane holds in manual-mma fragments, its right operand staged in lines
+//! ([`Tile::scratch_in_lines`]), scaled and added to a procedural bias where it is held
+//! ([`DimensionSlices::scale_add`]), then drained into a window that lists its dimensions in the
+//! other order, a one-wide one between them, against the host.
 //!
+//! [`Tile::scratch_in_lines`]: cubecl_tile::Tile::scratch_in_lines
 //! [`DimensionSlices::scale_add`]: cubecl_tile::DimensionSlices::scale_add
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, std::tensor::TensorHandle, zspace::Shape};
 use cubecl_tile::{
-    Dimension, Levels, Partitioning, Scratch, Semiring, Space, TileSpec, TileTensor,
-    TileTensorLaunch,
+    Dimension, Levels, Partitioning, Region, Scratch, Semiring, Space, StageStorage, Tile,
+    TileSpec, TileTensor, TileTensorLaunch,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -22,6 +24,8 @@ const H: Dimension = Dimension(3);
 
 const SCALE: f32 = 2.0;
 const SLOPE: f32 = 0.25;
+/// Cells a line of the staged right operand holds.
+const LINE: usize = 4;
 
 /// What a cell is added to: how far its row lies past its column.
 #[derive(CubeType, Clone)]
@@ -43,8 +47,36 @@ impl Reads for SlopeExpand {
     }
 }
 
+/// `plane`'s window of `rhs` in its shared memory, served `L` cells a line, each line gathered and
+/// written by one of its units.
+#[cube]
+fn staged_in_lines<L: Size>(plane: &Region, rhs: &Tile) -> Tile {
+    let mut stage = Tile::scratch_in_lines::<half::f16>(
+        &plane.walk(),
+        comptime!(vec![N, K]),
+        StageStorage::Strided,
+        L::value().comptime(),
+    );
+    let window = rhs.at(plane);
+    let cells = window.flat::<half::f16, Const<1>>();
+    let mut staged = stage.flat_mut::<half::f16, L>();
+    let lines = staged.shape();
+    let mut line = UNIT_POS_PLANE as usize;
+    while line < lines {
+        let mut gathered = Vector::<half::f16, L>::empty();
+        #[unroll]
+        for cell in 0..L::value() {
+            gathered.insert(cell, cells.read(line * L::value() + cell).extract(0usize));
+        }
+        staged.write(line, gathered);
+        line += PLANE_DIM as usize;
+    }
+    sync_plane();
+    stage
+}
+
 #[cube(launch)]
-fn scaled_and_drained_across(
+fn scaled_and_drained_across<L: Size>(
     lhs: &TileTensor<'_>,
     rhs: &TileTensor<'_>,
     out: &mut TileTensor<'_>,
@@ -59,7 +91,7 @@ fn scaled_and_drained_across(
     let shape = Procedural::zero::<f32>(dimensions).tile_in::<f32>(&space);
     for cube in space {
         for plane in cube {
-            let (lhs_p, rhs_p) = (lhs.at(&plane), rhs.at(&plane));
+            let (lhs_p, rhs_p) = (lhs.at(&plane), staged_in_lines::<L>(&plane, &rhs));
             let mut sum = shape.at(&plane).rescaled_accumulator::<f32>(
                 &lhs_p,
                 &rhs_p,
@@ -67,9 +99,11 @@ fn scaled_and_drained_across(
                 Scratch::None,
             );
             sum.zero();
-            for fragment in plane.walk().unrolled() {
-                let mut cell = sum.at(&fragment);
-                cell.mma(&lhs_p.at(&fragment), &rhs_p.at(&fragment));
+            for stage in plane.walk() {
+                for fragment in stage.walk().unrolled() {
+                    let mut cell = sum.at(&fragment);
+                    cell.mma(&lhs_p.at(&fragment), &rhs_p.at(&fragment));
+                }
             }
             sum.along(N).scale_add::<f32>(scale, &bias.at(&plane));
             sum.drained_into(&out.at(&plane));
@@ -120,6 +154,7 @@ fn check(client: &Client, tile: usize) {
             Space::new(&[(M, m), (N, n), (K, k), (H, 1)]),
             Levels::leaf(&[(M, tile), (N, tile), (K, tile), (H, 1)])
                 .walk(&[(M, 2), (N, 3), (K, 2)])
+                .walk(&[(M, 1), (N, 1), (K, 1)])
                 .planes(&[(M, 1)])
                 .cubes(&[M])
                 .build(),
@@ -138,6 +173,7 @@ fn check(client: &Client, tile: usize) {
         client,
         launcher.cube_count(),
         launcher.cube_dim(),
+        LINE,
         arg(&lhs, f16_ty, &[M, K]),
         arg(&rhs, f16_ty, &[N, K]),
         arg(&out, f32_ty, &[N, H, M]),
