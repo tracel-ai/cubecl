@@ -1,8 +1,8 @@
 mod execution;
 pub use execution::*;
 
-mod observer;
-pub use observer::*;
+mod observation;
+pub use observation::*;
 
 mod profiling;
 pub use profiling::*;

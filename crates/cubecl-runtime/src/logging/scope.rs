@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use super::{Communication, ExecutionId, ExecutionKind, observer::issue};
+use super::{Communication, ExecutionId, ExecutionKind, observation::issue};
 
 /// Makes one communication the parent of every execution issued on this thread until it drops.
 ///
