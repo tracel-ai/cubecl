@@ -2336,6 +2336,50 @@ fn autotune_evicts_before_every_measured_sample() {
     );
 }
 
+/// A tune runs its candidates inside a stage its set's hook entered, and the winner's run as the
+/// call's work outside every stage.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_runs_its_candidates_inside_its_stages() {
+    use std::sync::{Arc, Mutex};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_stages");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let handles = vec![lhs, rhs, client.empty(3)];
+
+    let open: dummy::OpenStages = Arc::new(Mutex::new(Vec::new()));
+    let ran_in: dummy::StagesRanIn = Arc::new(Mutex::new(Vec::new()));
+    let uid = fresh_tune_key_uid();
+    let test_set = {
+        let (open, ran_in) = (open.clone(), ran_in.clone());
+        TUNER.init(&"test".to_string(), move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_stage_hook(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                open.clone(),
+                ran_in.clone(),
+            )
+        })
+    };
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    let ran_in = ran_in.lock().unwrap();
+    let (last, tuning) = ran_in.split_last().expect("the candidates should have run");
+    assert_eq!(*last, None, "the winner ran as the work, in no stage");
+    assert!(
+        tuning.iter().all(Option::is_some),
+        "every run of the tune was inside a stage: {tuning:?}"
+    );
+    assert!(open.lock().unwrap().is_empty(), "every stage ended");
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]

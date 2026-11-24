@@ -45,6 +45,7 @@ mod patience;
 mod sampler;
 #[cfg(not(target_family = "wasm"))]
 mod schedule;
+mod stage;
 mod tune_benchmark;
 mod tune_cache;
 mod tune_inputs;
@@ -61,6 +62,7 @@ pub use log::*;
 pub use operation::*;
 #[cfg(persistence)]
 pub use record::{PlannedCandidate, Trial, TuneRecord};
+pub use stage::{StageHook, TuneStage};
 pub use tune_benchmark::*;
 pub use tune_cache::*;
 pub use tune_inputs::*;

@@ -10,9 +10,10 @@ use cubecl_server::{
     server::Handle,
     tune::{
         AutotuneBound, Bounds, CloneInputGenerator, OrderedSettings, Patience, ResourceBound,
-        Tunable, TunableSet, TuneGroup,
+        Tunable, TunableSet, TuneGroup, TuneStage,
     },
 };
+use std::sync::Mutex;
 
 use crate::dummy::{
     DummyClient, DummyElementwiseAddition, DummyElementwiseMultiplication,
@@ -502,4 +503,65 @@ pub fn addition_set_with_failing_compilation_first(
         op_broken.run(inputs)
     }))
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}
+
+/// The stages a tune of [`addition_set_with_stage_hook`] is in, the innermost last.
+pub type OpenStages = Arc<Mutex<Vec<TuneStage>>>;
+
+/// The innermost stage open each time a candidate ran, `None` outside every stage.
+pub type StagesRanIn = Arc<Mutex<Vec<Option<TuneStage>>>>;
+
+/// Addition set whose stage hook pushes each stage on `open` as it enters and pops it as its
+/// guard drops, and whose candidates record in `ran_in` the innermost stage open as they run.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
+pub fn addition_set_with_stage_hook(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    open: OpenStages,
+    ran_in: StagesRanIn,
+) -> TestSet {
+    /// Pops its stage as the stage ends.
+    struct Closing(OpenStages);
+
+    impl Drop for Closing {
+        fn drop(&mut self) {
+            self.0.lock().unwrap().pop();
+        }
+    }
+
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let record = {
+        let open = open.clone();
+        move || {
+            let stage = open.lock().unwrap().last().copied();
+            ran_in.lock().unwrap().push(stage);
+        }
+    };
+    let record_slow = record.clone();
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_staged-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        record_slow();
+        op_add_slow.run(inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| {
+        record();
+        op_add.run(inputs)
+    }))
+    .with_stage_hook(Arc::new(
+        move |stage: TuneStage, _key: &String, _inputs: &Vec<Handle>| {
+            open.lock().unwrap().push(stage);
+            Closing(open.clone())
+        },
+    ))
 }

@@ -154,6 +154,8 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     test_inputs: <F as TuneInputs>::At<'i>,
     /// What runs before every measured sample, bound to the key and the reference inputs.
     evictor: Option<Box<crate::tune::Evictor<'i>>>,
+    /// What runs around every stage of the tune, bound to the key and the reference inputs.
+    stage_enterer: Option<Box<crate::tune::stage::StageEnterer<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
     #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -438,6 +440,7 @@ impl<K: AutotuneKey> Tuner<K> {
             autotunables,
             test_inputs,
             evictor: tunables.evictor(key, inputs),
+            stage_enterer: tunables.stage_enterer(key, inputs),
             plan,
             results,
             #[cfg(any(not(target_family = "wasm"), persistence))]
@@ -485,6 +488,9 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
+        let gathering = tunables
+            .stage_enterer(key, inputs)
+            .map(|mut enter| enter(crate::tune::TuneStage::Gathering));
         loop {
             let batch = plan.next();
             if batch.is_empty() {
@@ -499,6 +505,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 break;
             }
         }
+        core::mem::drop(gathering);
     }
 
     /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
@@ -520,6 +527,7 @@ impl<K: AutotuneKey> Tuner<K> {
             track_steps: job.log_context.is_some(),
             compile_parallelism: config.compilation.parallelism(),
             evictor: job.evictor.take(),
+            stage_enterer: job.stage_enterer.take(),
         };
 
         let outcome = match schedule.run_plan(
@@ -606,12 +614,18 @@ impl<K: AutotuneKey> Tuner<K> {
                     .is_some()
                     .then(cubecl_common::profile::Instant::now);
 
-                match tune_benchmark(
+                let measuring = crate::tune::stage::enter_stage(
+                    job.stage_enterer.as_deref_mut(),
+                    crate::tune::TuneStage::Measuring,
+                );
+                let measured = tune_benchmark(
                     op,
                     job.test_inputs.clone(),
                     client.clone(),
                     job.evictor.as_deref_mut(),
-                ) {
+                );
+                core::mem::drop(measuring);
+                match measured {
                     Ok(profiles) => {
                         let bench = PendingBench {
                             index,

@@ -9,8 +9,10 @@ use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
+use crate::tune::TuneStage;
 use crate::tune::patience::PatienceTable;
 use crate::tune::sampler::{SampleSet, measured};
+use crate::tune::stage::{StageEnterer, enter_stage};
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
     TunePlan,
@@ -58,6 +60,8 @@ pub(crate) struct Schedule<'i> {
     pub(crate) compile_parallelism: usize,
     /// What runs before every measured sample, when the set registered one.
     pub(crate) evictor: Option<Box<Evictor<'i>>>,
+    /// What runs around every stage of the tune, when the set registered a hook.
+    pub(crate) stage_enterer: Option<Box<StageEnterer<'i>>>,
 }
 
 impl Schedule<'_> {
@@ -82,6 +86,7 @@ impl Schedule<'_> {
                 crate::execution::StreamMode::Execute,
                 client,
             );
+            let stage = enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Measuring);
 
             let outcome = cubecl_environment::future::block_on(self.drive(
                 batch,
@@ -89,6 +94,7 @@ impl Schedule<'_> {
                 inputs,
                 client,
             ));
+            core::mem::drop(stage);
             core::mem::drop(measuring);
             outcome
         };
@@ -156,7 +162,10 @@ impl Schedule<'_> {
                     .enumerate()
                     .filter(|(offset, _)| !patience.skips(slot + offset))
                     .map(|(_, candidate)| candidate);
+                let gathering =
+                    enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Gathering);
                 compile_together(ahead, autotunables, &inputs, client);
+                core::mem::drop(gathering);
             }
             // A candidate that rejected the problem while compiling is out of the round already.
             let operation = autotunables[candidates[slot].index];
@@ -679,6 +688,7 @@ mod tests {
             track_steps: false,
             compile_parallelism: 1,
             evictor: None,
+            stage_enterer: None,
         }
     }
 
