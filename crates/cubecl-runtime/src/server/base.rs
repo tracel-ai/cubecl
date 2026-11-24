@@ -889,8 +889,9 @@ pub trait Server:
     /// to its bytes. `stream_id` is the stream it was made on.
     ///
     /// An implementation whose reads copy keeps it and starts it, with [`LazyRead::start`],
-    /// ahead of any work it queues to write that memory. One whose reads alias its memory only
-    /// checks, since a lazy read there is as live as an eager one.
+    /// ahead of any work it queues to write that memory, and at once when the memory is shared
+    /// with peers. One whose reads alias its memory only checks, since a lazy read there is as
+    /// live as an eager one.
     ///
     /// # Errors
     ///

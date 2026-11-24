@@ -9,13 +9,16 @@ use cubecl_server::memory_management::{
     ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
     PageUpdate,
 };
-use cubecl_server::server::{BufferBinding, CopyDescriptor, Handle, LazyRead, ServerError};
+use cubecl_server::server::{
+    BufferBinding, CopyDescriptor, Handle, LazyRead, LazyReadHold, ServerError,
+};
 use cubecl_server::storage::BytesStorage;
 use cubecl_server::stream::{
-    ExecuteScope, FailureStore, Failures, StreamCapture, StreamFactory, StreamMemory, StreamPool,
-    WriteScoped, failed_writing, keep_lazy_read,
+    CopyFence, ExecuteScope, FailureStore, Failures, StreamCapture, StreamFactory, StreamMemory,
+    StreamPool, WriteScoped, failed_writing, keep_lazy_read,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const SIZE: u64 = 256;
 
@@ -65,14 +68,30 @@ impl StreamFactory for Factory {
     }
 }
 
-/// A server that records the stream of each read a write starts, and each wait a write makes
-/// on another stream, as `(writer, reader)`.
+/// A server that records the stream of each read a write starts, each fence past its copy,
+/// and each wait a write makes on another stream's copy, as `(writer, reader)`: on the copy's
+/// fence in `waits`, on all the reader's work in `stream_waits`.
 struct Device {
     pool: StreamPool<Factory>,
     failures: Failures,
     capture: StreamCapture,
     started: Vec<StreamId>,
+    copied: Vec<core::ops::Range<u64>>,
+    fences: Vec<Arc<Fence>>,
     waits: Vec<(StreamId, StreamId)>,
+    stream_waits: Vec<(StreamId, StreamId)>,
+}
+
+#[derive(Debug)]
+struct Fence {
+    stream: StreamId,
+    reached: AtomicBool,
+}
+
+impl CopyFence for Fence {
+    fn is_reached(&self) -> bool {
+        self.reached.load(Ordering::Relaxed)
+    }
 }
 
 impl FailureStore for Device {
@@ -100,17 +119,34 @@ impl WriteScoped for Device {
 
     fn read_before_write(
         &mut self,
-        _source: CopyDescriptor,
+        source: CopyDescriptor,
         stream: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         self.started.push(stream);
+        self.copied.push(source.handle.range());
         Some(Box::pin(async {
             Ok(vec![Bytes::from_bytes_vec(vec![0; SIZE as usize])])
         }))
     }
 
+    fn fence_copy(&mut self, stream: StreamId) -> Option<Arc<dyn CopyFence>> {
+        let fence = Arc::new(Fence {
+            stream,
+            reached: AtomicBool::new(false),
+        });
+        self.fences.push(fence.clone());
+        Some(fence)
+    }
+
+    fn wait_for_copy(&mut self, writer: StreamId, fence: &dyn CopyFence) {
+        let fence = (fence as &dyn core::any::Any)
+            .downcast_ref::<Fence>()
+            .expect("a fence of this device");
+        self.waits.push((writer, fence.stream));
+    }
+
     fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {
-        self.waits.push((writer, reader));
+        self.stream_waits.push((writer, reader));
     }
 }
 
@@ -128,7 +164,10 @@ impl Device {
             failures: Failures::new(logger),
             capture: StreamCapture::new(&cubecl_runtime::server::DeviceCaptures::default()),
             started: Vec::new(),
+            copied: Vec::new(),
+            fences: Vec::new(),
             waits: Vec::new(),
+            stream_waits: Vec::new(),
         }
     }
 
@@ -161,13 +200,15 @@ impl Device {
     }
 }
 
-fn lazy_read(handle: &Handle) -> Arc<LazyRead> {
+/// A lazy read of all of `handle`, held whole as its bytes hold it.
+fn lazy_read(handle: &Handle) -> LazyReadHold {
     Arc::new(LazyRead::new(CopyDescriptor::new(
         handle.clone(),
         [SIZE as usize].into(),
         [1].into(),
         1,
     )))
+    .hold(0..SIZE as usize)
 }
 
 fn bytes(range: core::ops::Range<u64>, binding: &BufferBinding) -> BufferBinding {
@@ -193,7 +234,8 @@ fn a_write_over_a_kept_lazy_read_starts_it_once() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
     let (handle, binding) = device.buffer(stream);
-    let read = lazy_read(&handle);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
     keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
 
     device.write(stream, binding.clone());
@@ -207,7 +249,8 @@ fn a_write_on_another_stream_starts_the_read_on_its_own() {
     let mut device = Device::new();
     let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
     let (handle, binding) = device.buffer(reader);
-    let read = lazy_read(&handle);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
     keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
 
     device.write(writer, binding);
@@ -231,6 +274,7 @@ fn a_write_beside_a_kept_lazy_read_leaves_it_kept() {
         [1].into(),
         1,
     )));
+    let _held = read.hold(0..SIZE as usize / 2);
     keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
 
     device.write(stream, bytes(SIZE / 2..SIZE, &binding));
@@ -243,7 +287,7 @@ fn a_dropped_lazy_read_is_not_started() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
     let (handle, binding) = device.buffer(stream);
-    keep_lazy_read(&mut device, lazy_read(&handle), stream)
+    keep_lazy_read(&mut device, lazy_read(&handle).read().clone(), stream)
         .expect("clean memory should be readable");
 
     device.write(stream, binding);
@@ -256,7 +300,8 @@ fn a_write_from_another_stream_waits_for_a_copy_in_flight() {
     let mut device = Device::new();
     let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
     let (handle, binding) = device.buffer(writer);
-    let read = lazy_read(&handle);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
     keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
     device.write(reader, bytes(0..SIZE / 2, &binding));
 
@@ -270,7 +315,8 @@ fn a_failed_write_starts_the_read_its_claim_would_fail() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
     let (handle, binding) = device.buffer(stream);
-    let read = lazy_read(&handle);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
     keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
 
     failed_writing(
@@ -292,9 +338,73 @@ fn a_kept_lazy_read_leaves_its_memory_free_to_move() {
     let stream = StreamId { value: 0 };
     let (handle, binding) = device.buffer(stream);
     drop(binding);
-    let read = lazy_read(&handle);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
 
     keep_lazy_read(&mut device, read.clone(), stream).expect("clean memory should be readable");
 
     assert!(!handle.memory.is_bound());
+}
+
+#[test]
+fn a_write_from_another_stream_waits_on_the_copy_alone() {
+    let mut device = Device::new();
+    let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(writer);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    device.write(reader, bytes(0..SIZE / 2, &binding));
+
+    device.write(writer, bytes(SIZE / 2..SIZE, &binding));
+
+    assert!(device.stream_waits.is_empty());
+}
+
+#[test]
+fn a_write_after_the_copy_is_done_waits_on_nothing() {
+    let mut device = Device::new();
+    let (reader, writer) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(writer);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    keep_lazy_read(&mut device, read.clone(), reader).expect("clean memory should be readable");
+    device.write(reader, bytes(0..SIZE / 2, &binding));
+    device.fences[0].reached.store(true, Ordering::Relaxed);
+
+    device.write(writer, bytes(SIZE / 2..SIZE, &binding));
+
+    assert!(device.waits.is_empty() && device.stream_waits.is_empty());
+}
+
+#[test]
+fn a_write_beside_a_view_that_outlived_its_read_leaves_it_kept() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (handle, binding) = device.buffer(stream);
+    let held = lazy_read(&handle);
+    keep_lazy_read(&mut device, held.read().clone(), stream)
+        .expect("clean memory should be readable");
+    let _view = held.narrowed(0..4);
+    drop(held);
+
+    device.write(stream, bytes(SIZE / 2..SIZE, &binding));
+
+    assert!(device.started.is_empty());
+}
+
+#[test]
+fn a_view_that_outlived_its_read_copies_only_its_bytes() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (handle, binding) = device.buffer(stream);
+    let held = lazy_read(&handle);
+    keep_lazy_read(&mut device, held.read().clone(), stream)
+        .expect("clean memory should be readable");
+    let _view = held.narrowed(4..8);
+    drop(held);
+
+    device.write(stream, binding);
+
+    assert_eq!(device.copied, vec![4..8]);
 }

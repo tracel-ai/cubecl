@@ -248,6 +248,22 @@ pub fn test_a_view_of_a_lazy_read_is_its_buffer_before_a_write<R: Runtime>(clien
     assert_eq!(f32::from_bytes(&view), &BEFORE[1..3]);
 }
 
+/// A view that outlives the lazy read it came from copies its own bytes before a write.
+pub fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write<R: Runtime>(
+    client: Client,
+) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+    let view = read
+        .view(size_of::<f32>(), 3 * size_of::<f32>())
+        .expect("a contiguous device buffer supports views");
+    drop(read);
+
+    add_one_to(&client, &buffer);
+
+    assert_eq!(f32::from_bytes(&view), &BEFORE[1..3]);
+}
+
 /// A write on another stream than the read's waits for the read it overwrites.
 pub fn test_a_lazy_read_is_its_buffer_before_a_write_on_another_stream<R: Runtime>(client: Client) {
     let (reader, writer) = (StreamId { value: 3_300_001 }, StreamId { value: 3_300_002 });
@@ -299,6 +315,7 @@ pub fn a_lazy_read_is_its_buffer_before_a_replayed_collective<R: Runtime>() {
     let _collectives = super::collectives::queue_alone();
     let mut client = R::client(&Default::default());
     if !client.has_device_transport() {
+        std::println!("skipped: no device transport");
         return;
     }
     let device = client.service_id().device;
@@ -413,6 +430,12 @@ macro_rules! testgen_read_lazy_before_write {
         fn test_a_view_of_a_lazy_read_is_its_buffer_before_a_write() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::read_lazy::test_a_view_of_a_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
         }
 
         #[$crate::runtime_tests::test_log::test]

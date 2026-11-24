@@ -1,7 +1,7 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
 use super::{Client, ClosedAsError};
-use crate::server::{CopyDescriptor, Handle, LazyRead, ServerError};
+use crate::server::{CopyDescriptor, Handle, LazyRead, LazyReadHold, ServerError};
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
@@ -47,9 +47,9 @@ pub struct LazyDeviceController {
     client: Client,
     /// The source until the host bytes no longer alias it.
     source: Mutex<Option<CopyDescriptor<Handle>>>,
-    /// The read the server keeps, shared with every view of the same bytes, and the bytes of
-    /// what it reads these are. Let go once the host bytes are read.
-    read: Mutex<Option<(Arc<LazyRead>, Range<usize>)>>,
+    /// The bytes of the read the server keeps that these are, shared with every view of the
+    /// same bytes. Let go once the host bytes are read.
+    read: Mutex<Option<LazyReadHold>>,
     /// The host byte length, known without the source.
     len: usize,
     /// Host bytes, materialized from the device on first access.
@@ -57,22 +57,12 @@ pub struct LazyDeviceController {
 }
 
 impl LazyDeviceController {
-    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>, read: Arc<LazyRead>) -> Self {
-        let len = source.shape.iter().product::<usize>() * source.elem_size;
-        Self::reading(client, source, read, 0..len)
-    }
-
-    fn reading(
-        client: Client,
-        source: CopyDescriptor<Handle>,
-        read: Arc<LazyRead>,
-        range: Range<usize>,
-    ) -> Self {
+    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>, read: LazyReadHold) -> Self {
         Self {
             client,
-            len: range.len(),
+            len: read.range().len(),
             source: Mutex::new(Some(source)),
-            read: Mutex::new(Some((read, range))),
+            read: Mutex::new(Some(read)),
             materialized: Once::new(),
         }
     }
@@ -109,7 +99,8 @@ impl LazyDeviceController {
                 let (read, range) = self
                     .read
                     .lock()
-                    .clone()
+                    .as_ref()
+                    .map(|held| (held.read().clone(), held.range()))
                     .expect("The read should be held until its bytes are on the host");
                 self.client
                     .read_lazily(source.binding(), &read, range)
@@ -160,7 +151,6 @@ impl AllocationController for LazyDeviceController {
             return None;
         }
         let source = self.source.lock().clone()?;
-        let (read, range) = self.read.lock().clone()?;
         if start > end || end > self.len {
             return None;
         }
@@ -179,12 +169,11 @@ impl AllocationController for LazyDeviceController {
 
         // Flat byte descriptor over the sub-range; materializing reads only these bytes.
         let descriptor = CopyDescriptor::new(handle, [end - start].into(), [1].into(), 1);
-        let range = range.start + start..range.start + end;
-        Some(Box::new(LazyDeviceController::reading(
+        let read = self.read.lock().as_ref()?.narrowed(start..end);
+        Some(Box::new(LazyDeviceController::new(
             self.client.clone(),
             descriptor,
             read,
-            range,
         )))
     }
 

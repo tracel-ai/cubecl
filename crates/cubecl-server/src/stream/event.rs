@@ -338,6 +338,18 @@ impl<B: EventStreamBackend> MultiStream<B> {
             .map(|wrapper| &mut wrapper.stream)
     }
 
+    /// The stream for `stream_id`, created if it was never used.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the stream cannot be created.
+    pub fn stream_or_create(
+        &mut self,
+        stream_id: &StreamId,
+    ) -> Result<&mut B::Stream, ServerError> {
+        Ok(&mut self.streams.get_or_create(stream_id)?.stream)
+    }
+
     /// Makes `stream` wait on the device for the work queued on `awaited` so far, creating
     /// `stream` if it was never used. Nothing to do when the two share a backend stream.
     ///

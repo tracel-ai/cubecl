@@ -31,7 +31,8 @@
 use crate::id::KernelId;
 use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, CopyDescriptor, ServerError};
-use crate::stream::{FailureStore, StreamCapture, start_overwritten_reads};
+use crate::stream::{CopyFence, FailureStore, StreamCapture, start_overwritten_reads};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::future::DynFut;
@@ -106,6 +107,23 @@ pub trait WriteScoped: Sized {
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         None
     }
+
+    /// A fence on `stream` past the work queued there so far, which ends with a lazy read's
+    /// copy.
+    ///
+    /// Defaults to `None`, and work writing the memory from another stream then waits through
+    /// [`wait_before_write`](Self::wait_before_write).
+    #[allow(unused_variables)]
+    fn fence_copy(&mut self, stream: StreamId) -> Option<Arc<dyn CopyFence>> {
+        None
+    }
+
+    /// Order work queued on `writer` from now on after the copy `fence` follows, which a
+    /// [`fence_copy`](Self::fence_copy) of this server gave.
+    ///
+    /// Defaults to nothing, for a server that gives no fence.
+    #[allow(unused_variables)]
+    fn wait_for_copy(&mut self, writer: StreamId, fence: &dyn CopyFence) {}
 
     /// Order work queued on `writer` from now on after the work queued on `reader` so far,
     /// which holds the copy of a lazy read that work is about to overwrite.

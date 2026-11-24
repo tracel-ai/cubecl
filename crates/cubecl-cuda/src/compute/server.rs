@@ -24,6 +24,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{CollectiveServer, Collectives, PeerLaunch, Refused};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::device::CudaDevice;
+use cubecl_server::device_events::Event;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     execution::LaunchMode,
@@ -34,8 +35,8 @@ use cubecl_server::{
     server::Server,
     storage::{ManagedResource, StorageAllocator},
     stream::{
-        ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
-        failed_writing,
+        CopyFence, ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture,
+        WriteScoped, failed_writing,
     },
 };
 use cudarc::driver::sys::{
@@ -755,6 +756,27 @@ impl WriteScoped for CudaServer {
         stream: StreamId,
     ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
         Some(Server::read(self, vec![source], stream))
+    }
+
+    fn fence_copy(&mut self, stream: StreamId) -> Option<Arc<dyn CopyFence>> {
+        let sys = self.streams.try_stream_mut(&stream)?.sys;
+        let event = Event::<crate::compute::events::Cuda>::new().ok()?;
+        event.record(sys).ok()?;
+        Some(Arc::new(event))
+    }
+
+    fn wait_for_copy(&mut self, writer: StreamId, fence: &dyn CopyFence) {
+        let event = (fence as &dyn core::any::Any)
+            .downcast_ref::<Event<crate::compute::events::Cuda>>()
+            .expect("a copy fence of this server should be one of its events");
+        let waited = self
+            .streams
+            .stream_or_create(&writer)
+            .and_then(|stream| Ok(event.wait_async(stream.sys)?));
+        // Its own fault, which the read reports as well.
+        if let Err(error) = waited {
+            log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
+        }
     }
 
     fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {
