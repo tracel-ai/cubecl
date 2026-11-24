@@ -209,7 +209,7 @@ impl Rccl {
         min_channels: MinChannels,
     ) -> Result<Comm, RcclError> {
         let mut comm: Comm = core::ptr::null_mut();
-        let mut config = Config::new(c_int::from(min_channels.0));
+        let mut config = Config::new(c_int::from(min_channels.0.get()));
         // SAFETY: `comm` is a valid out-pointer and `config` a whole config of the version it
         // names, which the call only reads.
         self.check("ncclCommInitRankConfig", unsafe {
