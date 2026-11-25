@@ -10,7 +10,7 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::{
-    Arithmetic, CooperativeMatrix, LaunchConfig, PooledProbes, ShapeSweep, WorkerSweep,
+    Arithmetic, CooperativeMatrix, LaunchConfig, PooledProbes, ShapeSweep, WorkerSweep, cache_read,
     compute_cmma, compute_direct, cube_rate, launch_overhead, memory_direct, memory_probe,
     memory_read, memory_write,
 };
@@ -186,8 +186,11 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
         ThroughputMode::Launch => ShapeSweep::new(alloc::vec![launch_config])
             .fastest(|config| Ok(launch_overhead::build_kernel(client, key, config)))
             .map(|(value, _)| value),
-        ThroughputMode::Cubes { units } => ShapeSweep::new(alloc::vec![launch_config])
+        ThroughputMode::CubeRoundTrips { units } => ShapeSweep::new(alloc::vec![launch_config])
             .fastest(|_| Ok(cube_rate::build_kernel(client, units)))
+            .map(|(value, _)| value),
+        ThroughputMode::CacheRead => ShapeSweep::new(alloc::vec![launch_config])
+            .fastest(|_| Ok(cache_read::build_kernel(client)))
             .map(|(value, _)| value),
     }
 }
@@ -200,7 +203,10 @@ fn declined(features: &Features, key: ThroughputKey) -> bool {
         ThroughputMode::ComputeCmma { dtype, config } => {
             !CooperativeMatrix::implemented(features, dtype, config)
         }
-        ThroughputMode::Memory(_) | ThroughputMode::Launch | ThroughputMode::Cubes { .. } => false,
+        ThroughputMode::Memory(_)
+        | ThroughputMode::Launch
+        | ThroughputMode::CubeRoundTrips { .. }
+        | ThroughputMode::CacheRead => false,
     }
 }
 
@@ -304,10 +310,22 @@ pub fn memory_bound(
 /// measured nothing, and on WASM.
 pub fn measure_cube_rate(client: &Client, units: u32) -> f64 {
     let key = ThroughputKey {
-        mode: ThroughputMode::Cubes { units },
+        mode: ThroughputMode::CubeRoundTrips { units },
     };
     measure_peak_throughput(client, key)
         .map(|value| value.ops_per_s())
+        .unwrap_or(f64::NAN)
+}
+
+/// Bytes a second the device reads at from a window its last-level cache holds, every unit of a
+/// grid that fills it reading again what others read: the rate of a kernel's re-reads. `NaN`
+/// where the device measured nothing, and on WASM.
+pub fn measure_cache_read(client: &Client) -> f64 {
+    let key = ThroughputKey {
+        mode: ThroughputMode::CacheRead,
+    };
+    measure_peak_throughput(client, key)
+        .map(|value| value.bytes_per_s(&key))
         .unwrap_or(f64::NAN)
 }
 

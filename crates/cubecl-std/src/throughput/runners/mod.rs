@@ -1,3 +1,4 @@
+pub mod cache_read;
 pub mod compute_cmma;
 pub mod compute_direct;
 pub mod cube_rate;

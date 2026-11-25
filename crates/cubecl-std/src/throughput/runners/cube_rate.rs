@@ -12,7 +12,7 @@ const GRID_SIDE: u32 = 4096;
 /// largest a GPU carries, the 128 MB of an RTX PRO 6000's L2.
 const COLD_BYTES: usize = 256 << 20;
 
-/// The probe of [`ThroughputMode::Cubes`](cubecl_runtime::throughput::ThroughputMode::Cubes):
+/// The probe of [`ThroughputMode::CubeRoundTrips`](cubecl_runtime::throughput::ThroughputMode::CubeRoundTrips):
 /// launches of a grid of cubes of `units` units, each unit reading one value from global memory
 /// and writing it back, counted in cubes.
 ///
