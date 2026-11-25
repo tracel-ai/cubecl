@@ -7,7 +7,7 @@ use cubecl::{
     ir::{ElemType, FloatKind},
     logging::{
         Duration, Execution, ExecutionId, ExecutionKind, ExecutionObservation, ExecutionObserver,
-        Measurement, ProfileDuration, Timed, TimingRequest,
+        Measurement, ProfileDuration, TimedExecutions, TimingRequest,
     },
     prelude::*,
     server::ReduceOperation,
@@ -43,15 +43,15 @@ struct Round {
 }
 
 impl ExecutionObserver for Round {
-    fn issued(&self, execution: &Execution) {
+    fn observe(&self, execution: &Execution) {
         self.issued.lock().unwrap().push(execution.clone());
     }
 
     fn timing(&self) -> TimingRequest {
-        TimingRequest::Deferred(Timed::KernelsAndCommunications)
+        TimingRequest::Deferred(TimedExecutions::KernelsAndCommunications)
     }
 
-    fn measured(&self, execution: &Execution, measurement: Measurement) {
+    fn observe_measurement(&self, execution: &Execution, measurement: Measurement) {
         if let Measurement::Unread(measurement) = measurement {
             self.unread
                 .lock()

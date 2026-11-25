@@ -12,7 +12,7 @@ use cubecl_server::client::{Client, ClientGroup, ClientGroupError, Exchange, Mem
 use cubecl_server::logging::{
     CollectivePath, Communication, Execution, ExecutionId, ExecutionKind, ExecutionObservation,
     ExecutionObserver, ExecutionPlace, ExecutionScope, Measurement, ProfileDuration, StreamRole,
-    Timed, TimingMethod, TimingRequest, TransferRoute, WaitTarget,
+    TimedExecutions, TimingMethod, TimingRequest, TransferRoute, WaitTarget,
 };
 use cubecl_server::server::{
     Collective, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap,
@@ -615,7 +615,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         measured: std::sync::Mutex<Vec<&'static str>>,
     }
     impl ExecutionObserver for WantsTiming {
-        fn issued(&self, execution: &Execution) {
+        fn observe(&self, execution: &Execution) {
             if let ExecutionKind::Kernel { name, .. } = execution.kind {
                 self.launched.lock().unwrap().push(name);
             }
@@ -623,7 +623,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         fn timing(&self) -> TimingRequest {
             TimingRequest::Resolved
         }
-        fn measured(&self, execution: &Execution, _measurement: Measurement) {
+        fn observe_measurement(&self, execution: &Execution, _measurement: Measurement) {
             if let ExecutionKind::Kernel { name, .. } = execution.kind {
                 self.measured.lock().unwrap().push(name);
             }
@@ -678,11 +678,11 @@ fn launches_read_timing_exactly_when_their_observer_is_handed_a_read_duration() 
         read: core::sync::atomic::AtomicBool,
     }
     impl ExecutionObserver for Asks {
-        fn issued(&self, _execution: &Execution) {}
+        fn observe(&self, _execution: &Execution) {}
         fn timing(&self) -> TimingRequest {
             self.timing
         }
-        fn measured(&self, _execution: &Execution, measurement: Measurement) {
+        fn observe_measurement(&self, _execution: &Execution, measurement: Measurement) {
             if matches!(measurement, Measurement::Read { .. }) {
                 self.read.store(true, Ordering::Relaxed);
             }
@@ -694,7 +694,7 @@ fn launches_read_timing_exactly_when_their_observer_is_handed_a_read_duration() 
 
     for timing in [
         TimingRequest::Resolved,
-        TimingRequest::Deferred(Timed::Kernels),
+        TimingRequest::Deferred(TimedExecutions::Kernels),
     ] {
         let observer = Arc::new(Asks {
             timing,
@@ -877,7 +877,7 @@ fn parts_queued_on_their_members_threads_belong_to_the_collective_made_before() 
     let (group, devices) = transported_group_on([66, 67]);
     let recorded = Recorded::timing(
         &devices,
-        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+        TimingRequest::Deferred(TimedExecutions::KernelsAndCommunications),
     );
 
     let watching = ExecutionObservation::new(recorded.clone());
@@ -971,7 +971,7 @@ fn a_part_queued_where_timing_is_refused_is_issued_and_reads_empty() {
     let (group, devices) = transported_group_on([86, 87]);
     let recorded = Recorded::timing(
         &devices,
-        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+        TimingRequest::Deferred(TimedExecutions::KernelsAndCommunications),
     );
     REFUSE_PROFILES.store(true, Ordering::Relaxed);
     let refusing = ClearsRefusedProfiles;
@@ -1017,7 +1017,7 @@ fn timed_communications_time_each_part_of_a_group_collective_and_its_wait() {
     let (group, devices) = transported_group_on([76, 77]);
     let recorded = Recorded::timing(
         &devices,
-        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+        TimingRequest::Deferred(TimedExecutions::KernelsAndCommunications),
     );
 
     let watching = ExecutionObservation::new(recorded.clone());
@@ -1060,7 +1060,7 @@ fn timed_communications_time_each_part_of_a_group_collective_and_its_wait() {
 #[serial_test::serial]
 fn kernels_only_issue_no_wait_and_time_no_part() {
     let (group, devices) = transported_group_on([78, 79]);
-    let recorded = Recorded::timing(&devices, TimingRequest::Deferred(Timed::Kernels));
+    let recorded = Recorded::timing(&devices, TimingRequest::Deferred(TimedExecutions::Kernels));
 
     group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
     let watching = ExecutionObservation::new(recorded.clone());
@@ -1088,7 +1088,7 @@ fn a_sync_collective_waits_for_the_queued_collectives() {
     let (group, devices) = transported_group_on([80, 81]);
     let recorded = Recorded::timing(
         &devices,
-        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+        TimingRequest::Deferred(TimedExecutions::KernelsAndCommunications),
     );
     let mut client = group.clients()[0].clone();
     let (src, dst) = (client.empty(8), client.empty(8));
@@ -1126,7 +1126,7 @@ fn timed_communications_time_a_host_staged_transfer_on_the_host() {
     let sent = source.create_from_slice(&[1u8, 2, 3, 4]);
     let recorded = Recorded::timing(
         &devices,
-        TimingRequest::Deferred(Timed::KernelsAndCommunications),
+        TimingRequest::Deferred(TimedExecutions::KernelsAndCommunications),
     );
 
     let watching = ExecutionObservation::new(recorded.clone());
@@ -1252,7 +1252,7 @@ impl Recorded {
 }
 
 impl ExecutionObserver for Recorded {
-    fn issued(&self, execution: &Execution) {
+    fn observe(&self, execution: &Execution) {
         if self.touches(&execution.kind) {
             self.issued.lock().unwrap().push(execution.clone());
         }
@@ -1262,7 +1262,7 @@ impl ExecutionObserver for Recorded {
         self.timing
     }
 
-    fn measured(&self, execution: &Execution, measurement: Measurement) {
+    fn observe_measurement(&self, execution: &Execution, measurement: Measurement) {
         if let Measurement::Unread(measurement) = measurement
             && self.touches(&execution.kind)
         {
