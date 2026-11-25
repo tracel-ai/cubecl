@@ -243,10 +243,13 @@ fn access(
 ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
     let source = CopyDescriptor::new(bytes(0..4, binding), [4].into(), [1].into(), 1);
     let (started, copied) = (device.started.len(), device.copied.len());
+    let waited = (device.waits.len(), device.stream_waits.len());
     let copy = device.read_lazy_access(read.clone(), source, stream);
-    // An access's own copy is not one a write started.
+    // An access's own copy, and its wait for the read's position, are not a write's.
     device.started.truncate(started);
     device.copied.truncate(copied);
+    device.waits.truncate(waited.0);
+    device.stream_waits.truncate(waited.1);
     copy
 }
 
@@ -685,6 +688,23 @@ fn a_read_of_shared_memory_dropped_unread_lets_go_of_its_done_copy_at_the_next_r
         .expect("clean memory should be readable");
 
     assert_eq!(device.copies_dropped.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn a_first_access_from_another_stream_copies_behind_the_reads_position() {
+    let mut device = Device::new();
+    let (reader, accessor) = (StreamId { value: 0 }, StreamId { value: 1 });
+    let (handle, binding) = device.buffer(accessor);
+    let held = lazy_read(&handle);
+    let read = held.read().clone();
+    device
+        .keep_lazy_read(read.clone(), reader)
+        .expect("clean memory should be readable");
+    let source = CopyDescriptor::new(bytes(0..4, &binding), [4].into(), [1].into(), 1);
+
+    let _copy = device.read_lazy_access(read, source, accessor);
+
+    assert_eq!(device.waits, vec![(accessor, reader)]);
 }
 
 #[test]

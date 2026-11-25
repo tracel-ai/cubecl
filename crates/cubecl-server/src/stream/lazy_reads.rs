@@ -202,6 +202,24 @@ impl LazyReads {
         self.abandoned.retain(StartedCopy::is_in_flight);
     }
 
+    /// Where the kept `read` was made, when it was made on a stream other than `stream`: that
+    /// stream, and the fence past the work on it then when its server gave one.
+    fn made_elsewhere(
+        &self,
+        read: &Arc<LazyRead>,
+        stream: StreamId,
+    ) -> Option<(StreamId, Option<Arc<dyn StreamFence>>)> {
+        self.kept
+            .get(&read.to_source().handle.memory.id())?
+            .reads
+            .iter()
+            .find(|kept| {
+                kept.accessed.is_none() && core::ptr::eq(kept.read.as_ptr(), Arc::as_ptr(read))
+            })
+            .filter(|kept| kept.stream != stream)
+            .map(|kept| (kept.stream, kept.made_at.clone()))
+    }
+
     /// What work about to write `written` has to do first: the kept reads whose bytes it
     /// overlaps, which are no longer kept, and the streams copies of them are in flight on.
     fn take_overwritten(&mut self, written: &[BufferBinding]) -> Overwritten {
@@ -394,6 +412,9 @@ pub(crate) fn access<S: WriteScoped>(
     stream: StreamId,
 ) -> Copy {
     let accessed = source.handle.range();
+    if !is_recording(server.capturing(stream)) {
+        order_after_made(server, &read, stream);
+    }
     let Some(copy) = server.read_lazy_copy(vec![source], stream) else {
         return refused("this server keeps no lazy read");
     };
@@ -474,6 +495,18 @@ fn copy_stream<S: WriteScoped>(server: &mut S, kept: &ReadToStart, writer: Strea
         (_, true) => writer,
         (Some(made_at), false) => behind(server, writer, made_at.as_ref()),
         (None, false) => reader_stream(server, kept.made_on, writer),
+    }
+}
+
+/// Order work on `stream` after the work on the stream the kept `read` was made on, up to it.
+fn order_after_made<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>, stream: StreamId) {
+    if !read.is_kept() {
+        return;
+    }
+    match lazy_reads(server).made_elsewhere(read, stream) {
+        Some((_, Some(made_at))) => wait_past(server, stream, made_at.as_ref()),
+        Some((made_on, None)) => server.wait_before_write(stream, made_on),
+        None => {}
     }
 }
 
