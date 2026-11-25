@@ -637,9 +637,9 @@ fn unit_attention_over_scaled_keys(
                     comptime!(SoftwareMatmul::new(rows * block_keys)),
                     Semiring::SumProd,
                 );
-                let (k_s, k_scale) = k_s.factor(&score);
+                let (k_s, k_scale) = k_s.factor();
                 score.mma(&q_s, &k_s);
-                let correction = softmax.step(&score.scaled(&k_scale), &bias_s, scale);
+                let correction = softmax.step(&score.mul(&k_scale), &bias_s, scale);
                 acc.along(V).rescale(&correction);
                 acc.mma(&score, &v_s);
             }

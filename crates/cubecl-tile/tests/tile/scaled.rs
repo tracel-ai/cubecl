@@ -107,37 +107,30 @@ fn scaled_matmul_promoted<E: Numeric>(
 }
 
 /// `c = (a ⊗ blocks ⊗ global) · b`, written as a kernel writes any sum: what `factor` takes out of
-/// the operand for the sum it opened multiplies the sum once, as it drains; what it leaves rides
-/// the load. The sum is a register block of `registers`, or the device's matrix instruction where
-/// `None`.
+/// the operand multiplies the sum once, as it drains; what it leaves rides the load. The sum is a
+/// register block of `registers`, or the device's matrix instruction where `None`.
 #[cube(launch)]
 fn factored_matmul<E: Numeric>(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
-    blocks: &TileTensor<'_>,
-    global: &TileTensor<'_>,
     c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
-    let a = a
-        .tile(&space)
-        .mul(&blocks.tile(&space))
-        .mul(&global.tile(&space));
+    let (a, a_factor) = a.tile(&space).factor();
     let b = b.tile(&space);
     let mut c = c.tile_mut(&space);
     let acc = match registers {
         Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SumProd),
         None => c.accumulator::<E>(&a, &b, Semiring::SumProd),
     };
-    let (a, a_factor) = a.factor(&acc);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         acc_r.mma(&a.at(&region), &b.at(&region));
     }
-    c.dequantize_from(&acc.scaled(&a_factor));
+    c.dequantize_from(&acc.mul(&a_factor));
 }
 
 /// [`scaled_matmul`] with two scale levels: block scales, and one factor over the whole tensor.
@@ -351,8 +344,8 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
 }
 
 /// `c = (a ⊗ r) · (b ⊗ s)` over `e4m3` operands, `r` a scale a row of `a` and `s` one a column of
-/// `b`: both taken out of the sum whatever its instruction ([`Tile::factor_out`]), which an 8-bit
-/// value has no room for, and applied cell by cell as the sum drains.
+/// `b`: both factored out of the terms, which an 8-bit value has no room for, and multiplied into
+/// each cell of the sum as it drains.
 #[cube(launch)]
 fn row_and_column_factored_matmul<E: Numeric>(
     a: &TileTensor<'_>,
@@ -364,17 +357,15 @@ fn row_and_column_factored_matmul<E: Numeric>(
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let a = a.tile(&space).mul(&rows.tile(&space));
-    let b = b.tile(&space).mul(&columns.tile(&space));
+    let (a, rows) = a.tile(&space).mul(&rows.tile(&space)).factor();
+    let (b, columns) = b.tile(&space).mul(&columns.tile(&space)).factor();
     let mut c = c.tile_mut(&space);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
-    let (a, a_factor) = a.factor_out(&acc);
-    let (b, b_factor) = b.factor_out(&acc);
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         acc_r.mma(&a.at(&region), &b.at(&region));
     }
-    c.dequantize_from(&acc.scaled(&a_factor).scaled(&b_factor));
+    c.dequantize_from(&acc.mul(&rows).mul(&columns));
 }
 
 /// An `e4m3` product under a scale a row of its lhs and a scale a column of its rhs, which vary
@@ -497,49 +488,20 @@ fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
     }
 }
 
-/// The one scale `a` is stored under, read off the factor taken out of it into `out[0]`, and
-/// `a`'s first value as it lies, without it, into `out[1]`. The factor is the one a register sum
-/// of `a · b` takes out ([`Tile::factor`]), or, `whole`, the one a sum no tile holds takes out
-/// ([`Tile::factor_whole`]).
+/// The one scale `a` is stored under, factored out of it and read into `out[0]`, and `a`'s first
+/// value as it lies, without it, into `out[1]`.
 #[cube(launch)]
-fn per_tensor_factor(
-    a: &TileTensor<'_>,
-    b: &TileTensor<'_>,
-    c: &mut TileTensor<'_>,
-    out: &mut Tensor<f32>,
-    space: Partitioning,
-    #[comptime] whole: bool,
-) {
-    let (a, b, c) = (a.tile(&space), b.tile(&space), c.tile_mut(&space));
-    let (a, factor) = if whole {
-        a.factor_whole()
-    } else {
-        let sum = c.register_accumulator::<f32>(&a, &b, SOFTWARE_MATMUL, Semiring::SumProd);
-        a.factor(&sum)
-    };
-    out[0] = factor.whole();
+fn per_tensor_factor(a: &TileTensor<'_>, out: &mut Tensor<f32>, space: Partitioning) {
+    let (a, scale) = a.tile(&space).factor();
+    out[0] = scale.whole();
     out[1] = a.flat::<f32, Const<1>>().read(0).extract(0usize);
 }
 
-/// A sum held in plain registers takes on an operand's per-tensor scale as one number: values
-/// stored under one scale over the whole tensor give it up to `factor`, whose `whole` reads it,
-/// and are read as they lie.
+/// A scale over the whole tensor factors out of the values stored under it, which are then read as
+/// they lie, and reads as one number.
 #[test]
 fn a_per_tensor_factor_reads_as_its_one_scale() {
-    check_per_tensor_factor(false);
-}
-
-/// A sum no tile holds takes the same per-tensor scale out with `factor_whole`, and the values
-/// are read as they lie.
-#[test]
-fn a_per_tensor_factor_leaves_for_a_sum_no_tile_holds() {
-    check_per_tensor_factor(true);
-}
-
-/// [`per_tensor_factor`] over values stored under a scale of 0.37, the factor taken out as
-/// `whole` says.
-fn check_per_tensor_factor(whole: bool) {
-    let (rows, depth, cols, scale) = (4, 4, 4, 0.37f32);
+    let (rows, depth, scale) = (4, 4, 0.37f32);
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
     let a: Vec<f32> = (0..rows * depth).map(|i| i as f32 + 1.5).collect();
@@ -547,14 +509,6 @@ fn check_per_tensor_factor(whole: bool) {
         .dtype(dtype)
         .custom(a.clone())
         .generate_with_f32_host_data();
-    let b_t = TestInput::builder(client.clone(), shape![depth, cols])
-        .dtype(dtype)
-        .zeros()
-        .generate_without_host_data();
-    let c_t = TestInput::builder(client.clone(), shape![rows, cols])
-        .dtype(dtype)
-        .zeros()
-        .generate_without_host_data();
     let (g_t, _) = TestInput::builder(client.clone(), shape![1])
         .dtype(dtype)
         .custom(vec![scale])
@@ -564,7 +518,7 @@ fn check_per_tensor_factor(whole: bool) {
         .zeros()
         .generate_without_host_data();
 
-    let space = Space::new(&[(M, rows), (N, cols), (KI, depth)]);
+    let space = Space::new(&[(M, rows), (KI, depth)]);
     per_tensor_factor::launch(
         &client,
         CubeCount::new_single(),
@@ -581,21 +535,8 @@ fn check_per_tensor_factor(whole: bool) {
             1,
             TileSpec::new(Projection::new(&[M, KI], &[PhysicalAxisMap::broadcast()])),
         )),
-        TileTensorLaunch::new(
-            b_t.binding().into_tensor_arg(),
-            dtype,
-            1,
-            TileSpec::direct(&[KI, N]),
-        ),
-        TileTensorLaunch::new(
-            c_t.binding().into_tensor_arg(),
-            dtype,
-            1,
-            TileSpec::direct(&[M, N]),
-        ),
         out.clone().binding().into_tensor_arg(),
         uncut(&client, &space, &space).partitioning_arg(),
-        whole,
     );
 
     let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
@@ -604,8 +545,8 @@ fn check_per_tensor_factor(whole: bool) {
 }
 
 /// `c = (a ⊗ blocks ⊗ global) · b` over `size × size`, summed in a register block of
-/// `registers` or the device's matrix instruction, written through `factor` and `scaled` as a
-/// kernel writes any sum, against the host product.
+/// `registers`, its global factored out of it, or the device's matrix instruction, its global
+/// grouped with its block scales, as a kernel writes any sum, against the host product.
 fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
     let (rows, cols, block, blocks) = (size, size, 8, 2);
     let depth = block * blocks;
@@ -656,16 +597,27 @@ fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
             PhysicalAxisMap::disjoint(&[(KB, block), (KI, 1)]),
         ],
     );
+    let bound = |tensor: TensorHandle, spec| {
+        TileTensorLaunch::new(tensor.binding().into_tensor_arg(), dtype, 1, spec)
+    };
+    let block_scales = bound(s_t, TileSpec::new(a_projection.scales_per(KB)));
+    // Same dimensions as the block scales, addressing neither: one value over all their tiles.
+    let global = bound(
+        g_t,
+        TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
+    );
+    let values = bound(a_t, TileSpec::new(a_projection));
+    let a_arg = match registers {
+        Some(_) => values.scales(block_scales).scales(global),
+        None => values
+            .scales(block_scales.scales(global))
+            .scales(TileTensorLaunch::one()),
+    };
     factored_matmul::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileTensorLaunch::new(
-            a_t.binding().into_tensor_arg(),
-            dtype,
-            1,
-            TileSpec::new(a_projection.clone()),
-        ),
+        a_arg,
         TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
@@ -677,20 +629,6 @@ fn check_factored(registers: Option<SoftwareMatmul>, size: usize) {
                     PhysicalAxisMap::of(N),
                 ],
             )),
-        ),
-        TileTensorLaunch::new(
-            s_t.binding().into_tensor_arg(),
-            dtype,
-            1,
-            TileSpec::new(a_projection.scales_per(KB)),
-        ),
-        TileTensorLaunch::new(
-            g_t.binding().into_tensor_arg(),
-            dtype,
-            1,
-            // Same dimensions as the level below it, addressing neither: one value over all their
-            // tiles.
-            TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
         TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),

@@ -622,7 +622,7 @@ impl TileExpand {
         }
         shaped.factor = self
             .factor
-            .spanning(dimension, |scale| scale.one_wide(dimension));
+            .spanning(dimension, &|scale| scale.one_wide(dimension));
         shaped
     }
 }
