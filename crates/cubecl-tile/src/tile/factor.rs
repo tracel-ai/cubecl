@@ -128,9 +128,12 @@ impl Factor {
         unexpanded!()
     }
 
-    /// Whether every scale is a power of two, stored as `ue8m0`: what a decode that
-    /// moves a code's exponent by the scale's, rather than multiplying, takes exactly.
-    pub(crate) fn powers_of_two(&self) -> comptime_type!(bool) {
+    /// Whether all the values of `load`, one of a tile over `values`, are under one scale.
+    pub(crate) fn broadcasts_over(
+        &self,
+        _load: &VectorTile,
+        _values: Space,
+    ) -> comptime_type!(bool) {
         unexpanded!()
     }
 
@@ -429,11 +432,20 @@ impl FactorExpand {
         fp8_format(scope, self.leaves().next()?)
     }
 
-    pub(crate) fn __expand_powers_of_two_method(&self, scope: &Scope) -> bool {
-        self.scaled()
-            && self
-                .leaves()
-                .all(|scale| fp8_format(scope, scale) == Some(Fp8Format::UE8M0))
+    pub(crate) fn __expand_broadcasts_over_method(
+        &self,
+        scope: &Scope,
+        load: &VectorTile,
+        values: Space,
+    ) -> bool {
+        self.leaves().all(|scale| {
+            let projection = scale.clone().__expand_projection_method(scope);
+            values.dimensions().all(|dimension| {
+                let varies =
+                    scale.place.space.contains(dimension) && projection.addresses(dimension);
+                !varies || load.extent_along(dimension) == 1
+            })
+        })
     }
 
     pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
