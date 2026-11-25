@@ -61,7 +61,9 @@ pub struct PersistentCacheKey<K> {
 pub struct PersistentCacheValue {
     /// Index of the fastest candidate operation.
     pub fastest_index: usize,
-    /// Benchmarking results for all autotune candidates.
+    /// Benchmarking results for all autotune candidates. None for an answer that reached the
+    /// environment trimmed to its pick.
+    #[serde(default)]
     pub results: Vec<AutotuneResult>,
     /// Optional input size bounds for which the autotune result applies.
     ///

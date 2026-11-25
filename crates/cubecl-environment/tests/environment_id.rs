@@ -5,7 +5,9 @@ use cubecl_environment::environment::{
     self, AutotuneAnswer, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId,
     EnvironmentOrigin, EnvironmentSummary, SaveOptions, UsedAnswersName,
 };
-use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{
+    CacheOption, Database, Namespace, Store, StoreOptions, TuneTableName,
+};
 
 // The active environment is process-global, so these tests are serialized.
 
@@ -396,6 +398,113 @@ fn a_saved_bundle_gives_back_the_answers_its_build_used() {
     }
 }
 
+/// An environment created from answers holds them where this version's tuners
+/// read them, and nothing an environment of its name held before.
+#[test]
+#[serial_test::serial]
+fn an_environment_created_from_answers_holds_them() {
+    let _root = rooted();
+    let stale = EnvironmentId::create("tuned", EnvironmentOrigin::Empty).unwrap();
+    warm(&stale, &[("stale", 2)]);
+    environment::activate(environment::DEFAULT);
+
+    let tuned = EnvironmentId::create(
+        "tuned",
+        EnvironmentOrigin::Answers(vec![trimmed("first", 1), trimmed("second", 2)]),
+    )
+    .unwrap();
+
+    assert_eq!(tuned.summary().unwrap().autotune_answers, 2);
+    assert_eq!(read(&tuned, "stale"), None);
+    assert_eq!(pick("first"), Some(1));
+    assert_eq!(pick("second"), Some(2));
+}
+
+/// Answers of a table this version's tuners never read are left out: those of
+/// another cubecl version, of another layout, and of a namespace that is no
+/// table at all.
+#[test]
+#[serial_test::serial]
+fn answers_of_a_table_this_version_does_not_read_are_left_out() {
+    let _root = rooted();
+    let moved = |table: &str| AutotuneAnswer {
+        table: table.into(),
+        ..trimmed("moved", 1)
+    };
+    let version = env!("CARGO_PKG_VERSION");
+    let foreign = [
+        "autotune/0.1.0/layout-v1/hardware/tuner".to_string(),
+        format!("autotune/{version}-other/layout-v1/hardware/tuner"),
+        format!("autotune/{version}/layout-v0/hardware/tuner"),
+        format!("autotune/{version}/layout-v10/hardware/tuner"),
+        format!("autotune/{version}/device/tuner"),
+        format!("cuda/{version}/layout-v1/hardware/tuner"),
+    ];
+    let mut answers: Vec<AutotuneAnswer> = foreign.iter().map(|table| moved(table)).collect();
+    answers.push(trimmed("read", 2));
+
+    let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Answers(answers)).unwrap();
+
+    tuned.activate().unwrap();
+    let database = Database::open_active().unwrap();
+    assert_eq!(database.namespaces(), [table().as_str()]);
+    assert_eq!(pick("read"), Some(2));
+}
+
+/// Where two answers are to one key, the first is held, as it is against what
+/// a later merge brings.
+#[test]
+#[serial_test::serial]
+fn the_first_answer_to_a_key_is_held() {
+    let _root = rooted();
+    let file = EnvironmentId::create("file", EnvironmentOrigin::Empty).unwrap();
+    file.activate().unwrap();
+    for (key, fastest_index) in [("shared", 1), ("own", 2)] {
+        answers()
+            .insert(key.into(), measured_picking(fastest_index))
+            .unwrap();
+    }
+    environment::activate(environment::DEFAULT);
+
+    let tuned = EnvironmentId::create(
+        "tuned",
+        EnvironmentOrigin::Answers(vec![trimmed("shared", 3), trimmed("shared", 4)]),
+    )
+    .unwrap();
+    tuned.merge(EnvironmentOrigin::Fork(file)).unwrap();
+
+    tuned.activate().unwrap();
+    assert_eq!(pick("shared"), Some(3));
+    assert_eq!(pick("own"), Some(2));
+}
+
+/// A merge of answers adds those the environment lacks, and a value computed
+/// here replaces one it brought.
+#[test]
+#[serial_test::serial]
+fn merged_answers_never_replace_one_the_environment_held() {
+    let _root = rooted();
+    let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Empty).unwrap();
+    tuned.activate().unwrap();
+    answers()
+        .insert("held".into(), measured_picking(1))
+        .unwrap();
+
+    tuned
+        .merge(EnvironmentOrigin::Answers(vec![
+            trimmed("held", 2),
+            trimmed("lacked", 3),
+        ]))
+        .unwrap();
+
+    assert_eq!(pick("held"), Some(1));
+    assert_eq!(pick("lacked"), Some(3));
+    answers()
+        .insert("lacked".into(), measured_picking(4))
+        .unwrap();
+    assert_eq!(pick("lacked"), Some(4));
+}
+
 /// A bundle file that is not there fails to open, as every other environment
 /// call fails, rather than at its first use.
 #[test]
@@ -450,7 +559,11 @@ fn bytes_that_are_no_bundle_do_not_read() {
 
 /// The table the answers here are stored in.
 fn table() -> Namespace {
-    Namespace::scoped("autotune", "layout-v1/hardware/tuner")
+    TuneTableName {
+        hardware: "hardware",
+        tuner: "tuner",
+    }
+    .namespace()
 }
 
 /// This build, and another.
@@ -460,9 +573,20 @@ fn builds() -> (BuildStamp, BuildStamp) {
     (build, BuildStamp { hash })
 }
 
-/// The answers of [`table`].
+/// The answers of [`table`] in the active environment, read on a miss as a
+/// tuner reads them.
 fn answers() -> Store<String, Answer> {
-    Store::new(StoreOptions::new().storage(table()))
+    Store::new(
+        StoreOptions::new()
+            .storage(table())
+            .cache(CacheOption::Lazy),
+    )
+}
+
+/// The pick [`table`] holds under `key` in the active environment.
+fn pick(key: &str) -> Option<usize> {
+    let answer = answers().remove(&key.to_string())?;
+    Some(answer.fastest_index)
 }
 
 /// The answers of [`table`] the work of `build` used.
@@ -479,6 +603,7 @@ fn uses(build: BuildStamp) -> Store<String, ()> {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Answer {
     pub fastest_index: usize,
+    #[serde(default)]
     pub results: Vec<String>,
 }
 

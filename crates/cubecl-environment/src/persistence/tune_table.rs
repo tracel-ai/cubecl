@@ -29,4 +29,17 @@ impl TuneTableName<'_> {
             alloc::format!("{LAYOUT_PREFIX}{LAYOUT}/{hardware}/{tuner}"),
         )
     }
+
+    /// Whether `namespace` is a table the tuners of this version read: one of
+    /// this cubecl version, at the current layout.
+    #[cfg(native_cache)]
+    pub(crate) fn is_current_table(namespace: &str) -> bool {
+        let current = Namespace::scoped(
+            NamespaceRoot::AUTOTUNE,
+            alloc::format!("{LAYOUT_PREFIX}{LAYOUT}"),
+        );
+        namespace
+            .strip_prefix(current.as_str())
+            .is_some_and(|path| path.starts_with('/'))
+    }
 }

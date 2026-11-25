@@ -4,6 +4,8 @@ use alloc::string::{String, ToString};
 
 use crate::bytes::Bytes;
 use crate::persistence::decode;
+#[cfg(native_cache)]
+use crate::persistence::encode;
 
 /// One answer of an autotune table, trimmed to its pick: what another
 /// environment needs of it to run the same pick, without the measurements it
@@ -30,6 +32,14 @@ impl AutotuneAnswer {
             key: Bytes::from_bytes_vec(key.to_vec()),
             fastest_index,
         })
+    }
+
+    /// The value its table stores for it: a stored answer without its
+    /// measurements.
+    #[cfg(native_cache)]
+    pub(crate) fn stored_value(&self) -> Bytes {
+        let Self { fastest_index, .. } = *self;
+        encode(&StoredPick { fastest_index })
     }
 }
 

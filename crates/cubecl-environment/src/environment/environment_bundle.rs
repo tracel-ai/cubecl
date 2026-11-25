@@ -115,8 +115,10 @@ impl EnvironmentBundle {
 
     /// The autotune answers the work of the executable that saved the bundle
     /// used, loaded or measured, each trimmed to its pick: what another
-    /// environment of that hardware is created from to run the same picks
-    /// without tuning. None when the manifest names no executable.
+    /// environment is created from, or brought, as
+    /// [`EnvironmentOrigin::Answers`](super::EnvironmentOrigin::Answers) to
+    /// run the same picks without tuning. None when the manifest names no
+    /// executable.
     ///
     /// Read as a [description](Self::read_description) is.
     ///

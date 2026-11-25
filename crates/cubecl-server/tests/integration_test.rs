@@ -2326,6 +2326,44 @@ fn a_saved_environment_gives_back_the_answer_a_tune_measured() {
     );
 }
 
+/// An answer given back by one environment and loaded into an empty one is hit there: nothing is
+/// tuned, and that environment gives it back in turn.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn an_answer_loaded_into_an_empty_environment_is_hit_and_given_back() {
+    use cubecl_environment::environment::{EnvironmentId, EnvironmentOrigin, SaveOptions};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::Tuner;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let tuner: Tuner<String> = Tuner::new("handed-over", &client.hardware_identity());
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    let given_back = || {
+        let saved = EnvironmentId::active().save(SaveOptions::new()).unwrap();
+        saved.read_used_answers().unwrap()
+    };
+    let measured = given_back();
+
+    let tuned =
+        EnvironmentId::create("tuned", EnvironmentOrigin::Answers(measured.clone())).unwrap();
+    tuned.activate().unwrap();
+    assert!(given_back().is_empty(), "held, and not used yet");
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+    tuner.check_tune(&key, &handles, &set, &client, None);
+    core::mem::drop(counted);
+
+    let autotune = collector.statistics().autotune;
+    assert_eq!((autotune.measured_count, autotune.loaded_count), (0, 1));
+    assert_eq!(given_back(), measured);
+}
+
 /// Shared in memory rather than through the store, so it holds with the cache disabled, and a key
 /// in flight on one device is pending on the other instead of tuned twice.
 #[test_log::test]

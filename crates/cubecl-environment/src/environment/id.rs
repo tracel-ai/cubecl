@@ -1,6 +1,6 @@
 //! Environments as values: named in the storage that keeps them, created
-//! empty, from a fork or from a bundle, merged into, activated and saved
-//! whole.
+//! empty, from a fork, from a bundle or from autotune answers, merged into,
+//! activated and saved whole.
 //!
 //! The functions of [`environment`](super) act on this process's storage by
 //! name. An [`EnvironmentId`] also names the storage, so an environment of
@@ -8,8 +8,9 @@
 //! than confused with a local one of the same name.
 
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
-use super::EnvironmentBundle;
+use super::{AutotuneAnswer, EnvironmentBundle};
 
 /// Names an environment in the storage that keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -34,6 +35,10 @@ pub enum EnvironmentOrigin {
     Fork(EnvironmentId),
     /// What the bundle holds.
     Bundle(EnvironmentBundle),
+    /// The autotune answers this version's tuners read: those of its tables,
+    /// at its layout. The rest are left out. Where two answer one key of one
+    /// table, the first is held.
+    Answers(Vec<AutotuneAnswer>),
 }
 
 /// Why an environment could not be created, activated or saved.
@@ -106,9 +111,10 @@ mod storage {
         path, root, sanitize,
     };
     use crate::persistence::database::same_file;
-    use crate::persistence::{Access, Database, DatabaseStorage, Storage};
+    use crate::persistence::{Access, Database, DatabaseStorage, Origin, Storage, TuneTableName};
     use crate::sync::LazyLock;
     use alloc::boxed::Box;
+    use alloc::collections::BTreeMap;
     use alloc::string::ToString;
     use std::path::{Path, PathBuf};
 
@@ -225,12 +231,7 @@ mod storage {
                     namespace.to_string(),
                 )))
             };
-            match import_into(&source, open)?.failed {
-                0 => Ok(()),
-                failed => Err(EnvironmentError::Storage {
-                    reason: alloc::format!("{failed} entries were refused"),
-                }),
-            }
+            check_refused(import_into(&source, open)?.failed)
         }
 
         /// The environment serialized whole, under the name `options` gives
@@ -331,6 +332,8 @@ mod storage {
         Fork(EnvironmentId),
         /// A serialized environment.
         Bundle(EnvironmentBundle),
+        /// Autotune answers, of any table.
+        Answers(Vec<AutotuneAnswer>),
     }
 
     impl Incoming {
@@ -354,12 +357,13 @@ mod storage {
                     }
                 }
                 EnvironmentOrigin::Bundle(bundle) => Self::Bundle(bundle),
+                EnvironmentOrigin::Answers(answers) => Self::Answers(answers),
             })
         }
 
         /// The database the entries are read from, `None` when there are
-        /// none: a fork's source, or a bundle written to `scratch` and checked
-        /// to read.
+        /// none: a fork's source, a bundle written to `scratch` and checked
+        /// to read, or answers written to `scratch`.
         fn open(self, scratch: &ScratchFile) -> Result<Option<Database>, EnvironmentError> {
             Ok(match self {
                 Self::Nothing | Self::Itself => None,
@@ -378,7 +382,40 @@ mod storage {
                             .map_err(EnvironmentError::storage)?,
                     )
                 }
+                Self::Answers(answers) => Some(written(answers, scratch)?),
             })
+        }
+    }
+
+    /// A database at `scratch` holding those of `answers` this version's
+    /// tuners read, where they read them.
+    fn written(
+        answers: Vec<AutotuneAnswer>,
+        scratch: &ScratchFile,
+    ) -> Result<Database, EnvironmentError> {
+        let mut tables: BTreeMap<String, Vec<(Bytes, Bytes)>> = BTreeMap::new();
+        let read = |answer: &AutotuneAnswer| TuneTableName::is_current_table(&answer.table);
+        for answer in answers.into_iter().filter(read) {
+            let value = answer.stored_value();
+            let entries = tables.entry(answer.table).or_default();
+            entries.push((answer.key, value));
+        }
+        let database = Database::open_at(scratch.path(), Access::ReadWrite)
+            .map_err(EnvironmentError::storage)?;
+        for (table, entries) in tables {
+            let written = database.insert_many(&table, &mut entries.into_iter(), Origin::Imported);
+            check_refused(written.failed)?;
+        }
+        Ok(database)
+    }
+
+    /// An error when the storage refused some entries.
+    fn check_refused(entries: usize) -> Result<(), EnvironmentError> {
+        match entries {
+            0 => Ok(()),
+            refused => Err(EnvironmentError::Storage {
+                reason: alloc::format!("{refused} entries were refused"),
+            }),
         }
     }
 }
