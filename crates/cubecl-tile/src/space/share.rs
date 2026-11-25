@@ -261,7 +261,7 @@ mod tests {
 
     /// The launch's units hold partials of a cell whose operand lacks a dimension they take.
     #[test]
-    fn the_launchs_units_split_a_dimension_the_operand_lacks() {
+    fn the_units_of_the_launch_split_a_dimension_the_operand_lacks() {
         let space = Space::new(&[(M, 4), (K, 32)]);
         let level = Levels::leaf(&[(M, 1), (K, 8)])
             .launch_units(
