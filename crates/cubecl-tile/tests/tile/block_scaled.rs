@@ -88,9 +88,9 @@ fn block_scaled_matmul_under_words<E: Numeric>(
 ) {
     let mut c = c.tile_mut(&space);
     let (a, b) = (a.tile(&space), b.tile(&space));
+    let (a, a_global) = a.factor();
+    let (b, b_global) = b.factor();
     let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
-    let (a, a_factor) = a.factor(&acc);
-    let (b, b_factor) = b.factor(&acc);
     let walk = space.over(&level);
     let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
     stages.pipelined(walk, |slot, region| {
@@ -99,7 +99,7 @@ fn block_scaled_matmul_under_words<E: Numeric>(
             acc_r.mma(a_s, b_s);
         });
     });
-    c.dequantize_from(&acc.scaled(&a_factor).scaled(&b_factor));
+    c.dequantize_from(&acc.mul(&a_global).mul(&b_global));
 }
 
 /// A `16 × 8` product of `k` deep, `a` row-major and `b` held `[n, k]`, against the host sum of
