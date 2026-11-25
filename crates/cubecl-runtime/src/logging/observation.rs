@@ -1,15 +1,7 @@
 //! Watching what the process asks its devices to run, from the threads that ask.
 //!
-//! The profiling logger ([`ServerLogger`](super::ServerLogger)) already knows
-//! every kernel that runs, but it formats them into a sink: durations are
-//! aggregated by name into a private table and written out through a detached
-//! task. That is the right shape for reading a log and the wrong one for a
-//! caller that wants to *attribute* the launches: by the time a line is
-//! written, the context that issued it is gone, and nothing about the ordering
-//! is guaranteed against the caller's own state.
-//!
-//! An observer is the other half: a hook called **synchronously, on the thread
-//! that issued an [`Execution`](super::Execution), before it is submitted**. That is the only
+//! An observer is a hook called **synchronously, on the thread that issued an
+//! [`Execution`](super::Execution), before it is submitted**. That is the only
 //! point where host-side context still exists, so a caller that keeps a stack
 //! of what it is currently doing can pair a kernel, a collective or a transfer
 //! with it.

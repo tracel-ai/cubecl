@@ -1,6 +1,5 @@
 use super::autotune::{AutotuneConfig, AutotuneLevel, AutotuneLogLevel};
 use super::compilation::{CompilationConfig, CompilationLogLevel};
-use super::profiling::{ProfilingConfig, ProfilingLogLevel};
 use super::{CubeClRuntimeConfig, LogLevel, LoggerConfig};
 use cubecl_environment::records::RecordLevel;
 use std::path::PathBuf;
@@ -144,16 +143,12 @@ fn with_debug_option(config: CubeClRuntimeConfig, value: Option<&str>) -> CubeCl
         return config;
     };
     match value {
-        "debug" => with_debug_levels(config, DebugLevels::DEBUG),
-        "debug-full" => with_debug_levels(config, DebugLevels::DEBUG_FULL),
-        "profile" => with_profiling_level(config, ProfilingLogLevel::Basic),
-        "profile-medium" => with_profiling_level(config, ProfilingLogLevel::Medium),
-        "profile-full" => with_profiling_level(config, ProfilingLogLevel::Full),
+        "debug" | "debug-full" => with_debug_levels(config, DebugLevels::DEBUG),
         _ => config,
     }
 }
 
-/// `config` with the compilation, profiling and autotune logs at `levels`.
+/// `config` with the compilation and autotune logs at `levels`.
 fn with_debug_levels(config: CubeClRuntimeConfig, levels: DebugLevels) -> CubeClRuntimeConfig {
     CubeClRuntimeConfig {
         compilation: CompilationConfig {
@@ -162,12 +157,6 @@ fn with_debug_levels(config: CubeClRuntimeConfig, levels: DebugLevels) -> CubeCl
                 ..config.compilation.logger
             },
             ..config.compilation
-        },
-        profiling: ProfilingConfig {
-            logger: LoggerConfig {
-                level: levels.profiling,
-                ..config.profiling.logger
-            },
         },
         autotune: AutotuneConfig {
             logger: LoggerConfig {
@@ -180,31 +169,12 @@ fn with_debug_levels(config: CubeClRuntimeConfig, levels: DebugLevels) -> CubeCl
     }
 }
 
-/// `config` with the profiling log at `level`.
-fn with_profiling_level(
-    config: CubeClRuntimeConfig,
-    level: ProfilingLogLevel,
-) -> CubeClRuntimeConfig {
-    CubeClRuntimeConfig {
-        profiling: ProfilingConfig {
-            logger: LoggerConfig {
-                level,
-                ..config.profiling.logger
-            },
-        },
-        ..config
-    }
-}
-
-/// `config` with the compilation, profiling and autotune logs also written to `sink`.
+/// `config` with the compilation and autotune logs also written to `sink`.
 fn with_debug_sink(config: CubeClRuntimeConfig, sink: &DebugSink) -> CubeClRuntimeConfig {
     CubeClRuntimeConfig {
         compilation: CompilationConfig {
             logger: sink.add_to(config.compilation.logger),
             ..config.compilation
-        },
-        profiling: ProfilingConfig {
-            logger: sink.add_to(config.profiling.logger),
         },
         autotune: AutotuneConfig {
             logger: sink.add_to(config.autotune.logger),
@@ -214,30 +184,21 @@ fn with_debug_sink(config: CubeClRuntimeConfig, sink: &DebugSink) -> CubeClRunti
     }
 }
 
-/// The levels the debug variables set the compilation, profiling and autotune logs to together.
+/// The levels the debug variables set the compilation and autotune logs to together.
 struct DebugLevels {
     pub compilation: CompilationLogLevel,
-    pub profiling: ProfilingLogLevel,
     pub autotune: AutotuneLogLevel,
 }
 
 impl DebugLevels {
-    /// What `CUBECL_DEBUG_LOG` and `CUBECL_DEBUG_OPTION=debug` turn on.
+    /// What `CUBECL_DEBUG_LOG` and `CUBECL_DEBUG_OPTION=debug` or `debug-full` turn on.
     const DEBUG: Self = Self {
         compilation: CompilationLogLevel::Full,
-        profiling: ProfilingLogLevel::Medium,
-        autotune: AutotuneLogLevel::Full,
-    };
-    /// What `CUBECL_DEBUG_OPTION=debug-full` turns on.
-    const DEBUG_FULL: Self = Self {
-        compilation: CompilationLogLevel::Full,
-        profiling: ProfilingLogLevel::Full,
         autotune: AutotuneLogLevel::Full,
     };
     /// What `CUBECL_DEBUG_LOG=0` leaves.
     const DISABLED: Self = Self {
         compilation: CompilationLogLevel::Disabled,
-        profiling: ProfilingLogLevel::Disabled,
         autotune: AutotuneLogLevel::Disabled,
     };
 }
@@ -369,12 +330,12 @@ mod tests {
     }
 
     #[test]
-    fn the_profile_option_sets_the_profiling_level() {
-        let config = with_debug_option(default(), Some("profile"));
+    fn the_debug_full_option_sets_the_debug_levels() {
+        let config = with_debug_option(default(), Some("debug-full"));
 
         assert!(matches!(
-            config.profiling.logger.level,
-            ProfilingLogLevel::Basic
+            config.compilation.logger.level,
+            CompilationLogLevel::Full
         ));
     }
 
@@ -383,56 +344,34 @@ mod tests {
         let config = with_debug_option(default(), Some("loud"));
 
         assert!(matches!(
-            config.profiling.logger.level,
-            ProfilingLogLevel::Disabled
-        ));
-    }
-
-    #[test]
-    fn debug_levels_set_the_three_logs() {
-        let config = with_debug_levels(default(), DebugLevels::DEBUG_FULL);
-
-        assert!(matches!(
-            (
-                config.compilation.logger.level,
-                config.profiling.logger.level,
-                config.autotune.logger.level
-            ),
-            (
-                CompilationLogLevel::Full,
-                ProfilingLogLevel::Full,
-                AutotuneLogLevel::Full
-            )
-        ));
-    }
-
-    #[test]
-    fn a_profiling_level_leaves_the_other_logs() {
-        let config = with_profiling_level(
-            with_debug_levels(default(), DebugLevels::DISABLED),
-            ProfilingLogLevel::Basic,
-        );
-
-        assert!(matches!(
             config.compilation.logger.level,
             CompilationLogLevel::Disabled
         ));
     }
 
     #[test]
-    fn a_debug_sink_is_added_to_the_three_logs() {
+    fn debug_levels_set_both_logs() {
+        let config = with_debug_levels(default(), DebugLevels::DEBUG);
+
+        assert!(matches!(
+            (
+                config.compilation.logger.level,
+                config.autotune.logger.level
+            ),
+            (CompilationLogLevel::Full, AutotuneLogLevel::Full)
+        ));
+    }
+
+    #[test]
+    fn a_debug_sink_is_added_to_both_logs() {
         let config = with_debug_sink(default(), &DebugSink::Stderr);
 
-        assert!(
-            config.compilation.logger.stderr
-                && config.profiling.logger.stderr
-                && config.autotune.logger.stderr
-        );
+        assert!(config.compilation.logger.stderr && config.autotune.logger.stderr);
     }
 
     #[test]
     fn a_file_sink_keeps_the_other_sinks() {
-        let logger = LoggerConfig::<ProfilingLogLevel> {
+        let logger = LoggerConfig::<CompilationLogLevel> {
             stdout: true,
             ..Default::default()
         };

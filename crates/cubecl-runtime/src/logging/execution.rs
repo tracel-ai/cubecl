@@ -46,8 +46,7 @@ pub struct Execution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionKind {
     /// A kernel, named as it names itself. Pass the name through
-    /// [`TypeNameFormatLevel::format`](crate::config::TypeNameFormatLevel::format) to shorten it the way the profiling
-    /// logger does.
+    /// [`TypeNameFormatLevel::format`](crate::config::TypeNameFormatLevel::format) to shorten it.
     Kernel {
         /// Where it runs.
         place: ExecutionPlace,

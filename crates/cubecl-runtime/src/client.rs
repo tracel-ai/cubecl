@@ -1,11 +1,10 @@
 use crate::{
-    config::TypeNameFormatLevel,
     device::HardwareIdentity,
-    id::{GraphId, KernelId},
+    id::GraphId,
     kernel::CubeKernel,
     logging::{
         CollectivePath, Communication, ExecutionId, ExecutionKind, ExecutionPlace, ExecutionScope,
-        ProfileLevel, StreamRole, TimingRequest, TransferRoute, WaitTarget,
+        StreamRole, TimingRequest, TransferRoute, WaitTarget,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
@@ -1151,19 +1150,12 @@ impl Client {
             || crate::execution::ProcessMode::current() != crate::execution::ProcessMode::Execute
     }
 
-    /// Whether launches on this device read their kernel's duration before returning, which waits
-    /// for the kernel to end: an observer asks for each one read, or the profiling logger reads
-    /// those it keeps. A discarded launch, or one whose profile the device refuses, reads none.
-    /// Metal waits for every timed launch, read or not.
+    /// Whether the installed observer now asks for each launch's duration read back before the
+    /// launch returns, which waits for its kernel to end. The answer is the process's, not this
+    /// device's, and a launch may still read none: a discarded one, or one whose profile the
+    /// device refuses. Metal waits for every timed launch, read or not.
     pub fn launches_read_timing(&self) -> bool {
-        match crate::logging::timing_requested() {
-            TimingRequest::None => false,
-            TimingRequest::Resolved => true,
-            TimingRequest::Deferred(_) => !matches!(
-                self.utilities.logger.profile_level(),
-                None | Some(ProfileLevel::ExecutionOnly)
-            ),
-        }
+        crate::logging::timing_requested() == TimingRequest::Resolved
     }
 
     pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
@@ -1603,12 +1595,10 @@ impl Client {
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
         let timed = !launch_mode.discards_launch();
-        let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
         // which the caller's own context still exists, and attributing a
-        // launch to what caused it is the whole reason the hook is here rather
-        // than beside the logger's aggregation.
+        // launch to what caused it is the whole reason the hook is here.
         let execution = crate::logging::issue(|| ExecutionKind::Kernel {
             place: ExecutionPlace {
                 service: self.service_id(),
@@ -1616,153 +1606,47 @@ impl Client {
             },
             name: kernel.name(),
         });
+        let Some(execution) = execution.filter(|execution| timed && execution.wants_timing())
+        else {
+            unsafe { self.submit_launch(kernel, count, bindings, issued, stream_id, launch_mode) };
+            return;
+        };
 
-        // An observer asking for timing gets the profiled path even with the
-        // profiling logger off — the two are separate readers of the same
-        // measurement, and making one depend on the other's configuration
-        // would mean a caller could not time launches without also logging
-        // them somewhere it did not choose.
-        let observed = execution.filter(|execution| timed && execution.wants_timing());
-
-        match level {
-            None | Some(ProfileLevel::ExecutionOnly) if observed.is_none() => {
-                let utilities = self.utilities.clone();
-                self.device.submit(move |state| {
-                    let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        Some(profile_label(kernel.name(), &kernel.id()))
-                    } else {
-                        None
-                    };
-
-                    issued.run(|| unsafe {
-                        state.launch(kernel, count, bindings, stream_id, launch_mode)
-                    });
-
-                    if let Some(info) = execution_info {
-                        utilities.logger.register_execution(info);
-                    }
-                });
-            }
-            level => {
-                let name = kernel.name();
-                let kernel_id = kernel.id();
-                let context = self.device.clone();
-                // The arguments travel through a slot the profiled closure
-                // empties, because a profile can be refused — a graph capture
-                // window refuses one on the spot — and a refusal must hand the
-                // launch back: dropping a kernel because its measurement could
-                // not start would turn a missing timing into a missing
-                // computation.
-                let slot = Arc::new(cubecl_environment::sync::Mutex::new(Some((
-                    kernel,
-                    count.clone(),
-                    bindings,
-                ))));
-                let to_launch = slot.clone();
-                let issued_profiled = issued.clone();
-                let profiled = self.profile_opened(
-                    WindowOpens::AtLaunch,
-                    move || {
-                        let (kernel, count, bindings) = to_launch
-                            .lock()
-                            .take()
-                            .expect("filled right above, emptied only here");
-                        context
-                            .submit_blocking(move |state| {
-                                issued_profiled.run(|| unsafe {
-                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
-                                })
-                            })
-                            .unwrap_or_resume()
-                    },
-                    name,
-                );
-                let profile = match profiled {
-                    Ok(((), profile)) => profile,
-                    Err(err) => {
-                        // The logger's timing levels opted into profiling and
-                        // keep their loud failure. Only the observer's timing
-                        // degrades: it asked for a measurement, and a refused
-                        // measurement must not take the launch down with it.
-                        if !matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
-                            panic!("{err:?}");
-                        }
-                        match slot.lock().take() {
-                            // The refusal came before the closure ran, so the
-                            // kernel was never submitted. Launch it the way an
-                            // unobserved run would have.
-                            Some((kernel, count, bindings)) => {
-                                let utilities = self.utilities.clone();
-                                let kernel_id = kernel.id();
-                                self.device.submit(move |state| {
-                                    issued.run(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
-                                    });
-                                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                        let info = profile_label(name, &kernel_id);
-                                        utilities.logger.register_execution(info);
-                                    }
-                                });
-                            }
-                            // The closure ran, so the kernel was submitted;
-                            // only its measurement was lost.
-                            None => {
-                                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                    let info = profile_label(name, &kernel_id);
-                                    self.utilities.logger.register_execution(info);
-                                }
-                            }
-                        }
-                        log::warn!(
-                            "Skipped timing a launch of `{name}` for its observer: the profile was refused ({err:?})"
-                        );
-                        return;
-                    }
-                };
-                // The observer alone: it takes the measurement unread, so the
-                // kernels around this one keep running back to back. An observer
-                // does not change what the logger writes, and `ExecutionOnly` is
-                // documented as the kernels that ran without their timings, so
-                // it logs the execution and never the profile.
-                if let Some(execution) = &observed
-                    && matches!(level, None | Some(ProfileLevel::ExecutionOnly))
-                {
-                    execution.deliver_profile(profile);
-                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let info = profile_label(name, &kernel_id);
-                        self.utilities.logger.register_execution(info);
-                    }
-                    return;
-                }
-                // Both read this measurement, and a measurement is read once.
-                // The observer is told first because resolving consumes it: the
-                // logger's copy is the one that can be deferred, an observer's
-                // cannot be recovered afterwards.
-                let profile = if let Some(execution) = &observed {
-                    // Comes back already resolved rather than measured again:
-                    // the logger and the observer are two readers of one
-                    // measurement, and a second would not be the same launch.
-                    execution.read_for_logger(profile)
-                } else {
-                    profile
-                };
-                // Every level left times its launches: the ones that don't
-                // either never took this path or returned above.
-                let info = match level {
-                    Some(ProfileLevel::Full) => {
-                        format!("{name}: {kernel_id} CubeCount {count:?}")
-                    }
-                    _ => profile_label(name, &kernel_id),
-                };
-                self.utilities.logger.register_profiled(info, profile);
-            }
+        // The arguments travel through a slot the profiled closure empties,
+        // because a profile can be refused — a graph capture window refuses one
+        // on the spot — and a refusal must hand the launch back: dropping a
+        // kernel because its measurement could not start would turn a missing
+        // timing into a missing computation.
+        let name = kernel.name();
+        let slot = Arc::new(cubecl_environment::sync::Mutex::new(Some((
+            kernel, count, bindings,
+        ))));
+        let to_launch = slot.clone();
+        let context = self.device.clone();
+        let issued_profiled = issued.clone();
+        let profiled = self.profile_opened(
+            WindowOpens::AtLaunch,
+            move || {
+                let (kernel, count, bindings) = to_launch
+                    .lock()
+                    .take()
+                    .expect("the slot should be filled above, and emptied only here");
+                context
+                    .submit_blocking(move |state| {
+                        issued_profiled.run(|| unsafe {
+                            state.launch(kernel, count, bindings, stream_id, launch_mode)
+                        })
+                    })
+                    .unwrap_or_resume()
+            },
+            name,
+        );
+        match profiled {
+            Ok(((), profile)) => execution.deliver_profile(profile),
+            Err(err) => warn_refused_profile(name, &err),
         }
+        // A profile refused before its closure ran left the kernel in the slot, never submitted.
+        unsafe { self.launch_unprofiled(&slot, issued, stream_id, launch_mode) };
     }
 
     /// Launches the `kernel` with the given `bindings`.
@@ -2073,14 +1957,9 @@ impl Client {
             Err(err) => return Box::pin(core::future::ready(Err(err))),
         };
 
-        let fut = self
-            .device
+        self.device
             .submit_blocking(move |server| server.sync(bindings, stream_id))
-            .closed_as_error();
-
-        self.utilities.logger.profile_summary();
-
-        fut
+            .closed_as_error()
     }
 
     /// The bindings `handles` name, which is what crosses to the device
@@ -2497,10 +2376,59 @@ impl Client {
     }
 }
 
-fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
-    let base = TypeNameFormatLevel::Balanced.format(name);
-    kernel_id.entrypoint_name(&base)
+impl Client {
+    /// Launches the kernel `slot` still holds, with no profile around it, and does nothing once
+    /// the slot was emptied.
+    ///
+    /// # Safety
+    ///
+    /// In [`ExecutionMode::Unchecked`](cubecl_ir::settings::ExecutionMode::Unchecked), the kernel reads
+    /// and writes only inside its bindings.
+    unsafe fn launch_unprofiled(
+        &self,
+        slot: &LaunchSlot,
+        issued: crate::execution::IssuedLaunch,
+        stream_id: StreamId,
+        launch_mode: crate::execution::LaunchMode,
+    ) {
+        let Some((kernel, count, bindings)) = slot.lock().take() else {
+            return;
+        };
+        unsafe { self.submit_launch(kernel, count, bindings, issued, stream_id, launch_mode) };
+    }
+
+    /// Queues `kernel` on the device, counted to `issued`.
+    ///
+    /// # Safety
+    ///
+    /// In [`ExecutionMode::Unchecked`](cubecl_ir::settings::ExecutionMode::Unchecked), the kernel reads
+    /// and writes only inside its bindings.
+    unsafe fn submit_launch(
+        &self,
+        kernel: Box<dyn CubeKernel>,
+        count: CubeCount,
+        bindings: KernelArguments,
+        issued: crate::execution::IssuedLaunch,
+        stream_id: StreamId,
+        launch_mode: crate::execution::LaunchMode,
+    ) {
+        self.device.submit(move |state| {
+            issued.run(|| unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) });
+        });
+    }
 }
+
+/// Says a launch of `name` went untimed: its observer asked for a measurement the device
+/// refused, and the launch went ahead without one.
+fn warn_refused_profile(name: &str, err: &ProfileError) {
+    log::warn!(
+        "Skipped timing a launch of `{name}` for its observer: the profile was refused ({err:?})"
+    );
+}
+
+/// A kernel's arguments on their way to the device, taken by whichever path launches it.
+type LaunchSlot =
+    cubecl_environment::sync::Mutex<Option<(Box<dyn CubeKernel>, CubeCount, KernelArguments)>>;
 
 /// A blocking call whose answer is already a [`ServerError`] result reads a service that was
 /// closed as one more error rather than a panic: a client still issuing work as the process
