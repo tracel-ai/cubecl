@@ -2,7 +2,6 @@ mod execution;
 mod installer;
 mod observation;
 mod observer;
-mod profiling;
 mod reported;
 mod scope;
 mod server;
@@ -18,7 +17,6 @@ pub use execution::{
 };
 pub use observation::ExecutionObservation;
 pub use observer::ExecutionObserver;
-pub use profiling::ProfileLevel;
 pub use scope::ExecutionScope;
 pub use server::ServerLogger;
 pub use timing::{Measurement, TimedExecutions, TimingRequest};
@@ -28,4 +26,3 @@ pub(crate) use installer::{issue, timing_requested};
 pub(crate) use reported::ReportedExecution;
 
 use installer::OBSERVERS;
-use profiling::ProfileAggregator;

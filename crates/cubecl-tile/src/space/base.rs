@@ -146,14 +146,24 @@ impl Space {
         Space::from_shape(self.shape.subspace(dimensions))
     }
 
-    /// This box listed in `held`'s order where `held` spans the same dimensions, as it is
-    /// otherwise: the box a plane-resident accumulator writes through, its fragments' rows along
-    /// its own leading dimensions whatever order the memory it drains into lists them in.
+    /// This box listed in `held`'s order where `held` spans its dimensions longer than one, the
+    /// one-wide ones it leaves out first, as it is otherwise: the box a plane-resident accumulator
+    /// writes through, its fragments' rows along its own leading dimensions whatever order the
+    /// memory it drains into lists them in.
     pub(crate) fn in_order_of(&self, held: &Space) -> Space {
-        let same_dimensions = held.rank() == self.rank()
-            && held.dimensions().all(|dimension| self.contains(dimension));
-        match same_dimensions {
-            true => self.subspace(&held.dimensions().collect::<Vec<_>>()),
+        let one_wide =
+            |dimension: &Dimension| matches!(self.extent_raw(*dimension), Extent::Static(1));
+        let (shared, left_out): (Vec<_>, Vec<_>) = self
+            .dimensions()
+            .partition(|&dimension| held.contains(dimension));
+        let spanned = shared.len() == held.rank() && left_out.iter().all(one_wide);
+        match spanned {
+            true => self.subspace(
+                &left_out
+                    .into_iter()
+                    .chain(held.dimensions())
+                    .collect::<Vec<_>>(),
+            ),
             false => self.clone(),
         }
     }
@@ -269,25 +279,64 @@ impl Space {
         Space::from_shape(Shape::new(&entries))
     }
 
-    /// The smallest space every one of `parts` tiles evenly: on each dimension the least common
-    /// multiple of the parts' extents, dimensions in first-appearance order. The box a step covers
-    /// so that each operand's load fills it whole: NVFP4 values loaded `{k 16, n 2}`, their scales
-    /// `{k 16, n 16}` and an `f16` activation `{k 8}` cover `{k 16, n 16}`.
+    /// How far this box reaches along `dimension`: one where it does not name it.
     ///
     /// # Panics
     ///
-    /// On a dynamic extent, which has no multiple.
-    pub fn covering(parts: &[&Space]) -> Space {
-        let mut extents: Vec<(Dimension, usize)> = Vec::new();
-        for part in parts {
-            for (dimension, extent) in part.extents() {
-                match extents.iter_mut().find(|(a, _)| *a == dimension) {
-                    Some((_, held)) => *held = *held / gcd(*held, extent) * extent,
-                    None => extents.push((dimension, extent)),
-                }
+    /// On a dynamic extent.
+    pub fn along(&self, dimension: Dimension) -> usize {
+        match self.contains(dimension) {
+            true => self.extent(dimension),
+            false => 1,
+        }
+    }
+
+    /// Whether this box divides `other`: along each of its dimensions, its extent divides
+    /// `other`'s, one where `other` does not name the dimension.
+    ///
+    /// # Panics
+    ///
+    /// On a dynamic extent.
+    pub fn divides(&self, other: &Space) -> bool {
+        self.dimensions()
+            .all(|dimension| other.along(dimension).is_multiple_of(self.along(dimension)))
+    }
+
+    /// How many of `tile` this box is long along `dimension`: `None` where it is no whole number
+    /// of them.
+    ///
+    /// # Panics
+    ///
+    /// On a dynamic extent.
+    pub fn count_along(&self, dimension: Dimension, tile: &Space) -> Option<usize> {
+        let (whole, part) = (self.along(dimension), tile.along(dimension));
+        (1..=whole).find(|count| part * count == whole)
+    }
+
+    /// How many of this box, along each dimension it or a divisor names, the smallest box made of
+    /// it that every one of `divisors` divides holds.
+    pub(crate) fn counts_whole_for(&self, divisors: &[Space]) -> Space {
+        let mut counts: Vec<(Dimension, usize)> = Vec::new();
+        for dimension in core::iter::once(self)
+            .chain(divisors)
+            .flat_map(Space::dimensions)
+        {
+            if counts.iter().all(|&(counted, _)| counted != dimension) {
+                counts.push((dimension, self.count_whole_for(divisors, dimension)));
             }
         }
-        Space::new(&extents)
+        Space::new(&counts)
+    }
+
+    /// The fewest of this box along `dimension` that every one of `divisors` divides.
+    fn count_whole_for(&self, divisors: &[Space], dimension: Dimension) -> usize {
+        (1..)
+            .find(|count| {
+                divisors.iter().all(|divisor| {
+                    (self.along(dimension) * count).is_multiple_of(divisor.along(dimension))
+                })
+            })
+            .expect("some count of a box should be a multiple of every divisor")
     }
 
     /// How many `tile`s this space holds, laid side by side along every dimension `tile` names; a
@@ -411,35 +460,46 @@ mod contraction_tests {
     const K: Dimension = Dimension(2);
     const R: Dimension = Dimension(3);
 
-    /// NVFP4's step: values loaded two words down `k` by two columns, a load of sixteen scales
-    /// each covering sixteen of `k`, and an `f16` activation eight at a time cover sixteen by
-    /// sixteen, which takes eight loads of values, one of scales and two of activation.
+    /// A box holds its tiles side by side, one serving every position along a dimension it does
+    /// not name.
     #[test]
-    fn a_step_covers_every_load_and_counts_each() {
-        let values = Space::new(&[(K, 16), (N, 2)]);
-        let scales = Space::new(&[(K, 16), (N, 16)]);
-        let activation = Space::new(&[(K, 8)]);
-        let step = Space::covering(&[&activation, &scales, &values]);
-        assert_eq!(step, Space::new(&[(K, 16), (N, 16)]));
-        assert_eq!(
-            [&activation, &scales, &values].map(|load| step.tiles(load)),
-            [2, 1, 8]
-        );
+    fn a_box_counts_the_tiles_it_holds() {
+        let region = Space::new(&[(K, 16), (N, 16)]);
+        let tiles = [
+            Space::new(&[(K, 8)]),
+            Space::new(&[(K, 16), (N, 16)]),
+            Space::new(&[(K, 16), (N, 2)]),
+        ];
+        assert_eq!(tiles.map(|tile| region.tiles(&tile)), [2, 1, 8]);
     }
 
-    /// MXFP4's scales cover thirty-two of `k`, so its step is twice as deep and takes twice the
-    /// activation and value loads.
+    /// A box divides another whose extent it divides along each of its own dimensions, whatever
+    /// the other's along the rest.
     #[test]
-    fn a_wider_scale_deepens_the_step() {
-        let values = Space::new(&[(K, 16), (N, 2)]);
-        let scales = Space::new(&[(K, 32), (N, 16)]);
-        let activation = Space::new(&[(K, 8)]);
-        let step = Space::covering(&[&activation, &scales, &values]);
-        assert_eq!(step, Space::new(&[(K, 32), (N, 16)]));
-        assert_eq!(
-            [&activation, &scales, &values].map(|load| step.tiles(load)),
-            [4, 1, 16]
-        );
+    fn a_box_divides_along_its_own_dimensions() {
+        let tile = Space::new(&[(K, 8)]);
+        assert!(tile.divides(&Space::new(&[(N, 3), (K, 16)])));
+    }
+
+    /// A box a whole number of tiles long counts them.
+    #[test]
+    fn a_box_whole_tiles_long_counts_them() {
+        let window = Space::new(&[(K, 64)]);
+        assert_eq!(window.count_along(K, &Space::new(&[(K, 16)])), Some(4));
+    }
+
+    /// A box that cuts a tile short counts none.
+    #[test]
+    fn a_box_that_cuts_a_tile_short_counts_none() {
+        let step = Space::new(&[(K, 16)]);
+        assert_eq!(step.count_along(K, &Space::new(&[(K, 32)])), None);
+    }
+
+    /// A dimension the other box does not name is one wide, which only a box one wide divides.
+    #[test]
+    fn a_box_divides_no_box_lacking_a_dimension_it_reaches() {
+        let tile = Space::new(&[(N, 2), (K, 8)]);
+        assert!(!tile.divides(&Space::new(&[(K, 16)])));
     }
 
     /// A matmul's `k` is its one contracted dimension.

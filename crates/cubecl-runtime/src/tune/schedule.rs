@@ -166,7 +166,7 @@ impl Schedule<'_> {
                     .map(|(_, candidate)| candidate);
                 let gathering =
                     enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Gathering);
-                compile_together(ahead, autotunables, &inputs, client);
+                compile_together(ahead, autotunables, &inputs, client, self.access);
                 core::mem::drop(gathering);
             }
             // A candidate that rejected the problem while compiling is out of the round already.
@@ -528,20 +528,13 @@ impl Schedule<'_> {
                 // dead tune poisons every stream sharing it, and the decided
                 // kernel executes for real right after — if it truly cannot
                 // run, that failure surfaces there, exactly as a measured
-                // winner's would. Only launch failures, manual skips and
+                // winner's would. Only launch failures, manual skips, panics and
                 // rejections — a candidate whose own function returned an
                 // error, so nothing ran — say the kernel itself is unusable:
-                // deciding a rejection would run it for real and fail the same
-                // way. When nothing else remains, there is genuinely no kernel
-                // to run.
-                let executed_unmeasured = results.iter().position(|result| {
-                    matches!(
-                        &result.outcome,
-                        Err(AutotuneError::Unknown { .. })
-                            | Err(AutotuneError::InvalidSamples { .. })
-                    )
-                });
-                if let Some(index) = executed_unmeasured {
+                // deciding a rejection or a panic would run it for real and
+                // fail the same way. When nothing else remains, there is
+                // genuinely no kernel to run.
+                if let Some(index) = executed_unmeasured(results) {
                     log::warn!(
                         "Autotune measured no candidate for key {key:?}; \
                          deciding candidate {index} unmeasured.\n - results: {results:?}"
@@ -580,6 +573,16 @@ impl Schedule<'_> {
             }
         }
     }
+}
+
+/// The first candidate that executed but could not be measured.
+fn executed_unmeasured(results: &[AutotuneResult]) -> Option<usize> {
+    results.iter().position(|result| {
+        matches!(
+            &result.outcome,
+            Err(AutotuneError::Unknown { .. }) | Err(AutotuneError::InvalidSamples { .. })
+        )
+    })
 }
 
 /// What walking the whole [`TunePlan`] produced: everything the tuner has to report or commit.
@@ -655,13 +658,14 @@ impl Candidate {
 /// Each runs once on this stream with its launches discarded, which queues the kernels they reach
 /// ([`LaunchMode::Queue`](crate::execution::LaunchMode::Queue)); the queue then compiles together.
 /// Only this stream discards, so another thread's launches still run. A candidate that rejects
-/// the problem queues nothing and keeps its rejection, as its warmup would have reported it: it is
-/// never a kernel to fall back on. One whose kernel fails to compile reports it at its warmup.
+/// the problem or panics keeps its error, as its warmup would have reported it: it is never a
+/// kernel to fall back on. One whose kernel fails to compile reports it at its warmup.
 fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     candidates: impl Iterator<Item = &'c mut Candidate>,
     autotunables: &[&TuneFn<F, Out>],
     inputs: &<F as TuneInputs>::At<'a>,
     client: &Client,
+    access: TuneDeviceAccess,
 ) where
     <F as TuneInputs>::At<'a>: Clone,
 {
@@ -669,10 +673,10 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
     let gathering = super::gathering::CandidateGathering::new();
     for candidate in candidates {
-        if let Err(rejection @ AutotuneError::Rejected { .. }) =
-            autotunables[candidate.index].race(inputs.clone())
+        if let Err(unusable @ (AutotuneError::Rejected { .. } | AutotuneError::Panicked { .. })) =
+            autotunables[candidate.index].race_contained(inputs.clone(), client, access)
         {
-            candidate.fail(rejection);
+            candidate.fail(unusable);
         }
     }
     core::mem::drop(gathering);
@@ -707,6 +711,20 @@ mod tests {
             candidate.samples.push(Duration::from_micros(micros));
         }
         candidate
+    }
+
+    #[test]
+    fn a_candidate_that_panicked_is_never_decided_unmeasured() {
+        let panicked = AutotuneResult::error(AutotuneError::Panicked {
+            name: "panicked".into(),
+            message: "the block divides the vector".into(),
+        });
+        let unmeasured = AutotuneResult::error(AutotuneError::Unknown {
+            name: "unmeasured".into(),
+            err: "no timestamp query".into(),
+        });
+
+        assert_eq!(executed_unmeasured(&[panicked, unmeasured]), Some(1));
     }
 
     fn live(candidates: &[Candidate]) -> Vec<usize> {

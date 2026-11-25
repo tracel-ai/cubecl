@@ -7,6 +7,7 @@ use crate::{
         builtins::InsertGpuBuiltinsPass, metadata::rebuild_func_type, native_decode::NativeDecode,
     },
 };
+use cubecl_core::ir::amd::AmdMatrixCore;
 use cubecl_opt::passes::{alloc_shared_memory::AllocateSharedMemoryBlockPass, pre::SSCMPre};
 
 const GLOBAL_ADDRESS_SPACE: u32 = 1;
@@ -54,6 +55,8 @@ impl EntryArgLayout for KernargArgs {
 pub struct AmdGpuLowering {
     /// Device wavefront width.
     pub plane_dim: u32,
+    /// The part's matrix core, `None` on a part without one.
+    pub matrix: Option<AmdMatrixCore>,
 }
 
 impl TargetLowering for AmdGpuLowering {
@@ -77,6 +80,6 @@ impl TargetLowering for AmdGpuLowering {
     }
 
     fn native_decodes(&self) -> &'static [NativeDecode] {
-        crate::amdgpu::native_decode::native_decodes()
+        crate::amdgpu::fp8::native_decodes(self.matrix)
     }
 }

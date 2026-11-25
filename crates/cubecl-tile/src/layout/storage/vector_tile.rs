@@ -50,7 +50,7 @@ impl VectorTile {
     ///
     /// # Errors
     ///
-    /// A load that would cut a stored tile, one wider than every stored tile together, or one
+    /// A load of several values that would cut a stored tile, one wider than every stored tile together, or one
     /// whose dimension comes back after another, which is no longer one extent per dimension.
     pub fn new(
         stored: &[(Dimension, usize)],

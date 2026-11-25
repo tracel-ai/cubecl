@@ -17,7 +17,7 @@ pub struct PageEntry {
 #[cube]
 impl PageEntry {
     /// The entry no table lists, what a buffer that is not a pool of pages has. A cut that names
-    /// it reads page 0, which is what the table gives outside itself.
+    /// it reads page 0.
     pub fn unlisted() -> PageEntry {
         PageEntry {
             sequence: 0xFFFF_FFFFu32,

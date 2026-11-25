@@ -3103,7 +3103,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
             1usize,
             comptime!(Some(decoded)),
         );
-        if comptime!(in_registers.is_some()) {
+        if in_registers.is_some() {
             // The slots give the same product, so a fallback would pass on the numbers alone.
             let held = stages.prefetches_in_registers();
             comptime!(assert_eq!(

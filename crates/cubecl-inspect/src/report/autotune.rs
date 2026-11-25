@@ -119,6 +119,7 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
         AutotuneError::Skip { name } => (Some(name), CandidateOutcome::Skipped),
         AutotuneError::Unknown { name, err } => (Some(name), failed(err)),
         AutotuneError::Rejected { name, reason } => (Some(name), failed(reason)),
+        AutotuneError::Panicked { name, message } => (Some(name), failed(message)),
         AutotuneError::InvalidSamples { name } => {
             (Some(name), failed("all samples are invalid".to_string()))
         }
@@ -374,5 +375,24 @@ impl AutotuneReport {
     /// Keep only the keys of the tuners whose name contains `pattern`.
     pub fn retain_tuners(&mut self, pattern: &str) {
         self.keys.retain(|key| key.table.tuner.contains(pattern));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_candidate_that_panicked_failed_with_what_the_panic_said() {
+        let (name, outcome) = failure(AutotuneError::Panicked {
+            name: "tiled".to_string(),
+            message: "the block divides the vector".to_string(),
+        });
+
+        assert_eq!(name.as_deref(), Some("tiled"));
+        assert!(matches!(
+            outcome,
+            CandidateOutcome::Failed { reason } if reason == "the block divides the vector"
+        ));
     }
 }

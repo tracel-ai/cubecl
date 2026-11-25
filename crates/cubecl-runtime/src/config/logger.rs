@@ -1,7 +1,7 @@
 use super::{CubeClRuntimeConfig, LogLevel, LoggerConfig, RuntimeConfig};
 use crate::config::{
     autotune::AutotuneLogLevel, compilation::CompilationLogLevel, memory::MemoryLogLevel,
-    profiling::ProfilingLogLevel, streaming::StreamingLogLevel,
+    streaming::StreamingLogLevel,
 };
 use alloc::{sync::Arc, vec::Vec};
 use core::fmt::Display;
@@ -15,8 +15,6 @@ pub struct Logger {
     /// The sinks of the compilation log, by their index in `sinks`, read in order by every
     /// `log_compilation`. Empty while that log is disabled.
     compilation_index: Vec<usize>,
-    /// The sinks of the profiling log, read in order by every `log_profiling`.
-    profiling_index: Vec<usize>,
     /// The sinks of the autotune log, read in order by every `log_autotune`.
     autotune_index: Vec<usize>,
     /// The sinks of the autotune decisions, read in order by every `log_autotune_decision`.
@@ -48,7 +46,6 @@ impl Logger {
         let mut sinks = LoggerSinks::new();
 
         let compilation_index = register(&mut sinks, &config.compilation.logger);
-        let profiling_index = register(&mut sinks, &config.profiling.logger);
         let autotune_index = register(&mut sinks, &config.autotune.logger);
         // Decisions have their own sink, so they land wherever it points regardless of what the
         // logger above is set to, including with the logger disabled.
@@ -63,7 +60,6 @@ impl Logger {
         Self {
             sinks,
             compilation_index,
-            profiling_index,
             autotune_index,
             autotune_decisions_index,
             streaming_index,
@@ -87,12 +83,6 @@ impl Logger {
     pub fn log_compilation<S: Display>(&mut self, msg: &S) {
         self.sinks
             .log(&self.compilation_index, "cubecl::compilation", msg);
-    }
-
-    /// Logs a message for profiling, directing it to all configured profiling loggers.
-    pub fn log_profiling<S: Display>(&mut self, msg: &S) {
-        self.sinks
-            .log(&self.profiling_index, "cubecl::profiling", msg);
     }
 
     /// Logs a message for autotuning, directing it to all configured autotuning loggers.
@@ -119,12 +109,6 @@ trait Disableable {
 }
 
 impl Disableable for CompilationLogLevel {
-    fn is_disabled(&self) -> bool {
-        matches!(self, Self::Disabled)
-    }
-}
-
-impl Disableable for ProfilingLogLevel {
     fn is_disabled(&self) -> bool {
         matches!(self, Self::Disabled)
     }

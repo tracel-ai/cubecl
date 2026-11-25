@@ -12,6 +12,8 @@ use crate::*;
 impl Tile {
     /// `dst = a ⊗ b`, elementwise over the destination's box.
     pub fn product(&mut self, a: &Tile, b: &Tile) {
+        a.refuse_factor("Tile::product");
+        b.refuse_factor("Tile::product");
         let define!(Served) = self.element;
         let define!(Lhs) = a.read_element();
         let define!(Rhs) = b.read_element();
@@ -94,13 +96,13 @@ impl GroupWalk {
         let at = dst.position(dimension);
         assert!(
             per_read == 1 || at != rank - 1,
-            "Tile::mul: {per_read} of `b` arrive per read along {dimension:?}, which is also the dimension the \
+            "Tile::product: {per_read} of `b` arrive per read along {dimension:?}, which is also the dimension the \
              destination's own lines run along, so one line would straddle two of them"
         );
         let mut groups = line_extents(dst, width, 0, rank);
         assert!(
             groups[at].is_multiple_of(per_read),
-            "Tile::mul: {} positions of {dimension:?} do not divide into reads of {per_read}",
+            "Tile::product: {} positions of {dimension:?} do not divide into reads of {per_read}",
             groups[at]
         );
         groups[at] /= per_read;

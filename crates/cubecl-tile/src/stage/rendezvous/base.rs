@@ -15,7 +15,7 @@ pub(crate) enum Rendezvous {
     /// Every plane of the cube still has to reach the same count of them: a backend with no
     /// plane-wide barrier (WGSL) lowers `sync_plane` to the workgroup's.
     Plane,
-    /// Async copy (TMA, `cp.async`) over a `full`/`empty` mbarrier pair.
+    /// A `full`/`empty` mbarrier pair: an async copy (TMA, `cp.async`), or planes that only fill.
     Barrier,
 }
 

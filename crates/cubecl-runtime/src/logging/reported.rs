@@ -89,12 +89,6 @@ impl ReportedExecution {
     pub fn deliver_profile(&self, profile: ProfileDuration) {
         OBSERVERS.deliver_profile(self, profile);
     }
-
-    /// [`ObserverInstaller::read_for_logger`](super::installer::ObserverInstaller::read_for_logger)
-    /// on the process's observer.
-    pub fn read_for_logger(&self, profile: ProfileDuration) -> ProfileDuration {
-        OBSERVERS.read_for_logger(self, profile)
-    }
 }
 
 #[cfg(test)]

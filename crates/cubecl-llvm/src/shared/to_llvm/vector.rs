@@ -35,6 +35,17 @@ pub fn insert_splat(
     splat.get_result(ctx)
 }
 
+pub fn extract_lane(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    vector: Value,
+    i: usize,
+) -> Value {
+    let index = insert_i32_const(ctx, rw, i as i32);
+    let op = llvm::ExtractElementOp::new(ctx, vector, index);
+    insert(ctx, rw, &op)
+}
+
 pub fn insert_vector_construct(
     ctx: &mut Context,
     rewriter: &mut impl Inserter,

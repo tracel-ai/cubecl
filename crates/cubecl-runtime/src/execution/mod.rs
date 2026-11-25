@@ -10,9 +10,8 @@
 //! throughput probe — switches the stream it measures on to
 //! [`StreamMode::Execute`] while it measures. The stream never knows why.
 //!
-//! Under [`ProcessMode::CompileOnly`] every launch and every tune's
-//! candidates only queue their kernels, so a pass gathers everything a
-//! workload and its tuning reach; nothing compiles until a later launch loads
+//! Under [`ProcessMode::CompileOnly`] launches and tunes only queue their
+//! kernels, so a pass gathers what a workload and its tuning reach; nothing compiles until a later launch loads
 //! a kernel — the first of a [`CompileAndAutotune`](ProcessMode::CompileAndAutotune)
 //! pass, or the first tune before it measures — which compiles the whole
 //! queue in one batch. Under `CompileAndAutotune` every launch compiles its

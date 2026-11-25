@@ -5,8 +5,8 @@ use crate::{
         address::NvptxSpace,
         inline_asm::InlineAsm,
         registers::{
-            RegisterForm, call_returning_registers, extract_lane, insert_lane, load_fragment,
-            poison, store_fragment, vector_bits,
+            RegisterForm, call_returning_registers, insert_lane, load_fragment, poison,
+            store_fragment, vector_bits,
         },
     },
     prelude::*,
@@ -16,6 +16,7 @@ use crate::{
             vector_into_array,
         },
         plane::bitcast,
+        to_llvm::vector::extract_lane,
     },
 };
 use cubecl_core::ir::{

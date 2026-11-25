@@ -8,7 +8,7 @@ use crate::*;
 pub(crate) enum DrainPlan {
     /// No scratch: each tile stores through its own intrinsic.
     Straight,
-    /// Own slot per tile: all spills, then all adds, two barriers in all.
+    /// Own slot per tile: all spills, then all adds, three barriers in all.
     BounceTogether,
     /// One shared slot: spill and add per tile, three barriers each.
     BounceEach,

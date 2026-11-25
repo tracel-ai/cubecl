@@ -1,7 +1,7 @@
 # Configuration
 
-CubeCL provides a flexible and powerful configuration system to control logging, autotuning,
-profiling, and compilation behaviors.
+CubeCL provides a flexible and powerful configuration system to control logging, autotuning and
+compilation behaviors.
 
 ## Overview
 
@@ -17,9 +17,6 @@ debugging, or deployment scenarios.
 A typical `cubecl.toml` file might look like this:
 
 ```toml
-[profiling]
-logger = { level = "basic", stdout = true }
-
 [autotune]
 level = "balanced"
 logger = { level = "minimal", stdout = true }
@@ -30,31 +27,11 @@ logger = { level = "basic", file = "cubecl.log", append = true }
 
 Each section configures a different aspect of CubeCL:
 
-- **profiling**: Controls performance profiling and logging.
 - **autotune**: Configures the autotuning system, which benchmarks and selects optimal kernel
   parameters.
 - **compilation**: Manages kernel compilation logging and cache.
 
 ## Configuration Options
-
-### Profiling
-
-The `[profiling]` section controls how CubeCL logs profiling information.
-
-**Log Levels:**
-
-- `disabled`: No profiling logs.
-- `minimal`: Only logs which kernels run.
-- `basic`: Adds basic profiling info.
-- `medium`: More detailed profiling.
-- `full`: Maximum detail.
-
-**Example:**
-
-```toml
-[profiling]
-logger = { level = "basic", stdout = true }
-```
 
 ### Autotune
 
@@ -238,9 +215,7 @@ CubeCL supports several environment variables to override configuration at runti
   - `"0"`/`"false"`: Disable logging.
   - Any other value: Treated as a file path.
 - `CUBECL_DEBUG_OPTION`: Sets log verbosity.
-  - `"debug"`: Full compilation and autotune logs, medium profiling.
-  - `"debug-full"`: Full logs for all.
-  - `"profile"`, `"profile-medium"`, `"profile-full"`: Set profiling log level.
+  - `"debug"`, `"debug-full"`: Full compilation and autotune logs.
 - `CUBECL_AUTOTUNE_LEVEL`: Sets autotune level.
   - `"minimal"`/`"0"`
   - `"balanced"`/`"1"`
@@ -360,9 +335,6 @@ CubeClRuntimeConfig::save_default("cubecl.toml").unwrap();
 ## Example: Full Configuration
 
 ```toml
-[profiling]
-logger = { level = "medium", stdout = true }
-
 [autotune]
 level = "extensive"
 logger = { level = "full", file = "autotune.log", append = false }

@@ -682,7 +682,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     );
 }
 
-/// Checked against the launch: the profiling logger, when on, makes a deferred observer's wait too.
+/// Checked against the launch: only a resolved observer's launches wait for their kernel.
 #[test_log::test]
 #[serial_test::serial]
 fn launches_read_timing_exactly_when_their_observer_is_handed_a_read_duration() {
@@ -1646,6 +1646,125 @@ fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
         client.read_one(out).unwrap().to_vec(),
         vec![4, 5, 6],
         "tuned, rather than running the slow, wrong candidate as a pending key does"
+    );
+}
+
+/// A candidate that panics is dropped alone: the others are still measured, and the fastest wins.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_candidate_that_panics_is_dropped_alone() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_candidate_that_panics_is_dropped_alone");
+
+    assert_a_panicking_candidate_is_dropped_alone(&TUNER, TuneDeviceAccess::Exclusive);
+}
+
+/// A candidate that panics on a device its tune never holds is dropped alone too.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_candidate_that_panics_on_a_shared_device_is_dropped_alone() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_candidate_that_panics_on_a_shared_device_is_dropped_alone");
+
+    assert_a_panicking_candidate_is_dropped_alone(&TUNER, TuneDeviceAccess::Shared);
+}
+
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn assert_a_panicking_candidate_is_dropped_alone(
+    tuner: &'static LocalTuner<String, String>,
+    access: cubecl_server::tune::TuneDeviceAccess,
+) {
+    use cubecl_server::tune::Tunable;
+
+    let client = test_client(&DummyDevice);
+    let key = fresh_tune_key_uid();
+    let id = key.clone();
+    let set = tuner.init(&id, move || {
+        let client = test_client(&DummyDevice);
+        let key = key.clone();
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_: &Vec<Handle>| key.clone(),
+            |_: &String, inputs: &Vec<Handle>| inputs.clone(),
+        )
+        .with(Tunable::new("add_slow_wrong", move |inputs| {
+            slow.run(inputs)
+        }))
+        .with(Tunable::new(
+            "panics",
+            |_: Vec<Handle>| -> Result<(), String> { panic!("the block divides the vector") },
+        ))
+        .with(Tunable::new("add", move |inputs| add.run(inputs)))
+        .with_device_access(access)
+    });
+    let (handles, _) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+
+    tuner.execute(&id, &client, set, handles);
+
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// The elected candidate may reject a call of its key: the next candidate serves it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_call_the_elected_candidate_rejects_is_served_by_another() {
+    use cubecl_server::tune::Tunable;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_call_the_elected_candidate_rejects_is_served_by_another");
+
+    let client = test_client(&DummyDevice);
+    let key = fresh_tune_key_uid();
+    let id = key.clone();
+    let set = TUNER.init(&id, move || {
+        let client = test_client(&DummyDevice);
+        let key = key.clone();
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        // The call holds a fourth handle, which the race's inputs lack and `add` rejects.
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_: &Vec<Handle>| key.clone(),
+            |_: &String, inputs: &Vec<Handle>| inputs[..3].to_vec(),
+        )
+        .with(Tunable::new(
+            "add_slow_wrong",
+            move |inputs: Vec<Handle>| slow.run(inputs[..3].to_vec()),
+        ))
+        .with(Tunable::new(
+            "add",
+            move |inputs: Vec<Handle>| match inputs.len() {
+                3 => add.run(inputs),
+                _ => Err("no line of this shape".to_string()),
+            },
+        ))
+    });
+    let (mut handles, _) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+    handles.push(client.empty(3));
+
+    TUNER.execute(&id, &client, set, handles);
+
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        vec![0, 1, 2],
+        "served by the slow, wrong candidate"
     );
 }
 
@@ -3265,6 +3384,130 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
         "the tune gathered is the one measured, counted where it was gathered"
     );
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// Runs a `CompileOnly` override over a key of `parallelism + 3` ranked candidates that count
+/// their calls, with patience for every member. Returns the parallelism, each candidate's call
+/// count, and the `CompileAndAutotune` tune of the same key.
+#[cfg(all(
+    feature = "std",
+    not(target_family = "wasm"),
+    not(feature = "autotune-checks")
+))]
+fn gather_ranked_key(
+    tuner: &'static LocalTuner<String, String>,
+) -> (usize, Vec<Arc<AtomicUsize>>, impl FnOnce()) {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::Patience;
+
+    let parallelism = CubeClRuntimeConfig::get().compilation.parallelism();
+    let count = parallelism + 3;
+    let calls: Vec<_> = (0..count).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+    let ranked: Vec<_> = calls
+        .iter()
+        .map(|calls| dummy::RankedCandidate {
+            kernel: dummy::RankedKernel::Add,
+            membership: dummy::Membership::Ranked,
+            calls: calls.clone(),
+        })
+        .collect();
+    // Every member is measured: the group never runs out of patience.
+    let patience = Patience {
+        min_measured: count,
+        max_misses: count,
+    };
+
+    let client = test_client(&DummyDevice);
+    let uid = fresh_tune_key_uid();
+    let id = uid.clone();
+    let test_set = tuner.init(&id, move || {
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::ranked_addition_set(
+            test_client(&DummyDevice),
+            shapes,
+            uid.clone(),
+            patience,
+            ranked.clone(),
+        )
+    });
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+
+    {
+        let collector = StatisticsCollector::new();
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let handles = vec![lhs.clone(), rhs.clone(), out.clone()];
+        tuner.execute(&id, &client, test_set.clone(), handles);
+        core::mem::drop(compile);
+    }
+    let tune = move || {
+        let collector = StatisticsCollector::new();
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        tuner.execute(&id, &client, test_set, vec![lhs, rhs, out]);
+        core::mem::drop(tune);
+    };
+    (parallelism, calls, tune)
+}
+
+#[cfg(all(
+    feature = "std",
+    not(target_family = "wasm"),
+    not(feature = "autotune-checks")
+))]
+fn call_counts(calls: &[Arc<AtomicUsize>]) -> Vec<usize> {
+    calls
+        .iter()
+        .map(|calls| calls.load(Ordering::Relaxed))
+        .collect()
+}
+
+/// A `CompileOnly` override runs only the top of a key's plan: as many candidates as compile at
+/// once, the best ranked first, when fewer than that lead it.
+#[test_log::test]
+#[cfg(all(
+    feature = "std",
+    not(target_family = "wasm"),
+    not(feature = "autotune-checks")
+))]
+#[serial_test::serial]
+fn a_compile_only_override_runs_only_the_top_of_the_plan() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("compile_only_runs_the_top");
+
+    let (parallelism, calls, _) = gather_ranked_key(&TUNER);
+
+    // The first candidate ran a second time as the work, once its kernels were queued.
+    let mut gathered = vec![1; parallelism];
+    gathered[0] = 2;
+    gathered.extend([0; 3]);
+    assert_eq!(
+        call_counts(&calls),
+        gathered,
+        "only the top of the plan ran"
+    );
+}
+
+/// The tune after a `CompileOnly` override still measures the candidates the override left out,
+/// since the top had no time limit to stop it.
+#[test_log::test]
+#[cfg(all(
+    feature = "std",
+    not(target_family = "wasm"),
+    not(feature = "autotune-checks")
+))]
+#[serial_test::serial]
+fn a_tune_after_a_compile_only_override_measures_the_candidates_it_left_out() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("tune_measures_what_compile_only_left");
+
+    let (parallelism, calls, tune) = gather_ranked_key(&TUNER);
+    tune();
+
+    let tuned = call_counts(&calls);
+    assert!(
+        tuned[parallelism..].iter().all(|&calls| calls > 0),
+        "the tune measured the candidates the override left out: {tuned:?}"
+    );
 }
 
 /// Every card of the same hardware queues a gathered key's candidates on itself, since a tune

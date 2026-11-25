@@ -362,9 +362,10 @@ impl<'a> TileTensorExpand<'a> {
     }
 
     /// `values` under these scales, a tile carrying its own scales in turn. A tensor map's values
-    /// land in a stage as they lie, so the scales on them are words of block scales, which a stage
-    /// keeps beside them; a scale above the words leaves the operand for the sum (`Tile::factor`)
-    /// before the stage is filled, and staging checks what is left.
+    /// land in a stage as they lie, so a stage keeps the scales on them beside them, whatever the
+    /// scales are: words of block scales, block scales packed in words, or each scale alone
+    /// ([`Tile::scales_kept_beside`]). A scale above them leaves the operand for the sum
+    /// (`Tile::factor`) before the stage is filled, and staging checks what is left.
     fn scaling(
         &self,
         scope: &Scope,
@@ -375,15 +376,12 @@ impl<'a> TileTensorExpand<'a> {
         let Some(level) = &self.scale else {
             return values;
         };
-        // Words of block scales, or block scales packed in words a field a scale, which a reader
-        // that decodes as it loads asks a stage to keep beside the values.
-        let words = level.element == u32::elem_type_native();
-        assert!(
-            words || !matches!(self.values, ValuesExpand::TensorMap { .. }),
-            "TileTensor: a tensor map lands its values as they lie, so it rides only scales a \
-             stage keeps beside them: words of block scales, or block scales packed in words"
-        );
-        values.__expand_mul_method(scope, &level.served(scope, partitioning, writable))
+        let scaled =
+            values.__expand_mul_method(scope, &level.served(scope, partitioning, writable));
+        match self.values {
+            ValuesExpand::TensorMap { .. } => scaled.__expand_scales_kept_beside_method(scope),
+            _ => scaled,
+        }
     }
 }
 
@@ -497,6 +495,7 @@ impl TileTensorLaunch {
             && tensor.shape().len() == 1
             && table.spec.dimensions().len() == 1
             && table.spec.packing.as_stored()
+            && table.spec.projection.is_direct()
             && table.scale.is_none()
             && table.index.is_none()
             && table.codebook.is_none();
@@ -580,7 +579,7 @@ impl TileTensorLaunch {
     /// the one the position labels a page's positions, and sequence `b`'s position `s` lies in page
     /// `table[b, s / page_size]`, `page_size` the pool's extent along the position. The operand's
     /// extents along the two dimensions are the table's, checked on every read. The table is read
-    /// as each window is cut, a window holding one page or two reading it once. The scales of a
+    /// as each window is cut, once a page it holds. The scales of a
     /// pool spanning either dimension are a pool of their own, placed by the same table before they
     /// are stated.
     ///
@@ -588,6 +587,10 @@ impl TileTensorLaunch {
     ///
     /// The [`Decline`] for a table that is not plain `u32` entries over one axis per key, or for
     /// values, or a scale level spanning the placed dimension, whose windows an entry cannot place.
+    ///
+    /// # Panics
+    ///
+    /// Where a table places these values' windows already.
     pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Decline> {
         self.placed_by(table, indexing, false)
     }
@@ -599,6 +602,10 @@ impl TileTensorLaunch {
     /// other positions of the pool, never past it.
     ///
     /// # Errors
+    ///
+    /// As [`indexed`](Self::indexed).
+    ///
+    /// # Panics
     ///
     /// As [`indexed`](Self::indexed).
     pub fn indexed_covering(
@@ -616,12 +623,17 @@ impl TileTensorLaunch {
         indexing: Indexing,
         covering: bool,
     ) -> Result<Self, Decline> {
+        assert!(
+            self.index.is_none(),
+            "TileTensorLaunch::indexed: a table already places these values' windows"
+        );
         let ValuesLaunch::Tensor { tensor, width } = &table.values else {
             return Err(Decline::IndexTableNotU32);
         };
         let plain_u32 = table.element == u32::elem_type_native()
             && *width == 1
             && table.spec.packing.as_stored()
+            && table.spec.projection.is_direct()
             && table.scale.is_none()
             && table.index.is_none();
         if !plain_u32 {

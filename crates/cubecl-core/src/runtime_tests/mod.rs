@@ -27,6 +27,7 @@ pub mod different_rank;
 pub mod enums;
 pub mod file;
 pub mod graph_sharing;
+pub mod graph_streams;
 pub mod harness;
 pub mod index;
 pub mod iter;

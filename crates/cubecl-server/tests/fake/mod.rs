@@ -183,6 +183,10 @@ impl EventStreamBackend for FakeBackend {
     fn wait_event_sync(_event: Self::Event) -> Result<(), ServerError> {
         Ok(())
     }
+
+    fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
+        &mut stream.capturing
+    }
 }
 
 impl Driver for Fake {

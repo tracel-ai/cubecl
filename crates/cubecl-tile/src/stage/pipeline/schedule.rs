@@ -63,8 +63,8 @@ pub enum Prefetch {
     /// and the word of the block scale each line lands under, and decodes at the store, where its
     /// block scales are packed words and every coarser scale is one value across the stage. Takes
     /// [`InSlots`](Prefetch::InSlots) where the registers cannot hold the fill: fixed operands,
-    /// scales kept beside their values, filler planes, a source not delivered by every unit, a
-    /// depth past 2, a fill that converts, rewidens or packs its source or masks its stage, a
+    /// scales kept beside their values, filler planes, a source an engine moves, a depth past 2, a
+    /// fill that converts, rewidens, gathers or packs its source or masks its stage, a
     /// decoding fill whose scales are not held as words, a stage whose per-unit share is unknown,
     /// and loads past [`fits`](Prefetch::fits).
     InRegisters,

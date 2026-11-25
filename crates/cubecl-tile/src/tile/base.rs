@@ -171,7 +171,8 @@ impl Tile {
         }
     }
 
-    /// The launch's cube size this operand was bound with, `0` when unknown.
+    /// The units a cooperative copy of this operand deals its lines to: the launch's cube size it was
+    /// bound with, or its plane's units for a stage a plane owns; `0` when unknown.
     pub(crate) fn units(&self) -> comptime_type!(usize) {
         let fill = self.copy_level();
         comptime!(fill.copied_units().1.unwrap_or(0))
@@ -190,7 +191,8 @@ impl Tile {
         }
     }
 
-    /// Physical vector width of the backing store; `1` for a fragment or tma source. Refuses a
+    /// Physical vector width of the backing store, the width a tensor map is served at; `1` for a
+    /// fragment. Refuses a
     /// memory whose loads span several dimensions: its reader asks for the vector tile instead.
     pub fn vector_size(&self) -> comptime_type!(usize) {
         match &self.kind {
@@ -391,20 +393,22 @@ impl Tile {
     }
 
     /// The order the `B` contracted with this tile, as its `A`, reads its rows in: a run of 8-bit
-    /// accumulators reread as the `A` holds its columns along its rows
-    /// ([`KeyOrder::AccumulatorRun`]); any other `A` holds each `k` where the instruction puts it.
+    /// accumulators reread as the `A` out of the order they hold their columns in, as the
+    /// `mma.sync` one's are, holds its columns along its rows ([`KeyOrder::AccumulatorRun`]); any
+    /// other `A` holds each `k` where the instruction puts it.
     pub(crate) fn rhs_keys(&self) -> comptime_type!(KeyOrder) {
-        let accumulators = match &self.kind {
+        let define!(Held) = self.element;
+        let reordered = match &self.kind {
             TileKind::PlanePartition(partition) => {
-                partition.at(0usize, 0usize).is_mma_accumulator()
+                partition.at(0usize, 0usize).reorders_as_a::<Held>()
             }
-            TileKind::PlaneTile(tile) => tile.is_mma_accumulator(),
+            TileKind::PlaneTile(tile) => tile.reorders_as_a::<Held>(),
             TileKind::Memory(_)
             | TileKind::Procedural(_)
             | TileKind::TmaGmem(_)
             | TileKind::Lines(_) => comptime!(false),
         };
-        comptime!(match accumulators && self.element.size() == 1 {
+        comptime!(match reordered {
             true => KeyOrder::AccumulatorRun,
             false => KeyOrder::AsLaid,
         })
@@ -560,8 +564,16 @@ impl Tile {
     }
 
     /// This operand's window at `from` on `dimension`, reading zero past `until` (both in
-    /// elements).
+    /// elements), and the scales it carries that span `dimension` windowed with it. A `from` known
+    /// at expansion to be 0 moves neither.
     pub fn within(&self, #[comptime] dimension: Dimension, from: usize, until: usize) -> Tile {
+        let first = from.constant();
+        let factor = match comptime!(first == Some(0)) {
+            true => self.factor.clone(),
+            false => self
+                .factor
+                .run_within(dimension, from.cast::<u32>(), until.cast::<u32>()),
+        };
         let tile_kind = match &self.kind {
             TileKind::Memory(g) => TileKind::new_Memory(g.within(dimension, from, until)),
             TileKind::TmaGmem(_)
@@ -575,7 +587,7 @@ impl Tile {
         };
         Tile {
             kind: tile_kind,
-            factor: self.factor.clone(),
+            factor,
             place: comptime!(self.place.clone()),
             element: comptime!(self.element),
         }
@@ -870,13 +882,25 @@ impl Tile {
         #[comptime] dimensions: Vec<Dimension>,
         #[comptime] storage: StageStorage,
     ) -> Tile {
+        Tile::scratch_in_lines::<T>(walk, dimensions, storage, 1usize)
+    }
+
+    /// [`scratch`](Self::scratch), served `vector_size` values a line: what a kernel fills a line at
+    /// a time, and a fragment whose registers hold whole lines loads a line at a time.
+    pub fn scratch_in_lines<T: Numeric>(
+        walk: &Walk,
+        #[comptime] dimensions: Vec<Dimension>,
+        #[comptime] storage: StageStorage,
+        #[comptime] vector_size: usize,
+    ) -> Tile {
         let owner = walk.stage_owner();
         let place = comptime!(Placement::new(
             walk.level.child(&walk.space).subspace(&dimensions),
             walk.depth(),
             walk.parent.path.root_levels(),
         ));
-        let tile = Memory::smem_owned::<T>(&place.space, 1usize, storage, 0usize, 0usize, owner);
+        let tile =
+            Memory::smem_owned::<T>(&place.space, vector_size, storage, 0usize, 0usize, owner);
         Tile::new::<T>(tile.kind, place.clone())
     }
 
@@ -1060,29 +1084,9 @@ impl Tile {
         }
     }
 
-    /// Add a resident block `src` into this one, casting up to `T`, without touching memory.
-    pub fn add_cast_from(&mut self, src: &Tile) {
-        let define!(Served) = self.element;
-        let define!(Source) = src.element;
-        match (&mut self.kind, &src.kind) {
-            (TileKind::PlaneTile(d), TileKind::PlaneTile(s)) => {
-                d.add_cast_from::<Served, Source>(s)
-            }
-            (TileKind::PlanePartition(d), TileKind::PlanePartition(s)) => {
-                // The fragment clones the block's array reference, so this promotes the block
-                // itself.
-                let mut fragment = d.fragment();
-                fragment.add_cast_from::<Served, Source>(&s.fragment())
-            }
-            _ => panic!(
-                "Tile::add_cast_from: a resident block promotes into a resident block; memory \
-                 is reached through `copy_cast_from`"
-            ),
-        }
-    }
-
     /// [`copy_from`](Tile::copy_from) with a cast: stores a wider resident fragment down to `T`,
-    /// or copies a memory window of the same box, the units sharing it a line at a time. A
+    /// or copies a memory window of the same box, the units sharing it a line at a time, or loads
+    /// the fragments a plane holds of a factor ([`held_for`](Tile::held_for)), cast as they load. A
     /// shared-memory box goes to a tensor map uncast, in one bulk store.
     pub fn copy_cast_from(&mut self, src: &Tile) {
         let define!(Served) = self.element;
@@ -1104,6 +1108,12 @@ impl Tile {
                 .fill_cast_from::<Served, Source>(s, &space),
             // The engine stores the box as it lies, so nothing casts on the way.
             (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<Served>(s),
+            (TileKind::PlanePartition(d), TileKind::Memory(_)) => {
+                d.fill_cast_from::<Served, Source>(src)
+            }
+            (TileKind::PlaneTile(d), TileKind::Memory(_)) => {
+                d.load_cast_window::<Served, Source>(src)
+            }
             _ => panic!(
                 "Tile::copy_cast_from: a fragment or a memory window stores into memory, or a \
                  shared-memory box into a tensor map; nothing else casts"
@@ -1384,8 +1394,8 @@ impl Tile {
         unexpanded!()
     }
 
-    /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
-    /// [`decoded`](Tile::decoded): what an operand bound under a codebook
+    /// These values as indices into `table`, decoded only by
+    /// [`dequantize_from`](Tile::dequantize_from) and [`decoded`](Tile::decoded): what an operand bound under a codebook
     /// ([`TileTensorLaunch::codebook`]) is served as.
     #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn lookup(&self, _table: &Tile) -> Tile {
@@ -1460,6 +1470,13 @@ impl Tile {
     /// the coarser scales out for the sum first ([`factor`](Tile::factor)). Values that carry no
     /// scale are staged as before.
     pub fn scales_kept_beside(&self) -> Tile {
+        unexpanded!()
+    }
+
+    /// These packed values decoded by a stage's fill into `element`, as the reader's stages hold
+    /// them: what its fragments then load, so a sum opened on them is opened on `element`'s
+    /// values, as a sum over two packed operands both decoded must be.
+    pub fn decoded_into(&self, _element: ElemType) -> Tile {
         unexpanded!()
     }
 
@@ -1719,9 +1736,20 @@ impl TileExpand {
                         .__expand_word_field_method(scope),
                 },
                 Some(code) if self.factor.is_kept_beside() => FragmentSource::StoredCodes(code),
-                _ => FragmentSource::Decoded,
+                // Decoded by the fill: the element its stage holds where the reader stated it,
+                // which then names the fragments whatever the other operand is.
+                _ => match self.factor.decoded_element() {
+                    Some(element) => FragmentSource::Values(element),
+                    None => FragmentSource::Decoded,
+                },
             },
         }
+    }
+
+    pub fn __expand_decoded_into_method(&self, _scope: &Scope, element: ElemType) -> TileExpand {
+        let mut decoded = self.clone();
+        decoded.factor = self.factor.clone().decoded_into(element);
+        decoded
     }
 
     pub fn __expand_scales_kept_beside_method(&self, _scope: &Scope) -> TileExpand {
@@ -1836,7 +1864,7 @@ impl TileExpand {
                 !memory.codebook.present(),
                 "{site}: these values are indices into a codebook (`TileTensorLaunch::codebook`), \
                  which only a copy or a decoded read decodes; copy them into a stage first \
-                 (`stage.copy_from(&w)`), or read them `decoded`"
+                 (`stage.dequantize_from(&w)`), or read them `decoded`"
             );
         }
     }
