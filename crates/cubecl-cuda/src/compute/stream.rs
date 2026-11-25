@@ -182,6 +182,10 @@ impl EventStreamBackend for CudaStreamBackend {
         event.wait_sync()
     }
 
+    fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
+        &mut stream.capturing
+    }
+
     fn handle_cursor(stream: &Self::Stream, binding: &BufferBinding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
         // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,

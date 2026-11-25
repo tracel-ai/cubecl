@@ -771,4 +771,8 @@ impl EventStreamBackend for MetalStreamBackend {
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
         event.wait_sync()
     }
+
+    fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
+        &mut stream.capturing
+    }
 }
