@@ -11,7 +11,7 @@ use crate::storage::StorageAllocator;
 /// device is underneath. It holds the device queue the copies go on, never the
 /// memory the relocation is moving, so a reservation can hand it the storage
 /// it is already holding.
-pub trait CopyQueue<Storage: StorageAllocator> {
+pub trait RelocationCopier<Storage: StorageAllocator> {
     /// Wait until the device is done with everything that could still touch
     /// the allocations about to move: every stream, and whatever the driver
     /// runs outside them.

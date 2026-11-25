@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
 use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding,
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, calculate_padding,
 };
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
@@ -20,7 +20,7 @@ use super::{
 /// - Only one slice is supported per page, due to the limitations in WGPU where each buffer should only bound with
 ///   either read only or `read_write` slices but not a mix of both.
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
-pub struct ExclusiveMemoryPool {
+pub struct ExclusiveSliceReserver {
     pages: Vec<MemoryPage>,
     pages_tmp: Vec<MemoryPage>,
     alignment: u64,
@@ -36,7 +36,7 @@ pub struct ExclusiveMemoryPool {
     largest_alloc_bytes: u64,
 }
 
-impl core::fmt::Display for ExclusiveMemoryPool {
+impl core::fmt::Display for ExclusiveSliceReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
             " - Exclusive Pool max_alloc_size={}\n",
@@ -61,7 +61,7 @@ impl core::fmt::Display for ExclusiveMemoryPool {
 const SIZE_AVG_DECAY: f64 = 0.01;
 
 // How many times to find the allocation 'free' before deallocating it.
-const ALLOC_AFTER_FREE: u32 = 5;
+const DEALLOC_FREE_CHECK_COUNT: u32 = 5;
 
 struct MemoryPage {
     slice: Slice,
@@ -69,7 +69,7 @@ struct MemoryPage {
     free_count: u32,
 }
 
-/// What an [`ExclusiveMemoryPool`] serves, and the pool index its pages carry.
+/// What an [`ExclusiveSliceReserver`] serves, and the pool index its pages carry.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ExclusiveLayout {
     /// The largest allocation the pool accepts, a multiple of the alignment.
@@ -83,7 +83,7 @@ pub(crate) struct ExclusiveLayout {
     pub pool: u8,
 }
 
-impl ExclusiveMemoryPool {
+impl ExclusiveSliceReserver {
     /// A pool serving what `layout` says.
     pub(crate) fn new(layout: ExclusiveLayout) -> Self {
         // Pages should be allocated to be aligned.
@@ -155,7 +155,7 @@ impl ExclusiveMemoryPool {
             alloc_size,
             // Start the allocation at 'almost ready to free'. Every use will decrement this.
             // This means allocations start as "suspected as unused" and over time will be kept for longer.
-            free_count: ALLOC_AFTER_FREE - 1,
+            free_count: DEALLOC_FREE_CHECK_COUNT - 1,
         });
         self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
 
@@ -164,7 +164,7 @@ impl ExclusiveMemoryPool {
     }
 }
 
-impl MemoryPool for ExclusiveMemoryPool {
+impl SliceReserver for ExclusiveSliceReserver {
     fn accept(&self, size: u64) -> bool {
         self.max_alloc_size >= size
     }
@@ -261,7 +261,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         failures: &mut ErrorGraph,
     ) {
         // Check such that an alloc is free after at most dealloc_period.
-        let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
+        let check_period = self.dealloc_period / (DEALLOC_FREE_CHECK_COUNT as u64);
 
         if cleanup == Cleanup::Explicit || alloc_nr - self.last_dealloc_check >= check_period {
             self.last_dealloc_check = alloc_nr;
@@ -272,7 +272,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
                     // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
                     // without it being used in the meantime), deallocate it.
-                    if page.free_count >= ALLOC_AFTER_FREE || cleanup == Cleanup::Explicit {
+                    if page.free_count >= DEALLOC_FREE_CHECK_COUNT || cleanup == Cleanup::Explicit {
                         page.slice.tainted.clear(failures);
                         storage.deallocate(page.slice.storage.id);
                         continue;

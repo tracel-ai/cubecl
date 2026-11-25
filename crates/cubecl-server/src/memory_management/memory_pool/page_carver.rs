@@ -171,11 +171,11 @@ impl MemoryPage {
         for slice in self.slices.iter() {
             let is_free = slice.handle.is_free();
             if is_free {
-                summary.amount_free += slice.effective_size();
-                summary.num_free += 1;
+                summary.free_bytes += slice.effective_size();
+                summary.free_count += 1;
             } else {
-                summary.amount_full += slice.effective_size();
-                summary.num_full += 1;
+                summary.full_bytes += slice.effective_size();
+                summary.full_count += 1;
             }
             if memory_blocks {
                 summary.blocks.push(MemoryBlock {
@@ -184,8 +184,8 @@ impl MemoryPage {
                 });
             }
         }
-        summary.amount_total = self.storage.size();
-        summary.num_total = self.slices.len();
+        summary.total_bytes = self.storage.size();
+        summary.total_count = self.slices.len();
 
         summary
     }
@@ -382,12 +382,12 @@ struct MemoryBlock {
 #[derive(Default, PartialEq, Eq)]
 pub struct MemoryPageSummary {
     blocks: Vec<MemoryBlock>,
-    pub amount_free: u64,
-    pub amount_full: u64,
-    pub amount_total: u64,
-    pub num_free: usize,
-    pub num_full: usize,
-    pub num_total: usize,
+    pub free_bytes: u64,
+    pub full_bytes: u64,
+    pub total_bytes: u64,
+    pub free_count: usize,
+    pub full_count: usize,
+    pub total_count: usize,
 }
 
 impl Display for MemoryBlock {
@@ -416,9 +416,9 @@ impl Debug for MemoryPageSummary {
         f.write_str("[Info]\n")?;
 
         for (tag, num, amount) in [
-            ("Free ", self.num_free, self.amount_free),
-            ("Full ", self.num_full, self.amount_full),
-            ("Total", self.num_total, self.amount_total),
+            ("Free ", self.free_count, self.free_bytes),
+            ("Full ", self.full_count, self.full_bytes),
+            ("Total", self.total_count, self.total_bytes),
         ] {
             f.write_fmt(format_args!(
                 " - {tag}: {} slices ({})\n",
@@ -581,12 +581,12 @@ mod tests {
                         size: 16 * MB
                     }
                 ],
-                amount_free: 32 * MB,
-                amount_full: 0,
-                amount_total: 32 * MB,
-                num_free: 2,
-                num_full: 0,
-                num_total: 2
+                free_bytes: 32 * MB,
+                full_bytes: 0,
+                total_bytes: 32 * MB,
+                free_count: 2,
+                full_count: 0,
+                total_count: 2
             },
             "Summary is correct before coalesce",
         );
@@ -600,12 +600,12 @@ mod tests {
                     is_free: true,
                     size: 32 * MB
                 },],
-                amount_free: 32 * MB,
-                amount_full: 0,
-                amount_total: 32 * MB,
-                num_free: 1,
-                num_full: 0,
-                num_total: 1
+                free_bytes: 32 * MB,
+                full_bytes: 0,
+                total_bytes: 32 * MB,
+                free_count: 1,
+                full_count: 0,
+                total_count: 1
             },
             "Summary is correct after coalesce",
         );
@@ -676,12 +676,12 @@ mod tests {
                         size: 1 * MB
                     }
                 ],
-                amount_free: 1 * MB,
-                amount_full: 31 * MB,
-                amount_total: 32 * MB,
-                num_free: 1,
-                num_full: 4,
-                num_total: 5
+                free_bytes: 1 * MB,
+                full_bytes: 31 * MB,
+                total_bytes: 32 * MB,
+                free_count: 1,
+                full_count: 4,
+                total_count: 5
             },
         );
 
@@ -726,12 +726,12 @@ mod tests {
                         size: 1 * MB
                     }
                 ],
-                amount_free: 15 * MB,
-                amount_full: 17 * MB,
-                amount_total: 32 * MB,
-                num_free: 2,
-                num_full: 3,
-                num_total: 5
+                free_bytes: 15 * MB,
+                full_bytes: 17 * MB,
+                total_bytes: 32 * MB,
+                free_count: 2,
+                full_count: 3,
+                total_count: 5
             },
         );
 
@@ -787,12 +787,12 @@ mod tests {
                         size: 10 * MB
                     }
                 ],
-                amount_free: 14 * MB,
-                amount_full: 18 * MB,
-                amount_total: 32 * MB,
-                num_free: 2,
-                num_full: 2,
-                num_total: 4
+                free_bytes: 14 * MB,
+                full_bytes: 18 * MB,
+                total_bytes: 32 * MB,
+                free_count: 2,
+                full_count: 2,
+                total_count: 4
             },
         );
     }

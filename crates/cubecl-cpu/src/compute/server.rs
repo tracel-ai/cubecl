@@ -1,6 +1,6 @@
 use cubecl_llvm::PlironOptions;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
-use cubecl_server::memory_management::relocation::RelocatingStreams;
+use cubecl_server::memory_management::relocation::DeviceRelocator;
 
 use crate::compute::{
     cpu_kernel::CpuCompiledKernel,

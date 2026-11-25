@@ -13,8 +13,8 @@
 use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
-use crate::memory_management::drop_queue::Fence;
-use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
+use crate::memory_management::drop_queue::DeviceWaiter;
+use crate::memory_management::relocation::{DeviceRelocator, RelocationNeed, RelocationReason};
 use crate::memory_management::{
     AllocationKind, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, PageGuard,
     PageUpdate, StreamMemoryReport,
@@ -152,7 +152,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // not pinned by a live graph goes too.
         stream.info_cache().clear_unpinned();
 
-        RelocatingStreams::reclaim(self)?;
+        DeviceRelocator::reclaim(self)?;
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(Cleanup::Explicit, failures);
         Ok(())
@@ -246,7 +246,7 @@ impl<'a, D: Driver> Command<'a, D> {
             (
                 IoError::PageSizesExhausted { .. },
                 AllocationKind::Eager | AllocationKind::GraphIntermediate,
-            ) => RelocatingStreams::relocate(self, RelocationReason::ArenaFull),
+            ) => DeviceRelocator::relocate(self, RelocationReason::ArenaFull),
             // Nothing frees a slot of the separate arena: it is never
             // relocated, since its graphs pin what it holds, and every
             // reservation already drained its outdated pools that emptied. The
@@ -710,7 +710,7 @@ impl<'a, D: Driver> Command<'a, D> {
     }
 }
 
-impl<D: Driver> RelocatingStreams for Command<'_, D> {
+impl<D: Driver> DeviceRelocator for Command<'_, D> {
     fn recording(&mut self) -> bool {
         self.streams.current().capturing().device().any_recording()
     }
@@ -815,12 +815,12 @@ fn num_bytes(descriptor: &CopyDescriptor) -> usize {
 /// device sources and host destinations. Dropped before [`wait`](Self::wait),
 /// it waits for the fence itself, so a read abandoned unawaited never hands a
 /// buffer back to its pool mid-copy.
-struct InFlight<F: Fence, M> {
+struct InFlight<F: DeviceWaiter, M> {
     fence_and_memory: Option<(F, M)>,
     waits_on_drop: bool,
 }
 
-impl<F: Fence, M> InFlight<F, M> {
+impl<F: DeviceWaiter, M> InFlight<F, M> {
     fn new(fence: F, memory: M) -> Self {
         Self {
             fence_and_memory: Some((fence, memory)),
@@ -854,7 +854,7 @@ impl<F: Fence, M> InFlight<F, M> {
     }
 }
 
-impl<F: Fence, M> Drop for InFlight<F, M> {
+impl<F: DeviceWaiter, M> Drop for InFlight<F, M> {
     fn drop(&mut self) {
         if let Some((fence, memory)) = self.fence_and_memory.take()
             && self.waits_on_drop
@@ -873,7 +873,7 @@ mod tests {
 
     struct CountingFence(Arc<AtomicUsize>);
 
-    impl Fence for CountingFence {
+    impl DeviceWaiter for CountingFence {
         fn wait(self) -> Result<(), ServerError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())

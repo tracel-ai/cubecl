@@ -4,7 +4,7 @@ use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         ErrorGraph, ManagedMemoryHandle, MemoryPoolReport,
-        memory_pool::{ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping},
+        memory_pool::{ExclusiveLayout, ExclusiveSliceReserver, PageMapping, SliceReserver},
     },
     server::IoError,
     storage::StorageAllocator,
@@ -14,25 +14,25 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::MemoryDeviceProperties;
 
 /// The smallest bucket, in bytes.
-const MIN_BUCKET_SIZE: u64 = 1024 * 32;
+const MIN_BUCKET_BYTES: u64 = 1024 * 32;
 /// How many buckets span the sizes up to the device's largest page, before
 /// alignment folds some of them together.
-const MAX_BUCKETS: usize = 24;
+const MAX_BUCKET_COUNT: usize = 24;
 /// The allocations a page waits through, unused, before it is released.
-const BASE_DEALLOC_PERIOD: u64 = 5000;
-/// Bytes of page size that add another [`BASE_DEALLOC_PERIOD`] to the wait.
-const DEALLOC_SCALE: u64 = 1024 * 1024 * 1024;
+const BASE_DEALLOC_PERIOD_COUNT: u64 = 5000;
+/// Bytes of page size that add another [`BASE_DEALLOC_PERIOD_COUNT`] to the wait.
+const DEALLOC_SCALE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// One page per allocation, in exponentially spaced size buckets: what a
 /// device that cannot sub-slice gets, and what a staging or uniform pool
 /// wants whatever the device. Nothing is ever outdated here.
 ///
 /// A bucket is addressed by the index a slice's location carries.
-pub struct ExclusivePools {
-    buckets: Vec<ExclusiveMemoryPool>,
+pub struct BucketReserver {
+    buckets: Vec<ExclusiveSliceReserver>,
 }
 
-impl ExclusivePools {
+impl BucketReserver {
     /// The buckets for a device with `properties`.
     pub fn new(properties: &MemoryDeviceProperties) -> Self {
         let buckets = bucket_sizes(properties.max_page_size, properties.alignment)
@@ -41,10 +41,10 @@ impl ExclusivePools {
             .map(|(index, size)| {
                 // Larger pages wait longer before going back: they cost more to
                 // allocate again.
-                let dealloc_period = (BASE_DEALLOC_PERIOD as f64
-                    * (1.0 + size as f64 / DEALLOC_SCALE as f64).round())
+                let dealloc_period = (BASE_DEALLOC_PERIOD_COUNT as f64
+                    * (1.0 + size as f64 / DEALLOC_SCALE_BYTES as f64).round())
                     as u64;
-                ExclusiveMemoryPool::new(ExclusiveLayout {
+                ExclusiveSliceReserver::new(ExclusiveLayout {
                     max_alloc_size: size,
                     alignment: properties.alignment,
                     dealloc_period,
@@ -56,12 +56,12 @@ impl ExclusivePools {
     }
 
     /// The bucket `index` names.
-    pub fn pool(&self, index: u8) -> Option<&ExclusiveMemoryPool> {
+    pub fn pool(&self, index: u8) -> Option<&ExclusiveSliceReserver> {
         self.buckets.get(index as usize)
     }
 
     /// The bucket `index` names, mutably.
-    pub fn pool_mut(&mut self, index: u8) -> Option<&mut ExclusiveMemoryPool> {
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut ExclusiveSliceReserver> {
         self.buckets.get_mut(index as usize)
     }
 
@@ -121,12 +121,12 @@ impl ExclusivePools {
     pub fn report(&self) -> Vec<MemoryPoolReport> {
         self.buckets
             .iter()
-            .map(ExclusiveMemoryPool::report)
+            .map(ExclusiveSliceReserver::report)
             .collect()
     }
 }
 
-impl core::fmt::Display for ExclusivePools {
+impl core::fmt::Display for BucketReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for pool in self.buckets.iter() {
             write!(f, "{pool}")?;
@@ -135,15 +135,15 @@ impl core::fmt::Display for ExclusivePools {
     }
 }
 
-/// Exponentially spaced bucket sizes from [`MIN_BUCKET_SIZE`] to `max_size`,
+/// Exponentially spaced bucket sizes from [`MIN_BUCKET_BYTES`] to `max_size`,
 /// aligned, the ones alignment folded together counted once.
 fn bucket_sizes(max_size: u64, alignment: u64) -> Vec<u64> {
-    let log_min = (MIN_BUCKET_SIZE as f64).ln();
+    let log_min = (MIN_BUCKET_BYTES as f64).ln();
     let log_range = (max_size as f64).ln() - log_min;
 
-    let mut sizes: Vec<u64> = (0..MAX_BUCKETS)
+    let mut sizes: Vec<u64> = (0..MAX_BUCKET_COUNT)
         .map(|index| {
-            let position = index as f64 / (MAX_BUCKETS - 1) as f64;
+            let position = index as f64 / (MAX_BUCKET_COUNT - 1) as f64;
             let size = (log_min + log_range * position).exp() as u64;
             size.next_multiple_of(alignment)
         })

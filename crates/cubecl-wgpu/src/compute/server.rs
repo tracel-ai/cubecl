@@ -35,7 +35,7 @@ use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::compiler::{ArtifactRoot, compilation_store};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
-    relocation::{RelocatingStreams, RelocationReason},
+    relocation::{DeviceRelocator, RelocationReason},
 };
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},

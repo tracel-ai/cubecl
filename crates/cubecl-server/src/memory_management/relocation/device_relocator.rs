@@ -10,7 +10,7 @@ use crate::server::ServerError;
 /// stream's work is done before a byte moves; and nothing moves while a graph
 /// records, since the pages it touches keep their addresses until it seals.
 /// The runtime supplies each step. The order they run in lives here, once.
-pub trait RelocatingStreams {
+pub trait DeviceRelocator {
     /// Whether any stream is recording a graph.
     fn recording(&mut self) -> bool;
 
@@ -26,7 +26,7 @@ pub trait RelocatingStreams {
     fn bytes_allocated(&mut self) -> u64;
 
     /// Get every stream's queued and submitted work done, or leave it to the
-    /// [`CopyQueue`](super::CopyQueue) to wait for before its first copy.
+    /// [`RelocationCopier`](super::RelocationCopier) to wait for before its first copy.
     fn finish(&mut self);
 
     /// Move what the relocating stream's memory holds on outdated pages.

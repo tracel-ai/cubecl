@@ -6,28 +6,28 @@
 #[derive(Debug)]
 pub struct FlushingPolicy {
     /// Flush when this many allocations have been staged.
-    pub max_bytes_count: u32,
+    pub max_staged_count: u32,
     /// Flush when the total staged size reaches this many bytes.
-    pub max_bytes_size: u32,
+    pub max_staged_bytes: u32,
 }
 
 impl Default for FlushingPolicy {
     fn default() -> Self {
         Self {
-            max_bytes_count: 64,
-            max_bytes_size: 64 * 1024 * 1024, // 64 MiB
+            max_staged_count: 64,
+            max_staged_bytes: 64 * 1024 * 1024, // 64 MiB
         }
     }
 }
 
 /// Tracks staged allocations and evaluates them against a [`FlushingPolicy`].
 #[derive(Default, Debug)]
-pub(crate) struct FlushingPolicyState {
+pub(crate) struct FlushTracker {
     bytes_count: u32,
     bytes_size: u32,
 }
 
-impl FlushingPolicyState {
+impl FlushTracker {
     /// Record a newly staged allocation of `len` bytes.
     pub(crate) fn register(&mut self, len: usize) {
         self.bytes_count = self.bytes_count.saturating_add(1);
@@ -44,7 +44,7 @@ impl FlushingPolicyState {
 
     /// Returns `true` if either threshold in `policy` has been reached.
     pub(crate) fn should_flush(&self, policy: &FlushingPolicy) -> bool {
-        self.bytes_count >= policy.max_bytes_count || self.bytes_size >= policy.max_bytes_size
+        self.bytes_count >= policy.max_staged_count || self.bytes_size >= policy.max_staged_bytes
     }
 }
 
@@ -55,13 +55,13 @@ mod policy_tests {
 
     fn policy() -> FlushingPolicy {
         FlushingPolicy {
-            max_bytes_count: 4,
-            max_bytes_size: 100,
+            max_staged_count: 4,
+            max_staged_bytes: 100,
         }
     }
 
-    fn state() -> FlushingPolicyState {
-        FlushingPolicyState {
+    fn state() -> FlushTracker {
+        FlushTracker {
             bytes_count: 0,
             bytes_size: 0,
         }
@@ -102,7 +102,7 @@ mod policy_tests {
     fn register_saturates_instead_of_overflowing() {
         // Regression test for #1359: staging allocations without an intervening
         // reset must not panic with "attempt to add with overflow".
-        let mut s = FlushingPolicyState {
+        let mut s = FlushTracker {
             bytes_count: u32::MAX,
             bytes_size: u32::MAX - 1,
         };

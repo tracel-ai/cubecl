@@ -2,7 +2,7 @@ use crate::server::ServerError;
 
 /// A synchronization primitive that blocks until the device has finished
 /// processing all commands submitted before the fence was created.
-pub trait Fence: Sized {
+pub trait DeviceWaiter: Sized {
     /// Block the current thread until the device signals this fence.
     ///
     /// # Errors

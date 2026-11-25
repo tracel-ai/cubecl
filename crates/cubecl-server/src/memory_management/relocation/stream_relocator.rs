@@ -3,8 +3,8 @@ use crate::memory_management::ErrorGraph;
 
 /// One stream, as relocating its memory needs it: what a runtime whose
 /// streams share one way to finish their work (a scheduler, say) supplies per
-/// stream, leaving the rest of [`RelocatingStreams`](super::RelocatingStreams) to that shared way.
-pub trait RelocatableStream {
+/// stream, leaving the rest of [`DeviceRelocator`](super::DeviceRelocator) to that shared way.
+pub trait StreamRelocator {
     /// Whether any stream of the device records a graph.
     fn recording(&self) -> bool;
 

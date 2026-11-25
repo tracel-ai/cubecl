@@ -54,16 +54,16 @@ struct Failure {
     /// How many slices carry this id. The node lives while this is non-zero.
     tagged: u32,
     /// What this failure stopped, newest last, capped to the most recent —
-    /// see [`Skipped`]. On the failure rather than on the buffers because a
+    /// see [`SkippedLaunch`]. On the failure rather than on the buffers because a
     /// record stored on an allocation dies when that allocation does, and a
     /// chain of links would break as soon as an intermediate buffer is freed
     /// — the common case for a fused graph where only the last tensor is
     /// kept. Holds ids, never handles, so the record of what a failure
     /// stopped never retains the memory it names.
-    skipped: Vec<Skipped>,
+    skipped: Vec<SkippedLaunch>,
     /// Every skip, the capped list included: the report says how many are
     /// missing from the walk.
-    skipped_total: u64,
+    skipped_count: u64,
 }
 
 /// One launch a failure stopped: the kernel that did not run, the buffer
@@ -74,7 +74,7 @@ struct Failure {
 /// so the report names the path from the read back to the root instead of
 /// only the root.
 #[derive(Debug, Clone)]
-pub struct Skipped {
+pub struct SkippedLaunch {
     /// The kernel the skip stopped.
     pub kernel: KernelId,
     /// The claimed buffer the kernel would have read.
@@ -85,12 +85,12 @@ pub struct Skipped {
 }
 
 impl ErrorGraph {
-    /// How many [`Skipped`] records one failure keeps. Newest win: the walk a
+    /// How many [`SkippedLaunch`] records one failure keeps. Newest win: the walk a
     /// read makes starts from the most recent buffers, so keeping the oldest
     /// would leave them with no entry to start from, while a deep chain
     /// reaching a gap before the root costs nothing — the root is on the node
     /// itself and never in the list.
-    pub const MAX_SKIPPED: usize = 16;
+    pub const MAX_SKIPPED_LAUNCH_COUNT: usize = 16;
 
     /// Hold `error` until nothing carries its id any more.
     ///
@@ -109,20 +109,20 @@ impl ErrorGraph {
                 error,
                 tagged: 0,
                 skipped: Vec::new(),
-                skipped_total: 0,
+                skipped_count: 0,
             },
         );
         id
     }
 
-    /// Record a launch `failure` stopped — see [`Skipped`]. Keeps the newest
-    /// [`MAX_SKIPPED`](Self::MAX_SKIPPED) records and counts them all.
-    pub fn skipped(&mut self, failure: FailureId, record: Skipped) {
+    /// Record a launch `failure` stopped — see [`SkippedLaunch`]. Keeps the newest
+    /// [`MAX_SKIPPED_LAUNCH_COUNT`](Self::MAX_SKIPPED_LAUNCH_COUNT) records and counts them all.
+    pub fn skipped(&mut self, failure: FailureId, record: SkippedLaunch) {
         let Some(node) = self.nodes.get_mut(&failure) else {
             return;
         };
-        node.skipped_total += 1;
-        if node.skipped.len() == Self::MAX_SKIPPED {
+        node.skipped_count += 1;
+        if node.skipped.len() == Self::MAX_SKIPPED_LAUNCH_COUNT {
             node.skipped.remove(0);
         }
         node.skipped.push(record);
@@ -150,7 +150,7 @@ impl ErrorGraph {
             target = record.needed;
             upper = found;
         }
-        let dropped = node.skipped_total.saturating_sub(node.skipped.len() as u64);
+        let dropped = node.skipped_count.saturating_sub(node.skipped.len() as u64);
         if !chain.is_empty() && dropped > 0 {
             chain.push(alloc::format!(
                 "({dropped} older skip record(s) were dropped; the walk may stop before the root)"
@@ -414,8 +414,8 @@ mod tests {
         kernel_name: KernelId,
         needed: ManagedMemoryId,
         produced: &[ManagedMemoryId],
-    ) -> Skipped {
-        Skipped {
+    ) -> SkippedLaunch {
+        SkippedLaunch {
             kernel: kernel_name,
             needed,
             produced: produced.to_vec(),
@@ -472,14 +472,14 @@ mod tests {
         let failure = graph.insert(error("root"));
         graph.tag(failure);
 
-        for i in 0..(ErrorGraph::MAX_SKIPPED + 4) {
+        for i in 0..(ErrorGraph::MAX_SKIPPED_LAUNCH_COUNT + 4) {
             graph.skipped(
                 failure,
                 skip(KernelId::new::<Fill>(), memory_id(i), &[memory_id(i + 1)]),
             );
         }
 
-        let newest = memory_id(ErrorGraph::MAX_SKIPPED + 4);
+        let newest = memory_id(ErrorGraph::MAX_SKIPPED_LAUNCH_COUNT + 4);
         let report = graph.report(failure, newest).unwrap();
         let text = alloc::format!("{report}");
         assert!(

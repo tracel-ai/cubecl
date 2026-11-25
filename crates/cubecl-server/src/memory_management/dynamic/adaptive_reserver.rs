@@ -1,6 +1,6 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
-use super::{ARENA_SLOTS, PageSizing, PoolArena};
+use super::{ARENA_SLOT_COUNT, ArenaReserver, PageSizing};
 use crate::memory_management::{AllocationKind, Cleanup};
 use crate::{
     config::memory::MemoryLogLevel,
@@ -9,12 +9,12 @@ use crate::{
         DEDICATED_POOL_POS, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryPoolReport,
         memory_pool::{
-            ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping, PinnedRoom,
-            SlicedLayout, SlicedPool,
+            ExclusiveLayout, ExclusiveSliceReserver, PageMapping, PagedLayout, PagedSliceReserver,
+            PinnedRoom, SliceReserver,
         },
         relocation::{
-            CopyQueue, Move, Relocation, RelocationNeed, RelocationReason, RelocationTrigger,
-            StorageCopy,
+            Move, Relocation, RelocationCopier, RelocationDecider, RelocationNeed,
+            RelocationReason, StorageCopy,
         },
     },
     server::{IoError, ServerError},
@@ -31,9 +31,9 @@ const SMALL_POOL: u8 = 1;
 /// The pool index of the arena's first slot.
 pub(super) const ARENA_POOLS: u8 = 2;
 /// The pool index of the separate arena's first slot, past the arena's.
-pub(super) const SEPARATE_POOLS: u8 = ARENA_POOLS + ARENA_SLOTS as u8;
+pub(super) const SEPARATE_POOLS: u8 = ARENA_POOLS + ARENA_SLOT_COUNT as u8;
 /// The pool index of the small allocations kept apart, past the separate arena's.
-pub(super) const SMALL_SEPARATE_POOL: u8 = SEPARATE_POOLS + ARENA_SLOTS as u8;
+pub(super) const SMALL_SEPARATE_POOL: u8 = SEPARATE_POOLS + ARENA_SLOT_COUNT as u8;
 
 // The arenas' pools are addressed from `ARENA_POOLS` on, one after the other,
 // and must stay clear of the fixed indices the dedicated and persistent pools
@@ -44,36 +44,36 @@ const _: () = assert!(
 );
 
 /// The small-allocation pool's page size.
-const SMALL_PAGE: u64 = 8 * 1024 * 1024;
+const SMALL_PAGE_BYTES: u64 = 8 * 1024 * 1024;
 /// The largest allocation the small-allocation pool serves.
-const SMALL_SLICE: u64 = 64 * 1024;
+const SMALL_SLICE_BYTES: u64 = 64 * 1024;
 /// The smallest page the arena carves, capped by the device's
 /// `max_page_size`: what the smallest allocation it serves (just past
-/// [`SMALL_SLICE`]) needs anyway once rounded, so a stream that only makes
+/// [`SMALL_SLICE_BYTES`]) needs anyway once rounded, so a stream that only makes
 /// small allocations holds a page its size rather than a floor's.
-const MIN_PAGE: u64 = 2 * 1024 * 1024;
+const MIN_PAGE_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Pages sized to the largest allocation served, with a pool per size.
 ///
 /// What a workload allocates decides which pool serves it: zero-sized
 /// allocations and the metadata churn have a pool each, and everything else
-/// is carved from the [arena](PoolArena), whose pages follow the largest
+/// is carved from the [arena](ArenaReserver), whose pages follow the largest
 /// allocation served so far.
-pub struct AdaptiveMemory {
+pub struct AdaptiveReserver {
     /// Zero-sized allocations, which cannot take an offset into a page (on
     /// wgpu at least).
-    tiny: ExclusiveMemoryPool,
+    tiny: ExclusiveSliceReserver,
     /// Kernel metadata — shapes, strides, scalars — churns thousands of tiny
     /// slices. Kept off the arena's pages so they neither fragment them nor
     /// count toward their size.
-    small: SlicedPool,
+    small: PagedSliceReserver,
     /// The small allocations kept apart from the room the stream's graphs share
     /// on `small`, as the separate arena keeps the larger ones apart from the
     /// arena's: the metadata a graph keeps, and small work outside a capture
     /// once graphs pin every page of `small`.
-    small_separate: SlicedPool,
+    small_separate: PagedSliceReserver,
     /// Everything else.
-    arena: PoolArena,
+    arena: ArenaReserver,
     /// What outlives a graph capture — its outputs, the metadata its graph
     /// keeps — apart from the arena, whose pages the stream's graphs share
     /// (see [`AllocationKind::GraphOutput`]), and the work outside a capture that
@@ -81,14 +81,14 @@ pub struct AdaptiveMemory {
     /// replay writes its free room, so they pack together whatever pages
     /// graphs pinned. Never relocated: what it holds is pinned by the graphs
     /// that read and write it.
-    separate: PoolArena,
+    separate: ArenaReserver,
     /// When emptying the arena's outdated pools is worth its copies.
-    trigger: RelocationTrigger,
+    trigger: RelocationDecider,
     logger: Arc<ServerLogger>,
     name: String,
 }
 
-impl AdaptiveMemory {
+impl AdaptiveReserver {
     /// The pools for a device with `properties`.
     pub fn new(
         properties: &MemoryDeviceProperties,
@@ -96,39 +96,39 @@ impl AdaptiveMemory {
         name: String,
     ) -> Self {
         let alignment = properties.alignment;
-        let min_page = MIN_PAGE.min(properties.max_page_size);
+        let min_page = MIN_PAGE_BYTES.min(properties.max_page_size);
         let sizing = PageSizing::new(min_page, properties);
         let memory = Self {
-            tiny: ExclusiveMemoryPool::new(ExclusiveLayout {
+            tiny: ExclusiveSliceReserver::new(ExclusiveLayout {
                 max_alloc_size: 0,
                 alignment,
                 dealloc_period: u64::MAX,
                 pool: TINY_POOL,
             }),
-            small: SlicedPool::new(SlicedLayout {
-                page_size: SMALL_PAGE.next_multiple_of(alignment),
-                max_slice_size: SMALL_SLICE.next_multiple_of(alignment),
+            small: PagedSliceReserver::new(PagedLayout {
+                page_size: SMALL_PAGE_BYTES.next_multiple_of(alignment),
+                max_slice_size: SMALL_SLICE_BYTES.next_multiple_of(alignment),
                 alignment,
                 pool: SMALL_POOL,
             })
             // Allocations near its page size belong to the arena, whose
             // pages are sized to what they serve.
             .up_to_max_slice(),
-            small_separate: SlicedPool::new(SlicedLayout {
-                page_size: SMALL_PAGE.next_multiple_of(alignment),
-                max_slice_size: SMALL_SLICE.next_multiple_of(alignment),
+            small_separate: PagedSliceReserver::new(PagedLayout {
+                page_size: SMALL_PAGE_BYTES.next_multiple_of(alignment),
+                max_slice_size: SMALL_SLICE_BYTES.next_multiple_of(alignment),
                 alignment,
                 pool: SMALL_SEPARATE_POOL,
             })
             .up_to_max_slice(),
-            arena: PoolArena::new(sizing, ARENA_POOLS, logger.clone(), name.clone()),
-            separate: PoolArena::new(
+            arena: ArenaReserver::new(sizing, ARENA_POOLS, logger.clone(), name.clone()),
+            separate: ArenaReserver::new(
                 PageSizing::new(min_page, properties),
                 SEPARATE_POOLS,
                 logger.clone(),
                 name.clone(),
             ),
-            trigger: RelocationTrigger::new(properties.max_memory()),
+            trigger: RelocationDecider::new(properties.max_memory()),
             logger,
             name,
         };
@@ -137,7 +137,7 @@ impl AdaptiveMemory {
     }
 
     /// The pool `index` names, while one is there.
-    pub fn pool(&self, index: u8) -> Option<&dyn MemoryPool> {
+    pub fn pool(&self, index: u8) -> Option<&dyn SliceReserver> {
         match index {
             TINY_POOL => Some(&self.tiny),
             SMALL_POOL => Some(&self.small),
@@ -148,7 +148,7 @@ impl AdaptiveMemory {
     }
 
     /// The pool `index` names, mutably.
-    pub fn pool_mut(&mut self, index: u8) -> Option<&mut dyn MemoryPool> {
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut dyn SliceReserver> {
         match index {
             TINY_POOL => Some(&mut self.tiny),
             SMALL_POOL => Some(&mut self.small),
@@ -260,7 +260,7 @@ impl AdaptiveMemory {
     }
 
     /// Whether a relocation is wanted, before the bytes the device holds are
-    /// known (see [`RelocationTrigger::need`]).
+    /// known (see [`RelocationDecider::need`]).
     pub fn relocation_need(&self) -> RelocationNeed {
         // Asked before every allocation: when nothing is outdated, which is
         // almost always, answer without counting any page.
@@ -279,7 +279,7 @@ impl AdaptiveMemory {
     pub fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
@@ -317,7 +317,7 @@ impl AdaptiveMemory {
         &mut self,
         storage: &mut Storage,
         kept: &[ManagedMemoryBinding],
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         failures: &mut ErrorGraph,
     ) -> Result<(), ServerError> {
         let mut moves = Vec::new();
@@ -388,7 +388,7 @@ impl AdaptiveMemory {
     }
 }
 
-impl AdaptiveMemory {
+impl AdaptiveReserver {
     /// Where an allocation of `size` bytes and of `kind` goes, past the tiny pool.
     ///
     /// What carves the pools kept apart is never written by a replay, so their
@@ -477,10 +477,10 @@ impl AdaptiveMemory {
     /// The pool of the stream's shared pages, the small pool or one of the arena's, that the
     /// pool `index` names.
     fn shared_pool<'a>(
-        small: &'a mut SlicedPool,
-        arena: &'a mut PoolArena,
+        small: &'a mut PagedSliceReserver,
+        arena: &'a mut ArenaReserver,
         index: u8,
-    ) -> Option<&'a mut SlicedPool> {
+    ) -> Option<&'a mut PagedSliceReserver> {
         match index {
             SMALL_POOL => Some(small),
             ARENA_POOLS..SEPARATE_POOLS => arena.pool_mut(index),
@@ -491,10 +491,10 @@ impl AdaptiveMemory {
     /// The pool kept apart, the small one or one of the separate arena's, that the pool
     /// `index` names.
     fn apart_pool<'a>(
-        small_separate: &'a mut SlicedPool,
-        separate: &'a mut PoolArena,
+        small_separate: &'a mut PagedSliceReserver,
+        separate: &'a mut ArenaReserver,
         index: u8,
-    ) -> Option<&'a mut SlicedPool> {
+    ) -> Option<&'a mut PagedSliceReserver> {
         match index {
             SMALL_SEPARATE_POOL => Some(small_separate),
             SEPARATE_POOLS..SMALL_SEPARATE_POOL => separate.pool_mut(index),
@@ -517,7 +517,7 @@ struct Placement {
     pub room: PinnedRoom,
 }
 
-/// The pools [`AdaptiveMemory::placement`] chooses among.
+/// The pools [`AdaptiveReserver::placement`] chooses among.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlacementPool {
     Small,
@@ -526,7 +526,7 @@ enum PlacementPool {
     Separate,
 }
 
-impl core::fmt::Display for AdaptiveMemory {
+impl core::fmt::Display for AdaptiveReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,

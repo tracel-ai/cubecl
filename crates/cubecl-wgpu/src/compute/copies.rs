@@ -3,7 +3,7 @@
 use crate::compute::device_poison::PoisonWatch;
 use crate::compute::storage::WgpuStorage;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::memory_management::relocation::{CopyQueue, StorageCopy};
+use cubecl_server::memory_management::relocation::{RelocationCopier, StorageCopy};
 use cubecl_server::server::{IoError, ServerError};
 use cubecl_server::storage::StorageAllocator;
 
@@ -46,7 +46,7 @@ impl WgpuCopies {
     }
 }
 
-impl CopyQueue<WgpuStorage> for WgpuCopies {
+impl RelocationCopier<WgpuStorage> for WgpuCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         // The stream's own work is submitted by the caller; this waits for the
         // device to finish it.

@@ -1,8 +1,8 @@
 //! The streams a relocation copies on.
 
 use super::{DeviceStream, Driver};
-use crate::memory_management::drop_queue::Fence;
-use crate::memory_management::relocation::{CopyQueue, StorageCopy};
+use crate::memory_management::drop_queue::DeviceWaiter;
+use crate::memory_management::relocation::{RelocationCopier, StorageCopy};
 use crate::server::{IoError, ServerError};
 use crate::storage::StorageAllocator;
 use alloc::vec::Vec;
@@ -32,7 +32,9 @@ impl<'a, D: Driver> StreamCopies<'a, D> {
     }
 }
 
-impl<D: Driver> CopyQueue<<D::Stream as DeviceStream>::DeviceStorage> for StreamCopies<'_, D> {
+impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStorage>
+    for StreamCopies<'_, D>
+{
     fn wait_device(&mut self) -> Result<(), ServerError> {
         for signal in self.signals.iter() {
             D::Stream::fence(*signal).wait()?;

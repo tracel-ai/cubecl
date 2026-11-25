@@ -2,7 +2,7 @@
 
 use super::TargetRoom;
 
-/// What a [`RelocationTrigger`] reads of the pools a workload's allocations
+/// What a [`RelocationDecider`] reads of the pools a workload's allocations
 /// are carved from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArenaState {
@@ -26,19 +26,19 @@ pub struct ArenaState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArenaShape {
     /// Pages the current pool holds.
-    pub current_pages: u64,
+    pub current_page_count: u64,
     /// Pools a growth left behind.
-    pub outdated_pools: usize,
+    pub outdated_pool_count: usize,
     /// Pages those pools hold.
     pub outdated_pages: u64,
     /// Of those, the ones a guard keeps where they are.
-    pub outdated_guarded: usize,
+    pub outdated_guarded_count: usize,
 }
 
 /// Decides when a relocation is worth its copies: what the device holds, and
 /// how the last relocation went.
 #[derive(Debug, Clone)]
-pub struct RelocationTrigger {
+pub struct RelocationDecider {
     /// What the device holds in total, where it says.
     capacity: Option<u64>,
     /// The pools as the last relocation found them with nothing to move, so
@@ -92,7 +92,7 @@ enum MemoryPressure {
     High,
 }
 
-impl RelocationTrigger {
+impl RelocationDecider {
     /// A trigger for a device that holds `capacity` bytes, where it says.
     pub fn new(capacity: Option<u64>) -> Self {
         Self {
@@ -183,17 +183,17 @@ mod tests {
             has_outdated: true,
             full: false,
             shape: ArenaShape {
-                current_pages: 1,
-                outdated_pools: 1,
+                current_page_count: 1,
+                outdated_pool_count: 1,
                 outdated_pages: 1,
-                outdated_guarded: 0,
+                outdated_guarded_count: 0,
             },
         }
     }
 
     #[test]
     fn pressure_is_high_once_the_next_page_leaves_less_than_another() {
-        let need = RelocationTrigger::new(Some(24 * MIB)).need(&arena(4 * MIB));
+        let need = RelocationDecider::new(Some(24 * MIB)).need(&arena(4 * MIB));
         assert_eq!(need.reason(|| 10 * MIB), None);
         assert_eq!(
             need.reason(|| 17 * MIB),
@@ -207,7 +207,7 @@ mod tests {
             has_outdated: false,
             ..arena(4 * MIB)
         };
-        let need = RelocationTrigger::new(Some(MIB)).need(&state);
+        let need = RelocationDecider::new(Some(MIB)).need(&state);
         assert_eq!(need, RelocationNeed::Nothing);
         assert_eq!(need.reason(|| panic!("the bytes are never summed")), None);
     }
@@ -219,7 +219,7 @@ mod tests {
             ..arena(4 * MIB)
         };
         assert_eq!(
-            RelocationTrigger::new(None).need(&state).reason(|| 0),
+            RelocationDecider::new(None).need(&state).reason(|| 0),
             Some(RelocationReason::ArenaFull)
         );
     }
@@ -227,21 +227,21 @@ mod tests {
     #[test]
     fn a_device_that_reports_no_capacity_is_not_judged() {
         assert_eq!(
-            RelocationTrigger::new(None).need(&arena(MIB)),
+            RelocationDecider::new(None).need(&arena(MIB)),
             RelocationNeed::Nothing
         );
     }
 
     #[test]
     fn a_relocation_that_moved_nothing_waits_for_the_pools_to_change() {
-        let mut trigger = RelocationTrigger::new(Some(24 * MIB));
+        let mut trigger = RelocationDecider::new(Some(24 * MIB));
         let state = arena(4 * MIB);
         trigger.stalled(&state);
         assert_eq!(trigger.need(&state), RelocationNeed::Nothing);
 
         let grown = ArenaState {
             shape: ArenaShape {
-                current_pages: 2,
+                current_page_count: 2,
                 ..state.shape
             },
             ..state

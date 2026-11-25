@@ -13,7 +13,7 @@ use crate::{
     memory_management::{
         AllocationKind, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
         MemoryManagement, MemoryManagementOptions, MemoryPoolKind, PageUpdate,
-        relocation::{CopyQueue, HostCopies, RelocationReason, StorageCopy},
+        relocation::{HostRelocationCopier, RelocationCopier, RelocationReason, StorageCopy},
     },
     server::{IoError, ServerError},
     storage::BytesStorage,
@@ -28,7 +28,7 @@ const PROPERTIES: MemoryDeviceProperties = MemoryDeviceProperties::new(1024 * MI
 
 /// The floor the `Adaptive` preset carves its pages at, until a larger
 /// allocation grows them.
-const FLOOR: u64 = 2 * MIB;
+const FLOOR_BYTES: u64 = 2 * MIB;
 
 /// A memory management laid out by the `Adaptive` preset, on a device
 /// that holds `max_memory` bytes.
@@ -123,7 +123,7 @@ fn contents(memory: &mut MemoryManagement<BytesStorage>, handle: &ManagedMemoryH
 fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
     let failures = &mut ErrorGraph::default();
     let before = memory.memory_report().dynamic.len();
-    let mut copies = HostCopies;
+    let mut copies = HostRelocationCopier;
     memory.relocate(&mut copies, RelocationReason::Explicit, failures);
     // A pool a relocation emptied is dropped, so the reports it leaves say
     // how many moved off it.
@@ -133,7 +133,7 @@ fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
 /// A device that refuses every copy, which abandons the relocation.
 struct RefusedCopies;
 
-impl CopyQueue<BytesStorage> for RefusedCopies {
+impl RelocationCopier<BytesStorage> for RefusedCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         Ok(())
     }
@@ -173,7 +173,7 @@ fn memory_pressure_asks_for_a_relocation_before_the_next_page() {
     let large = reserve(&mut memory, 10 * MIB);
     assert_eq!(relocation(&memory), Some(RelocationReason::MemoryPressure));
 
-    let mut copies = HostCopies;
+    let mut copies = HostRelocationCopier;
     memory.relocate(
         &mut copies,
         RelocationReason::MemoryPressure,
@@ -358,7 +358,7 @@ fn eager_work_never_grows_the_separate_arena() {
     let input = reserve(&mut memory, 3 * MIB);
 
     assert!(
-        (super::adaptive::ARENA_POOLS..super::adaptive::SEPARATE_POOLS)
+        (super::adaptive_reserver::ARENA_POOLS..super::adaptive_reserver::SEPARATE_POOLS)
             .contains(&input.descriptor().location().pool),
         "placed on {:?}",
         place(&input)
@@ -393,7 +393,7 @@ fn a_kept_small_buffer_on_a_pinned_page_moves_apart() {
     memory
         .move_apart(
             &[kept.clone().binding()],
-            &mut HostCopies,
+            &mut HostRelocationCopier,
             &mut ErrorGraph::default(),
         )
         .unwrap();
@@ -403,7 +403,7 @@ fn a_kept_small_buffer_on_a_pinned_page_moves_apart() {
             kept.descriptor().location().pool,
             contents(&mut memory, &kept)
         ),
-        (super::adaptive::SMALL_SEPARATE_POOL, 7)
+        (super::adaptive_reserver::SMALL_SEPARATE_POOL, 7)
     );
 }
 
@@ -431,7 +431,7 @@ fn a_relocation_that_moved_nothing_is_not_planned_again() {
     assert_eq!(relocation(&memory), Some(RelocationReason::MemoryPressure));
 
     memory.relocate(
-        &mut HostCopies,
+        &mut HostRelocationCopier,
         RelocationReason::MemoryPressure,
         &mut ErrorGraph::default(),
     );
@@ -455,7 +455,7 @@ fn a_new_page_lets_a_stalled_relocation_plan_again() {
     let _guard = memory.guard(recorded.descriptor().location());
     let _large = reserve(&mut memory, 10 * MIB);
     memory.relocate(
-        &mut HostCopies,
+        &mut HostRelocationCopier,
         RelocationReason::MemoryPressure,
         &mut ErrorGraph::default(),
     );
@@ -496,7 +496,7 @@ fn the_page_size_follows_the_largest_allocation() {
     let _small = reserve(&mut memory, MIB);
     assert_eq!(
         pool(&memory).page_size,
-        FLOOR,
+        FLOOR_BYTES,
         "the floor holds small workloads"
     );
 
@@ -556,7 +556,7 @@ fn an_allocation_no_page_fits_leaves_the_pages_alone() {
     assert_eq!(
         pool(&memory),
         Pool {
-            page_size: FLOOR,
+            page_size: FLOOR_BYTES,
             pages: 1,
             outdated: 0
         }
@@ -774,7 +774,7 @@ fn other_pools_do_not_move_the_statistic() {
     assert_eq!(
         pool(&memory),
         Pool {
-            page_size: FLOOR,
+            page_size: FLOOR_BYTES,
             pages: 1,
             outdated: 0
         }

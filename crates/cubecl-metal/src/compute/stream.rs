@@ -646,7 +646,7 @@ impl MetalEvent {
     }
 }
 
-impl cubecl_server::memory_management::drop_queue::Fence for MetalEvent {
+impl cubecl_server::memory_management::drop_queue::DeviceWaiter for MetalEvent {
     fn wait(self) -> Result<(), ServerError> {
         self.wait_sync()
     }

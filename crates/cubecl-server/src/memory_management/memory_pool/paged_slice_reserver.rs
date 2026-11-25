@@ -3,7 +3,7 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
         MemoryPoolKind, MemoryPoolReport, MemoryUsage, PageGuard,
-        memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
+        memory_pool::{MemoryPage, PageMapping, Slice, SliceReserver},
     },
     server::IoError,
     storage::{StorageAllocator, StorageHandle, StorageId},
@@ -26,7 +26,7 @@ pub enum PinnedRoom {
 ///
 /// The size is the pool's for its life: what a workload's allocations grow
 /// into is the adaptive memory's to answer, with a pool per size.
-pub struct SlicedPool {
+pub struct PagedSliceReserver {
     pages: Vec<(MemoryPage, StorageId)>,
     pages_tmp: Vec<(MemoryPage, StorageId)>,
     /// The size every page is allocated at.
@@ -44,9 +44,9 @@ pub struct SlicedPool {
     largest_alloc_bytes: u64,
 }
 
-/// What a [`SlicedPool`] carves, and the pool index its slices carry.
+/// What a [`PagedSliceReserver`] carves, and the pool index its slices carry.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SlicedLayout {
+pub(crate) struct PagedLayout {
     /// The size every page is allocated at.
     pub page_size: u64,
     /// The largest allocation the pool accepts, capped at the page size.
@@ -57,9 +57,9 @@ pub(crate) struct SlicedLayout {
     pub pool: u8,
 }
 
-impl SlicedPool {
+impl PagedSliceReserver {
     /// A pool carving pages as `layout` says.
-    pub(crate) fn new(layout: SlicedLayout) -> Self {
+    pub(crate) fn new(layout: PagedLayout) -> Self {
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
@@ -279,7 +279,7 @@ impl SlicedPool {
     }
 }
 
-impl MemoryPool for SlicedPool {
+impl SliceReserver for PagedSliceReserver {
     fn accept(&self, size: u64) -> bool {
         self.max_slice_size >= size
             ||
@@ -389,7 +389,7 @@ impl MemoryPool for SlicedPool {
     }
 }
 
-impl Display for SlicedPool {
+impl Display for PagedSliceReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.pages.is_empty() {
             return Ok(());
@@ -406,10 +406,10 @@ impl Display for SlicedPool {
             let summary = page.summary(false);
             f.write_fmt(format_args!(
                 "   - Page {id} num_slices={} => {} free - {} full - {} total\n",
-                summary.num_total,
-                BytesFormat::from_byte_count(summary.amount_free),
-                BytesFormat::from_byte_count(summary.amount_full),
-                BytesFormat::from_byte_count(summary.amount_total),
+                summary.total_count,
+                BytesFormat::from_byte_count(summary.free_bytes),
+                BytesFormat::from_byte_count(summary.full_bytes),
+                BytesFormat::from_byte_count(summary.total_bytes),
             ))?;
         }
 

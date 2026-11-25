@@ -2,11 +2,11 @@
 //! driver now rather than when their longest-lived allocation ends.
 //!
 //! A [`Relocation`] is planned by the pools it empties, copied on the device
-//! through a [`CopyQueue`], and committed by those pools again from the
-//! [`Landed`] relocation the copy step hands back: an allocation cannot move
+//! through a [`RelocationCopier`], and committed by those pools again from the
+//! [`LandedRelocation`] relocation the copy step hands back: an allocation cannot move
 //! before its bytes are where it moves to.
 
-use super::{CopyQueue, Landed};
+use super::{LandedRelocation, RelocationCopier};
 use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, release_or_leak};
 use crate::server::ServerError;
 use crate::storage::StorageAllocator;
@@ -89,8 +89,8 @@ impl Relocation {
     pub fn copy<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,
-        queue: &mut dyn CopyQueue<Storage>,
-    ) -> Result<Landed, ServerError> {
+        queue: &mut dyn RelocationCopier<Storage>,
+    ) -> Result<LandedRelocation, ServerError> {
         queue.wait_device()?;
         let enqueued = self
             .moves
@@ -103,7 +103,7 @@ impl Relocation {
             return Err(err);
         }
         enqueued?;
-        Ok(Landed { moves: self.moves })
+        Ok(LandedRelocation { moves: self.moves })
     }
 }
 
@@ -114,7 +114,7 @@ mod tests {
 
     struct FailedWait;
 
-    impl CopyQueue<BytesStorage> for FailedWait {
+    impl RelocationCopier<BytesStorage> for FailedWait {
         fn wait_device(&mut self) -> Result<(), ServerError> {
             Ok(())
         }

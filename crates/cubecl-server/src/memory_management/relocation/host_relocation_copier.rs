@@ -1,4 +1,4 @@
-use super::{CopyQueue, StorageCopy};
+use super::{RelocationCopier, StorageCopy};
 use crate::server::{IoError, ServerError};
 use crate::storage::{BytesStorage, StorageAllocator};
 
@@ -8,9 +8,9 @@ use crate::storage::{BytesStorage, StorageAllocator};
 /// Waits on nothing: whoever runs work against the memory waits for it before
 /// handing the relocation over.
 #[derive(Debug, Default)]
-pub struct HostCopies;
+pub struct HostRelocationCopier;
 
-impl CopyQueue<BytesStorage> for HostCopies {
+impl RelocationCopier<BytesStorage> for HostRelocationCopier {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         Ok(())
     }

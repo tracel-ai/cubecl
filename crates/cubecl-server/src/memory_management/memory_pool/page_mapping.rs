@@ -22,7 +22,7 @@ pub enum PageMapping {
     Eager,
     /// Mint the storage id now and defer the device allocation to the first
     /// time one of the page's slices is resolved
-    /// ([`MemoryPool::materialize`](super::MemoryPool::materialize)). Until then the id has no driver memory
+    /// ([`SliceReserver::materialize`](super::SliceReserver::materialize)). Until then the id has no driver memory
     /// behind it and the page's device footprint is zero.
     ///
     /// For the one case where the allocation may never be used: under a
@@ -57,7 +57,7 @@ impl PageMapping {
 
     /// A storage handle for `size` bytes honoring this mapping: a real device
     /// allocation when [`Eager`](Self::Eager), a minted id awaiting
-    /// [`MemoryPool::materialize`](super::MemoryPool::materialize) when [`Lazy`](Self::Lazy).
+    /// [`SliceReserver::materialize`](super::SliceReserver::materialize) when [`Lazy`](Self::Lazy).
     pub(crate) fn storage_handle<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,

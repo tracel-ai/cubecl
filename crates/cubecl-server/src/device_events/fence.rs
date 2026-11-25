@@ -11,7 +11,7 @@ use crate::server::ServerError;
 /// event costs the host nothing: the server records one and returns, and
 /// whoever holds the fence waits on its own time.
 ///
-/// Named for the trait it is not: `memory_management::drop_queue::Fence` is the
+/// `memory_management::drop_queue::DeviceWaiter` is the
 /// contract, and this is the implementation of it that a device event gives
 /// you. Backends alias it back to `Fence` for their own call sites. Named in
 /// prose rather than linked because that trait is `multi_threading`-only while
@@ -96,7 +96,7 @@ impl<A: EventApi> core::fmt::Debug for EventFence<A> {
 /// rather than on the server — and it is `multi_threading`-only, so the impl is
 /// too. Everything above it is the same fence either way.
 #[cfg(multi_threading)]
-impl<A: EventApi> drop_queue::Fence for EventFence<A> {
+impl<A: EventApi> drop_queue::DeviceWaiter for EventFence<A> {
     fn wait(self) -> Result<(), ServerError> {
         self.wait_sync()
     }

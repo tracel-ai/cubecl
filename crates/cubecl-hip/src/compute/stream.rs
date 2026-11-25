@@ -122,7 +122,7 @@ impl EventStreamBackend for HipStreamBackend {
             capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
-                max_bytes_count: match self.is_integrated {
+                max_staged_count: match self.is_integrated {
                     // Integrated GPUs (APUs) share memory and IOMMU with the CPU.
                     // Flushing more frequently prevents the GPU from reaching 100%
                     // utilization, which avoids transient voltage droops and IOMMU

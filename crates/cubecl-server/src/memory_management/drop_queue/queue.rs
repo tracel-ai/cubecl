@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
 
 use crate::memory_management::{
-    drop_queue::Fence, drop_queue::FlushingPolicy, drop_queue::policy::FlushingPolicyState,
+    drop_queue::DeviceWaiter, drop_queue::FlushingPolicy, drop_queue::policy::FlushTracker,
 };
 
 /// Defers the drop of CPU-side [`Bytes`] allocations until the device has
@@ -19,7 +19,7 @@ use crate::memory_management::{
 /// 1. **Stage** – call [`push`](Self::push) to hand over bytes that are
 ///    in-flight. They land in the `staged` list.
 /// 2. **Flush** – call [`flush`](Self::flush) to rotate the lists. The
-///    previously staged bytes move to `pending`, a new [`Fence`] is created
+///    previously staged bytes move to `pending`, a new [`DeviceWaiter`] is created
 ///    to mark the end of the current upload batch, and any bytes that were
 ///    *already* pending (i.e. the batch before that) are freed after syncing
 ///    the previous fence.
@@ -32,7 +32,7 @@ use crate::memory_management::{
 /// Call [`should_flush`](Self::should_flush) to check whether enough bytes
 /// have accumulated to warrant a flush. You may also flush unconditionally
 /// (e.g. at the end of a frame).
-pub struct PendingDropQueue<E: Fence> {
+pub struct PendingDropQueue<E: DeviceWaiter> {
     /// Fence signalling that the device has consumed everything in `pending`.
     fence: Option<E>,
     /// What the *previous* flush cycle held, kept alive until `event` fires.
@@ -42,7 +42,7 @@ pub struct PendingDropQueue<E: Fence> {
     /// The configuration of the queue.
     policy: FlushingPolicy,
     /// The current state of the policy.
-    policy_state: FlushingPolicyState,
+    policy_state: FlushTracker,
 }
 
 /// What the queue keeps alive until the device is done with it.
@@ -55,7 +55,7 @@ enum Held {
     Peer(#[allow(unused)] BufferBinding),
 }
 
-impl<E: Fence> core::fmt::Debug for PendingDropQueue<E> {
+impl<E: DeviceWaiter> core::fmt::Debug for PendingDropQueue<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PendingDropQueue")
             .field("pending", &self.pending)
@@ -66,13 +66,13 @@ impl<E: Fence> core::fmt::Debug for PendingDropQueue<E> {
     }
 }
 
-impl<E: Fence> Default for PendingDropQueue<E> {
+impl<E: DeviceWaiter> Default for PendingDropQueue<E> {
     fn default() -> Self {
         Self::new(Default::default())
     }
 }
 
-impl<F: Fence> PendingDropQueue<F> {
+impl<F: DeviceWaiter> PendingDropQueue<F> {
     /// Creates a new `PendingDropQueue`.
     pub fn new(policy: FlushingPolicy) -> Self {
         Self {
@@ -147,7 +147,7 @@ impl<F: Fence> PendingDropQueue<F> {
 
     /// Rotate the double-buffer and free any memory the device is done with.
     ///
-    /// `factory` is called to produce a [`Fence`]. It should submit (or
+    /// `factory` is called to produce a [`DeviceWaiter`]. It should submit (or
     /// record) a device signal command so that syncing the fence guarantees all
     /// preceding device work is complete.
     pub(crate) fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
@@ -198,7 +198,7 @@ mod tests {
         sync_count: &'a Cell<u32>,
     }
 
-    impl Fence for MockFence<'_> {
+    impl DeviceWaiter for MockFence<'_> {
         fn wait(self) -> Result<(), ServerError> {
             self.sync_count.set(self.sync_count.get() + 1);
             Ok(())
@@ -222,8 +222,8 @@ mod tests {
 
     fn test_policy() -> FlushingPolicy {
         FlushingPolicy {
-            max_bytes_count: 2048,
-            max_bytes_size: 8,
+            max_staged_count: 2048,
+            max_staged_bytes: 8,
         }
     }
 
@@ -236,7 +236,7 @@ mod tests {
         let sync_count = Cell::new(0u32);
         let (mut queue, _factory) = make_queue(&sync_count);
 
-        for _ in 0..test_policy().max_bytes_count {
+        for _ in 0..test_policy().max_staged_count {
             queue.push(sample_bytes());
         }
 
@@ -247,7 +247,7 @@ mod tests {
     fn push_large_allocation_triggers_flush_via_size_threshold() {
         let sync_count = Cell::new(0u32);
         let (mut queue, _factory) = make_queue(&sync_count);
-        let big = Bytes::from_elems(vec![0u8; test_policy().max_bytes_size as usize + 1]);
+        let big = Bytes::from_elems(vec![0u8; test_policy().max_staged_bytes as usize + 1]);
 
         queue.push(big);
 
@@ -359,7 +359,7 @@ mod tests {
         let sync_count = Cell::new(0u32);
         let (mut queue, factory) = make_queue(&sync_count);
 
-        for _ in 0..test_policy().max_bytes_count {
+        for _ in 0..test_policy().max_staged_count {
             queue.push(sample_bytes());
         }
         assert!(queue.should_flush());
@@ -390,7 +390,7 @@ mod tests {
     /// A fence whose wait fails with `error`.
     struct FailingFence(ServerError);
 
-    impl Fence for FailingFence {
+    impl DeviceWaiter for FailingFence {
         fn wait(self) -> Result<(), ServerError> {
             Err(self.0)
         }

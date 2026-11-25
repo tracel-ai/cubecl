@@ -1,4 +1,4 @@
-use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, padded_size};
+use super::{ManagedMemoryHandle, PageMapping, Slice, SliceReserver, padded_size};
 use crate::memory_management::Cleanup;
 use crate::memory_management::{
     BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 
-pub struct PersistentPool {
+pub struct PersistentSliceReserver {
     slices: Vec<Slice>,
     sizes: HashMap<u64, Vec<usize>>,
     alignment: u64,
@@ -22,25 +22,25 @@ pub struct PersistentPool {
     largest_alloc_bytes: u64,
 }
 
-impl core::fmt::Display for PersistentPool {
+impl core::fmt::Display for PersistentSliceReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for (size, positions) in self.sizes.iter() {
-            let mut num_free = 0;
-            let mut num_full = 0;
+            let mut free_count = 0;
+            let mut full_count = 0;
             let total = positions.len();
 
             for pos in positions {
                 let slice = &self.slices[*pos];
                 let is_free = slice.is_free();
                 if is_free {
-                    num_free += 1;
+                    free_count += 1;
                 } else {
-                    num_full += 1;
+                    full_count += 1;
                 }
             }
 
             f.write_fmt(format_args!(
-                "  - Slices {} =>  {num_free} free - {num_full} full - {total} total\n",
+                "  - Slices {} =>  {free_count} free - {full_count} full - {total} total\n",
                 BytesFormat::from_byte_count(*size)
             ))?;
         }
@@ -53,7 +53,7 @@ impl core::fmt::Display for PersistentPool {
     }
 }
 
-impl PersistentPool {
+impl PersistentSliceReserver {
     pub fn new(max_alloc_size: u64, alignment: u64, pool_pos: u8) -> Self {
         Self {
             slices: Vec::new(),
@@ -84,7 +84,7 @@ impl PersistentPool {
     }
 }
 
-impl MemoryPool for PersistentPool {
+impl SliceReserver for PersistentSliceReserver {
     fn accept(&self, size: u64) -> bool {
         padded_size(size, self.alignment).is_some_and(|padded| padded <= self.max_alloc_size)
     }
@@ -158,7 +158,7 @@ impl MemoryPool for PersistentPool {
         // Every persistent slice owns its whole buffer, so laziness is
         // per-slice: a minted id under a process mode that discards launches (a scratch
         // session's KV cache, for instance) costs nothing until a measurement
-        // actually touches it — see [`MemoryPool::materialize`].
+        // actually touches it — see [`SliceReserver::materialize`].
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
@@ -305,7 +305,7 @@ mod tests {
         use crate::storage::StorageAllocator;
 
         let mut storage = BytesStorage::default();
-        let mut pool = PersistentPool::new(1024, 16, 0);
+        let mut pool = PersistentSliceReserver::new(1024, 16, 0);
 
         let refused = pool.alloc(
             &mut storage,
@@ -336,7 +336,7 @@ mod tests {
     fn persistent_pool_try_reserve_reuses_slice_with_padding() {
         let mut storage = BytesStorage::default();
         let alignment = 4u64;
-        let mut pool = PersistentPool::new(1024 * 1024, alignment, 0);
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, alignment, 0);
 
         let size = 1025u64;
         assert_ne!(
@@ -371,7 +371,7 @@ mod tests {
     #[test_log::test]
     fn a_reused_slice_takes_the_padding_of_its_new_size() {
         let mut storage = BytesStorage::default();
-        let mut pool = PersistentPool::new(1024, 32, 0);
+        let mut pool = PersistentSliceReserver::new(1024, 32, 0);
         let first = pool
             .alloc(
                 &mut storage,
@@ -395,7 +395,7 @@ mod tests {
     #[test_log::test]
     fn a_size_whose_padding_overflows_is_refused() {
         let mut storage = BytesStorage::default();
-        let mut pool = PersistentPool::new(1024, 32, 0);
+        let mut pool = PersistentSliceReserver::new(1024, 32, 0);
 
         assert!(!pool.accept(u64::MAX));
         assert!(!pool.has_size(u64::MAX));
@@ -413,7 +413,7 @@ mod tests {
     #[test_log::test]
     fn persistent_pool() {
         let mut storage = BytesStorage::default();
-        let mut pool = PersistentPool::new(1024 * 1024, 4, 0);
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
 
         let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         assert!(result.is_none(), "No alloc yet");

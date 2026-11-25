@@ -1,4 +1,4 @@
-use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, padded_size};
+use super::{ManagedMemoryHandle, PageMapping, Slice, SliceReserver, padded_size};
 use crate::memory_management::Cleanup;
 use crate::memory_management::{
     BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -25,7 +25,7 @@ use cubecl_environment::backtrace::BackTrace;
 /// a minted id that costs no driver call to create and none to release. And on
 /// a device where the workload barely fits, the padding this removes can be the
 /// difference between fitting and not.
-pub struct DirectPool {
+pub struct DirectSliceReserver {
     /// Every slice owns its whole device allocation. Indexed by
     /// [`MemoryLocation::slice`], so freed entries are tombstoned rather than
     /// removed — a live handle's location must keep pointing at its own slice.
@@ -51,7 +51,7 @@ pub struct DirectPool {
     largest_alloc_bytes: u64,
 }
 
-impl DirectPool {
+impl DirectSliceReserver {
     /// Create a pool that serves any size up to `max_alloc_size`, the largest
     /// single allocation the device makes: with no pages to fit an allocation
     /// into, that is its only limit.
@@ -152,7 +152,7 @@ impl DirectPool {
     }
 }
 
-impl MemoryPool for DirectPool {
+impl SliceReserver for DirectSliceReserver {
     fn accept(&self, size: u64) -> bool {
         padded_size(size, self.alignment).is_some_and(|padded| padded <= self.max_alloc_size)
     }
@@ -348,7 +348,7 @@ impl MemoryPool for DirectPool {
     }
 }
 
-impl core::fmt::Display for DirectPool {
+impl core::fmt::Display for DirectSliceReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let usage = self.get_memory_usage();
         if usage.reserved_bytes == 0 {
@@ -373,12 +373,12 @@ mod tests {
     const MAX: u64 = 1024;
     const ALIGNMENT: u64 = 16;
 
-    fn pool() -> DirectPool {
-        DirectPool::new(MAX, ALIGNMENT, 0, Some(0))
+    fn pool() -> DirectSliceReserver {
+        DirectSliceReserver::new(MAX, ALIGNMENT, 0, Some(0))
     }
 
     fn alloc(
-        pool: &mut DirectPool,
+        pool: &mut DirectSliceReserver,
         storage: &mut BytesStorage,
         size: u64,
     ) -> Result<ManagedMemoryHandle, IoError> {

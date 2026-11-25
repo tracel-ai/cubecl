@@ -1,7 +1,7 @@
 //! How a stream's dynamic pools are managed.
 
-use super::{AdaptiveMemory, ExclusivePools};
-use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
+use super::{AdaptiveReserver, BucketReserver};
+use crate::memory_management::relocation::{RelocationCopier, RelocationNeed, RelocationReason};
 use crate::memory_management::{AllocationKind, Cleanup};
 use crate::{
     config::memory::MemoryLogLevel,
@@ -9,7 +9,7 @@ use crate::{
     memory_management::{
         ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryConfiguration,
         MemoryPoolReport,
-        memory_pool::{MemoryPool, PageMapping},
+        memory_pool::{PageMapping, SliceReserver},
     },
     server::{IoError, ServerError},
     storage::StorageAllocator,
@@ -25,11 +25,11 @@ use cubecl_ir::MemoryDeviceProperties;
 /// their allocation.
 pub enum DynamicMemory {
     /// One page per allocation, in size buckets. Nothing is ever outdated.
-    Exclusive(ExclusivePools),
+    Exclusive(BucketReserver),
     /// Pages sized to the largest allocation served, with a pool per size:
     /// the pool a growth leaves behind drains and is dropped. Boxed: it holds
     /// its pools inline, and a memory is built once.
-    Adaptive(Box<AdaptiveMemory>),
+    Adaptive(Box<AdaptiveReserver>),
 }
 
 impl DynamicMemory {
@@ -42,7 +42,7 @@ impl DynamicMemory {
     ) -> Self {
         match config {
             MemoryConfiguration::ExclusivePages => {
-                let pools = ExclusivePools::new(properties);
+                let pools = BucketReserver::new(properties);
                 logger.log_memory(
                     |level| !matches!(level, MemoryLogLevel::Disabled),
                     || format!("[{name}] Using memory pools:\n{pools}"),
@@ -54,12 +54,12 @@ impl DynamicMemory {
             // the variant without disagreeing with it once the feature is
             // turned on there directly.
             #[allow(unreachable_patterns)]
-            _ => DynamicMemory::Adaptive(Box::new(AdaptiveMemory::new(properties, logger, name))),
+            _ => DynamicMemory::Adaptive(Box::new(AdaptiveReserver::new(properties, logger, name))),
         }
     }
 
     /// The pool `index` names, while one is there.
-    pub fn pool(&self, index: u8) -> Option<&dyn MemoryPool> {
+    pub fn pool(&self, index: u8) -> Option<&dyn SliceReserver> {
         match self {
             DynamicMemory::Exclusive(pools) => Some(pools.pool(index)?),
             DynamicMemory::Adaptive(memory) => memory.pool(index),
@@ -67,7 +67,7 @@ impl DynamicMemory {
     }
 
     /// The pool `index` names, mutably.
-    pub fn pool_mut(&mut self, index: u8) -> Option<&mut dyn MemoryPool> {
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut dyn SliceReserver> {
         match self {
             DynamicMemory::Exclusive(pools) => Some(pools.pool_mut(index)?),
             DynamicMemory::Adaptive(memory) => memory.pool_mut(index),
@@ -149,7 +149,7 @@ impl DynamicMemory {
     pub fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
@@ -160,16 +160,16 @@ impl DynamicMemory {
     }
 
     /// Move every allocation of `kept` off the pages graphs guard, onto room no replay writes
-    /// (see [`AdaptiveMemory::move_apart`]). Nothing to move where pages are never shared.
+    /// (see [`AdaptiveReserver::move_apart`]). Nothing to move where pages are never shared.
     ///
     /// # Errors
     ///
-    /// As [`AdaptiveMemory::move_apart`].
+    /// As [`AdaptiveReserver::move_apart`].
     pub fn move_apart<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         kept: &[ManagedMemoryBinding],
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         failures: &mut ErrorGraph,
     ) -> Result<(), ServerError> {
         match self {

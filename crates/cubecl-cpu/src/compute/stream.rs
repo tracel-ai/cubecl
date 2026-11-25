@@ -11,7 +11,7 @@ use cubecl_core::{
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_server::memory_management::relocation::{
-    HostCopies, RelocatableStream, RelocationNeed, RelocationReason,
+    HostRelocationCopier, RelocationNeed, RelocationReason, StreamRelocator,
 };
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::{
@@ -57,7 +57,7 @@ impl StreamMemory for CpuStream {
     }
 }
 
-impl RelocatableStream for CpuStream {
+impl StreamRelocator for CpuStream {
     /// Never: the CPU records no graphs.
     fn recording(&self) -> bool {
         false
@@ -77,7 +77,7 @@ impl RelocatableStream for CpuStream {
 
     fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
         self.memory_management
-            .relocate(&mut HostCopies, reason, failures);
+            .relocate(&mut HostRelocationCopier, reason, failures);
     }
 
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {

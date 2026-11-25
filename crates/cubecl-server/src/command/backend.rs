@@ -7,7 +7,7 @@
 
 use crate::allocator::Pitch;
 use crate::id::KernelId;
-use crate::memory_management::drop_queue::{Fence, PendingDropQueue};
+use crate::memory_management::drop_queue::{DeviceWaiter, PendingDropQueue};
 use crate::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use crate::metadata_cache::MetadataInfoCache;
 use crate::server::{Handle, IoError, LaunchError, ServerError};
@@ -26,7 +26,7 @@ use cubecl_zspace::{Shape, Strides, striding::has_pitched_row_major_strides};
 pub trait DeviceStream {
     /// The fence this backend records on a stream. Fencing is how the drop
     /// queue knows the device is done with what it is holding.
-    type Fence: Fence + Send + 'static;
+    type Fence: DeviceWaiter + Send + 'static;
     /// The storage backing the memory this stream's kernels address.
     type DeviceStorage: StorageAllocator;
     /// The storage backing the host buffers that stage transfers to it.

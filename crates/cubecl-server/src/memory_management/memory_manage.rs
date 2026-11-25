@@ -2,7 +2,7 @@ use super::{
     DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle,
     MemoryAllocationMode, MemoryAllocationOption, MemoryConfiguration, MemoryLocation,
     MemoryManagementOptions, MemoryPoolsReport, PERSISTENT_POOL_POS, PageGuard,
-    memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
+    memory_pool::{DirectSliceReserver, PageMapping, PersistentSliceReserver, SliceReserver},
 };
 use crate::{
     config::{
@@ -15,7 +15,7 @@ use crate::{
     storage::{ManagedResource, StorageAllocator, StorageHandle},
 };
 
-use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
+use crate::memory_management::relocation::{RelocationCopier, RelocationNeed, RelocationReason};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -95,10 +95,10 @@ pub enum Cleanup {
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
     name: String,
-    persistent: PersistentPool,
+    persistent: PersistentSliceReserver,
     /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
     /// device allocation, returned to the driver on the tick after it is freed.
-    dedicated: DirectPool,
+    dedicated: DirectSliceReserver,
     pools: DynamicMemory,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -140,13 +140,13 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
             name: options.name,
             // Both pools hold one device allocation per buffer, so neither is
             // bounded by a page: each takes the largest single allocation.
-            persistent: PersistentPool::new(
+            persistent: PersistentSliceReserver::new(
                 properties.max_allocation_size(),
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
             // A watermark of zero: every free slice goes back on the next tick.
-            dedicated: DirectPool::new(
+            dedicated: DirectSliceReserver::new(
                 properties.max_allocation_size(),
                 properties.alignment,
                 DEDICATED_POOL_POS,
@@ -262,7 +262,7 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     }
 
     /// The pool `location` names.
-    fn pool(&self, location: MemoryLocation) -> Result<&dyn MemoryPool, IoError> {
+    fn pool(&self, location: MemoryLocation) -> Result<&dyn SliceReserver, IoError> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => Ok(&self.persistent),
             PoolPosition::Dedicated => Ok(&self.dedicated),
@@ -274,7 +274,7 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     }
 
     /// The pool `location` names, mutably.
-    fn pool_mut(&mut self, location: MemoryLocation) -> Result<&mut dyn MemoryPool, IoError> {
+    fn pool_mut(&mut self, location: MemoryLocation) -> Result<&mut dyn SliceReserver, IoError> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => Ok(&mut self.persistent),
             PoolPosition::Dedicated => Ok(&mut self.dedicated),
@@ -321,7 +321,7 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// target may take a new page.
     pub fn relocate(
         &mut self,
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
@@ -339,7 +339,7 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     pub fn move_apart(
         &mut self,
         kept: &[ManagedMemoryBinding],
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         failures: &mut ErrorGraph,
     ) -> Result<(), ServerError> {
         self.pools
@@ -723,7 +723,7 @@ mod tests {
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties::new(128 * MIB, 32);
     /// The page the `Adaptive` preset's metadata pool carves.
     #[cfg(not(exclusive_memory_only))]
-    const METADATA_PAGE: u64 = 8 * MIB;
+    const METADATA_PAGE_BYTES: u64 = 8 * MIB;
 
     fn options() -> MemoryManagementOptions {
         MemoryManagementOptions {
@@ -814,7 +814,7 @@ mod tests {
 
         assert_eq!(usage.in_use_bytes, 100);
         // A metadata-sized allocation is carved from one metadata page.
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES);
 
         // Drop and re-alloc.
         drop(handle);
@@ -993,7 +993,7 @@ mod tests {
         assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         // One page, not two: both slices were carved from the same one.
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES);
     }
 
     #[test_log::test]
@@ -1018,7 +1018,7 @@ mod tests {
         let usage = memory_management.memory_report().usage();
         assert_eq!(usage.allocation_count, 1);
         assert_eq!(usage.in_use_bytes, alloc_size);
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES);
     }
 
     #[test_log::test]
@@ -1097,7 +1097,7 @@ mod tests {
         // Total memory should be size of all pages, and no more: one metadata
         // page, and one adaptive page grown to the 4 MiB allocation.
         assert_eq!(usage.in_use_bytes, alloc_sizes.iter().sum::<u64>());
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE + 5 * MIB);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES + 5 * MIB);
     }
 
     // The motivating use case: allocations from different "sequence-length
@@ -1449,7 +1449,7 @@ mod tests {
     #[cfg(not(exclusive_memory_only))]
     fn dedicated_allocations_are_released_once_freed() {
         /// The floor the `Adaptive` preset carves its pages at.
-        const FLOOR: u64 = 2 * MIB;
+        const FLOOR_BYTES: u64 = 2 * MIB;
         let mut memory = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &MemoryDeviceProperties::new(1024 * MIB, 32),
@@ -1487,7 +1487,7 @@ mod tests {
         let _tick = reserve(&mut memory, MIB);
         assert_eq!(
             memory.memory_report().usage().reserved_bytes,
-            MIB + FLOOR,
+            MIB + FLOOR_BYTES,
             "the probe buffer is gone; the weight and one adaptive page remain"
         );
         drop(weight);

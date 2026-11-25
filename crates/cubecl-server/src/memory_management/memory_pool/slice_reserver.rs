@@ -8,9 +8,9 @@ use crate::{
 /// Declares how memory is allocated in a reusable pool.
 ///
 /// The methods that take a storage are for callers holding the pool's own
-/// type; the rest can be reached through `dyn MemoryPool`, which is how a
+/// type; the rest can be reached through `dyn SliceReserver`, which is how a
 /// location is resolved to whichever pool it names.
-pub trait MemoryPool {
+pub trait SliceReserver {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
 
@@ -55,7 +55,7 @@ pub trait MemoryPool {
     /// # Returns
     ///
     /// A [slice handle](StorageHandle) if the current memory pool has enough memory, otherwise it
-    /// will returns [None]. You can then call [`MemoryPool::alloc()`] to increase the amount of
+    /// will returns [None]. You can then call [`SliceReserver::alloc()`] to increase the amount of
     /// memory the pool has.
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle>;
 

@@ -31,7 +31,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::memory_management::relocation::{
-    RelocatableStream, RelocationNeed, RelocationReason,
+    RelocationNeed, RelocationReason, StreamRelocator,
 };
 use cubecl_server::memory_management::{Cleanup, MemoryManagement};
 use cubecl_server::{
@@ -141,7 +141,7 @@ impl StreamMemory for WgpuStream {
     }
 }
 
-impl RelocatableStream for WgpuStream {
+impl StreamRelocator for WgpuStream {
     fn recording(&self) -> bool {
         self.capturing.device().any_recording()
     }

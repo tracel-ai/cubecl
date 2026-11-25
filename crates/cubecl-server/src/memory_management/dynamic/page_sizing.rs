@@ -1,14 +1,14 @@
-use crate::memory_management::memory_pool::{SlicedLayout, SlicedPool, padded_size};
+use crate::memory_management::memory_pool::{PagedLayout, PagedSliceReserver, padded_size};
 use cubecl_ir::MemoryDeviceProperties;
 
 /// Slack a page keeps past the largest allocation it was sized for, so that
 /// allocation still fits once aligned.
-const PAGE_SLACK: u64 = 1024 * 1024;
+const PAGE_SLACK_BYTES: u64 = 1024 * 1024;
 
 /// The unit a page size is rounded up to.
-const PAGE_GRANULE: u64 = 1024 * 1024;
+const PAGE_GRANULE_BYTES: u64 = 1024 * 1024;
 
-/// How the pages of a [`PoolArena`](super::PoolArena) are sized.
+/// How the pages of a [`ArenaReserver`](super::ArenaReserver) are sized.
 #[derive(Debug, Clone, Copy)]
 pub struct PageSizing {
     /// The smallest page, so a workload of small allocations still carves
@@ -67,18 +67,18 @@ impl PageSizing {
         }
         Fit::Grow {
             page_size: size
-                .saturating_add(PAGE_SLACK)
-                .next_multiple_of(PAGE_GRANULE)
+                .saturating_add(PAGE_SLACK_BYTES)
+                .next_multiple_of(PAGE_GRANULE_BYTES)
                 .next_multiple_of(self.alignment)
                 .clamp(self.min_page_size, self.max_page_size),
         }
     }
 
     /// A pool carving pages of `page_size`, whose slices carry `index`.
-    pub(super) fn pool(&self, page_size: u64, index: u8) -> SlicedPool {
+    pub(super) fn pool(&self, page_size: u64, index: u8) -> PagedSliceReserver {
         // It takes every size it is handed, so nothing is refused for being
         // larger than a slice of a page it fits.
-        SlicedPool::new(SlicedLayout {
+        PagedSliceReserver::new(PagedLayout {
             page_size,
             max_slice_size: page_size,
             alignment: self.alignment,

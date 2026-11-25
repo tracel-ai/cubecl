@@ -1,5 +1,5 @@
 use crate::memory_management::relocation::{
-    RelocatableStream, RelocatingStreams, RelocationNeed, RelocationReason,
+    DeviceRelocator, RelocationNeed, RelocationReason, StreamRelocator,
 };
 use crate::{
     config::streaming::StreamingLogLevel,
@@ -163,10 +163,10 @@ pub struct SchedulerRelocation<'a, B: SchedulerStreamBackend> {
     stream_id: StreamId,
 }
 
-impl<B> RelocatingStreams for SchedulerRelocation<'_, B>
+impl<B> DeviceRelocator for SchedulerRelocation<'_, B>
 where
     B: SchedulerStreamBackend,
-    B::Stream: RelocatableStream,
+    B::Stream: StreamRelocator,
 {
     fn recording(&mut self) -> bool {
         self.scheduler.stream(&self.stream_id).recording()
@@ -183,7 +183,7 @@ where
     fn bytes_allocated(&mut self) -> u64 {
         self.scheduler
             .streams()
-            .map(RelocatableStream::bytes_allocated)
+            .map(StreamRelocator::bytes_allocated)
             .sum()
     }
 
@@ -202,9 +202,7 @@ where
     }
 
     fn device_has_outdated(&mut self) -> bool {
-        self.scheduler
-            .streams()
-            .any(RelocatableStream::has_outdated)
+        self.scheduler.streams().any(StreamRelocator::has_outdated)
     }
 
     fn relocate_device_memory(&mut self, reason: RelocationReason) {
