@@ -249,3 +249,118 @@ impl AsMutExpand for CellScalesExpand {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use cubecl::frontend::IntoExpand;
+    use cubecl::ir::Scope;
+
+    use super::*;
+    use crate::test_scope::test_scope;
+
+    const ROW: Dimension = Dimension(0);
+    const COL: Dimension = Dimension(1);
+    const BATCH: Dimension = Dimension(2);
+
+    /// The scales of a batch of two `4 × 8` sums under one scale over `scale`, which varies along
+    /// each of its dimensions.
+    fn scales_over(scope: &Scope, scale: &[(Dimension, usize)]) -> CellScalesExpand {
+        let sum = Space::new(&[(BATCH, 2), (ROW, 4), (COL, 8)]);
+        let values = Tile::__expand_shared::<f32>(scope, sum.clone(), StageStorage::Strided);
+        let scale = Tile::__expand_shared::<f32>(scope, Space::new(scale), StageStorage::Strided);
+        let scaled = values.__expand_mul_method(scope, &scale);
+        let dimensions = MatrixDimensions::trailing(&sum);
+        CellScalesExpand::new(scope, &scaled.factor, sum, dimensions)
+    }
+
+    /// A cell whose place for the holder's first unit is `first_unit`.
+    fn cell(scope: &Scope, first_unit: Option<(usize, usize)>) -> HeldCellExpand {
+        HeldCellExpand {
+            row: 0u32.into_expand(scope),
+            col: 0u32.into_expand(scope),
+            first_unit,
+        }
+    }
+
+    fn cells(scope: &Scope, places: &[Option<(usize, usize)>]) -> SequenceExpand<HeldCell> {
+        let mut cells = Sequence::<HeldCell>::__expand_new(scope);
+        for &place in places {
+            cells.__expand_push_method(scope, cell(scope, place));
+        }
+        cells
+    }
+
+    #[test]
+    fn a_scale_varying_along_the_columns_broadcasts_to_cells_of_one_column() {
+        let scope = test_scope();
+        let scales = scales_over(&scope, &[(COL, 8)]);
+        let column = cells(&scope, &[Some((0, 3)), Some((1, 3))]);
+
+        assert!(scales.__expand_broadcasts_method(&scope, 0, &column));
+    }
+
+    #[test]
+    fn a_scale_varying_along_the_columns_does_not_broadcast_to_cells_of_two_columns() {
+        let scope = test_scope();
+        let scales = scales_over(&scope, &[(COL, 8)]);
+        let row = cells(&scope, &[Some((0, 3)), Some((0, 4))]);
+
+        assert!(!scales.__expand_broadcasts_method(&scope, 0, &row));
+    }
+
+    #[test]
+    fn a_varying_scale_does_not_broadcast_to_cells_of_unknown_places() {
+        let scope = test_scope();
+        let scales = scales_over(&scope, &[(COL, 8)]);
+        let unknown = cells(&scope, &[None, None]);
+
+        assert!(!scales.__expand_broadcasts_method(&scope, 0, &unknown));
+    }
+
+    #[test]
+    fn a_scale_broadcasts_to_a_single_cell() {
+        let scope = test_scope();
+        let scales = scales_over(&scope, &[(ROW, 4), (COL, 8)]);
+        let one = cells(&scope, &[None]);
+
+        assert!(scales.__expand_broadcasts_method(&scope, 0, &one));
+    }
+
+    #[test]
+    #[should_panic(expected = "a line holds a cell")]
+    fn broadcasts_refuses_a_line_of_no_cell() {
+        let scope = test_scope();
+        let scales = scales_over(&scope, &[(COL, 8)]);
+
+        scales.__expand_broadcasts_method(&scope, 0, &cells(&scope, &[]));
+    }
+
+    #[test]
+    fn a_scale_varying_along_the_batch_alone_is_read_once_built() {
+        let scope = test_scope();
+        let scales = scales_over(&scope, &[(BATCH, 2)]);
+
+        assert_eq!(scales.read.len(), 1);
+    }
+
+    #[test]
+    fn a_scale_read_for_cells_it_broadcasts_to_is_read_once() {
+        let scope = test_scope();
+        let mut scales = scales_over(&scope, &[(COL, 8)]);
+
+        scales.__expand_at_method(&scope, 0, &cell(&scope, Some((0, 3))));
+        scales.__expand_at_method(&scope, 0, &cell(&scope, Some((1, 3))));
+
+        assert_eq!(scales.read.len(), 1);
+    }
+
+    #[test]
+    fn a_scale_read_for_a_cell_of_unknown_place_is_not_kept() {
+        let scope = test_scope();
+        let mut scales = scales_over(&scope, &[(COL, 8)]);
+
+        scales.__expand_at_method(&scope, 0, &cell(&scope, None));
+
+        assert!(scales.read.is_empty());
+    }
+}
