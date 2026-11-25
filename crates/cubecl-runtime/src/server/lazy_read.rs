@@ -8,7 +8,7 @@ use core::ops::Range;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::sync::{Mutex, Once};
-use cubecl_zspace::striding::has_contiguous_row_major_strides;
+use cubecl_zspace::striding::try_check_contiguous_row_major_strides;
 
 /// What takes a started read's copy when nothing will resolve it.
 pub type RetireCopy = Box<dyn FnOnce(DynFut<Result<Vec<Bytes>, ServerError>>) + Send>;
@@ -256,7 +256,9 @@ impl LazyRead {
     fn held_pieces(&self) -> Vec<Range<u64>> {
         let read = self.source.handle.to_binding().range();
         let held = self.held_ranges();
-        let contiguous = has_contiguous_row_major_strides(&self.source.shape, &self.source.strides);
+        let contiguous =
+            try_check_contiguous_row_major_strides(&self.source.shape, &self.source.strides)
+                .is_ok();
         if self.is_whole(&held) && !contiguous {
             return vec![read];
         }

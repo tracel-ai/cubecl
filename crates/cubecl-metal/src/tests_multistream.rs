@@ -151,10 +151,10 @@ fn add_one_in_place(buffer: &mut [u32]) {
     }
 }
 
-/// An overwrite from another stream copies a lazy read on the reader's stream, behind reader work
-/// queued after the read, and that work waits only on what the writer had already submitted.
+/// Reader work queued after a lazy read does not keep an overwrite from another stream waiting:
+/// it waits only on what the writer had already submitted.
 #[test]
-fn an_overwrite_copies_a_lazy_read_behind_later_reader_work() {
+fn a_lazy_read_with_later_reader_work_is_its_buffer_before_a_write_on_another_stream() {
     let client = client();
     let (reader, writer) = (
         cubecl_environment::stream::StreamId { value: 4_400_001 },

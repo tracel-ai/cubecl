@@ -267,7 +267,10 @@ impl LazyReads {
         match fence {
             Some(fence) => {
                 let retired = self.retired.clone();
-                Box::new(move |copy| retired.0.lock().push((fence, copy)))
+                Box::new(move |copy| match fence.is_reached() {
+                    true => drop(copy),
+                    false => retired.0.lock().push((fence, copy)),
+                })
             }
             None => Box::new(core::mem::drop),
         }

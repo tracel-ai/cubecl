@@ -626,6 +626,42 @@ fn a_read_dropped_unread_lets_go_of_its_copy_once_it_is_done() {
 }
 
 #[test]
+fn a_write_over_a_rank_zero_read_copies_its_binding() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (handle, binding) = device.buffer(stream);
+    let scalar = CopyDescriptor::new(
+        handle.clone(),
+        [0usize; 0].into(),
+        [0usize; 0].into(),
+        SIZE as usize,
+    );
+    let held = Arc::new(LazyRead::new(scalar)).hold(0..SIZE as usize);
+    keep_lazy_read(&mut device, held.read().clone(), stream)
+        .expect("clean memory should be readable");
+
+    device.write(stream, binding);
+
+    assert_eq!(device.copied, vec![0..SIZE]);
+}
+
+#[test]
+fn a_read_dropped_unread_after_its_copy_is_done_lets_go_of_it_at_once() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (handle, binding) = device.buffer(stream);
+    let held = lazy_read(&handle);
+    keep_lazy_read(&mut device, held.read().clone(), stream)
+        .expect("clean memory should be readable");
+    device.write(stream, binding);
+    reach_every_fence(&device);
+
+    drop(held);
+
+    assert_eq!(device.copies_dropped.load(Ordering::Relaxed), 1);
+}
+
+#[test]
 fn a_write_past_a_contiguous_read_of_a_longer_handle_leaves_it_kept() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };
