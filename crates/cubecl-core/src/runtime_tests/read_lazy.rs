@@ -174,9 +174,12 @@ pub fn test_create_empty_tensor<R: Runtime>(client: Client) {
     }
 }
 
-const BEFORE: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
-const AFTER: [f32; 4] = [2.0, 3.0, 4.0, 5.0];
+const BEFORE: [f32; 5] = [1.0, 2.0, 3.0, 4.0, 5.0];
+const AFTER: [f32; 5] = [2.0, 3.0, 4.0, 5.0, 6.0];
 
+/// Adds one to every element of `buffer`.
+///
+/// - `buffer`: the values, written in place.
 #[cube(launch)]
 fn add_one_in_place(buffer: &mut [f32]) {
     if ABSOLUTE_POS < buffer.len() {
@@ -184,6 +187,10 @@ fn add_one_in_place(buffer: &mut [f32]) {
     }
 }
 
+/// Writes each element of `input` plus one into `output`.
+///
+/// - `input`: the values, at least as many as `output` holds.
+/// - `output`: the results, one per value.
 #[cube(launch)]
 fn add_one_into(input: &[f32], output: &mut [f32]) {
     if ABSOLUTE_POS < output.len() {
@@ -241,7 +248,7 @@ pub fn test_a_view_of_a_lazy_read_is_its_buffer_before_a_write<R: Runtime>(clien
     let read = lazy(&client, &buffer);
     let view = read
         .view(size_of::<f32>(), 3 * size_of::<f32>())
-        .expect("a contiguous device buffer supports views");
+        .expect("a contiguous device buffer should support views");
 
     add_one_to(&client, &buffer);
 
@@ -256,7 +263,7 @@ pub fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write<R: Runti
     let read = lazy(&client, &buffer);
     let view = read
         .view(size_of::<f32>(), 3 * size_of::<f32>())
-        .expect("a contiguous device buffer supports views");
+        .expect("a contiguous device buffer should support views");
     drop(read);
 
     add_one_to(&client, &buffer);
@@ -273,7 +280,7 @@ pub fn test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_wri
     let read = lazy(&client, &buffer);
     let view = read
         .view(1, 5)
-        .expect("a contiguous device buffer supports views");
+        .expect("a contiguous device buffer should support views");
     drop(read);
 
     add_one_to(&client, &buffer);

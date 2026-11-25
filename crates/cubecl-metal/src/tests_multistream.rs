@@ -144,6 +144,9 @@ fn cross_thread_dynamic_cube_count() {
     }
 }
 
+/// Adds one to every element of `buffer`.
+///
+/// - `buffer`: the values, written in place.
 #[cube(launch_unchecked)]
 fn add_one_in_place(buffer: &mut [u32]) {
     if ABSOLUTE_POS < buffer.len() {
@@ -160,12 +163,12 @@ fn a_lazy_read_with_later_reader_work_is_its_buffer_before_a_write_on_another_st
         cubecl_environment::stream::StreamId { value: 4_400_001 },
         cubecl_environment::stream::StreamId { value: 4_400_002 },
     );
-    let before = [1u32, 2, 3, 4];
+    let before = [1u32, 2, 3, 4, 5];
     let n = before.len();
     let (buffer, input) = writer.executes(|| {
         (
             client.create_from_slice(u32::as_bytes(&before)),
-            client.create_from_slice(u32::as_bytes(&[10, 20, 30, 40])),
+            client.create_from_slice(u32::as_bytes(&[10, 20, 30, 40, 50])),
         )
     });
     let (read, output) = reader.executes(|| {
@@ -210,6 +213,6 @@ fn a_lazy_read_with_later_reader_work_is_its_buffer_before_a_write_on_another_st
             u32::from_bytes(&written),
             u32::from_bytes(&output)
         ),
-        (&before[..], &[2, 3, 4, 5][..], &[11, 21, 31, 41][..])
+        (&before[..], &[2, 3, 4, 5, 6][..], &[11, 21, 31, 41, 51][..])
     );
 }
