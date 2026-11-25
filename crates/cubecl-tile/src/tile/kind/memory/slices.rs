@@ -18,7 +18,7 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::scale_add");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
@@ -48,7 +48,7 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::mul_exp");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
@@ -81,7 +81,7 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::maxima");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let view = self.flat::<E, W>();
@@ -113,7 +113,7 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (count, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::exp2_scaled_minus");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
@@ -147,7 +147,7 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::sums");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let view = self.flat::<E, W>();
@@ -177,7 +177,7 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (length, cells) = comptime!((space.extent(dimension), space.cells()));
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::mul");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
@@ -203,7 +203,7 @@ impl Memory {
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::probabilities");
         let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
@@ -245,12 +245,13 @@ impl Memory {
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
-        let width = self.load_width(space, length);
+        let width = self.load_width(space, length, "DimensionSlices::softmax_gradient");
         let loads = comptime!(length / width);
-        let probabilities_width = probabilities.load_width(space, length);
+        let probabilities_width =
+            probabilities.load_width(space, length, "DimensionSlices::softmax_gradient");
         comptime!(assert!(
             probabilities_width == width,
-            "Memory::softmax_gradient_along: the gradient loads {width} values and the \
+            "DimensionSlices::softmax_gradient: the gradient loads {width} values and the \
              probabilities {probabilities_width}: read both windows at one width"
         ));
         let size!(W) = width;
@@ -278,6 +279,11 @@ impl Memory {
     /// The `count` cells of this window in order, every unit of its holder reading them all: a
     /// window holding one value a slice of something else, as the rows of a softmax.
     pub(crate) fn cells<E: Float>(&self, #[comptime] count: usize) -> Array<E> {
+        let width = comptime!(self.store.vector_size);
+        comptime!(assert!(
+            width == 1,
+            "Tile::cells reads one value a load, and this window loads {width}"
+        ));
         let size!(W) = 1usize;
         let view = self.flat::<E, W>();
         let mut cells = Array::<E>::new(count);
@@ -296,6 +302,11 @@ impl Memory {
         #[comptime] count: usize,
         #[comptime] holder: ComputeScope,
     ) {
+        let width = comptime!(self.store.vector_size);
+        comptime!(assert!(
+            width == 1,
+            "Tile::set_cells reads one value a load, and this window loads {width}"
+        ));
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
         if comptime!(holder == ComputeScope::Unit) || UNIT_POS_PLANE == 0 {

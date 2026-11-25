@@ -131,20 +131,16 @@ impl Memory {
         )
     }
 
-    /// The width of a load of this window over `space`, for a reader stepping its slices along
-    /// the innermost dimension, `length` values long, a whole load at a time
+    /// The width of a load of this window over `space`, for `reader` stepping its slices
     /// ([`VectorTile::width_along_slices`]).
     pub(crate) fn load_width(
         &self,
         #[comptime] space: &Space,
         #[comptime] length: usize,
+        #[comptime] reader: &str,
     ) -> comptime_type!(usize) {
         let load = self.vector_tile(space);
-        comptime!(load.width_along_slices(
-            space.dimension_at(space.rank() - 1),
-            length,
-            "Memory::load_width"
-        ))
+        comptime!(load.width_along_slices(space.dimension_at(space.rank() - 1), length, reader))
     }
 
     /// How a contraction into this window runs, as stated with

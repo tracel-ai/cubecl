@@ -10,8 +10,8 @@ use cubecl_tile::*;
 const ROW: Dimension = Dimension(0);
 const COL: Dimension = Dimension(1);
 const ROWS: usize = 4;
-/// Longer than a plane's loads, so each unit steps more than one load of a slice.
-const COLS: usize = 256;
+/// More loads than the widest plane has units, so each unit steps more than one load of a slice.
+const COLS: usize = 512;
 const SCALE: f32 = 0.5;
 
 /// Every plane of the launch owning two rows: `window = window · scale + bias[col]` in place.
