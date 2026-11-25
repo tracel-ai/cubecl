@@ -371,7 +371,10 @@ impl Tile {
     /// Whether this tile is zero everywhere ([`Procedural::zero`]): a bias an op may skip.
     pub fn is_zero(&self) -> comptime_type!(bool) {
         match &self.kind {
-            TileKind::Procedural(recipe) => recipe.is_zero(),
+            TileKind::Procedural(recipe) => {
+                let identity = recipe.identity();
+                comptime!(identity == Some(Identity::Zero))
+            }
             TileKind::Memory(_)
             | TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -1321,10 +1324,25 @@ impl Iterable for &TileExpand {
 }
 
 impl Tile {
-    /// These values under `scale`, multiplied in where they are read. Every dimension `scale`
-    /// varies along must be one of the values'; one it spans without varying along is read at its
-    /// origin.
+    /// The pair of these values and `scale`: their product, taken where it is read. It reads as
+    /// the values do with each multiplied by the one `scale` Broadcasts to it, so every dimension
+    /// `scale` varies along must be one of the values'; one it spans without varying along is read
+    /// at its origin. `c.mul(&g).mul(&t)` is `((c, g), t)`, and `c.mul(&g.mul(&t))` is
+    /// `(c, (g, t))`.
     pub fn mul(&self, _scale: &Tile) -> Tile {
+        unexpanded!()
+    }
+
+    /// The two tiles this one is the product of ([`mul`](Tile::mul)), the inverse of it: stored
+    /// values are the product of themselves and one ([`Procedural::one`]).
+    pub fn factor(&self) -> (Tile, Tile) {
+        unexpanded!()
+    }
+
+    /// The value of a tile that varies along no dimension, as `f32`.
+    ///
+    /// Expansion panics on a tile that varies along one.
+    pub fn whole(&self) -> f32 {
         unexpanded!()
     }
 
@@ -1337,45 +1355,6 @@ impl Tile {
         _out: Space,
         _acc_dimensions: MatrixDimensions,
     ) -> FactorReader {
-        unexpanded!()
-    }
-
-    /// This operand of `sum` without its outer scales that vary only along the dimensions of
-    /// `sum`'s space, and those scales. They are the scales the sum takes out of every term and
-    /// applies once ([`scaled`](Tile::scaled)), and the tile left carries the ones each term needs.
-    /// Open the sum first ([`accumulator`](Tile::accumulator)): what it gives up depends on the
-    /// instruction the sum contracts through.
-    ///
-    /// Words of block scales always give up the scales above them: the instruction reads the
-    /// words undecoded, and holds no other scale. A decoded tile gives them up where the sum is
-    /// scaled in place, since a load converting codes
-    /// in lane runs takes one level of scales; under any other sum they ride the load, which
-    /// multiplies by them as it decodes, rather than send the sum through shared memory.
-    /// A tile indexing a table gives up none: only its copy decodes it.
-    pub fn factor(&self, _sum: &Tile) -> (Tile, Factor) {
-        unexpanded!()
-    }
-
-    /// [`factor`](Tile::factor), giving the outer scales up whatever the sum's instruction would
-    /// have: what an operand decoded into an element with no room for them takes, an 8-bit float,
-    /// whose range its values already fill. The caller knows that element, the stage it decodes
-    /// into, which the values do not. A sum of 8-bit floats is held in the manual MMA
-    /// ([`Instruction::for_accumulator`](crate::Instruction::for_accumulator)), whose drain
-    /// applies scales varying across its cells one cell at a time.
-    pub fn factor_out(&self, _sum: &Tile) -> (Tile, Factor) {
-        unexpanded!()
-    }
-
-    /// This tile without its outer scales that vary along no dimension, and those scales: what a
-    /// sum held outside any tile, in a unit's own registers, takes out of every term and applies
-    /// once ([`Factor::whole`]). [`factor`](Tile::factor) for a sum no tile holds. A tile indexing
-    /// a table gives up none: only its copy decodes it.
-    pub fn factor_whole(&self) -> (Tile, Factor) {
-        unexpanded!()
-    }
-
-    /// This tile under `factor`'s scales, outside its own.
-    pub fn scaled(&self, _factor: &Factor) -> Tile {
         unexpanded!()
     }
 
@@ -1506,6 +1485,11 @@ impl Tile {
 
 impl TileExpand {
     pub fn __expand_mul_method(&self, scope: &Scope, scale: &TileExpand) -> TileExpand {
+        let mut out = self.clone();
+        out.factor = out.factor.and(scale);
+        if scale.is_one() {
+            return out;
+        }
         let values = self.place.space.clone();
         let projection = scale.clone().__expand_projection_method(scope);
         // A dimension the scales span without varying along it is read at its origin
@@ -1523,9 +1507,33 @@ impl TileExpand {
              the values'",
             values.dimensions().collect::<Vec<_>>()
         );
-        let mut out = self.clone();
-        out.factor = out.factor.and(FactorExpand::of(scale));
         out
+    }
+
+    pub fn __expand_factor_method(&self, scope: &Scope) -> (TileExpand, TileExpand) {
+        let mut values = self.clone();
+        let (inner, outermost) = self.factor.clone().split();
+        values.factor = inner;
+        (
+            values,
+            outermost.unwrap_or_else(|| Procedural::__expand_one_tile(scope)),
+        )
+    }
+
+    pub fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
+        FactorExpand::of(self).__expand_whole_method(scope)
+    }
+
+    /// Whether this tile is one everywhere ([`Procedural::one`]).
+    pub(crate) fn is_one(&self) -> bool {
+        match &self.kind {
+            TileKindExpand::Procedural(recipe) => recipe.states(Identity::One),
+            TileKindExpand::Memory(_)
+            | TileKindExpand::PlaneTile(_)
+            | TileKindExpand::PlanePartition(_)
+            | TileKindExpand::TmaGmem(_)
+            | TileKindExpand::Lines(_) => false,
+        }
     }
 
     pub(crate) fn __expand_reader_method(
@@ -1576,51 +1584,6 @@ impl TileExpand {
             vector_size,
             matrix,
         }
-    }
-
-    pub fn __expand_factor_method(
-        &self,
-        scope: &Scope,
-        sum: &TileExpand,
-    ) -> (TileExpand, FactorExpand) {
-        let gives_up = self.factor.staged_beside(scope)
-            || sum
-                .__expand_sum_instruction_method(scope)
-                .scales_its_sum_in_place();
-        match gives_up {
-            true => self.split_factor_on(scope, &sum.place.space),
-            false => (self.clone(), FactorExpand::default()),
-        }
-    }
-
-    pub fn __expand_factor_out_method(
-        &self,
-        scope: &Scope,
-        sum: &TileExpand,
-    ) -> (TileExpand, FactorExpand) {
-        self.split_factor_on(scope, &sum.place.space)
-    }
-
-    pub fn __expand_factor_whole_method(&self, scope: &Scope) -> (TileExpand, FactorExpand) {
-        self.split_factor_on(scope, &Space::new(&[]))
-    }
-
-    /// These values without their outer scales that vary only along `space`, and those scales
-    /// ([`FactorExpand::split_on`]); a tile that looks its values up keeps every scale.
-    fn split_factor_on(&self, scope: &Scope, space: &Space) -> (TileExpand, FactorExpand) {
-        if self.looks_up() {
-            return (self.clone(), FactorExpand::default());
-        }
-        let (inner, outer) = self.factor.split_on(scope, space);
-        let mut values = self.clone();
-        values.factor = inner;
-        (values, outer)
-    }
-
-    pub fn __expand_scaled_method(&self, _scope: &Scope, factor: &FactorExpand) -> TileExpand {
-        let mut out = self.clone();
-        out.factor = out.factor.and(factor.clone());
-        out
     }
 
     pub(crate) fn __expand_served_as_method(&self, _scope: &Scope, packing: Packing) -> TileExpand {
