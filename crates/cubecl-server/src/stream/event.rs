@@ -338,6 +338,37 @@ impl<B: EventStreamBackend> MultiStream<B> {
             .map(|wrapper| &mut wrapper.stream)
     }
 
+    /// The stream for `stream_id`, created if it was never used.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the stream cannot be created.
+    pub fn stream_or_create(
+        &mut self,
+        stream_id: &StreamId,
+    ) -> Result<&mut B::Stream, ServerError> {
+        Ok(&mut self.streams.get_or_create(stream_id)?.stream)
+    }
+
+    /// Makes `stream` wait on the device for the work queued on `awaited` so far, creating
+    /// `stream` if it was never used. Nothing to do when the two share a backend stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when `stream` cannot be created, or the dependency cannot be
+    /// honoured because the work it waits for failed.
+    pub fn wait_for(&mut self, stream: StreamId, awaited: StreamId) -> Result<(), ServerError> {
+        if self.streams.stream_index(&stream) == self.streams.stream_index(&awaited) {
+            return Ok(());
+        }
+        self.streams.get_or_create(&stream)?;
+        let event = B::flush(
+            &mut self.streams.get_or_create(&awaited)?.stream,
+            self.failures.graph_mut(),
+        );
+        B::wait_event(&mut self.streams.get_mut(&stream).stream, event)
+    }
+
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
     /// alignment based on the provided bindings.
     ///

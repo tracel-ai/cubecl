@@ -42,6 +42,12 @@ impl<A: EventApi> Event<A> {
         A::event_wait(&self.sys)
     }
 
+    /// Whether the device has reached this event. A driver error reads as not reached, so a
+    /// caller that waits on it next hears the fault there.
+    pub fn is_reached(&self) -> bool {
+        A::event_query(&self.sys).unwrap_or(false)
+    }
+
     /// Make `stream` wait for this event on the device, without blocking here.
     ///
     /// # Errors

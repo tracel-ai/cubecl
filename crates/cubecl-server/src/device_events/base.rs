@@ -70,6 +70,14 @@ pub trait EventApi: Send + Sync + 'static {
     /// event was recorded into.
     fn event_wait(event: &Self::Event) -> Result<(), DriverError>;
 
+    /// Whether the device has reached `event`, without blocking.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`], which is the fault the query revealed on the stream the
+    /// event was recorded into.
+    fn event_query(event: &Self::Event) -> Result<bool, DriverError>;
+
     /// Device time from `start` to `end`. Both must have been reached.
     ///
     /// Implementations clamp a negative reading to zero rather than trusting
