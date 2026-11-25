@@ -439,11 +439,8 @@ impl FactorExpand {
         values: Space,
     ) -> bool {
         self.leaves().all(|scale| {
-            let projection = scale.clone().__expand_projection_method(scope);
             values.dimensions().all(|dimension| {
-                let varies =
-                    scale.place.space.contains(dimension) && projection.addresses(dimension);
-                !varies || load.extent_along(dimension) == 1
+                !scale.varies_along(scope, dimension) || load.extent_along(dimension) == 1
             })
         })
     }

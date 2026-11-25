@@ -1532,6 +1532,16 @@ impl TileExpand {
         FactorExpand::of(self).__expand_whole_method(scope)
     }
 
+    /// Whether these values vary along `dimension`: they span it and their projection addresses
+    /// it.
+    pub(crate) fn varies_along(&self, scope: &Scope, dimension: Dimension) -> bool {
+        self.place.space.contains(dimension)
+            && self
+                .clone()
+                .__expand_projection_method(scope)
+                .addresses(dimension)
+    }
+
     /// Whether this tile is one everywhere ([`Procedural::one`]).
     pub(crate) fn is_one(&self) -> bool {
         match &self.kind {

@@ -32,12 +32,12 @@ type Broadcasting = (Option<usize>, Option<usize>);
 
 #[derive(Clone)]
 pub(crate) struct CellScalesExpand {
-    /// Each scale, read alone.
+    /// Each scale, read alone, by its index (Position).
     scales: Vec<TileExpand>,
     /// The sum's window and the dimensions its rows and columns lie along.
     sum: Space,
     dimensions: MatrixDimensions,
-    /// What was read of each scale.
+    /// What was read of each scale, by the scale and the cells it Broadcasts to (Keyed).
     read: HashMap<(usize, Broadcasting), NativeExpand<f32>>,
 }
 
@@ -74,14 +74,24 @@ impl CellScales {
             if broadcasts {
                 scale = Vector::cast_from(self.at(s, cells.index(0usize)));
             } else {
-                #[unroll]
-                for e in 0..cells.len() {
-                    scale.insert(e, T::cast_from(self.at(s, cells.index(e))));
-                }
+                self.insert_each(&mut scale, s, cells);
             }
             scaled *= scale;
         }
         scaled
+    }
+
+    /// Scale `s` of each of `cells` into its lane of `scale`.
+    fn insert_each<T: Numeric, N: Size>(
+        &mut self,
+        scale: &mut Vector<T, N>,
+        #[comptime] s: usize,
+        cells: &Sequence<HeldCell>,
+    ) {
+        #[unroll]
+        for e in 0..cells.len() {
+            scale.insert(e, T::cast_from(self.at(s, cells.index(e))));
+        }
     }
 }
 
@@ -102,25 +112,26 @@ impl CellScalesExpand {
         };
         for scale in 0..scales.scales.len() {
             if scales.varies(scope, scale) == (false, false) {
-                let first = HeldCellExpand {
-                    row: 0u32.into_expand(scope),
-                    col: 0u32.into_expand(scope),
-                    first_unit: Some((0, 0)),
-                };
-                scales.__expand_at_method(scope, scale, &first);
+                scales.read_at_origin(scope, scale);
             }
         }
         scales
     }
 
+    /// Reads scale `scale` at the window's first cell, which holds it for every cell.
+    fn read_at_origin(&mut self, scope: &Scope, scale: usize) {
+        let first = HeldCellExpand {
+            row: 0u32.into_expand(scope),
+            col: 0u32.into_expand(scope),
+            first_unit: Some((0, 0)),
+        };
+        self.__expand_at_method(scope, scale, &first);
+    }
+
     /// Whether scale `scale` varies along the rows, and along the columns.
     fn varies(&self, scope: &Scope, scale: usize) -> (bool, bool) {
         let scale = &self.scales[scale];
-        let projection = scale.clone().__expand_projection_method(scope);
-        let addressed = |p: usize| {
-            let dimension = self.sum.dimension_at(p);
-            scale.place.space.contains(dimension) && projection.addresses(dimension)
-        };
+        let addressed = |p: usize| scale.varies_along(scope, self.sum.dimension_at(p));
         let MatrixDimensions {
             row_split,
             col_split,
