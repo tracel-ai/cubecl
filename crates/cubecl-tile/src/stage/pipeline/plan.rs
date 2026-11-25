@@ -12,6 +12,8 @@ pub(crate) enum Refill {
     Once,
     /// Reads the first slot's buffer; never filled here.
     Shared,
+    /// Read where it lies, its window placed at each region; never filled.
+    InPlace,
 }
 
 impl Refill {
@@ -20,6 +22,7 @@ impl Refill {
         match self {
             Refill::Once => Refill::Shared,
             Refill::EveryRegion => Refill::EveryRegion,
+            Refill::InPlace => Refill::InPlace,
             Refill::Shared => unreachable!("Shared is produced only in later slots"),
         }
     }
@@ -38,16 +41,17 @@ pub(crate) struct StagePlan {
 }
 
 impl StagePlan {
-    /// Plan the operands a walk of `level` over `op_space` stages for `owner`. Where the walk
+    /// Plan the operands a walk of `level` over `op_space` stages for `owner`, each of `operands`
+    /// that is `None` read where it lies. Where the walk
     /// sets planes aside to fill, they alone fill every operand, its cooperative share too
     /// ([`StageOwner::fill`]).
     pub(crate) fn new(
-        operands: &[StageOperand],
+        operands: &[Option<StageOperand>],
         op_space: &Space,
         level: &Level,
         owner: StageOwner,
     ) -> StagePlan {
-        let deliveries: Vec<_> = operands.iter().map(|op| op.delivery).collect();
+        let deliveries: Vec<_> = operands.iter().flatten().map(|op| op.delivery).collect();
         let fillers = level.fillers();
         let sync = Rendezvous::for_deliveries(&deliveries, fillers, owner);
         let collective_full = Rendezvous::collective_full(&deliveries);
@@ -57,12 +61,13 @@ impl StagePlan {
         let can_fix_invariants = op_space.is_static() && sync != Rendezvous::Barrier;
         let refills = operands
             .iter()
-            .map(
-                |op| match can_fix_invariants && walk_invariant(level, op_space, op) {
-                    true => Refill::Once,
-                    false => Refill::EveryRegion,
-                },
-            )
+            .map(|op| match op {
+                None => Refill::InPlace,
+                Some(op) if can_fix_invariants && walk_invariant(level, op_space, op) => {
+                    Refill::Once
+                }
+                Some(_) => Refill::EveryRegion,
+            })
             .collect();
         StagePlan {
             refills,
@@ -139,12 +144,12 @@ mod tests {
         (space, lhs, rhs)
     }
 
-    fn operand(delivery: Delivery, space: &Space) -> StageOperand {
-        StageOperand {
+    fn operand(delivery: Delivery, space: &Space) -> Option<StageOperand> {
+        Some(StageOperand {
             delivery,
             space: space.clone(),
             keys: Vec::new(),
-        }
+        })
     }
 
     /// A walk stepping `M` leaves `rhs` (over `K`, `N`) where it lies, unless `rhs` has a table
@@ -154,10 +159,7 @@ mod tests {
         let (space, lhs, rhs) = spaces();
         let level = Level::every(&[(M, 4), (N, 8), (K, 8)]);
         let plan = |keys: Vec<Dimension>| {
-            let rhs = StageOperand {
-                keys,
-                ..operand(Delivery::SyncPerUnit, &rhs)
-            };
+            let rhs = operand(Delivery::SyncPerUnit, &rhs).map(|rhs| StageOperand { keys, ..rhs });
             StagePlan::new(
                 &[operand(Delivery::SyncPerUnit, &lhs), rhs],
                 &space,
@@ -203,6 +205,24 @@ mod tests {
         assert_eq!(plan.refills(0)[0], Refill::Once);
         assert_eq!(plan.refills(1)[0], Refill::Shared);
         assert_eq!(plan.refills(1)[1], Refill::EveryRegion);
+    }
+
+    /// An operand read where it lies is brought into no slot, and asks nothing of the rendezvous
+    /// its walk's other operand meets on.
+    #[test]
+    fn an_operand_read_where_it_lies_is_never_filled() {
+        let (space, _, rhs) = spaces();
+        let level = Level::every(&[(M, 8), (N, 8), (K, 4)]);
+        let plan = StagePlan::new(
+            &[None, operand(Delivery::SyncPerUnit, &rhs)],
+            &space,
+            &level,
+            StageOwner::CUBE,
+        );
+        for slot in 0..2 {
+            assert_eq!(plan.refills(slot), [Refill::InPlace, Refill::EveryRegion]);
+        }
+        assert_eq!(plan.sync(), Rendezvous::Cube);
     }
 
     #[test]
