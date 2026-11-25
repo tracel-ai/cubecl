@@ -1,4 +1,4 @@
-use crate::memory_management::memory_pool::{PagedLayout, PagedSliceReserver, padded_size};
+use crate::memory_management::memory_pool::{PagedLayout, padded_size};
 use cubecl_ir::MemoryDeviceProperties;
 
 /// Slack a page keeps past the largest allocation it was sized for, so that
@@ -76,17 +76,18 @@ impl PageSizing {
         }
     }
 
-    /// A pool carving pages of `page_size`, whose slices carry `index`.
+    /// The layout of a pool carving pages of `page_size`, whose slices carry
+    /// `index`.
     ///
     /// It takes every size it is handed, so nothing is refused for being
     /// larger than a slice of a page it fits.
-    pub(crate) fn pool(&self, page_size: u64, index: u8) -> PagedSliceReserver {
-        PagedSliceReserver::new(PagedLayout {
+    pub(crate) fn layout(&self, page_size: u64, index: u8) -> PagedLayout {
+        PagedLayout {
             page_size_bytes: page_size,
             max_slice_bytes: page_size,
             alignment_bytes: self.alignment_bytes,
             pool: index,
-        })
+        }
     }
 }
 

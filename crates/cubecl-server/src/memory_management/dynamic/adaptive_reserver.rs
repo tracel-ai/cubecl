@@ -10,11 +10,10 @@ use crate::{
         MemoryPoolReport,
         memory_pool::{
             ExclusiveLayout, ExclusiveSliceReserver, PageMapping, PagedLayout, PagedSliceReserver,
-            PinnedRoom, SliceAllocator, SliceReserver, all_guarded,
+            PinnedRoom, SliceBinder, SliceReserver,
         },
         relocation::{
-            Move, Relocation, RelocationCopier, RelocationNeed, RelocationReason, StorageCopy,
-            landed_locations,
+            Move, RelocationCopier, RelocationLander, RelocationNeed, RelocationReason, StorageCopy,
         },
     },
     server::{IoError, ServerError},
@@ -304,11 +303,14 @@ impl AdaptiveReserver {
         if moves.is_empty() {
             return Ok(());
         }
-        let landed = Relocation::new(moves).copy(storage, copier)?;
+        let landed = RelocationLander::new(moves).land(storage, copier)?;
         // A second move of the same allocation finds it apart already, off
         // the shared pools: its target is freed with it.
-        for (source, destination) in
-            landed_locations(landed).filter(|(source, _)| is_shared_pool_index(source.pool))
+        for (source, destination) in landed
+            .into_moves()
+            .into_iter()
+            .map(Move::into_locations)
+            .filter(|(source, _)| is_shared_pool_index(source.pool))
         {
             let from = Self::shared_pool(&mut self.small, &mut self.arena, source.pool)
                 .expect("a move apart's source should be on a shared pool");
@@ -318,7 +320,7 @@ impl AdaptiveReserver {
                 destination.pool,
             )
             .expect("a move apart's target should be on a pool kept apart");
-            SliceAllocator.hand_over(from.slice_at(source), into.slice_at(destination), failures);
+            SliceBinder.hand_over(from.slice_at(source), into.slice_at(destination), failures);
         }
         Ok(())
     }
@@ -373,7 +375,7 @@ impl AdaptiveReserver {
                 (PlacementPool::SmallSeparate, PinnedRoom::Share)
             }
             (AllocationKind::GraphOutput, false) => (PlacementPool::Separate, PinnedRoom::Share),
-            (AllocationKind::Eager, true) if all_guarded(self.small.pages()) => {
+            (AllocationKind::Eager, true) if self.small.is_pinned() => {
                 (PlacementPool::SmallSeparate, PinnedRoom::Share)
             }
             (AllocationKind::Eager, true) => (PlacementPool::Small, PinnedRoom::Avoid),

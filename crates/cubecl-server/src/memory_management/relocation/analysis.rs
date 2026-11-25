@@ -42,13 +42,17 @@ impl OutdatedPages {
     /// The movable pages among `pages`, cheapest first, pages of equal cost
     /// in the order found.
     pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a PageCarver>) -> Self {
-        let mut ordered = Self { pages: Vec::new() };
-        pages
+        let mut ordered: Vec<MovablePage> = Vec::new();
+        for page in pages
             .into_iter()
             .filter(|page| !page.view().is_guarded)
             .filter_map(MovablePage::new)
-            .for_each(|page| ordered.insert(page));
-        ordered
+        {
+            // After every page that costs no more.
+            let at = ordered.partition_point(|held| held.live_bytes() <= page.live_bytes());
+            ordered.insert(at, page);
+        }
+        Self { pages: ordered }
     }
 
     /// The pages to empty, cheapest first — the fewest live bytes — so that
@@ -56,14 +60,6 @@ impl OutdatedPages {
     /// many as that room allowed.
     pub(crate) fn into_plan(self) -> Vec<MovablePage> {
         self.pages
-    }
-
-    /// Place `page` after every page that costs no more.
-    fn insert(&mut self, page: MovablePage) {
-        let at = self
-            .pages
-            .partition_point(|held| held.live_bytes() <= page.live_bytes());
-        self.pages.insert(at, page);
     }
 }
 
@@ -106,11 +102,13 @@ mod tests {
 
     #[test]
     fn the_plan_empties_the_cheapest_pages_first() {
-        let mut pages = OutdatedPages { pages: Vec::new() };
+        let mut ordered = Vec::new();
         for page in [movable(&[3, 2]), movable(&[1]), movable(&[4])] {
-            pages.insert(page);
+            let at = ordered
+                .partition_point(|held: &MovablePage| held.live_bytes() <= page.live_bytes());
+            ordered.insert(at, page);
         }
-        let plan = pages.into_plan();
+        let plan = OutdatedPages { pages: ordered }.into_plan();
         assert_eq!(sizes(&plan), [vec![1], vec![4], vec![3, 2]]);
     }
 

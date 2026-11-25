@@ -2,10 +2,12 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
         MemoryUsage, PageGuard,
-        memory_pool::{PageMapping, Slice, SliceAllocator, missing, padded_size, slices_usage},
+        memory_pool::{
+            PageMapping, Slice, SliceAllocator, SliceBinder, missing, padded_size, slices_usage,
+        },
     },
     server::IoError,
-    storage::{StorageHandle, StorageId, StorageUtilization},
+    storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization},
 };
 use alloc::format;
 use alloc::string::String;
@@ -44,7 +46,8 @@ pub(crate) struct PageCarver {
 /// What a [`PageCarver`] holds, as its readers see it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PageView<'a> {
-    /// The page's slices in offset order (Position).
+    /// The page's slices, read by the position a location carries (Position)
+    /// and in offset order (Ordered).
     pub slices: &'a [Slice],
     /// Whether the page's storage id is backed by a real device allocation.
     pub is_mapped: bool,
@@ -125,7 +128,7 @@ impl PageCarver {
     }
 
     /// Keep the page as it is for as long as the guard lives.
-    pub(crate) fn guard(&self) -> PageGuard {
+    pub(crate) fn guard(&mut self) -> PageGuard {
         PageGuard::page(&self.guards)
     }
 
@@ -157,7 +160,7 @@ impl PageCarver {
             .slices
             .get_mut(reserved.descriptor().slice())
             .expect("a reserved slice should be on the page that reserved it");
-        SliceAllocator.bind(slice, assigned, cursor, failures);
+        SliceBinder.bind(slice, assigned, cursor, failures);
     }
 
     /// Reserve `size_bytes` on the first free slice in offset order that
@@ -195,15 +198,53 @@ impl PageCarver {
         self.number_slices();
     }
 
+    /// Give the page real device backing from `storage`, if it was carved
+    /// lazily. The virtual carving *is* the layout: the page is allocated for
+    /// real and rebound — every slice keeps its offset, the minted id ceases
+    /// to exist (it never reached the driver).
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
+    pub(crate) fn map<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+    ) -> Result<(), IoError> {
+        if self.mapped {
+            return Ok(());
+        }
+        let real = SliceAllocator::new(storage).allocate_backing(self.storage.size())?;
+        self.rebind_storage(real.id);
+        Ok(())
+    }
+
+    /// Give the page back to `storage` when, once coalesced, nothing is live
+    /// on it and nothing guards it, answering whether it went. The failures
+    /// its slices still carry are released, since a tag must not outlive its
+    /// carrier; an unmapped page has nothing behind its minted id, so the
+    /// driver is handed nothing for it.
+    pub(crate) fn release_if_unused<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        self.coalesce(failures);
+        if !self.view().is_empty() || self.view().is_guarded {
+            return false;
+        }
+        self.release(failures);
+        if self.mapped {
+            storage.deallocate(self.storage.id);
+        }
+        true
+    }
+
     /// Release every failure the page's slices still carry, for a page about
-    /// to be dropped whole, since a tag must not outlive its carrier. Answers
-    /// the device allocation to give back, `None` when the page was never
-    /// backed and there is nothing behind its minted id.
-    pub(crate) fn release(&mut self, failures: &mut ErrorGraph) -> Option<StorageId> {
+    /// to be dropped whole.
+    fn release(&mut self, failures: &mut ErrorGraph) {
         for slice in self.slices.iter_mut() {
             slice.tainted.clear(failures);
         }
-        self.mapped.then_some(self.storage.id)
     }
 
     /// Give every slice the location of the page with its index.
@@ -322,12 +363,6 @@ impl<'a> PageView<'a> {
     }
 }
 
-/// Whether graphs guard every page of `pages`, and there are some: room for
-/// work outside a capture comes only from a new page then.
-pub(crate) fn all_guarded(pages: &[PageCarver]) -> bool {
-    !pages.is_empty() && pages.iter().all(|page| page.view().is_guarded)
-}
-
 /// One slice of a page, as a summary lists it.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MemoryBlock {
@@ -340,7 +375,8 @@ pub(crate) struct MemoryBlock {
 /// A page's free and full room.
 #[derive(Default, PartialEq, Eq)]
 pub(crate) struct MemoryPageSummary {
-    /// The page's slices in offset order (Position), when asked for.
+    /// The page's slices, in offset order as they were listed (Arrival),
+    /// when asked for.
     pub blocks: Vec<MemoryBlock>,
     /// The bytes free slices hold.
     pub free_bytes: u64,
@@ -616,20 +652,5 @@ mod tests {
             MemoryLocation::new(0, 0, 0),
             PageMapping::Eager,
         )
-    }
-
-    /// No pages are not all guarded.
-    #[test_log::test]
-    fn no_pages_are_not_all_guarded() {
-        assert!(!all_guarded(&[]));
-    }
-
-    /// Pages are all guarded once a guard keeps each.
-    #[test_log::test]
-    fn pages_are_all_guarded_once_each_is() {
-        let page = new_memory_page(MB);
-        let _guard = page.guard();
-
-        assert!(all_guarded(core::slice::from_ref(&page)));
     }
 }

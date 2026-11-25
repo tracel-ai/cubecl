@@ -1,6 +1,6 @@
 use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceReserver,
-    missing, padded_size, pool_origin, slices_usage,
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceBinder,
+    SliceReserver, missing, padded_size, padded_size_within, pool_origin, slices_usage,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -64,14 +64,14 @@ impl PersistentSliceReserver {
         if !slice.is_free() {
             return true;
         }
-        SliceAllocator.release_whole(storage, slice, failures);
+        SliceAllocator::new(storage).release_whole(slice, failures);
         false
     }
 }
 
 impl SliceReserver for PersistentSliceReserver {
     fn accepts_bytes(&self, size: u64) -> bool {
-        padded_size(size, self.alignment).is_some_and(|padded| padded <= self.max_alloc_size)
+        padded_size_within(size, self.alignment, self.max_alloc_size).is_some()
     }
 
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -100,7 +100,7 @@ impl SliceReserver for PersistentSliceReserver {
             .iter()
             .find(|position| self.slices[**position].is_free())?;
         let slice = &mut self.slices[position];
-        SliceAllocator.fit_whole(slice, size, effective_size);
+        SliceBinder.fit_whole(slice, size, effective_size);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Some(slice.handle.clone())
     }
@@ -123,8 +123,7 @@ impl SliceReserver for PersistentSliceReserver {
         // Refused before the storage sees it: some backends (wgpu) treat a
         // buffer past the device's limit as a validation error that poisons
         // the device rather than as a failed allocation.
-        let Some(effective_size) =
-            padded_size(size, self.alignment).filter(|padded| *padded <= self.max_alloc_size)
+        let Some(effective_size) = padded_size_within(size, self.alignment, self.max_alloc_size)
         else {
             return Err(IoError::BufferTooBig {
                 size,
@@ -142,7 +141,7 @@ impl SliceReserver for PersistentSliceReserver {
             ..self.location_base
         };
         let slice =
-            SliceAllocator.allocate_whole(storage, size, effective_size, mapping, location)?;
+            SliceAllocator::new(storage).allocate_whole(size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
         self.sizes.entry(effective_size).or_default().push(position);
         self.slices.push(slice);
@@ -205,7 +204,7 @@ impl SliceReserver for PersistentSliceReserver {
             .slices
             .get_mut(reserved.descriptor().slice())
             .expect("a reserved slice should be held by the pool that reserved it");
-        SliceAllocator.bind(slice, assigned, cursor, failures);
+        SliceBinder.bind(slice, assigned, cursor, failures);
         Ok(())
     }
 
@@ -217,7 +216,7 @@ impl SliceReserver for PersistentSliceReserver {
         binding: &ManagedMemoryBinding,
     ) -> Result<(), IoError> {
         let slice = self.slices.get_mut(binding.descriptor().slice());
-        SliceAllocator.materialize_whole(storage, slice, binding)
+        SliceAllocator::new(storage).materialize_whole(slice, binding)
     }
 }
 

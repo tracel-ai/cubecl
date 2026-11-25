@@ -291,7 +291,7 @@ impl FailureRecorder {
         Some(ServerError::Unwritten {
             failure: failure.to_u64(),
             claimed: node.tag_count,
-            chain: skip_chain(node, memory),
+            chain: node.skip_chain(memory),
             root: Box::new(node.error.clone()),
             backtrace: BackTrace::capture(),
         })
@@ -351,7 +351,7 @@ impl FailureRecorder {
         let Some(failure) = failure else {
             return;
         };
-        untag_node(&mut self.nodes, failure);
+        Self::untag_node(&mut self.nodes, failure);
     }
 
     fn replace(&mut self, failure: FailureId, error: ServerError) {
@@ -365,7 +365,7 @@ impl FailureRecorder {
         // made, rather than through a drop hook the buffer does not have.
         let nodes = &mut self.nodes;
         self.unallocated
-            .retain(|_, (failure, binding)| keep_alive(binding, *failure, nodes));
+            .retain(|_, (failure, binding)| Self::keep_alive(binding, *failure, nodes));
 
         let failure = self.insert(error);
         self.tag(failure);
@@ -414,68 +414,6 @@ impl FailureRecorder {
     }
 }
 
-/// The path from `memory` back toward the root of `node`, walking its skip
-/// records backwards, and a note of the records the cap dropped when the walk
-/// may stop before the root.
-fn skip_chain(node: &Failure, memory: ManagedMemoryId) -> Vec<alloc::string::String> {
-    let mut chain = Vec::new();
-    let mut target = memory;
-    let mut upper = node.skipped.len();
-    while let Some(found) = node
-        .skipped
-        .range(..upper)
-        .rposition(|record| record.produced.contains(&target))
-    {
-        let record = &node.skipped[found];
-        chain.push(alloc::format!(
-            "skipped `{}`: it needed memory {:?}, which carried the failure",
-            record.kernel.short_name(),
-            record.needed,
-        ));
-        target = record.needed;
-        upper = found;
-    }
-    let dropped = node.skipped_count - node.skipped.len() as u64;
-    if !chain.is_empty() && dropped > 0 {
-        chain.push(alloc::format!(
-            "({dropped} older skip record(s) were dropped; the walk may stop before the root)"
-        ));
-    }
-    chain
-}
-
-/// Whether the unallocated buffer `binding` names is still alive, releasing
-/// the tag it held on `failure` among `nodes` once it is gone.
-fn keep_alive(
-    binding: &WeakMemoryBinding,
-    failure: FailureId,
-    nodes: &mut HashMap<FailureId, Failure>,
-) -> bool {
-    if binding.is_alive() {
-        return true;
-    }
-    untag_node(nodes, failure);
-    false
-}
-
-/// One fewer allocation carries `failure` among `nodes`; its node is dropped
-/// when none does.
-fn untag_node(nodes: &mut HashMap<FailureId, Failure>, failure: FailureId) {
-    let node = nodes
-        .get_mut(&failure)
-        .expect("a carried failure id should always have its node");
-    // A panic rather than a floor: an unbalanced shed would otherwise drop
-    // the node while another carrier still names it, and that carrier's
-    // bytes would read clean.
-    node.tag_count = node
-        .tag_count
-        .checked_sub(1)
-        .unwrap_or_else(|| panic!("{failure} should be shed no more often than it was tagged"));
-    if node.tag_count == 0 {
-        nodes.remove(&failure);
-    }
-}
-
 /// The cause is the reservation's own error, which the device thread logged
 /// when it happened: nothing could carry it here.
 fn unallocated(memory: ManagedMemoryId) -> ServerError {
@@ -487,6 +425,72 @@ fn unallocated(memory: ManagedMemoryId) -> ServerError {
         .into(),
     }
     .into()
+}
+
+impl FailureRecorder {
+    /// Whether the unallocated buffer `binding` names is still alive, releasing
+    /// the tag it held on `failure` among `nodes` once it is gone.
+    fn keep_alive(
+        binding: &WeakMemoryBinding,
+        failure: FailureId,
+        nodes: &mut HashMap<FailureId, Failure>,
+    ) -> bool {
+        if binding.is_alive() {
+            return true;
+        }
+        Self::untag_node(nodes, failure);
+        false
+    }
+
+    /// One fewer allocation carries `failure` among `nodes`; its node is dropped
+    /// when none does.
+    fn untag_node(nodes: &mut HashMap<FailureId, Failure>, failure: FailureId) {
+        let node = nodes
+            .get_mut(&failure)
+            .expect("a carried failure id should always have its node");
+        // A panic rather than a floor: an unbalanced shed would otherwise drop
+        // the node while another carrier still names it, and that carrier's
+        // bytes would read clean.
+        node.tag_count = node
+            .tag_count
+            .checked_sub(1)
+            .unwrap_or_else(|| panic!("{failure} should be shed no more often than it was tagged"));
+        if node.tag_count == 0 {
+            nodes.remove(&failure);
+        }
+    }
+}
+
+impl Failure {
+    /// The path from `memory` back toward the root, walking its skip
+    /// records backwards, and a note of the records the cap dropped when the walk
+    /// may stop before the root.
+    fn skip_chain(&self, memory: ManagedMemoryId) -> Vec<alloc::string::String> {
+        let mut chain = Vec::new();
+        let mut target = memory;
+        let mut upper = self.skipped.len();
+        while let Some(found) = self
+            .skipped
+            .range(..upper)
+            .rposition(|record| record.produced.contains(&target))
+        {
+            let record = &self.skipped[found];
+            chain.push(alloc::format!(
+                "skipped `{}`: it needed memory {:?}, which carried the failure",
+                record.kernel.short_name(),
+                record.needed,
+            ));
+            target = record.needed;
+            upper = found;
+        }
+        let dropped = self.skipped_count - self.skipped.len() as u64;
+        if !chain.is_empty() && dropped > 0 {
+            chain.push(alloc::format!(
+                "({dropped} older skip record(s) were dropped; the walk may stop before the root)"
+            ));
+        }
+        chain
+    }
 }
 
 #[cfg(test)]

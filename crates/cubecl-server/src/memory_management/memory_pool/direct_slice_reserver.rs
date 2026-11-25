@@ -1,6 +1,6 @@
 use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceReserver,
-    missing, padded_size, pool_origin, slices_usage,
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceBinder,
+    SliceReserver, missing, padded_size, padded_size_within, pool_origin, slices_usage,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -98,16 +98,14 @@ impl DirectSliceReserver {
         let Some(ceiling) = self.reclaim_at else {
             return false;
         };
-        let reserved = self.reserved();
-        self.releasing.extend(free_positions(&self.slices).scan(
-            reserved,
-            |reserved, (index, size)| {
-                (*reserved > ceiling).then(|| {
-                    *reserved -= size;
-                    index
-                })
-            },
-        ));
+        let mut excess = self.reserved().saturating_sub(ceiling);
+        for (index, size) in Self::free_positions(&self.slices) {
+            if excess == 0 {
+                break;
+            }
+            excess = excess.saturating_sub(size);
+            self.releasing.push(index);
+        }
         self.release_marked(storage, failures)
     }
 
@@ -133,7 +131,7 @@ impl DirectSliceReserver {
             let mut slice = self.slices[index]
                 .take()
                 .expect("a slice marked for release should be held");
-            SliceAllocator.release_whole(storage, &mut slice, failures);
+            SliceAllocator::new(storage).release_whole(&mut slice, failures);
             self.vacant.push(index);
         }
         released
@@ -142,7 +140,7 @@ impl DirectSliceReserver {
 
 impl SliceReserver for DirectSliceReserver {
     fn accepts_bytes(&self, size: u64) -> bool {
-        padded_size(size, self.alignment).is_some_and(|padded| padded <= self.max_alloc_size)
+        padded_size_within(size, self.alignment, self.max_alloc_size).is_some()
     }
 
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -175,7 +173,7 @@ impl SliceReserver for DirectSliceReserver {
             .iter_mut()
             .flatten()
             .find(|slice| slice.is_free() && slice.effective_size() == effective_size)?;
-        SliceAllocator.fit_whole(slice, size, effective_size);
+        SliceBinder.fit_whole(slice, size, effective_size);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Some(slice.handle.clone())
     }
@@ -195,8 +193,7 @@ impl SliceReserver for DirectSliceReserver {
         mapping: PageMapping,
         _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        let Some(effective_size) =
-            padded_size(size, self.alignment).filter(|padded| *padded <= self.max_alloc_size)
+        let Some(effective_size) = padded_size_within(size, self.alignment, self.max_alloc_size)
         else {
             return Err(IoError::BufferTooBig {
                 size,
@@ -209,9 +206,9 @@ impl SliceReserver for DirectSliceReserver {
             ..self.location_base
         };
         let slice =
-            SliceAllocator.allocate_whole(storage, size, effective_size, mapping, location)?;
+            SliceAllocator::new(storage).allocate_whole(size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
-        place(&mut self.slices, index, slice);
+        Self::place(&mut self.slices, index, slice);
         self.peak_pages = self.peak_pages.max(self.held().count() as u64);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Ok(handle)
@@ -226,7 +223,7 @@ impl SliceReserver for DirectSliceReserver {
             .slices
             .get_mut(binding.descriptor().slice())
             .and_then(Option::as_mut);
-        SliceAllocator.materialize_whole(storage, slice, binding)
+        SliceAllocator::new(storage).materialize_whole(slice, binding)
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
@@ -263,7 +260,7 @@ impl SliceReserver for DirectSliceReserver {
             return;
         }
         self.releasing
-            .extend(free_positions(&self.slices).map(|(index, _)| index));
+            .extend(Self::free_positions(&self.slices).map(|(index, _)| index));
         self.release_marked(storage, failures);
     }
 
@@ -275,24 +272,9 @@ impl SliceReserver for DirectSliceReserver {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let slice = self.find_mut(&reserved.binding())?;
-        SliceAllocator.bind(slice, assigned, cursor, failures);
+        SliceBinder.bind(slice, assigned, cursor, failures);
         Ok(())
     }
-}
-
-/// The position and padded size of every free slice among `slices`, in
-/// position order.
-fn free_positions(slices: &[Option<Slice>]) -> impl Iterator<Item = (usize, u64)> + '_ {
-    slices.iter().enumerate().filter_map(|(index, slice)| {
-        let slice = slice.as_ref().filter(|slice| slice.is_free())?;
-        Some((index, slice.effective_size()))
-    })
-}
-
-/// Put `slice` at `index` of `slices`, a tombstone or one past the end.
-fn place(slices: &mut Vec<Option<Slice>>, index: usize, slice: Slice) {
-    slices.resize_with(slices.len().max(index + 1), || None);
-    slices[index] = Some(slice);
 }
 
 impl core::fmt::Display for DirectSliceReserver {
@@ -308,6 +290,23 @@ impl core::fmt::Display for DirectSliceReserver {
             BytesFormat::from_byte_count(self.largest_alloc_bytes)
         ))?;
         f.write_fmt(format_args!("\n{usage}\n"))
+    }
+}
+
+impl DirectSliceReserver {
+    /// The position and padded size of every free slice among `slices`, in
+    /// position order.
+    fn free_positions(slices: &[Option<Slice>]) -> impl Iterator<Item = (usize, u64)> + '_ {
+        slices.iter().enumerate().filter_map(|(index, slice)| {
+            let slice = slice.as_ref().filter(|slice| slice.is_free())?;
+            Some((index, slice.effective_size()))
+        })
+    }
+
+    /// Put `slice` at `index` of `slices`, a tombstone or one past the end.
+    fn place(slices: &mut Vec<Option<Slice>>, index: usize, slice: Slice) {
+        slices.resize_with(slices.len().max(index + 1), || None);
+        slices[index] = Some(slice);
     }
 }
 

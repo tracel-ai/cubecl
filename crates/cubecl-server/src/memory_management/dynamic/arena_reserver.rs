@@ -9,13 +9,12 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
         memory_pool::{
-            PageCarver, PageMapping, PagedSliceReserver, PinnedRoom, SliceAllocator, SliceReserver,
-            all_guarded,
+            PageCarver, PageMapping, PagedSliceReserver, PinnedRoom, SliceBinder, SliceReserver,
         },
         relocation::{
             ArenaShape, ArenaState, LandedRelocation, LiveAllocation, MovablePage, Move,
-            OutdatedPages, Relocation, RelocationCopier, RelocationDecider, RelocationNeed,
-            RelocationReason, StorageCopy, TargetRoom, landed_locations,
+            OutdatedPages, RelocationCopier, RelocationDecider, RelocationLander, RelocationNeed,
+            RelocationReason, StorageCopy, TargetRoom,
         },
     },
     server::{IoError, ServerError},
@@ -72,7 +71,9 @@ impl ArenaReserver {
         name: String,
     ) -> Self {
         let mut slots = Vec::with_capacity(ARENA_SLOT_COUNT);
-        slots.push(Some(sizing.pool(sizing.min_page_bytes, first_index)));
+        slots.push(Some(PagedSliceReserver::new(
+            sizing.layout(sizing.min_page_bytes, first_index),
+        )));
         slots.resize_with(ARENA_SLOT_COUNT, || None);
         Self {
             slots,
@@ -108,7 +109,7 @@ impl ArenaReserver {
     /// Whether graphs guard every page the current pool holds, and it holds
     /// some: room for work outside a capture comes only from a new page then.
     pub(crate) fn is_pinned(&self) -> bool {
-        all_guarded(self.current().pages())
+        self.current().is_pinned()
     }
 
     /// Whether emptying the outdated pools is wanted, on a device that holds
@@ -218,7 +219,7 @@ impl ArenaReserver {
             self.decider.stalled(&self.state());
             return;
         }
-        match relocation.copy(storage, copier) {
+        match relocation.land(storage, copier) {
             Ok(landed) => self.land(landed, storage, failures),
             Err(err) => self.abandon(&err),
         }
@@ -318,7 +319,9 @@ impl ArenaReserver {
                 .expect("an outdated slot should hold its pool until it drains");
             pool.release_empty(storage, failures);
             let drained = pool.pages().is_empty();
-            slots[slot] = slots[slot].take().filter(|_| !drained);
+            if drained {
+                slots[slot] = None;
+            }
             !drained
         });
     }
@@ -335,14 +338,14 @@ impl ArenaReserver {
         room: TargetRoom,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
-    ) -> Relocation {
+    ) -> RelocationLander {
         let plan = OutdatedPages::new(self.outdated_pages()).into_plan();
         let moves = plan
             .into_iter()
             .filter_map(|page| self.plan_page(page, room, storage, failures))
             .flatten()
             .collect();
-        Relocation::new(moves)
+        RelocationLander::new(moves)
     }
 
     /// The moves of every allocation of `page`, or `None` when one of them
@@ -372,9 +375,9 @@ impl ArenaReserver {
         storage: &mut Storage,
         failures: &mut ErrorGraph,
     ) {
-        for (source, destination) in landed_locations(landed) {
+        for (source, destination) in landed.into_moves().into_iter().map(Move::into_locations) {
             let (source_pool, target_pool) = self.pair_mut(source.pool, destination.pool);
-            SliceAllocator.hand_over(
+            SliceBinder.hand_over(
                 source_pool.slice_at(source),
                 target_pool.slice_at(destination),
                 failures,
@@ -458,7 +461,8 @@ impl ArenaReserver {
         // cleanup, which drains the pool once it is outdated. Not here: a
         // reservation never releases a page, so a caller that must keep every
         // page where it is can still reserve.
-        let mut pool = self.sizing.pool(page_size, self.first_index + slot as u8);
+        let mut pool =
+            PagedSliceReserver::new(self.sizing.layout(page_size, self.first_index + slot as u8));
         let handle = pool.alloc(storage, size, mapping, failures)?;
 
         self.slots[slot] = Some(pool);

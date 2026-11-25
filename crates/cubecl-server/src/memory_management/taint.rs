@@ -60,8 +60,8 @@ pub struct Taint {
 #[derive(Debug, Default)]
 struct ClaimRecorder {
     /// One claim per failure, in the order the failures first claimed bytes
-    /// (Arrival), found by their failure (Keyed) and scanned for the failure a
-    /// range overlaps.
+    /// (Arrival): scanned in that order for a failure's claim (Keyed) and for
+    /// the first claim a range overlaps.
     entries: Claims,
 }
 
@@ -164,7 +164,7 @@ impl ClaimRecorder {
             .iter_mut()
             .find(|entry| entry.failure == failure)
         {
-            Some(entry) => add(&mut entry.ranges, range),
+            Some(entry) => Self::add(&mut entry.ranges, range),
             None => self.claim(range, failure, failures),
         }
     }
@@ -199,7 +199,7 @@ impl ClaimRecorder {
         if Some(entry.failure) == kept {
             return true;
         }
-        subtract(&mut entry.ranges, range);
+        Self::subtract(&mut entry.ranges, range);
         Self::keep_claiming(entry, failures)
     }
 
@@ -216,7 +216,7 @@ impl ClaimRecorder {
     fn claiming(&self, range: &Range<u64>) -> Option<FailureId> {
         self.entries
             .iter()
-            .find(|entry| entry.ranges.iter().any(|held| overlaps(held, range)))
+            .find(|entry| entry.ranges.iter().any(|held| Self::overlaps(held, range)))
             .map(|entry| entry.failure)
     }
 
@@ -233,55 +233,57 @@ impl ClaimRecorder {
     }
 }
 
-fn overlaps(a: &Range<u64>, b: &Range<u64>) -> bool {
-    // Their intersection is non-empty — which an empty range's never is, so a
-    // zero-sized binding neither trips a claim nor loses one.
-    a.start.max(b.start) < a.end.min(b.end)
-}
-
-/// Remove `cut` from `ranges`, splitting a range it lands inside.
-fn subtract(ranges: &mut Ranges, cut: &Range<u64>) {
-    let mut index = 0;
-    while index < ranges.len() {
-        index += subtract_at(ranges, index, cut);
+impl ClaimRecorder {
+    fn overlaps(a: &Range<u64>, b: &Range<u64>) -> bool {
+        // Their intersection is non-empty — which an empty range's never is, so a
+        // zero-sized binding neither trips a claim nor loses one.
+        a.start.max(b.start) < a.end.min(b.end)
     }
-}
 
-/// Remove `cut` from the range of `ranges` at `index`, answering how many
-/// ranges stand where it stood.
-fn subtract_at(ranges: &mut Ranges, index: usize, cut: &Range<u64>) -> usize {
-    let held = ranges[index].clone();
-    if !overlaps(&held, cut) {
-        return 1;
-    }
-    let left = held.start..cut.start.min(held.end);
-    let right = cut.end.max(held.start)..held.end;
-    ranges.remove(index);
-    let kept: SmallVec<[Range<u64>; 2]> = [left, right]
-        .into_iter()
-        .filter(|range| !range.is_empty())
-        .collect();
-    let count = kept.len();
-    ranges.insert_many(index, kept);
-    count
-}
-
-/// Add `new` to `ranges`, fusing whatever it overlaps or touches so the list
-/// stays disjoint and sorted.
-fn add(ranges: &mut Ranges, mut new: Range<u64>) {
-    ranges.retain(|held| {
-        // Touching counts: [0, 10) and [10, 20) fuse into [0, 20).
-        let fuses = held.start <= new.end && new.start <= held.end;
-        if fuses {
-            new = new.start.min(held.start)..new.end.max(held.end);
+    /// Remove `cut` from `ranges`, splitting a range it lands inside.
+    fn subtract(ranges: &mut Ranges, cut: &Range<u64>) {
+        let mut index = 0;
+        while index < ranges.len() {
+            index += Self::subtract_at(ranges, index, cut);
         }
-        !fuses
-    });
-    let at = ranges
-        .iter()
-        .position(|held| new.end < held.start)
-        .unwrap_or(ranges.len());
-    ranges.insert(at, new);
+    }
+
+    /// Remove `cut` from the range of `ranges` at `index`, answering how many
+    /// ranges stand where it stood.
+    fn subtract_at(ranges: &mut Ranges, index: usize, cut: &Range<u64>) -> usize {
+        let held = ranges[index].clone();
+        if !Self::overlaps(&held, cut) {
+            return 1;
+        }
+        let left = held.start..cut.start.min(held.end);
+        let right = cut.end.max(held.start)..held.end;
+        ranges.remove(index);
+        let kept: SmallVec<[Range<u64>; 2]> = [left, right]
+            .into_iter()
+            .filter(|range| !range.is_empty())
+            .collect();
+        let count = kept.len();
+        ranges.insert_many(index, kept);
+        count
+    }
+
+    /// Add `new` to `ranges`, fusing whatever it overlaps or touches so the list
+    /// stays disjoint and sorted.
+    fn add(ranges: &mut Ranges, mut new: Range<u64>) {
+        ranges.retain(|held| {
+            // Touching counts: [0, 10) and [10, 20) fuse into [0, 20).
+            let fuses = held.start <= new.end && new.start <= held.end;
+            if fuses {
+                new = new.start.min(held.start)..new.end.max(held.end);
+            }
+            !fuses
+        });
+        let at = ranges
+            .iter()
+            .position(|held| new.end < held.start)
+            .unwrap_or(ranges.len());
+        ranges.insert(at, new);
+    }
 }
 
 #[cfg(test)]

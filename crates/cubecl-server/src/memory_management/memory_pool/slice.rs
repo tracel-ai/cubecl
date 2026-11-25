@@ -81,6 +81,12 @@ pub(crate) fn padded_size(size: u64, memory_alignment: u64) -> Option<u64> {
     size.checked_add(calculate_padding(size, memory_alignment))
 }
 
+/// `size` bytes rounded up to `memory_alignment`, when that fits in
+/// `max_size`: `None` for a size no allocation of at most `max_size` takes.
+pub(crate) fn padded_size_within(size: u64, memory_alignment: u64, max_size: u64) -> Option<u64> {
+    padded_size(size, memory_alignment).filter(|padded| *padded <= max_size)
+}
+
 /// The bytes alignment adds past `size`, for a buffer aligned to `memory_alignment`.
 pub(crate) fn calculate_padding(size: u64, memory_alignment: u64) -> u64 {
     (memory_alignment - size % memory_alignment) % memory_alignment
@@ -97,9 +103,12 @@ pub(crate) fn missing(kind: &str, index: usize) -> IoError {
 /// What `slices` hold: the live ones' count, bytes and padding, and every
 /// slice's padded size as the bytes reserved.
 pub(crate) fn slices_usage<'a>(slices: impl Iterator<Item = &'a Slice>) -> MemoryUsage {
-    slices.fold(MemoryUsage::default(), |usage, slice| {
-        usage.combine(slice_usage(slice))
-    })
+    sum_usage(slices.map(slice_usage))
+}
+
+/// The usages `usages` add up to.
+pub(crate) fn sum_usage(usages: impl Iterator<Item = MemoryUsage>) -> MemoryUsage {
+    usages.fold(MemoryUsage::default(), |total, usage| total.combine(usage))
 }
 
 /// What one slice holds: its padded size reserved, and its allocation when
