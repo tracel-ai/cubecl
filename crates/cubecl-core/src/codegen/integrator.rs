@@ -29,7 +29,6 @@ impl KernelIntegrator {
     }
 
     /// Performs the compilation with the provided [settings](KernelSettings).
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn integrate(self, settings: KernelSettings) -> KernelDefinition {
         KernelDefinition {
             body: self.expansion.scope,

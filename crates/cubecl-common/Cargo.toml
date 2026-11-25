@@ -26,7 +26,6 @@ hash = ["xxhash-rust"]
 serde = []
 shared-bytes = ["cubecl-environment/shared-bytes"]
 std = ["cubecl-environment/std"]
-tracing = ["cubecl-environment/tracing"]
 
 
 [dependencies]

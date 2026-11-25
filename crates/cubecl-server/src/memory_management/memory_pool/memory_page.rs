@@ -196,7 +196,6 @@ impl MemoryPage {
     ///
     /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
     /// you can call the [`Self::coalesce()`] function to merge those.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
@@ -284,7 +283,6 @@ impl MemoryPage {
     /// on the spot. Free slices are the only ones merged, and nobody holds a
     /// handle to a free slice, so losing the tag costs nothing but the
     /// decrement.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn coalesce(&mut self, failures: &mut ErrorGraph) {
         self.slices_tmp.clear();
         let mut job = self.memory_job();

@@ -26,7 +26,6 @@ nvidia = []
 
 serde = ["dep:serde", "hashbrown/serde", "cubecl-common/serde"]
 spirv = ["dep:pliron-spirv"]
-tracing = ["cubecl-common/tracing"]
 
 [dependencies]
 cubecl-common = { workspace = true, features = ["fp8", "hash"] }

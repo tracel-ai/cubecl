@@ -1056,10 +1056,6 @@ impl Client {
     /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
     /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
     /// wait on one still does.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst_server))
-    )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
         self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
@@ -1080,10 +1076,6 @@ impl Client {
     }
 
     /// Sets up the group over `device_ids` on every one of its devices, unless it already is.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, device_ids))
-    )]
     pub fn ensure_init_collective(&self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
         // Two ranks on one device wait on its server thread for each other, forever.
@@ -1191,7 +1183,6 @@ impl Client {
     /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
     /// transfer from this device queued in between would wait on a part not queued yet. A
     /// [`ClientGroup`]'s collectives need none: each one's stream waits for it at once.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
@@ -1234,10 +1225,6 @@ impl Client {
     /// queueing them stops with it. It queues nothing while this client discards communication
     /// ([`discards_communication`](Self::discards_communication)), whatever its peers do, since
     /// reading theirs would load their clients on every call.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
-    )]
     pub fn all_reduce(
         &mut self,
         src: Handle,
@@ -1469,10 +1456,6 @@ impl Client {
     ///
     /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
     /// waits on the source, whose queue may hold a transfer waiting on the destination's.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
-    )]
     pub fn to_client_tensor(
         &mut self,
         src_descriptor: CopyDescriptor,
@@ -1541,13 +1524,6 @@ impl Client {
     }
 
     #[track_caller]
-    #[cfg_attr(feature = "tracing", tracing::instrument(level="trace",
-        skip(self, kernel, bindings),
-        fields(
-            kernel.name = %kernel.name(),
-            kernel.id = %kernel.id(),
-        )
-    ))]
     unsafe fn launch_inner(
         &self,
         kernel: Box<dyn CubeKernel>,
@@ -2386,13 +2362,6 @@ impl Client {
     }
 
     /// Transfer data from one client to another
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(
-            level = "trace",
-            skip(self, src_descriptor, alloc_descriptor, dst_server)
-        )
-    )]
     fn change_client_sync(
         &self,
         src_descriptor: CopyDescriptor,

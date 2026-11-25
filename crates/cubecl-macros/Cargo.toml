@@ -33,9 +33,6 @@ warn-redundant-allow = []
 default = []
 std = []
 
-tracing = []
-
-
 [dependencies]
 darling = { workspace = true }
 derive-new = { workspace = true }
