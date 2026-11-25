@@ -246,7 +246,6 @@ impl core::fmt::Display for PersistentSliceReserver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_management::memory_pool::calculate_padding;
     use crate::storage::{BytesStorage, StorageAllocator};
 
     fn alloc(
@@ -262,52 +261,61 @@ mod tests {
         )
     }
 
-    /// A size whose padded allocation passes the largest allocation is refused
-    /// as `BufferTooBig` before the storage is asked, and the pool still
-    /// serves the next one that fits.
+    /// A size whose padded allocation passes the largest allocation is
+    /// refused as `BufferTooBig`.
     #[test_log::test]
-    fn an_allocation_past_the_limit_is_refused_before_the_storage() {
+    fn an_allocation_past_the_limit_is_refused() {
         let mut storage = BytesStorage::default();
         let mut pool = PersistentSliceReserver::new(1024, 16, 0);
 
         let refused = alloc(&mut pool, &mut storage, 1025);
+
         assert!(
             matches!(refused, Err(IoError::BufferTooBig { size: 1025, .. })),
             "got {refused:?}"
         );
-        assert_eq!(storage.bytes_allocated(), 0, "the storage was never asked");
+    }
 
-        let served = alloc(&mut pool, &mut storage, 1024).expect("exactly the limit should fit");
+    /// A refused allocation never reaches the storage.
+    #[test_log::test]
+    fn a_refused_allocation_never_reaches_the_storage() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 16, 0);
+
+        alloc(&mut pool, &mut storage, 1025).expect_err("past the limit should be refused");
+
+        assert_eq!(storage.bytes_allocated(), 0);
+    }
+
+    /// An allocation exactly at the limit is served.
+    #[test_log::test]
+    fn an_allocation_at_the_limit_is_served() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 16, 0);
+
+        let _served = alloc(&mut pool, &mut storage, 1024).expect("exactly the limit should fit");
+
         assert_eq!(storage.bytes_allocated(), 1024);
-        core::mem::drop(served);
+    }
+
+    /// A live slice is not reused.
+    #[test_log::test]
+    fn a_live_slice_is_not_reused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        let _live = alloc(&mut pool, &mut storage, 1025).expect("the size should fit");
+
+        assert!(pool.try_reserve(1025, &mut ErrorGraph::default()).is_none());
     }
 
     /// `alloc` and `try_reserve` must use the same `sizes` key (`size + padding`). See #1224.
     #[test_log::test]
-    fn persistent_pool_try_reserve_reuses_slice_with_padding() {
+    fn a_freed_slice_with_padding_is_reused() {
         let mut storage = BytesStorage::default();
-        let alignment = 4u64;
-        let mut pool = PersistentSliceReserver::new(1024 * 1024, alignment, 0);
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 1025).expect("the size should fit"));
 
-        let size = 1025u64;
-        assert_ne!(
-            calculate_padding(size, alignment),
-            0,
-            "test needs non-zero padding so alloc vs try_reserve keys differed pre-fix"
-        );
-
-        let handle = alloc(&mut pool, &mut storage, size).expect("the size should fit");
-        assert!(
-            pool.try_reserve(size, &mut ErrorGraph::default()).is_none(),
-            "slice must stay reserved while the handle is alive"
-        );
-
-        core::mem::drop(handle);
-
-        assert!(
-            pool.try_reserve(size, &mut ErrorGraph::default()).is_some(),
-            "freed slice should be reusable"
-        );
+        assert!(pool.try_reserve(1025, &mut ErrorGraph::default()).is_some());
     }
 
     /// A reused slice takes the padding of the size it now serves, so its
@@ -316,8 +324,7 @@ mod tests {
     fn a_reused_slice_takes_the_padding_of_its_new_size() {
         let mut storage = BytesStorage::default();
         let mut pool = PersistentSliceReserver::new(1024, 32, 0);
-        let first = alloc(&mut pool, &mut storage, 100).expect("100 bytes should fit");
-        core::mem::drop(first);
+        core::mem::drop(alloc(&mut pool, &mut storage, 100).expect("100 bytes should fit"));
 
         let _reused = pool
             .try_reserve(97, &mut ErrorGraph::default())
@@ -327,6 +334,18 @@ mod tests {
         assert_eq!((usage.reserved_bytes, usage.padding_bytes), (128, 31));
     }
 
+    /// A size whose padding passes the largest `u64` is not accepted.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_is_not_accepted() {
+        assert!(!PersistentSliceReserver::new(1024, 32, 0).accepts_bytes(u64::MAX));
+    }
+
+    /// A size whose padding passes the largest `u64` has no bucket.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_has_no_bucket() {
+        assert!(!PersistentSliceReserver::new(1024, 32, 0).has_size_bytes(u64::MAX));
+    }
+
     /// A size whose padding passes the largest `u64` is refused rather than
     /// wrapped to a small allocation.
     #[test_log::test]
@@ -334,15 +353,13 @@ mod tests {
         let mut storage = BytesStorage::default();
         let mut pool = PersistentSliceReserver::new(1024, 32, 0);
 
-        assert!(!pool.accepts_bytes(u64::MAX));
-        assert!(!pool.has_size_bytes(u64::MAX));
         assert!(matches!(
             alloc(&mut pool, &mut storage, u64::MAX),
             Err(IoError::BufferTooBig { .. })
         ));
     }
 
-    /// A size of another padded size is not served from a freed slice.
+    /// A freed slice serves no other padded size.
     #[test_log::test]
     fn a_freed_slice_serves_only_its_own_padded_size() {
         let mut storage = BytesStorage::default();
@@ -350,6 +367,15 @@ mod tests {
         core::mem::drop(alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit"));
 
         assert!(pool.try_reserve(1025, &mut ErrorGraph::default()).is_none());
+    }
+
+    /// A freed slice keeps its bucket.
+    #[test_log::test]
+    fn a_freed_slice_keeps_its_bucket() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit"));
+
         assert!(pool.has_size_bytes(1024));
     }
 
@@ -383,15 +409,13 @@ mod tests {
         assert_eq!(pool.report().page_count, 1);
     }
 
-    /// An explicit cleanup returns every free slice and renumbers the live
-    /// ones, which still resolve.
+    /// An explicit cleanup returns every free slice.
     #[test_log::test]
-    fn an_explicit_cleanup_returns_free_slices_and_renumbers_the_rest() {
+    fn an_explicit_cleanup_returns_free_slices() {
         let mut storage = BytesStorage::default();
         let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
-        let freed = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
-        let kept = alloc(&mut pool, &mut storage, 128).expect("128 bytes should fit");
-        core::mem::drop(freed);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+        let _kept = alloc(&mut pool, &mut storage, 128).expect("128 bytes should fit");
 
         pool.cleanup(
             &mut storage,
@@ -401,6 +425,23 @@ mod tests {
         );
 
         assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// An explicit cleanup renumbers the live slices, which still resolve.
+    #[test_log::test]
+    fn an_explicit_cleanup_renumbers_live_slices() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+        let kept = alloc(&mut pool, &mut storage, 128).expect("128 bytes should fit");
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Explicit,
+            &mut ErrorGraph::default(),
+        );
+
         assert_eq!(kept.descriptor().location().slice, 0);
         assert!(pool.find(&kept.binding()).is_ok());
     }

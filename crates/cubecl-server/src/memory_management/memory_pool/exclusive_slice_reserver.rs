@@ -328,21 +328,28 @@ mod tests {
         )
     }
 
+    fn cleanup(pool: &mut ExclusiveSliceReserver, storage: &mut BytesStorage, cleanup: Cleanup) {
+        pool.cleanup(storage, 1, cleanup, &mut ErrorGraph::default());
+    }
+
+    /// A size past the largest allocation is not accepted.
+    #[test_log::test]
+    fn a_size_past_the_limit_is_not_accepted() {
+        assert!(!pool(u64::MAX).accepts_bytes(1025));
+    }
+
     /// A size past the largest allocation is refused rather than allocated.
     #[test_log::test]
     fn an_allocation_past_the_limit_is_refused() {
         let mut storage = BytesStorage::default();
-        let mut pool = pool(u64::MAX);
 
-        assert!(!pool.accepts_bytes(1025));
         assert!(matches!(
-            alloc(&mut pool, &mut storage, 1025),
+            alloc(&mut pool(u64::MAX), &mut storage, 1025),
             Err(IoError::BufferTooBig { .. })
         ));
     }
 
-    /// A freed page serves any allocation it fits, with that allocation's
-    /// padding.
+    /// A freed page serves any allocation it fits, reusing the page.
     #[test_log::test]
     fn a_freed_page_serves_any_allocation_it_fits() {
         let mut storage = BytesStorage::default();
@@ -353,9 +360,21 @@ mod tests {
             .try_reserve(100, &mut ErrorGraph::default())
             .expect("the freed page should fit 100 bytes");
 
-        let report = pool.report();
-        assert_eq!(report.page_count, 1);
-        assert_eq!(report.usage.padding_bytes, 28);
+        assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// A reused page takes the padding of the allocation it now serves.
+    #[test_log::test]
+    fn a_reused_page_takes_its_new_padding() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::MAX);
+        core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
+
+        let _reused = pool
+            .try_reserve(100, &mut ErrorGraph::default())
+            .expect("the freed page should fit 100 bytes");
+
+        assert_eq!(pool.report().usage.padding_bytes, 28);
     }
 
     /// A live page serves nothing else.
@@ -368,24 +387,46 @@ mod tests {
         assert!(pool.try_reserve(100, &mut ErrorGraph::default()).is_none());
     }
 
-    /// A free page goes back once enough checks found it free, and a live
-    /// one stays, renumbered.
+    /// A free page goes back once enough checks found it free.
     #[test_log::test]
     fn a_page_found_free_often_enough_goes_back() {
         let mut storage = BytesStorage::default();
         let mut pool = pool(u64::from(DEALLOC_FREE_CHECK_COUNT));
-        let freed = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
-        let live = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
-        core::mem::drop(freed);
+        core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
 
-        pool.cleanup(
-            &mut storage,
-            1,
-            Cleanup::Periodic,
-            &mut ErrorGraph::default(),
+        cleanup(&mut pool, &mut storage, Cleanup::Periodic);
+
+        assert_eq!(pool.report().page_count, 0);
+    }
+
+    /// A page found free too few times stays.
+    #[test_log::test]
+    fn a_page_found_free_too_few_times_stays() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::from(DEALLOC_FREE_CHECK_COUNT));
+        let reused = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
+        core::mem::drop(reused);
+        // Serving it again makes it look used: one more free check is due.
+        core::mem::drop(
+            pool.try_reserve(512, &mut ErrorGraph::default())
+                .expect("the freed page should serve again"),
         );
 
+        cleanup(&mut pool, &mut storage, Cleanup::Periodic);
+
         assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// The live pages left after a cleanup are renumbered.
+    #[test_log::test]
+    fn a_cleanup_renumbers_the_live_pages() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::from(DEALLOC_FREE_CHECK_COUNT));
+        core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
+        let live = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
+
+        cleanup(&mut pool, &mut storage, Cleanup::Periodic);
+
         assert_eq!(live.descriptor().location().page, 0);
     }
 
@@ -396,12 +437,7 @@ mod tests {
         let mut pool = pool(1000);
         core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
 
-        pool.cleanup(
-            &mut storage,
-            1,
-            Cleanup::Periodic,
-            &mut ErrorGraph::default(),
-        );
+        cleanup(&mut pool, &mut storage, Cleanup::Periodic);
 
         assert_eq!(pool.report().page_count, 1);
     }
@@ -413,12 +449,7 @@ mod tests {
         let mut pool = pool(u64::MAX);
         core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
 
-        pool.cleanup(
-            &mut storage,
-            0,
-            Cleanup::Explicit,
-            &mut ErrorGraph::default(),
-        );
+        cleanup(&mut pool, &mut storage, Cleanup::Explicit);
 
         assert_eq!(pool.report().page_count, 0);
     }
@@ -438,8 +469,6 @@ mod tests {
     /// A guard of a location naming no page is refused.
     #[test_log::test]
     fn a_guard_of_no_page_is_none() {
-        let mut pool = pool(u64::MAX);
-
-        assert!(pool.guard(MemoryLocation::new(0, 3, 0)).is_none());
+        assert!(pool(u64::MAX).guard(MemoryLocation::new(0, 3, 0)).is_none());
     }
 }

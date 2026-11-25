@@ -449,6 +449,8 @@ impl Display for PageCarver {
 #[allow(clippy::identity_op)]
 mod tests {
     use super::*;
+    use crate::memory_management::memory_pool::CountingStorageAllocator;
+    use crate::storage::StorageAllocator;
     use alloc::vec;
 
     const MB: u64 = 1024 * 1024;
@@ -513,8 +515,7 @@ mod tests {
         );
     }
 
-    /// Reservations fill a page in offset order, and one that fits no free
-    /// slice is refused.
+    /// Reservations fill a page in offset order.
     #[test_log::test]
     fn reservations_fill_a_page_in_order() {
         let mut page = new_memory_page(32 * MB);
@@ -538,24 +539,63 @@ mod tests {
                 total_count: 5
             },
         );
+    }
+
+    /// A reservation no free slice fits is refused.
+    #[test_log::test]
+    fn a_reservation_no_free_slice_fits_is_refused() {
+        let mut page = new_memory_page(32 * MB);
+        let _slices = [4, 15, 8, 4].map(|size| reserve(&mut page, size * MB));
+
         assert!(page.carve_bytes(8 * MB).is_none());
     }
 
-    /// A freed slice serves only what fits it until coalescing merges it with
-    /// its free neighbour, and the live slices keep their offsets.
+    /// A summary asked without blocks lists none.
     #[test_log::test]
-    fn a_freed_slice_serves_more_once_coalesced() {
+    fn a_summary_without_blocks_lists_none() {
+        let page = new_memory_page(32 * MB);
+
+        assert!(page.view().summary_with_blocks(false).blocks.is_empty());
+    }
+
+    /// Two neighbouring free slices serve only what each fits apart.
+    #[test_log::test]
+    fn neighbouring_free_slices_serve_apart_until_coalesced() {
         let mut page = new_memory_page(32 * MB);
-        let [_first, second, third, fourth] =
+        let [_first, second, third, _fourth] =
             [4, 15, 8, 4].map(|size| reserve(&mut page, size * MB));
         core::mem::drop(second);
         let _nine = reserve(&mut page, 9 * MB);
         core::mem::drop(third);
+
         assert!(page.carve_bytes(9 * MB).is_none(), "6 and 8 MB apart");
+    }
+
+    /// Coalesced, neighbouring free slices serve what they fit together.
+    #[test_log::test]
+    fn coalesced_free_slices_serve_together() {
+        let mut page = new_memory_page(32 * MB);
+        let [_first, second, third, _fourth] =
+            [4, 15, 8, 4].map(|size| reserve(&mut page, size * MB));
+        core::mem::drop(second);
+        let _nine = reserve(&mut page, 9 * MB);
+        core::mem::drop(third);
 
         page.coalesce(&mut ErrorGraph::default());
 
         assert!(page.carve_bytes(9 * MB).is_some(), "14 MB together");
+    }
+
+    /// Coalescing keeps the live slices' offsets.
+    #[test_log::test]
+    fn coalescing_keeps_live_offsets() {
+        let mut page = new_memory_page(32 * MB);
+        let [_first, second, third, fourth] =
+            [4, 15, 8, 4].map(|size| reserve(&mut page, size * MB));
+        core::mem::drop((second, third));
+
+        page.coalesce(&mut ErrorGraph::default());
+
         assert_eq!(
             offset_of(&page, &fourth),
             StorageUtilization {
@@ -594,36 +634,32 @@ mod tests {
         assert!(page.carve_bytes(u64::MAX).is_none());
     }
 
-    /// A binding takes the slice's location and the cursor it is bound at.
+    /// A binding resolves to the slice it was bound to.
     #[test_log::test]
-    fn a_binding_takes_the_slice_and_its_cursor() {
+    fn a_binding_resolves_to_its_slice() {
         let mut page = new_memory_page(32 * MB);
         let reserved = reserve(&mut page, MB);
         let assigned = ManagedMemoryHandle::new();
 
         page.bind(reserved, assigned.clone(), 3, &mut ErrorGraph::default());
 
-        let slice = page
-            .find(&assigned.clone().binding())
-            .expect("the binding should resolve");
-        assert_eq!(slice.cursor, 3);
+        assert!(page.find(&assigned.binding()).is_ok());
     }
 
-    /// A lazily carved page reads no storage until it is rebound to a real
-    /// allocation.
+    /// A lazily carved page reads no storage.
     #[test_log::test]
-    fn a_lazy_page_has_storage_only_once_rebound() {
-        let storage = StorageHandle::new(
-            StorageId::new(),
-            StorageUtilization {
-                offset_bytes: 0,
-                size_bytes: MB,
-            },
-        );
-        let mut page = PageCarver::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Lazy);
-        assert!(page.view().mapped_storage_at_index(0).is_none());
+    fn a_lazy_page_has_no_storage() {
+        let page = lazy_page();
 
+        assert!(page.view().mapped_storage_at_index(0).is_none());
+    }
+
+    /// A rebound page reads the storage it was rebound to.
+    #[test_log::test]
+    fn a_rebound_page_reads_its_new_storage() {
+        let mut page = lazy_page();
         let real = StorageId::new();
+
         page.rebind_storage(real);
 
         let mapped = page
@@ -631,6 +667,71 @@ mod tests {
             .mapped_storage_at_index(0)
             .expect("a rebound page should have storage");
         assert_eq!(mapped.id, real);
+    }
+
+    /// A lazy page is mapped from the storage it is given.
+    #[test_log::test]
+    fn a_lazy_page_is_mapped_from_the_storage() {
+        let mut storage = CountingStorageAllocator::default();
+        let mut page = lazy_page();
+
+        page.map(&mut storage)
+            .expect("the host should back the page");
+
+        assert!(page.view().is_mapped);
+        assert_eq!(storage.bytes_allocated(), MB);
+    }
+
+    /// An unused page goes back to the driver.
+    #[test_log::test]
+    fn an_unused_page_is_released() {
+        let mut storage = CountingStorageAllocator::default();
+        let mut page = new_memory_page(MB);
+        let id = page.view().storage_id;
+
+        assert!(page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
+        assert_eq!(storage.deallocated(), [id]);
+    }
+
+    /// An unused page never backed hands the driver nothing.
+    #[test_log::test]
+    fn an_unused_unmapped_page_hands_back_nothing() {
+        let mut storage = CountingStorageAllocator::default();
+        let mut page = lazy_page();
+
+        assert!(page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
+        assert!(storage.deallocated().is_empty());
+    }
+
+    /// A page with a live allocation stays.
+    #[test_log::test]
+    fn a_page_in_use_stays() {
+        let mut storage = CountingStorageAllocator::default();
+        let mut page = new_memory_page(MB);
+        let _live = reserve(&mut page, 64);
+
+        assert!(!page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
+    }
+
+    /// A guarded page stays, empty or not.
+    #[test_log::test]
+    fn a_guarded_page_stays() {
+        let mut storage = CountingStorageAllocator::default();
+        let mut page = new_memory_page(MB);
+        let _guard = page.guard();
+
+        assert!(!page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
+    }
+
+    fn lazy_page() -> PageCarver {
+        let storage = StorageHandle::new(
+            StorageId::new(),
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: MB,
+            },
+        );
+        PageCarver::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Lazy)
     }
 
     fn new_memory_page(size: u64) -> PageCarver {

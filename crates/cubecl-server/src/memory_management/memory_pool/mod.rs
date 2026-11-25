@@ -1,5 +1,7 @@
 pub(crate) use cubecl_runtime::memory_management::*;
 
+#[cfg(test)]
+mod counting_storage_allocator;
 mod direct_slice_reserver;
 mod exclusive_slice_reserver;
 mod page_carver;
@@ -11,6 +13,8 @@ mod slice_allocator;
 mod slice_binder;
 mod slice_reserver;
 
+#[cfg(test)]
+pub(crate) use counting_storage_allocator::*;
 pub(crate) use direct_slice_reserver::*;
 pub(crate) use exclusive_slice_reserver::*;
 pub(crate) use page_carver::*;

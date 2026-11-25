@@ -177,26 +177,38 @@ mod tests {
     }
 
     #[test]
-    fn only_a_wanted_relocation_runs_unasked() {
+    fn a_settled_relocation_does_not_run_unasked() {
         let mut settled = device(RelocationNeed::Settled);
-        let mut wanted = device(RelocationNeed::Wanted(RelocationReason::ArenaFull));
 
         settled.relocate_when_wanted();
-        wanted.relocate_when_wanted();
 
         assert!(settled.steps.is_empty());
+    }
+
+    #[test]
+    fn a_wanted_relocation_runs_unasked() {
+        let mut wanted = device(RelocationNeed::Wanted(RelocationReason::ArenaFull));
+
+        wanted.relocate_when_wanted();
+
         assert_eq!(wanted.steps, ["finish", "relocate"]);
     }
 
     #[test]
-    fn a_device_relocation_runs_only_with_something_outdated() {
+    fn a_device_relocation_waits_for_a_recording() {
         let mut recording = device(RelocationNeed::Recording);
-        let mut settled = device(RelocationNeed::Settled);
 
         recording.relocate_device(RelocationReason::Capture);
-        settled.relocate_device(RelocationReason::Capture);
 
         assert!(recording.steps.is_empty());
+    }
+
+    #[test]
+    fn a_device_relocation_runs_with_something_outdated() {
+        let mut settled = device(RelocationNeed::Settled);
+
+        settled.relocate_device(RelocationReason::Capture);
+
         assert_eq!(settled.steps, ["finish", "relocate"]);
     }
 }

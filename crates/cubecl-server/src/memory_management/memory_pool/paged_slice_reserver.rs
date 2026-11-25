@@ -399,12 +399,23 @@ mod tests {
         assert!(pool().accepts_bytes(8 * KIB));
     }
 
-    /// A size past the largest slice is accepted only when it leaves little
-    /// of a page unused.
+    /// A size past the largest slice that leaves little of a page unused is
+    /// accepted.
     #[test_log::test]
     fn a_size_near_the_page_size_is_accepted() {
         assert!(pool().accepts_bytes(60 * KIB));
+    }
+
+    /// A size past the largest slice that leaves much of a page unused is not
+    /// accepted.
+    #[test_log::test]
+    fn a_size_far_from_the_page_size_is_not_accepted() {
         assert!(!pool().accepts_bytes(32 * KIB));
+    }
+
+    /// A size past the page size is not accepted.
+    #[test_log::test]
+    fn a_size_past_the_page_size_is_not_accepted() {
         assert!(!pool().accepts_bytes(65 * KIB));
     }
 
@@ -481,10 +492,29 @@ mod tests {
         assert_eq!(pool.report().page_count, 1);
     }
 
-    /// An explicit cleanup returns every empty unguarded page and renumbers
-    /// the rest.
+    /// An explicit cleanup returns every empty unguarded page.
     #[test_log::test]
     fn an_explicit_cleanup_returns_empty_pages() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        let held: Vec<_> = (0..9)
+            .map(|_| reserve(&mut pool, &mut storage, 8 * KIB))
+            .collect();
+        core::mem::drop(held);
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Explicit,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(pool.report().page_count, 0);
+    }
+
+    /// An explicit cleanup renumbers the pages left.
+    #[test_log::test]
+    fn an_explicit_cleanup_renumbers_the_pages_left() {
         let mut storage = BytesStorage::default();
         let mut pool = pool();
         let held: Vec<_> = (0..9)
@@ -505,7 +535,6 @@ mod tests {
             &mut ErrorGraph::default(),
         );
 
-        assert_eq!(pool.report().page_count, 1);
         assert_eq!(kept.descriptor().location().page, 0);
     }
 

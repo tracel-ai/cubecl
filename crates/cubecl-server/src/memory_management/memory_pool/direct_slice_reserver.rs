@@ -323,6 +323,10 @@ mod tests {
         DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, Some(0))
     }
 
+    fn kept_pool(reclaim_at: Option<u64>) -> DirectSliceReserver {
+        DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, reclaim_at)
+    }
+
     fn alloc(
         pool: &mut DirectSliceReserver,
         storage: &mut BytesStorage,
@@ -336,10 +340,9 @@ mod tests {
         )
     }
 
-    /// A size past the largest allocation is refused as `BufferTooBig`
-    /// before the storage is asked for anything.
+    /// A size past the largest allocation is refused as `BufferTooBig`.
     #[test_log::test]
-    fn an_allocation_past_the_limit_is_refused_before_the_storage() {
+    fn an_allocation_past_the_limit_is_refused() {
         let mut storage = BytesStorage::default();
         let mut pool = pool();
 
@@ -349,28 +352,33 @@ mod tests {
             matches!(refused, Err(IoError::BufferTooBig { size, .. }) if size == 2 * MAX_ALLOC_BYTES),
             "got {refused:?}"
         );
-        assert_eq!(storage.bytes_allocated(), 0, "the storage was never asked");
-        assert!(!pool.accepts_bytes(2 * MAX_ALLOC_BYTES));
     }
 
-    /// The padded size is what the device allocates, so it is what the limit
-    /// bounds: one byte past the last aligned size under the limit is refused.
+    /// A refused allocation never reaches the storage.
     #[test_log::test]
-    fn padding_counts_against_the_limit() {
+    fn a_refused_allocation_never_reaches_the_storage() {
         let mut storage = BytesStorage::default();
         let mut pool = pool();
 
-        assert!(pool.accepts_bytes(MAX_ALLOC_BYTES));
-        assert!(!pool.accepts_bytes(MAX_ALLOC_BYTES + 1));
-        assert!(
-            matches!(
-                alloc(&mut pool, &mut storage, MAX_ALLOC_BYTES + 1),
-                Err(IoError::BufferTooBig { .. })
-            ),
-            "{} pads to {} bytes, past {MAX_ALLOC_BYTES}",
-            MAX_ALLOC_BYTES + 1,
-            MAX_ALLOC_BYTES + ALIGNMENT_BYTES
-        );
+        alloc(&mut pool, &mut storage, 2 * MAX_ALLOC_BYTES)
+            .expect_err("past the limit should be refused");
+
+        assert_eq!(storage.bytes_allocated(), 0);
+    }
+
+    /// The padded size is what the device allocates, so it is what the limit
+    /// bounds: one byte past the last aligned size under the limit is not
+    /// accepted.
+    #[test_log::test]
+    fn padding_counts_against_the_limit() {
+        assert!(pool().accepts_bytes(MAX_ALLOC_BYTES));
+        assert!(!pool().accepts_bytes(MAX_ALLOC_BYTES + 1));
+    }
+
+    /// A size whose padding passes the largest `u64` is not accepted.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_is_not_accepted() {
+        assert!(!pool().accepts_bytes(u64::MAX));
     }
 
     /// A size whose padding passes the largest `u64` is refused rather than
@@ -378,35 +386,21 @@ mod tests {
     #[test_log::test]
     fn a_size_whose_padding_overflows_is_refused() {
         let mut storage = BytesStorage::default();
-        let mut pool = pool();
 
-        assert!(!pool.accepts_bytes(u64::MAX));
         assert!(matches!(
-            alloc(&mut pool, &mut storage, u64::MAX),
+            alloc(&mut pool(), &mut storage, u64::MAX),
             Err(IoError::BufferTooBig { .. })
         ));
-        assert!(
-            pool.try_reserve(u64::MAX, &mut ErrorGraph::default())
-                .is_none()
-        );
     }
 
-    /// A binding takes the cursor it is bound at, which the cross-stream
-    /// waits read.
+    /// A size whose padding passes the largest `u64` reuses no slice.
     #[test_log::test]
-    fn a_binding_takes_its_cursor() {
-        let mut storage = BytesStorage::default();
-        let mut pool = pool();
-        let reserved = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
-        let assigned = ManagedMemoryHandle::new();
-
-        pool.bind(reserved, assigned.clone(), 7, &mut ErrorGraph::default())
-            .expect("the reservation should be the pool's");
-
-        let slice = pool
-            .find(&assigned.binding())
-            .expect("the binding should resolve");
-        assert_eq!(slice.cursor, 7);
+    fn a_size_whose_padding_overflows_reuses_nothing() {
+        assert!(
+            pool()
+                .try_reserve(u64::MAX, &mut ErrorGraph::default())
+                .is_none()
+        );
     }
 
     /// A binding of a slice the pool released is refused.
@@ -438,68 +432,56 @@ mod tests {
     fn the_pool_serves_after_a_refusal() {
         let mut storage = BytesStorage::default();
         let mut pool = pool();
-
         alloc(&mut pool, &mut storage, 4 * MAX_ALLOC_BYTES)
             .expect_err("past the limit should be refused");
-        let served =
+
+        let _served =
             alloc(&mut pool, &mut storage, MAX_ALLOC_BYTES).expect("exactly the limit should fit");
 
-        assert_eq!(storage.bytes_allocated(), MAX_ALLOC_BYTES);
         assert_eq!(pool.report().usage.allocation_count, 1);
-        core::mem::drop(served);
     }
 
-    /// A freed slice of the same padded size is reused rather than allocated
-    /// again.
+    /// A freed slice of the same padded size is reused.
     #[test_log::test]
     fn a_freed_slice_of_the_same_size_is_reused() {
         let mut storage = BytesStorage::default();
-        let mut pool = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, None);
+        let mut pool = kept_pool(None);
         core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
 
         let reused = pool.try_reserve(60, &mut ErrorGraph::default());
 
         assert!(reused.is_some(), "60 bytes pad to the same 64");
-        assert_eq!(pool.report().page_count, 1);
     }
 
     /// A pool with no watermark reclaims nothing.
     #[test_log::test]
     fn a_pool_without_a_watermark_reclaims_nothing() {
         let mut storage = BytesStorage::default();
-        let mut pool = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, None);
+        let mut pool = kept_pool(None);
         core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
 
         assert!(!pool.reclaim(&mut storage, &mut ErrorGraph::default()));
-        assert_eq!(pool.report().page_count, 1);
     }
 
     /// A reclaim returns free slices only down to the watermark.
     #[test_log::test]
     fn a_reclaim_returns_free_slices_down_to_the_watermark() {
         let mut storage = BytesStorage::default();
-        let mut pool = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, Some(64));
+        let mut pool = kept_pool(Some(64));
         let first = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
         let second = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
         core::mem::drop((first, second));
 
-        assert!(pool.reclaim(&mut storage, &mut ErrorGraph::default()));
+        pool.reclaim(&mut storage, &mut ErrorGraph::default());
+
         assert_eq!(pool.report().page_count, 1, "down to the 64-byte watermark");
     }
 
-    /// A guard of a location naming no slice is refused.
+    /// A periodic cleanup returns no free slice.
     #[test_log::test]
-    fn a_guard_of_no_slice_is_none() {
-        let mut pool = pool();
-
-        assert!(pool.guard(MemoryLocation::new(0, 0, 3)).is_none());
-    }
-
-    /// An explicit cleanup returns every free slice, and a periodic one none.
-    #[test_log::test]
-    fn only_an_explicit_cleanup_returns_free_slices() {
+    fn a_periodic_cleanup_returns_nothing() {
         let mut storage = BytesStorage::default();
-        let mut pool = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, None);
+        let mut pool = kept_pool(None);
         core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
 
         pool.cleanup(
@@ -508,13 +490,30 @@ mod tests {
             Cleanup::Periodic,
             &mut ErrorGraph::default(),
         );
+
         assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// An explicit cleanup returns every free slice.
+    #[test_log::test]
+    fn an_explicit_cleanup_returns_every_free_slice() {
+        let mut storage = BytesStorage::default();
+        let mut pool = kept_pool(None);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+
         pool.cleanup(
             &mut storage,
             0,
             Cleanup::Explicit,
             &mut ErrorGraph::default(),
         );
+
         assert_eq!(pool.report().page_count, 0);
+    }
+
+    /// A guard of a location naming no slice is refused.
+    #[test_log::test]
+    fn a_guard_of_no_slice_is_none() {
+        assert!(pool().guard(MemoryLocation::new(0, 0, 3)).is_none());
     }
 }

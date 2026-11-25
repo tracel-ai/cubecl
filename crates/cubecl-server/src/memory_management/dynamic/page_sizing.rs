@@ -124,6 +124,10 @@ mod tests {
                 page_size_bytes: 16 * MIB
             }
         );
+    }
+
+    #[test]
+    fn a_size_past_the_largest_page_is_too_large() {
         assert_eq!(sizing().fit(16 * MIB + 1, 2 * MIB), Fit::TooLarge);
     }
 

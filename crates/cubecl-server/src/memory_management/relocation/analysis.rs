@@ -94,42 +94,69 @@ impl MovablePage {
 mod tests {
     use super::*;
     use crate::memory_management::{
-        ManagedMemoryHandle, MemoryLocation,
+        MemoryLocation,
         memory_pool::{PageCarver, PageMapping},
     };
     use crate::storage::{StorageHandle, StorageId, StorageUtilization};
     use alloc::vec;
 
+    /// The plan empties the pages with the fewest live bytes first, pages of
+    /// equal cost in the order found.
     #[test]
     fn the_plan_empties_the_cheapest_pages_first() {
-        let mut ordered = Vec::new();
-        for page in [movable(&[3, 2]), movable(&[1]), movable(&[4])] {
-            let at = ordered
-                .partition_point(|held: &MovablePage| held.live_bytes() <= page.live_bytes());
-            ordered.insert(at, page);
-        }
-        let plan = OutdatedPages { pages: ordered }.into_plan();
-        assert_eq!(sizes(&plan), [vec![1], vec![4], vec![3, 2]]);
+        let pages = [&[3, 2][..], &[1], &[4], &[1]].map(|sizes| {
+            let mut page = page();
+            let held: Vec<_> = sizes
+                .iter()
+                .map(|size| page.carve_bytes(*size).expect("the page should have room"))
+                .collect();
+            (page, held)
+        });
+
+        let plan = OutdatedPages::new(pages.iter().map(|(page, _)| page)).into_plan();
+
+        assert_eq!(sizes(&plan), [vec![1], vec![1], vec![4], vec![3, 2]]);
     }
 
-    /// A page with nothing live, a guarded one and one holding a bound
-    /// allocation are not movable; one with live allocations is.
+    /// A page with nothing live is not movable.
     #[test]
-    fn only_unguarded_pages_with_unbound_live_allocations_move() {
+    fn an_empty_page_does_not_move() {
         let mut empty = page();
-        let mut guarded = page();
-        let mut bound = page();
-        let mut movable = page();
         core::mem::drop(empty.carve_bytes(64));
-        let _guarded_slice = guarded.carve_bytes(64);
+
+        assert!(OutdatedPages::new([&empty]).into_plan().is_empty());
+    }
+
+    /// A guarded page is not movable.
+    #[test]
+    fn a_guarded_page_does_not_move() {
+        let mut guarded = page();
+        let _slice = guarded.carve_bytes(64);
         let _guard = guarded.guard();
-        let bound_slice = bound.carve_bytes(64).expect("the page should have room");
-        let _binding = bound_slice.clone().binding();
-        let _movable_slice = movable.carve_bytes(64);
 
-        let plan = OutdatedPages::new([&empty, &guarded, &bound, &movable]).into_plan();
+        assert!(OutdatedPages::new([&guarded]).into_plan().is_empty());
+    }
 
-        assert_eq!(sizes(&plan), [vec![64]]);
+    /// A page holding a bound allocation is not movable.
+    #[test]
+    fn a_page_with_a_bound_allocation_does_not_move() {
+        let mut bound = page();
+        let slice = bound.carve_bytes(64).expect("the page should have room");
+        let _binding = slice.clone().binding();
+
+        assert!(OutdatedPages::new([&bound]).into_plan().is_empty());
+    }
+
+    /// A page of unbound live allocations moves them all.
+    #[test]
+    fn a_page_of_unbound_live_allocations_moves() {
+        let mut movable = page();
+        let _slice = movable.carve_bytes(64);
+
+        assert_eq!(
+            sizes(&OutdatedPages::new([&movable]).into_plan()),
+            [vec![64]]
+        );
     }
 
     fn page() -> PageCarver {
@@ -145,18 +172,6 @@ mod tests {
             MemoryLocation::new(0, 0, 0),
             PageMapping::Eager,
         )
-    }
-
-    fn movable(sizes: &[u64]) -> MovablePage {
-        MovablePage {
-            live: sizes
-                .iter()
-                .map(|&size_bytes| LiveAllocation {
-                    handle: ManagedMemoryHandle::new().binding(),
-                    size_bytes,
-                })
-                .collect(),
-        }
     }
 
     fn sizes(plan: &[MovablePage]) -> Vec<Vec<u64>> {

@@ -313,12 +313,35 @@ mod tests {
         assert_eq!(taint.failure(&(0..40)), Some(failure));
         assert_eq!(taint.failure(&(40..60)), None, "these bytes were written");
         assert_eq!(taint.failure(&(60..100)), Some(failure));
-        assert!(!graph.is_empty(), "the split claim still pins the node");
+    }
+
+    /// A split claim still pins its failure.
+    #[test]
+    fn a_split_claim_pins_its_failure() {
+        let mut graph = ErrorGraph::default();
+        let mut taint = Taint::default();
+        let failure = graph.insert(error("launch"));
+        taint.taint(0..100, failure, &mut graph);
+
+        taint.written(40..60, &mut graph);
+
+        assert!(!graph.is_empty());
+    }
+
+    /// The last byte written releases the failure.
+    #[test]
+    fn the_last_byte_written_releases_the_failure() {
+        let mut graph = ErrorGraph::default();
+        let mut taint = Taint::default();
+        let failure = graph.insert(error("launch"));
+        taint.taint(0..100, failure, &mut graph);
+        taint.written(40..60, &mut graph);
 
         taint.written(0..40, &mut graph);
         taint.written(60..100, &mut graph);
+
         assert!(taint.is_clean());
-        assert!(graph.is_empty(), "the last byte released the node");
+        assert!(graph.is_empty());
     }
 
     /// Two failures claiming disjoint regions coexist, and a read of each
@@ -335,15 +358,27 @@ mod tests {
 
         assert_eq!(taint.failure(&(10..20)), Some(first));
         assert_eq!(taint.failure(&(60..70)), Some(second));
-        assert_eq!(graph.len(), 2);
+    }
+
+    /// Writing one failure's region releases that failure and leaves the
+    /// other's.
+    #[test]
+    fn writing_one_region_leaves_the_other_claim() {
+        let mut graph = ErrorGraph::default();
+        let mut taint = Taint::default();
+        let first = graph.insert(error("first"));
+        let second = graph.insert(error("second"));
+        taint.taint(0..50, first, &mut graph);
+        taint.taint(50..100, second, &mut graph);
 
         taint.written(0..50, &mut graph);
+
         assert_eq!(graph.len(), 1, "first has no carrier left");
         assert_eq!(taint.failure(&(60..70)), Some(second));
     }
 
     /// A new failure claiming bytes an old one held takes them over — set,
-    /// never add — and the old node goes exactly when its last byte does.
+    /// never add.
     #[test]
     fn a_new_failure_takes_the_bytes_it_claims() {
         let mut graph = ErrorGraph::default();
@@ -357,8 +392,20 @@ mod tests {
         assert_eq!(taint.failure(&(0..25)), Some(old));
         assert_eq!(taint.failure(&(30..40)), Some(new));
         assert_eq!(taint.failure(&(75..100)), Some(old));
+    }
+
+    /// The old failure goes exactly when its last byte is taken over.
+    #[test]
+    fn an_old_failure_goes_with_its_last_byte() {
+        let mut graph = ErrorGraph::default();
+        let mut taint = Taint::default();
+        let old = graph.insert(error("old"));
+        let new = graph.insert(error("new"));
+        taint.taint(0..100, old, &mut graph);
+        taint.taint(25..75, new, &mut graph);
 
         taint.taint(0..100, new, &mut graph);
+
         assert_eq!(graph.len(), 1, "old claims nothing any more");
         assert_eq!(taint.failure(&(0..100)), Some(new));
     }

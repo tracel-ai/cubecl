@@ -124,44 +124,11 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use crate::memory_management::ManagedMemoryHandle;
+    use crate::memory_management::memory_pool::CountingStorageAllocator;
     use crate::storage::BytesStorage;
-    use alloc::vec::Vec;
-
-    /// Host memory that records every deallocation it is asked for.
-    #[derive(Default)]
-    pub(crate) struct CountedStorage {
-        pub host: BytesStorage,
-        /// The ids handed back, in order (Arrival).
-        pub deallocated: Vec<StorageId>,
-    }
-
-    impl StorageAllocator for CountedStorage {
-        type Resource = <BytesStorage as StorageAllocator>::Resource;
-
-        fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-            self.host.get(handle)
-        }
-
-        fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
-            self.host.allocate_bytes(size)
-        }
-
-        fn deallocate(&mut self, id: StorageId) {
-            self.deallocated.push(id);
-            self.host.deallocate(id);
-        }
-
-        fn flush(&mut self) {
-            self.host.flush();
-        }
-
-        fn bytes_allocated(&self) -> u64 {
-            self.host.bytes_allocated()
-        }
-    }
 
     fn slice(size: u64) -> Slice {
         Slice::new(
@@ -281,7 +248,7 @@ pub(crate) mod tests {
     /// A released slice that was backed goes back to the driver.
     #[test]
     fn a_released_backed_slice_is_deallocated() {
-        let mut storage = CountedStorage::default();
+        let mut storage = CountingStorageAllocator::default();
         let mut failures = ErrorGraph::default();
         let mut backed = Slice::new(
             storage
@@ -293,19 +260,19 @@ pub(crate) mod tests {
 
         SliceAllocator::new(&mut storage).release_whole(&mut backed, &mut failures);
 
-        assert_eq!(storage.deallocated, [id]);
+        assert_eq!(storage.deallocated(), [id]);
     }
 
     /// A released slice never backed hands the driver nothing.
     #[test]
     fn a_released_minted_slice_is_not_deallocated() {
-        let mut storage = CountedStorage::default();
+        let mut storage = CountingStorageAllocator::default();
         let mut failures = ErrorGraph::default();
         let mut minted = slice(64);
         minted.mapped = false;
 
         SliceAllocator::new(&mut storage).release_whole(&mut minted, &mut failures);
 
-        assert!(storage.deallocated.is_empty());
+        assert!(storage.deallocated().is_empty());
     }
 }
