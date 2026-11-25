@@ -600,6 +600,42 @@ mod tests {
         assert_eq!(pool.view().report().unmapped_page_count, 0);
     }
 
+    /// A lazily reserved target, with the pool and storage holding it.
+    fn lazy_target() -> (PagedSliceReserver, BytesStorage, ManagedMemoryHandle) {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        let handle = pool
+            .reserve(
+                &mut storage,
+                KIB,
+                PageMapping::Lazy,
+                &mut ErrorGraph::default(),
+            )
+            .expect("the pool should serve the size");
+        (pool, storage, handle)
+    }
+
+    /// A move with no source has nothing to copy.
+    #[test_log::test]
+    fn a_copy_without_a_source_is_none() {
+        let (mut pool, mut storage, target) = lazy_target();
+
+        let copy = pool.copy_into(&mut storage, None, target.descriptor().location());
+
+        assert!(matches!(copy, Ok(None)));
+    }
+
+    /// A move with no source leaves its target's page unbacked.
+    #[test_log::test]
+    fn a_copy_without_a_source_maps_no_page() {
+        let (mut pool, mut storage, target) = lazy_target();
+
+        pool.copy_into(&mut storage, None, target.descriptor().location())
+            .expect("a copy without a source should not fail");
+
+        assert_eq!(pool.view().report().unmapped_page_count, 1);
+    }
+
     /// A pool holding no page is not pinned.
     #[test_log::test]
     fn a_pool_without_pages_is_not_pinned() {

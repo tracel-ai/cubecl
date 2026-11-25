@@ -259,7 +259,7 @@ mod tests {
 
         SliceAllocator::new(&mut storage).release_whole(&mut backed, &mut failures);
 
-        assert_eq!(storage.deallocated(), [id]);
+        assert_eq!(storage.into_deallocated(), [id]);
     }
 
     /// A released slice never backed hands the driver nothing.
@@ -272,6 +272,6 @@ mod tests {
 
         SliceAllocator::new(&mut storage).release_whole(&mut minted, &mut failures);
 
-        assert!(storage.deallocated().is_empty());
+        assert!(storage.into_deallocated().is_empty());
     }
 }

@@ -14,9 +14,9 @@ pub(crate) struct CountingStorageAllocator {
 }
 
 impl CountingStorageAllocator {
-    /// The ids handed back so far, in order.
-    pub(crate) fn deallocated(&self) -> &[StorageId] {
-        &self.deallocated
+    /// The ids handed back, in order.
+    pub(crate) fn into_deallocated(self) -> Vec<StorageId> {
+        self.deallocated
     }
 }
 

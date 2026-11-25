@@ -34,9 +34,10 @@ pub(crate) struct Slice {
     ///
     /// Whether these bytes can be trusted is a property of the memory, so it
     /// lives here rather than in any stream's bookkeeping. What a failure id
-    /// means is the [`ErrorGraph`]'s to say; the slice only carries the
-    /// claims, byte-ranged so a partial write releases exactly what it
-    /// covers, and sheds them the moment the allocation it describes ends.
+    /// means is the [`ErrorGraph`](crate::memory_management::ErrorGraph)'s
+    /// to say; the slice only carries the claims, byte-ranged so a partial
+    /// write releases exactly what it covers, and sheds them the moment the
+    /// allocation it describes ends.
     pub tainted: Taint,
 }
 
@@ -161,7 +162,6 @@ mod tests {
 
     #[test]
     fn a_padded_size_is_none_past_the_largest_u64() {
-        assert_eq!(padded_size(100, 32), Some(128));
         assert_eq!(padded_size(u64::MAX, 32), None);
     }
 

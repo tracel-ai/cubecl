@@ -688,7 +688,7 @@ mod tests {
         let id = page.view().storage_id;
 
         assert!(page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
-        assert_eq!(storage.deallocated(), [id]);
+        assert_eq!(storage.into_deallocated(), [id]);
     }
 
     /// An unused page never backed hands the driver nothing.
@@ -698,7 +698,7 @@ mod tests {
         let mut page = lazy_page();
 
         assert!(page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
-        assert!(storage.deallocated().is_empty());
+        assert!(storage.into_deallocated().is_empty());
     }
 
     /// A page with a live allocation stays.

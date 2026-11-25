@@ -609,4 +609,32 @@ mod tests {
 
         assert_eq!(kept.descriptor().location(), before);
     }
+
+    /// An allocation `kept` names twice moves apart once: the second target
+    /// is freed with its move.
+    #[test]
+    fn an_allocation_kept_twice_moves_apart_once() {
+        let mut storage = BytesStorage::default();
+        let mut memory = adaptive();
+        let kept = reserve(&mut memory, &mut storage, 4 * KIB, AllocationKind::Eager);
+        let location = kept.descriptor().location();
+        let _graph = memory
+            .pool_by_index_mut(location.pool)
+            .and_then(|pool| pool.guard(location))
+            .expect("the kept allocation's page should be guarded");
+
+        memory
+            .move_apart(
+                &mut storage,
+                &[kept.clone().binding(), kept.clone().binding()],
+                &mut HostRelocationCopier,
+                &mut ErrorGraph::default(),
+            )
+            .expect("the kept allocation should move apart");
+
+        assert_eq!(
+            memory.small_separate.view().report().usage.allocation_count,
+            1
+        );
+    }
 }
