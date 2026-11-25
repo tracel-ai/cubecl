@@ -1,5 +1,6 @@
 use crate::memory_management::drop_queue::{DeviceWaiter, FlushingPolicy, policy::FlushTracker};
-use crate::server::BufferBinding;
+use crate::memory_management::release_or_leak;
+use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
 use cubecl_environment::bytes::Bytes;
 
@@ -19,17 +20,17 @@ use cubecl_environment::bytes::Bytes;
 /// This double-buffer scheme means host memory is held for at most two flush
 /// cycles, while avoiding any unnecessary stalls on the hot path.
 ///
-/// # Assumptions
-///
-/// The queue is dropped only once the device is done with what it holds: a
-/// stream drops it with itself, at teardown, after its work completed.
+/// Dropping the queue drops what it holds at once, without waiting on any
+/// fence, whether or not the device is done reading it.
 ///
 /// # Guarantees
 ///
-/// - Nothing is freed before the fence of the batch it was staged in signals,
-///   or while a fence's wait failed on a device that is not poisoned: it is
-///   leaked then, since the device may still be reading it.
-/// - A queue that holds nothing mints no fence.
+/// - While the queue lives, a [flush](Self::flush) or a [drain](Self::drain)
+///   frees nothing before the fence of the batch it was staged in signals,
+///   nor after a wait failed on a device that is not poisoned: it is leaked
+///   then, since the device may still be reading it.
+/// - A queue that holds nothing mints no fence: a fence is recorded on the
+///   stream, which an open capture window cannot tolerate.
 pub struct PendingDropQueue<F: DeviceWaiter> {
     flusher: DropFlusher<F>,
 }
@@ -94,10 +95,6 @@ impl<F: DeviceWaiter> PendingDropQueue<F> {
     /// pending behind a fence `factory` produces. `factory` submits (or
     /// records) a device signal, so that syncing the fence guarantees all
     /// preceding device work is complete.
-    ///
-    /// An idle queue mints no fence: nothing is held, so there is nothing a
-    /// fence would protect — and the fence is not free: it is recorded on the
-    /// stream, which an open capture window cannot tolerate.
     pub(crate) fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
         self.flusher.flush(factory);
     }
@@ -126,7 +123,6 @@ struct DropFlusher<F: DeviceWaiter> {
     /// What the current cycle holds, not yet behind a fence, in the order it
     /// was staged (Arrival).
     staged: Vec<HeldMemory>,
-    policy: FlushingPolicy,
     tracker: FlushTracker,
 }
 
@@ -135,7 +131,6 @@ impl<F: DeviceWaiter> core::fmt::Debug for DropFlusher<F> {
         f.debug_struct("DropFlusher")
             .field("pending", &self.pending.as_ref().map(|(_, held)| held))
             .field("staged", &self.staged)
-            .field("policy", &self.policy)
             .field("tracker", &self.tracker)
             .finish()
     }
@@ -156,8 +151,7 @@ impl<F: DeviceWaiter> DropFlusher<F> {
         Self {
             pending: None,
             staged: Vec::new(),
-            policy,
-            tracker: FlushTracker::default(),
+            tracker: FlushTracker::new(policy),
         }
     }
 
@@ -179,7 +173,19 @@ impl<F: DeviceWaiter> DropFlusher<F> {
     }
 
     fn should_flush(&self) -> bool {
-        self.tracker.should_flush(&self.policy)
+        self.tracker.should_flush()
+    }
+
+    /// Free `held` once its fence's wait answered `waited`, or leak it when the
+    /// device may still be reading it, and answer an empty batch to stage
+    /// into next.
+    fn retire(mut held: Vec<HeldMemory>, waited: Result<(), ServerError>) -> Vec<HeldMemory> {
+        if let Err(err) = waited {
+            release_or_leak(held, &err);
+            return Vec::new();
+        }
+        held.clear();
+        held
     }
 
     /// Whether nothing is staged and nothing waits behind the last fence.
@@ -198,22 +204,11 @@ impl<F: DeviceWaiter> DropFlusher<F> {
         let mut batch = self
             .pending
             .take()
-            .map_or_else(Vec::new, |(fence, held)| retire(held, fence.sync()));
+            .map_or_else(Vec::new, |(fence, held)| Self::retire(held, fence.wait()));
         batch.append(&mut self.staged);
         self.pending = Some((factory(), batch));
         self.tracker.reset();
     }
-}
-
-/// Free `held` when the device is done with it, or leak it when the device
-/// may still be reading it, and answer an empty batch to stage into next.
-fn retire(mut held: Vec<HeldMemory>, device_done: bool) -> Vec<HeldMemory> {
-    if !device_done {
-        core::mem::forget(held);
-        return Vec::new();
-    }
-    held.clear();
-    held
 }
 
 #[cfg(test)]

@@ -42,16 +42,17 @@ impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStorage>
         D::wait_outside_streams(self.ctx)
     }
 
-    fn copy(
+    unsafe fn copy(
         &mut self,
         storage: &mut <D::Stream as DeviceStream>::DeviceStorage,
         copy: &StorageCopy,
     ) -> Result<(), IoError> {
         let source = storage.get(&copy.source);
         let target = storage.get(&copy.target);
-        // SAFETY: a relocation's copy is between two live slices of the same
-        // size on distinct pages, and nothing reads the target or writes the
-        // source until `wait_copies` returns.
+        // SAFETY: the caller upholds `RelocationCopier::copy`'s contract: the
+        // two storages are of the same size on distinct allocations, and
+        // nothing reads the target or writes the source until `wait_copies`
+        // returns.
         unsafe { D::copy_on_device(&source, &target, self.queue) }
     }
 

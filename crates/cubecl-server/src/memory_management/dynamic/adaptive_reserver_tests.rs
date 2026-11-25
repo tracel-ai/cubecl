@@ -140,7 +140,11 @@ impl RelocationCopier<BytesStorage> for RefusedCopies {
         Ok(())
     }
 
-    fn copy(&mut self, _storage: &mut BytesStorage, _copy: &StorageCopy) -> Result<(), IoError> {
+    unsafe fn copy(
+        &mut self,
+        _storage: &mut BytesStorage,
+        _copy: &StorageCopy,
+    ) -> Result<(), IoError> {
         Err(IoError::Unknown {
             description: "refused".into(),
             backtrace: Default::default(),

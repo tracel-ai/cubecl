@@ -84,19 +84,16 @@ pub trait SliceReserver {
     ///
     /// # Assumptions
     ///
-    /// `size` is one [`accepts_bytes`](Self::accepts_bytes) takes, unless the
-    /// implementation refuses a larger one with [`IoError::BufferTooBig`].
+    /// `size` is one [`accepts_bytes`](Self::accepts_bytes) takes.
     ///
     /// # Errors
     ///
-    /// Whatever the storage refuses, and [`IoError::BufferTooBig`] from an
-    /// implementation that refuses a size
-    /// [`accepts_bytes`](Self::accepts_bytes) refuses.
+    /// Whatever the storage refuses.
     ///
     /// # Panics
     ///
-    /// An implementation that does not refuse a size
-    /// [`accepts_bytes`](Self::accepts_bytes) refuses may panic on it.
+    /// An implementation may panic on a size
+    /// [`accepts_bytes`](Self::accepts_bytes) refuses.
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -109,6 +106,10 @@ pub trait SliceReserver {
 
     /// Reserve `size` bytes in the room the pool holds, and add room for them
     /// when it holds none.
+    ///
+    /// # Assumptions
+    ///
+    /// `size` is one [`accepts_bytes`](Self::accepts_bytes) takes.
     ///
     /// # Errors
     ///

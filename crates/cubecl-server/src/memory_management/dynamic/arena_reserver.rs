@@ -544,7 +544,11 @@ mod tests {
             Ok(())
         }
 
-        fn copy(&mut self, _storage: &mut Bookkeeping, _copy: &StorageCopy) -> Result<(), IoError> {
+        unsafe fn copy(
+            &mut self,
+            _storage: &mut Bookkeeping,
+            _copy: &StorageCopy,
+        ) -> Result<(), IoError> {
             Ok(())
         }
 

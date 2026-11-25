@@ -102,6 +102,10 @@ impl Taint {
     /// cannot grow the claim or pin the node harder. An empty range claims
     /// nothing.
     ///
+    /// # Assumptions
+    ///
+    /// `failure` is one `failures` holds.
+    ///
     /// # Panics
     ///
     /// When `failure`, or a failure this allocation's claims name, is not

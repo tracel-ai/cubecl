@@ -53,7 +53,11 @@ impl RelocationCopier<WgpuStorage> for WgpuCopies {
         self.wait(None)
     }
 
-    fn copy(&mut self, storage: &mut WgpuStorage, copy: &StorageCopy) -> Result<(), IoError> {
+    unsafe fn copy(
+        &mut self,
+        storage: &mut WgpuStorage,
+        copy: &StorageCopy,
+    ) -> Result<(), IoError> {
         let source = storage.get(&copy.source);
         let target = storage.get(&copy.target);
 

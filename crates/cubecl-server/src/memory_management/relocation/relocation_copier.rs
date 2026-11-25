@@ -26,14 +26,17 @@ pub trait RelocationCopier<Storage: StorageAllocator> {
     /// it until then, so one relocation is one submission however many
     /// copies it makes.
     ///
-    /// # Assumptions
-    ///
-    /// `copy` is between two storages of `Storage`, of the same size.
-    ///
     /// # Errors
     ///
     /// The device's refusal to copy.
-    fn copy(&mut self, storage: &mut Storage, copy: &StorageCopy) -> Result<(), IoError>;
+    ///
+    /// # Safety
+    ///
+    /// - `copy.source` and `copy.target` are storages of `storage`, of the
+    ///   same size, on distinct device allocations.
+    /// - Nothing reads `copy.target` or writes `copy.source` until
+    ///   [`wait_copies`](Self::wait_copies) returns.
+    unsafe fn copy(&mut self, storage: &mut Storage, copy: &StorageCopy) -> Result<(), IoError>;
 
     /// Submit the copies added so far, if they were held, and wait until they
     /// have landed.

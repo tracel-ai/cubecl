@@ -15,10 +15,11 @@ impl RelocationCopier<BytesStorage> for HostRelocationCopier {
         Ok(())
     }
 
-    /// # Panics
-    ///
-    /// When the two storages differ in size.
-    fn copy(&mut self, storage: &mut BytesStorage, copy: &StorageCopy) -> Result<(), IoError> {
+    unsafe fn copy(
+        &mut self,
+        storage: &mut BytesStorage,
+        copy: &StorageCopy,
+    ) -> Result<(), IoError> {
         let source = storage.get(&copy.source);
         let mut target = storage.get(&copy.target);
         target.write().copy_from_slice(source.read());
@@ -46,15 +47,18 @@ mod tests {
             .expect("the host should have 4 bytes");
         storage.get(&source).write().fill(9);
 
-        HostRelocationCopier
-            .copy(
+        // SAFETY: two distinct 4-byte host allocations, neither touched until
+        // the copy returns.
+        unsafe {
+            HostRelocationCopier.copy(
                 &mut storage,
                 &StorageCopy {
                     source,
                     target: target.clone(),
                 },
             )
-            .expect("a host copy should land");
+        }
+        .expect("a host copy should land");
 
         assert!(storage.get(&target).read().iter().all(|byte| *byte == 9));
     }

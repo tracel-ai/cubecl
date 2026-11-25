@@ -32,7 +32,13 @@ impl LandedRelocation {
         let enqueued = moves
             .iter()
             .filter_map(|relocated| relocated.copy.as_ref())
-            .try_for_each(|copy| copier.copy(storage, copy));
+            // SAFETY: each copy is between a live allocation and the slice
+            // reserved for it, of its size, on another allocation: a target
+            // is a fresh reservation on a current or kept-apart page, never
+            // the page its source sits on. The device waited above, and the
+            // copier is held here until `wait_copies` returns, so nothing
+            // reads a target or writes a source before then.
+            .try_for_each(|copy| unsafe { copier.copy(storage, copy) });
         if let Err(err) = copier.wait_copies() {
             release_or_leak(moves, &err);
             enqueued?;
@@ -76,7 +82,7 @@ mod tests {
             Ok(())
         }
 
-        fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
+        unsafe fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
             self.copy.map_err(|()| IoError::Unknown {
                 description: "refused".into(),
                 backtrace: Default::default(),

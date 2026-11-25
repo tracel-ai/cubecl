@@ -205,6 +205,10 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// An allocation `kept` names more than once moves once.
     ///
+    /// # Assumptions
+    ///
+    /// Every binding of `kept` names a page this memory holds.
+    ///
     /// # Errors
     ///
     /// When no room apart takes one, or a copy fails: nothing moved then.
@@ -341,14 +345,8 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// # Assumptions
     ///
-    /// `reserved` came from a reservation of this memory and was not bound
-    /// since: a second bind would take the slice from the allocation the first
-    /// bound to it.
-    ///
-    /// # Guarantees
-    ///
-    /// A binding whose allocation is gone, or that never had one, is refused
-    /// with [`IoError::NotFound`], never resolved to another allocation.
+    /// `reserved` was not bound since it was reserved: a second bind would
+    /// take the slice from the allocation the first bound to it.
     ///
     /// # Errors
     ///
@@ -382,6 +380,10 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// Point `range` of the allocation behind `binding` at `failure`. A
     /// binding this memory does not hold is left alone, for the same reason
     /// [`failure`](Self::failure) answers `None` for one.
+    ///
+    /// # Assumptions
+    ///
+    /// `failure` is one `failures` holds.
     ///
     /// # Panics
     ///

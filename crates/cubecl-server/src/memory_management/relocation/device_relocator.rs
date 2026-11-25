@@ -10,17 +10,10 @@ use crate::server::ServerError;
 /// moves while a graph records, since the pages it touches keep their
 /// addresses until it seals.
 ///
-/// A runtime supplies each step. The order they run in lives here, once.
-///
-/// # Assumptions
-///
-/// [`relocation_need`](Self::relocation_need) answers
-/// [`RelocationNeed::Recording`] whenever a stream of the device records a
-/// graph.
-///
-/// # Guarantees
-///
-/// Nothing moves while a stream records a graph.
+/// A runtime supplies each step. The order they run in lives here, once:
+/// [`reclaim`](Self::reclaim), [`relocate_when_wanted`](Self::relocate_when_wanted),
+/// [`relocate`](Self::relocate) and [`relocate_device`](Self::relocate_device)
+/// move nothing while a stream records a graph.
 pub trait DeviceRelocator {
     /// Whether the memory of `scope` wants a relocation, resolved against the
     /// bytes every stream's memory holds from the device.
@@ -28,8 +21,7 @@ pub trait DeviceRelocator {
     /// # Guarantees
     ///
     /// [`RelocationNeed::Recording`] whenever a stream records a graph,
-    /// whatever the memory holds, and the bytes are read only when the answer
-    /// depends on them.
+    /// whatever the memory holds.
     fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed;
 
     /// Get every stream's queued and submitted work done, or leave it to the

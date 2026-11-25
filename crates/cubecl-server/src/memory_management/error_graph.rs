@@ -46,9 +46,9 @@ pub enum Claim {
 ///
 /// # Guarantees
 ///
-/// A failure is held while an allocation carries it, and from its insertion
-/// until a prune finds nothing carrying it. A failure recorded for a buffer
-/// that was never allocated is held until the first
+/// A failure is held from its insertion until a prune finds nothing carrying
+/// it, or until the last tag on it is shed, whichever comes first. A failure
+/// recorded for a buffer that was never allocated is held until the first
 /// [`fail_unallocated`](Self::fail_unallocated) after that buffer is gone.
 #[derive(Debug, Default)]
 pub struct ErrorGraph {

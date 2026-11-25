@@ -180,6 +180,14 @@ impl SliceReserver for DirectSliceReserver {
         Some(slice.handle.clone())
     }
 
+    /// Allocates past what the trait assumes: a size
+    /// [`accepts_bytes`](SliceReserver::accepts_bytes) refuses is answered,
+    /// which the memory's dedicated and persistent windows rely on.
+    ///
+    /// # Guarantees
+    ///
+    /// A size `accepts_bytes` refuses is refused with
+    /// [`IoError::BufferTooBig`] before the storage is asked.
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,

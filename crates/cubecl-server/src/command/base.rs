@@ -463,9 +463,10 @@ impl<'a, D: Driver> Command<'a, D> {
                     // this does not exist yet on the error path, so record
                     // one here and wait it out before the partial set drops.
                     if !result.is_empty()
-                        && !D::Stream::fence(self.streams.current().signal()).sync()
+                        && let Err(waited) =
+                            D::Stream::fence(self.streams.current().signal()).wait()
                     {
-                        core::mem::forget(result);
+                        crate::memory_management::release_or_leak(result, &waited);
                     }
                     return Err(err);
                 }
