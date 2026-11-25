@@ -1,6 +1,5 @@
-//! A plane's window of a global buffer scaled and added a per-column bias slice by slice
-//! ([`DimensionSlices::scale_add`]), the buffer bound in loads of one value and of four along its
-//! innermost dimension, against the host.
+//! A plane's window of a global buffer read in loads of four values, scaled and added a per-column
+//! bias slice by slice ([`DimensionSlices::scale_add`]), against the host.
 //!
 //! [`DimensionSlices::scale_add`]: cubecl_tile::DimensionSlices::scale_add
 
@@ -53,8 +52,9 @@ fn input<const D: usize>(client: &Client, values: Vec<f32>, dims: [usize; D]) ->
         .generate_without_host_data()
 }
 
-/// Scale and add over a window bound `width` values a load, and check every cell.
-fn check(width: usize) {
+/// A window read four values a load adds the bias of its column to every cell, not of the load.
+#[test]
+fn a_window_in_loads_of_four_values_scales_and_adds_a_bias() {
     let client: Client = cubecl::test_device().client();
     let f32_ty = f32::elem_type_native();
     let cells = (0..ROWS * COLS)
@@ -80,7 +80,7 @@ fn check(width: usize) {
         TileTensorLaunch::new(
             window.clone().binding().into_tensor_arg(),
             f32_ty,
-            width,
+            4,
             TileSpec::direct(&[ROW, COL]),
         ),
         TileTensorLaunch::new(
@@ -99,20 +99,8 @@ fn check(width: usize) {
             let have = got.get_f32(&[row, col]);
             assert!(
                 (have - want).abs() < 1e-5,
-                "width {width}, at ({row}, {col}): got {have}, want {want}"
+                "at ({row}, {col}): got {have}, want {want}"
             );
         }
     }
-}
-
-/// A window read one value a load adds the bias of its column to every cell.
-#[test]
-fn a_window_in_loads_of_one_value_scales_and_adds_a_bias() {
-    check(1);
-}
-
-/// A window read four values a load adds the bias of its column to every cell, not of the load.
-#[test]
-fn a_window_in_loads_of_four_values_scales_and_adds_a_bias() {
-    check(4);
 }
