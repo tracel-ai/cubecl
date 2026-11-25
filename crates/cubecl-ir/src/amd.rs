@@ -49,7 +49,7 @@ pub enum AmdMfma {
 }
 
 /// The lanes whose places along one side of a tile differ, the next ones starting over.
-const LANES_PER_ROW: usize = 16;
+const ROW_LANE_COUNT: usize = 16;
 
 /// The lane groups an MFMA instruction splits `k` between: a 64-wide wavefront of 16-lane rows.
 pub const MFMA_LANE_GROUPS: usize = 4;
@@ -113,7 +113,7 @@ impl AmdMatrixCore {
 
     /// Where the elements a lane holds of operand `ident` of a tile of `shape` lie in it.
     pub fn element_positions(self, ident: MatrixIdent, shape: MatrixShape) -> ElementPositions {
-        let across = CoordinatePart::of(ElementIndex::Lane).counted_over(LANES_PER_ROW);
+        let across = CoordinatePart::of(ElementIndex::Lane).counted_over(ROW_LANE_COUNT);
         let along = self.run_along(ident, shape);
         match self.lane_names_row(ident) {
             true => ElementPositions {
@@ -141,7 +141,7 @@ impl AmdMatrixCore {
     /// Where a lane's run of elements lies along the side of a tile it does not name a place of.
     fn run_along(self, ident: MatrixIdent, shape: MatrixShape) -> Vec<CoordinatePart> {
         let nth = CoordinatePart::of(ElementIndex::Nth);
-        let group = CoordinatePart::of(ElementIndex::Lane).in_runs_of(LANES_PER_ROW);
+        let group = CoordinatePart::of(ElementIndex::Lane).in_runs_of(ROW_LANE_COUNT);
         match (ident, self) {
             // Both halves of an RDNA3 wavefront hold the whole of `k`.
             (MatrixIdent::A | MatrixIdent::B, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => vec![nth],

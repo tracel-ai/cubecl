@@ -25,7 +25,7 @@ const ACCUMULATOR_RUN: usize = 2;
 /// The fragment's elements come in runs of one 32-bit register.
 const FRAGMENT_RUN_BYTES: usize = 4;
 /// The units of each plane of a plane group.
-const PLANE_UNITS: usize = 32;
+const PLANE_UNIT_COUNT: usize = 32;
 
 /// The 64-bit descriptor of a tile in shared memory, which a plane group MMA reads `A` or `B`
 /// through.
@@ -446,7 +446,7 @@ fn positions_in_runs_of(run: usize) -> ElementPositions {
     let nth = CoordinatePart::of(ElementIndex::Nth);
     ElementPositions {
         row: vec![
-            unit.in_runs_of(PLANE_UNITS).spaced_by(16),
+            unit.in_runs_of(PLANE_UNIT_COUNT).spaced_by(16),
             unit.in_runs_of(4).counted_over(8),
             nth.in_runs_of(run).counted_over(2).spaced_by(8),
         ],
