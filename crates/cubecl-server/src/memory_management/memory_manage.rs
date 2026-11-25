@@ -81,11 +81,9 @@ pub enum Cleanup {
 ///
 /// # Guarantees
 ///
-/// - A reservation releases or renumbers a page only under
-///   [`PageUpdate::Allow`], and allocates one only under `Allow` or
-///   [`PageUpdate::AddOnly`].
-/// - A binding whose allocation is gone, or that never had one, is refused
-///   with [`IoError::NotFound`], never resolved to another allocation.
+/// A reservation releases or renumbers a page only under
+/// [`PageUpdate::Allow`], and allocates one only under `Allow` or
+/// [`PageUpdate::AddOnly`].
 pub struct MemoryManagement<Storage> {
     reserver: MemoryReserver<Storage>,
 }
@@ -137,6 +135,11 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// The stream cursor the allocation behind `binding` was bound at.
     ///
+    /// # Guarantees
+    ///
+    /// A binding whose allocation is gone, or that never had one, is refused
+    /// with [`IoError::NotFound`], never resolved to another allocation.
+    ///
     /// # Errors
     ///
     /// [`IoError::NotFound`] when no allocation of this memory is behind
@@ -148,6 +151,11 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// The storage behind `binding`, which always refers to mapped memory: the
     /// funnel every buffer dereference passes through, so it is where a
     /// lazily-carved allocation gets its real device backing.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding whose allocation is gone, or that never had one, is refused
+    /// with [`IoError::NotFound`], never resolved to another allocation.
     ///
     /// # Errors
     ///
@@ -226,6 +234,11 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// allocation in place, and leaves the rest of its page to other
     /// allocations.
     ///
+    /// # Guarantees
+    ///
+    /// A binding whose allocation is gone, or that never had one, is refused
+    /// with [`IoError::NotFound`], never resolved to another allocation.
+    ///
     /// # Errors
     ///
     /// As [`get_resource`](Self::get_resource).
@@ -240,6 +253,11 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     }
 
     /// The resource behind `binding`, trimmed by its offsets.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding whose allocation is gone, or that never had one, is refused
+    /// with [`IoError::NotFound`], never resolved to another allocation.
     ///
     /// # Errors
     ///
@@ -321,6 +339,17 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// binding is valid. The failures the slice's last allocation carried
     /// are released.
     ///
+    /// # Assumptions
+    ///
+    /// `reserved` came from a reservation of this memory and was not bound
+    /// since: a second bind would take the slice from the allocation the first
+    /// bound to it.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding whose allocation is gone, or that never had one, is refused
+    /// with [`IoError::NotFound`], never resolved to another allocation.
+    ///
     /// # Errors
     ///
     /// [`IoError::NotFound`] when `reserved` was never placed, names no pool
@@ -344,10 +373,8 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// The failure claiming any byte of `range` in the allocation behind
     /// `binding`, if one does.
     ///
-    /// This is the read path's whole check: a field on a slice the resolution
-    /// walks anyway. A binding this memory does not hold answers `None`:
-    /// lookup errors are the lookup's to report, and a failed lookup carries
-    /// no failure to name.
+    /// A binding this memory does not hold answers `None`: lookup errors are
+    /// the lookup's to report, and a failed lookup carries no failure to name.
     pub fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
         self.reserver.failure(binding, range)
     }

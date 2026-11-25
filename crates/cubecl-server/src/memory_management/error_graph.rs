@@ -42,13 +42,14 @@ pub enum Claim {
 /// # Assumptions
 ///
 /// Every [`FailureId`] handed to a function was minted by this graph's
-/// [`insert`](Self::insert), and is still held: something carries it, or it
-/// was inserted and not yet [pruned](Self::prune).
+/// [`insert`](Self::insert).
 ///
 /// # Guarantees
 ///
-/// A failure is held exactly while an allocation carries it, or from its
-/// insertion until a prune finds nothing carrying it.
+/// A failure is held while an allocation carries it, and from its insertion
+/// until a prune finds nothing carrying it. A failure recorded for a buffer
+/// that was never allocated is held until the first
+/// [`fail_unallocated`](Self::fail_unallocated) after that buffer is gone.
 #[derive(Debug, Default)]
 pub struct ErrorGraph {
     recorder: FailureRecorder,
@@ -132,6 +133,11 @@ impl ErrorGraph {
     /// later, so a node nothing can reach is never retained just because
     /// nothing got around to saying so.
     ///
+    /// # Assumptions
+    ///
+    /// `failure`, when there is one, is still held, and is shed no more often
+    /// than it was [tagged](Self::tag).
+    ///
     /// # Panics
     ///
     /// When `failure` is not held, or is shed more often than it was tagged.
@@ -170,6 +176,10 @@ impl ErrorGraph {
 
     /// The error behind `failure`. Always `Some` for a held failure.
     ///
+    /// # Assumptions
+    ///
+    /// `failure` is still held.
+    ///
     /// # Panics
     ///
     /// When `failure` is no longer held.
@@ -196,6 +206,10 @@ impl ErrorGraph {
     /// bookkeeping on the slices — [`Taint`](super::Taint) — which owns the
     /// invariant that a claim tags exactly once however many times it is
     /// re-tainted or split.
+    ///
+    /// # Assumptions
+    ///
+    /// `failure` is still held.
     ///
     /// # Panics
     ///

@@ -14,11 +14,8 @@ use crate::{
 ///
 /// # Assumptions
 ///
-/// - Every handle and binding handed to a function came from this pool's
-///   [`try_reserve`](Self::try_reserve) or [`alloc`](Self::alloc), or was
-///   bound to such a reservation by [`bind`](Self::bind).
-/// - `failures` is the [`ErrorGraph`] that holds the failures this pool's
-///   slices carry.
+/// `failures` is the [`ErrorGraph`] that holds the failures this pool's
+/// slices carry.
 ///
 /// # Guarantees
 ///
@@ -33,6 +30,11 @@ pub trait SliceReserver {
     /// `reserved` holds, at `cursor`: the point of the stream from which the
     /// binding is valid. The claims the slice's last allocation carried are
     /// released.
+    ///
+    /// # Assumptions
+    ///
+    /// `reserved` came from this pool's [`try_reserve`](Self::try_reserve) or
+    /// [`alloc`](Self::alloc).
     ///
     /// # Errors
     ///
@@ -80,15 +82,21 @@ pub trait SliceReserver {
     /// `Eager`: the request is an opportunity to allocate less, never a
     /// promise the caller may rely on.
     ///
+    /// # Assumptions
+    ///
+    /// `size` is one [`accepts_bytes`](Self::accepts_bytes) takes, unless the
+    /// implementation refuses a larger one with [`IoError::BufferTooBig`].
+    ///
     /// # Errors
     ///
     /// Whatever the storage refuses, and [`IoError::BufferTooBig`] from an
-    /// implementation that answers a size [`accept`](Self::accepts_bytes) refuses.
+    /// implementation that refuses a size
+    /// [`accepts_bytes`](Self::accepts_bytes) refuses.
     ///
     /// # Panics
     ///
-    /// An implementation that carves pages may panic when `size` is one
-    /// [`accept`](Self::accepts_bytes) refuses.
+    /// An implementation that does not refuse a size
+    /// [`accepts_bytes`](Self::accepts_bytes) refuses may panic on it.
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,

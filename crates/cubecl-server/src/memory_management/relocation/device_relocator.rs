@@ -21,14 +21,24 @@ pub enum RelocationScope {
 ///
 /// A runtime supplies each step. The order they run in lives here, once.
 ///
+/// # Assumptions
+///
+/// [`relocation_need`](Self::relocation_need) answers
+/// [`RelocationNeed::Recording`] whenever a stream of the device records a
+/// graph.
+///
 /// # Guarantees
 ///
 /// Nothing moves while a stream records a graph.
 pub trait DeviceRelocator {
-    /// Whether the memory of `scope` wants a relocation, the bytes every
-    /// stream's memory holds from the device read only when the answer
-    /// depends on them: [`RelocationNeed::Recording`] whenever a stream
-    /// records a graph, whatever the memory holds.
+    /// Whether the memory of `scope` wants a relocation, resolved against the
+    /// bytes every stream's memory holds from the device.
+    ///
+    /// # Guarantees
+    ///
+    /// [`RelocationNeed::Recording`] whenever a stream records a graph,
+    /// whatever the memory holds, and the bytes are read only when the answer
+    /// depends on them.
     fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed;
 
     /// Get every stream's queued and submitted work done, or leave it to the

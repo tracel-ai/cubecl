@@ -11,12 +11,15 @@ pub trait DeviceWaiter: Sized {
     fn wait(self) -> Result<(), ServerError>;
 
     /// [`wait`](Self::wait), answering whether the device is done reading the
-    /// memory the fence guards.
+    /// memory the fence guards: what the drop queue needs to know before it
+    /// frees that memory.
     ///
-    /// What the drop queue needs: it only has to know the device is done
-    /// reading the memory it is about to free. A poisoned device is done either
-    /// way, and the fault reaches the caller through whatever it touches next.
-    /// Any other failure leaves that unknown, so the memory must not be freed.
+    /// # Guarantees
+    ///
+    /// `true` only once the wait succeeded or failed on a poisoned device,
+    /// which is done either way, the fault reaching the caller through
+    /// whatever it touches next. Any other failure leaves that unknown, so it
+    /// answers `false` and the memory must not be freed.
     fn sync(self) -> bool {
         self.wait().map_or_else(done_after, |()| true)
     }

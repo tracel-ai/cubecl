@@ -11,8 +11,12 @@ use crate::memory_management::ErrorGraph;
 /// memory carries.
 pub trait StreamRelocator {
     /// What a relocation reads of the stream's memory: its need, unresolved,
-    /// [`RelocationNeed::Recording`] whenever a stream of the device records a
-    /// graph, and the bytes it holds from the device.
+    /// and the bytes it holds from the device.
+    ///
+    /// # Guarantees
+    ///
+    /// The need is [`RelocationNeed::Recording`] whenever a stream of the
+    /// device records a graph.
     fn relocation_state(&self) -> StreamRelocationState;
 
     /// Move what the stream's memory holds on outdated pages, once every
