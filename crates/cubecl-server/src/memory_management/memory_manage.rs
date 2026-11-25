@@ -467,7 +467,6 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// # Errors
     ///
     /// As [`reserve`](Self::reserve).
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn reserve_as(
         &mut self,
         size: u64,

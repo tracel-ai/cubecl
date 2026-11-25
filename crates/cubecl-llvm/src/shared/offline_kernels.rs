@@ -334,14 +334,12 @@ pub(crate) fn fp4_round_trip_kernel() -> impl CubeKernel {
 
 /// A word read as four `e4m3` scales and cast to four `f16`: what a reader of an NVFP4 weight's
 /// block scales does.
-#[cfg(feature = "nvptx")]
 #[cube(launch)]
 fn e4m3_decode(words: &[u32], out: &mut [Vector<half::f16, Const<4>>]) {
     let scales = Vector::<cubecl_core::e4m3, Const<4>>::reinterpret(words[ABSOLUTE_POS]);
     out[ABSOLUTE_POS] = Vector::cast_from(scales);
 }
 
-#[cfg(feature = "nvptx")]
 pub(crate) fn e4m3_decode_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
@@ -359,14 +357,12 @@ pub(crate) fn e4m3_decode_kernel() -> impl CubeKernel {
 
 /// Four `f32` cast to `e4m3` and stored as one word: what a stage of probabilities beside `e4m3`
 /// values holds.
-#[cfg(feature = "nvptx")]
 #[cube(launch)]
 fn e4m3_encode(values: &[Vector<f32, Const<4>>], out: &mut [u32]) {
     let codes = Vector::<cubecl_core::e4m3, Const<4>>::cast_from(values[ABSOLUTE_POS]);
     out[ABSOLUTE_POS] = u32::reinterpret(codes);
 }
 
-#[cfg(feature = "nvptx")]
 pub(crate) fn e4m3_encode_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),

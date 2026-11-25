@@ -1,9 +1,10 @@
 //! The engines a stage is filled by, one file each: what the engine states about itself
 //! ([`Engine`](crate::launch::Engine)) and the move it makes.
 //!
-//! A new engine is a file here, its arm of [`Delivery`](crate::Delivery), and its arm in the two
-//! places a fill is handed to an engine: [`Delivery::engine`](crate::Delivery) for what it states,
-//! [`Memory::move_lines`] for the lines its units move.
+//! A new engine is a file here, its arm of [`Delivery`](crate::Delivery), and its arm wherever a
+//! fill is handed to an engine: [`Delivery::engine`](crate::Delivery) for what it states,
+//! [`Memory::move_lines`] for the lines its units move, and the slot and the copy that hand one a
+//! box.
 
 pub(crate) mod async_per_unit;
 pub(crate) mod sync_per_unit;
@@ -46,8 +47,8 @@ impl Memory {
     /// slot would wait on where the lines land after the fill returns. What a blocking
     /// [`copy_from`](Tile::copy_from) runs; a pipelined fill leaves the wait to its slot.
     ///
-    /// The contract is `fill_from`'s either way: a `sync_cube` must still separate the fill from
-    /// its readers.
+    /// The contract is `fill_from`'s either way: its barrier must still separate the fill from its
+    /// readers.
     pub(crate) fn load_from<T: Numeric>(&mut self, src: &Memory, #[comptime] space: &Space) {
         match comptime!(src.access.delivery.landing()) {
             Landing::OnReturn => self.fill_from::<T>(src, space),

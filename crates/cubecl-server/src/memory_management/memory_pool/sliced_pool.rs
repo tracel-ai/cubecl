@@ -320,10 +320,6 @@ impl MemoryPool for SlicedPool {
         self.try_reserve_sharing(size, PinnedRoom::Avoid, failures)
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, storage))
-    )]
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -368,10 +364,6 @@ impl MemoryPool for SlicedPool {
             })
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, storage))
-    )]
     fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,

@@ -519,7 +519,6 @@ impl ServerCommunication for HipServer {
         CollectiveServer::time_next_communication(self, timing)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
     fn send(
         &mut self,
         desc: CopyDescriptor,
@@ -530,7 +529,6 @@ impl ServerCommunication for HipServer {
         CollectiveServer::send(self, desc, stream_id, device_id_dst, report)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
     fn recv(
         &mut self,
         handle: Handle,

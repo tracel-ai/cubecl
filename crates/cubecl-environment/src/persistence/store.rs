@@ -218,10 +218,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     ///
     /// With an [`Eager`](CacheOption::Eager) cache over a storage, everything
     /// the storage holds is ingested before returning.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip_all, fields(options = ?options))
-    )]
     pub fn new(options: StoreOptions) -> Self {
         let (storage, namespace, generation) = match options.storage {
             StorageOption::InMemory => (None, None, None),
@@ -483,10 +479,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// This is what makes an eager store complete, and [`new`](Store::new)
     /// performs it; call it again to ingest content another store or process
     /// wrote to the storage since.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip_all, fields(namespace = ?self.namespace))
-    )]
     pub fn sync(&mut self) {
         // A reset re-ingests an eager store on its own.
         if self.reset_if_stale() && matches!(self.cache, CacheOption::Eager) {

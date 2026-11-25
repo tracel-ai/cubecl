@@ -11,11 +11,6 @@ use crate::{
     },
 };
 
-/// The minifloats AMDGPU decodes itself: `ue8m0`, on every part, through `v_ldexp_f32`.
-pub fn native_decodes() -> &'static [NativeDecode] {
-    &[NativeDecode::UE8M0]
-}
-
 /// The value of `ue8m0`'s code `0`, `2^-127`: a subnormal `f32`, which the default denormal mode
 /// of an AMDGPU kernel keeps, as the software codec's decode of that code does.
 const UE8M0_SMALLEST: f32 = f32::from_bits(1 << 22);
@@ -34,7 +29,7 @@ pub(crate) fn decode(
     assert_eq!(
         format,
         NativeDecode::UE8M0,
-        "AMDGPU decodes no minifloat but ue8m0 itself"
+        "an fp8 decode is the part's own conversion (`fp8::cast`), lowered before this"
     );
     let lanes = input
         .get_type(ctx)

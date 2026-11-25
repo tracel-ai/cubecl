@@ -15,8 +15,43 @@
 pub trait TuneInputs: Send + Sync + 'static {
     /// The concrete input type at lifetime `'a`.
     type At<'a>: Clone + Send;
+
+    /// A copy of a call's inputs, to run another candidate on when the elected one rejects
+    /// the call: every call takes one, so it must be cheap.
+    ///
+    /// `None`, the default, is for inputs whose copy cannot stand in for the call's, such as ones
+    /// that borrow what the candidate writes: their elected candidate must serve every call of
+    /// its key.
+    fn spare<'a>(_inputs: &Self::At<'a>) -> Option<Self::At<'a>> {
+        None
+    }
 }
 
 impl<T: Clone + Send + Sync + 'static> TuneInputs for T {
     type At<'a> = T;
+
+    fn spare<'a>(inputs: &Self::At<'a>) -> Option<Self::At<'a>> {
+        Some(inputs.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owned_inputs_have_a_spare() {
+        assert_eq!(<u32 as TuneInputs>::spare(&7), Some(7));
+    }
+
+    #[test]
+    fn inputs_implemented_by_hand_have_no_spare() {
+        struct Borrowed;
+
+        impl TuneInputs for Borrowed {
+            type At<'a> = &'a u32;
+        }
+
+        assert_eq!(Borrowed::spare(&&7), None);
+    }
 }

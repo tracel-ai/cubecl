@@ -15,8 +15,13 @@
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput, TileInput};
 use cubecl::{
+    ir::{ExpandValue, VectorSize},
     prelude::*,
-    std::tensor::{ErasedTensor, WriteOnly},
+    std::tensor::{
+        ErasedTensor, ErasedTensorExpand, ErasedTensorOperationsExpand, ReadsLines, TensorHandle,
+        WriteOnly,
+    },
+    unexpanded,
     zspace::shape,
 };
 use cubecl_tile::kind::GlobalOperand;
@@ -688,9 +693,9 @@ fn a_masked_vectorized_sink_stores_where_a_buffer_stores() {
 
 /// A masked, vectorized read through a source reads the cells a buffer read reads.
 ///
-/// The read half of the same question, and not the same code: a buffer's masked read is the
-/// slice's, while [`ErasedTensor`]'s clamps an out-of-bounds index to zero, reads *that* cell, and
-/// selects the mask value after.
+/// The read half of the same question, and not the same code: a buffer's masked read loads the
+/// cell the position clamps onto and selects the mask value after, while a source is read only
+/// where it has a value.
 ///
 /// So a guard dropped between the walk and the call does not fault here either; it returns the
 /// wrong cell's value, which the `row * COLS + col` fill makes visible as another cell rather than
@@ -712,6 +717,143 @@ fn a_masked_vectorized_source_reads_where_a_buffer_reads() {
                 expected,
                 "the masked source read the wrong value at [{row}, {col}]"
             );
+        }
+    }
+}
+
+/// The lines of a tensor, each read counted in the cell of its line.
+struct CountedLines<E: Numeric, N: Size> {
+    lines: TensorExpand<Vector<E, N>>,
+    reads: TensorExpand<Atomic<u32>>,
+}
+
+impl<E: Numeric, N: Size> ErasedTensorOperationsExpand<E> for CountedLines<E, N> {
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        <N as Size>::__expand_value(scope)
+    }
+
+    fn __expand_lines_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        ErasedTensorOperationsExpand::<E>::__expand_lines_method(&self.lines, scope)
+    }
+
+    fn __expand_read_line_method(&self, scope: &Scope, index: NativeExpand<usize>) -> ExpandValue {
+        counted_line::expand::<E, N>(scope, &self.lines, &self.reads, index).expand
+    }
+}
+
+impl<E: Numeric, N: Size> ReadsLines<E> for CountedLines<E, N> {}
+
+/// Line `index` of `lines`, its read counted.
+#[cube]
+fn counted_line<E: Numeric, N: Size>(
+    lines: &Tensor<Vector<E, N>>,
+    reads: &Tensor<Atomic<u32>>,
+    index: usize,
+) -> Vector<E, N> {
+    reads[index].fetch_add(1);
+    lines[index]
+}
+
+/// The erased tensor over [`CountedLines`].
+trait CountedSource<E: Numeric> {
+    fn of_counted<N: Size>(
+        _lines: &Tensor<Vector<E, N>>,
+        _reads: &Tensor<Atomic<u32>>,
+    ) -> ErasedTensor<E, ReadOnly> {
+        unexpanded!()
+    }
+
+    fn __expand_of_counted<N: Size>(
+        _scope: &Scope,
+        lines: &TensorExpand<Vector<E, N>>,
+        reads: &TensorExpand<Atomic<u32>>,
+    ) -> ErasedTensorExpand<E, ReadOnly> {
+        ErasedTensorExpand::new(CountedLines::<E, N> {
+            lines: ExpandTypeClone::clone_unchecked(lines),
+            reads: ExpandTypeClone::clone_unchecked(reads),
+        })
+    }
+}
+
+impl<E: Numeric> CountedSource<E> for ErasedTensor<E, ReadOnly> {}
+
+/// Copies `input`, reached through a source that counts its reads, into `out` a region at a time,
+/// every line of the region's box read, those past the last row too.
+#[cube(launch)]
+fn counted_source_kernel<E: Float>(
+    input: &TileTensor<'_>,
+    out: &mut TileTensor<'_>,
+    reads: &Tensor<Atomic<u32>>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
+    let geometry =
+        RuntimeGeometry::of_tensor::<Vector<E, Const<2>>>(input.lines::<E, Const<2>>(), 2usize);
+    let source =
+        ErasedTensor::<E, ReadOnly>::of_counted::<Const<2>>(input.lines::<E, Const<2>>(), reads);
+    let src = GlobalOperand::source::<E>(
+        source,
+        geometry,
+        2usize,
+        comptime!(space.space().clone()),
+        comptime!(input.spec.clone()),
+    )
+    .tile::<E>(comptime!(space.levels().to_vec()));
+    let dst = out.tile_mut(&space);
+    for region in space.walk() {
+        let (src, mut dst) = (src.at(&region), dst.at(&region));
+        let lines = src.flat::<E, Const<2>>();
+        let mut stored = dst.flat_mut::<E, Const<2>>();
+        for i in 0..lines.shape() {
+            stored.write(i, lines.read(i));
+        }
+    }
+}
+
+/// A source is read once per line, and not at all past its edge.
+///
+/// A source's read runs its producer, which may write: a fused producer writes its intermediates
+/// as it goes, over its own inputs where it can. Run again for the row below the last, on the line
+/// that row clamps onto, it takes that line's input from what it has just written.
+#[test]
+fn a_masked_source_reads_every_line_once() {
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let launcher = masked_space(Form::Dynamic);
+    let tensor = || TestInput::builder(client.clone(), shape![MASKED_ROWS, COLS]).dtype(dtype);
+    let input = tensor().arange().generate_without_host_data();
+    let output = tensor().zeros().generate_without_host_data();
+    let lines = MASKED_ROWS * COLS / 2;
+    let reads = TestInput::builder(client.clone(), shape![lines])
+        .dtype(u32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+    let arg = |tensor: &TensorHandle| {
+        launcher
+            .arg(tensor.clone().binding(), dtype)
+            .dimensions(&[ROW, COL])
+            .vectorize(2)
+            .build()
+            .unwrap()
+            .arg()
+    };
+    counted_source_kernel::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        // The walk gives every unit the whole space: one unit reads each line once.
+        CubeDim::new_single(),
+        arg(&input),
+        arg(&output),
+        reads.clone().binding().into_tensor_arg(),
+        launcher.partitioning_arg(),
+        dtype,
+    );
+    let reads = client.read_one_unchecked(reads.handle);
+    assert_eq!(u32::from_bytes(&reads)[..lines], vec![1; lines]);
+    let copied = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    for row in 0..MASKED_ROWS {
+        for col in 0..COLS {
+            assert_eq!(copied.get_f32(&[row, col]), (row * COLS + col) as f32);
         }
     }
 }

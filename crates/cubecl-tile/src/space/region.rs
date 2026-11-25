@@ -82,8 +82,8 @@ impl Region {
         }
     }
 
-    /// The region one level below the root at trailing-two coordinates `(c0, c1)` under `level`,
-    /// `0` elsewhere, for a tile at `depth`. Comptime coordinates stay constant.
+    /// The region one level below the root at coordinates `(c0, c1)` along the innermost two
+    /// dimensions longer than one under `level`, `0` elsewhere, for a tile at `depth`. Comptime coordinates stay constant.
     pub fn trailing(
         #[comptime] depth: usize,
         #[comptime] space: Space,

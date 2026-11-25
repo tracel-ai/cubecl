@@ -69,9 +69,14 @@ impl AmdMatrixCore {
     }
 
     /// How the manual MMA lays its registers out on this core, whichever backend lowers it: `A`
-    /// along its rows, `B` and the accumulator along their columns. RDNA3 holds every A/B cell
-    /// in both halves of its 32-lane wavefront, RDNA4 once; CDNA splits `k` between the four
-    /// 16-lane groups of its 64-lane wavefront.
+    /// along its rows, `B` along its columns. RDNA3 holds every A/B cell in both halves of its
+    /// 32-lane wavefront, RDNA4 once; CDNA splits `k` between the four 16-lane groups of its
+    /// 64-lane wavefront.
+    ///
+    /// The accumulator lies along its columns, except on RDNA4: there A and B hold their
+    /// registers alike, so the backends run the instruction with them swapped and get the
+    /// transposed accumulator, along its rows as A is. A product then feeds the next one as its
+    /// A in registers, and each lane holds whole rows for a factor per row.
     pub fn mma_properties(self) -> MmaProperties {
         let (plane_size, duplication_ab) = match self {
             AmdMatrixCore::Wmma(AmdWmma::Rdna3) => (32, 2),
@@ -83,12 +88,16 @@ impl AmdMatrixCore {
             AmdMatrixCore::Wmma(AmdWmma::Rdna4) => ContiguousElements::new(contiguous_rdna4),
             AmdMatrixCore::Mfma(_) => ContiguousElements::new(contiguous_cdna),
         };
+        let register_layout_acc = match self {
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4) => MatrixLayout::RowMajor,
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => MatrixLayout::ColMajor,
+        };
         MmaProperties {
             register_size_bits: REGISTER_BITS,
             const_plane_size: plane_size,
             register_layout_a: MatrixLayout::RowMajor,
             register_layout_b: MatrixLayout::ColMajor,
-            register_layout_acc: MatrixLayout::ColMajor,
+            register_layout_acc,
             register_duplication_a: duplication_ab,
             register_duplication_b: duplication_ab,
             register_duplication_acc: 1,
@@ -96,8 +105,9 @@ impl AmdMatrixCore {
         }
     }
 
-    /// Consecutive elements of `matrix` a lane holds in role `ident`, at most a load wide: a
-    /// lane's run of `k` for A and B, one accumulator element at a time.
+    /// Consecutive elements of `matrix` a lane holds in role `ident`: for A and B a lane's run of
+    /// `k`, at most a load wide, and for the accumulator the half of its row RDNA4 gives a lane,
+    /// whole, so a lane keeps one state for the one row it holds, or else one element at a time.
     fn contiguous_elements(
         self,
         ctx: &Context,
@@ -108,7 +118,10 @@ impl AmdMatrixCore {
         let widest = LOAD_WIDTH_BYTES / matrix.elem_ty.size(ctx);
         match ident {
             MatrixIdent::A | MatrixIdent::B => self.frag_ab_elems(matrix.shape.k).min(widest),
-            MatrixIdent::Accumulator => 1,
+            MatrixIdent::Accumulator => match self {
+                AmdMatrixCore::Wmma(AmdWmma::Rdna4) => matrix.shape.n / 2,
+                AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => 1,
+            },
         }
     }
 }

@@ -22,7 +22,8 @@ const C: Dimension = Dimension(3);
 /// The register block the reduction in registers accumulates in.
 const SOFTWARE_MATMUL: SoftwareMatmul = SoftwareMatmul::new(16);
 
-/// `out[row] = Σ_col weights[row, col] · scales[row, col / inside]`, reduced into memory.
+/// `out[row]` the reduction over `col` of `weights[row, col] · scales[row, col / inside]` under
+/// `monoid`, into memory.
 #[cube(launch)]
 fn reduce_scaled_into_memory(
     weights: &TileTensor<'_>,
@@ -30,13 +31,14 @@ fn reduce_scaled_into_memory(
     out: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
+    #[comptime] monoid: Monoid,
 ) {
     let weights = weights.tile(&space).mul(&scales.tile(&space));
     let mut out = out.tile_mut(&space);
-    out.init::<f32>(0.0f32);
+    out.init::<f32>(Monoid::identity::<f32>(monoid));
     for region in space.over(&level) {
         let mut out_region = out.at(&region);
-        out_region.reduce_dimension_accumulate(&weights.at(&region), Monoid::Sum);
+        out_region.reduce_dimension_accumulate(&weights.at(&region), monoid);
     }
 }
 
@@ -61,7 +63,7 @@ fn reduce_scaled_in_registers(
 }
 
 /// Packed signed 4-bit weights, `rows × blocks · inside`, each block of `inside` columns of a row
-/// under its own scale, reduced along the columns into memory or into registers, a leaf
+/// under its own scale, summed along the columns into memory or into registers, a leaf
 /// `leaf_blocks` blocks long: a line a block.
 fn check_reduce_under_scales(registers: bool, blocks: usize, leaf_blocks: usize) {
     let (rows, inside) = (4, 8);
@@ -154,6 +156,7 @@ fn check_reduce_under_scales(registers: bool, blocks: usize, leaf_blocks: usize)
             out_op.arg(),
             launch.partitioning_arg(),
             level,
+            Monoid::Sum,
         ),
         true => reduce_scaled_in_registers::launch(
             &client,
@@ -192,4 +195,72 @@ fn a_reduction_in_registers_reads_its_values_under_their_scales() {
 fn a_long_leaf_reads_its_values_under_their_scales_rolled() {
     check_reduce_under_scales(false, 64, 32);
     check_reduce_under_scales(true, 64, 32);
+}
+
+/// Past the edge a max combines its identity, whatever scale lies there: negative values, three
+/// blocks of them in leaves of two.
+#[test]
+fn a_max_past_the_edge_reads_no_scale() {
+    let (rows, blocks, inside) = (2, 3, 4);
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let w: Vec<f32> = (0..rows * blocks * inside)
+        .map(|i| -(i as f32) - 1.0)
+        .collect();
+    let s: Vec<f32> = (0..rows * blocks).map(|i| (i as f32 + 1.0) / 2.0).collect();
+
+    let launch = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(ROW, rows), (C, 1), (CB, blocks), (CI, inside)]),
+            Levels::leaf(&[(ROW, rows), (C, 1), (CB, 2), (CI, inside)])
+                .walk_every(&[CB])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let input = |shape, values| {
+        TestInput::builder(client.clone(), shape)
+            .dtype(dtype)
+            .custom(values)
+            .generate_without_host_data()
+    };
+    let w_op = launch
+        .arg(
+            input(shape![rows, blocks, inside], w.clone()).binding(),
+            dtype,
+        )
+        .dimensions(&[ROW, CB, CI])
+        .build()
+        .unwrap();
+    let s_op = launch
+        .arg(input(shape![rows, blocks], s.clone()).binding(), dtype)
+        .dimensions(&[ROW, CB])
+        .build()
+        .unwrap();
+    let out = input(shape![rows, 1], vec![0.0; rows]);
+    let out_op = launch
+        .arg(out.clone().binding(), dtype)
+        .dimensions(&[ROW, C])
+        .build()
+        .unwrap();
+    reduce_scaled_into_memory::launch(
+        &client,
+        launch.cube_count(),
+        launch.cube_dim(),
+        w_op.arg(),
+        s_op.arg(),
+        out_op.arg(),
+        launch.partitioning_arg(),
+        launch.partitioning().level(0),
+        Monoid::Max,
+    );
+
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    for row in 0..rows {
+        let want = (0..blocks * inside)
+            .map(|col| w[row * blocks * inside + col] * s[row * blocks + col / inside])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert_eq!(got.get_f32(&[row, 0]), want, "row {row}");
+    }
 }

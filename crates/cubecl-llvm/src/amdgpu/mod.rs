@@ -4,6 +4,7 @@ pub mod abi;
 pub mod builtins;
 pub mod codegen;
 pub mod device_libs;
+pub(crate) mod fp8;
 mod fragment;
 pub mod intrinsic;
 pub mod lld;

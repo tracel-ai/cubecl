@@ -157,6 +157,11 @@ impl Partitioning {
 
     /// The shape of a [`LastArrival`]'s slots for an output over `dimensions`, in that order: two
     /// cube boxes a run of the shared cube level, stacked along the first of `dimensions`.
+    ///
+    /// # Panics
+    ///
+    /// Where the outermost level shares no grid, or does not cut the first of `dimensions` by a
+    /// stated tile.
     pub fn arrival_slots(&self, dimensions: &[Dimension]) -> cubecl::zspace::Shape {
         let boxes = self.arrival_slots_space(dimensions);
         cubecl::zspace::Shape::from(
@@ -176,6 +181,11 @@ impl Partitioning {
             "LastArrival: the cube level distributes no grid as one index; say `shared_by`",
         );
         let stacked = dimensions[0];
+        assert!(
+            level.tile(stacked).is_some(),
+            "LastArrival: the cube level does not cut {stacked:?}, the output's first dimension, \
+             which the slots are counted along; put a dimension it cuts first"
+        );
         let cube_box = level.child(self.space());
         let Extent::Static(edge) = cube_box.extent_raw(stacked) else {
             panic!(

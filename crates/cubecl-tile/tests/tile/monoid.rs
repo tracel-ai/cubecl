@@ -2,6 +2,7 @@
 //! zeros left as they are, by a unit folding values one at a time and by a plane's units at once,
 //! a whole plane and one only partly launched.
 
+use crate::support::skip_unless_plane_holds;
 use cubecl::prelude::*;
 use cubecl_tile::Monoid;
 use cubecl_tile::space::UnitShare;
@@ -133,10 +134,10 @@ fn a_unit_fold_keeps_nan_and_starts_at_infinity() {
 #[test]
 fn a_plane_keeps_nan_whole_or_partly_launched() {
     let client = cubecl::test_device().client();
-    let plane = client.properties().hardware.plane_size_max as usize;
-    if plane < 2 {
+    if skip_unless_plane_holds(&client, 2) {
         return;
     }
+    let plane = client.properties().hardware.plane_size_max as usize;
     for units in [plane, plane / 2 + 1] {
         for monoid in [Monoid::Max, Monoid::Min] {
             for (name, input) in cases(units) {

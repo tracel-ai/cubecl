@@ -25,7 +25,8 @@ pub enum StageStorage {
 pub enum RowChunks {
     /// Each row one contiguous run, in order; readable by `cmma` and TMA.
     InOrder,
-    /// Each row's chunks XOR-permuted by a row key; only per-unit-addressed readers can read it.
+    /// Each row's chunks XOR-permuted by a row key; read by units addressing their own chunks, and by
+    /// a plane group MMA through its descriptor.
     Swizzled,
     /// Each row in order followed by one unused chunk, so rows start on distinct banks.
     Padded,
@@ -142,7 +143,8 @@ impl StageStorage {
 
     /// Bytes a stage over `space` holds laid out this way, its lines `vector_size` values of
     /// `elem_bits` bits, which a line holds whole bytes of: every line of its cells, and the
-    /// padding after each row. What [`Stages::smem`](crate::Stages::smem) allocates for it.
+    /// padding after each row. [`Stages::smem`](crate::Stages::smem) allocates it once, rounding each
+    /// plane's copy up to the stage alignment where planes own one each.
     pub fn bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
         let line = vector_size * elem_bits / 8;
         StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line

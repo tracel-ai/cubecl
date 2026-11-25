@@ -36,12 +36,6 @@ std = [
     "cubecl-llvm/std",
 ]
 
-tracing = [
-    "cubecl-server/tracing",
-    "cubecl-common/tracing",
-    "cubecl-core/tracing",
-    "cubecl-llvm/tracing",
-]
 
 
 [dependencies]

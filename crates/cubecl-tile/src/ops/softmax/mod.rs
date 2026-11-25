@@ -4,5 +4,6 @@
 pub(crate) mod online;
 
 pub use online::{
-    OnlineSoftmax, OnlineSoftmaxExpand, OnlineSoftmaxState, OnlineSoftmaxStateExpand,
+    OnlineSoftmax, OnlineSoftmaxExpand, OnlineSoftmaxState, OnlineSoftmaxStateExpand, Rescale,
+    RescaleExpand,
 };
