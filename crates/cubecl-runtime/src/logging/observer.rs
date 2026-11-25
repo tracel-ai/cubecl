@@ -50,9 +50,7 @@ pub trait ExecutionObserver: Send + Sync {
     /// was issued.
     ///
     /// Called on the thread that issued it, after the launch, or right after
-    /// [`observe`](Self::observe) for a communication part or wait. **An
-    /// observer that asked to keep measurements unread still receives
-    /// [`Measurement::Read`]** whenever the profiling logger is on.
+    /// [`observe`](Self::observe) for a communication part or wait.
     ///
     /// It arrives *after* the launch rather than before it, so an observer
     /// pairing executions with its own state should do that in
