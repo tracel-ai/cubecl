@@ -186,34 +186,6 @@ impl QuantScheme {
         self.store.packing_dim()
     }
 
-    /// Swap two tensor dimensions in the packing dim, mirroring `shape.swap(dim0, dim1)` on a
-    /// tensor of `rank` dimensions: the packing dim counts from the innermost dimension, so it
-    /// takes the rank to know which dimension it is.
-    fn swap_packing_dim(&mut self, rank: usize, dim0: usize, dim1: usize) {
-        let mut axes: Vec<usize> = (0..rank).collect();
-        axes.swap(dim0, dim1);
-        self.permute_packing_dim(&axes);
-    }
-
-    /// Permute the packing dim, mirroring a permutation of the tensor's axes.
-    fn permute_packing_dim(&mut self, axes: &[usize]) {
-        // A scalar keeps its packing dim, as `reshape_packing_dim` leaves it.
-        if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
-            &mut self.store
-            && !axes.is_empty()
-        {
-            let rank = axes.len();
-            let packed_axis = rank
-                .checked_sub(*packed_dim + 1)
-                .expect("the packing dim to be one of the permuted axes");
-            let new_axis = axes
-                .iter()
-                .position(|axis| *axis == packed_axis)
-                .expect("the permutation to contain the packed axis");
-            *packed_dim = rank - new_axis - 1;
-        }
-    }
-
     /// Swap two tensor dimensions in the scale levels and the packing dim, mirroring
     /// `shape.swap(dim0, dim1)`.
     ///
@@ -655,6 +627,36 @@ impl QuantScheme {
             blocks: [finest, coarsest],
         })
         .filter(|scheme| scheme.to_code() == Some(code))
+    }
+}
+
+impl QuantScheme {
+    /// Swap two tensor dimensions in the packing dim, mirroring `shape.swap(dim0, dim1)` on a
+    /// tensor of `rank` dimensions: the packing dim counts from the innermost dimension, so it
+    /// takes the rank to know which dimension it is.
+    fn swap_packing_dim(&mut self, rank: usize, dim0: usize, dim1: usize) {
+        let mut axes: Vec<usize> = (0..rank).collect();
+        axes.swap(dim0, dim1);
+        self.permute_packing_dim(&axes);
+    }
+
+    /// Permute the packing dim, mirroring a permutation of the tensor's axes.
+    fn permute_packing_dim(&mut self, axes: &[usize]) {
+        // A scalar keeps its packing dim, as `reshape_packing_dim` leaves it.
+        if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
+            &mut self.store
+            && !axes.is_empty()
+        {
+            let rank = axes.len();
+            let packed_axis = rank
+                .checked_sub(*packed_dim + 1)
+                .expect("the packing dim to be one of the permuted axes");
+            let new_axis = axes
+                .iter()
+                .position(|axis| *axis == packed_axis)
+                .expect("the permutation to contain the packed axis");
+            *packed_dim = rank - new_axis - 1;
+        }
     }
 }
 

@@ -96,7 +96,9 @@ impl BlockExtent {
             Self::WholeAxis => 1,
         }
     }
+}
 
+impl BlockExtent {
     /// The extent as a byte, `0` for the whole axis.
     fn to_code(self) -> u64 {
         match self {
@@ -177,20 +179,6 @@ impl BlockSize {
         core::array::from_fn(|axis| self.extent_from_last(N - 1 - axis))
     }
 
-    fn extent_from_last(&self, axis: usize) -> BlockExtent {
-        self.extents.get(axis).copied().unwrap_or(self.rest)
-    }
-
-    /// The extents of the last axes, the last one first, up to where they all say the rest.
-    pub(super) fn listed(&self) -> &[BlockExtent] {
-        let restated = self
-            .extents
-            .iter()
-            .rev()
-            .take_while(|extent| **extent == self.rest);
-        &self.extents[..MAX_DIMS - restated.count()]
-    }
-
     /// How many values the block covers along each axis of `shape`.
     pub fn values(&self, shape: &[usize]) -> Vec<usize> {
         self.extents_in_rank(shape.len())
@@ -217,6 +205,22 @@ impl BlockSize {
         let extents: Vec<BlockExtent> = self.extents_in_rank(axes.len()).collect();
         let permuted: Vec<BlockExtent> = axes.iter().map(|&axis| extents[axis]).collect();
         Self::with_rest(&permuted, self.rest)
+    }
+}
+
+impl BlockSize {
+    fn extent_from_last(&self, axis: usize) -> BlockExtent {
+        self.extents.get(axis).copied().unwrap_or(self.rest)
+    }
+
+    /// The extents of the last axes, the last one first, up to where they all say the rest.
+    pub(super) fn listed(&self) -> &[BlockExtent] {
+        let restated = self
+            .extents
+            .iter()
+            .rev()
+            .take_while(|extent| **extent == self.rest);
+        &self.extents[..MAX_DIMS - restated.count()]
     }
 }
 
