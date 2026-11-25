@@ -56,9 +56,9 @@ fn stored(client: &Client, values: Vec<f32>) -> TensorHandle {
     )
     .with_tiling(
         Tiling::from_physical_dims(&[&[0, 5, 2][..], &[1, 4, 3, 6]])
-            .expect("each dim is one piece"),
+            .expect("each dim should be one piece"),
     )
-    .expect("the tiling lists the buffer's dims");
+    .expect("the tiling should list the buffer's dims");
     let handle = client.create(Bytes::from_elems(values));
     TensorHandle::from_metadata(handle, metadata, f32::elem_type_native())
 }
@@ -87,7 +87,7 @@ fn check_read(width: usize) {
             .dimensions(&[M, K])
             .vectorize(width)
             .build()
-            .expect("a pair of K lies back to back")
+            .expect("a pair of K should lie back to back")
             .arg()
     };
     copy_lines::launch(
@@ -137,7 +137,7 @@ fn a_tensor_core_layout_is_written() {
             .arg(binding, dtype)
             .dimensions(&[M, K])
             .build()
-            .expect("a value is always read")
+            .expect("a value should always be read")
             .arg()
     };
     copy_lines::launch(
@@ -151,7 +151,9 @@ fn a_tensor_core_layout_is_written() {
         dtype,
     );
 
-    let bytes = client.read_one(written).expect("the buffer is read back");
+    let bytes = client
+        .read_one(written)
+        .expect("the buffer should be read back");
     let got: &[f32] = bytemuck::cast_slice(&bytes);
     for m in 0..ROWS {
         for k in 0..COLUMNS {

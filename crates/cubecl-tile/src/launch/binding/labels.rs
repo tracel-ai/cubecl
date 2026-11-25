@@ -95,7 +95,8 @@ impl Labels {
             .map(|axis| vec![axis])
             .chain(dimensions.iter().copied().map(axes_of))
             .collect();
-        Tiling::from_physical_dims(&dims).expect("the binding's own tiling, less plain axes")
+        Tiling::from_physical_dims(&dims)
+            .expect("the binding's own tiling, less plain axes, should be a tiling")
     }
 
     /// A stated gathered mapping, checked against the binding and the launch.
@@ -148,7 +149,7 @@ fn innermost_axis_order(kept: &[(Dimension, usize)]) -> SmallVec<[usize; Space::
     let innermost = |dimension: Dimension| {
         kept.iter()
             .rposition(|&(other, _)| other == dimension)
-            .expect("a kept axis's dimension is kept")
+            .expect("a kept axis's dimension should be kept")
     };
     let mut order: SmallVec<[usize; Space::MAX_RANK]> = (0..kept.len()).collect();
     order.sort_by_key(|&axis| (innermost(kept[axis].0), axis));

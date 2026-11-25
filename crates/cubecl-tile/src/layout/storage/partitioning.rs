@@ -308,7 +308,7 @@ impl StoragePartitioning {
                 let p = (0..pieces.len())
                     .rev()
                     .find(|&p| !taken[p] && pieces[p].dimension == dimension)
-                    .expect("a dimension has as many pieces as it has axes");
+                    .expect("a dimension should have as many pieces as it has axes");
                 taken[p] = true;
                 (pieces[p].count, strides[p])
             })
@@ -509,7 +509,7 @@ mod tests {
         let dense = StorageLevels::new(&[(K, 16)])
             .tile(&[(N, 16)])
             .grid(&[K, N]);
-        let stagger = Stagger::new(1024, 4).expect("a 4-bit value divides a transaction");
+        let stagger = Stagger::new(1024, 4).expect("a 4-bit value should divide a transaction");
         let staggered = dense.clone().staggered(stagger);
         // The two lay the buffer down differently, so a derivation keyed on one never serves the
         // other.
@@ -538,13 +538,13 @@ mod tests {
         let one_strip = StorageLevels::new(&[(K, 16)])
             .tile(&[(N, 32)])
             .grid(&[K, N])
-            .staggered(Stagger::new(1024, 4).expect("a 4-bit value divides a transaction"));
+            .staggered(Stagger::new(1024, 4).expect("a 4-bit value should divide a transaction"));
         // Each K tile is 512 values, two transactions: three hold it.
         let geometry = one_strip.physical(&[(K, 4096), (N, 32)]).unwrap();
         let k_rest = geometry
             .axes()
             .find(|&(extent, _)| extent == 256)
-            .expect("4096 / 16 tiles down K");
+            .expect("4096 / 16 should tile down K");
         assert_eq!(k_rest.1, 3 * 256);
     }
 
@@ -570,7 +570,7 @@ mod tests {
     fn tensor_core() -> Geometry {
         Geometry::row_major(&[3, 5, 8, 4, 2, 2, 2]).with_tiling(
             Tiling::from_physical_dims(&[&[0, 5, 2][..], &[1, 4, 3, 6]])
-                .expect("each axis is one piece"),
+                .expect("each axis should be one piece"),
         )
     }
 

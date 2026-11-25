@@ -86,7 +86,10 @@ impl VectorTile {
             held *= count;
             match extents.last().copied() {
                 Some((last, extent)) if last == dimension => {
-                    *extents.last_mut().expect("just read") = (dimension, extent * count);
+                    *extents
+                        .last_mut()
+                        .expect("the extent just read should be there") =
+                        (dimension, extent * count);
                 }
                 Some((last, _)) if extents.iter().any(|&(a, _)| a == dimension) => {
                     return Err(TileMisfit::Interleaved {
@@ -388,7 +391,7 @@ impl VectorTile {
                     .carriers(dimension)
                     .iter()
                     .nth_back(finer.count())
-                    .expect("a stated tile is an axis of the buffer")
+                    .expect("a stated tile should be an axis of the buffer")
             })
             .collect()
     }

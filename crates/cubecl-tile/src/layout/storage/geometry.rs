@@ -539,8 +539,8 @@ mod tests {
 
     #[test]
     fn more_dimensions_than_a_tiled_buffer_stands_for_are_declined() {
-        let geometry =
-            Geometry::row_major(&[5, 8]).with_tiling(Tiling::new(&[2]).expect("two pieces"));
+        let geometry = Geometry::row_major(&[5, 8])
+            .with_tiling(Tiling::new(&[2]).expect("two pieces should be a tiling"));
         assert_eq!(
             geometry.pieces(&[M, K]),
             Err(Decline::RankBelowLabels { rank: 1, block: 2 })

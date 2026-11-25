@@ -190,7 +190,7 @@ impl MmaData {
         #[comptime] operands: MmaOperands,
     ) -> MmaData {
         let form = operands.block_scaled().expect(
-            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form",
+            "MmaData::block_scaled: a block-scaled fragment should be allocated under a block-scaled form",
         );
         register_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
@@ -246,8 +246,9 @@ impl MmaData {
         let layout = comptime!(self.layout);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
         let positions = def.element_positions(MatrixIdent::Accumulator);
-        let positions =
-            comptime!(positions.expect("a device with a manual mma states its lanes' positions"));
+        let positions = comptime!(
+            positions.expect("a device with a manual mma should state its lanes' positions")
+        );
         let acc = self.acc_registers_mut::<T>();
         #[unroll]
         for i in 0..acc.len() {
@@ -342,7 +343,7 @@ impl MmaData {
                 src,
                 values.at_mut::<LhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                form.expect("a block-scaled fragment is held under its form"),
+                form.expect("a block-scaled fragment should be held under its form"),
                 MatrixIdent::A,
                 layout,
                 io,
@@ -352,7 +353,7 @@ impl MmaData {
                 src,
                 values.at_mut::<RhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                form.expect("a block-scaled fragment is held under its form"),
+                form.expect("a block-scaled fragment should be held under its form"),
                 MatrixIdent::B,
                 layout,
                 io,
