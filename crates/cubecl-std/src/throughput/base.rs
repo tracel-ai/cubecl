@@ -12,7 +12,7 @@ use cubecl_runtime::{
 use crate::throughput::{
     Arithmetic, CooperativeMatrix, LaunchConfig, PooledProbes, ShapeSweep, WorkerSweep, cache_read,
     compute_cmma, compute_direct, cube_rate, launch_overhead, memory_direct, memory_probe,
-    memory_read, memory_write,
+    memory_read, memory_write, shared_read,
 };
 
 /// Measure peak throughput on `device` for each of the given `keys`.
@@ -189,8 +189,11 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
         ThroughputMode::CubeRoundTrips { units } => ShapeSweep::new(alloc::vec![launch_config])
             .fastest(|_| Ok(cube_rate::build_kernel(client, units)))
             .map(|(value, _)| value),
-        ThroughputMode::CacheRead => ShapeSweep::new(alloc::vec![launch_config])
-            .fastest(|_| Ok(cache_read::build_kernel(client)))
+        ThroughputMode::CacheRead { bytes } => ShapeSweep::new(alloc::vec![launch_config])
+            .fastest(|_| Ok(cache_read::build_kernel(client, bytes)))
+            .map(|(value, _)| value),
+        ThroughputMode::SharedRead => ShapeSweep::new(alloc::vec![launch_config])
+            .fastest(|_| Ok(shared_read::build_kernel(client)))
             .map(|(value, _)| value),
     }
 }
@@ -206,7 +209,8 @@ fn declined(features: &Features, key: ThroughputKey) -> bool {
         ThroughputMode::Memory(_)
         | ThroughputMode::Launch
         | ThroughputMode::CubeRoundTrips { .. }
-        | ThroughputMode::CacheRead => false,
+        | ThroughputMode::CacheRead { .. }
+        | ThroughputMode::SharedRead => false,
     }
 }
 
@@ -317,12 +321,30 @@ pub fn measure_cube_rate(client: &Client, units: u32) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-/// Bytes a second the device reads at from a window its last-level cache holds, every unit of a
-/// grid that fills it reading again what others read: the rate of a kernel's re-reads. `NaN`
-/// where the device measured nothing, and on WASM.
-pub fn measure_cache_read(client: &Client) -> f64 {
+/// Bytes a second the device reads a working set of `bytes` again at, every unit of a grid that
+/// fills it reading what others read: the rate of a kernel's re-reads, from whichever level of
+/// the cache holds that much. Probed an octave at a time, between
+/// [`MIN_WINDOW_BYTES`](cache_read::MIN_WINDOW_BYTES) and
+/// [`MAX_WINDOW_BYTES`](cache_read::MAX_WINDOW_BYTES). `NaN` where the device measured nothing,
+/// and on WASM.
+pub fn measure_cache_read(client: &Client, bytes: u64) -> f64 {
+    let window = bytes.clamp(cache_read::MIN_WINDOW_BYTES, cache_read::MAX_WINDOW_BYTES);
     let key = ThroughputKey {
-        mode: ThroughputMode::CacheRead,
+        mode: ThroughputMode::CacheRead {
+            bytes: MemoryCurve::sweep_point_for_bytes(window),
+        },
+    };
+    measure_peak_throughput(client, key)
+        .map(|value| value.bytes_per_s(&key))
+        .unwrap_or(f64::NAN)
+}
+
+/// Bytes a second the device reads its shared memory at, every unit of a grid that fills it
+/// reading what its cube staged: the rate of a kernel's reads of its stages. `NaN` where the
+/// device measured nothing, and on WASM.
+pub fn measure_shared_read(client: &Client) -> f64 {
+    let key = ThroughputKey {
+        mode: ThroughputMode::SharedRead,
     };
     measure_peak_throughput(client, key)
         .map(|value| value.bytes_per_s(&key))

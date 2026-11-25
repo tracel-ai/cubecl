@@ -87,10 +87,17 @@ pub enum ThroughputMode {
         /// The units of every cube the probe launches.
         units: u32,
     },
-    /// Reads of a window the last-level cache holds, by every unit of a grid that fills the
-    /// device, again and again: the bandwidth a kernel reads at what it or another cube read
-    /// before. Counted in `f32`s read.
-    CacheRead,
+    /// Reads of a window of `bytes`, by every unit of a grid that fills the device, again and
+    /// again: the bandwidth a kernel reads at what it or another cube read before, from
+    /// whichever level of the cache holds a working set that size. Counted in `f32`s read.
+    CacheRead {
+        /// The window the probe reads, the size of the working set read again.
+        bytes: u64,
+    },
+    /// Reads of shared memory by every unit of a grid that fills the device, each cube reading
+    /// an array it filled: the bandwidth a kernel reads what its cube staged at. Counted in `f32`s
+    /// read.
+    SharedRead,
 }
 
 /// What a memory mode asks of a probe.
@@ -119,7 +126,8 @@ impl ThroughputMode {
             | Self::ComputeCmma { .. }
             | Self::Launch
             | Self::CubeRoundTrips { .. }
-            | Self::CacheRead => None,
+            | Self::CacheRead { .. }
+            | Self::SharedRead => None,
         }
     }
 }
@@ -167,7 +175,8 @@ impl ThroughputKey {
             ThroughputMode::Memory(_)
             | ThroughputMode::Launch
             | ThroughputMode::CubeRoundTrips { .. }
-            | ThroughputMode::CacheRead => ElemType::Float(FloatKind::F32),
+            | ThroughputMode::CacheRead { .. }
+            | ThroughputMode::SharedRead => ElemType::Float(FloatKind::F32),
         }
     }
 }
@@ -362,7 +371,9 @@ impl ThroughputValue {
             ThroughputMode::Memory(_) => format_rate(self.bytes_per_s(key), "bytes"),
             ThroughputMode::Launch => format_per_launch(self.duration_per_op()),
             ThroughputMode::CubeRoundTrips { .. } => format_rate(self.ops_per_s(), "cubes"),
-            ThroughputMode::CacheRead => format_rate(self.bytes_per_s(key), "bytes"),
+            ThroughputMode::CacheRead { .. } | ThroughputMode::SharedRead => {
+                format_rate(self.bytes_per_s(key), "bytes")
+            }
         }
     }
 }

@@ -10,4 +10,5 @@ pub mod memory_direct;
 pub mod memory_probe;
 pub mod memory_read;
 pub mod memory_write;
+pub mod shared_read;
 pub mod verify;
