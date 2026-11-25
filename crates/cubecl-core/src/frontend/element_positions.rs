@@ -13,7 +13,7 @@ pub(crate) fn expand_position(
     let coordinate = |parts: &[CoordinatePart]| {
         parts
             .iter()
-            .map(|part| expand_part(scope, part, lane.clone(), nth.clone()))
+            .map(|part| expand_part(scope, part, lane, nth))
             .reduce(|sum, part| sum.__expand_add_method(scope, part))
             .expect("a coordinate should have a part")
     };
