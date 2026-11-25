@@ -471,13 +471,13 @@ impl<K: AutotuneKey> Tuner<K> {
         self.tune_fixed_samples(job, client)
     }
 
-    /// Runs the candidates the plan would measure once each, on the inputs a tune generates,
-    /// so their launches queue their kernels under a `CompileOnly` override. The key is left
-    /// untuned.
+    /// Runs the top of the plan once each, on the inputs a tune generates, so their launches
+    /// queue their kernels under a `CompileOnly` override. The key is left untuned.
     ///
-    /// The plan is walked batch by batch and stops after the first batch in which a candidate
-    /// serves the problem, as a tune stops at the first batch with a measured candidate: a
-    /// candidate that declines returns its error without launching anything.
+    /// The top is the candidates the plan ranks first, and after them as many more, in plan
+    /// order, as it takes for as many candidates as compile at once to have served the problem
+    /// ([`TunePlan::queue_top`]): the ones a tune measures first, compiled in one batch. The
+    /// rest are compiled by the tune itself, at their turn, only when the top did not stop it.
     fn compile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
@@ -492,20 +492,12 @@ impl<K: AutotuneKey> Tuner<K> {
         let gathering = tunables
             .bound_stage_enterer(key, inputs)
             .map(|mut enter| enter(crate::tune::TuneStage::Gathering));
-        loop {
-            let batch = plan.next();
-            if batch.is_empty() {
-                break;
-            }
-            // Every candidate of the batch runs, so every one of them queues its kernels.
-            let mut served = false;
-            for index in batch.indices() {
-                served |= autotunables[index].race(test_inputs.clone()).is_ok();
-            }
-            if served {
-                break;
-            }
-        }
+        let parallelism = crate::config::CubeClRuntimeConfig::get()
+            .compilation
+            .parallelism();
+        plan.queue_top(parallelism, |index| {
+            autotunables[index].race(test_inputs.clone()).is_ok()
+        });
         core::mem::drop(gathering);
     }
 

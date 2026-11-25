@@ -262,6 +262,9 @@ pub(crate) struct Batch {
 pub(crate) struct BatchEntry {
     pub(crate) index: usize,
     pub(crate) groups: Vec<GroupId>,
+    /// The priority it was placed at, by the first group that brought it in. `None` for an
+    /// ungrouped tunable, which states none.
+    pub(crate) priority: Option<i8>,
 }
 
 impl Batch {
@@ -283,6 +286,18 @@ impl Batch {
         self.entries.iter().map(|entry| entry.index).collect()
     }
 
+    /// How many entries lead the batch at its first entry's priority: the candidates the plan
+    /// ranks first, among which it states no preference.
+    pub(crate) fn leading_len(&self) -> usize {
+        let Some(first) = self.entries.first() else {
+            return 0;
+        };
+        self.entries
+            .iter()
+            .take_while(|entry| entry.priority == first.priority)
+            .count()
+    }
+
     /// Add a tunable through one of its groups. A tunable several groups bring in is
     /// benchmarked once, at its first place, and answers to each of them.
     fn push(&mut self, planned: &Planned) {
@@ -292,6 +307,7 @@ impl Batch {
             None => self.entries.push(BatchEntry {
                 index: planned.index,
                 groups: vec![planned.group],
+                priority: Some(planned.priority),
             }),
         }
     }
@@ -300,6 +316,7 @@ impl Batch {
         self.entries.push(BatchEntry {
             index,
             groups: Vec::new(),
+            priority: None,
         });
     }
 }
@@ -490,6 +507,35 @@ impl TunePlan {
                 groups: self.placements[index].clone(),
             })
             .collect()
+    }
+
+    /// Hand `queue` the top of the plan, in its order, as a pass that compiles ahead of the
+    /// tune does: the candidates leading the first batch at its highest priority, then the
+    /// candidates after them until `queue` has accepted `parallelism` of them. `queue` runs a
+    /// candidate and answers whether it served the problem; one that declines queues nothing and
+    /// counts for nothing.
+    ///
+    /// A batch in which no candidate served hands its every candidate over, then the next
+    /// batch's, as the tune falls back to it. Once one has served, no later batch is reached,
+    /// since the tune stops at that batch.
+    pub(crate) fn queue_top(&mut self, parallelism: usize, mut queue: impl FnMut(usize) -> bool) {
+        loop {
+            let batch = self.next();
+            if batch.is_empty() {
+                return;
+            }
+            let leading = batch.leading_len();
+            let mut served = 0;
+            for (position, index) in batch.indices().into_iter().enumerate() {
+                if position >= leading && served >= parallelism {
+                    return;
+                }
+                served += usize::from(queue(index));
+            }
+            if served > 0 {
+                return;
+            }
+        }
     }
 
     /// The next batch to benchmark. An empty one means the plan is exhausted.
@@ -1007,19 +1053,20 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
         let batch = plan.next();
-        let entry = |index, groups: &[GroupId]| BatchEntry {
+        let entry = |index, groups: &[GroupId], priority| BatchEntry {
             index,
             groups: groups.to_vec(),
+            priority,
         };
 
         assert_eq!(
             batch.entries,
             vec![
-                entry(1, &[ordered.id]),
-                entry(2, &[cutoff.id]),
-                entry(4, &[cutoff.id, ordered.id]),
-                entry(3, &[ordered.id]),
-                entry(0, &[]),
+                entry(1, &[ordered.id], Some(2)),
+                entry(2, &[cutoff.id], Some(2)),
+                entry(4, &[cutoff.id, ordered.id], Some(2)),
+                entry(3, &[ordered.id], Some(1)),
+                entry(0, &[], None),
             ]
         );
         assert_eq!(batch.patience, HashMap::from_iter([(ordered.id, patience)]));
@@ -1044,6 +1091,7 @@ mod tests {
             vec![BatchEntry {
                 index: 0,
                 groups: vec![ordered.id],
+                priority: Some(2),
             }]
         );
     }
@@ -1163,6 +1211,121 @@ mod tests {
         assert_eq!(plan.next().indices(), vec![0]);
         assert_eq!(plan.next().indices(), vec![1]);
         assert!(plan.next().is_empty());
+    }
+
+    #[derive(Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
+    struct SizeKey(i8);
+
+    impl Display for SizeKey {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "SizeKey({})", self.0)
+        }
+    }
+
+    impl AutotuneKey for SizeKey {}
+
+    #[test_log::test]
+    fn test_plan_orders_each_key_by_its_own_priorities() {
+        // The plan asks every priority function of the key it is built for: two keys that
+        // rank the same members in opposite orders get opposite batches, and members the
+        // key ties stay in registration order.
+        let group = TuneGroup::<SizeKey>::ordered("ordered", |_| 2, OrderedSettings::default());
+        let tunables = || {
+            [
+                Tunable::<SizeKey, (), ()>::new("rises", fake_kernel)
+                    .group(&group, |key: &SizeKey| key.0),
+                Tunable::<SizeKey, (), ()>::new("falls", fake_kernel)
+                    .group(&group, |key: &SizeKey| 10 - key.0),
+                Tunable::<SizeKey, (), ()>::new("flat", fake_kernel).group(&group, |_| 5),
+            ]
+        };
+
+        assert_eq!(
+            TunePlan::new(&SizeKey(9), &tunables()).next().indices(),
+            vec![0, 2, 1]
+        );
+        assert_eq!(
+            TunePlan::new(&SizeKey(1), &tunables()).next().indices(),
+            vec![1, 2, 0]
+        );
+        assert_eq!(
+            TunePlan::new(&SizeKey(5), &tunables()).next().indices(),
+            vec![0, 1, 2]
+        );
+    }
+
+    /// An ordered group of `priorities.len()` members, each at its priority, and an ungrouped
+    /// tunable after them.
+    fn ordered_plan(priorities: &[i8]) -> TunePlan {
+        let group =
+            TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1, OrderedSettings::default());
+        let mut tunables: Vec<_> = priorities
+            .iter()
+            .map(|&priority| {
+                Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+                    .group(&group, move |_| priority)
+            })
+            .collect();
+        tunables.push(Tunable::new("ungrouped", fake_kernel));
+        TunePlan::new(&FakeAutotuneKey, &tunables)
+    }
+
+    /// What [`TunePlan::queue_top`] hands over, each candidate serving unless `declines` names it.
+    fn queued(mut plan: TunePlan, parallelism: usize, declines: &[usize]) -> Vec<usize> {
+        let mut queued = Vec::new();
+        plan.queue_top(parallelism, |index| {
+            queued.push(index);
+            !declines.contains(&index)
+        });
+        queued
+    }
+
+    #[test_log::test]
+    fn test_queue_top_takes_every_candidate_tied_at_the_top() {
+        let plan = ordered_plan(&[9, 9, 9, 9, 3, 3]);
+        assert_eq!(queued(plan, 2, &[]), vec![0, 1, 2, 3]);
+    }
+
+    #[test_log::test]
+    fn test_queue_top_extends_a_small_top_to_the_parallelism() {
+        let plan = ordered_plan(&[3, 9, 5, 7, 1]);
+        assert_eq!(queued(plan, 3, &[]), vec![1, 3, 2]);
+    }
+
+    #[test_log::test]
+    fn test_queue_top_does_not_count_a_declining_candidate() {
+        let plan = ordered_plan(&[3, 9, 5, 7, 1]);
+        assert_eq!(queued(plan, 2, &[3]), vec![1, 3, 2]);
+    }
+
+    #[test_log::test]
+    fn test_queue_top_falls_back_only_past_a_batch_that_served_nothing() {
+        let first = TuneGroup::<FakeAutotuneKey>::new("first", |_| 2);
+        let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
+        let tunables = || {
+            [
+                Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&first, |_| 1),
+                Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+                    .group(&fallback, |_| 1),
+                Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+                    .group(&fallback, |_| 1),
+            ]
+        };
+        let plan = || TunePlan::new(&FakeAutotuneKey, &tunables());
+
+        assert_eq!(queued(plan(), 4, &[]), vec![0]);
+        assert_eq!(queued(plan(), 4, &[0]), vec![0, 1, 2]);
+    }
+
+    #[test_log::test]
+    fn test_queue_top_hands_over_the_whole_plan_when_nothing_serves() {
+        let plan = ordered_plan(&[2, 1]);
+        assert_eq!(queued(plan, 1, &[0, 1, 2]), vec![0, 1, 2]);
+    }
+
+    #[test_log::test]
+    fn test_an_empty_batch_has_no_leading_entry() {
+        assert_eq!(Batch::default().leading_len(), 0);
     }
 
     fn fake_kernel(_: ()) -> Result<(), String> {

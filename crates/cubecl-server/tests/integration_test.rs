@@ -3267,6 +3267,90 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
+/// A `CompileOnly` override runs only the top of a key's plan: as many candidates as compile at
+/// once, the best ranked first, when fewer than that lead it. The tune that follows still measures
+/// the candidates the override left out, since the top had no time limit to stop it.
+#[test_log::test]
+#[cfg(all(
+    feature = "std",
+    not(target_family = "wasm"),
+    not(feature = "autotune-checks")
+))]
+#[serial_test::serial]
+fn a_compile_only_override_runs_the_top_of_the_plan_and_the_tune_the_rest() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::Patience;
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("compile_only_runs_the_top");
+
+    let parallelism = CubeClRuntimeConfig::get().compilation.parallelism();
+    let count = parallelism + 3;
+    let calls: Vec<_> = (0..count).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+    let ranked: Vec<_> = calls
+        .iter()
+        .map(|calls| dummy::RankedCandidate {
+            kernel: dummy::RankedKernel::Add,
+            membership: dummy::Membership::Ranked,
+            calls: calls.clone(),
+        })
+        .collect();
+    // Every member is measured: the group never runs out of patience.
+    let patience = Patience {
+        min_measured: count,
+        max_misses: count,
+    };
+
+    let client = test_client(&DummyDevice);
+    let uid = fresh_tune_key_uid();
+    let id = uid.clone();
+    let test_set = TUNER.init(&id, move || {
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::ranked_addition_set(
+            test_client(&DummyDevice),
+            shapes,
+            uid.clone(),
+            patience,
+            ranked.clone(),
+        )
+    });
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
+    let counted = || {
+        calls
+            .iter()
+            .map(|calls| calls.load(Ordering::Relaxed))
+            .collect::<Vec<_>>()
+    };
+
+    let collector = StatisticsCollector::new();
+    {
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        TUNER.execute(&id, &client, test_set.clone(), handles());
+        core::mem::drop(compile);
+    }
+    // The first candidate ran a second time as the work, once its kernels were queued.
+    let mut gathered = vec![1; parallelism];
+    gathered[0] = 2;
+    gathered.extend([0; 3]);
+    assert_eq!(counted(), gathered, "only the top of the plan ran");
+
+    {
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        TUNER.execute(&id, &client, test_set, handles());
+        core::mem::drop(tune);
+    }
+    let tuned = counted();
+    assert!(
+        tuned[parallelism..].iter().all(|&calls| calls > 0),
+        "the tune measured the candidates the override left out: {tuned:?}"
+    );
+    let measured = collector.statistics().autotune;
+    assert_eq!((measured.registered_count, measured.measured_count), (1, 1));
+}
+
 /// Every card of the same hardware queues a gathered key's candidates on itself, since a tune
 /// compiles only what its own card queued. The key is still one tune for all of them, registered
 /// once.

@@ -7,10 +7,13 @@ pub enum ProcessMode {
     Execute,
     /// Launches and tune candidates queue their kernels and are discarded. The
     /// queue compiles in one batch, at the next launch that loads a kernel. A
-    /// tune measures and decides nothing.
+    /// tune measures and decides nothing, and queues only the top of its plan:
+    /// its highest-priority candidates, or as many as compile at once if those
+    /// are fewer.
     CompileOnly,
     /// Launches compile their kernels and are discarded. A tune measures its
-    /// candidates for real.
+    /// candidates for real, compiling at their turn those a `CompileOnly` pass
+    /// left out.
     CompileAndAutotune,
 }
 
