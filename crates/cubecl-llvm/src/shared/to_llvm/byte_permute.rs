@@ -80,16 +80,27 @@ fn per_word(
 
     let permuted = match lanes {
         None => permute(ctx, rw, operands),
-        Some(lanes) => {
-            let words = (0..lanes)
-                .map(|lane| {
-                    let words = operands.map(|operand| extract_lane(ctx, rw, operand, lane));
-                    permute(ctx, rw, words)
-                })
-                .collect();
-            insert_vector_construct(ctx, rw, ty, words)
-        }
+        Some(lanes) => per_lane(ctx, rw, ty, lanes, operands, &permute),
     };
     rw.replace_operation_with_values(ctx, op.get_operation(), vec![permuted]);
     Ok(())
+}
+
+/// The vector of type `ty` whose each of `lanes` lanes is `permute` of that lane of `operands`.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+fn per_lane(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    ty: TypeHandle,
+    lanes: usize,
+    operands: [Value; 3],
+    permute: &impl Fn(&mut Context, &mut DialectConversionRewriter, [Value; 3]) -> Value,
+) -> Value {
+    let words = (0..lanes)
+        .map(|lane| {
+            let words = operands.map(|operand| extract_lane(ctx, rw, operand, lane));
+            permute(ctx, rw, words)
+        })
+        .collect();
+    insert_vector_construct(ctx, rw, ty, words)
 }
