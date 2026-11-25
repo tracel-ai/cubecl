@@ -9,7 +9,13 @@ use cubecl_environment::future::channel::{Receiver, Sender};
 use cubecl_environment::future::spawn_detached;
 
 /// What a server logs through: the compilation, streaming and memory logs,
-/// written by a task of their own so a launch never waits on a sink.
+/// written by a task of their own so a launch never waits on a sink, and
+/// failures, written at once on the caller's thread.
+///
+/// # Assumptions
+///
+/// The `cond` given to [`log_streaming`](Self::log_streaming) and
+/// [`log_memory`](Self::log_memory) rejects its log's `Disabled` level.
 ///
 /// # Guarantees
 ///

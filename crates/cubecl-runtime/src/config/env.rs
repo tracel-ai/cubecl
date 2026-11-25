@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn a_debug_log_turned_off_disables_the_three_logs() {
+    fn a_debug_log_turned_off_disables_the_autotune_log() {
         let config = with_debug_log(default(), Some("0"));
 
         assert!(matches!(

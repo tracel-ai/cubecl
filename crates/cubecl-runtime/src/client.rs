@@ -1150,10 +1150,19 @@ impl Client {
             || crate::execution::ProcessMode::current() != crate::execution::ProcessMode::Execute
     }
 
-    /// Whether the installed observer now asks for each launch's duration read back before the
-    /// launch returns, which waits for its kernel to end. The answer is the process's, not this
-    /// device's, and a launch may still read none: a discarded one, or one whose profile the
-    /// device refuses. Metal waits for every timed launch, read or not.
+    /// Whether launches now wait for their kernel to end, to read its duration back for the
+    /// installed observer. Metal waits for every timed launch, read or not.
+    ///
+    /// # Assumptions
+    ///
+    /// The observer's answer, and whether one is installed, do not change between this call and
+    /// the launches it predicts.
+    ///
+    /// # Guarantees
+    ///
+    /// True exactly when the installed observer asks for
+    /// [`Resolved`](TimingRequest::Resolved): the answer is the process's, not this device's. A
+    /// launch may still read none: a discarded one, or one whose profile the device refuses.
     pub fn launches_read_timing(&self) -> bool {
         crate::logging::timing_requested() == TimingRequest::Resolved
     }
