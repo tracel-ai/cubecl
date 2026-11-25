@@ -65,6 +65,7 @@ impl Failures {
 
 impl Failures {
     /// The lazy reads the device keeps.
+    #[inline]
     pub(crate) fn lazy_reads(&mut self) -> &mut LazyReads {
         &mut self.lazy_reads
     }

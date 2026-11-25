@@ -108,6 +108,7 @@ struct Overwritten {
 impl LazyReads {
     /// Whether no read is kept, started or accessed and no copy is held, so a write has
     /// nothing to start or wait for.
+    #[inline]
     fn is_idle(&self) -> bool {
         self.count.is_zero()
             && self.copies.is_empty()
@@ -390,6 +391,7 @@ impl Drop for AccessCopy {
     }
 }
 
+#[inline]
 fn lazy_reads<S: WriteScoped>(server: &mut S) -> &mut LazyReads {
     server.write_streams().split().1.lazy_reads()
 }
@@ -463,16 +465,27 @@ pub(crate) fn take_copy<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>) ->
 ///
 /// Does nothing while `writer` records a graph: the recorded work writes nothing until a
 /// replay, whose own write scope starts the reads then.
+#[inline]
 pub(crate) fn start_overwritten_reads<S: WriteScoped>(
     server: &mut S,
     writer: StreamId,
     written: &[BufferBinding],
 ) {
-    let reads = lazy_reads(server);
-    if written.is_empty() || reads.is_idle() {
+    if written.is_empty() || lazy_reads(server).is_idle() {
         return;
     }
-    reads.drop_done_copies();
+    start_pending_reads(server, writer, written);
+}
+
+/// [`start_overwritten_reads`] once a read may be pending, kept out of line so a write with none
+/// pays only the check before it.
+#[inline(never)]
+fn start_pending_reads<S: WriteScoped>(
+    server: &mut S,
+    writer: StreamId,
+    written: &[BufferBinding],
+) {
+    lazy_reads(server).drop_done_copies();
     let overlaps_a_read = written
         .iter()
         .any(|binding| binding.memory.descriptor().has_lazy_reads());
