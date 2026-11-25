@@ -494,23 +494,14 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let acc = self.acc_registers_mut::<E>();
         #[unroll]
         for i in 0..acc.len() {
             let mut vector = acc[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let cell = bias.value_at::<E>(
-                    row + comptime!(row0 as u32),
-                    col + comptime!(col0 as u32),
-                    space,
-                );
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
+                let cell = bias.value_at::<E>(row, col, space);
                 vector.insert(e, vector.extract(e) * scale + cell);
             }
             acc[i] = vector;
@@ -527,23 +518,14 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let acc = self.acc_registers_mut::<E>();
         #[unroll]
         for i in 0..acc.len() {
             let mut vector = acc[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let cell = bias.value_at::<E>(
-                    row + comptime!(row0 as u32),
-                    col + comptime!(col0 as u32),
-                    space,
-                );
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
+                let cell = bias.value_at::<E>(row, col, space);
                 vector.insert(
                     e,
                     DimensionSlices::mul_exp_cell::<E>(vector.extract(e), cell),
@@ -567,7 +549,6 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = logsumexp.flat::<E, W>();
@@ -577,12 +558,7 @@ impl MmaData {
             let mut vector = acc[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
                 let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
@@ -604,7 +580,6 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = delta.flat::<E, W>();
@@ -616,12 +591,7 @@ impl MmaData {
             let probability = held[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let gradient = vector.extract(e) - read.read(at).extract(0usize);
                 vector.insert(e, probability.extract(e) * gradient);
@@ -1448,6 +1418,21 @@ fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (u
         MatrixIdent::B if cells.is_multiple_of(rows) && cells / rows < cols => (rows, cells / rows),
         MatrixIdent::A | MatrixIdent::B | MatrixIdent::Accumulator => edges,
     }
+}
+
+/// Where the `nth` cell of an accumulator this unit holds lies, in the tile the accumulator is at
+/// `origin` of.
+#[cube]
+fn held_cell<A: Numeric, B: Numeric, CD: Numeric>(
+    def: &MmaDefinition<A, B, CD>,
+    #[comptime] nth: usize,
+    #[comptime] origin: (usize, usize),
+) -> (u32, u32) {
+    let (row, col) = def.position_of_nth(UNIT_POS_PLANE, nth as u32, MatrixIdent::Accumulator);
+    (
+        row + comptime!(origin.0 as u32),
+        col + comptime!(origin.1 as u32),
+    )
 }
 
 /// The cell an instruction names at `(row, col)` where a sum laid out as `layout` holds it.
