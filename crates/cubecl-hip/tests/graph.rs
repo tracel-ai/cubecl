@@ -5,7 +5,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::runtime_tests::{capture_status, graph_sharing};
+use cubecl_core::runtime_tests::{capture_status, graph_sharing, graph_streams};
 use cubecl_core::server::Handle;
 use cubecl_hip::HipRuntime;
 use cubecl_server::runtime::Runtime;
@@ -423,4 +423,11 @@ fn hip_graph_recording_allocating_a_temporary_its_plan_did_not_seals() {
 fn hip_graph_recording_skipping_a_temporary_its_plan_made_seals() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_sharing::a_recording_skipping_a_temporary_its_plan_made_seals::<HipRuntime>();
+}
+
+/// See [`graph_streams::a_graph_holds_another_streams_input_until_it_drops`].
+#[test]
+fn hip_graph_holds_another_streams_input_until_it_drops() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    graph_streams::a_graph_holds_another_streams_input_until_it_drops::<HipRuntime>();
 }
