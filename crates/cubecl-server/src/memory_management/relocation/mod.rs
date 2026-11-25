@@ -12,7 +12,7 @@ pub(crate) use analysis::*;
 pub use base::*;
 pub use device_relocator::*;
 #[cfg(feature = "storage-bytes")]
-pub use host_relocation_copier::*;
+pub(crate) use host_relocation_copier::*;
 pub use landed_relocation::*;
 pub use relocation_copier::*;
 pub use relocation_decider::*;

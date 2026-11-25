@@ -1,5 +1,5 @@
 use crate::memory_management::relocation::{
-    DeviceRelocator, RelocationNeed, RelocationReason, StreamRelocator,
+    DeviceRelocator, RelocationNeed, RelocationReason, RelocationScope, StreamRelocator,
 };
 use crate::{
     config::streaming::StreamingLogLevel,
@@ -168,51 +168,59 @@ where
     B: SchedulerStreamBackend,
     B::Stream: StreamRelocator,
 {
-    fn recording(&mut self) -> bool {
-        self.scheduler.stream(&self.stream_id).recording()
-    }
-
-    fn has_outdated(&mut self) -> bool {
-        self.scheduler.stream(&self.stream_id).has_outdated()
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.scheduler.stream(&self.stream_id).relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.scheduler
-            .streams()
-            .map(StreamRelocator::bytes_allocated)
-            .sum()
+    fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed {
+        match scope {
+            RelocationScope::Stream => self.stream_need(),
+            RelocationScope::Device => RelocationNeed::of_device(
+                self.scheduler
+                    .streams()
+                    .map(|stream| stream.relocation_state().need),
+            ),
+        }
     }
 
     fn finish(&mut self) {
         self.scheduler.flush_all();
     }
 
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
-        stream.relocate(reason, failures);
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        let stream_ids: Vec<_> = match scope {
+            RelocationScope::Stream => alloc::vec![self.stream_id],
+            RelocationScope::Device => self.scheduler.stream_ids().collect(),
+        };
+        for stream_id in stream_ids {
+            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+            if stream.relocation_state().need.has_outdated() {
+                stream.relocate(reason, failures);
+            }
+        }
     }
 
     fn cleanup_memory(&mut self) {
         let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
         stream.cleanup_memory(failures);
     }
+}
 
-    fn device_has_outdated(&mut self) -> bool {
-        self.scheduler.streams().any(StreamRelocator::has_outdated)
-    }
-
-    fn relocate_device_memory(&mut self, reason: RelocationReason) {
-        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
-        for stream_id in stream_ids {
-            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-            if stream.has_outdated() {
-                stream.relocate(reason, failures);
-            }
-        }
+impl<B> SchedulerRelocation<'_, B>
+where
+    B: SchedulerStreamBackend,
+    B::Stream: StreamRelocator,
+{
+    /// The relocating stream's need, resolved against the bytes every
+    /// stream's memory holds.
+    fn stream_need(&mut self) -> RelocationNeed {
+        let need = self
+            .scheduler
+            .stream(&self.stream_id)
+            .relocation_state()
+            .need;
+        need.resolve(|| {
+            self.scheduler
+                .streams()
+                .map(|stream| stream.relocation_state().allocated_bytes)
+                .sum()
+        })
     }
 }
 

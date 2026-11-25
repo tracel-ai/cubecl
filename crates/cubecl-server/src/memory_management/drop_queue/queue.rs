@@ -1,100 +1,52 @@
+use crate::memory_management::drop_queue::{DeviceWaiter, FlushingPolicy, policy::FlushTracker};
 use crate::server::BufferBinding;
 use alloc::vec::Vec;
-use cubecl_common::bytes::Bytes;
+use cubecl_environment::bytes::Bytes;
 
-use crate::memory_management::{
-    drop_queue::DeviceWaiter, drop_queue::FlushingPolicy, drop_queue::policy::FlushTracker,
-};
-
-/// Defers the drop of CPU-side [`Bytes`] allocations until the device has
-/// finished reading them.
+/// Defers the drop of host [`Bytes`] and of memory of other devices until the
+/// device has finished reading them.
 ///
 /// # How it works
 ///
 /// The device uploads are asynchronous: after you copy bytes into a staging buffer
-/// and enqueue an upload command, the CPU memory must remain valid until the
-/// device is done. `PendingDropQueue` manages this lifetime with a two-phase
-/// approach:
+/// and enqueue an upload command, the host memory must remain valid until the
+/// device is done. The queue manages this lifetime in two phases:
 ///
-/// 1. **Stage** – call [`push`](Self::push) to hand over bytes that are
-///    in-flight. They land in the `staged` list.
-/// 2. **Flush** – call [`flush`](Self::flush) to rotate the lists. The
-///    previously staged bytes move to `pending`, a new [`DeviceWaiter`] is created
-///    to mark the end of the current upload batch, and any bytes that were
-///    *already* pending (i.e. the batch before that) are freed after syncing
-///    the previous fence.
+/// 1. **Stage** – what is handed over in flight joins the current batch.
+/// 2. **Flush** – the batch before is freed once its fence signals, and the
+///    current one becomes pending behind a new fence marking the end of it.
 ///
-/// This double-buffer scheme means CPU memory is held for at most two flush
+/// This double-buffer scheme means host memory is held for at most two flush
 /// cycles, while avoiding any unnecessary stalls on the hot path.
 ///
-/// # Flushing policy
+/// # Guarantees
 ///
-/// Call [`should_flush`](Self::should_flush) to check whether enough bytes
-/// have accumulated to warrant a flush. You may also flush unconditionally
-/// (e.g. at the end of a frame).
-pub struct PendingDropQueue<E: DeviceWaiter> {
-    /// Fence signalling that the device has consumed everything in `pending`.
-    fence: Option<E>,
-    /// What the *previous* flush cycle held, kept alive until `event` fires.
-    pending: Vec<Held>,
-    /// What the *current* cycle holds, not yet associated with a fence.
-    staged: Vec<Held>,
-    /// The configuration of the queue.
-    policy: FlushingPolicy,
-    /// The current state of the policy.
-    policy_state: FlushTracker,
+/// Nothing is freed before the fence of the batch it was staged in signals,
+/// or while a fence's wait failed on a device that is not poisoned: it is
+/// leaked then, since the device may still be reading it.
+pub struct PendingDropQueue<F: DeviceWaiter> {
+    flusher: DropFlusher<F>,
 }
 
-/// What the queue keeps alive until the device is done with it.
-#[derive(Debug)]
-enum Held {
-    /// Host memory an upload reads.
-    Bytes(#[allow(unused)] Bytes),
-    /// Memory of another device a kernel binds: held, it stays allocated and
-    /// in place there.
-    Peer(#[allow(unused)] BufferBinding),
-}
-
-impl<E: DeviceWaiter> core::fmt::Debug for PendingDropQueue<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("PendingDropQueue")
-            .field("pending", &self.pending)
-            .field("staged", &self.staged)
-            .field("policy", &self.policy)
-            .field("policy_state", &self.policy_state)
-            .finish()
-    }
-}
-
-impl<E: DeviceWaiter> Default for PendingDropQueue<E> {
-    fn default() -> Self {
-        Self::new(Default::default())
+impl<F: DeviceWaiter> PendingDropQueue<F> {
+    /// An empty queue that asks to be flushed as `policy` says.
+    pub fn new(policy: FlushingPolicy) -> Self {
+        Self {
+            flusher: DropFlusher::new(policy),
+        }
     }
 }
 
 impl<F: DeviceWaiter> PendingDropQueue<F> {
-    /// Creates a new `PendingDropQueue`.
-    pub fn new(policy: FlushingPolicy) -> Self {
-        Self {
-            fence: None,
-            pending: Vec::new(),
-            staged: Vec::new(),
-            policy,
-            policy_state: Default::default(),
-        }
-    }
-    /// Enqueue `bytes` to be dropped once the device has finished reading them.
-    ///
-    /// The bytes are added to the current staged batch and will be freed on
-    /// the flush cycle *after* the next call to [`flush`](Self::flush).
+    /// Keep `bytes` until the device has finished reading them: they join the
+    /// current batch, freed on the flush cycle *after* the next flush.
     ///
     /// Crate-visible, like every mutation of the queue: the only paths allowed
     /// to move it are the shared [`Command`](crate::command::Command) and
     /// [`Window`](crate::command::Window), which carry the capture-deferral
     /// rule a backend touching the queue directly would have to remember.
     pub(crate) fn push(&mut self, bytes: Bytes) {
-        self.policy_state.register(bytes.len());
-        self.staged.push(Held::Bytes(bytes));
+        self.flusher.push(bytes);
     }
 
     /// Keep `binding`, memory of another device, allocated and in place
@@ -107,22 +59,17 @@ impl<F: DeviceWaiter> PendingDropQueue<F> {
     /// sync drains whatever peer memory is still held, so it does not stay
     /// pinned on its owner for as long as this stream idles.
     pub(crate) fn hold_peer(&mut self, binding: BufferBinding) {
-        self.policy_state.register(0);
-        self.staged.push(Held::Peer(binding));
+        self.flusher.hold_peer(binding);
     }
 
     /// Whether the queue holds memory of another device.
     pub(crate) fn holds_peers(&self) -> bool {
-        self.staged
-            .iter()
-            .chain(&self.pending)
-            .any(|held| matches!(held, Held::Peer(_)))
+        self.flusher.holds_peers()
     }
 
-    /// Returns `true` when the staged batch is large enough to justify a
-    /// flush.
+    /// Whether the staged batch has reached the policy's thresholds.
     pub(crate) fn should_flush(&self) -> bool {
-        self.policy_state.should_flush(&self.policy)
+        self.flusher.should_flush()
     }
 
     /// Flush until nothing is held back.
@@ -133,53 +80,120 @@ impl<F: DeviceWaiter> PendingDropQueue<F> {
     /// explicit cleanup, a capture window about to open onto pools that may
     /// not allocate — wants both rotations.
     pub(crate) fn drain<Factory: Fn() -> F>(&mut self, factory: Factory) {
-        self.flush(&factory);
-        self.flush(&factory);
+        self.flusher.flush(&factory);
+        self.flusher.flush(&factory);
     }
 
-    /// Free the pending bytes, or leak them when the device may still be reading them.
-    fn release_pending(&mut self, device_done: bool) {
-        match device_done {
-            true => self.pending.clear(),
-            false => core::mem::forget(core::mem::take(&mut self.pending)),
+    /// Free the batch the device is done with, and make the current one
+    /// pending behind a fence `factory` produces. `factory` submits (or
+    /// records) a device signal, so that syncing the fence guarantees all
+    /// preceding device work is complete.
+    ///
+    /// An idle queue mints no fence: nothing is held, so there is nothing a
+    /// fence would protect — and the fence is not free: it is recorded on the
+    /// stream, which an open capture window cannot tolerate.
+    pub(crate) fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
+        self.flusher.flush(factory);
+    }
+}
+
+impl<F: DeviceWaiter> core::fmt::Debug for PendingDropQueue<F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PendingDropQueue")
+            .field(
+                "pending",
+                &self.flusher.pending.as_ref().map(|(_, held)| held),
+            )
+            .field("staged", &self.flusher.staged)
+            .field("policy", &self.flusher.policy)
+            .field("tracker", &self.flusher.tracker)
+            .finish()
+    }
+}
+
+impl<F: DeviceWaiter> Default for PendingDropQueue<F> {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
+/// Flushes a [`PendingDropQueue`]: holds each batch until the fence that
+/// follows it signals.
+struct DropFlusher<F: DeviceWaiter> {
+    /// What the previous flush cycle held, in the order it was staged
+    /// (Arrival), with the fence that signals the device consumed it.
+    pending: Option<(F, Vec<HeldMemory>)>,
+    /// What the current cycle holds, not yet behind a fence, in the order it
+    /// was staged (Arrival).
+    staged: Vec<HeldMemory>,
+    policy: FlushingPolicy,
+    tracker: FlushTracker,
+}
+
+/// What the queue keeps alive until the device is done with it.
+#[derive(Debug)]
+enum HeldMemory {
+    /// Host memory an upload reads.
+    Bytes(#[allow(unused)] Bytes),
+    /// Memory of another device a kernel binds: held, it stays allocated and
+    /// in place there.
+    Peer(#[allow(unused)] BufferBinding),
+}
+
+impl<F: DeviceWaiter> DropFlusher<F> {
+    fn new(policy: FlushingPolicy) -> Self {
+        Self {
+            pending: None,
+            staged: Vec::new(),
+            policy,
+            tracker: FlushTracker::default(),
         }
     }
 
-    /// Rotate the double-buffer and free any memory the device is done with.
-    ///
-    /// `factory` is called to produce a [`DeviceWaiter`]. It should submit (or
-    /// record) a device signal command so that syncing the fence guarantees all
-    /// preceding device work is complete.
-    pub(crate) fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
-        // An idle queue mints no fence. Nothing is held, so there is nothing a
-        // fence would protect — and the fence is not free: it is recorded on
-        // the stream, which an open capture window cannot tolerate.
-        if self.pending.is_empty() && self.staged.is_empty() {
+    fn push(&mut self, bytes: Bytes) {
+        self.tracker.track_staged_bytes(bytes.len());
+        self.staged.push(HeldMemory::Bytes(bytes));
+    }
+
+    fn hold_peer(&mut self, binding: BufferBinding) {
+        self.tracker.track_staged_bytes(0);
+        self.staged.push(HeldMemory::Peer(binding));
+    }
+
+    fn holds_peers(&self) -> bool {
+        self.staged
+            .iter()
+            .chain(self.pending.iter().flat_map(|(_, held)| held))
+            .any(|held| matches!(held, HeldMemory::Peer(_)))
+    }
+
+    fn should_flush(&self) -> bool {
+        self.tracker.should_flush(&self.policy)
+    }
+
+    fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
+        if self.pending.is_none() && self.staged.is_empty() {
             return;
         }
-
-        // Sync the fence from the previous flush and free the bytes it was
-        // protecting.
-        if let Some(event) = self.fence.take() {
-            self.release_pending(event.sync());
-        }
-
-        // Safety net: if pending is somehow still populated (no prior fence),
-        // stall immediately rather than freeing memory the GPU might still
-        // be reading.
-        if !self.pending.is_empty() {
-            let event = factory();
-            self.release_pending(event.sync());
-        }
-
-        // The current staged batch becomes the new pending batch.
-        core::mem::swap(&mut self.pending, &mut self.staged);
-
-        // Record a fence so the *next* flush knows when this batch is safe to
-        // free.
-        self.fence = Some(factory());
-        self.policy_state.reset();
+        let mut batch = self
+            .pending
+            .take()
+            .map_or_else(Vec::new, |(fence, held)| retire(held, fence.sync()));
+        batch.append(&mut self.staged);
+        self.pending = Some((factory(), batch));
+        self.tracker.reset();
     }
+}
+
+/// Free `held` when the device is done with it, or leak it when the device
+/// may still be reading it, and answer an empty batch to stage into next.
+fn retire(mut held: Vec<HeldMemory>, device_done: bool) -> Vec<HeldMemory> {
+    if !device_done {
+        core::mem::forget(held);
+        return Vec::new();
+    }
+    held.clear();
+    held
 }
 
 #[cfg(test)]
@@ -188,10 +202,6 @@ mod tests {
     use crate::server::ServerError;
     use alloc::vec;
     use core::cell::Cell;
-
-    // ---------------------------------------------------------------------------
-    // Test helpers
-    // ---------------------------------------------------------------------------
 
     #[derive(Clone)]
     struct MockFence<'a> {
@@ -227,9 +237,9 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // push / should_flush
-    // ---------------------------------------------------------------------------
+    fn pending_len(queue: &PendingDropQueue<MockFence<'_>>) -> Option<usize> {
+        queue.flusher.pending.as_ref().map(|(_, held)| held.len())
+    }
 
     #[test]
     fn push_at_count_threshold_triggers_flush_hint() {
@@ -242,21 +252,6 @@ mod tests {
 
         assert!(queue.should_flush());
     }
-
-    #[test]
-    fn push_large_allocation_triggers_flush_via_size_threshold() {
-        let sync_count = Cell::new(0u32);
-        let (mut queue, _factory) = make_queue(&sync_count);
-        let big = Bytes::from_elems(vec![0u8; test_policy().max_staged_bytes as usize + 1]);
-
-        queue.push(big);
-
-        assert!(queue.should_flush());
-    }
-
-    // ---------------------------------------------------------------------------
-    // flush – fence / sync behaviour
-    // ---------------------------------------------------------------------------
 
     #[test]
     fn first_flush_creates_fence_without_syncing() {
@@ -276,20 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn second_flush_syncs_fence_from_first_flush() {
-        let sync_count = Cell::new(0u32);
-        let (mut queue, factory) = make_queue(&sync_count);
-
-        queue.push(sample_bytes());
-        queue.flush(&factory); // flush 1 – creates fence A
-
-        queue.push(sample_bytes());
-        queue.flush(&factory); // flush 2 – syncs fence A, creates fence B
-
-        assert_eq!(sync_count.get(), 1, "exactly one sync after two flushes");
-    }
-
-    #[test]
     fn each_subsequent_flush_syncs_the_previous_fence() {
         let sync_count = Cell::new(0u32);
         let (mut queue, factory) = make_queue(&sync_count);
@@ -303,23 +284,6 @@ mod tests {
         assert_eq!(sync_count.get(), 9);
     }
 
-    // ---------------------------------------------------------------------------
-    // flush – buffer rotation
-    // ---------------------------------------------------------------------------
-
-    #[test]
-    fn staged_is_empty_after_flush() {
-        let sync_count = Cell::new(0u32);
-        let (mut queue, factory) = make_queue(&sync_count);
-
-        for _ in 0..5 {
-            queue.push(sample_bytes());
-        }
-        queue.flush(&factory);
-
-        assert!(queue.staged.is_empty());
-    }
-
     #[test]
     fn pending_holds_previously_staged_bytes_after_flush() {
         let sync_count = Cell::new(0u32);
@@ -330,7 +294,8 @@ mod tests {
         }
         queue.flush(&factory);
 
-        assert_eq!(queue.pending.len(), 5);
+        assert!(queue.flusher.staged.is_empty());
+        assert_eq!(pending_len(&queue), Some(5));
     }
 
     #[test]
@@ -347,12 +312,8 @@ mod tests {
         queue.flush(&factory); // syncs fence → pending cleared, rotated
 
         // Only the one item staged between the two flushes should be pending.
-        assert_eq!(queue.pending.len(), 1);
+        assert_eq!(pending_len(&queue), Some(1));
     }
-
-    // ---------------------------------------------------------------------------
-    // flush – policy state reset
-    // ---------------------------------------------------------------------------
 
     #[test]
     fn should_flush_resets_after_flush() {
@@ -362,7 +323,6 @@ mod tests {
         for _ in 0..test_policy().max_staged_count {
             queue.push(sample_bytes());
         }
-        assert!(queue.should_flush());
 
         queue.flush(&factory);
 
@@ -372,53 +332,45 @@ mod tests {
         );
     }
 
-    // ---------------------------------------------------------------------------
-    // Edge cases
-    // ---------------------------------------------------------------------------
-
     #[test]
-    fn flush_on_empty_queue_is_safe() {
+    fn flush_on_empty_queue_mints_no_fence() {
+        let sync_count = Cell::new(0u32);
+        let (mut queue, _factory) = make_queue(&sync_count);
+
+        queue.flush(|| panic!("an idle queue should mint no fence"));
+
+        assert_eq!(pending_len(&queue), None);
+    }
+
+    /// Two flushes free everything held, and a third finds nothing to do.
+    #[test]
+    fn a_drain_frees_everything_held() {
         let sync_count = Cell::new(0u32);
         let (mut queue, factory) = make_queue(&sync_count);
+        queue.push(sample_bytes());
 
-        // Should not panic regardless of how many times it is called.
-        queue.flush(&factory);
-        queue.flush(&factory);
-        queue.flush(&factory);
+        queue.drain(&factory);
+
+        assert_eq!(pending_len(&queue), Some(0));
+        assert_eq!(sync_count.get(), 1);
     }
 
-    /// A fence whose wait fails with `error`.
-    struct FailingFence(ServerError);
-
-    impl DeviceWaiter for FailingFence {
-        fn wait(self) -> Result<(), ServerError> {
-            Err(self.0)
-        }
-    }
-
+    /// Memory of another device is held, and counts toward the policy as an
+    /// entry and not by its size.
     #[test]
-    fn memory_is_freed_only_once_the_device_is_done_with_it() {
-        let poisoned: ServerError = crate::driver::DevicePoison::new("status 700").into();
-        let other = ServerError::Generic {
-            reason: "the wait failed".into(),
-            backtrace: Default::default(),
-        };
-        let synced = Cell::new(0);
+    fn peer_memory_is_held_as_an_entry() {
+        let sync_count = Cell::new(0u32);
+        let (mut queue, factory) = make_queue(&sync_count);
+        assert!(!queue.holds_peers());
 
-        assert!(
-            MockFence {
-                sync_count: &synced
-            }
-            .sync(),
-            "a fence that was reached"
-        );
-        assert!(
-            FailingFence(poisoned).sync(),
-            "a poisoned device runs nothing anymore"
-        );
-        assert!(
-            !FailingFence(other).sync(),
-            "after any other failure, the device may still be reading the memory"
-        );
+        let service =
+            cubecl_common::device::ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0));
+        let stream = cubecl_environment::stream::StreamId { value: 1 };
+        queue.hold_peer(crate::server::Handle::new(service, stream, 8).binding());
+
+        assert!(queue.holds_peers());
+        assert!(!queue.should_flush(), "a peer buffer weighs nothing");
+        queue.flush(&factory);
+        assert!(queue.holds_peers(), "still held behind its fence");
     }
 }

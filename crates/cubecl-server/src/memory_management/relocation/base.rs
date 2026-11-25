@@ -3,7 +3,7 @@
 //!
 //! A [`Relocation`] is planned by the pools it empties, copied on the device
 //! through a [`RelocationCopier`], and committed by those pools again from the
-//! [`LandedRelocation`] relocation the copy step hands back: an allocation cannot move
+//! [`LandedRelocation`] the copy step hands back: an allocation cannot move
 //! before its bytes are where it moves to.
 
 use super::{LandedRelocation, RelocationCopier};
@@ -16,10 +16,13 @@ use alloc::vec::Vec;
 /// Live allocations on outdated pages, each with a slice reserved on a current
 /// page to receive it.
 ///
+/// # Guarantees
+///
 /// Nothing has moved yet: dropping it abandons the relocation with nothing
 /// lost, the reserved slices freed with it.
 #[derive(Debug)]
 pub struct Relocation {
+    /// The moves, in the order they were planned (Arrival).
     moves: Vec<Move>,
 }
 
@@ -60,11 +63,6 @@ pub(crate) struct Move {
 }
 
 impl Relocation {
-    /// A relocation of `moves`, each with its target already reserved.
-    pub(crate) fn new(moves: Vec<Move>) -> Self {
-        Self { moves }
-    }
-
     /// How many allocations move.
     pub fn len(&self) -> usize {
         self.moves.len()
@@ -75,12 +73,15 @@ impl Relocation {
         self.moves.is_empty()
     }
 
-    /// Copy every allocation's bytes on `queue`, waiting for the device
+    /// Copy every allocation's bytes with `copier`, waiting for the device
     /// before the first copy and for the copies after the last.
+    ///
+    /// # Guarantees
     ///
     /// The wait for the copies happens whether every one of them was enqueued
     /// or not, so a relocation abandoned here never frees a target a copy is
-    /// still writing.
+    /// still writing: when that wait fails on a device that is not poisoned,
+    /// the targets and the allocations they were for stay reserved for good.
     ///
     /// # Errors
     ///
@@ -89,22 +90,38 @@ impl Relocation {
     pub fn copy<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,
-        queue: &mut dyn RelocationCopier<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
     ) -> Result<LandedRelocation, ServerError> {
-        queue.wait_device()?;
-        let enqueued = self
-            .moves
-            .iter()
-            .filter_map(|relocated| relocated.copy.as_ref())
-            .try_for_each(|copy| queue.copy(storage, copy));
-        if let Err(err) = queue.wait_copies() {
-            release_or_leak(self, &err);
-            enqueued?;
-            return Err(err);
-        }
-        enqueued?;
-        Ok(LandedRelocation { moves: self.moves })
+        land(self.moves, storage, copier)
     }
+}
+
+impl Relocation {
+    /// A relocation of `moves`, each with its target already reserved.
+    pub(crate) fn new(moves: Vec<Move>) -> Self {
+        Self { moves }
+    }
+}
+
+/// Copy the bytes of every one of `moves` with `copier`, and hand the moves
+/// back landed once every copy did.
+fn land<Storage: StorageAllocator>(
+    moves: Vec<Move>,
+    storage: &mut Storage,
+    copier: &mut dyn RelocationCopier<Storage>,
+) -> Result<LandedRelocation, ServerError> {
+    copier.wait_device()?;
+    let enqueued = moves
+        .iter()
+        .filter_map(|relocated| relocated.copy.as_ref())
+        .try_for_each(|copy| copier.copy(storage, copy));
+    if let Err(err) = copier.wait_copies() {
+        release_or_leak(moves, &err);
+        enqueued?;
+        return Err(err);
+    }
+    enqueued?;
+    Ok(LandedRelocation::new(moves))
 }
 
 #[cfg(all(test, feature = "storage-bytes"))]
@@ -112,37 +129,95 @@ mod tests {
     use super::*;
     use crate::{driver::DriverError, server::IoError, storage::BytesStorage};
 
-    struct FailedWait;
+    /// Copies the device refuses, or a wait for them that fails.
+    struct FailingCopier {
+        copy: Result<(), ()>,
+        wait: Result<(), ()>,
+    }
 
-    impl RelocationCopier<BytesStorage> for FailedWait {
+    impl RelocationCopier<BytesStorage> for FailingCopier {
         fn wait_device(&mut self) -> Result<(), ServerError> {
             Ok(())
         }
 
         fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
-            Ok(())
+            self.copy.map_err(|()| IoError::Unknown {
+                description: "refused".into(),
+                backtrace: Default::default(),
+            })
         }
 
         fn wait_copies(&mut self) -> Result<(), ServerError> {
-            Err(DriverError::new("wait", 201).into())
+            self.wait.map_err(|()| DriverError::new("wait", 201).into())
         }
     }
 
-    #[test]
-    fn failed_wait_keeps_pending_relocation_reserved() {
-        let mut storage = BytesStorage::default();
+    /// A relocation of one move, its source and target handles.
+    fn relocation(
+        storage: &mut BytesStorage,
+    ) -> (Relocation, ManagedMemoryHandle, ManagedMemoryHandle) {
         let source = ManagedMemoryHandle::new();
         let target = ManagedMemoryHandle::new();
         let relocation = Relocation::new(alloc::vec![Move {
             allocation: source.to_binding(),
             target: target.clone(),
             copy: Some(StorageCopy {
-                source: storage.allocate_bytes(4).unwrap(),
-                target: storage.allocate_bytes(4).unwrap(),
+                source: storage
+                    .allocate_bytes(4)
+                    .expect("the host should have 4 bytes"),
+                target: storage
+                    .allocate_bytes(4)
+                    .expect("the host should have 4 bytes"),
             }),
         }]);
-        assert!(relocation.copy(&mut storage, &mut FailedWait).is_err());
+        (relocation, source, target)
+    }
+
+    #[test]
+    fn failed_wait_keeps_pending_relocation_reserved() {
+        let mut storage = BytesStorage::default();
+        let (relocation, source, target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            copy: Ok(()),
+            wait: Err(()),
+        };
+
+        assert!(relocation.copy(&mut storage, &mut copier).is_err());
         assert!(!source.is_free());
         assert!(!target.is_free());
+    }
+
+    /// A refused copy abandons the relocation once the wait for the copies
+    /// lands, freeing its targets.
+    #[test]
+    fn a_refused_copy_abandons_the_relocation() {
+        let mut storage = BytesStorage::default();
+        let (relocation, _source, target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            copy: Err(()),
+            wait: Ok(()),
+        };
+
+        let refused = relocation.copy(&mut storage, &mut copier);
+
+        assert!(matches!(refused, Err(ServerError::Io(_))), "{refused:?}");
+        assert!(target.is_free(), "the target is free once abandoned");
+    }
+
+    /// Copies that land hand every move back.
+    #[test]
+    fn landed_copies_hand_every_move_back() {
+        let mut storage = BytesStorage::default();
+        let (relocation, _source, _target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            copy: Ok(()),
+            wait: Ok(()),
+        };
+
+        let landed = relocation
+            .copy(&mut storage, &mut copier)
+            .expect("the copies should land");
+
+        assert_eq!(landed.len(), 1);
     }
 }

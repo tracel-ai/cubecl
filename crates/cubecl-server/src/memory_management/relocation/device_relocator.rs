@@ -4,39 +4,40 @@
 use super::{RelocationNeed, RelocationReason};
 use crate::server::ServerError;
 
-/// A runtime's streams, as relocating one stream's memory needs them.
+/// Whose memory a relocation moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelocationScope {
+    /// The memory of the stream the relocation runs for.
+    Stream,
+    /// The memory of every stream of the device.
+    Device,
+}
+
+/// Runs a relocation of one stream's memory, or every stream's, in the order
+/// a relocation needs: every stream's work is done before a byte moves, since
+/// a relocation moves memory any stream may still read or write; and nothing
+/// moves while a graph records, since the pages it touches keep their
+/// addresses until it seals.
 ///
-/// A relocation moves memory any stream may still read or write, so every
-/// stream's work is done before a byte moves; and nothing moves while a graph
-/// records, since the pages it touches keep their addresses until it seals.
-/// The runtime supplies each step. The order they run in lives here, once.
+/// A runtime supplies each step. The order they run in lives here, once.
+///
+/// # Guarantees
+///
+/// Nothing moves while a stream records a graph.
 pub trait DeviceRelocator {
-    /// Whether any stream is recording a graph.
-    fn recording(&mut self) -> bool;
-
-    /// Whether a growth left pages behind in the relocating stream's memory:
-    /// without any, a relocation has nothing to move and waits on nothing.
-    fn has_outdated(&mut self) -> bool;
-
-    /// Whether the relocating stream's memory wants a relocation, before the
-    /// bytes the device holds are known.
-    fn relocation_need(&mut self) -> RelocationNeed;
-
-    /// The bytes every stream's memory holds from the device.
-    fn bytes_allocated(&mut self) -> u64;
+    /// Whether the memory of `scope` wants a relocation, the bytes every
+    /// stream's memory holds from the device read only when the answer
+    /// depends on them: [`RelocationNeed::Recording`] whenever a stream
+    /// records a graph, whatever the memory holds.
+    fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed;
 
     /// Get every stream's queued and submitted work done, or leave it to the
-    /// [`RelocationCopier`](super::RelocationCopier) to wait for before its first copy.
+    /// [`RelocationCopier`](super::RelocationCopier) to wait for before its
+    /// first copy.
     fn finish(&mut self);
 
-    /// Move what the relocating stream's memory holds on outdated pages.
-    fn relocate_memory(&mut self, reason: RelocationReason);
-
-    /// Whether a growth left pages behind in any stream's memory.
-    fn device_has_outdated(&mut self) -> bool;
-
-    /// Move what every stream's memory holds on outdated pages.
-    fn relocate_device_memory(&mut self, reason: RelocationReason);
+    /// Move what the memory of `scope` holds on outdated pages, for `reason`.
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason);
 
     /// Give back every page the relocating stream's memory holds and nothing
     /// needs.
@@ -53,13 +54,13 @@ pub trait DeviceRelocator {
     ///
     /// [`ServerError`] naming the recording when a stream records.
     fn refuse_while_recording(&mut self) -> Result<(), ServerError> {
-        if self.recording() {
-            return Err(ServerError::graph_state(
+        match self.relocation_need(RelocationScope::Stream) {
+            RelocationNeed::Recording => Err(ServerError::graph_state(
                 "memory_cleanup: a stream is recording a graph, whose pages keep their addresses \
                  until it seals",
-            ));
+            )),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Give back everything the relocating stream's memory holds and nothing
@@ -78,26 +79,19 @@ pub trait DeviceRelocator {
         Ok(())
     }
 
-    /// Relocate when the memory asks for it: while the device still has a
-    /// page to spare, or before the pools run out of page sizes.
+    /// Relocate the relocating stream's memory when it asks for it: while
+    /// the device still has a page to spare, or before the pools run out of
+    /// page sizes.
     fn relocate_when_wanted(&mut self) {
-        let need = self.relocation_need();
-        if need == RelocationNeed::Nothing || self.recording() {
-            return;
-        }
-        if let Some(reason) = need.reason(|| self.bytes_allocated()) {
-            self.finish();
-            self.relocate_memory(reason);
+        if let RelocationNeed::Wanted(reason) = self.relocation_need(RelocationScope::Stream) {
+            self.finish_and_relocate(RelocationScope::Stream, reason);
         }
     }
 
-    /// Relocate for `reason`, unless a graph records or nothing is outdated.
+    /// Relocate the relocating stream's memory for `reason`, unless a graph
+    /// records or nothing is outdated.
     fn relocate(&mut self, reason: RelocationReason) {
-        if self.recording() || !self.has_outdated() {
-            return;
-        }
-        self.finish();
-        self.relocate_memory(reason);
+        self.relocate_outdated(RelocationScope::Stream, reason);
     }
 
     /// Relocate every stream's memory for `reason`, unless a graph records or
@@ -107,10 +101,109 @@ pub trait DeviceRelocator {
     /// any stream owns, and every page it touches is guarded for the graph's
     /// life, where no relocation can empty it.
     fn relocate_device(&mut self, reason: RelocationReason) {
-        if self.recording() || !self.device_has_outdated() {
-            return;
+        self.relocate_outdated(RelocationScope::Device, reason);
+    }
+
+    /// Relocate the memory of `scope` for `reason`, unless a graph records or
+    /// nothing is outdated there.
+    fn relocate_outdated(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        if self.relocation_need(scope).has_outdated() {
+            self.finish_and_relocate(scope, reason);
         }
+    }
+
+    /// Get every stream's work done, then move what the memory of `scope`
+    /// holds on outdated pages.
+    fn finish_and_relocate(&mut self, scope: RelocationScope, reason: RelocationReason) {
         self.finish();
-        self.relocate_device_memory(reason);
+        self.relocate_memory(scope, reason);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// A device whose memory needs `need`, recording each step it is asked
+    /// for.
+    struct Recorded {
+        need: RelocationNeed,
+        steps: Vec<&'static str>,
+    }
+
+    impl DeviceRelocator for Recorded {
+        fn relocation_need(&mut self, _scope: RelocationScope) -> RelocationNeed {
+            self.need
+        }
+
+        fn finish(&mut self) {
+            self.steps.push("finish");
+        }
+
+        fn relocate_memory(&mut self, _scope: RelocationScope, _reason: RelocationReason) {
+            self.steps.push("relocate");
+        }
+
+        fn cleanup_memory(&mut self) {
+            self.steps.push("cleanup");
+        }
+    }
+
+    fn device(need: RelocationNeed) -> Recorded {
+        Recorded {
+            need,
+            steps: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_reclaim_is_refused_while_a_stream_records() {
+        let mut device = device(RelocationNeed::Recording);
+
+        assert!(device.reclaim().is_err());
+        assert!(device.steps.is_empty());
+    }
+
+    #[test]
+    fn a_reclaim_moves_what_is_outdated_then_cleans_up() {
+        let mut device = device(RelocationNeed::Settled);
+
+        device.reclaim().expect("nothing records");
+
+        assert_eq!(device.steps, ["finish", "relocate", "cleanup"]);
+    }
+
+    #[test]
+    fn a_reclaim_with_nothing_outdated_only_cleans_up() {
+        let mut device = device(RelocationNeed::Nothing);
+
+        device.reclaim().expect("nothing records");
+
+        assert_eq!(device.steps, ["cleanup"]);
+    }
+
+    #[test]
+    fn only_a_wanted_relocation_runs_unasked() {
+        let mut settled = device(RelocationNeed::Settled);
+        let mut wanted = device(RelocationNeed::Wanted(RelocationReason::ArenaFull));
+
+        settled.relocate_when_wanted();
+        wanted.relocate_when_wanted();
+
+        assert!(settled.steps.is_empty());
+        assert_eq!(wanted.steps, ["finish", "relocate"]);
+    }
+
+    #[test]
+    fn a_device_relocation_runs_only_with_something_outdated() {
+        let mut recording = device(RelocationNeed::Recording);
+        let mut settled = device(RelocationNeed::Settled);
+
+        recording.relocate_device(RelocationReason::Capture);
+        settled.relocate_device(RelocationReason::Capture);
+
+        assert!(recording.steps.is_empty());
+        assert_eq!(settled.steps, ["finish", "relocate"]);
     }
 }

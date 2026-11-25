@@ -14,7 +14,9 @@ use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::DeviceWaiter;
-use crate::memory_management::relocation::{DeviceRelocator, RelocationNeed, RelocationReason};
+use crate::memory_management::relocation::{
+    DeviceRelocator, RelocationNeed, RelocationReason, RelocationScope,
+};
 use crate::memory_management::{
     AllocationKind, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, PageGuard,
     PageUpdate, StreamMemoryReport,
@@ -711,23 +713,18 @@ impl<'a, D: Driver> Command<'a, D> {
 }
 
 impl<D: Driver> DeviceRelocator for Command<'_, D> {
-    fn recording(&mut self) -> bool {
-        self.streams.current().capturing().device().any_recording()
-    }
-
-    fn has_outdated(&mut self) -> bool {
-        self.streams.current().device_memory().has_outdated()
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.streams.current().device_memory().relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.streams
-            .all()
-            .map(|stream| stream.device_memory().bytes_allocated())
-            .sum()
+    fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed {
+        if self.streams.current().capturing().device().any_recording() {
+            return RelocationNeed::Recording;
+        }
+        match scope {
+            RelocationScope::Stream => self.stream_need(),
+            RelocationScope::Device => RelocationNeed::of_device(
+                self.streams
+                    .all()
+                    .map(|stream| stream.device_memory().relocation_need()),
+            ),
+        }
     }
 
     /// Nothing here: `StreamCopies` waits on every stream before its first
@@ -739,20 +736,19 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
         stream.device_memory().cleanup(Cleanup::Explicit, failures);
     }
 
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let current = self.streams.current;
-        self.relocate_stream(current, reason);
-    }
-
-    fn device_has_outdated(&mut self) -> bool {
-        self.streams
-            .all()
-            .any(|stream| stream.device_memory().has_outdated())
-    }
-
-    fn relocate_device_memory(&mut self, reason: RelocationReason) {
-        for stream_id in self.streams.stream_ids() {
-            if self.streams.get(&stream_id).device_memory().has_outdated() {
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        let stream_ids: Vec<_> = match scope {
+            RelocationScope::Stream => alloc::vec![self.streams.current],
+            RelocationScope::Device => self.streams.stream_ids(),
+        };
+        for stream_id in stream_ids {
+            if self
+                .streams
+                .get(&stream_id)
+                .device_memory()
+                .relocation_need()
+                .has_outdated()
+            {
                 self.relocate_stream(stream_id, reason);
             }
         }
@@ -780,6 +776,18 @@ impl<D: Driver> Command<'_, D> {
         stream
             .device_memory()
             .move_apart(kept, &mut copier, failures)
+    }
+
+    /// The current stream's need, resolved against the bytes every stream's
+    /// memory holds.
+    fn stream_need(&mut self) -> RelocationNeed {
+        let need = self.streams.current().device_memory().relocation_need();
+        need.resolve(|| {
+            self.streams
+                .all()
+                .map(|stream| stream.device_memory().bytes_allocated())
+                .sum()
+        })
     }
 
     /// Move what `stream_id`'s memory holds on outdated pages, with the copies

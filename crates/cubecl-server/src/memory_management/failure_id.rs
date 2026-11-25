@@ -13,10 +13,24 @@ use core::num::NonZeroU64;
 /// reuse is unsound here — [`prune`](super::ErrorGraph::prune) drops a node whose tag
 /// count is zero, which a freshly minted node also has, so a recycled id lets
 /// one scope's prune delete another's failure. Free in the carrier either way:
-/// [`Tainted`](super::Taint) pads a `u32` out to eight bytes before its
-/// ranges, which `a_failure_id_is_free_in_the_carrier` pins.
+/// a [`Taint`](super::Taint) claim pads a `u32` out to eight bytes before its
+/// ranges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FailureId(pub(super) NonZeroU64);
+pub struct FailureId(NonZeroU64);
+
+impl FailureId {
+    /// The number the id is shown and reported as.
+    pub fn to_u64(self) -> u64 {
+        self.0.get()
+    }
+}
+
+impl FailureId {
+    /// The id the `minted`-th failure carries.
+    pub(crate) fn from_minted(minted: NonZeroU64) -> Self {
+        Self(minted)
+    }
+}
 
 impl core::fmt::Display for FailureId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

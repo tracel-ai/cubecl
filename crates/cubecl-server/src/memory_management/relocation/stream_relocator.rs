@@ -1,22 +1,19 @@
 use super::{RelocationNeed, RelocationReason};
 use crate::memory_management::ErrorGraph;
 
-/// One stream, as relocating its memory needs it: what a runtime whose
-/// streams share one way to finish their work (a scheduler, say) supplies per
-/// stream, leaving the rest of [`DeviceRelocator`](super::DeviceRelocator) to that shared way.
+/// Relocates one stream's memory: what a runtime whose streams share one way
+/// to finish their work (a scheduler, say) supplies per stream, leaving the
+/// rest of [`DeviceRelocator`](super::DeviceRelocator) to that shared way.
+///
+/// # Assumptions
+///
+/// `failures` is the [`ErrorGraph`] that holds the failures the stream's
+/// memory carries.
 pub trait StreamRelocator {
-    /// Whether any stream of the device records a graph.
-    fn recording(&self) -> bool;
-
-    /// Whether a growth left pages behind in the stream's memory.
-    fn has_outdated(&self) -> bool;
-
-    /// Whether the stream's memory wants a relocation, see
-    /// [`MemoryManagement::relocation_need`](crate::memory_management::MemoryManagement::relocation_need).
-    fn relocation_need(&self) -> RelocationNeed;
-
-    /// The bytes the stream's memory holds from the device.
-    fn bytes_allocated(&self) -> u64;
+    /// What a relocation reads of the stream's memory: its need, unresolved,
+    /// [`RelocationNeed::Recording`] whenever a stream of the device records a
+    /// graph, and the bytes it holds from the device.
+    fn relocation_state(&self) -> StreamRelocationState;
 
     /// Move what the stream's memory holds on outdated pages, once every
     /// stream's work is done.
@@ -24,4 +21,15 @@ pub trait StreamRelocator {
 
     /// Give back every page the stream's memory holds and nothing needs.
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph);
+}
+
+/// What a relocation reads of one stream's memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamRelocationState {
+    /// Whether the memory wants a relocation, before the bytes the device
+    /// holds are known (see
+    /// [`MemoryManagement::relocation_need`](crate::memory_management::MemoryManagement::relocation_need)).
+    pub need: RelocationNeed,
+    /// The bytes the memory holds from the device.
+    pub allocated_bytes: u64,
 }

@@ -2,10 +2,10 @@
 //! carry them.
 //!
 //! Whether a buffer can be trusted is a property of that memory, so the fact
-//! lives on the allocation: a [`Slice`](super::memory_pool::Slice) carries the
-//! [`FailureId`] of the failure that tainted it, or none. What an id *means*
-//! lives here, device-wide, because a launch failing on one stream can taint a
-//! slice owned by another and both have to point at the same thing.
+//! lives on the allocation: a slice carries the [`FailureId`] of the failure
+//! that tainted it, or none. What an id *means* lives here, device-wide,
+//! because a launch failing on one stream can taint a slice owned by another
+//! and both have to point at the same thing.
 //!
 //! A node is dropped when nothing carries its id any more, which is a
 //! reference count without atomics — the graph and the slices are both
@@ -18,6 +18,7 @@ use crate::id::KernelId;
 use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryId, WeakMemoryBinding};
 use crate::server::{IoError, ServerError};
 use alloc::boxed::Box;
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::num::NonZeroU64;
 use cubecl_environment::backtrace::BackTrace;
@@ -37,33 +38,20 @@ pub enum Claim {
 
 /// Every failure the device is still holding, and how many allocations carry
 /// each one.
+///
+/// # Assumptions
+///
+/// Every [`FailureId`] handed to a function was minted by this graph's
+/// [`insert`](Self::insert), and is still held: something carries it, or it
+/// was inserted and not yet [pruned](Self::prune).
+///
+/// # Guarantees
+///
+/// A failure is held exactly while an allocation carries it, or from its
+/// insertion until a prune finds nothing carrying it.
 #[derive(Debug, Default)]
 pub struct ErrorGraph {
-    nodes: HashMap<FailureId, Failure>,
-    /// The failures of buffers no allocation ever gave a location, which have no slice to
-    /// carry a failure id. Each holds one tag on its failure, released once the buffer is gone.
-    unallocated: HashMap<ManagedMemoryId, (FailureId, WeakMemoryBinding)>,
-    /// Ids handed out so far; the next one is `minted + 1`, which is never
-    /// zero and, being 64 bits wide, never wraps.
-    minted: u64,
-}
-
-#[derive(Debug)]
-struct Failure {
-    error: ServerError,
-    /// How many slices carry this id. The node lives while this is non-zero.
-    tagged: u32,
-    /// What this failure stopped, newest last, capped to the most recent —
-    /// see [`SkippedLaunch`]. On the failure rather than on the buffers because a
-    /// record stored on an allocation dies when that allocation does, and a
-    /// chain of links would break as soon as an intermediate buffer is freed
-    /// — the common case for a fused graph where only the last tensor is
-    /// kept. Holds ids, never handles, so the record of what a failure
-    /// stopped never retains the memory it names.
-    skipped: Vec<SkippedLaunch>,
-    /// Every skip, the capped list included: the report says how many are
-    /// missing from the walk.
-    skipped_count: u64,
+    recorder: FailureRecorder,
 }
 
 /// One launch a failure stopped: the kernel that did not run, the buffer
@@ -80,14 +68,14 @@ pub struct SkippedLaunch {
     /// The claimed buffer the kernel would have read.
     pub needed: ManagedMemoryId,
     /// The buffers the kernel would have written, which now carry the same
-    /// failure.
+    /// failure, in the launch's order (Membership).
     pub produced: Vec<ManagedMemoryId>,
 }
 
 impl ErrorGraph {
-    /// How many [`SkippedLaunch`] records one failure keeps. Newest win: the walk a
-    /// read makes starts from the most recent buffers, so keeping the oldest
-    /// would leave them with no entry to start from, while a deep chain
+    /// How many [`SkippedLaunch`] records one failure keeps. Newest win: the
+    /// walk a read makes starts from the most recent buffers, so keeping the
+    /// oldest would leave them with no entry to start from, while a deep chain
     /// reaching a gap before the root costs nothing — the root is on the node
     /// itself and never in the list.
     pub const MAX_SKIPPED_LAUNCH_COUNT: usize = 16;
@@ -98,72 +86,22 @@ impl ErrorGraph {
     /// with it must hand it back through [`prune`](Self::prune) — otherwise
     /// the node waits forever for a decrement that is never coming.
     pub fn insert(&mut self, error: ServerError) -> FailureId {
-        self.minted = self
-            .minted
-            .checked_add(1)
-            .expect("a failure id was minted for every u64");
-        let id = FailureId(NonZeroU64::new(self.minted).expect("minted starts above zero"));
-        self.nodes.insert(
-            id,
-            Failure {
-                error,
-                tagged: 0,
-                skipped: Vec::new(),
-                skipped_count: 0,
-            },
-        );
-        id
+        self.recorder.insert(error)
     }
 
-    /// Record a launch `failure` stopped — see [`SkippedLaunch`]. Keeps the newest
-    /// [`MAX_SKIPPED_LAUNCH_COUNT`](Self::MAX_SKIPPED_LAUNCH_COUNT) records and counts them all.
+    /// Record a launch `failure` stopped. Keeps the newest
+    /// [`MAX_SKIPPED_LAUNCH_COUNT`](Self::MAX_SKIPPED_LAUNCH_COUNT) records
+    /// and counts them all; a failure no longer held records nothing.
     pub fn skipped(&mut self, failure: FailureId, record: SkippedLaunch) {
-        let Some(node) = self.nodes.get_mut(&failure) else {
-            return;
-        };
-        node.skipped_count += 1;
-        if node.skipped.len() == Self::MAX_SKIPPED_LAUNCH_COUNT {
-            node.skipped.remove(0);
-        }
-        node.skipped.push(record);
+        self.recorder.record_skip(failure, record);
     }
 
     /// The report a read of `memory` gets when `failure` claims its bytes:
     /// the root error, and the path from this buffer back toward it,
-    /// reconstructed by walking the skip records backwards.
+    /// reconstructed by walking the skip records backwards. `None` once the
+    /// failure is no longer held.
     pub fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> Option<ServerError> {
-        let node = self.nodes.get(&failure)?;
-
-        let mut chain = Vec::new();
-        let mut target = memory;
-        let mut upper = node.skipped.len();
-        while let Some(found) = node.skipped[..upper]
-            .iter()
-            .rposition(|record| record.produced.contains(&target))
-        {
-            let record = &node.skipped[found];
-            chain.push(alloc::format!(
-                "skipped `{}`: it needed memory {:?}, which carried the failure",
-                record.kernel.short_name(),
-                record.needed,
-            ));
-            target = record.needed;
-            upper = found;
-        }
-        let dropped = node.skipped_count.saturating_sub(node.skipped.len() as u64);
-        if !chain.is_empty() && dropped > 0 {
-            chain.push(alloc::format!(
-                "({dropped} older skip record(s) were dropped; the walk may stop before the root)"
-            ));
-        }
-
-        Some(ServerError::Unwritten {
-            failure: failure.0.get(),
-            claimed: node.tagged,
-            chain,
-            root: Box::new(node.error.clone()),
-            backtrace: BackTrace::capture(),
-        })
+        self.recorder.report(failure, memory)
     }
 
     /// The report a read owes for the claims it found: one error per distinct
@@ -182,61 +120,7 @@ impl ErrorGraph {
     /// claims were found. The caller has nothing to retry — the bytes are gone
     /// — so this is the answer to the read, not a hint to try again.
     pub fn reports(&self, claims: impl Iterator<Item = Claim>) -> Result<(), ServerError> {
-        let mut seen: Vec<FailureId> = Vec::new();
-        let mut errors = Vec::new();
-
-        for claim in claims {
-            let (failure, memory) = match claim {
-                Claim::Failed(failure, memory) => (failure, memory),
-                Claim::Unallocated(memory) => match self.unallocated.get(&memory) {
-                    Some((failure, _)) => (*failure, memory),
-                    None => {
-                        errors.push(Self::unallocated(memory));
-                        continue;
-                    }
-                },
-            };
-            if seen.contains(&failure) {
-                continue;
-            }
-            seen.push(failure);
-            // The full report: the root error, and the skip chain from this
-            // buffer back toward it.
-            if let Some(error) = self.report(failure, memory) {
-                errors.push(error);
-            }
-        }
-
-        match errors.is_empty() {
-            true => Ok(()),
-            false => Err(ServerError::Several {
-                errors,
-                backtrace: BackTrace::capture(),
-            }),
-        }
-    }
-
-    /// The cause is the reservation's own error, which the device thread logged
-    /// when it happened: nothing could carry it here.
-    fn unallocated(memory: ManagedMemoryId) -> ServerError {
-        IoError::NotFound {
-            backtrace: BackTrace::capture(),
-            reason: alloc::format!(
-                "memory {memory:?} was never allocated: the reservation behind it failed"
-            )
-            .into(),
-        }
-        .into()
-    }
-
-    /// One more allocation carries `failure`.
-    ///
-    /// The other half of [`untag`](Self::untag), called only by the taint
-    /// bookkeeping on the slices — [`Taint`](super::Taint) — which owns the
-    /// invariant that a claim tags exactly once however many times it is
-    /// re-tainted or split.
-    pub(crate) fn tag(&mut self, failure: FailureId) {
-        self.node_mut(failure).tagged += 1;
+        self.recorder.reports(claims)
     }
 
     /// One fewer allocation carries `failure`; the node is dropped when none
@@ -247,22 +131,12 @@ impl ErrorGraph {
     /// decrement is immediate rather than collected into a list drained
     /// later, so a node nothing can reach is never retained just because
     /// nothing got around to saying so.
+    ///
+    /// # Panics
+    ///
+    /// When `failure` is not held, or is shed more often than it was tagged.
     pub fn untag(&mut self, failure: Option<FailureId>) {
-        let Some(failure) = failure else {
-            return;
-        };
-        let node = self.node_mut(failure);
-        // Saturating rather than `-= 1`: an unbalanced shed would wrap the
-        // count in release and pin the node — and the error it holds — for the
-        // life of the device, with every read of that allocation failing
-        // forever. The floor drops the node instead, and the assertion makes
-        // the shedding path that lost count loud in a test rather than silent
-        // in production.
-        debug_assert!(node.tagged > 0, "{failure} was shed more often than tagged");
-        node.tagged = node.tagged.saturating_sub(1);
-        if node.tagged == 0 {
-            self.nodes.remove(&failure);
-        }
+        self.recorder.untag(failure);
     }
 
     /// Swap the error behind `failure` for `error`, leaving every carrier
@@ -270,79 +144,335 @@ impl ErrorGraph {
     ///
     /// This is the exit half of a write scope: entry taints the write set
     /// with a provisional node, because the real failure does not exist yet,
-    /// and exit lands the real one here. A missing node is left missing — the
-    /// id outlived its carriers, so nothing can read the error either way.
+    /// and exit lands the real one here. A failure no longer held is left
+    /// missing: the id outlived its carriers, so nothing can read the error
+    /// either way.
     pub fn replace(&mut self, failure: FailureId, error: ServerError) {
-        if let Some(node) = self.nodes.get_mut(&failure) {
-            node.error = error;
-        }
+        self.recorder.replace(failure, error);
     }
 
     /// Record `error` as the reason `memory` was never allocated, so a read of that memory
     /// reports that error.
     pub fn fail_unallocated(&mut self, memory: &ManagedMemoryBinding, error: ServerError) {
-        // Released lazily: a record whose buffer is gone is found here, when the next one is
-        // made, rather than through a drop hook the buffer does not have.
-        let dropped: Vec<_> = self
-            .unallocated
-            .iter()
-            .filter(|(_, (_, binding))| !binding.is_alive())
-            .map(|(id, _)| *id)
-            .collect();
-        for id in dropped {
-            if let Some((failure, _)) = self.unallocated.remove(&id) {
-                self.untag(Some(failure));
-            }
-        }
-
-        let failure = self.insert(error);
-        self.tag(failure);
-        let id = memory.id();
-        if let Some((previous, _)) = self.unallocated.insert(id, (failure, memory.downgrade())) {
-            self.untag(Some(previous));
-        }
+        self.recorder.fail_unallocated(memory, error);
     }
 
     /// The failure recorded for `memory` by [`fail_unallocated`](Self::fail_unallocated), if any.
     pub fn unallocated_failure(&self, memory: ManagedMemoryId) -> Option<FailureId> {
-        self.unallocated.get(&memory).map(|(failure, _)| *failure)
+        self.recorder.unallocated_failure(memory)
     }
 
     /// Drop `failure` if nothing took its id — for a failure that turned out
     /// to taint nothing, whose node would otherwise wait forever at zero.
     pub fn prune(&mut self, failure: FailureId) {
-        if let Some(node) = self.nodes.get(&failure)
-            && node.tagged == 0
-        {
-            self.nodes.remove(&failure);
-        }
+        self.recorder.prune(failure);
     }
 
-    /// The error behind `failure`.
+    /// The error behind `failure`. Always `Some` for a held failure.
     ///
-    /// `None` means the id outlived its node, which the refcount exists to
-    /// prevent; a reader treats it as no failure rather than panicking on the
-    /// device thread.
+    /// # Panics
+    ///
+    /// When `failure` is no longer held.
     pub fn error(&self, failure: FailureId) -> Option<&ServerError> {
-        self.nodes.get(&failure).map(|node| &node.error)
+        self.recorder.error(failure)
     }
 
     /// How many failures the device is still holding — the bound the whole
     /// design rests on, which is why the property harness watches it.
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.recorder.len()
     }
 
     /// Whether the device is holding no failure at all.
     pub fn is_empty(&self) -> bool {
+        self.recorder.is_empty()
+    }
+}
+
+impl ErrorGraph {
+    /// One more allocation carries `failure`.
+    ///
+    /// The other half of [`untag`](Self::untag), called only by the taint
+    /// bookkeeping on the slices — [`Taint`](super::Taint) — which owns the
+    /// invariant that a claim tags exactly once however many times it is
+    /// re-tainted or split.
+    ///
+    /// # Panics
+    ///
+    /// When `failure` is not held.
+    pub(crate) fn tag(&mut self, failure: FailureId) {
+        self.recorder.tag(failure);
+    }
+}
+
+/// Records the failures the device holds, the allocations carrying each, and
+/// the launches each stopped.
+#[derive(Debug, Default)]
+struct FailureRecorder {
+    /// Each held failure by its id (Keyed).
+    nodes: HashMap<FailureId, Failure>,
+    /// The failures of buffers no allocation ever gave a location, which have no slice to
+    /// carry a failure id, by the buffer's id (Keyed), swept for buffers that are gone
+    /// (Membership). Each holds one tag on its failure, released once the buffer is gone.
+    unallocated: HashMap<ManagedMemoryId, (FailureId, WeakMemoryBinding)>,
+    /// Ids handed out so far; the next one is `minted + 1`, which is never
+    /// zero and, being 64 bits wide, never wraps.
+    minted: u64,
+}
+
+/// One held failure.
+#[derive(Debug)]
+struct Failure {
+    /// The error the failure reports.
+    pub error: ServerError,
+    /// How many slices carry this id. The node lives while this is non-zero.
+    pub tag_count: u32,
+    /// What this failure stopped, oldest first, capped to the most recent
+    /// (Arrival, the oldest dropped first). On the failure rather than on the
+    /// buffers because a record stored on an allocation dies when that
+    /// allocation does, and a chain of links would break as soon as an
+    /// intermediate buffer is freed — the common case for a fused graph where
+    /// only the last tensor is kept. Holds ids, never handles, so the record
+    /// of what a failure stopped never retains the memory it names.
+    pub skipped: VecDeque<SkippedLaunch>,
+    /// Every skip, the capped list included: the report says how many are
+    /// missing from the walk.
+    pub skipped_count: u64,
+}
+
+impl FailureRecorder {
+    fn insert(&mut self, error: ServerError) -> FailureId {
+        self.minted = self
+            .minted
+            .checked_add(1)
+            .expect("fewer failures than a u64 counts should ever be minted");
+        let id = FailureId::from_minted(
+            NonZeroU64::new(self.minted).expect("a minted count should start above zero"),
+        );
+        self.nodes.insert(
+            id,
+            Failure {
+                error,
+                tag_count: 0,
+                skipped: VecDeque::new(),
+                skipped_count: 0,
+            },
+        );
+        id
+    }
+
+    fn record_skip(&mut self, failure: FailureId, record: SkippedLaunch) {
+        let Some(node) = self.nodes.get_mut(&failure) else {
+            return;
+        };
+        node.skipped_count += 1;
+        if node.skipped.len() == ErrorGraph::MAX_SKIPPED_LAUNCH_COUNT {
+            node.skipped.pop_front();
+        }
+        node.skipped.push_back(record);
+    }
+
+    fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> Option<ServerError> {
+        let node = self.nodes.get(&failure)?;
+        Some(ServerError::Unwritten {
+            failure: failure.to_u64(),
+            claimed: node.tag_count,
+            chain: skip_chain(node, memory),
+            root: Box::new(node.error.clone()),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
+    fn reports(&self, claims: impl Iterator<Item = Claim>) -> Result<(), ServerError> {
+        let mut found = Vec::new();
+        for claim in claims {
+            let report = self.claim_report(claim, &found);
+            found.extend(report);
+        }
+        match found.is_empty() {
+            true => Ok(()),
+            false => Err(ServerError::Several {
+                errors: found.into_iter().map(|(_, error)| error).collect(),
+                backtrace: BackTrace::capture(),
+            }),
+        }
+    }
+
+    /// The report `claim` owes, with the failure it names: `None` when one
+    /// of `found` already names that failure, or the failure is no longer
+    /// held.
+    fn claim_report(
+        &self,
+        claim: Claim,
+        found: &[(Option<FailureId>, ServerError)],
+    ) -> Option<(Option<FailureId>, ServerError)> {
+        let (failure, memory) = match self.claimed(claim) {
+            Ok(claimed) => claimed,
+            Err(unallocated) => return Some((None, unallocated)),
+        };
+        if found.iter().any(|(named, _)| *named == Some(failure)) {
+            return None;
+        }
+        Some((Some(failure), self.report(failure, memory)?))
+    }
+
+    /// The failure `claim` names and the memory it claims, or the error of a
+    /// buffer never allocated with no failure recorded for it.
+    fn claimed(&self, claim: Claim) -> Result<(FailureId, ManagedMemoryId), ServerError> {
+        match claim {
+            Claim::Failed(failure, memory) => Ok((failure, memory)),
+            Claim::Unallocated(memory) => self
+                .unallocated
+                .get(&memory)
+                .map(|(failure, _)| (*failure, memory))
+                .ok_or_else(|| unallocated(memory)),
+        }
+    }
+
+    fn tag(&mut self, failure: FailureId) {
+        self.node_mut(failure).tag_count += 1;
+    }
+
+    fn untag(&mut self, failure: Option<FailureId>) {
+        let Some(failure) = failure else {
+            return;
+        };
+        untag_node(&mut self.nodes, failure);
+    }
+
+    fn replace(&mut self, failure: FailureId, error: ServerError) {
+        if let Some(node) = self.nodes.get_mut(&failure) {
+            node.error = error;
+        }
+    }
+
+    fn fail_unallocated(&mut self, memory: &ManagedMemoryBinding, error: ServerError) {
+        // Released lazily: a record whose buffer is gone is found here, when the next one is
+        // made, rather than through a drop hook the buffer does not have.
+        let nodes = &mut self.nodes;
+        self.unallocated
+            .retain(|_, (failure, binding)| keep_alive(binding, *failure, nodes));
+
+        let failure = self.insert(error);
+        self.tag(failure);
+        let previous = self
+            .unallocated
+            .insert(memory.id(), (failure, memory.downgrade()));
+        self.untag(previous.map(|(previous, _)| previous));
+    }
+
+    fn unallocated_failure(&self, memory: ManagedMemoryId) -> Option<FailureId> {
+        self.unallocated.get(&memory).map(|(failure, _)| *failure)
+    }
+
+    fn prune(&mut self, failure: FailureId) {
+        if self
+            .nodes
+            .get(&failure)
+            .is_some_and(|node| node.tag_count == 0)
+        {
+            self.nodes.remove(&failure);
+        }
+    }
+
+    fn error(&self, failure: FailureId) -> Option<&ServerError> {
+        Some(&self.node(failure).error)
+    }
+
+    fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn is_empty(&self) -> bool {
         self.nodes.is_empty()
+    }
+
+    fn node(&self, failure: FailureId) -> &Failure {
+        self.nodes
+            .get(&failure)
+            .expect("a failure asked about should be held")
     }
 
     fn node_mut(&mut self, failure: FailureId) -> &mut Failure {
         self.nodes
             .get_mut(&failure)
-            .expect("a carried failure id always has its node")
+            .expect("a carried failure id should always have its node")
     }
+}
+
+/// The path from `memory` back toward the root of `node`, walking its skip
+/// records backwards, and a note of the records the cap dropped when the walk
+/// may stop before the root.
+fn skip_chain(node: &Failure, memory: ManagedMemoryId) -> Vec<alloc::string::String> {
+    let mut chain = Vec::new();
+    let mut target = memory;
+    let mut upper = node.skipped.len();
+    while let Some(found) = node
+        .skipped
+        .range(..upper)
+        .rposition(|record| record.produced.contains(&target))
+    {
+        let record = &node.skipped[found];
+        chain.push(alloc::format!(
+            "skipped `{}`: it needed memory {:?}, which carried the failure",
+            record.kernel.short_name(),
+            record.needed,
+        ));
+        target = record.needed;
+        upper = found;
+    }
+    let dropped = node.skipped_count - node.skipped.len() as u64;
+    if !chain.is_empty() && dropped > 0 {
+        chain.push(alloc::format!(
+            "({dropped} older skip record(s) were dropped; the walk may stop before the root)"
+        ));
+    }
+    chain
+}
+
+/// Whether the unallocated buffer `binding` names is still alive, releasing
+/// the tag it held on `failure` among `nodes` once it is gone.
+fn keep_alive(
+    binding: &WeakMemoryBinding,
+    failure: FailureId,
+    nodes: &mut HashMap<FailureId, Failure>,
+) -> bool {
+    if binding.is_alive() {
+        return true;
+    }
+    untag_node(nodes, failure);
+    false
+}
+
+/// One fewer allocation carries `failure` among `nodes`; its node is dropped
+/// when none does.
+fn untag_node(nodes: &mut HashMap<FailureId, Failure>, failure: FailureId) {
+    let node = nodes
+        .get_mut(&failure)
+        .expect("a carried failure id should always have its node");
+    // A panic rather than a floor: an unbalanced shed would otherwise drop
+    // the node while another carrier still names it, and that carrier's
+    // bytes would read clean.
+    node.tag_count = node
+        .tag_count
+        .checked_sub(1)
+        .unwrap_or_else(|| panic!("{failure} should be shed no more often than it was tagged"));
+    if node.tag_count == 0 {
+        nodes.remove(&failure);
+    }
+}
+
+/// The cause is the reservation's own error, which the device thread logged
+/// when it happened: nothing could carry it here.
+fn unallocated(memory: ManagedMemoryId) -> ServerError {
+    IoError::NotFound {
+        backtrace: BackTrace::capture(),
+        reason: alloc::format!(
+            "memory {memory:?} was never allocated: the reservation behind it failed"
+        )
+        .into(),
+    }
+    .into()
 }
 
 #[cfg(test)]
@@ -373,11 +503,43 @@ mod tests {
         assert!(graph.error(failure).is_some(), "one carrier remains");
 
         graph.untag(Some(failure));
-        assert!(
-            graph.error(failure).is_none(),
-            "nothing carries it, so it is gone"
-        );
-        assert!(graph.is_empty());
+        assert!(graph.is_empty(), "nothing carries it, so it is gone");
+    }
+
+    /// Untagging nothing changes nothing.
+    #[test]
+    fn untagging_nothing_changes_nothing() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("launch"));
+        graph.tag(failure);
+
+        graph.untag(None);
+
+        assert_eq!(graph.len(), 1);
+    }
+
+    /// A failure shed more often than it was tagged is a broken count, which
+    /// stops rather than reading a carried failure as clean.
+    #[test]
+    #[should_panic(expected = "a carried failure id should always have its node")]
+    fn an_unbalanced_shed_panics() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("launch"));
+        graph.tag(failure);
+        graph.untag(Some(failure));
+
+        graph.untag(Some(failure));
+    }
+
+    /// The error of a failure no longer held is a broken assumption.
+    #[test]
+    #[should_panic(expected = "a failure asked about should be held")]
+    fn the_error_of_a_dropped_failure_panics() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("dry-run"));
+        graph.prune(failure);
+
+        graph.error(failure);
     }
 
     /// A failure that tainted nothing is pruned rather than retained: a
@@ -405,8 +567,17 @@ mod tests {
             Some(ServerError::Generic { reason, .. }) => assert_eq!(reason, "launch"),
             other => panic!("expected the replaced error, got {other:?}"),
         }
+    }
 
-        graph.untag(Some(failure));
+    /// Replacing the error of a failure no longer held leaves it missing.
+    #[test]
+    fn replacing_a_dropped_failure_leaves_it_missing() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("dry-run"));
+        graph.prune(failure);
+
+        graph.replace(failure, error("launch"));
+
         assert!(graph.is_empty());
     }
 
@@ -443,22 +614,38 @@ mod tests {
         graph.skipped(failure, skip(KernelId::new::<Matmul>(), root_out, &[mid]));
         graph.skipped(failure, skip(KernelId::new::<Gelu>(), mid, &[last]));
 
-        let report = graph.report(failure, last).unwrap();
+        let report = graph
+            .report(failure, last)
+            .expect("a held failure should report");
         let text = alloc::format!("{report}");
-        let gelu = text.find("Gelu").expect("the newest hop comes first");
-        let matmul = text.find("Matmul").expect("then the one it needed");
+        let gelu = text.find("Gelu").expect("the newest hop should come first");
+        let matmul = text.find("Matmul").expect("then the one it needed should");
         assert!(gelu < matmul, "newest skip first, root last: {text}");
         assert!(
             text.contains("fill_f32 failed to compile"),
             "the root is always in the report: {text}"
         );
         assert!(
-            text.contains(&alloc::format!("#{}", failure.0.get())),
+            text.contains(&alloc::format!("#{}", failure.to_u64())),
             "the failure id ties reads of the same failure together: {text}"
         );
+    }
 
-        // A buffer no record produced reports the root alone.
-        let report = graph.report(failure, memory_id(555)).unwrap();
+    /// A buffer no record produced reports the root alone.
+    #[test]
+    fn a_buffer_no_skip_produced_reports_the_root_alone() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("fill_f32 failed to compile"));
+        graph.tag(failure);
+        graph.skipped(
+            failure,
+            skip(KernelId::new::<Gelu>(), memory_id(1), &[memory_id(2)]),
+        );
+
+        let report = graph
+            .report(failure, memory_id(555))
+            .expect("a held failure should report");
+
         let text = alloc::format!("{report}");
         assert!(!text.contains("Gelu") && text.contains("fill_f32 failed to compile"));
     }
@@ -480,7 +667,9 @@ mod tests {
         }
 
         let newest = memory_id(ErrorGraph::MAX_SKIPPED_LAUNCH_COUNT + 4);
-        let report = graph.report(failure, newest).unwrap();
+        let report = graph
+            .report(failure, newest)
+            .expect("a held failure should report");
         let text = alloc::format!("{report}");
         assert!(
             text.contains("Fill"),
@@ -490,6 +679,18 @@ mod tests {
             text.contains("4 older skip record(s) were dropped"),
             "and the report says the walk may stop early: {text}"
         );
+    }
+
+    /// A skip of a failure no longer held records nothing.
+    #[test]
+    fn a_skip_of_a_dropped_failure_records_nothing() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("dry-run"));
+        graph.prune(failure);
+
+        graph.skipped(failure, skip(KernelId::new::<Fill>(), memory_id(1), &[]));
+
+        assert!(graph.report(failure, memory_id(1)).is_none());
     }
 
     /// Pruning is only for the untainted case: a failure something carries
@@ -505,46 +706,91 @@ mod tests {
         assert!(graph.error(failure).is_some());
     }
 
-    /// A buffer that never got an allocation reports the failure recorded for it;
-    /// the record goes once the buffer does.
+    /// A read reports each failure once, however many buffers carry it.
     #[test]
-    fn an_unallocated_failure_is_reported_and_released_with_its_buffer() {
+    fn a_read_reports_each_failure_once() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("launch"));
+        graph.tag(failure);
+
+        let reported = graph
+            .reports(
+                [
+                    Claim::Failed(failure, memory_id(1)),
+                    Claim::Failed(failure, memory_id(2)),
+                ]
+                .into_iter(),
+            )
+            .expect_err("the buffers should carry a failure");
+
+        match reported {
+            ServerError::Several { errors, .. } => assert_eq!(errors.len(), 1),
+            other => panic!("expected one report per failure, got {other:?}"),
+        }
+    }
+
+    /// A read with no claim is clean.
+    #[test]
+    fn a_read_with_no_claim_is_clean() {
+        let graph = ErrorGraph::default();
+
+        assert!(graph.reports(core::iter::empty()).is_ok());
+    }
+
+    /// A buffer that never got an allocation reports the failure recorded for it.
+    #[test]
+    fn an_unallocated_failure_is_reported() {
         let mut graph = ErrorGraph::default();
         let memory = ManagedMemoryHandle::new();
-        let id = memory.descriptor().id();
 
         graph.fail_unallocated(
             &memory.to_binding(),
             crate::driver::DevicePoison::new("the device is poisoned").into(),
         );
         let reported = graph
-            .reports([Claim::Unallocated(id)].into_iter())
-            .expect_err("the buffer carries a failure");
-        assert!(
-            reported.to_string().contains("the device is poisoned"),
-            "{reported}"
-        );
+            .reports([Claim::Unallocated(memory.descriptor().id())].into_iter())
+            .expect_err("the buffer should carry a failure");
 
+        assert!(reported.is_device_poisoned(), "{reported}");
+    }
+
+    /// A buffer never allocated, with nothing recorded for it, never reads
+    /// clean.
+    #[test]
+    fn an_unrecorded_unallocated_buffer_never_reads_clean() {
+        let graph = ErrorGraph::default();
         let other = ManagedMemoryHandle::new();
+
         let unrecorded = graph
             .reports([Claim::Unallocated(other.descriptor().id())].into_iter())
-            .expect_err("an unallocated buffer never reads clean");
+            .expect_err("an unallocated buffer should never read clean");
+
         assert!(
             unrecorded.to_string().contains("never allocated"),
             "{unrecorded}"
         );
+    }
 
-        // An unallocated buffer's sole reference belongs to its caller, not a pool.
+    /// The record of an unallocated buffer goes once the buffer does, when
+    /// the next record is made, and a second record of one buffer replaces
+    /// its first.
+    #[test]
+    fn an_unallocated_failure_is_released_with_its_buffer() {
+        let mut graph = ErrorGraph::default();
+        let memory = ManagedMemoryHandle::new();
+        let other = ManagedMemoryHandle::new();
+        graph.fail_unallocated(&memory.to_binding(), error("first"));
         graph.fail_unallocated(&other.to_binding(), error("again"));
-        let reported = graph
-            .reports([Claim::Unallocated(id)].into_iter())
-            .unwrap_err();
-        assert!(reported.is_device_poisoned(), "{reported}");
-        assert_eq!(graph.len(), 2);
+        graph.fail_unallocated(&other.to_binding(), error("again"));
+        assert_eq!(
+            graph.len(),
+            2,
+            "the second record of `other` replaced its first"
+        );
 
-        // Released lazily, when the next record is made.
         drop(memory);
         graph.fail_unallocated(&other.to_binding(), error("again"));
+
         assert_eq!(graph.len(), 1, "the dropped buffer's failure is released");
     }
 }

@@ -1,31 +1,47 @@
 use super::{ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice};
 use crate::{
-    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryUsage, PageGuard},
+    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryPoolReport, PageGuard},
     server::IoError,
     storage::StorageAllocator,
 };
 
-/// Declares how memory is allocated in a reusable pool.
+/// Reserves slices of device memory for allocations, and reuses them once
+/// their owners let go.
 ///
-/// The methods that take a storage are for callers holding the pool's own
+/// The functions that take a storage are for callers holding the pool's own
 /// type; the rest can be reached through `dyn SliceReserver`, which is how a
 /// location is resolved to whichever pool it names.
+///
+/// # Assumptions
+///
+/// - Every handle and binding handed to a function came from this pool's
+///   [`try_reserve`](Self::try_reserve) or [`alloc`](Self::alloc), or was
+///   bound to such a reservation by [`bind`](Self::bind).
+/// - `failures` is the [`ErrorGraph`] that holds the failures this pool's
+///   slices carry.
+///
+/// # Guarantees
+///
+/// - A slice is handed out again only once every owner of its last
+///   allocation let go of it.
+/// - A slice that stops existing releases the failure it carried on the spot.
 pub trait SliceReserver {
-    /// Whether the memory pool accepts the given size.
-    fn accept(&self, size: u64) -> bool;
+    /// Whether the pool serves an allocation of `size` bytes.
+    fn accepts_bytes(&self, size: u64) -> bool;
 
-    /// Binds an uninitialized handle to a previously reserved memory slice.
-    ///
-    /// # Arguments
-    ///
-    /// * `reserved` - An existing, initialized handle representing the underlying memory allocation.
-    /// * `assigned` - A new handle that will be initialized to point into the `reserved` memory region.
-    /// * `cursor` - A sequence point or timestamp determining when this binding becomes valid for access.
+    /// Bind `assigned`, a handle no reservation placed yet, to the slice
+    /// `reserved` holds, at `cursor`: the point of the stream from which the
+    /// binding is valid. The claims the slice's last allocation carried are
+    /// released.
     ///
     /// # Errors
     ///
-    /// Returns [`IoError`] if the reservation is invalid or if the cursor position
-    /// is outside the bounds of the memory pool.
+    /// An implementation may answer [`IoError::NotFound`] when it can tell
+    /// `reserved` names no slice it holds.
+    ///
+    /// # Panics
+    ///
+    /// An implementation may panic when `reserved` did not come from it.
     fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
@@ -34,44 +50,45 @@ pub trait SliceReserver {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError>;
 
-    /// Retrieves the slice for the binding.
+    /// The slice `binding`'s location names.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::NotFound`] when the location names no slice the pool holds.
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError>;
 
-    /// Retrieves the slice for the binding, mutably — the path the taint
-    /// bookkeeping takes to reach [`Slice::tainted`].
+    /// The slice `binding`'s location names, mutably: the path the taint
+    /// bookkeeping takes to reach the slice's claims.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::NotFound`] when the location names no slice the pool holds.
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError>;
 
-    /// Try to reserve a memory slice of the given size.
+    /// Reserve `size` bytes in the room the pool holds, `None` when that room
+    /// has none for them; [`alloc`](Self::alloc) adds room.
     ///
-    /// `failures` is threaded through because reserving is one of the paths
-    /// where a pool sheds slices (a sliced pool coalesces on every attempt),
-    /// and a shed slice must release the failure it carried on the spot.
-    ///
-    /// # Notes
-    ///
-    /// It is not guaranteed the `try_reserve` function will reapply the accept function.
-    /// Therefore it is a good idea to call [`MemoryUsage::accept()`] before using `try_reserve`.
-    ///
-    /// # Returns
-    ///
-    /// A [slice handle](StorageHandle) if the current memory pool has enough memory, otherwise it
-    /// will returns [None]. You can then call [`SliceReserver::alloc()`] to increase the amount of
-    /// memory the pool has.
+    /// Reserving is one of the paths where a pool sheds slices (a paged pool
+    /// coalesces on every attempt), so `failures` takes the release of the
+    /// failure a shed slice carried.
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle>;
 
-    /// Increases the amount of memory the pool has and returns a [slice handle](StorageHandle)
-    /// corresponding to the requested size.
-    ///
-    /// # Notes
-    ///
-    /// The function uses a [`StorageAllocator`] to perform the allocation. It might return an error
-    /// if the allocation fails or if the requested size is bigger than the memory pool is
-    /// configured to handle.
+    /// Add room for `size` bytes and reserve them on it.
     ///
     /// `mapping` asks for real device backing now (`Eager`) or on first
     /// resolution (`Lazy`). A pool without lazy support may treat `Lazy` as
     /// `Eager`: the request is an opportunity to allocate less, never a
     /// promise the caller may rely on.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the storage refuses, and [`IoError::BufferTooBig`] from an
+    /// implementation that answers a size [`accept`](Self::accepts_bytes) refuses.
+    ///
+    /// # Panics
+    ///
+    /// An implementation that carves pages may panic when `size` is one
+    /// [`accept`](Self::accepts_bytes) refuses.
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -82,8 +99,16 @@ pub trait SliceReserver {
     where
         Self: Sized;
 
-    /// Reserve `size` bytes in the room the pool holds, and allocate a page
-    /// for them when it holds none.
+    /// Reserve `size` bytes in the room the pool holds, and add room for them
+    /// when it holds none.
+    ///
+    /// # Errors
+    ///
+    /// As [`alloc`](Self::alloc).
+    ///
+    /// # Panics
+    ///
+    /// As [`alloc`](Self::alloc).
     fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -100,12 +125,15 @@ pub trait SliceReserver {
         }
     }
 
-    /// Ensure the allocation behind `binding` has real device backing,
-    /// installing it now if the allocation was made [`PageMapping::Lazy`].
-    /// Must be called before the binding's storage handle reaches
-    /// [`StorageAllocator::get`]. A no-op for pools that only allocate eagerly
-    /// and for bindings this pool does not hold (lookup errors surface from
-    /// [`find`](Self::find), not from here).
+    /// Give the allocation behind `binding` real device backing, if it was
+    /// made [`PageMapping::Lazy`], before its storage handle reaches
+    /// [`StorageAllocator::get`]. A pool that only allocates eagerly does
+    /// nothing, and so does every pool for a binding it does not hold: lookup
+    /// errors are [`find`](Self::find)'s to report.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
     fn materialize<Storage: StorageAllocator>(
         &mut self,
         _storage: &mut Storage,
@@ -117,18 +145,19 @@ pub trait SliceReserver {
         Ok(())
     }
 
-    /// Computes the [`MemoryUsage`] for this pool.
-    fn get_memory_usage(&self) -> MemoryUsage;
+    /// The pool's shape, usage and high-water marks.
+    fn report(&self) -> MemoryPoolReport;
 
     /// Keep the page `location` names as it is for as long as the guard lives
     /// (see [`PageGuard`]). `None` when the pool holds no such page.
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard>;
 
-    /// Cleanup the memory pool, maybe freeing some memory using the [`StorageAllocator`].
+    /// Give back what the pool holds and nothing uses, as far as `cleanup`
+    /// asks, `reservation_count` reservations into the memory's life.
     fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
-        alloc_nr: u64,
+        reservation_count: u64,
         cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) where

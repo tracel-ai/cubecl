@@ -32,7 +32,7 @@ use smallvec::SmallVec;
 /// The claims one allocation carries before spilling to the heap. One: a
 /// launch's write scope claims the whole binding under a single failure, and
 /// that is what every launch of a working program does.
-type Claims = SmallVec<[Tainted; 1]>;
+type Claims = SmallVec<[FailureRanges; 1]>;
 
 /// The ranges one claim covers before spilling. One: a claim starts as the
 /// whole binding and only splits when a partial write lands inside it.
@@ -40,19 +40,49 @@ type Ranges = SmallVec<[Range<u64>; 1]>;
 
 /// The tainted regions of one allocation, refcounted into the device's
 /// [`ErrorGraph`].
+///
+/// # Assumptions
+///
+/// `failures`, in every function that takes it, is the [`ErrorGraph`] that
+/// holds the failures this allocation's claims name.
+///
+/// # Guarantees
+///
+/// The allocation holds one tag on each failure that claims at least one of
+/// its bytes, and none on any other.
 #[derive(Debug, Default)]
 pub struct Taint {
+    /// One claim per failure, in the order the failures first claimed bytes
+    /// (Arrival), searched for the failure a range overlaps (Membership).
     entries: Claims,
 }
 
 /// One failure's claim on the allocation.
 #[derive(Debug)]
-struct Tainted {
-    failure: FailureId,
-    /// The bytes this failure left unwritten: disjoint, sorted, never empty.
-    /// More than one range because a partial write can split a claim in two.
-    ranges: Ranges,
+struct FailureRanges {
+    /// The failure that left the bytes unwritten.
+    pub failure: FailureId,
+    /// The bytes this failure left unwritten: disjoint, sorted, never empty
+    /// (Ordered). More than one range because a partial write can split a
+    /// claim in two.
+    pub ranges: Ranges,
 }
+
+// A wider failure id costs the carrier nothing: the id is followed by padding
+// out to the ranges' alignment either way. The id has to be wide, because ids
+// are never reused and one is minted per write scope — and this is what makes
+// that free. A carrier that grew would be a real cost on every slice in the
+// pools, so the claim is pinned rather than asserted in a doc.
+const _: () = {
+    struct Narrow {
+        _failure: core::num::NonZeroU32,
+        _ranges: Ranges,
+    }
+    assert!(
+        core::mem::size_of::<FailureRanges>() == core::mem::size_of::<Narrow>(),
+        "a 64-bit failure id should fit in the padding a 32-bit one leaves"
+    );
+};
 
 impl Taint {
     /// Point `range` at `failure`, releasing whatever claim other failures
@@ -63,53 +93,19 @@ impl Taint {
     /// claims changes nothing, so a loop failing the same way every iteration
     /// cannot grow the claim or pin the node harder. An empty range claims
     /// nothing.
+    ///
+    /// # Panics
+    ///
+    /// When `failure` is not one `failures` holds.
     pub fn taint(&mut self, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
-        if range.is_empty() {
-            return;
-        }
-        let entries = &mut self.entries;
-        entries.retain_mut(|entry| {
-            if entry.failure == failure {
-                return true;
-            }
-            subtract(&mut entry.ranges, &range);
-            match entry.ranges.is_empty() {
-                true => {
-                    failures.untag(Some(entry.failure));
-                    false
-                }
-                false => true,
-            }
-        });
-        match entries.iter_mut().find(|entry| entry.failure == failure) {
-            Some(entry) => add(&mut entry.ranges, range),
-            None => {
-                failures.tag(failure);
-                entries.push(Tainted {
-                    failure,
-                    ranges: Ranges::from_buf([range]),
-                });
-            }
-        }
+        taint(&mut self.entries, range, failure, failures);
     }
 
     /// The bytes in `range` have a writer again: release every claim on them,
     /// and only on them — a write covering part of a buffer says nothing
     /// about the rest, which keeps carrying the failure that left it stale.
     pub fn written(&mut self, range: Range<u64>, failures: &mut ErrorGraph) {
-        if range.is_empty() {
-            return;
-        }
-        self.entries.retain_mut(|entry| {
-            subtract(&mut entry.ranges, &range);
-            match entry.ranges.is_empty() {
-                true => {
-                    failures.untag(Some(entry.failure));
-                    false
-                }
-                false => true,
-            }
-        });
+        release(&mut self.entries, &range, None, failures);
     }
 
     /// The failure claiming any byte of `range`, if one does.
@@ -117,24 +113,91 @@ impl Taint {
     /// A range overlapping several failures names one of them: the read fails
     /// either way, and the caller dedupes by id across a whole read anyway.
     pub fn failure(&self, range: &Range<u64>) -> Option<FailureId> {
-        self.entries
-            .iter()
-            .find(|entry| entry.ranges.iter().any(|held| overlaps(held, range)))
-            .map(|entry| entry.failure)
+        claiming(&self.entries, range)
     }
 
     /// Release every claim, for an allocation that stops existing — the slice
     /// is rebound, coalesced away, tombstoned or swept — since a tag must not
     /// outlive its carrier.
     pub fn clear(&mut self, failures: &mut ErrorGraph) {
-        for entry in core::mem::take(&mut self.entries) {
-            failures.untag(Some(entry.failure));
-        }
+        clear(&mut self.entries, failures);
     }
 
     /// Whether nothing claims any byte.
     pub fn is_clean(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+/// Point `range` of the claims `entries` holds at `failure`.
+fn taint(entries: &mut Claims, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
+    if range.is_empty() {
+        return;
+    }
+    release(entries, &range, Some(failure), failures);
+    match entries.iter_mut().find(|entry| entry.failure == failure) {
+        Some(entry) => add(&mut entry.ranges, range),
+        None => claim(entries, range, failure, failures),
+    }
+}
+
+/// Add a claim of `failure` on `range` to `entries`, tagging it once.
+fn claim(entries: &mut Claims, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
+    failures.tag(failure);
+    entries.push(FailureRanges {
+        failure,
+        ranges: Ranges::from_buf([range]),
+    });
+}
+
+/// Release every claim of `entries` on `range` but `kept`'s, untagging each
+/// failure left claiming nothing.
+fn release(
+    entries: &mut Claims,
+    range: &Range<u64>,
+    kept: Option<FailureId>,
+    failures: &mut ErrorGraph,
+) {
+    if range.is_empty() {
+        return;
+    }
+    entries.retain_mut(|entry| release_entry(entry, range, kept, failures));
+}
+
+/// Release `entry`'s claim on `range` unless it is `kept`'s, answering
+/// whether it still claims a byte.
+fn release_entry(
+    entry: &mut FailureRanges,
+    range: &Range<u64>,
+    kept: Option<FailureId>,
+    failures: &mut ErrorGraph,
+) -> bool {
+    if Some(entry.failure) == kept {
+        return true;
+    }
+    subtract(&mut entry.ranges, range);
+    keep_claiming(entry, failures)
+}
+
+/// Whether `entry` still claims a byte, untagging its failure when it does not.
+fn keep_claiming(entry: &FailureRanges, failures: &mut ErrorGraph) -> bool {
+    let claims = !entry.ranges.is_empty();
+    failures.untag((!claims).then_some(entry.failure));
+    claims
+}
+
+/// The failure among `entries` claiming any byte of `range`.
+fn claiming(entries: &Claims, range: &Range<u64>) -> Option<FailureId> {
+    entries
+        .iter()
+        .find(|entry| entry.ranges.iter().any(|held| overlaps(held, range)))
+        .map(|entry| entry.failure)
+}
+
+/// Release every claim of `entries`.
+fn clear(entries: &mut Claims, failures: &mut ErrorGraph) {
+    for entry in entries.drain(..) {
+        failures.untag(Some(entry.failure));
     }
 }
 
@@ -148,32 +211,27 @@ fn overlaps(a: &Range<u64>, b: &Range<u64>) -> bool {
 fn subtract(ranges: &mut Ranges, cut: &Range<u64>) {
     let mut index = 0;
     while index < ranges.len() {
-        let held = ranges[index].clone();
-        if !overlaps(&held, cut) {
-            index += 1;
-            continue;
-        }
-        let left = held.start..cut.start.min(held.end);
-        let right = cut.end.max(held.start)..held.end;
-        match (left.is_empty(), right.is_empty()) {
-            (true, true) => {
-                ranges.remove(index);
-            }
-            (false, true) => {
-                ranges[index] = left;
-                index += 1;
-            }
-            (true, false) => {
-                ranges[index] = right;
-                index += 1;
-            }
-            (false, false) => {
-                ranges[index] = left;
-                ranges.insert(index + 1, right);
-                index += 2;
-            }
-        }
+        index += subtract_at(ranges, index, cut);
     }
+}
+
+/// Remove `cut` from the range of `ranges` at `index`, answering how many
+/// ranges stand where it stood.
+fn subtract_at(ranges: &mut Ranges, index: usize, cut: &Range<u64>) -> usize {
+    let held = ranges[index].clone();
+    if !overlaps(&held, cut) {
+        return 1;
+    }
+    let left = held.start..cut.start.min(held.end);
+    let right = cut.end.max(held.start)..held.end;
+    ranges.remove(index);
+    let kept: SmallVec<[Range<u64>; 2]> = [left, right]
+        .into_iter()
+        .filter(|range| !range.is_empty())
+        .collect();
+    let count = kept.len();
+    ranges.insert_many(index, kept);
+    count
 }
 
 /// Add `new` to `ranges`, fusing whatever it overlaps or touches so the list
@@ -183,8 +241,7 @@ fn add(ranges: &mut Ranges, mut new: Range<u64>) {
         // Touching counts: [0, 10) and [10, 20) fuse into [0, 20).
         let fuses = held.start <= new.end && new.start <= held.end;
         if fuses {
-            new.start = new.start.min(held.start);
-            new.end = new.end.max(held.end);
+            new = new.start.min(held.start)..new.end.max(held.end);
         }
         !fuses
     });
@@ -206,27 +263,6 @@ mod tests {
             reason: reason.to_string(),
             backtrace: Default::default(),
         }
-    }
-
-    /// A wider [`FailureId`] costs the carrier nothing: the id is followed by
-    /// padding out to the ranges' alignment either way.
-    ///
-    /// The id has to be wide, because ids are never reused and one is minted
-    /// per write scope — and this is what makes that free. A carrier that grew
-    /// would be a real cost on every slice in the pools, so the claim is
-    /// pinned rather than asserted in a doc.
-    #[test]
-    fn a_failure_id_is_free_in_the_carrier() {
-        struct Narrow {
-            _failure: core::num::NonZeroU32,
-            _ranges: Ranges,
-        }
-
-        assert_eq!(
-            core::mem::size_of::<Tainted>(),
-            core::mem::size_of::<Narrow>(),
-            "a 64-bit failure id must fit in the padding a 32-bit one leaves"
-        );
     }
 
     /// The precision this type exists for: a write covering part of a buffer
@@ -268,7 +304,7 @@ mod tests {
         assert_eq!(graph.len(), 2);
 
         taint.written(0..50, &mut graph);
-        assert!(graph.error(first).is_none(), "first has no carrier left");
+        assert_eq!(graph.len(), 1, "first has no carrier left");
         assert_eq!(taint.failure(&(60..70)), Some(second));
     }
 
@@ -289,7 +325,7 @@ mod tests {
         assert_eq!(taint.failure(&(75..100)), Some(old));
 
         taint.taint(0..100, new, &mut graph);
-        assert!(graph.error(old).is_none(), "old claims nothing any more");
+        assert_eq!(graph.len(), 1, "old claims nothing any more");
         assert_eq!(taint.failure(&(0..100)), Some(new));
     }
 
@@ -344,8 +380,7 @@ mod tests {
         assert!(graph.is_empty());
     }
 
-    /// An empty range claims nothing and trips nothing: a zero-sized binding
-    /// has no bytes to distrust.
+    /// An empty range claims nothing.
     #[test]
     fn an_empty_range_claims_nothing() {
         let mut graph = ErrorGraph::default();
@@ -353,9 +388,33 @@ mod tests {
         let failure = graph.insert(error("launch"));
 
         taint.taint(10..10, failure, &mut graph);
+
         assert!(taint.is_clean());
+    }
+
+    /// An empty range trips nothing: a zero-sized binding has no bytes to
+    /// distrust.
+    #[test]
+    fn an_empty_range_trips_nothing() {
+        let mut graph = ErrorGraph::default();
+        let mut taint = Taint::default();
+        let failure = graph.insert(error("launch"));
 
         taint.taint(0..100, failure, &mut graph);
+
         assert_eq!(taint.failure(&(50..50)), None);
+    }
+
+    /// An empty write releases nothing.
+    #[test]
+    fn an_empty_write_releases_nothing() {
+        let mut graph = ErrorGraph::default();
+        let mut taint = Taint::default();
+        let failure = graph.insert(error("launch"));
+        taint.taint(0..100, failure, &mut graph);
+
+        taint.written(50..50, &mut graph);
+
+        assert_eq!(taint.failure(&(0..100)), Some(failure));
     }
 }

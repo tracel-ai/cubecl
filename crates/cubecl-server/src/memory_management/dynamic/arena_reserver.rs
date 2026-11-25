@@ -8,13 +8,17 @@ use crate::{
     logging::ServerLogger,
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
-        memory_pool::{PageMapping, PagedSliceReserver, PinnedRoom, SliceReserver},
+        memory_pool::{
+            MemoryPage, PageMapping, PagedSliceReserver, PinnedRoom, SliceReserver, all_guarded,
+            hand_over,
+        },
         relocation::{
-            ArenaShape, ArenaState, LandedRelocation, LiveAllocation, Move, OutdatedPages,
-            Relocation, StorageCopy, TargetRoom,
+            ArenaShape, ArenaState, LandedRelocation, LiveAllocation, MovablePage, Move,
+            OutdatedPages, Relocation, RelocationCopier, RelocationDecider, RelocationNeed,
+            RelocationReason, StorageCopy, TargetRoom, landed_locations,
         },
     },
-    server::IoError,
+    server::{IoError, ServerError},
     storage::StorageAllocator,
 };
 use alloc::{format, string::String, vec::Vec};
@@ -26,25 +30,33 @@ use cubecl_environment::sync::Arc;
 /// A slot frees once the pool in it drains, and a relocation drains the
 /// outdated ones, so a workload reaches this only by growing through that many
 /// sizes while each keeps something alive.
-pub const ARENA_SLOT_COUNT: usize = 64;
+pub(crate) const ARENA_SLOT_COUNT: usize = 64;
 
-/// A fixed number of sliced pools, one per page size a workload's allocations
-/// grew through.
+/// Reserves allocations from a fixed number of paged pools, one per page size
+/// a workload's allocations grew through.
 ///
 /// The *current* pool carves every new allocation. When one outgrows its
 /// pages, a pool of the new size takes over and the old one is *outdated*: it
 /// serves no new reservation, gives each page back as it empties, and frees
 /// its slot once it holds none.
-pub struct ArenaReserver {
-    /// Indexed by slot; a slot is empty once its pool drained.
+///
+/// `failures` is, in every function, the [`ErrorGraph`] that holds the
+/// failures the arena's slices carry.
+pub(crate) struct ArenaReserver {
+    /// The pools by slot (Position); a slot is empty once its pool drained.
     slots: Vec<Option<PagedSliceReserver>>,
     /// The pool index a slice's location carries for slot 0.
     first_index: u8,
     /// The slot new allocations are carved from.
     current: usize,
-    /// The slots a growth left behind, draining.
+    /// The size the current pool's pages are allocated at.
+    current_page_size: u64,
+    /// The slots a growth left behind, in the order they were outdated
+    /// (Arrival), drained as their pools empty.
     outdated: Vec<usize>,
     sizing: PageSizing,
+    /// When emptying the outdated pools is worth its copies.
+    decider: RelocationDecider,
     logger: Arc<ServerLogger>,
     /// The memory the arena belongs to, as its logs name it.
     name: String,
@@ -53,111 +65,77 @@ pub struct ArenaReserver {
 impl ArenaReserver {
     /// An arena whose first pool carves the smallest pages `sizing` allows,
     /// its slots addressed from `first_index` on.
-    pub fn new(
+    pub(crate) fn new(
         sizing: PageSizing,
         first_index: u8,
         logger: Arc<ServerLogger>,
         name: String,
     ) -> Self {
         let mut slots = Vec::with_capacity(ARENA_SLOT_COUNT);
-        slots.push(Some(sizing.pool(sizing.min_page_size, first_index)));
+        slots.push(Some(sizing.pool(sizing.min_page_size(), first_index)));
         slots.resize_with(ARENA_SLOT_COUNT, || None);
         Self {
             slots,
             first_index,
             current: 0,
+            current_page_size: sizing.min_page_size(),
             outdated: Vec::with_capacity(ARENA_SLOT_COUNT),
             sizing,
+            decider: RelocationDecider::default(),
             logger,
             name,
         }
     }
 
-    /// The pool `index` names, while one is there.
-    pub fn pool(&self, index: u8) -> Option<&PagedSliceReserver> {
-        let slot = index.checked_sub(self.first_index)?;
+    /// The pool `pool_index` names, while one is there.
+    pub(crate) fn pool_by_index(&self, pool_index: u8) -> Option<&PagedSliceReserver> {
+        let slot = pool_index.checked_sub(self.first_index)?;
         self.slots.get(slot as usize)?.as_ref()
     }
 
-    /// The pool `index` names, mutably.
-    pub fn pool_mut(&mut self, index: u8) -> Option<&mut PagedSliceReserver> {
-        let slot = index.checked_sub(self.first_index)?;
+    /// The pool `pool_index` names, mutably.
+    pub(crate) fn pool_by_index_mut(&mut self, pool_index: u8) -> Option<&mut PagedSliceReserver> {
+        let slot = pool_index.checked_sub(self.first_index)?;
         self.slots.get_mut(slot as usize)?.as_mut()
     }
 
-    /// Whether a growth left any pool behind.
-    pub fn has_outdated(&self) -> bool {
-        !self.outdated.is_empty()
+    /// Whether a page of the size the arena carves now holds `size_bytes`: a
+    /// new page for them would not outdate the current ones.
+    pub(crate) fn fits_bytes(&self, size_bytes: u64) -> bool {
+        self.sizing.fit(size_bytes, self.current_page_size) == Fit::Fits
     }
 
-    /// Whether a page of the size the arena carves now holds `size` bytes: a new page for
-    /// them would not outdate the current ones.
-    pub fn fits(&self, size: u64) -> bool {
-        self.sizing.fit(size, self.current().page_size()) == Fit::Fits
+    /// Whether graphs guard every page the current pool holds, and it holds
+    /// some: room for work outside a capture comes only from a new page then.
+    pub(crate) fn is_pinned(&self) -> bool {
+        all_guarded(self.current().pages())
     }
 
-    /// Whether graphs guard every page the current pool holds, and it holds some: room
-    /// for work outside a capture comes only from a new page then.
-    pub fn is_pinned(&self) -> bool {
-        self.current().is_pinned()
-    }
-
-    /// What a relocation trigger reads of the arena.
-    pub fn state(&self) -> ArenaState {
-        ArenaState {
-            page_size: self.current().page_size(),
-            has_outdated: self.has_outdated(),
-            // Only the current pool and the outdated ones hold a slot.
-            full: self.outdated.len() + 1 == ARENA_SLOT_COUNT,
-            shape: ArenaShape {
-                current_page_count: self.current().pages_held(),
-                outdated_pool_count: self.outdated.len(),
-                outdated_pages: self.outdated().map(PagedSliceReserver::pages_held).sum(),
-                outdated_guarded_count: self
-                    .outdated()
-                    .flat_map(PagedSliceReserver::pages)
-                    .filter(|page| page.is_guarded())
-                    .count(),
-            },
+    /// Whether emptying the outdated pools is wanted, on a device that holds
+    /// `capacity` bytes where it says: only while something is outdated, when
+    /// the arena is full or the device may be short of room, and not again
+    /// while the pools look as they did when the last relocation moved
+    /// nothing.
+    pub(crate) fn relocation_need(&self, capacity: Option<u64>) -> RelocationNeed {
+        // Asked before every allocation: when nothing is outdated, which is
+        // almost always, answer without counting any page.
+        if self.outdated.is_empty() {
+            return RelocationNeed::Nothing;
         }
+        self.decider.decide(&self.state(), capacity)
     }
 
-    /// The pool new allocations are carved from.
-    fn current(&self) -> &PagedSliceReserver {
-        self.slots[self.current]
-            .as_ref()
-            .expect("the current slot always holds a pool")
-    }
-
-    /// The pool new allocations are carved from, mutably.
-    fn current_mut(&mut self) -> &mut PagedSliceReserver {
-        self.slots[self.current]
-            .as_mut()
-            .expect("the current slot always holds a pool")
-    }
-
-    /// The pools a growth left behind.
-    fn outdated(&self) -> impl Iterator<Item = &PagedSliceReserver> {
-        self.outdated
-            .iter()
-            .filter_map(|slot| self.slots[*slot].as_ref())
-    }
-
-    /// The pools `source` and `target` name, which are distinct.
-    fn pair_mut(
-        &mut self,
-        source: u8,
-        target: u8,
-    ) -> Option<(&mut PagedSliceReserver, &mut PagedSliceReserver)> {
-        let first = self.first_index;
-        let [source, target] = self
-            .slots
-            .get_disjoint_mut([
-                source.checked_sub(first)? as usize,
-                target.checked_sub(first)? as usize,
-            ])
-            .ok()?;
-        Some((source.as_mut()?, target.as_mut()?))
+    /// Add a report for the current pool, stating how many pages the outdated
+    /// ones hold, then one per outdated pool, to `reports`.
+    pub(crate) fn extend_report(&self, reports: &mut Vec<MemoryPoolReport>) {
+        reports.push(MemoryPoolReport {
+            kind: MemoryPoolKind::Adaptive {
+                page_size: self.current_page_size,
+                outdated_pages: self.outdated_page_count(),
+            },
+            ..self.current().report()
+        });
+        reports.extend(self.outdated().map(SliceReserver::report));
     }
 
     /// Reserve `size` bytes on the current pool, growing the pages when `size`
@@ -168,7 +146,7 @@ impl ArenaReserver {
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
     /// [`IoError::PageSizesExhausted`] when it needs a new page size and
     /// every slot is taken, and whatever the device refused.
-    pub fn reserve<Storage: StorageAllocator>(
+    pub(crate) fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -176,11 +154,13 @@ impl ArenaReserver {
         room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        match self.sizing.fit(size, self.current().page_size()) {
+        match self.sizing.fit(size, self.current_page_size) {
             Fit::Fits => self
                 .current_mut()
                 .reserve_sharing(storage, size, mapping, room, failures),
-            Fit::Grow { page_size } => self.grow(storage, size, page_size, mapping, failures),
+            Fit::Grow { page_size_bytes } => {
+                self.grow(storage, size, page_size_bytes, mapping, failures)
+            }
             Fit::TooLarge => Err(IoError::BufferTooBig {
                 size,
                 backtrace: BackTrace::capture(),
@@ -194,30 +174,129 @@ impl ArenaReserver {
     /// Only the current pool carves, so the room on a pinned page an outdated
     /// pool holds serves no capture after the growth: why the largest graph
     /// is recorded first.
-    pub fn try_reserve(
+    pub(crate) fn try_reserve(
         &mut self,
         size: u64,
         room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        match self.sizing.fit(size, self.current().page_size()) {
-            Fit::Fits => self.current_mut().try_reserve_sharing(size, room, failures),
-            Fit::Grow { .. } | Fit::TooLarge => None,
-        }
+        self.fits_bytes(size).then_some(())?;
+        self.current_mut().try_reserve_sharing(size, room, failures)
     }
 
     /// Release what the current pool no longer needs, and drop every outdated
     /// pool that has drained.
-    pub fn cleanup<Storage: StorageAllocator>(
+    pub(crate) fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
-        alloc_nr: u64,
+        reservation_count: u64,
         cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
         self.current_mut()
-            .cleanup(storage, alloc_nr, cleanup, failures);
+            .cleanup(storage, reservation_count, cleanup, failures);
         self.drain(storage, failures);
+    }
+
+    /// Empty the outdated pools into the current one, so the pages they held
+    /// go back to the driver. `reason` decides whether a target may take a
+    /// new page.
+    ///
+    /// A plan whose copies fail is abandoned: every allocation stays where it
+    /// was. Targets are freed only once the device is known to be done with them.
+    pub(crate) fn relocate<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        copier: &mut dyn RelocationCopier<Storage>,
+        reason: RelocationReason,
+        failures: &mut ErrorGraph,
+    ) {
+        let relocation = self.plan(reason.room(), storage, failures);
+        if relocation.is_empty() {
+            self.decider.stalled(&self.state());
+            return;
+        }
+        match relocation.copy(storage, copier) {
+            Ok(landed) => self.land(landed, storage, failures),
+            Err(err) => self.abandon(&err),
+        }
+    }
+
+    /// The pool new allocations are carved from.
+    fn current(&self) -> &PagedSliceReserver {
+        self.slots[self.current]
+            .as_ref()
+            .expect("the current slot should always hold a pool")
+    }
+
+    /// The pool new allocations are carved from, mutably.
+    fn current_mut(&mut self) -> &mut PagedSliceReserver {
+        self.slots[self.current]
+            .as_mut()
+            .expect("the current slot should always hold a pool")
+    }
+
+    /// The pools a growth left behind.
+    fn outdated(&self) -> impl Iterator<Item = &PagedSliceReserver> {
+        self.outdated.iter().map(|slot| {
+            self.slots[*slot]
+                .as_ref()
+                .expect("an outdated slot should hold its pool until it drains")
+        })
+    }
+
+    /// The pages the outdated pools hold.
+    fn outdated_pages(&self) -> impl Iterator<Item = &MemoryPage> {
+        self.outdated().flat_map(PagedSliceReserver::pages)
+    }
+
+    /// How many pages the outdated pools hold.
+    fn outdated_page_count(&self) -> u64 {
+        self.outdated_pages().count() as u64
+    }
+
+    /// What a relocation decider reads of the arena.
+    fn state(&self) -> ArenaState {
+        ArenaState {
+            page_size_bytes: self.current_page_size,
+            // Only the current pool and the outdated ones hold a slot.
+            is_full: self.outdated.len() + 1 == ARENA_SLOT_COUNT,
+            shape: ArenaShape {
+                current_page_count: self.current().pages().len() as u64,
+                outdated_pool_count: self.outdated.len(),
+                outdated_page_count: self.outdated_page_count(),
+                outdated_guarded_count: self
+                    .outdated_pages()
+                    .filter(|page| page.is_guarded())
+                    .count(),
+            },
+        }
+    }
+
+    /// The pools `source` and `target` name, which are distinct.
+    fn pair_mut(
+        &mut self,
+        source: u8,
+        target: u8,
+    ) -> (&mut PagedSliceReserver, &mut PagedSliceReserver) {
+        let first = self.first_index;
+        let slot = |pool: u8| {
+            pool.checked_sub(first)
+                .expect("a moved allocation should be on one of the arena's pools")
+                as usize
+        };
+        let [source, target] = self
+            .slots
+            .get_disjoint_mut([slot(source), slot(target)])
+            .expect("a move should be between two of the arena's slots");
+        (
+            source
+                .as_mut()
+                .expect("a move's source pool should be held until it commits"),
+            target
+                .as_mut()
+                .expect("a move's target pool should be the current one"),
+        )
     }
 
     /// Give every empty page of the outdated pools back, and free the slot of
@@ -232,93 +311,85 @@ impl ArenaReserver {
     ) {
         let slots = &mut self.slots;
         self.outdated.retain(|&slot| {
-            let Some(pool) = slots[slot].as_mut() else {
-                return false;
-            };
+            let pool = slots[slot]
+                .as_mut()
+                .expect("an outdated slot should hold its pool until it drains");
             pool.release_empty(storage, failures);
-            let drained = pool.is_empty();
-            if drained {
-                slots[slot] = None;
-            }
+            let drained = pool.pages().is_empty();
+            slots[slot] = slots[slot].take().filter(|_| !drained);
             !drained
         });
     }
 
-    /// A report for the current pool, stating how many pages the outdated
-    /// ones hold, then one per outdated pool.
-    pub fn report(&self) -> impl Iterator<Item = MemoryPoolReport> + '_ {
-        let current = self.current();
-        let report = MemoryPoolReport {
-            kind: MemoryPoolKind::Adaptive {
-                page_size: current.page_size(),
-                outdated_pages: self.outdated().map(PagedSliceReserver::pages_held).sum(),
-            },
-            ..current.report()
-        };
-        core::iter::once(report).chain(self.outdated().map(PagedSliceReserver::report))
-    }
-
     /// Reserve a slice on the current pool for every live allocation on the
-    /// outdated pages [the analysis](OutdatedPages::plan) plans to empty, so
-    /// those pools drain instead of waiting on their longest-lived slice.
+    /// outdated pages [the analysis](OutdatedPages::into_plan) plans to empty,
+    /// so those pools drain instead of waiting on their longest-lived slice.
     ///
     /// `room` says whether a target may take a new page when the room held
     /// runs out. Nothing moves yet: the caller copies the bytes and hands the
-    /// [`LandedRelocation`] relocation back to [`commit`](Self::commit).
-    pub fn plan<Storage: StorageAllocator>(
+    /// [`LandedRelocation`] back to [`land`](Self::land).
+    fn plan<Storage: StorageAllocator>(
         &mut self,
         room: TargetRoom,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
     ) -> Relocation {
-        let plan = OutdatedPages::new(self.outdated().flat_map(PagedSliceReserver::pages)).plan();
-
-        let mut moves = Vec::new();
-        for page in plan {
-            // A page whose allocations do not all find a target keeps none of
-            // them: moving part of what is on it frees nothing. A page later in
-            // the plan may still fit what this one did not.
-            let start = moves.len();
-            for allocation in page.live {
-                match self.plan_move(allocation, room, storage, failures) {
-                    Some(relocated) => moves.push(relocated),
-                    None => {
-                        moves.truncate(start);
-                        break;
-                    }
-                }
-            }
-        }
+        let plan = OutdatedPages::new(self.outdated_pages()).into_plan();
+        let moves = plan
+            .into_iter()
+            .filter_map(|page| self.plan_page(page, room, storage, failures))
+            .flatten()
+            .collect();
         Relocation::new(moves)
     }
 
+    /// The moves of every allocation of `page`, or `None` when one of them
+    /// finds no target: moving part of what is on a page frees nothing, and
+    /// the targets reserved for the others are freed with the moves. A page
+    /// later in the plan may still fit what this one did not.
+    fn plan_page<Storage: StorageAllocator>(
+        &mut self,
+        page: MovablePage,
+        room: TargetRoom,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> Option<Vec<Move>> {
+        page.live
+            .into_iter()
+            .map(|allocation| self.plan_move(allocation, room, storage, failures))
+            .collect()
+    }
+
     /// Hand every allocation of `landed` over to the target reserved for it,
-    /// now that its bytes are there, and drop the outdated pools that emptied.
-    pub fn commit<Storage: StorageAllocator>(
+    /// now that its bytes are there, drop the outdated pools that emptied,
+    /// and give the pages they held back now rather than at the storage's
+    /// next flush: a reservation retried after this needs that room.
+    fn land<Storage: StorageAllocator>(
         &mut self,
         landed: LandedRelocation,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
     ) {
-        for Move {
-            allocation, target, ..
-        } in landed.into_moves()
-        {
-            // Read from the handles, which the pools keep current: a move
-            // stores no location of its own, so it can never hold a stale one.
-            let source = allocation.descriptor().location();
-            let destination = target.descriptor().location();
-            // Only the slices hold the handles once these go.
-            drop(target);
-            drop(allocation);
-
-            if let Some((source_pool, target_pool)) = self.pair_mut(source.pool, destination.pool) {
-                source_pool
-                    .slice_at(source)
-                    .hand_over(target_pool.slice_at(destination), failures);
-            }
+        for (source, destination) in landed_locations(landed) {
+            let (source_pool, target_pool) = self.pair_mut(source.pool, destination.pool);
+            hand_over(
+                source_pool.slice_at(source),
+                target_pool.slice_at(destination),
+                failures,
+            );
         }
         self.drain(storage, failures);
+        self.decider.moved();
+        storage.flush();
+    }
+
+    /// Settle a relocation the device refused as one that moved nothing, so
+    /// a device that keeps refusing the copies is not waited on again until
+    /// the pools change. No allocation moved; an inconclusive wait keeps the
+    /// reservations alive.
+    fn abandon(&mut self, err: &ServerError) {
+        self.decider.stalled(&self.state());
+        log::warn!("relocating allocations off outdated memory pages abandoned: {err}");
     }
 
     /// Reserve a target for `allocation` on the current pool, and say what has
@@ -331,27 +402,30 @@ impl ArenaReserver {
         failures: &mut ErrorGraph,
     ) -> Option<Move> {
         let source = allocation.handle.descriptor().location();
-        let source_storage = self.pool_mut(source.pool)?.storage_at(source);
+        let source_storage = self
+            .pool_by_index(source.pool)
+            .expect("an outdated allocation should be on one of the arena's pools")
+            .page_at(source)
+            .mapped_storage_at_index(source.slice as usize);
 
         let pool = self.current_mut();
-        let target = match (pool.try_reserve(allocation.size, failures), room) {
+        let target = match (pool.try_reserve(allocation.size_bytes, failures), room) {
             (Some(target), _) => target,
             (None, TargetRoom::Held) => return None,
             (None, TargetRoom::MayAllocate) => pool
-                .alloc(storage, allocation.size, PageMapping::Eager, failures)
+                .alloc(storage, allocation.size_bytes, PageMapping::Eager, failures)
                 .ok()?,
         };
         // Bytes that exist have to land somewhere real; a source never
         // resolved has none to copy.
-        let copy = match source_storage {
-            Some(source) => Some(StorageCopy {
-                source,
-                target: pool
-                    .mapped_storage_at(storage, target.descriptor().location())
-                    .ok()?,
-            }),
-            None => None,
-        };
+        let location = target.descriptor().location();
+        let copy = source_storage
+            .map(|source| {
+                pool.mapped_storage_at(storage, location)
+                    .map(|target| StorageCopy { source, target })
+            })
+            .transpose()
+            .ok()?;
 
         Some(Move {
             allocation: allocation.handle,
@@ -387,6 +461,7 @@ impl ArenaReserver {
         self.slots[slot] = Some(pool);
         self.outdated.push(self.current);
         self.current = slot;
+        self.current_page_size = page_size;
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled),
             || {
@@ -413,8 +488,6 @@ impl core::fmt::Display for ArenaReserver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_management::relocation::RelocationCopier;
-    use crate::server::ServerError;
     use crate::storage::{StorageHandle, StorageId, StorageUtilization};
     use cubecl_ir::MemoryDeviceProperties;
 
@@ -477,6 +550,10 @@ mod tests {
         }
     }
 
+    fn arena(sizing: PageSizing) -> ArenaReserver {
+        ArenaReserver::new(sizing, 2, Default::default(), String::new())
+    }
+
     fn reserve(
         arena: &mut ArenaReserver,
         storage: &mut Bookkeeping,
@@ -496,19 +573,23 @@ mod tests {
     #[test]
     fn a_refused_growth_leaves_the_page_size_where_it_was() {
         let mut storage = Bookkeeping { limit: 8 * MIB };
-        let mut arena = ArenaReserver::new(sizing(), 2, Default::default(), String::new());
-        let _small = reserve(&mut arena, &mut storage, MIB).unwrap();
+        let mut arena = arena(sizing());
+        let _small = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
 
         let refused = reserve(&mut arena, &mut storage, 10 * MIB);
         assert!(
             matches!(refused, Err(IoError::OutOfMemory { .. })),
             "{refused:?}"
         );
-        assert_eq!(arena.state().page_size, 2 * MIB);
-        assert!(!arena.state().has_outdated);
+        assert_eq!(arena.current_page_size, 2 * MIB);
+        assert!(arena.outdated.is_empty());
 
-        let _served = reserve(&mut arena, &mut storage, MIB).unwrap();
-        assert_eq!(arena.current().pages_held(), 1, "served from the page held");
+        let _served = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
+        assert_eq!(
+            arena.current().pages().len(),
+            1,
+            "served from the page held"
+        );
     }
 
     /// A growth past the last free slot fails on its own terms rather than
@@ -517,67 +598,69 @@ mod tests {
     #[test]
     fn a_full_arena_refuses_to_grow_until_a_relocation_frees_it() {
         let mut storage = Bookkeeping { limit: u64::MAX };
-        let sizing = PageSizing::new(2 * MIB, &MemoryDeviceProperties::new(1024 * MIB, 32));
-        let mut arena = ArenaReserver::new(sizing, 2, Default::default(), String::new());
-        let failures = &mut ErrorGraph::default();
+        let mut arena = arena(PageSizing::new(
+            2 * MIB,
+            &MemoryDeviceProperties::new(1024 * MIB, 32),
+        ));
 
         // Each size outgrows the page the last one grew to, so every
         // reservation takes a slot, and each pool it leaves keeps one live
         // allocation. The first pool never carved a page.
         let mut live = Vec::new();
         for step in 0..ARENA_SLOT_COUNT as u64 - 1 {
-            live.push(reserve(&mut arena, &mut storage, (3 + 2 * step) * MIB).unwrap());
+            live.push(
+                reserve(&mut arena, &mut storage, (3 + 2 * step) * MIB)
+                    .expect("a slot should be free"),
+            );
         }
-        assert!(arena.state().full);
+        assert!(arena.state().is_full);
         let refused = reserve(&mut arena, &mut storage, 200 * MIB);
         assert!(
             matches!(refused, Err(IoError::PageSizesExhausted { .. })),
             "{refused:?}"
         );
-
-        let relocation = arena.plan(TargetRoom::MayAllocate, &mut storage, failures);
         assert_eq!(
-            relocation.len(),
-            ARENA_SLOT_COUNT - 2,
-            "one allocation per outdated pool that carved a page"
+            arena.relocation_need(None),
+            RelocationNeed::Wanted(RelocationReason::ArenaFull)
         );
-        let landed = relocation.copy(&mut storage, &mut Landing).unwrap();
-        arena.commit(landed, &mut storage, failures);
 
-        assert!(!arena.state().has_outdated);
-        reserve(&mut arena, &mut storage, 200 * MIB).expect("a slot is free again");
-    }
-
-    #[test]
-    fn an_allocation_that_fits_the_pages_grows_nothing() {
-        assert_eq!(sizing().fit(MIB, 2 * MIB), Fit::Fits);
-    }
-
-    #[test]
-    fn a_growth_sizes_pages_to_the_allocation_with_slack() {
-        assert_eq!(
-            sizing().fit(10 * MIB, 2 * MIB),
-            Fit::Grow {
-                page_size: 11 * MIB
-            }
+        arena.relocate(
+            &mut storage,
+            &mut Landing,
+            RelocationReason::ArenaFull,
+            &mut ErrorGraph::default(),
         );
+
+        assert!(arena.outdated.is_empty());
+        reserve(&mut arena, &mut storage, 200 * MIB).expect("a slot should be free again");
     }
 
+    /// With nothing outdated, nothing is wanted, and the bytes are never read.
     #[test]
-    fn a_growth_stops_at_the_devices_largest_page() {
-        assert_eq!(
-            sizing().fit(16 * MIB, 2 * MIB),
-            Fit::Grow {
-                page_size: 16 * MIB
-            }
+    fn nothing_outdated_needs_nothing() {
+        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut arena = arena(sizing());
+        let _small = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
+
+        assert_eq!(arena.relocation_need(Some(1)), RelocationNeed::Nothing);
+    }
+
+    /// A reservation that would need larger pages finds no room held.
+    #[test]
+    fn a_reservation_needing_larger_pages_finds_no_room_held() {
+        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut arena = arena(sizing());
+        core::mem::drop(reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page"));
+
+        assert!(
+            arena
+                .try_reserve(4 * MIB, PinnedRoom::Avoid, &mut ErrorGraph::default())
+                .is_none()
         );
-        assert_eq!(sizing().fit(16 * MIB + 1, 2 * MIB), Fit::TooLarge);
-    }
-
-    /// A size whose padding passes the largest `u64` is too large, rather than
-    /// wrapped to one that fits.
-    #[test]
-    fn a_size_whose_padding_overflows_is_too_large() {
-        assert_eq!(sizing().fit(u64::MAX, 2 * MIB), Fit::TooLarge);
+        assert!(
+            arena
+                .try_reserve(MIB, PinnedRoom::Avoid, &mut ErrorGraph::default())
+                .is_some()
+        );
     }
 }

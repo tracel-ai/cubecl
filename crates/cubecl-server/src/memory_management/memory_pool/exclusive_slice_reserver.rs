@@ -1,30 +1,38 @@
-use crate::memory_management::Cleanup;
+use super::{
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
+    fit_whole_slice, missing, padded_size, pool_origin, release_slice, slices_usage,
+};
 use crate::{
     memory_management::{
-        BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
-        PageGuard,
+        BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
+        MemoryUsage, PageGuard,
     },
     server::IoError,
-    storage::{StorageAllocator, StorageUtilization},
+    storage::StorageAllocator,
 };
-
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
-use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, calculate_padding,
-};
+/// How fast the running average of the sizes served follows the latest one.
+const SIZE_AVG_DECAY: f64 = 0.01;
 
-/// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
+/// How many cleanups find a page free, unused in between, before it goes back.
+const DEALLOC_FREE_CHECK_COUNT: u32 = 5;
+
+/// A pool of one allocation per page, pages sized at least to the running
+/// average of what it served, so a page is reused by any allocation it fits.
 ///
-/// - Only one slice is supported per page, due to the limitations in WGPU where each buffer should only bound with
-///   either read only or `read_write` slices but not a mix of both.
-/// - The pool uses a ring buffer to efficiently manage and reuse pages.
-pub struct ExclusiveSliceReserver {
-    pages: Vec<MemoryPage>,
-    pages_tmp: Vec<MemoryPage>,
+/// Only one slice is supported per page, due to the limitations in WGPU where
+/// each buffer should only bound with either read only or `read_write` slices
+/// but not a mix of both.
+pub(crate) struct ExclusiveSliceReserver {
+    /// Every page, read by the position a location carries (Position) and
+    /// added at the end (Arrival).
+    pages: Vec<ExclusivePage>,
     alignment: u64,
+    /// The reservations an unused page waits through before it goes back.
     dealloc_period: u64,
+    /// The reservation count at the last check for unused pages.
     last_dealloc_check: u64,
     max_alloc_size: u64,
     cur_avg_size: f64,
@@ -34,6 +42,232 @@ pub struct ExclusiveSliceReserver {
     peak_pages: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
     largest_alloc_bytes: u64,
+}
+
+/// One page of an [`ExclusiveSliceReserver`], and how long it has been unused.
+struct ExclusivePage {
+    /// The page's one slice.
+    pub slice: Slice,
+    /// The bytes the page was allocated at.
+    pub alloc_bytes: u64,
+    /// The checks that found the page free since it last served.
+    pub free_count: u32,
+}
+
+/// What an [`ExclusiveSliceReserver`] serves, and the pool index its pages carry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExclusiveLayout {
+    /// The largest allocation the pool accepts, a multiple of the alignment.
+    pub max_alloc_bytes: u64,
+    /// The alignment every page is allocated at.
+    pub alignment_bytes: u64,
+    /// The reservations an unused page waits through before it is released;
+    /// `u64::MAX` keeps it for good.
+    pub dealloc_period_count: u64,
+    /// The pool index a page's location carries.
+    pub pool: u8,
+}
+
+impl ExclusiveSliceReserver {
+    /// A pool serving what `layout` says.
+    ///
+    /// # Panics
+    ///
+    /// When the layout's largest allocation is not a multiple of its alignment.
+    pub(crate) fn new(layout: ExclusiveLayout) -> Self {
+        assert_eq!(
+            layout.max_alloc_bytes % layout.alignment_bytes,
+            0,
+            "the largest allocation should be a multiple of the alignment, so pages are aligned"
+        );
+
+        Self {
+            pages: Vec::new(),
+            alignment: layout.alignment_bytes,
+            dealloc_period: layout.dealloc_period_count,
+            last_dealloc_check: 0,
+            max_alloc_size: layout.max_alloc_bytes,
+            cur_avg_size: layout.max_alloc_bytes as f64 / 2.0,
+            location_base: pool_origin(layout.pool),
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
+        }
+    }
+
+    /// The free page that has been free the least, among those that fit
+    /// `size_bytes`.
+    fn free_page_fitting_bytes(&mut self, size_bytes: u64) -> Option<&mut ExclusivePage> {
+        self.pages
+            .iter_mut()
+            .filter(|page| page.alloc_bytes >= size_bytes && page.slice.is_free())
+            .min_by_key(|page| page.free_count)
+    }
+
+    /// Whether a cleanup at `reservation_count` checks the pages for unused
+    /// ones: every one that `cleanup` asks for, and a periodic one once per
+    /// fraction of the period, so a page is freed after at most a period.
+    fn checks_at(&self, reservation_count: u64, cleanup: Cleanup) -> bool {
+        let check_period = self.dealloc_period / u64::from(DEALLOC_FREE_CHECK_COUNT);
+        cleanup == Cleanup::Explicit || reservation_count - self.last_dealloc_check >= check_period
+    }
+}
+
+impl SliceReserver for ExclusiveSliceReserver {
+    fn accepts_bytes(&self, size: u64) -> bool {
+        self.max_alloc_size >= size
+    }
+
+    /// Reserve a free page that fits `size` bytes.
+    fn try_reserve(
+        &mut self,
+        size: u64,
+        _failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        self.cur_avg_size =
+            self.cur_avg_size * (1.0 - SIZE_AVG_DECAY) + size as f64 * SIZE_AVG_DECAY;
+        let padded = padded_size(size, self.alignment)?;
+        let page = self.free_page_fitting_bytes(size)?;
+        // A page only ever fits the sizes it was allocated for.
+        fit_whole_slice(&mut page.slice, size, padded);
+        page.free_count = page.free_count.saturating_sub(1);
+        let handle = page.slice.handle.clone();
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
+        Some(handle)
+    }
+
+    /// Always eager: this pool serves the preset layouts and the auxiliary
+    /// (staging/uniform/pinned) managers, whose buffers are written right
+    /// after reservation — laziness would only move the same allocation one
+    /// call later.
+    fn alloc<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+        _mapping: PageMapping,
+        _failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        if size > self.max_alloc_size {
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
+        }
+        let alloc_bytes = (self.cur_avg_size as u64)
+            .max(size)
+            .next_multiple_of(self.alignment);
+        let mut slice = Slice::new(storage.allocate_bytes(alloc_bytes)?, 0);
+        // `size` is at most the largest allocation, a multiple of the
+        // alignment, so it pads within range.
+        fit_whole_slice(&mut slice, size, size.next_multiple_of(self.alignment));
+        slice.descriptor().update_location(MemoryLocation {
+            page: self.pages.len() as u16,
+            ..self.location_base
+        });
+        let handle = slice.handle.clone();
+
+        self.pages.push(ExclusivePage {
+            slice,
+            alloc_bytes,
+            // Start the allocation at 'almost ready to free'. Every use will decrement this.
+            // This means allocations start as "suspected as unused" and over time will be kept for longer.
+            free_count: DEALLOC_FREE_CHECK_COUNT - 1,
+        });
+        self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
+
+        Ok(handle)
+    }
+
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let page = self.pages.get(location.page as usize)?;
+        Some(PageGuard::allocation(page.slice.handle.to_binding()))
+    }
+
+    fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Exclusive {
+                max_alloc_size: self.max_alloc_size,
+            },
+            usage: MemoryUsage {
+                reserved_bytes: self.pages.iter().map(|page| page.alloc_bytes).sum(),
+                ..slices_usage(self.pages.iter().map(|page| &page.slice))
+            },
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
+            // This pool only allocates eagerly.
+            unmapped_page_count: 0,
+            largest_alloc_bytes: self.largest_alloc_bytes,
+        }
+    }
+
+    /// Count every free page as found free once more, and return those found
+    /// free often enough, or every free one on an explicit cleanup.
+    fn cleanup<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        reservation_count: u64,
+        cleanup: Cleanup,
+        failures: &mut ErrorGraph,
+    ) {
+        if !self.checks_at(reservation_count, cleanup) {
+            return;
+        }
+        self.last_dealloc_check = reservation_count;
+        self.pages
+            .retain_mut(|page| keep_used(page, cleanup, storage, failures));
+        for (index, page) in self.pages.iter().enumerate() {
+            page.slice.descriptor().update_page(index as u16);
+        }
+    }
+
+    fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), IoError> {
+        let page = self
+            .pages
+            .get_mut(reserved.descriptor().page())
+            .expect("a reserved page should be held by the pool that reserved it");
+        bind_slice(&mut page.slice, assigned, cursor, failures);
+        Ok(())
+    }
+
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let index = binding.descriptor().page();
+        self.pages
+            .get(index)
+            .map(|page| &page.slice)
+            .ok_or_else(|| missing("page", index))
+    }
+
+    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let index = binding.descriptor().page();
+        self.pages
+            .get_mut(index)
+            .map(|page| &mut page.slice)
+            .ok_or_else(|| missing("page", index))
+    }
+}
+
+/// Whether `page` stays: a free one is counted as found free once more, and
+/// released once found free often enough, or on an explicit `cleanup`.
+fn keep_used<Storage: StorageAllocator>(
+    page: &mut ExclusivePage,
+    cleanup: Cleanup,
+    storage: &mut Storage,
+    failures: &mut ErrorGraph,
+) -> bool {
+    page.free_count += u32::from(page.slice.is_free());
+    let unused = page.slice.is_free()
+        && (page.free_count >= DEALLOC_FREE_CHECK_COUNT || cleanup == Cleanup::Explicit);
+    if !unused {
+        return true;
+    }
+    release_slice(&mut page.slice, storage, failures);
+    false
 }
 
 impl core::fmt::Display for ExclusiveSliceReserver {
@@ -51,290 +285,146 @@ impl core::fmt::Display for ExclusiveSliceReserver {
         }
 
         if !self.pages.is_empty() {
-            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
+            f.write_fmt(format_args!("\n{}\n", self.report().usage))?;
         }
 
         Ok(())
     }
 }
 
-const SIZE_AVG_DECAY: f64 = 0.01;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::BytesStorage;
 
-// How many times to find the allocation 'free' before deallocating it.
-const DEALLOC_FREE_CHECK_COUNT: u32 = 5;
+    const ALIGNMENT_BYTES: u64 = 32;
 
-struct MemoryPage {
-    slice: Slice,
-    alloc_size: u64,
-    free_count: u32,
-}
-
-/// What an [`ExclusiveSliceReserver`] serves, and the pool index its pages carry.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ExclusiveLayout {
-    /// The largest allocation the pool accepts, a multiple of the alignment.
-    pub max_alloc_size: u64,
-    /// The alignment every page is allocated at.
-    pub alignment: u64,
-    /// The allocations an unused page waits through before it is released;
-    /// `u64::MAX` keeps it for good.
-    pub dealloc_period: u64,
-    /// The pool index a page's location carries.
-    pub pool: u8,
-}
-
-impl ExclusiveSliceReserver {
-    /// A pool serving what `layout` says.
-    pub(crate) fn new(layout: ExclusiveLayout) -> Self {
-        // Pages should be allocated to be aligned.
-        assert_eq!(layout.max_alloc_size % layout.alignment, 0);
-
-        Self {
-            pages: Vec::new(),
-            pages_tmp: Vec::new(),
-            alignment: layout.alignment,
-            dealloc_period: layout.dealloc_period,
-            last_dealloc_check: 0,
-            max_alloc_size: layout.max_alloc_size,
-            cur_avg_size: layout.max_alloc_size as f64 / 2.0,
-            location_base: MemoryLocation::new(layout.pool, 0, 0),
-            peak_pages: 0,
-            largest_alloc_bytes: 0,
-        }
+    fn pool(dealloc_period_count: u64) -> ExclusiveSliceReserver {
+        ExclusiveSliceReserver::new(ExclusiveLayout {
+            max_alloc_bytes: 1024,
+            alignment_bytes: ALIGNMENT_BYTES,
+            dealloc_period_count,
+            pool: 0,
+        })
     }
 
-    /// A structured snapshot of the pool: shape, usage, high-water marks.
-    pub(crate) fn report(&self) -> MemoryPoolReport {
-        MemoryPoolReport {
-            kind: MemoryPoolKind::Exclusive {
-                max_alloc_size: self.max_alloc_size,
-            },
-            usage: self.get_memory_usage(),
-            page_count: self.pages.len() as u64,
-            peak_page_count: self.peak_pages,
-            // This pool only allocates eagerly.
-            unmapped_page_count: 0,
-            largest_alloc_bytes: self.largest_alloc_bytes,
-        }
-    }
-
-    /// Finds a free page that can contain the given size
-    /// Returns a slice on that page if successful.
-    fn get_free_page(&mut self, size: u64) -> Option<&mut MemoryPage> {
-        // Return the smallest free page that fits.
-        self.pages
-            .iter_mut()
-            .filter(|page| page.alloc_size >= size && page.slice.is_free())
-            .min_by_key(|page| page.free_count)
-    }
-
-    fn alloc_page<Storage: StorageAllocator>(
-        &mut self,
-        storage: &mut Storage,
+    fn alloc(
+        pool: &mut ExclusiveSliceReserver,
+        storage: &mut BytesStorage,
         size: u64,
-    ) -> Result<(usize, &mut MemoryPage), IoError> {
-        let alloc_size = (self.cur_avg_size as u64)
-            .max(size)
-            .next_multiple_of(self.alignment);
-
-        let storage = storage.allocate_bytes(alloc_size)?;
-
-        let padding = calculate_padding(size, self.alignment);
-        let mut slice = Slice::new(storage, padding);
-
-        // Return a smaller part of the slice. By construction, we only ever
-        // get a page with a big enough size, so this is ok to do.
-        slice.storage.utilization = StorageUtilization {
-            offset_bytes: 0,
-            size_bytes: size,
-        };
-        slice.padding = padding;
-
-        self.pages.push(MemoryPage {
-            slice,
-            alloc_size,
-            // Start the allocation at 'almost ready to free'. Every use will decrement this.
-            // This means allocations start as "suspected as unused" and over time will be kept for longer.
-            free_count: DEALLOC_FREE_CHECK_COUNT - 1,
-        });
-        self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
-
-        let idx = self.pages.len() - 1;
-        Ok((idx, &mut self.pages[idx]))
-    }
-}
-
-impl SliceReserver for ExclusiveSliceReserver {
-    fn accept(&self, size: u64) -> bool {
-        self.max_alloc_size >= size
-    }
-
-    /// Reserves memory of specified size using the reserve algorithm, and return
-    /// a handle to the reserved memory.
-    ///
-    /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn try_reserve(
-        &mut self,
-        size: u64,
-        _failures: &mut ErrorGraph,
-    ) -> Option<ManagedMemoryHandle> {
-        self.cur_avg_size =
-            self.cur_avg_size * (1.0 - SIZE_AVG_DECAY) + size as f64 * SIZE_AVG_DECAY;
-
-        let padding = calculate_padding(size, self.alignment);
-
-        let handle = self.get_free_page(size).map(|page| {
-            // Return a smaller part of the slice. By construction, we only ever
-            // get a page with a big enough size, so this is ok to do.
-            page.slice.storage.utilization = StorageUtilization {
-                offset_bytes: 0,
-                size_bytes: size,
-            };
-            page.slice.padding = padding;
-            page.free_count = page.free_count.saturating_sub(1);
-            page.slice.handle.clone()
-        });
-
-        if handle.is_some() {
-            self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
-        }
-
-        handle
-    }
-
-    fn alloc<Storage: StorageAllocator>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        // Always eager: this pool serves the preset layouts and the auxiliary
-        // (staging/uniform/pinned) managers, whose buffers are written right
-        // after reservation — laziness would only move the same allocation
-        // one call later.
-        _mapping: PageMapping,
-        _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        if size > self.max_alloc_size {
-            return Err(IoError::BufferTooBig {
-                size,
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        let (idx, page) = self.alloc_page(storage, size)?;
-        let handle = page.slice.handle.clone();
-        let mut location = self.location_base;
-        location.page = idx as u16;
-        handle.descriptor().update_location(location);
-        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
-
-        Ok(handle)
+        pool.alloc(
+            storage,
+            size,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        )
     }
 
-    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
-        let page = self.pages.get(location.page as usize)?;
-        Some(PageGuard::allocation(page.slice.handle.to_binding()))
+    /// A size past the largest allocation is refused rather than allocated.
+    #[test_log::test]
+    fn an_allocation_past_the_limit_is_refused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::MAX);
+
+        assert!(!pool.accepts_bytes(1025));
+        assert!(matches!(
+            alloc(&mut pool, &mut storage, 1025),
+            Err(IoError::BufferTooBig { .. })
+        ));
     }
 
-    fn get_memory_usage(&self) -> MemoryUsage {
-        let used_slices: Vec<_> = self
-            .pages
-            .iter()
-            .filter(|page| !page.slice.is_free())
-            .collect();
+    /// A freed page serves any allocation it fits, with that allocation's
+    /// padding.
+    #[test_log::test]
+    fn a_freed_page_serves_any_allocation_it_fits() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::MAX);
+        core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
 
-        MemoryUsage {
-            allocation_count: used_slices.len() as u64,
-            in_use_bytes: used_slices
-                .iter()
-                .map(|page| page.slice.storage.size())
-                .sum(),
-            padding_bytes: used_slices.iter().map(|page| page.slice.padding).sum(),
-            reserved_bytes: self.pages.iter().map(|page| page.alloc_size).sum(),
-        }
+        let _reused = pool
+            .try_reserve(100, &mut ErrorGraph::default())
+            .expect("the freed page should fit 100 bytes");
+
+        let report = pool.report();
+        assert_eq!(report.page_count, 1);
+        assert_eq!(report.usage.padding_bytes, 28);
     }
 
-    fn cleanup<Storage: StorageAllocator>(
-        &mut self,
-        storage: &mut Storage,
-        alloc_nr: u64,
-        cleanup: Cleanup,
-        failures: &mut ErrorGraph,
-    ) {
-        // Check such that an alloc is free after at most dealloc_period.
-        let check_period = self.dealloc_period / (DEALLOC_FREE_CHECK_COUNT as u64);
+    /// A live page serves nothing else.
+    #[test_log::test]
+    fn a_live_page_serves_nothing_else() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::MAX);
+        let _live = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
 
-        if cleanup == Cleanup::Explicit || alloc_nr - self.last_dealloc_check >= check_period {
-            self.last_dealloc_check = alloc_nr;
-
-            for mut page in self.pages.drain(..) {
-                if page.slice.is_free() {
-                    page.free_count += 1;
-
-                    // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
-                    // without it being used in the meantime), deallocate it.
-                    if page.free_count >= DEALLOC_FREE_CHECK_COUNT || cleanup == Cleanup::Explicit {
-                        page.slice.tainted.clear(failures);
-                        storage.deallocate(page.slice.storage.id);
-                        continue;
-                    }
-                }
-
-                let page_index = self.pages_tmp.len();
-                page.slice
-                    .handle
-                    .descriptor()
-                    .update_page(page_index as u16);
-                self.pages_tmp.push(page);
-            }
-
-            core::mem::swap(&mut self.pages, &mut self.pages_tmp);
-        }
+        assert!(pool.try_reserve(100, &mut ErrorGraph::default()).is_none());
     }
 
-    fn bind(
-        &mut self,
-        old: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
-        cursor: u64,
-        failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
-        let id_old = old.descriptor();
-        let page = &mut self.pages[id_old.page()];
-        new.descriptor().update_location(id_old.location());
+    /// A free page goes back once enough checks found it free, and a live
+    /// one stays, renumbered.
+    #[test_log::test]
+    fn a_page_found_free_often_enough_goes_back() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::from(DEALLOC_FREE_CHECK_COUNT));
+        let freed = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
+        let live = alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit");
+        core::mem::drop(freed);
 
-        page.slice.bind(new, failures);
-        page.slice.cursor = cursor;
+        pool.cleanup(
+            &mut storage,
+            1,
+            Cleanup::Periodic,
+            &mut ErrorGraph::default(),
+        );
 
-        Ok(())
+        assert_eq!(pool.report().page_count, 1);
+        assert_eq!(live.descriptor().location().page, 0);
     }
 
-    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let binding_descriptor = binding.descriptor();
-        let page_index = binding_descriptor.page();
+    /// A periodic cleanup before a check is due changes nothing.
+    #[test_log::test]
+    fn a_cleanup_before_a_check_is_due_keeps_every_page() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(1000);
+        core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
 
-        let page = self
-            .pages
-            .get(page_index)
-            .ok_or_else(|| IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
-            })?;
+        pool.cleanup(
+            &mut storage,
+            1,
+            Cleanup::Periodic,
+            &mut ErrorGraph::default(),
+        );
 
-        Ok(&page.slice)
+        assert_eq!(pool.report().page_count, 1);
     }
 
-    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
-        let binding_descriptor = binding.descriptor();
-        let page_index = binding_descriptor.page();
+    /// An explicit cleanup returns every free page at once.
+    #[test_log::test]
+    fn an_explicit_cleanup_returns_every_free_page() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool(u64::MAX);
+        core::mem::drop(alloc(&mut pool, &mut storage, 512).expect("512 bytes should fit"));
 
-        let page = self
-            .pages
-            .get_mut(page_index)
-            .ok_or_else(|| IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
-            })?;
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Explicit,
+            &mut ErrorGraph::default(),
+        );
 
-        Ok(&mut page.slice)
+        assert_eq!(pool.report().page_count, 0);
+    }
+
+    /// A pool whose largest allocation breaks the alignment is refused.
+    #[test_log::test]
+    #[should_panic(expected = "a multiple of the alignment")]
+    fn a_misaligned_layout_is_refused() {
+        ExclusiveSliceReserver::new(ExclusiveLayout {
+            max_alloc_bytes: 1000,
+            alignment_bytes: ALIGNMENT_BYTES,
+            dealloc_period_count: u64::MAX,
+            pool: 0,
+        });
     }
 }

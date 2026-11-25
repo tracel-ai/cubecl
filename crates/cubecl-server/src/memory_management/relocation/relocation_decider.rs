@@ -3,15 +3,13 @@
 use super::TargetRoom;
 
 /// What a [`RelocationDecider`] reads of the pools a workload's allocations
-/// are carved from.
+/// are carved from, while a growth left some of them outdated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArenaState {
+pub(crate) struct ArenaState {
     /// The size the current pages are carved at, which the next page has.
-    pub page_size: u64,
-    /// Whether any pool is outdated: something a relocation could empty.
-    pub has_outdated: bool,
+    pub page_size_bytes: u64,
     /// Whether every slot holds a pool, so the next growth has nowhere to go.
-    pub full: bool,
+    pub is_full: bool,
     /// What a relocation plan reads, to tell whether anything changed since
     /// the last plan found nothing to move.
     pub shape: ArenaShape,
@@ -24,46 +22,50 @@ pub struct ArenaState {
 /// as their owners drop them: that room is found by the plan after the next
 /// page, growth or explicit cleanup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArenaShape {
+pub(crate) struct ArenaShape {
     /// Pages the current pool holds.
     pub current_page_count: u64,
     /// Pools a growth left behind.
     pub outdated_pool_count: usize,
     /// Pages those pools hold.
-    pub outdated_pages: u64,
+    pub outdated_page_count: u64,
     /// Of those, the ones a guard keeps where they are.
     pub outdated_guarded_count: usize,
 }
 
 /// Decides when a relocation is worth its copies: what the device holds, and
 /// how the last relocation went.
-#[derive(Debug, Clone)]
-pub struct RelocationDecider {
-    /// What the device holds in total, where it says.
-    capacity: Option<u64>,
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RelocationDecider {
     /// The pools as the last relocation found them with nothing to move, so
     /// the next is not planned until something changed.
     stalled: Option<ArenaShape>,
 }
 
-/// Whether a relocation is wanted, before the bytes the device holds are
-/// known: plain data, so the caller can gather those bytes from every stream
-/// without anything borrowed.
+/// Whether a relocation is wanted, and what stands in its way: plain data, so
+/// the caller can [resolve](Self::resolve) it against the bytes every stream
+/// holds without anything borrowed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelocationNeed {
-    /// Nothing is outdated, the last relocation found nothing to move and
-    /// nothing changed since, or the device reports no capacity to judge by.
+    /// A stream records a graph: the pages its recording touches keep their
+    /// addresses until it seals, so nothing moves.
+    Recording,
+    /// Nothing is outdated, so a relocation has nothing to move.
     Nothing,
-    /// Every page size the pools track is taken.
-    ArenaFull,
-    /// Wanted once the next page of `page_size` would leave a device of
-    /// `capacity` bytes less than another page of room.
+    /// Something is outdated, but no relocation is wanted now: the last one
+    /// found nothing to move and nothing changed since, the device reports no
+    /// capacity to judge by, or it still has room for another page.
+    Settled,
+    /// Wanted once the next page of `page_size_bytes` would leave a device of
+    /// `capacity_bytes` less than another page of room.
     UnderPressure {
         /// What the device holds in total.
-        capacity: u64,
+        capacity_bytes: u64,
         /// The size of the next page.
-        page_size: u64,
+        page_size_bytes: u64,
     },
+    /// A relocation is wanted now, for the reason it carries.
+    Wanted(RelocationReason),
 }
 
 /// Why a relocation runs, which decides where it may put what it moves.
@@ -93,58 +95,85 @@ enum MemoryPressure {
 }
 
 impl RelocationDecider {
-    /// A trigger for a device that holds `capacity` bytes, where it says.
-    pub fn new(capacity: Option<u64>) -> Self {
-        Self {
-            capacity,
-            stalled: None,
+    /// Whether the outdated pools `arena` describes want a relocation, on a
+    /// device that holds `capacity` bytes where it says.
+    pub(crate) fn decide(&self, arena: &ArenaState, capacity: Option<u64>) -> RelocationNeed {
+        if self.stalled == Some(arena.shape) {
+            return RelocationNeed::Settled;
         }
-    }
-
-    /// Whether the pools in `arena` want a relocation.
-    pub fn need(&self, arena: &ArenaState) -> RelocationNeed {
-        if !arena.has_outdated || self.stalled == Some(arena.shape) {
-            return RelocationNeed::Nothing;
+        if arena.is_full {
+            return RelocationNeed::Wanted(RelocationReason::ArenaFull);
         }
-        if arena.full {
-            return RelocationNeed::ArenaFull;
-        }
-        match self.capacity {
-            Some(capacity) => RelocationNeed::UnderPressure {
-                capacity,
-                page_size: arena.page_size,
-            },
-            None => RelocationNeed::Nothing,
-        }
+        capacity.map_or(RelocationNeed::Settled, |capacity_bytes| {
+            RelocationNeed::UnderPressure {
+                capacity_bytes,
+                page_size_bytes: arena.page_size_bytes,
+            }
+        })
     }
 
     /// A relocation moved something: the next is planned whenever it is
     /// wanted.
-    pub fn moved(&mut self) {
+    pub(crate) fn moved(&mut self) {
         self.stalled = None;
     }
 
-    /// A relocation moved nothing: none is planned again until the pools in
-    /// `arena` change.
-    pub fn stalled(&mut self, arena: &ArenaState) {
+    /// A relocation moved nothing: none is planned again until the pools
+    /// `arena` describes change.
+    pub(crate) fn stalled(&mut self, arena: &ArenaState) {
         self.stalled = Some(arena.shape);
     }
 }
 
 impl RelocationNeed {
-    /// Why to relocate now, if at all, on a device whose memories hold
-    /// `allocated` bytes. Only asked when the answer depends on it.
-    pub fn reason(self, allocated: impl FnOnce() -> u64) -> Option<RelocationReason> {
+    /// This need on a device whose memories hold `allocated` bytes, read only
+    /// when the answer depends on them: pressure is resolved into a wanted
+    /// relocation or a settled one.
+    pub fn resolve(self, allocated: impl FnOnce() -> u64) -> RelocationNeed {
         match self {
-            RelocationNeed::Nothing => None,
-            RelocationNeed::ArenaFull => Some(RelocationReason::ArenaFull),
             RelocationNeed::UnderPressure {
-                capacity,
-                page_size,
-            } => match MemoryPressure::new(allocated(), capacity, page_size) {
-                MemoryPressure::High => Some(RelocationReason::MemoryPressure),
-                MemoryPressure::Low => None,
-            },
+                capacity_bytes,
+                page_size_bytes,
+            } => MemoryPressure::new(allocated(), capacity_bytes, page_size_bytes).need(),
+            need => need,
+        }
+    }
+
+    /// This need, or [`Recording`](Self::Recording) when a stream is
+    /// `recording` a graph.
+    pub fn while_recording(self, recording: bool) -> RelocationNeed {
+        match recording {
+            true => RelocationNeed::Recording,
+            false => self,
+        }
+    }
+
+    /// The need of a device whose streams' memories need `needs`:
+    /// [`Recording`](Self::Recording) when one records, [`Settled`](Self::Settled)
+    /// when something is outdated in one of them, [`Nothing`](Self::Nothing)
+    /// otherwise.
+    pub fn of_device(needs: impl IntoIterator<Item = RelocationNeed>) -> RelocationNeed {
+        needs
+            .into_iter()
+            .fold(RelocationNeed::Nothing, RelocationNeed::join)
+    }
+
+    /// Whether something is outdated for a relocation to move, wanted now or
+    /// not.
+    pub fn has_outdated(self) -> bool {
+        !matches!(self, RelocationNeed::Recording | RelocationNeed::Nothing)
+    }
+}
+
+impl RelocationNeed {
+    /// The need of two memories of one device, as [`of_device`](Self::of_device) joins them.
+    fn join(self, other: RelocationNeed) -> RelocationNeed {
+        match (self, other) {
+            (RelocationNeed::Recording, _) | (_, RelocationNeed::Recording) => {
+                RelocationNeed::Recording
+            }
+            (RelocationNeed::Nothing, RelocationNeed::Nothing) => RelocationNeed::Nothing,
+            _ => RelocationNeed::Settled,
         }
     }
 }
@@ -164,9 +193,17 @@ impl MemoryPressure {
     /// The pressure on a device that holds `allocated` of its `capacity`
     /// bytes, for a next page of `page_size`.
     fn new(allocated: u64, capacity: u64, page_size: u64) -> Self {
-        match allocated + page_size > capacity.saturating_sub(page_size) {
+        match allocated.saturating_add(page_size) > capacity.saturating_sub(page_size) {
             true => MemoryPressure::High,
             false => MemoryPressure::Low,
+        }
+    }
+
+    /// What this pressure asks of a relocation.
+    fn need(self) -> RelocationNeed {
+        match self {
+            MemoryPressure::High => RelocationNeed::Wanted(RelocationReason::MemoryPressure),
+            MemoryPressure::Low => RelocationNeed::Settled,
         }
     }
 }
@@ -177,15 +214,14 @@ mod tests {
 
     const MIB: u64 = 1024 * 1024;
 
-    fn arena(page_size: u64) -> ArenaState {
+    fn arena(page_size_bytes: u64) -> ArenaState {
         ArenaState {
-            page_size,
-            has_outdated: true,
-            full: false,
+            page_size_bytes,
+            is_full: false,
             shape: ArenaShape {
                 current_page_count: 1,
                 outdated_pool_count: 1,
-                outdated_pages: 1,
+                outdated_page_count: 1,
                 outdated_guarded_count: 0,
             },
         }
@@ -193,51 +229,55 @@ mod tests {
 
     #[test]
     fn pressure_is_high_once_the_next_page_leaves_less_than_another() {
-        let need = RelocationDecider::new(Some(24 * MIB)).need(&arena(4 * MIB));
-        assert_eq!(need.reason(|| 10 * MIB), None);
+        let need = RelocationDecider::default().decide(&arena(4 * MIB), Some(24 * MIB));
+        assert_eq!(need.resolve(|| 10 * MIB), RelocationNeed::Settled);
         assert_eq!(
-            need.reason(|| 17 * MIB),
-            Some(RelocationReason::MemoryPressure)
+            need.resolve(|| 17 * MIB),
+            RelocationNeed::Wanted(RelocationReason::MemoryPressure)
         );
     }
 
     #[test]
-    fn nothing_outdated_needs_nothing_and_sums_nothing() {
-        let state = ArenaState {
-            has_outdated: false,
-            ..arena(4 * MIB)
-        };
-        let need = RelocationDecider::new(Some(MIB)).need(&state);
-        assert_eq!(need, RelocationNeed::Nothing);
-        assert_eq!(need.reason(|| panic!("the bytes are never summed")), None);
+    fn only_pressure_reads_the_bytes() {
+        for need in [
+            RelocationNeed::Nothing,
+            RelocationNeed::Settled,
+            RelocationNeed::Recording,
+            RelocationNeed::Wanted(RelocationReason::Capture),
+        ] {
+            assert_eq!(need.resolve(|| panic!("the bytes are never summed")), need);
+        }
     }
 
     #[test]
     fn a_full_arena_relocates_whatever_the_device_holds() {
         let state = ArenaState {
-            full: true,
+            is_full: true,
             ..arena(4 * MIB)
         };
         assert_eq!(
-            RelocationDecider::new(None).need(&state).reason(|| 0),
-            Some(RelocationReason::ArenaFull)
+            RelocationDecider::default().decide(&state, None),
+            RelocationNeed::Wanted(RelocationReason::ArenaFull)
         );
     }
 
     #[test]
     fn a_device_that_reports_no_capacity_is_not_judged() {
         assert_eq!(
-            RelocationDecider::new(None).need(&arena(MIB)),
-            RelocationNeed::Nothing
+            RelocationDecider::default().decide(&arena(MIB), None),
+            RelocationNeed::Settled
         );
     }
 
     #[test]
     fn a_relocation_that_moved_nothing_waits_for_the_pools_to_change() {
-        let mut trigger = RelocationDecider::new(Some(24 * MIB));
+        let mut decider = RelocationDecider::default();
         let state = arena(4 * MIB);
-        trigger.stalled(&state);
-        assert_eq!(trigger.need(&state), RelocationNeed::Nothing);
+        decider.stalled(&state);
+        assert_eq!(
+            decider.decide(&state, Some(24 * MIB)),
+            RelocationNeed::Settled
+        );
 
         let grown = ArenaState {
             shape: ArenaShape {
@@ -246,6 +286,63 @@ mod tests {
             },
             ..state
         };
-        assert_ne!(trigger.need(&grown), RelocationNeed::Nothing);
+        assert_ne!(
+            decider.decide(&grown, Some(24 * MIB)),
+            RelocationNeed::Settled
+        );
+    }
+
+    #[test]
+    fn a_relocation_that_moved_something_is_planned_again() {
+        let mut decider = RelocationDecider::default();
+        let state = arena(4 * MIB);
+        decider.stalled(&state);
+
+        decider.moved();
+
+        assert_ne!(
+            decider.decide(&state, Some(24 * MIB)),
+            RelocationNeed::Settled
+        );
+    }
+
+    #[test]
+    fn a_recording_stream_needs_nothing_moved() {
+        assert_eq!(
+            RelocationNeed::Settled.while_recording(true),
+            RelocationNeed::Recording
+        );
+        assert_eq!(
+            RelocationNeed::Settled.while_recording(false),
+            RelocationNeed::Settled
+        );
+    }
+
+    #[test]
+    fn a_device_needs_what_its_streams_need_together() {
+        use RelocationNeed::*;
+        assert_eq!(RelocationNeed::of_device([Nothing, Nothing]), Nothing);
+        assert_eq!(RelocationNeed::of_device([Nothing, Settled]), Settled);
+        assert_eq!(
+            RelocationNeed::of_device([Wanted(RelocationReason::ArenaFull), Nothing]),
+            Settled
+        );
+        assert_eq!(RelocationNeed::of_device([Settled, Recording]), Recording);
+    }
+
+    #[test]
+    fn only_a_need_with_something_outdated_has_it() {
+        assert!(!RelocationNeed::Recording.has_outdated());
+        assert!(!RelocationNeed::Nothing.has_outdated());
+        assert!(RelocationNeed::Settled.has_outdated());
+        assert!(RelocationNeed::Wanted(RelocationReason::Explicit).has_outdated());
+    }
+
+    #[test]
+    fn memory_is_short_only_under_explicit_and_pressure_relocations() {
+        assert_eq!(RelocationReason::Explicit.room(), TargetRoom::Held);
+        assert_eq!(RelocationReason::MemoryPressure.room(), TargetRoom::Held);
+        assert_eq!(RelocationReason::ArenaFull.room(), TargetRoom::MayAllocate);
+        assert_eq!(RelocationReason::Capture.room(), TargetRoom::MayAllocate);
     }
 }

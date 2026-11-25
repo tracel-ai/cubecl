@@ -1,13 +1,13 @@
-/// Defines the thresholds that determine when a [`PendingDropQueue`] should be
-/// flushed.
+/// The thresholds past which a [`PendingDropQueue`](super::PendingDropQueue)
+/// asks to be flushed.
 ///
-/// A flush is triggered when **either** limit is exceeded — whichever comes
-/// first. Set a field to `u32::MAX` / `usize::MAX` to effectively disable it.
+/// A flush is wanted when **either** limit is reached — whichever comes
+/// first. A limit of `u32::MAX` is never reached.
 #[derive(Debug)]
 pub struct FlushingPolicy {
     /// Flush when this many allocations have been staged.
     pub max_staged_count: u32,
-    /// Flush when the total staged size reaches this many bytes.
+    /// Flush when the staged allocations total this many bytes.
     pub max_staged_bytes: u32,
 }
 
@@ -20,37 +20,37 @@ impl Default for FlushingPolicy {
     }
 }
 
-/// Tracks staged allocations and evaluates them against a [`FlushingPolicy`].
+/// Tracks what is staged and evaluates it against a [`FlushingPolicy`].
 #[derive(Default, Debug)]
 pub(crate) struct FlushTracker {
-    bytes_count: u32,
-    bytes_size: u32,
+    staged_count: u32,
+    staged_bytes: u32,
 }
 
 impl FlushTracker {
-    /// Record a newly staged allocation of `len` bytes.
-    pub(crate) fn register(&mut self, len: usize) {
-        self.bytes_count = self.bytes_count.saturating_add(1);
-        self.bytes_size = self
-            .bytes_size
-            .saturating_add(u32::try_from(len).unwrap_or(u32::MAX));
+    /// Count a newly staged allocation of `staged_bytes`, saturating at the
+    /// largest count.
+    pub(crate) fn track_staged_bytes(&mut self, staged_bytes: usize) {
+        self.staged_count = self.staged_count.saturating_add(1);
+        self.staged_bytes = self
+            .staged_bytes
+            .saturating_add(u32::try_from(staged_bytes).unwrap_or(u32::MAX));
     }
 
-    /// Reset all counters, typically called after a flush.
+    /// Forget everything staged, once a flush took it.
     pub(crate) fn reset(&mut self) {
-        self.bytes_count = 0;
-        self.bytes_size = 0;
+        self.staged_count = 0;
+        self.staged_bytes = 0;
     }
 
-    /// Returns `true` if either threshold in `policy` has been reached.
+    /// Whether either threshold of `policy` has been reached.
     pub(crate) fn should_flush(&self, policy: &FlushingPolicy) -> bool {
-        self.bytes_count >= policy.max_staged_count || self.bytes_size >= policy.max_staged_bytes
+        self.staged_count >= policy.max_staged_count || self.staged_bytes >= policy.max_staged_bytes
     }
 }
 
 #[cfg(test)]
-mod policy_tests {
-
+mod tests {
     use super::*;
 
     fn policy() -> FlushingPolicy {
@@ -60,66 +60,57 @@ mod policy_tests {
         }
     }
 
-    fn state() -> FlushTracker {
-        FlushTracker {
-            bytes_count: 0,
-            bytes_size: 0,
-        }
-    }
-
     #[test]
     fn no_flush_when_below_both_thresholds() {
-        let s = state();
-        assert!(!s.should_flush(&policy()));
+        let tracker = FlushTracker::default();
+        assert!(!tracker.should_flush(&policy()));
     }
 
     #[test]
     fn flush_when_count_threshold_reached() {
-        let mut s = state();
+        let mut tracker = FlushTracker::default();
         for _ in 0..4 {
-            s.register(1);
+            tracker.track_staged_bytes(1);
         }
-        assert!(s.should_flush(&policy()));
-    }
-
-    #[test]
-    fn flush_when_size_threshold_reached() {
-        let mut s = state();
-        s.register(101);
-        assert!(s.should_flush(&policy()));
+        assert!(tracker.should_flush(&policy()));
     }
 
     #[test]
     fn flush_triggered_by_whichever_limit_comes_first() {
-        let mut s = state();
+        let mut tracker = FlushTracker::default();
         // Only 2 allocations but already over the size limit.
-        s.register(60);
-        s.register(60);
-        assert!(s.should_flush(&policy()));
+        tracker.track_staged_bytes(60);
+        tracker.track_staged_bytes(60);
+        assert!(tracker.should_flush(&policy()));
     }
 
     #[test]
     fn register_saturates_instead_of_overflowing() {
         // Regression test for #1359: staging allocations without an intervening
         // reset must not panic with "attempt to add with overflow".
-        let mut s = FlushTracker {
-            bytes_count: u32::MAX,
-            bytes_size: u32::MAX - 1,
+        let mut tracker = FlushTracker {
+            staged_count: u32::MAX,
+            staged_bytes: u32::MAX - 1,
         };
-        s.register(8);
-        assert_eq!(s.bytes_count, u32::MAX);
-        assert_eq!(s.bytes_size, u32::MAX);
-        assert!(s.should_flush(&policy()));
+        tracker.track_staged_bytes(8);
+        assert_eq!(tracker.staged_count, u32::MAX);
+        assert_eq!(tracker.staged_bytes, u32::MAX);
+    }
+
+    #[test]
+    fn a_size_past_a_u32_counts_as_the_largest() {
+        let mut tracker = FlushTracker::default();
+        tracker.track_staged_bytes(usize::MAX);
+        assert_eq!(tracker.staged_bytes, u32::MAX);
     }
 
     #[test]
     fn reset_clears_state() {
-        let mut s = state();
+        let mut tracker = FlushTracker::default();
         for _ in 0..4 {
-            s.register(1);
+            tracker.track_staged_bytes(1);
         }
-        assert!(s.should_flush(&policy()));
-        s.reset();
-        assert!(!s.should_flush(&policy()));
+        tracker.reset();
+        assert!(!tracker.should_flush(&policy()));
     }
 }

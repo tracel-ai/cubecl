@@ -14,30 +14,33 @@ use alloc::vec::Vec;
 /// read-back that points into the page on a runtime that reads in place.
 /// Moving the allocation would leave it pointing at freed bytes.
 #[derive(Debug)]
-pub struct OutdatedPages {
+pub(crate) struct OutdatedPages {
+    /// The movable pages, in the order they were found until
+    /// [`into_plan`](Self::into_plan) sorts them (Position).
     pages: Vec<MovablePage>,
 }
 
 /// An outdated page whose live allocations can all move.
 #[derive(Debug)]
-pub struct MovablePage {
-    /// The allocations to move, as their owners hold them.
+pub(crate) struct MovablePage {
+    /// The allocations to move, as their owners hold them, in the page's
+    /// offset order (Arrival).
     pub live: Vec<LiveAllocation>,
 }
 
 /// One live allocation on an outdated page.
 #[derive(Debug)]
-pub struct LiveAllocation {
+pub(crate) struct LiveAllocation {
     /// The allocation, bound rather than held: a handle of the relocation's own would count
-    /// among its owners' while the move runs (see [`ManagedMemoryHandle::to_binding`]).
+    /// among its owners' while the move runs (see [`ManagedMemoryHandle::to_binding`](crate::memory_management::ManagedMemoryHandle::to_binding)).
     pub handle: ManagedMemoryBinding,
-    /// Its size in bytes, which the move copies.
-    pub size: u64,
+    /// The bytes the move copies.
+    pub size_bytes: u64,
 }
 
 impl OutdatedPages {
     /// The movable pages among `pages`.
-    pub fn new<'a>(pages: impl IntoIterator<Item = &'a MemoryPage>) -> Self {
+    pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a MemoryPage>) -> Self {
         Self {
             pages: pages
                 .into_iter()
@@ -50,14 +53,15 @@ impl OutdatedPages {
     /// The pages to empty, cheapest first — the fewest live bytes — so that
     /// when the room for targets runs out, the pages already emptied are as
     /// many as that room allowed.
-    pub fn plan(mut self) -> Vec<MovablePage> {
+    pub(crate) fn into_plan(mut self) -> Vec<MovablePage> {
         self.pages.sort_by_key(MovablePage::live_bytes);
         self.pages
     }
 }
 
 impl MovablePage {
-    /// What `page` holds, `None` when nothing live is on it.
+    /// What `page` holds, `None` when nothing live is on it or one of its
+    /// allocations is bound.
     fn new(page: &MemoryPage) -> Option<Self> {
         if page.live().any(|slice| slice.handle.is_bound()) {
             return None;
@@ -66,21 +70,29 @@ impl MovablePage {
             .live()
             .map(|slice| LiveAllocation {
                 handle: slice.handle.to_binding(),
-                size: slice.storage.size(),
+                size_bytes: slice.storage.size(),
             })
             .collect();
         (!live.is_empty()).then_some(Self { live })
     }
 
     /// The bytes moving this page's allocations copies.
-    pub fn live_bytes(&self) -> u64 {
-        self.live.iter().map(|allocation| allocation.size).sum()
+    pub(crate) fn live_bytes(&self) -> u64 {
+        self.live
+            .iter()
+            .map(|allocation| allocation.size_bytes)
+            .sum()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_management::{
+        ManagedMemoryHandle, MemoryLocation,
+        memory_pool::{MemoryPage, PageMapping},
+    };
+    use crate::storage::{StorageHandle, StorageId, StorageUtilization};
     use alloc::vec;
 
     #[test]
@@ -88,17 +100,54 @@ mod tests {
         let plan = OutdatedPages {
             pages: vec![movable(&[3, 2]), movable(&[1]), movable(&[4])],
         }
-        .plan();
+        .into_plan();
         assert_eq!(sizes(&plan), [vec![1], vec![4], vec![3, 2]]);
+    }
+
+    /// A page with nothing live, a guarded one and one holding a bound
+    /// allocation are not movable; one with live allocations is.
+    #[test]
+    fn only_unguarded_pages_with_unbound_live_allocations_move() {
+        let mut empty = page();
+        let mut guarded = page();
+        let mut bound = page();
+        let mut movable = page();
+        core::mem::drop(empty.try_reserve_bytes(64));
+        let _guarded_slice = guarded.try_reserve_bytes(64);
+        let _guard = guarded.guard();
+        let bound_slice = bound
+            .try_reserve_bytes(64)
+            .expect("the page should have room");
+        let _binding = bound_slice.clone().binding();
+        let _movable_slice = movable.try_reserve_bytes(64);
+
+        let plan = OutdatedPages::new([&empty, &guarded, &bound, &movable]).into_plan();
+
+        assert_eq!(sizes(&plan), [vec![64]]);
+    }
+
+    fn page() -> MemoryPage {
+        MemoryPage::new(
+            StorageHandle::new(
+                StorageId::new(),
+                StorageUtilization {
+                    offset_bytes: 0,
+                    size_bytes: 1024,
+                },
+            ),
+            4,
+            MemoryLocation::new(0, 0, 0),
+            PageMapping::Eager,
+        )
     }
 
     fn movable(sizes: &[u64]) -> MovablePage {
         MovablePage {
             live: sizes
                 .iter()
-                .map(|&size| LiveAllocation {
-                    handle: crate::memory_management::ManagedMemoryHandle::new().binding(),
-                    size,
+                .map(|&size_bytes| LiveAllocation {
+                    handle: ManagedMemoryHandle::new().binding(),
+                    size_bytes,
                 })
                 .collect(),
         }
@@ -106,7 +155,12 @@ mod tests {
 
     fn sizes(plan: &[MovablePage]) -> Vec<Vec<u64>> {
         plan.iter()
-            .map(|page| page.live.iter().map(|allocation| allocation.size).collect())
+            .map(|page| {
+                page.live
+                    .iter()
+                    .map(|allocation| allocation.size_bytes)
+                    .collect()
+            })
             .collect()
     }
 }

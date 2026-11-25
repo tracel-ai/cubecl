@@ -13,7 +13,9 @@ use crate::{
     memory_management::{
         AllocationKind, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
         MemoryManagement, MemoryManagementOptions, MemoryPoolKind, PageUpdate,
-        relocation::{HostRelocationCopier, RelocationCopier, RelocationReason, StorageCopy},
+        relocation::{
+            HostRelocationCopier, RelocationCopier, RelocationNeed, RelocationReason, StorageCopy,
+        },
     },
     server::{IoError, ServerError},
     storage::BytesStorage,
@@ -76,7 +78,7 @@ fn pool(memory: &MemoryManagement<BytesStorage>) -> Pool {
             } => Some((page_size, outdated_pages)),
             _ => None,
         })
-        .expect("the layer carves allocations from adaptive pages");
+        .expect("the layer should carve allocations from adaptive pages");
     Pool {
         page_size: current.0,
         pages: report.iter().map(|pool| pool.page_count).sum(),
@@ -87,7 +89,7 @@ fn pool(memory: &MemoryManagement<BytesStorage>) -> Pool {
 fn reserve(memory: &mut MemoryManagement<BytesStorage>, size: u64) -> ManagedMemoryHandle {
     memory
         .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
-        .unwrap()
+        .expect("the memory should serve the reservation")
 }
 
 /// Where an allocation sits: its pool, page and slice.
@@ -105,14 +107,14 @@ fn page_of(handle: &ManagedMemoryHandle) -> (u8, u16) {
 fn fill(memory: &mut MemoryManagement<BytesStorage>, handle: &ManagedMemoryHandle, byte: u8) {
     let mut resource = memory
         .get_resource(handle.clone().binding(), None, None)
-        .unwrap();
+        .expect("the binding should resolve");
     resource.write().fill(byte);
 }
 
 fn contents(memory: &mut MemoryManagement<BytesStorage>, handle: &ManagedMemoryHandle) -> u8 {
     let resource = memory
         .get_resource(handle.clone().binding(), None, None)
-        .unwrap();
+        .expect("the binding should resolve");
     let bytes = resource.read();
     assert!(bytes.iter().all(|byte| *byte == bytes[0]));
     bytes[0]
@@ -153,7 +155,13 @@ impl RelocationCopier<BytesStorage> for RefusedCopies {
 /// Whether a relocation is wanted, as the server asks before a
 /// reservation, with this memory the only one on the device.
 fn relocation(memory: &MemoryManagement<BytesStorage>) -> Option<RelocationReason> {
-    memory.relocation_need().reason(|| memory.bytes_allocated())
+    match memory
+        .relocation_need()
+        .resolve(|| memory.bytes_allocated())
+    {
+        RelocationNeed::Wanted(reason) => Some(reason),
+        _ => None,
+    }
 }
 
 /// A device with room to spare says nothing; one whose next page would
@@ -249,7 +257,7 @@ fn kept_metadata_and_small_inputs_take_no_small_page_per_graph() {
         PageUpdate::Allow,
         AllocationKind::GraphIntermediate,
     )
-    .unwrap();
+    .expect("the memory should serve the reservation");
     let _graph = memory.guard(temporary.descriptor().location());
     drop(temporary);
     let mut kept = alloc::vec::Vec::new();
@@ -264,7 +272,7 @@ fn kept_metadata_and_small_inputs_take_no_small_page_per_graph() {
                 AllocationKind::GraphOutput,
                 failures,
             )
-            .unwrap();
+            .expect("the memory should serve the reservation");
         let input = reserve(&mut memory, 4 * KIB);
         for handle in [metadata, input] {
             let graph = memory.guard(handle.descriptor().location());
@@ -332,7 +340,7 @@ fn small_eager_work_takes_no_kept_apart_room_while_the_small_pool_is_unpinned() 
         PageUpdate::Allow,
         AllocationKind::GraphOutput,
     )
-    .unwrap();
+    .expect("the memory should serve the reservation");
 
     let input = reserve(&mut memory, 4 * KIB);
 
@@ -378,7 +386,7 @@ fn a_kept_small_buffer_on_a_pinned_page_moves_apart() {
         PageUpdate::Allow,
         AllocationKind::GraphIntermediate,
     )
-    .unwrap();
+    .expect("the memory should serve the reservation");
     let _graph = memory.guard(temporary.descriptor().location());
     drop(temporary);
     let kept = reserve_kind(
@@ -387,7 +395,7 @@ fn a_kept_small_buffer_on_a_pinned_page_moves_apart() {
         PageUpdate::Allow,
         AllocationKind::GraphIntermediate,
     )
-    .unwrap();
+    .expect("the memory should serve the reservation");
     fill(&mut memory, &kept, 7);
 
     memory
@@ -396,7 +404,7 @@ fn a_kept_small_buffer_on_a_pinned_page_moves_apart() {
             &mut HostRelocationCopier,
             &mut ErrorGraph::default(),
         )
-        .unwrap();
+        .expect("the kept buffer should move apart");
 
     assert_eq!(
         (
@@ -479,7 +487,7 @@ fn an_add_only_reservation_releases_nothing() {
 
     let _kept = memory
         .reserve(MIB, PageUpdate::AddOnly, &mut ErrorGraph::default())
-        .unwrap();
+        .expect("the memory should serve the reservation");
     assert_eq!(pool(&memory).outdated, 1, "the emptied page is still held");
 
     let _tick = reserve(&mut memory, MIB);
@@ -633,7 +641,7 @@ fn a_forbidden_page_update_serves_only_the_room_held() {
 
     let _held = memory
         .reserve(MIB, PageUpdate::Forbidden, &mut ErrorGraph::default())
-        .expect("the page held has room for it");
+        .expect("the page held should have room for it");
     let refused = memory.reserve(4 * MIB, PageUpdate::Forbidden, &mut ErrorGraph::default());
     assert!(
         matches!(refused, Err(IoError::PageUpdateForbidden { .. })),

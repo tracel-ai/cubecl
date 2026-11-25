@@ -13,41 +13,39 @@ use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::MemoryDeviceProperties;
 
-/// The smallest bucket, in bytes.
+/// The smallest bucket.
 const MIN_BUCKET_BYTES: u64 = 1024 * 32;
 /// How many buckets span the sizes up to the device's largest page, before
 /// alignment folds some of them together.
 const MAX_BUCKET_COUNT: usize = 24;
-/// The allocations a page waits through, unused, before it is released.
+/// The reservations a page waits through, unused, before it is released.
 const BASE_DEALLOC_PERIOD_COUNT: u64 = 5000;
 /// Bytes of page size that add another [`BASE_DEALLOC_PERIOD_COUNT`] to the wait.
 const DEALLOC_SCALE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// One page per allocation, in exponentially spaced size buckets: what a
-/// device that cannot sub-slice gets, and what a staging or uniform pool
-/// wants whatever the device. Nothing is ever outdated here.
+/// Reserves one page per allocation, in exponentially spaced size buckets:
+/// what a device that cannot sub-slice gets, and what a staging or uniform
+/// pool wants whatever the device. Nothing is ever outdated here.
 ///
 /// A bucket is addressed by the index a slice's location carries.
-pub struct BucketReserver {
+pub(crate) struct BucketReserver {
+    /// The buckets, smallest first, read by the index a location carries
+    /// (Position) and scanned in size order for the first that accepts a
+    /// size (Ordered).
     buckets: Vec<ExclusiveSliceReserver>,
 }
 
 impl BucketReserver {
     /// The buckets for a device with `properties`.
-    pub fn new(properties: &MemoryDeviceProperties) -> Self {
+    pub(crate) fn new(properties: &MemoryDeviceProperties) -> Self {
         let buckets = bucket_sizes(properties.max_page_size, properties.alignment)
             .into_iter()
             .enumerate()
             .map(|(index, size)| {
-                // Larger pages wait longer before going back: they cost more to
-                // allocate again.
-                let dealloc_period = (BASE_DEALLOC_PERIOD_COUNT as f64
-                    * (1.0 + size as f64 / DEALLOC_SCALE_BYTES as f64).round())
-                    as u64;
                 ExclusiveSliceReserver::new(ExclusiveLayout {
-                    max_alloc_size: size,
-                    alignment: properties.alignment,
-                    dealloc_period,
+                    max_alloc_bytes: size,
+                    alignment_bytes: properties.alignment,
+                    dealloc_period_count: dealloc_period_for_bytes(size),
                     pool: index as u8,
                 })
             })
@@ -55,14 +53,17 @@ impl BucketReserver {
         Self { buckets }
     }
 
-    /// The bucket `index` names.
-    pub fn pool(&self, index: u8) -> Option<&ExclusiveSliceReserver> {
-        self.buckets.get(index as usize)
+    /// The bucket `pool_index` names.
+    pub(crate) fn pool_by_index(&self, pool_index: u8) -> Option<&ExclusiveSliceReserver> {
+        self.buckets.get(pool_index as usize)
     }
 
-    /// The bucket `index` names, mutably.
-    pub fn pool_mut(&mut self, index: u8) -> Option<&mut ExclusiveSliceReserver> {
-        self.buckets.get_mut(index as usize)
+    /// The bucket `pool_index` names, mutably.
+    pub(crate) fn pool_by_index_mut(
+        &mut self,
+        pool_index: u8,
+    ) -> Option<&mut ExclusiveSliceReserver> {
+        self.buckets.get_mut(pool_index as usize)
     }
 
     /// Reserve `size` bytes on a page a bucket already holds, else allocate one
@@ -72,7 +73,7 @@ impl BucketReserver {
     ///
     /// [`IoError::BufferTooBig`] when no bucket accepts the size, and whatever
     /// the device refused when one does.
-    pub fn reserve<Storage: StorageAllocator>(
+    pub(crate) fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -82,57 +83,66 @@ impl BucketReserver {
         if let Some(handle) = self.try_reserve(size, failures) {
             return Ok(handle);
         }
-        match self.buckets.iter_mut().find(|pool| pool.accept(size)) {
-            Some(pool) => pool.alloc(storage, size, mapping, failures),
-            None => Err(IoError::BufferTooBig {
+        let Some(bucket) = self
+            .buckets
+            .iter_mut()
+            .find(|bucket| bucket.accepts_bytes(size))
+        else {
+            return Err(IoError::BufferTooBig {
                 size,
                 backtrace: BackTrace::capture(),
-            }),
-        }
+            });
+        };
+        bucket.alloc(storage, size, mapping, failures)
     }
 
     /// Reserve `size` bytes on a page a bucket already holds. `None` when
     /// none has one free.
-    pub fn try_reserve(
+    pub(crate) fn try_reserve(
         &mut self,
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         self.buckets
             .iter_mut()
-            .filter(|pool| pool.accept(size))
-            .find_map(|pool| pool.try_reserve(size, failures))
+            .filter(|bucket| bucket.accepts_bytes(size))
+            .find_map(|bucket| bucket.try_reserve(size, failures))
     }
 
     /// Release what the buckets no longer need.
-    pub fn cleanup<Storage: StorageAllocator>(
+    pub(crate) fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
-        alloc_nr: u64,
+        reservation_count: u64,
         cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        for pool in self.buckets.iter_mut() {
-            pool.cleanup(storage, alloc_nr, cleanup, failures);
+        for bucket in self.buckets.iter_mut() {
+            bucket.cleanup(storage, reservation_count, cleanup, failures);
         }
     }
 
     /// A report per bucket, smallest first.
-    pub fn report(&self) -> Vec<MemoryPoolReport> {
-        self.buckets
-            .iter()
-            .map(ExclusiveSliceReserver::report)
-            .collect()
+    pub(crate) fn report(&self) -> Vec<MemoryPoolReport> {
+        self.buckets.iter().map(SliceReserver::report).collect()
     }
 }
 
 impl core::fmt::Display for BucketReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        for pool in self.buckets.iter() {
-            write!(f, "{pool}")?;
+        for bucket in self.buckets.iter() {
+            write!(f, "{bucket}")?;
         }
         Ok(())
     }
+}
+
+/// The reservations a page of `size` bytes waits through, unused, before it
+/// goes back: larger pages wait longer, since they cost more to allocate
+/// again.
+fn dealloc_period_for_bytes(size: u64) -> u64 {
+    (BASE_DEALLOC_PERIOD_COUNT as f64 * (1.0 + size as f64 / DEALLOC_SCALE_BYTES as f64).round())
+        as u64
 }
 
 /// Exponentially spaced bucket sizes from [`MIN_BUCKET_BYTES`] to `max_size`,
@@ -150,4 +160,90 @@ fn bucket_sizes(max_size: u64, alignment: u64) -> Vec<u64> {
         .collect();
     sizes.dedup();
     sizes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::BytesStorage;
+
+    const MIB: u64 = 1024 * 1024;
+
+    fn buckets() -> BucketReserver {
+        BucketReserver::new(&MemoryDeviceProperties::new(16 * MIB, 32))
+    }
+
+    /// The buckets span the smallest bucket to the largest page, smallest first.
+    #[test_log::test]
+    fn the_buckets_span_the_smallest_to_the_largest_page() {
+        let sizes = bucket_sizes(16 * MIB, 32);
+
+        assert_eq!(sizes.first(), Some(&MIN_BUCKET_BYTES));
+        assert_eq!(sizes.last(), Some(&(16 * MIB)));
+        assert!(sizes.is_sorted());
+    }
+
+    /// A size lands on the smallest bucket that accepts it.
+    #[test_log::test]
+    fn a_size_lands_on_the_smallest_bucket_that_accepts_it() {
+        let mut storage = BytesStorage::default();
+        let mut buckets = buckets();
+
+        let handle = buckets
+            .reserve(
+                &mut storage,
+                MIN_BUCKET_BYTES + 1,
+                PageMapping::Eager,
+                &mut ErrorGraph::default(),
+            )
+            .expect("a bucket should accept the size");
+
+        assert_eq!(handle.descriptor().location().pool, 1);
+    }
+
+    /// A size no bucket accepts is refused.
+    #[test_log::test]
+    fn a_size_no_bucket_accepts_is_refused() {
+        let mut storage = BytesStorage::default();
+        let mut buckets = buckets();
+
+        let refused = buckets.reserve(
+            &mut storage,
+            16 * MIB + 1,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        );
+
+        assert!(matches!(refused, Err(IoError::BufferTooBig { .. })));
+    }
+
+    /// A freed page is reused before a new one is allocated.
+    #[test_log::test]
+    fn a_freed_page_is_reused() {
+        let mut storage = BytesStorage::default();
+        let mut buckets = buckets();
+        let first = buckets
+            .reserve(
+                &mut storage,
+                1024,
+                PageMapping::Eager,
+                &mut ErrorGraph::default(),
+            )
+            .expect("a bucket should accept the size");
+        core::mem::drop(first);
+
+        assert!(
+            buckets
+                .try_reserve(1024, &mut ErrorGraph::default())
+                .is_some()
+        );
+        assert_eq!(
+            buckets
+                .report()
+                .iter()
+                .map(|report| report.page_count)
+                .sum::<u64>(),
+            1
+        );
+    }
 }
