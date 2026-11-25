@@ -68,6 +68,14 @@ fn operand_at(held: &Tile, src: &Tile, region: &Region, #[comptime] refill: Refi
     }
 }
 
+/// Free `operand`'s stage where it is `staged`.
+#[cube]
+fn free_if_staged(operand: &Tile, #[comptime] staged: bool) {
+    if staged {
+        operand.free_stage();
+    }
+}
+
 #[cube]
 impl Payload<OperandPair> for OperandPair {
     fn operands(&self) -> comptime_type!(Vec<Option<StageOperand>>) {
@@ -103,12 +111,8 @@ impl Payload<OperandPair> for OperandPair {
     }
 
     fn free(&self) {
-        if comptime!(self.staged.lhs()) {
-            self.lhs.free_stage();
-        }
-        if comptime!(self.staged.rhs()) {
-            self.rhs.free_stage();
-        }
+        free_if_staged(&self.lhs, comptime!(self.staged.lhs()));
+        free_if_staged(&self.rhs, comptime!(self.staged.rhs()));
     }
 
     fn placed_at(
