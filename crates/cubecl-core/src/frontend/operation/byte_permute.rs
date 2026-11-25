@@ -4,7 +4,7 @@ use crate::{prelude::*, unexpanded};
 /// the result is the one that byte `i` of `selectors` names, `0..4` those of `low` and `4..8` those
 /// of `high`, the least significant first. Only the low three bits of a selector are read.
 ///
-/// One instruction on AMD (`v_perm_b32`) and CUDA (`prmt`), and shifts elsewhere.
+/// The device's own instruction on AMD (`v_perm_b32`) and CUDA (`prmt`), and shifts elsewhere.
 #[allow(unused_variables)]
 pub fn byte_permute<C: CubePrimitive<Scalar = u32>>(low: C, high: C, selectors: C) -> C {
     unexpanded!()
