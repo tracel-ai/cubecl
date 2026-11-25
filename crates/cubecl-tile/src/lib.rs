@@ -10,6 +10,7 @@ mod comptime_only;
 pub mod dialect;
 pub mod launch;
 pub mod layout;
+mod nested;
 pub mod ops;
 pub mod space;
 pub mod stage;

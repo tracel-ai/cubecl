@@ -254,9 +254,7 @@ impl FactorExpand {
     /// ([`Procedural::one`]), which no read multiplies by.
     fn leaves(&self) -> Box<dyn Iterator<Item = &TileExpand> + '_> {
         Box::new(
-            self.scales
-                .iter()
-                .flat_map(|scale| core::iter::once(scale).chain(scale.factor.leaves()))
+            crate::nested::each_and_nested(&self.scales, |scale| scale.factor.leaves())
                 .filter(|scale| !scale.is_one()),
         )
     }

@@ -683,11 +683,7 @@ impl TileTensorLaunch {
     /// Every operand these values are under: what they are multiplied by, and what that is
     /// multiplied by in turn.
     fn every_scale(&self) -> Box<dyn Iterator<Item = &TileTensorLaunch> + '_> {
-        Box::new(
-            self.scales
-                .iter()
-                .flat_map(|scale| core::iter::once(scale).chain(scale.every_scale())),
-        )
+        crate::nested::each_and_nested(&self.scales, TileTensorLaunch::every_scale)
     }
 
     /// This operand's spec read as a pool of pages along `sequence` and `position`: its paging, and
