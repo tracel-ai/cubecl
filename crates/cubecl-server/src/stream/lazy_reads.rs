@@ -431,9 +431,10 @@ pub(crate) fn access<S: WriteScoped>(
     stream: StreamId,
 ) -> Copy {
     let accessed = source.handle.range();
-    if !is_recording(server.capturing(stream)) {
-        order_after_made(server, &read, stream);
-    }
+    let stream = match is_recording(server.capturing(stream)) {
+        true => stream,
+        false => behind_made(server, &read, stream),
+    };
     let Some(copy) = server.read_lazy_copy(vec![source], stream) else {
         return refused("this server keeps no lazy read");
     };
@@ -517,29 +518,26 @@ fn copy_stream<S: WriteScoped>(server: &mut S, kept: &ReadToStart, writer: Strea
     }
 }
 
-/// Order work on `stream` after the work on the stream the kept `read` was made on, up to it.
-fn order_after_made<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>, stream: StreamId) {
-    if !read.is_kept() {
-        return;
-    }
-    match lazy_reads(server).made_elsewhere(read, stream) {
-        Some((_, Some(made_at))) => wait_past(server, stream, made_at.as_ref()),
-        Some((made_on, None)) => server.wait_before_write(stream, made_on),
-        None => {}
+/// The stream an access on `stream` copies the kept `read` on: `stream` behind the work on the
+/// stream the read was made on up to it, or that stream itself when its server gives no fence.
+fn behind_made<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>, stream: StreamId) -> StreamId {
+    let made = match read.is_kept() {
+        true => lazy_reads(server).made_elsewhere(read, stream),
+        false => None,
+    };
+    match made {
+        Some((_, Some(made_at))) => behind(server, stream, made_at.as_ref()),
+        Some((made_on, None)) => reader_stream(server, made_on, stream),
+        None => stream,
     }
 }
 
 /// `writer`, ordered after `made_at`.
 fn behind<S: WriteScoped>(server: &mut S, writer: StreamId, made_at: &dyn StreamFence) -> StreamId {
-    wait_past(server, writer, made_at);
-    writer
-}
-
-/// Order work on `stream` after `fence`, unless it is already reached.
-fn wait_past<S: WriteScoped>(server: &mut S, stream: StreamId, fence: &dyn StreamFence) {
-    if !fence.is_reached() {
-        server.wait_for_fence(stream, fence);
+    if !made_at.is_reached() {
+        server.wait_for_fence(writer, made_at);
     }
+    writer
 }
 
 /// The reader's stream, unless it records a graph, where a copy would run at every replay
