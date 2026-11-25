@@ -11,7 +11,7 @@ use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::{
-    Coords, Dimension, Extent, Space, TileMisfit,
+    Coords, Dimension, Extent, Projection, Space, TileMisfit,
     algebra::{Integer, IntegerExpand},
     comptime_only,
 };
@@ -327,10 +327,9 @@ impl VectorTile {
             .collect()
     }
 
-    /// How much of each of a buffer's `rank` axes one load covers, over a buffer stored in
-    /// `stored` tiles, finest first, whose trailing axes `labels` name: a stated tile the load
-    /// takes whole is covered entirely, and a plain buffer's innermost axis by the load's width.
-    /// `1` elsewhere.
+    /// How much of each of a buffer's axes one load covers, over a buffer addressed through
+    /// `projection` and stored in `stored` tiles, finest first: a stated tile the load takes whole
+    /// is covered entirely, and a plain buffer's innermost axis by the load's width. `1` elsewhere.
     ///
     /// A buffer read in loads is the same buffer with each axis's extent divided by what one load
     /// covers of it and every stride counted in loads: `extent / part` and `stride * part /
@@ -339,10 +338,9 @@ impl VectorTile {
     pub(crate) fn parts(
         &self,
         stored: &[(Dimension, usize)],
-        labels: &[Dimension],
-        rank: usize,
+        projection: &Projection,
     ) -> Vec<usize> {
-        let mut parts = vec![1; rank];
+        let mut parts = vec![1; projection.physical_rank()];
         if stored.is_empty() || self.values() == 1 {
             if let Some(last) = parts.last_mut() {
                 *last = self.values();
@@ -350,7 +348,7 @@ impl VectorTile {
             return parts;
         }
         let mut taken = 1;
-        for (&(_, count), axis) in stored.iter().zip(Self::stated_axes(stored, labels, rank)) {
+        for (&(_, count), axis) in stored.iter().zip(Self::stated_axes(stored, projection)) {
             if count == 1 {
                 continue;
             }
@@ -363,46 +361,34 @@ impl VectorTile {
         parts
     }
 
-    /// The extent of each of a buffer's `rank` axes that is a stated tile, over a buffer stored
-    /// in `stored` tiles whose trailing axes `labels` name; `None` for an axis the buffer's own
-    /// shape sets. A stated tile's extent is fixed where the kernel is written, so a read over it
-    /// divides by a constant rather than by an axis read off the buffer.
+    /// The extent of each of a buffer's axes that is a stated tile, over a buffer addressed through
+    /// `projection` and stored in `stored` tiles; `None` for an axis the buffer's own shape sets. A
+    /// stated tile's extent is fixed where the kernel is written, so a read over it divides by a
+    /// constant rather than by an axis read off the buffer.
     pub(crate) fn stated_extents(
         stored: &[(Dimension, usize)],
-        labels: &[Dimension],
-        rank: usize,
+        projection: &Projection,
     ) -> Vec<Option<usize>> {
-        let mut extents = vec![None; rank];
-        for (&(_, count), axis) in stored.iter().zip(Self::stated_axes(stored, labels, rank)) {
+        let mut extents = vec![None; projection.physical_rank()];
+        for (&(_, count), axis) in stored.iter().zip(Self::stated_axes(stored, projection)) {
             extents[axis] = Some(count);
         }
         extents
     }
 
-    /// The axis of a buffer of `rank` axes, whose trailing axes `labels` name, each of `stored`'s
-    /// tiles is: the `j`-th finest stated tile of a dimension is its `j`-th axis from the end.
-    fn stated_axes(stored: &[(Dimension, usize)], labels: &[Dimension], rank: usize) -> Vec<usize> {
-        let unlabelled = rank - labels.len();
-        let mut from_end: Vec<(Dimension, usize)> = Vec::new();
+    /// The axis of a buffer addressed through `projection` each of `stored`'s tiles is: the `j`-th
+    /// finest stated tile of a dimension is its `j`-th finest piece.
+    fn stated_axes(stored: &[(Dimension, usize)], projection: &Projection) -> Vec<usize> {
         stored
             .iter()
-            .map(|&(dimension, _)| {
-                let nth = match from_end.iter_mut().find(|(a, _)| *a == dimension) {
-                    Some((_, seen)) => {
-                        *seen += 1;
-                        *seen
-                    }
-                    None => {
-                        from_end.push((dimension, 1));
-                        1
-                    }
-                };
-                let axis = (0..labels.len())
-                    .rev()
-                    .filter(|&d| labels[d] == dimension)
-                    .nth(nth - 1)
-                    .expect("a stated tile is an axis of the buffer");
-                unlabelled + axis
+            .enumerate()
+            .map(|(tile, &(dimension, _))| {
+                let finer = stored[..tile].iter().filter(|&&(a, _)| a == dimension);
+                *projection
+                    .carriers(dimension)
+                    .iter()
+                    .nth_back(finer.count())
+                    .expect("a stated tile is an axis of the buffer")
             })
             .collect()
     }
@@ -802,18 +788,23 @@ mod tests {
     #[test]
     fn a_load_covers_the_innermost_axis_or_the_stored_tiles_it_takes() {
         let run = VectorTile::run(N, 4);
-        assert_eq!(run.parts(&[], &[K, N], 2), vec![1, 4]);
+        assert_eq!(run.parts(&[], &Projection::direct(&[K, N])), vec![1, 4]);
 
         // `[m, k]` stored as a word of 8 along `K`, 2 words along `K` by 2 rows, then 4 by 4:
         // `[M, K, M, K, M, K, K]` level-major, the word the last axis.
         const M: Dimension = Dimension(2);
+        const B: Dimension = Dimension(3);
         let stored = [(K, 8), (K, 2), (M, 2), (K, 4), (M, 4)];
-        let labels = [M, K, M, K, M, K, K];
+        let pieces = [(M, 0), (K, 0), (M, 1), (K, 1), (M, 2), (K, 2), (K, 3)];
         let load = VectorTile::new(&stored, K, 32).unwrap();
         assert_eq!(load.extents(), &[(K, 16), (M, 2)]);
-        assert_eq!(load.parts(&stored, &labels, 7), vec![1, 1, 1, 1, 2, 2, 8]);
         assert_eq!(
-            load.parts(&stored, &labels, 8),
+            load.parts(&stored, &Projection::tiled(&[M, K], &pieces)),
+            vec![1, 1, 1, 1, 2, 2, 8]
+        );
+        let batched = [&[(B, 0)][..], &pieces].concat();
+        assert_eq!(
+            load.parts(&stored, &Projection::tiled(&[B, M, K], &batched)),
             vec![1, 1, 1, 1, 1, 2, 2, 8]
         );
     }
@@ -824,12 +815,20 @@ mod tests {
     #[test]
     fn the_stated_tiles_have_their_stated_extents() {
         const M: Dimension = Dimension(2);
+        const B: Dimension = Dimension(3);
         let stored = [(K, 8), (K, 2), (M, 2), (K, 4), (M, 4)];
-        let labels = [M, K, M, K, M, K, K];
+        let pieces = [(M, 0), (K, 0), (M, 1), (K, 1), (M, 2), (K, 2), (K, 3)];
         let tiled = [Some(4), Some(4), Some(2), Some(2), Some(8)];
         let expected: Vec<_> = [None, None].into_iter().chain(tiled).collect();
-        assert_eq!(VectorTile::stated_extents(&stored, &labels, 7), expected);
-        let batched: Vec<_> = [None].into_iter().chain(expected).collect();
-        assert_eq!(VectorTile::stated_extents(&stored, &labels, 8), batched);
+        assert_eq!(
+            VectorTile::stated_extents(&stored, &Projection::tiled(&[M, K], &pieces)),
+            expected
+        );
+        let pieces = [&[(B, 0)][..], &pieces].concat();
+        let expected: Vec<_> = [None].into_iter().chain(expected).collect();
+        assert_eq!(
+            VectorTile::stated_extents(&stored, &Projection::tiled(&[B, M, K], &pieces)),
+            expected
+        );
     }
 }

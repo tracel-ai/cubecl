@@ -733,8 +733,10 @@ mod tests {
     /// placed axis, a stored tile spanning it, or a run over the tiled buffer is refused.
     #[test]
     fn a_coordinate_places_a_dim_the_storage_tiling_leaves_whole() {
-        let stack = |order: &[Dimension]| TileSpec::new(Projection::tiled(&[EXPERT, N, K], order));
-        let mut slabs = stack(&[EXPERT, N, K, N, K]);
+        let stack = |pieces: &[(Dimension, usize)]| {
+            TileSpec::new(Projection::tiled(&[EXPERT, N, K], pieces))
+        };
+        let mut slabs = stack(&[(EXPERT, 0), (N, 0), (K, 0), (N, 1), (K, 1)]);
         slabs.stored_tiles = vec![(K, 8), (N, 8)];
         assert_eq!(
             Indexing::Coordinate(EXPERT).validate(&slabs, 1, &[M]),
@@ -744,12 +746,12 @@ mod tests {
             Indexing::Run(EXPERT).validate(&slabs, 1, &[M]),
             Err(Decline::IndexOfAStatedLayout)
         );
-        let split = stack(&[EXPERT, N, K, EXPERT, N, K]);
+        let split = stack(&[(EXPERT, 0), (N, 0), (K, 0), (EXPERT, 1), (N, 1), (K, 1)]);
         assert_eq!(
             Indexing::Coordinate(EXPERT).validate(&split, 1, &[M]),
             Err(Decline::IndexOfAStatedLayout)
         );
-        let mut spanned = stack(&[EXPERT, N, K, N, K]);
+        let mut spanned = stack(&[(EXPERT, 0), (N, 0), (K, 0), (N, 1), (K, 1)]);
         spanned.stored_tiles = vec![(EXPERT, 2)];
         assert_eq!(
             Indexing::Coordinate(EXPERT).validate(&spanned, 1, &[M]),

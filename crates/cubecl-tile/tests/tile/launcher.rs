@@ -295,7 +295,7 @@ fn arg_reads_the_storage_tiling_off_the_binding() {
 
     assert_eq!(
         off_the_tensor.spec.projection,
-        Projection::tiled(&[M, K], &[M, K, M, K])
+        Projection::tiled(&[M, K], &[(M, 0), (K, 0), (M, 1), (K, 1)])
     );
 }
 

@@ -1042,7 +1042,11 @@ impl Binding {
                 let space = input.space();
                 let dimensions: Vec<Dimension> =
                     (0..space.rank()).map(|i| space.dimension_at(i)).collect();
-                let mut spec = TileSpec::new(Projection::tiled(&dimensions, &dimensions.repeat(2)));
+                let pieces: Vec<(Dimension, usize)> = [0, 1]
+                    .into_iter()
+                    .flat_map(|piece| dimensions.iter().map(move |&d| (d, piece)))
+                    .collect();
+                let mut spec = TileSpec::new(Projection::tiled(&dimensions, &pieces));
                 spec.units = launcher.cube_dim().num_elems() as usize;
                 TileTensorLaunch::new(input.tensor_arg(1), input.handle().dtype, width, spec)
             }

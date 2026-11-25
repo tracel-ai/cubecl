@@ -6,7 +6,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Dimension, Space, StoragePartitioning, TileMisfit};
+use crate::{Decline, Dimension, Space, StoragePartitioning, TileMisfit};
 
 use crate::Coords;
 
@@ -67,36 +67,95 @@ impl Geometry {
         self.tiling
     }
 
-    /// Its trailing axes, coarsest first, each named by the dimension it is a piece of:
-    /// `dimensions` name the trailing logical axes in the tensor's order, each once per piece its
-    /// tiling stores it as, in [`StoragePartitioning::labels`]' order. The axes ahead of them are
-    /// batch axes, one each.
+    /// Its trailing axes, each named by the dimension it is a piece of: the names of its
+    /// [`pieces`](Self::pieces).
+    ///
+    /// # Errors
+    ///
+    /// As [`pieces`](Self::pieces).
     ///
     /// # Panics
     ///
-    /// When the tiling does not fit the rank, when the buffer stands for fewer logical axes than
-    /// `dimensions` name, or when it tiles a batch axis, which is stored one axis.
-    pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
+    /// As [`pieces`](Self::pieces).
+    pub fn labels(&self, dimensions: &[Dimension]) -> Result<Vec<Dimension>, Decline> {
+        let pieces = self.pieces(dimensions)?;
+        Ok(pieces.into_iter().map(|(dimension, _)| dimension).collect())
+    }
+
+    /// Its trailing axes, each the dimension it is a piece of and how many of that dimension's
+    /// pieces are coarser. `dimensions` name the trailing logical axes in the tensor's order: each
+    /// is as many axes as the tiling stores it as, wherever it lists them. The axes ahead of them
+    /// are batch axes, one each. An untiled buffer is named axis by axis, a dimension that names
+    /// several its coarsest piece first.
+    ///
+    /// # Errors
+    ///
+    /// [`Decline::RankBelowLabels`] for a buffer that stands for fewer logical axes than
+    /// `dimensions` name, and [`Decline::BatchAxesInPieces`] for a tiling that stores a batch axis
+    /// anywhere but ahead, one axis.
+    ///
+    /// # Panics
+    ///
+    /// When the tiling does not fit the rank.
+    pub fn pieces(&self, dimensions: &[Dimension]) -> Result<Vec<(Dimension, usize)>, Decline> {
         if !self.tiling.is_tiled() {
-            return dimensions.to_vec();
+            return Ok(pieces_named(dimensions));
         }
-        let logical_rank = self
-            .tiling
+        let logical_rank = self.tiled_logical_rank();
+        let batches =
+            logical_rank
+                .checked_sub(dimensions.len())
+                .ok_or(Decline::RankBelowLabels {
+                    rank: logical_rank,
+                    block: dimensions.len(),
+                })?;
+        let axes = self.tiling.physical_dims(logical_rank);
+        let (ahead, named) = axes.split_at(batches);
+        if !ahead.iter().flatten().copied().eq(0..batches) {
+            return Err(Decline::BatchAxesInPieces(self.tiling));
+        }
+        let mut pieces = vec![(dimensions[0], 0); self.rank() - batches];
+        for (&dimension, axes) in dimensions.iter().zip(named) {
+            for (piece, &axis) in axes.iter().enumerate() {
+                pieces[axis - batches] = (dimension, piece);
+            }
+        }
+        Ok(pieces)
+    }
+
+    /// For each of its trailing axes, which `labels` name, how many of the named dimension's pieces
+    /// are coarser.
+    pub(crate) fn pieces_of_axes(
+        &self,
+        labels: &[Dimension],
+    ) -> SmallVec<[usize; Space::MAX_RANK]> {
+        match self.tiling.is_tiled() {
+            true => self.pieces_of_tiled_axes(labels.len()),
+            false => pieces_named(labels)
+                .into_iter()
+                .map(|(_, piece)| piece)
+                .collect(),
+        }
+    }
+
+    /// [`pieces_of_axes`](Self::pieces_of_axes) of the trailing `labelled` axes of a tiled buffer.
+    fn pieces_of_tiled_axes(&self, labelled: usize) -> SmallVec<[usize; Space::MAX_RANK]> {
+        let unlabelled = self.rank().saturating_sub(labelled);
+        let mut pieces = SmallVec::from_elem(0, self.rank());
+        for axes in self.tiling.physical_dims(self.tiled_logical_rank()) {
+            for (piece, axis) in axes.into_iter().enumerate() {
+                pieces[axis] = piece;
+            }
+        }
+        pieces.drain(..unlabelled);
+        pieces
+    }
+
+    /// How many logical axes a tiled buffer stands for.
+    fn tiled_logical_rank(&self) -> usize {
+        self.tiling
             .logical_rank(self.rank())
-            .unwrap_or_else(|e| panic!("Geometry::labels: {e:?}"));
-        assert!(
-            logical_rank >= dimensions.len(),
-            "Geometry::labels: the buffer stands for {logical_rank} axes but {} dimensions name them",
-            dimensions.len()
-        );
-        let fragments = self.tiling.fragments(logical_rank);
-        let (batches, block) = fragments.split_at(logical_rank - dimensions.len());
-        assert!(
-            batches.iter().all(|&n| n == 1),
-            "Geometry::labels: batch axes are stored one axis each, so {batches:?} pieces over \
-             them cannot be named"
-        );
-        StoragePartitioning::level_major(dimensions, block)
+            .unwrap_or_else(|e| panic!("Geometry: the tiling does not fit the rank: {e:?}"))
     }
 
     /// The extents, coarsest first.
@@ -326,6 +385,15 @@ impl RuntimeGeometry {
     }
 }
 
+/// The [`pieces`](Geometry::pieces) of an untiled buffer's axes, which `labels` name.
+pub(crate) fn pieces_named(labels: &[Dimension]) -> Vec<(Dimension, usize)> {
+    let named = |(axis, &label): (usize, &Dimension)| {
+        let coarser = labels[..axis].iter().filter(|&&other| other == label);
+        (label, coarser.count())
+    };
+    labels.iter().enumerate().map(named).collect()
+}
+
 /// Where an axis of `(extent, stride)` sorts among a buffer's axes in stride order: by stride,
 /// coarsest first, and on a tie an axis of one element before the others. It steps nowhere, so its
 /// stride places it nowhere: a column `[k, 1]` at strides `[1, 1]` runs along `k`, and its lines
@@ -418,11 +486,42 @@ mod tests {
             .tile(&[(N, 8), (K, 32)])
             .grid(&[N, K]);
         let geometry = storage.physical(&[(K, 64), (N, 64)]).unwrap();
-        let labels = geometry.labels(&[K, N]);
+        let labels = geometry.labels(&[K, N]).unwrap();
         assert_eq!(geometry.serves(&[(N, 4)], &labels), Ok(()));
         assert_eq!(geometry.serves(&[(N, 32), (K, 32)], &labels), Ok(()));
         assert!(geometry.serves(&[(N, 2)], &labels).is_err());
         assert!(geometry.serves(&[(N, 8)], &labels).is_err());
+    }
+
+    /// Each axis is the piece the tiling states, behind batch axes of their own.
+    #[test]
+    fn pieces_are_those_the_tiling_states() {
+        let tiling = Tiling::from_physical_dims(&[&[0][..], &[1, 5, 3], &[2, 4, 6]]).unwrap();
+        let geometry = Geometry::row_major(&[7, 3, 5, 8, 8, 2, 2]).with_tiling(tiling);
+        assert_eq!(
+            geometry.pieces(&[M, K]),
+            Ok(vec![(M, 0), (K, 0), (M, 2), (K, 1), (M, 1), (K, 2)])
+        );
+    }
+
+    #[test]
+    fn a_batch_axis_among_the_pieces_is_declined() {
+        let tiling = Tiling::from_physical_dims(&[&[1][..], &[0, 3], &[2, 4]]).unwrap();
+        let geometry = Geometry::row_major(&[3, 7, 5, 8, 8]).with_tiling(tiling);
+        assert_eq!(
+            geometry.pieces(&[M, K]),
+            Err(Decline::BatchAxesInPieces(tiling))
+        );
+    }
+
+    #[test]
+    fn more_dimensions_than_a_tiled_buffer_stands_for_are_declined() {
+        let geometry =
+            Geometry::row_major(&[5, 8]).with_tiling(Tiling::new(&[2]).expect("two pieces"));
+        assert_eq!(
+            geometry.pieces(&[M, K]),
+            Err(Decline::RankBelowLabels { rank: 1, block: 2 })
+        );
     }
 
     /// The one-axis line rule: a line of `width` is served where the innermost axis is contiguous

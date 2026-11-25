@@ -251,7 +251,7 @@ impl SlabLayout {
                 let geometry = storage
                     .physical(&[(K, FEATURES), (N, FEATURES)])
                     .expect("the tiles close a slab");
-                let labels = geometry.labels(&axes);
+                let labels = geometry.labels(&axes).expect("the tiles name both axes");
                 let slab = FEATURES * FEATURES;
                 let mut stored = vec![0f32; EXPERTS * slab];
                 for e in 0..EXPERTS {
@@ -269,8 +269,12 @@ impl SlabLayout {
                     lead(slab, geometry.strides()),
                     f32_ty,
                 );
-                let labels = [&[EXPERT][..], &labels].concat();
-                let mut spec = TileSpec::new(Projection::tiled(&[EXPERT, K, N], &labels));
+                let pieces = [
+                    &[(EXPERT, 0)][..],
+                    &geometry.pieces(&axes).expect("the tiles name both axes"),
+                ]
+                .concat();
+                let mut spec = TileSpec::new(Projection::tiled(&[EXPERT, K, N], &pieces));
                 spec.stored_tiles = storage.tiles().to_vec();
                 (handle, spec)
             }

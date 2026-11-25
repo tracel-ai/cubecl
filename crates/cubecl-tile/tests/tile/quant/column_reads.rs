@@ -127,7 +127,7 @@ fn scales(
         .tile(&[(N, columns)])
         .grid(&[N, KB]);
     let geometry = storage.physical(&[(N, cols), (KB, blocks)]).unwrap();
-    let labels = geometry.labels(&dimensions);
+    let labels = geometry.labels(&dimensions).unwrap();
     let mut stored = vec![0f32; cols * blocks];
     for n in 0..cols {
         for kb in 0..blocks {
@@ -140,7 +140,10 @@ fn scales(
         geometry.strides().to_vec(),
         dtype,
     );
-    let mut spec = TileSpec::new(Projection::tiled(&dimensions, &labels));
+    let mut spec = TileSpec::new(Projection::tiled(
+        &dimensions,
+        &geometry.pieces(&dimensions).unwrap(),
+    ));
     spec.stored_tiles = storage.tiles().to_vec();
     (handle, spec, 2 * columns)
 }
@@ -164,7 +167,7 @@ fn one_row_product_against_the_reference(
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
         .unwrap();
-    let labels = geometry.labels(&dimensions);
+    let labels = geometry.labels(&dimensions).unwrap();
 
     let code = |n: usize, kb: usize, ki: usize| ((n * 7 + kb * 3 + ki) % 16) as u32;
     let mut words = vec![0u32; cols * blocks * BLOCK / PER_WORD];
@@ -212,8 +215,11 @@ fn one_row_product_against_the_reference(
         Form::Static,
     );
 
-    let mut w_spec =
-        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
+    let mut w_spec = TileSpec::new(Projection::tiled(
+        &dimensions,
+        &geometry.pieces(&dimensions).unwrap(),
+    ))
+    .packed(QuantValue::E2M1);
     w_spec.stored_tiles = storage.tiles().to_vec();
     // One statement of the arguments, for either kernel.
     macro_rules! launch {
