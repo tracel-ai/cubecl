@@ -41,7 +41,7 @@ pub const MAX_FRAGMENTS: usize = 16;
 pub const MAX_ORDERED_DIMS: usize = 12;
 
 /// Where the order's bits start, past the four a logical dim takes.
-const ORDER_SHIFT: usize = 4 * MAX_LOGICAL_DIMS;
+const ORDER_SHIFT_BITS: usize = 4 * MAX_LOGICAL_DIMS;
 
 /// A value for each physical dim of a tiled buffer.
 type PerPhysicalDim = SmallVec<[usize; MAX_ORDERED_DIMS]>;
@@ -208,12 +208,12 @@ impl Tiling {
 
     /// The place of the order its physical dims are listed in, `0` for level-major.
     fn place(self) -> u32 {
-        (self.0 >> ORDER_SHIFT) as u32
+        (self.0 >> ORDER_SHIFT_BITS) as u32
     }
 
     /// This tiling, level-major, with its physical dims in the order at `place`.
     fn ordered(self, place: u32) -> Tiling {
-        Tiling(self.0 | (place as u64) << ORDER_SHIFT)
+        Tiling(self.0 | (place as u64) << ORDER_SHIFT_BITS)
     }
 }
 
@@ -324,13 +324,17 @@ mod tests {
         assert_eq!(dims[1].as_slice(), TENSOR_CORE[1]);
     }
 
-    /// The value a level-major tiling is serialized and hashed as names no order.
     #[test]
     fn dims_stated_level_major_are_the_tiling_of_their_counts() {
         assert_eq!(
             Tiling::from_physical_dims(&[&[0, 2][..], &[1, 3, 4]]),
             Tiling::new(&[2, 3])
         );
+    }
+
+    /// The value a level-major tiling is serialized and hashed as names no order.
+    #[test]
+    fn a_level_major_tiling_holds_its_counts_alone() {
         assert_eq!(Tiling::new(&[2, 3]), Ok(Tiling(0x21)));
     }
 
@@ -344,11 +348,36 @@ mod tests {
         assert_eq!(tiling.physical_dims(2)[1].as_slice(), dims[1]);
     }
 
+    /// `[4]` and `[3, 2, 1, 0]`: two logical dims over five physical ones, listed back to front.
+    fn reversed() -> Tiling {
+        Tiling::from_physical_dims(&[&[4][..], &[3, 2, 1, 0]]).unwrap()
+    }
+
+    #[test]
+    fn a_rank_its_order_lists_is_read() {
+        assert_eq!(reversed().logical_rank(5), Ok(2));
+    }
+
     #[test]
     fn a_rank_its_order_does_not_list_is_refused() {
-        let reversed = Tiling::from_physical_dims(&[&[4][..], &[3, 2, 1, 0]]).unwrap();
-        assert_eq!(reversed.logical_rank(5), Ok(2));
-        assert!(reversed.logical_rank(4).is_err());
+        assert!(reversed().logical_rank(4).is_err());
+    }
+
+    #[test]
+    fn permuted_level_major_dims_swap_their_counts() {
+        let tiling = Tiling::new(&[2, 3]).unwrap();
+        assert_eq!(tiling.permuted(&[1, 0]), Tiling::new(&[3, 2]));
+    }
+
+    #[test]
+    fn permuted_in_place_keeps_the_order() {
+        assert_eq!(reversed().permuted(&[0, 1]), Ok(reversed()));
+    }
+
+    #[test]
+    fn permuted_refuses_more_axes_than_a_tiling_describes() {
+        let axes: [usize; MAX_LOGICAL_DIMS + 1] = core::array::from_fn(|axis| axis);
+        assert!(Tiling::new(&[2]).unwrap().permuted(&axes).is_err());
     }
 
     #[test]
