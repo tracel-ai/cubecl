@@ -17,6 +17,7 @@ mod const_expand;
 mod container;
 mod debug;
 mod element;
+mod element_positions;
 mod harness;
 mod indexation;
 mod list;

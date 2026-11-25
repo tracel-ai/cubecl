@@ -1,7 +1,7 @@
 use pliron::{context::Context, r#type::TypedHandle};
 
 use crate::{
-    ElemType, TypeHash, VectorSize,
+    ElemType, ElementPositions, TypeHash, VectorSize,
     types::matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape, MatrixType},
 };
 
@@ -36,60 +36,64 @@ pub struct MmaProperties {
     pub register_duplication_acc: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub contiguous_elements: ContiguousElements,
+    /// Where the elements a lane holds of an operand lie in it, where the target has a manual
+    /// matrix instruction
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub element_positions: OperandFact<Option<ElementPositions>>,
 }
 
+/// What a target says of each operand of its manual matrix instructions, by the operand's role and
+/// its matrix type.
 #[derive(Clone)]
-pub struct ContiguousElements {
+pub struct OperandFact<T> {
     #[allow(clippy::type_complexity)]
-    inner: alloc::sync::Arc<
-        dyn Fn(&Context, MatrixIdent, TypedHandle<MatrixType>) -> VectorSize + Send + Sync,
-    >,
+    inner:
+        alloc::sync::Arc<dyn Fn(&Context, MatrixIdent, TypedHandle<MatrixType>) -> T + Send + Sync>,
 }
 
-impl ContiguousElements {
+/// The consecutive elements of an operand a lane holds in one vector.
+pub type ContiguousElements = OperandFact<VectorSize>;
+
+impl<T> OperandFact<T> {
     pub fn new(
-        func: impl Fn(&Context, MatrixIdent, TypedHandle<MatrixType>) -> VectorSize
-        + Send
-        + Sync
-        + 'static,
+        func: impl Fn(&Context, MatrixIdent, TypedHandle<MatrixType>) -> T + Send + Sync + 'static,
     ) -> Self {
         Self {
             inner: alloc::sync::Arc::new(func),
         }
     }
 
-    pub fn apply(
-        &self,
-        ctx: &Context,
-        ident: MatrixIdent,
-        matrix: TypedHandle<MatrixType>,
-    ) -> VectorSize {
+    pub fn apply(&self, ctx: &Context, ident: MatrixIdent, matrix: TypedHandle<MatrixType>) -> T {
         (self.inner)(ctx, ident, matrix)
     }
 }
 
-impl Default for ContiguousElements {
+impl Default for OperandFact<VectorSize> {
     fn default() -> Self {
-        Self {
-            inner: alloc::sync::Arc::new(|_, _, _| 2),
-        }
+        Self::new(|_, _, _| 2)
     }
 }
 
-impl core::fmt::Debug for ContiguousElements {
+impl Default for OperandFact<Option<ElementPositions>> {
+    fn default() -> Self {
+        Self::new(|_, _, _| None)
+    }
+}
+
+impl<T> core::fmt::Debug for OperandFact<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ContiguousElements").finish()
+        f.debug_struct("OperandFact").finish()
     }
 }
 
-impl Eq for ContiguousElements {}
-impl PartialEq for ContiguousElements {
+impl<T> Eq for OperandFact<T> {}
+impl<T> PartialEq for OperandFact<T> {
     fn eq(&self, other: &Self) -> bool {
         alloc::sync::Arc::ptr_eq(&self.inner, &other.inner)
     }
 }
 
-impl TypeHash for ContiguousElements {
+impl<T> TypeHash for OperandFact<T> {
     fn write_hash(hasher: &mut impl core::hash::Hasher) {
         hasher.write_i32(0);
     }
@@ -129,6 +133,7 @@ impl Default for MmaProperties {
             register_duplication_b: 1,
             register_duplication_acc: 1,
             contiguous_elements: Default::default(),
+            element_positions: Default::default(),
         }
     }
 }

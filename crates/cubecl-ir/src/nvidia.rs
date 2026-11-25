@@ -5,8 +5,58 @@
 //! separate because the two name their devices nothing alike: AMD has a gfx string the driver
 //! reports verbatim, NVIDIA a pair of integers.
 
-use alloc::format;
-use alloc::string::String;
+use crate::{
+    CoordinatePart, ElementIndex, ElementPositions,
+    types::matrix::{MatrixIdent, MatrixType},
+};
+use alloc::{format, string::String, vec};
+use pliron::context::Context;
+
+/// The bits each register of an `mma.sync` fragment holds.
+const REGISTER_BITS: usize = 32;
+
+/// Where the elements a lane holds of `matrix` lie in it, in the manual `mma.sync` matrix API.
+///
+/// NVIDIA documents that mapping, and every backend generating `mma.sync` has to agree with it
+/// exactly -- a kernel that indexes its own fragment differently from the way the instruction
+/// reads it computes a wrong answer rather than failing -- so it is written once here.
+///
+/// Derived from the PTX shape documentation:
+/// <https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma>
+pub fn element_positions(ctx: &Context, matrix: &MatrixType) -> ElementPositions {
+    let register = REGISTER_BITS / matrix.unpacked_elem_size_bits(ctx);
+    let (lane, nth) = (
+        CoordinatePart::of(ElementIndex::Lane),
+        CoordinatePart::of(ElementIndex::Nth),
+    );
+    // The lanes come in groups of four, and their registers in pairs.
+    let group = lane.in_runs_of(4);
+    let lane_of_group = lane.counted_over(4);
+    let of_register = nth.counted_over(register);
+    let of_pair = |part: CoordinatePart| part.counted_over(2);
+    match matrix.ident {
+        MatrixIdent::A => ElementPositions {
+            row: vec![group, of_pair(nth.in_runs_of(register)).spaced_by(8)],
+            col: vec![
+                lane_of_group.spaced_by(register),
+                of_register,
+                of_pair(nth.in_runs_of(2 * register)).spaced_by(4 * register),
+            ],
+        },
+        MatrixIdent::B => ElementPositions {
+            row: vec![
+                lane_of_group.spaced_by(register),
+                of_register,
+                nth.in_runs_of(register).spaced_by(4 * register),
+            ],
+            col: vec![group],
+        },
+        MatrixIdent::Accumulator => ElementPositions {
+            row: vec![group, of_pair(nth.in_runs_of(2)).spaced_by(8)],
+            col: vec![lane_of_group.spaced_by(2), of_pair(nth)],
+        },
+    }
+}
 
 /// A compute capability, as `cuDeviceGetAttribute` reports it.
 ///
@@ -66,7 +116,41 @@ impl SmArch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        ElemType, FloatKind,
+        types::matrix::{MatrixLayout, MatrixScope, MatrixShape},
+    };
     use alloc::string::ToString;
+
+    /// Every cell of an operand is held once, whatever its elements' width.
+    #[test]
+    fn the_lanes_of_a_plane_hold_an_operand_together() {
+        const LANES: usize = 32;
+        let ctx = Context::default();
+        for (elem, shape) in [
+            (FloatKind::F32, (16, 8, 8)),
+            (FloatKind::F16, (16, 8, 16)),
+            (FloatKind::E4M3, (16, 8, 32)),
+        ] {
+            let shape = MatrixShape::from(shape);
+            for ident in [MatrixIdent::A, MatrixIdent::B, MatrixIdent::Accumulator] {
+                let matrix = MatrixType {
+                    ident,
+                    shape,
+                    elem_ty: ElemType::Float(elem).to_type(&ctx),
+                    layout: MatrixLayout::RowMajor,
+                    scope: MatrixScope::Plane,
+                };
+                let cells = shape.num_elems(ident);
+                let held = element_positions(&ctx, &matrix).held_cells(
+                    (shape, ident),
+                    LANES,
+                    cells / LANES,
+                );
+                assert_eq!(held, vec![1; cells], "{elem:?} {ident}");
+            }
+        }
+    }
 
     /// Hopper and Blackwell need the `a` suffix to reach their tensor-core instructions;
     /// everything before it must not carry one, since `sm_86a` is not a target that exists.

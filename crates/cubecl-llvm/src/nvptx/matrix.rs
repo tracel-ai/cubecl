@@ -21,8 +21,8 @@ use crate::{
 };
 use cubecl_core::ir::{
     dialect::matrix::{
-        CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp,
-        MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp,
+        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp, MultiplyAccumulateOp,
+        StMatrixOp, StoreOp,
     },
     types::{
         LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, StMatrixForm,
@@ -816,27 +816,6 @@ pub(crate) fn st_matrix(
     rw.erase_operation(ctx, old_op);
     Ok(())
 }
-
-/// Matrix indices must be lowered before dialect conversion.
-macro_rules! lowered_by_the_polyfill {
-    ($fn_name:ident, $cube_op:ty) => {
-        pub(crate) fn $fn_name(
-            _op: &$cube_op,
-            _ctx: &mut Context,
-            _rw: &mut DialectConversionRewriter,
-            _operands_info: &OperandsInfo,
-        ) -> Result<()> {
-            unreachable!(
-                "`{}` is expanded by `LowerComplexOpPass` on the NVPTX target, which runs \
-                 before this conversion",
-                stringify!($cube_op)
-            )
-        }
-    };
-}
-
-lowered_by_the_polyfill!(row_index, RowIndexOp);
-lowered_by_the_polyfill!(col_index, ColIndexOp);
 
 #[cfg(test)]
 mod tests {

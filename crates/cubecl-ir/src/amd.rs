@@ -4,11 +4,11 @@
 //! kernel is built for have to be the same answer whichever one compiles it.
 
 use crate::{
-    ContiguousElements, MmaProperties,
+    ContiguousElements, CoordinatePart, ElementIndex, ElementPositions, MmaProperties, OperandFact,
     interfaces::TypedExt,
-    types::matrix::{MatrixIdent, MatrixLayout, MatrixType},
+    types::matrix::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType},
 };
-use alloc::string::String;
+use alloc::{string::String, vec, vec::Vec};
 use pliron::{context::Context, r#type::TypedHandle};
 
 /// The bytes a lane loads of an operand in one go: a swizzle atom and the widest load.
@@ -47,6 +47,9 @@ pub enum AmdMfma {
     /// gfx940, gfx941, gfx942 (MI300).
     Cdna3,
 }
+
+/// The lanes whose places along one side of a tile differ, the next ones starting over.
+const LANES_PER_ROW: usize = 16;
 
 /// The lane groups an MFMA instruction splits `k` between: a 64-wide wavefront of 16-lane rows.
 pub const MFMA_LANE_GROUPS: usize = 4;
@@ -102,6 +105,58 @@ impl AmdMatrixCore {
             register_duplication_b: duplication_ab,
             register_duplication_acc: 1,
             contiguous_elements,
+            element_positions: OperandFact::new(move |ctx, ident, matrix| {
+                Some(self.element_positions(ident, matrix.deref(ctx).shape))
+            }),
+        }
+    }
+
+    /// Where the elements a lane holds of operand `ident` of a tile of `shape` lie in it.
+    pub fn element_positions(self, ident: MatrixIdent, shape: MatrixShape) -> ElementPositions {
+        let across = CoordinatePart::of(ElementIndex::Lane).counted_over(LANES_PER_ROW);
+        let along = self.run_along(ident, shape);
+        match self.lane_names_row(ident) {
+            true => ElementPositions {
+                row: vec![across],
+                col: along,
+            },
+            false => ElementPositions {
+                row: along,
+                col: vec![across],
+            },
+        }
+    }
+
+    /// Whether a lane's place in its row of 16 lanes names the row of the matrix it holds, its run
+    /// of elements then lying along that row; otherwise it names a column. RDNA4's accumulator is
+    /// held as A is, since the instruction runs on it transposed.
+    pub fn lane_names_row(self, ident: MatrixIdent) -> bool {
+        match ident {
+            MatrixIdent::A => true,
+            MatrixIdent::B => false,
+            MatrixIdent::Accumulator => self == AmdMatrixCore::Wmma(AmdWmma::Rdna4),
+        }
+    }
+
+    /// Where a lane's run of elements lies along the side of a tile it does not name a place of.
+    fn run_along(self, ident: MatrixIdent, shape: MatrixShape) -> Vec<CoordinatePart> {
+        let nth = CoordinatePart::of(ElementIndex::Nth);
+        let group = CoordinatePart::of(ElementIndex::Lane).in_runs_of(LANES_PER_ROW);
+        match (ident, self) {
+            // Both halves of an RDNA3 wavefront hold the whole of `k`.
+            (MatrixIdent::A | MatrixIdent::B, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => vec![nth],
+            (MatrixIdent::A | MatrixIdent::B, _) => {
+                vec![nth, group.spaced_by(self.frag_ab_elems(shape.k))]
+            }
+            (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => {
+                vec![nth.spaced_by(2), group]
+            }
+            (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna4)) => {
+                vec![nth, group.spaced_by(shape.n / 2)]
+            }
+            (MatrixIdent::Accumulator, AmdMatrixCore::Mfma(_)) => {
+                vec![nth, group.spaced_by(shape.m / MFMA_LANE_GROUPS)]
+            }
         }
     }
 
@@ -293,6 +348,33 @@ impl GfxArch {
 mod tests {
     use super::*;
     use alloc::string::ToString;
+
+    /// Every cell of every operand is held, as many times as the properties say it is.
+    #[test]
+    fn the_lanes_of_a_plane_hold_an_operand_together() {
+        for core in [
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3),
+            AmdMatrixCore::Wmma(AmdWmma::Rdna4),
+            AmdMatrixCore::Mfma(AmdMfma::Cdna3),
+        ] {
+            let mma = core.mma_properties();
+            for (ident, duplication) in [
+                (MatrixIdent::A, mma.register_duplication_a),
+                (MatrixIdent::B, mma.register_duplication_b),
+                (MatrixIdent::Accumulator, mma.register_duplication_acc),
+            ] {
+                let shape = MatrixShape::from((16, 16, 32));
+                let cells = shape.num_elems(ident);
+                let lanes = mma.const_plane_size as usize;
+                let held = core.element_positions(ident, shape).held_cells(
+                    (shape, ident),
+                    lanes,
+                    cells * duplication / lanes,
+                );
+                assert_eq!(held, vec![duplication; cells], "{core:?} {ident}");
+            }
+        }
+    }
 
     /// The driver appends target features to the architecture name, and everything keyed on
     /// the architecture wants the bare one in front of them.
